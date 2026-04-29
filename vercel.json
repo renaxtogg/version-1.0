@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "name": "mesa-app",
   "public": true,
   "rewrites": [
     { "source": "/cocina", "destination": "/cocina.html" },
