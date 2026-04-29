@@ -1,6 +1,8 @@
 {
   "version": 2,
   "public": true,
+  "buildCommand": "bash build.sh",
+  "outputDirectory": "public",
   "rewrites": [
     { "source": "/cocina", "destination": "/cocina.html" },
     { "source": "/cocina/", "destination": "/cocina.html" }
@@ -14,6 +16,5 @@
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
       ]
     }
-  ],
-  "outputDirectory": "public"
+  ]
 }

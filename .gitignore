@@ -1,28 +1,24 @@
-# Dependencias
-node_modules/
-
-# Variables de entorno y credenciales
+# CREDENCIALES Y DATOS SENSIBLES — nunca subir a GitHub
+public/config.js
 .env
 .env.local
 .env.production
+.env.*.local
 
-# Supabase config con credenciales reales
-public/config.js
+# Dependencias
+node_modules/
 
-# Archivos temporales del proceso de build
+# Archivos temporales del proceso de extracción del diseño
 design.gz
 Mesa_App.html
 design_extracted/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Editor
-.vscode/settings.json
-*.code-workspace
+supabase/.temp/
 
 # Vercel
 .vercel
 
-.vercel
+# OS y editor
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+*.code-workspace

@@ -52,23 +52,20 @@ ALTER PUBLICATION supabase_realtime ADD TABLE waiter_calls;
 ALTER PUBLICATION supabase_realtime ADD TABLE order_status_history;
 ```
 
-## Paso 5: Configurar las credenciales localmente
+## Paso 5: Configurar las credenciales
 
-Copiar el archivo de ejemplo:
+### Para producción (Vercel) — método recomendado
+Las credenciales se inyectan desde las variables de entorno de Vercel en el build.
+Nunca tocan el repositorio ni quedan en el código fuente.
+
+Ver: **SENSITIVE_DATA.md** para entender el modelo de seguridad completo.
+
+### Para desarrollo local únicamente
 ```bash
 cp public/config.example.js public/config.js
+# Editar public/config.js con los valores reales
+# Este archivo está en .gitignore — nunca se sube a GitHub
 ```
-
-Editar `public/config.js`:
-```javascript
-window.SUPABASE_CONFIG = {
-  url: 'https://TU_PROJECT_ID.supabase.co',    // tu URL real
-  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',  // tu anon key real
-  restaurantId: '00000000-0000-0000-0000-000000000001'   // no cambiar
-};
-```
-
-> ⚠️ `public/config.js` está en `.gitignore` — NUNCA se sube a GitHub.
 
 ## Paso 6: Verificar la conexión
 
