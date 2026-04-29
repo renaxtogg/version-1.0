@@ -247,6 +247,7 @@ function App(){
   const [loading, setLoading] = useState(!!db);
   const [newAlert, setNewAlert] = useState(null);
   const [dbError, setDbError] = useState(null);
+  const [diag, setDiag] = useState(null);
 
   // Load initial tickets from Supabase
   useEffect(()=>{
@@ -263,7 +264,18 @@ function App(){
       return ()=>clearTimeout(t);
     }
 
-    // Load from Supabase
+    // Load from Supabase + diagnóstico
+    const runDiag = async () => {
+      const cfg = window.SUPABASE_CONFIG || {};
+      const info = { url: (cfg.url || '').slice(0, 40) || '(vacío)', restaurantId: RESTAURANT_ID };
+      // Test básico: contar TODOS los pedidos sin filtro de status
+      const { data: allOrders, error: e1 } = await db.from('orders').select('id,status').eq('restaurant_id', RESTAURANT_ID);
+      if (e1) { info.error = e1.message; info.allOrders = null; }
+      else { info.allOrders = (allOrders || []).length; info.statusBreakdown = (allOrders || []).reduce((acc, o) => { acc[o.status] = (acc[o.status]||0)+1; return acc; }, {}); }
+      setDiag(info);
+    };
+    runDiag();
+
     dbLoadTickets().then(({ tickets: data, error }) => {
       if (error) setDbError(error);
       else { setDbError(null); if (data) setTickets(data); }
@@ -427,6 +439,28 @@ function App(){
         <Column title="Preparando" tickets={preparando}  count={preparando.length}  onAdvance={advance} onDismiss={dismiss} accentAlpha={0.10}/>
         <Column title="Listos"     tickets={listos}      count={listos.length}      onAdvance={advance} onDismiss={dismiss} accentAlpha={0.06}/>
       </div>
+
+      {/* Panel diagnóstico — siempre visible cuando db está activo */}
+      {db && diag && (
+        <div style={{margin:'0 28px 24px',background:'#0D1117',border:'1px solid #222',borderRadius:10,padding:'12px 16px',fontFamily:"'JetBrains Mono',monospace",fontSize:11}}>
+          <div style={{color:'#555',marginBottom:8,fontFamily:"'Plus Jakarta Sans',sans-serif",fontSize:11,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase'}}>Diagnóstico</div>
+          <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'4px 16px',alignItems:'start'}}>
+            <span style={{color:'#555'}}>URL:</span><span style={{color:'#888'}}>{diag.url}…</span>
+            <span style={{color:'#555'}}>Restaurant ID:</span><span style={{color:'#888'}}>{diag.restaurantId}</span>
+            {diag.error
+              ? <><span style={{color:'#EF4444'}}>ERROR:</span><span style={{color:'#F87171',gridColumn:'2'}}>{diag.error}</span></>
+              : <>
+                  <span style={{color:'#555'}}>Total pedidos en DB:</span>
+                  <span style={{color: diag.allOrders > 0 ? '#22C55E' : '#F59E0B'}}>{diag.allOrders ?? '…'}{diag.allOrders === 0 ? ' — ningún pedido guardado aún' : ''}</span>
+                  {diag.statusBreakdown && Object.keys(diag.statusBreakdown).length > 0 && (
+                    <><span style={{color:'#555'}}>Por estado:</span>
+                    <span style={{color:'#888'}}>{Object.entries(diag.statusBreakdown).map(([s,n])=>`${s}: ${n}`).join(' · ')}</span></>
+                  )}
+                </>
+            }
+          </div>
+        </div>
+      )}
     </div>
   );
 }
