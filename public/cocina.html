@@ -33,11 +33,14 @@ const { useState, useEffect, useRef, useCallback } = React;
 /* ── SUPABASE CLIENT ─────────────────────── */
 const _initDB = () => {
   const cfg = window.SUPABASE_CONFIG;
-  if (!cfg || !cfg.url || cfg.url.includes('YOUR_') || !cfg.anonKey) return null;
-  try { return window.supabase.createClient(cfg.url, cfg.anonKey); } catch(e) { return null; }
+  if (!cfg || !cfg.url || !cfg.anonKey) return null;
+  const url = cfg.url.replace(/^﻿/, '').trim();
+  const key = cfg.anonKey.replace(/^﻿/, '').trim();
+  if (!url || url.includes('YOUR_') || !key) return null;
+  try { return window.supabase.createClient(url, key); } catch(e) { return null; }
 };
 const db = _initDB();
-const RESTAURANT_ID = (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001';
+const RESTAURANT_ID = ((window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
 
 /* ── STATUS MAPPING ──────────────────────── */
 // Supabase → Kitchen
@@ -226,18 +229,19 @@ function App(){
       setLoading(false);
     });
 
-    // Realtime: new orders
+    // Realtime: nuevos pedidos via order_status_history, que se inserta DESPUÉS de order_items.
+    // Escuchar orders INSERT directamente causa race condition: los items aún no están committed.
     const channel = db.channel('cocina-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
-        const newOrder = payload.new;
-        if (newOrder.restaurant_id !== RESTAURANT_ID) return;
-        if (!['paid','kitchen_received'].includes(newOrder.status)) return;
-        // Fetch full order with items
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_status_history' }, async (payload) => {
+        const hist = payload.new;
+        if (hist.status !== 'paid') return;
         try {
           const { data } = await db.from('orders')
             .select('id,order_number,order_type,status,created_at,tables(number),order_items(id,item_name,quantity,observations,order_item_extras(extra_name))')
-            .eq('id', newOrder.id).single();
-          if (data) {
+            .eq('id', hist.order_id)
+            .eq('restaurant_id', RESTAURANT_ID)
+            .maybeSingle();
+          if (data && ['paid','kitchen_received','cooking','ready'].includes(data.status)) {
             const ticket = orderToTicket(data);
             setTickets(prev => [ticket, ...prev.filter(t => t.id !== ticket.id)]);
             setNewAlert(ticket.id);
@@ -256,10 +260,10 @@ function App(){
       })
       .subscribe();
 
-    // Auto-refresh every 30s as fallback
+    // Auto-refresh cada 10s como fallback en caso de que Realtime falle
     const refreshInterval = setInterval(() => {
       dbLoadTickets().then(data => { if (data) setTickets(data); });
-    }, 30000);
+    }, 10000);
 
     return () => {
       db.removeChannel(channel);

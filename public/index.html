@@ -36,11 +36,14 @@ const { useState, useEffect, useRef, createContext, useContext, useCallback } = 
 /* ── SUPABASE CLIENT ─────────────────────── */
 const _initDB = () => {
   const cfg = window.SUPABASE_CONFIG;
-  if (!cfg || !cfg.url || cfg.url.includes('YOUR_') || !cfg.anonKey) return null;
-  try { return window.supabase.createClient(cfg.url, cfg.anonKey); } catch(e) { return null; }
+  if (!cfg || !cfg.url || !cfg.anonKey) return null;
+  const url = cfg.url.replace(/^﻿/, '').trim();
+  const key = cfg.anonKey.replace(/^﻿/, '').trim();
+  if (!url || url.includes('YOUR_') || !key) return null;
+  try { return window.supabase.createClient(url, key); } catch(e) { return null; }
 };
 const db = _initDB();
-const RESTAURANT_ID = (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001';
+const RESTAURANT_ID = ((window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
 const TABLE_NUM = 4; // En producción viene del QR token en la URL
 
 /* ── SUPABASE HELPERS ────────────────────── */
@@ -671,8 +674,8 @@ function TrackingScreen({ onRate, orderNumber }) {
         if (ord) setActive(STATUS_MAP[ord.status] || 1);
       });
       sub = db.channel('track-' + orderNumber)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, p => {
-          if (p.new.order_number === orderNumber) setActive(STATUS_MAP[p.new.status] || active);
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `order_number=eq.${orderNumber}` }, p => {
+          setActive(STATUS_MAP[p.new.status] || 1);
         }).subscribe();
     } else {
       const t = setInterval(() => setActive(a => a < STEPS.length - 1 ? a + 1 : a), 2800);
