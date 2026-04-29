@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "name": "mesa-app",
+  "public": true,
+  "rewrites": [
+    { "source": "/cocina", "destination": "/cocina.html" },
+    { "source": "/cocina/", "destination": "/cocina.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    }
+  ],
+  "outputDirectory": "public"
+}

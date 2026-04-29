@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cocina — La Huaca</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Supabase JS -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- Configuración del proyecto (SUPABASE_URL + ANON_KEY) -->
+<script src="config.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{background:#0A0A0A;font-family:'Plus Jakarta Sans',sans-serif;min-height:100vh;color:#fff}
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#333;border-radius:4px}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  @keyframes ring{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+  @keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ── SUPABASE CLIENT ─────────────────────── */
+const _initDB = () => {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg || !cfg.url || cfg.url.includes('YOUR_') || !cfg.anonKey) return null;
+  try { return window.supabase.createClient(cfg.url, cfg.anonKey); } catch(e) { return null; }
+};
+const db = _initDB();
+const RESTAURANT_ID = (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001';
+
+/* ── STATUS MAPPING ──────────────────────── */
+// Supabase → Kitchen
+const toKitchenStatus = s => s === 'cooking' ? 'preparando' : s === 'ready' ? 'listo' : 'nuevo';
+// Kitchen → Supabase (on advance)
+const toSupabaseStatus = s => s === 'preparando' ? 'cooking' : s === 'listo' ? 'ready' : 'paid';
+// Kitchen next status
+const nextKitchenStatus = s => s === 'nuevo' ? 'preparando' : 'listo';
+// Supabase next status for advance
+const nextSupabaseStatus = s => s === 'nuevo' ? 'cooking' : 'ready';
+
+/* ── SUPABASE HELPERS ────────────────────── */
+function orderToTicket(order) {
+  const created = new Date(order.created_at);
+  const elapsed = Math.floor((Date.now() - created.getTime()) / 60000);
+  return {
+    id: order.order_number,
+    _supabaseId: order.id,
+    mesa: order.tables ? order.tables.number : '?',
+    tipo: order.order_type === 'llevar' ? 'llevar' : 'local',
+    hora: created.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
+    elapsed,
+    status: toKitchenStatus(order.status),
+    items: (order.order_items || []).map((oi, i) => ({
+      id: i + 1,
+      nombre: oi.item_name,
+      cant: oi.quantity,
+      extras: (oi.order_item_extras || []).map(e => e.extra_name),
+      obs: oi.observations || ''
+    }))
+  };
+}
+
+async function dbLoadTickets() {
+  if (!db) return null;
+  try {
+    const { data, error } = await db.from('orders')
+      .select('id,order_number,order_type,status,created_at,tables(number),order_items(id,item_name,quantity,observations,order_item_extras(extra_name))')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .in('status', ['paid','kitchen_received','cooking','ready'])
+      .order('created_at', { ascending: true });
+    if (error || !data) return null;
+    return data.map(orderToTicket);
+  } catch(e) { console.warn('Supabase tickets load error:', e); return null; }
+}
+
+async function dbAdvanceTicket(supabaseId, currentKitchenStatus) {
+  if (!db || !supabaseId) return;
+  const newSupabaseStatus = nextSupabaseStatus(currentKitchenStatus);
+  try {
+    await db.from('orders').update({ status: newSupabaseStatus }).eq('id', supabaseId);
+    await db.from('order_status_history').insert({ order_id: supabaseId, status: newSupabaseStatus, changed_by: 'kitchen' });
+  } catch(e) { console.warn('Advance ticket error:', e); }
+}
+
+async function dbDismissTicket(supabaseId) {
+  if (!db || !supabaseId) return;
+  try {
+    await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', supabaseId);
+    await db.from('order_status_history').insert({ order_id: supabaseId, status: 'delivered', changed_by: 'kitchen' });
+  } catch(e) { console.warn('Dismiss ticket error:', e); }
+}
+
+/* ── PALETTE ─── */
+const C = {
+  bg:'#0A0A0A', surface:'#111', card:'#161616',
+  border:'rgba(255,255,255,0.07)', borderStrong:'rgba(255,255,255,0.14)',
+  white:'#FFF', ink:'#E8E8E8', mid:'#888', dim:'#444',
+  nuevo:'#FFFFFF', preparando:'#D4D4D4', listo:'#666',
+};
+
+/* ── DEMO TICKETS (fallback sin Supabase) ─── */
+const DEMO_TICKETS = [
+  { id:'T-2841', _supabaseId:null, mesa:2, tipo:'local', hora:'19:04', elapsed:18, status:'preparando',
+    items:[{id:1,nombre:'Lomito completo',cant:2,extras:['Extra carne','Huevo frito'],obs:'Sin mayo en una'},{id:2,nombre:'Provoleta parrilla',cant:1,extras:[],obs:''},{id:3,nombre:'Sopa paraguaya',cant:2,extras:[],obs:'Bien caliente'}]},
+  { id:'T-2842', _supabaseId:null, mesa:7, tipo:'local', hora:'19:08', elapsed:14, status:'nuevo',
+    items:[{id:4,nombre:'Clásica Comanda',cant:3,extras:['Panceta','Extra queso'],obs:'Una sin cebolla'},{id:5,nombre:'BBQ Smokey',cant:1,extras:['Jalapeños'],obs:''},{id:6,nombre:'Empanada de carne',cant:4,extras:[],obs:''}]},
+  { id:'T-2843', _supabaseId:null, mesa:1, tipo:'llevar', hora:'19:11', elapsed:11, status:'nuevo',
+    items:[{id:7,nombre:'Doble Black',cant:2,extras:['Panceta'],obs:'Bien cocida'},{id:8,nombre:'Veggie',cant:1,extras:[],obs:'Sin pepino'}]},
+  { id:'T-2840', _supabaseId:null, mesa:3, tipo:'local', hora:'18:58', elapsed:24, status:'listo',
+    items:[{id:11,nombre:'Lomito americano',cant:2,extras:[],obs:''},{id:12,nombre:'Empanada de carne',cant:2,extras:['Chimichurri'],obs:''}]},
+];
+
+/* ── HELPERS ─── */
+function elapsed(min) { if(min<60) return `${min}min`; return `${Math.floor(min/60)}h ${min%60}m`; }
+const STATUS_ORDER = ['nuevo','preparando','listo'];
+const STATUS_LABEL = {nuevo:'Nuevo',preparando:'Preparando',listo:'Listo'};
+
+/* ── TICKET CARD ─── */
+function TicketCard({ticket, onAdvance, onDismiss}){
+  const [time,setTime] = useState(ticket.elapsed);
+  const isUrgent = time >= 20 && ticket.status !== 'listo';
+  useEffect(()=>{ const t = setInterval(()=>setTime(v=>v+1),60000); return()=>clearInterval(t); },[]);
+  const nextStatus = STATUS_ORDER[STATUS_ORDER.indexOf(ticket.status)+1];
+  const borderColor = ticket.status==='nuevo' ? (isUrgent ? C.white : C.borderStrong) : ticket.status==='preparando' ? C.borderStrong : C.border;
+  const headerBg = ticket.status==='listo' ? '#1A1A1A' : ticket.status==='preparando' ? '#161616' : '#111';
+  return(
+    <div style={{background:C.card,border:`1.5px solid ${borderColor}`,borderRadius:14,overflow:'hidden',display:'flex',flexDirection:'column',animation:'fadeIn 300ms ease',transition:'border-color 300ms',position:'relative'}}>
+      {isUrgent && ticket.status!=='listo' && <div style={{height:2,background:C.white,animation:'pulse 1.2s ease infinite'}}/>}
+      <div style={{background:headerBg,padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:600,color:C.dim,letterSpacing:'0.08em'}}>{ticket.id}</div>
+          <div style={{width:1,height:14,background:C.border}}/>
+          <div style={{fontFamily:"'DM Serif Display',serif",fontSize:20,color:C.white,fontWeight:400}}>Mesa {ticket.mesa}</div>
+          <div style={{fontSize:11,fontWeight:700,background:ticket.tipo==='llevar'?'rgba(255,255,255,0.1)':'transparent',border:ticket.tipo==='llevar'?`1px solid ${C.borderStrong}`:'none',borderRadius:5,padding:ticket.tipo==='llevar'?'2px 7px':'0',color:ticket.tipo==='llevar'?C.ink:C.dim,letterSpacing:'0.06em',textTransform:'uppercase'}}>
+            {ticket.tipo==='llevar'?'Para llevar':'Local'}
+          </div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,fontWeight:600,color:isUrgent&&ticket.status!=='listo'?C.white:C.mid,animation:isUrgent&&ticket.status!=='listo'?'pulse 1.2s ease infinite':'none'}}>{elapsed(time)}</div>
+          <div style={{fontSize:11,color:C.dim}}>{ticket.hora}</div>
+          <div style={{fontSize:11,fontWeight:800,color:ticket.status==='nuevo'?C.white:ticket.status==='preparando'?C.ink:C.dim,background:ticket.status==='nuevo'?'rgba(255,255,255,0.12)':'transparent',border:`1px solid ${ticket.status==='nuevo'?C.borderStrong:C.border}`,borderRadius:5,padding:'2px 8px',letterSpacing:'0.06em',textTransform:'uppercase'}}>{STATUS_LABEL[ticket.status]}</div>
+        </div>
+      </div>
+      <div style={{padding:'8px 0',flex:1}}>
+        {ticket.items.map((item,i)=>(
+          <div key={item.id} style={{padding:'9px 16px',borderBottom:i<ticket.items.length-1?`1px solid ${C.border}`:'none'}}>
+            <div style={{display:'flex',alignItems:'baseline',gap:10}}>
+              <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:600,color:ticket.status==='listo'?C.dim:C.white,minWidth:24,flexShrink:0}}>×{item.cant}</div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:700,color:ticket.status==='listo'?C.mid:C.ink,lineHeight:1.2,textDecoration:ticket.status==='listo'?'line-through':'none'}}>{item.nombre}</div>
+                {item.extras.length>0&&(
+                  <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>
+                    {item.extras.map(e=><span key={e} style={{fontSize:11,fontWeight:600,color:C.dim,background:'rgba(255,255,255,0.04)',border:`1px solid ${C.border}`,borderRadius:4,padding:'1px 6px'}}>+ {e}</span>)}
+                  </div>
+                )}
+                {item.obs&&<div style={{marginTop:4,fontSize:12,color:'#AAA',fontStyle:'italic',display:'flex',alignItems:'center',gap:5}}><span style={{fontSize:9,color:C.dim}}>●</span>{item.obs}</div>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{padding:'10px 14px',borderTop:`1px solid ${C.border}`,display:'flex',gap:8}}>
+        {ticket.status==='listo' ? (
+          <button onClick={()=>onDismiss(ticket)} style={{flex:1,height:36,background:'transparent',border:`1px solid ${C.border}`,borderRadius:8,color:C.dim,fontFamily:"'Plus Jakarta Sans',sans-serif",fontSize:12,fontWeight:700,cursor:'pointer',letterSpacing:'0.04em'}}>ARCHIVAR</button>
+        ) : (
+          <button onClick={()=>onAdvance(ticket)} style={{flex:1,height:36,background:nextStatus==='listo'?C.white:'rgba(255,255,255,0.08)',border:`1px solid ${nextStatus==='listo'?C.white:C.borderStrong}`,borderRadius:8,color:nextStatus==='listo'?'#0A0A0A':C.white,fontFamily:"'Plus Jakarta Sans',sans-serif",fontSize:12,fontWeight:800,cursor:'pointer',letterSpacing:'0.05em',textTransform:'uppercase',transition:'all 150ms'}}>
+            {nextStatus==='preparando'?'→ Preparando':'→ Listo'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── COLUMN ─── */
+function Column({title,tickets,count,onAdvance,onDismiss,accentAlpha}){
+  return(
+    <div style={{display:'flex',flexDirection:'column',gap:0,minWidth:0}}>
+      <div style={{padding:'0 0 14px',display:'flex',alignItems:'center',gap:8}}>
+        <div style={{fontSize:11,fontWeight:800,color:C.mid,letterSpacing:'0.14em',textTransform:'uppercase'}}>{title}</div>
+        {count>0&&<div style={{width:20,height:20,borderRadius:'50%',background:`rgba(255,255,255,${accentAlpha})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,color:C.white}}>{count}</div>}
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:10,flex:1}}>
+        {tickets.length===0&&<div style={{border:`1px dashed ${C.border}`,borderRadius:14,padding:'32px 16px',textAlign:'center',color:C.dim,fontSize:13}}>Sin tickets</div>}
+        {tickets.map(t=><TicketCard key={t.id} ticket={t} onAdvance={onAdvance} onDismiss={onDismiss}/>)}
+      </div>
+    </div>
+  );
+}
+
+/* ── APP ─── */
+function App(){
+  const [tickets, setTickets] = useState(db ? [] : DEMO_TICKETS);
+  const [loading, setLoading] = useState(!!db);
+  const [newAlert, setNewAlert] = useState(null);
+
+  // Load initial tickets from Supabase
+  useEffect(()=>{
+    if (!db) {
+      // Demo: simulate incoming ticket after 8s
+      const t = setTimeout(()=>{
+        const incoming = { id:'T-2845', _supabaseId:null, mesa:9, tipo:'local', hora:new Date().toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'}), elapsed:0, status:'nuevo',
+          items:[{id:20,nombre:'Clásica Comanda',cant:2,extras:['Panceta'],obs:''},{id:21,nombre:'Lomito simple',cant:1,extras:['Huevo frito','Queso'],obs:'Bien tostado el pan'}]
+        };
+        setTickets(prev=>[incoming,...prev]);
+        setNewAlert(incoming.id);
+        setTimeout(()=>setNewAlert(null),4000);
+      },8000);
+      return ()=>clearTimeout(t);
+    }
+
+    // Load from Supabase
+    dbLoadTickets().then(data => {
+      if (data) setTickets(data);
+      setLoading(false);
+    });
+
+    // Realtime: new orders
+    const channel = db.channel('cocina-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
+        const newOrder = payload.new;
+        if (newOrder.restaurant_id !== RESTAURANT_ID) return;
+        if (!['paid','kitchen_received'].includes(newOrder.status)) return;
+        // Fetch full order with items
+        try {
+          const { data } = await db.from('orders')
+            .select('id,order_number,order_type,status,created_at,tables(number),order_items(id,item_name,quantity,observations,order_item_extras(extra_name))')
+            .eq('id', newOrder.id).single();
+          if (data) {
+            const ticket = orderToTicket(data);
+            setTickets(prev => [ticket, ...prev.filter(t => t.id !== ticket.id)]);
+            setNewAlert(ticket.id);
+            setTimeout(()=>setNewAlert(null), 4000);
+          }
+        } catch(e) {}
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
+        const upd = payload.new;
+        if (upd.restaurant_id !== RESTAURANT_ID) return;
+        if (upd.status === 'delivered' || upd.status === 'cancelled') {
+          setTickets(prev => prev.filter(t => t._supabaseId !== upd.id));
+        } else if (['paid','kitchen_received','cooking','ready'].includes(upd.status)) {
+          setTickets(prev => prev.map(t => t._supabaseId === upd.id ? { ...t, status: toKitchenStatus(upd.status) } : t));
+        }
+      })
+      .subscribe();
+
+    // Auto-refresh every 30s as fallback
+    const refreshInterval = setInterval(() => {
+      dbLoadTickets().then(data => { if (data) setTickets(data); });
+    }, 30000);
+
+    return () => {
+      db.removeChannel(channel);
+      clearInterval(refreshInterval);
+    };
+  }, []);
+
+  const advance = async (ticket) => {
+    const nextStatus = nextKitchenStatus(ticket.status);
+    // Optimistic update
+    setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, status: nextStatus } : t));
+    // Persist to Supabase
+    await dbAdvanceTicket(ticket._supabaseId, ticket.status);
+  };
+
+  const dismiss = async (ticket) => {
+    // Optimistic update
+    setTickets(prev => prev.filter(t => t.id !== ticket.id));
+    // Persist to Supabase
+    await dbDismissTicket(ticket._supabaseId);
+  };
+
+  const nuevos    = tickets.filter(t=>t.status==='nuevo');
+  const preparando= tickets.filter(t=>t.status==='preparando');
+  const listos    = tickets.filter(t=>t.status==='listo');
+  const urgentes  = tickets.filter(t=>t.elapsed>=20&&t.status!=='listo').length;
+  const total     = tickets.filter(t=>t.status!=='listo').length;
+
+  return(
+    <div style={{minHeight:'100vh',background:C.bg,display:'flex',flexDirection:'column'}}>
+      {/* Topbar */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'0 28px',height:56,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,position:'sticky',top:0,zIndex:100}}>
+        <div style={{display:'flex',alignItems:'center',gap:20}}>
+          <div style={{fontFamily:"'DM Serif Display',serif",fontSize:20,color:C.white,fontWeight:400}}>La Huaca</div>
+          <div style={{width:1,height:20,background:C.border}}/>
+          <div style={{fontSize:12,fontWeight:700,color:C.dim,letterSpacing:'0.12em',textTransform:'uppercase'}}>Cocina</div>
+          {!db && <div style={{fontSize:11,fontWeight:600,color:'#555',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.06)',borderRadius:5,padding:'2px 8px'}}>DEMO</div>}
+          {urgentes>0&&(
+            <div style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,0.08)',border:`1px solid ${C.borderStrong}`,borderRadius:20,padding:'3px 10px',animation:'ring 2s ease infinite'}}>
+              <div style={{width:6,height:6,borderRadius:'50%',background:C.white,animation:'pulse 1s ease infinite'}}/>
+              <span style={{fontSize:11,fontWeight:800,color:C.white,letterSpacing:'0.06em'}}>{urgentes} URGENTE{urgentes>1?'S':''}</span>
+            </div>
+          )}
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:16}}>
+          {loading && <div style={{width:16,height:16,border:'2px solid #333',borderTopColor:'#888',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>}
+          <div style={{fontSize:12,color:C.mid}}>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:15,fontWeight:600,color:C.white}}>{total}</span>{' '}en proceso
+          </div>
+          <Clock/>
+        </div>
+      </div>
+
+      {/* New ticket alert */}
+      {newAlert&&(
+        <div style={{margin:'12px 28px 0',background:'rgba(255,255,255,0.06)',border:`1px solid ${C.borderStrong}`,borderRadius:10,padding:'10px 16px',display:'flex',alignItems:'center',gap:10,animation:'slideIn 300ms ease'}}>
+          <div style={{width:8,height:8,borderRadius:'50%',background:C.white,animation:'pulse 0.8s ease infinite',flexShrink:0}}/>
+          <span style={{fontSize:13,fontWeight:700,color:C.white}}>Nuevo pedido recibido</span>
+          <span style={{fontSize:13,color:C.mid}}>— Mesa {tickets.find(t=>t.id===newAlert)?.mesa} · {tickets.find(t=>t.id===newAlert)?.items.length} items</span>
+        </div>
+      )}
+
+      {/* Board */}
+      <div style={{flex:1,padding:'20px 28px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:20,alignItems:'start',overflowY:'auto'}}>
+        <Column title="Nuevos"     tickets={nuevos}      count={nuevos.length}      onAdvance={advance} onDismiss={dismiss} accentAlpha={0.15}/>
+        <Column title="Preparando" tickets={preparando}  count={preparando.length}  onAdvance={advance} onDismiss={dismiss} accentAlpha={0.10}/>
+        <Column title="Listos"     tickets={listos}      count={listos.length}      onAdvance={advance} onDismiss={dismiss} accentAlpha={0.06}/>
+      </div>
+    </div>
+  );
+}
+
+function Clock(){
+  const [time,setTime] = useState(new Date());
+  useEffect(()=>{ const t=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(t); },[]);
+  return <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:15,fontWeight:500,color:C.mid,letterSpacing:'0.04em'}}>{time.toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

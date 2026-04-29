@@ -1,0 +1,26 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno y credenciales
+.env
+.env.local
+.env.production
+
+# Supabase config con credenciales reales
+public/config.js
+
+# Archivos temporales del proceso de build
+design.gz
+Mesa_App.html
+design_extracted/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+*.code-workspace
+
+# Vercel
+.vercel
