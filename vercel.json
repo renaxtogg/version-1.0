@@ -4,7 +4,8 @@
   "buildCommand": "bash build.sh",
   "outputDirectory": "public",
   "rewrites": [
-    { "source": "/cocina", "destination": "/cocina.html" }
+    { "source": "/cocina", "destination": "/cocina.html" },
+    { "source": "/diag", "destination": "/diag.html" }
   ],
   "headers": [
     {

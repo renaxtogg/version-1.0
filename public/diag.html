@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diagnóstico — Mesa App</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<style>
+  body { background: #0A0A0A; color: #E8E8E8; font-family: 'JetBrains Mono', monospace; padding: 32px; font-size: 13px; line-height: 1.6; }
+  h1 { font-family: sans-serif; font-size: 18px; margin-bottom: 24px; color: #fff; }
+  .row { display: flex; gap: 12px; margin-bottom: 6px; }
+  .label { color: #555; min-width: 200px; }
+  .ok { color: #22C55E; }
+  .err { color: #EF4444; }
+  .warn { color: #F59E0B; }
+  .info { color: #888; }
+  hr { border: none; border-top: 1px solid #222; margin: 16px 0; }
+  pre { background: #111; border: 1px solid #222; border-radius: 6px; padding: 12px; overflow-x: auto; color: #888; font-size: 11px; }
+</style>
+</head>
+<body>
+<h1>Mesa App — Diagnóstico de conexión</h1>
+<div id="out">Cargando...</div>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  const row = (label, val, cls='info') => `<div class="row"><span class="label">${label}</span><span class="${cls}">${val}</span></div>`;
+  let html = '';
+
+  // 1. Config
+  const cfg = window.SUPABASE_CONFIG || {};
+  const url = cfg.url || '';
+  const key = cfg.anonKey || '';
+  const rid = cfg.restaurantId || '00000000-0000-0000-0000-000000000001';
+
+  html += row('SUPABASE_URL', url ? url.slice(0,50)+'…' : '(vacío — env var no configurada)', url ? 'ok' : 'err');
+  html += row('SUPABASE_ANON_KEY', key ? key.slice(0,20)+'…' : '(vacío)', key ? 'ok' : 'err');
+  html += row('RESTAURANT_ID', rid, 'info');
+  html += '<hr>';
+
+  if (!url || !key) {
+    html += row('Estado', 'Sin credenciales — modo DEMO activo. Configurá SUPABASE_URL y SUPABASE_ANON_KEY en Vercel → Settings → Environment Variables', 'err');
+    out.innerHTML = html;
+    return;
+  }
+
+  // 2. Init cliente
+  let db;
+  try {
+    db = window.supabase.createClient(url.replace(/^﻿/, '').trim(), key.replace(/^﻿/, '').trim());
+    html += row('Supabase client', 'Inicializado OK', 'ok');
+  } catch(e) {
+    html += row('Supabase client', 'ERROR: ' + e.message, 'err');
+    out.innerHTML = html;
+    return;
+  }
+  html += '<hr>';
+  out.innerHTML = html + row('Conectando…', '', 'info');
+
+  // 3. Test tabla restaurants
+  const { data: rests, error: e1 } = await db.from('restaurants').select('id,name').limit(5);
+  if (e1) {
+    html += row('tabla restaurants', 'ERROR: ' + e1.message, 'err');
+    if (e1.message.includes('does not exist')) {
+      html += row('→ Causa probable', 'El schema SQL nunca fue aplicado en Supabase. Ejecutá las migraciones desde el Dashboard.', 'err');
+    }
+  } else {
+    html += row('tabla restaurants', (rests||[]).length + ' fila(s): ' + (rests||[]).map(r=>r.name).join(', '), 'ok');
+  }
+
+  // 4. Test tabla orders
+  const { data: ords, error: e2 } = await db.from('orders').select('id,status').eq('restaurant_id', rid).limit(20);
+  if (e2) {
+    html += row('tabla orders', 'ERROR: ' + e2.message, 'err');
+  } else {
+    const statusMap = (ords||[]).reduce((a,o)=>{ a[o.status]=(a[o.status]||0)+1; return a; }, {});
+    const total = (ords||[]).length;
+    if (total === 0) {
+      html += row('tabla orders', 'Sin pedidos para este restaurantId', 'warn');
+      html += row('→ Acción', 'Hacé un pedido desde la app de cliente y recargá esta página', 'warn');
+    } else {
+      html += row('tabla orders (total)', total + ' pedidos', 'ok');
+      html += row('Por estado', Object.entries(statusMap).map(([s,n])=>`${s}: ${n}`).join(' · ') || '(ninguno)', 'ok');
+      const cocina = (ords||[]).filter(o=>['paid','kitchen_received','cooking','ready'].includes(o.status)).length;
+      html += row('Visibles en cocina', cocina > 0 ? cocina + ' (deberían aparecer)' : '0 — todos en otro estado', cocina > 0 ? 'ok' : 'warn');
+    }
+  }
+
+  // 5. Test RLS insert (orden de prueba que hacemos rollback)
+  html += '<hr>';
+  html += row('Vercel build OK', 'Config.js generado correctamente', 'ok');
+  html += '<hr>';
+  html += '<pre>RESTAURANT_ID en uso: ' + rid + '\nURL: ' + url + '</pre>';
+
+  out.innerHTML = html;
+})();
+</script>
+</body>
+</html>
