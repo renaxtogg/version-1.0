@@ -77,55 +77,53 @@ function orderToTicket(order) {
 // Evita nested selects de PostgREST que fallan con permisos de rol anon.
 // Hace 4 queries planas y combina los datos en el cliente.
 async function dbLoadTickets() {
-  if (!db) return null;
-  try {
-    const { data: orders, error } = await db.from('orders')
-      .select('id,order_number,order_type,status,created_at,table_id')
-      .eq('restaurant_id', RESTAURANT_ID)
-      .in('status', ['paid','kitchen_received','cooking','ready'])
-      .order('created_at', { ascending: true });
-    if (error || !orders) return null;
-    if (orders.length === 0) return [];
+  if (!db) return { tickets: null, error: null };
+  const { data: orders, error } = await db.from('orders')
+    .select('id,order_number,order_type,status,created_at,table_id')
+    .eq('restaurant_id', RESTAURANT_ID)
+    .in('status', ['paid','kitchen_received','cooking','ready'])
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.error('dbLoadTickets orders error:', error);
+    return { tickets: null, error: error.message || 'Error al cargar pedidos' };
+  }
+  if (!orders || orders.length === 0) return { tickets: [], error: null };
 
-    // Números de mesa
-    const tableIds = [...new Set(orders.map(o => o.table_id).filter(Boolean))];
-    const tableMap = {};
-    if (tableIds.length > 0) {
-      const { data: tbls } = await db.from('tables').select('id,number').in('id', tableIds);
-      (tbls || []).forEach(t => { tableMap[t.id] = t.number; });
-    }
+  const tableIds = [...new Set(orders.map(o => o.table_id).filter(Boolean))];
+  const tableMap = {};
+  if (tableIds.length > 0) {
+    const { data: tbls } = await db.from('tables').select('id,number').in('id', tableIds);
+    (tbls || []).forEach(t => { tableMap[t.id] = t.number; });
+  }
 
-    // Ítems de los pedidos
-    const orderIds = orders.map(o => o.id);
-    const { data: items } = await db.from('order_items')
-      .select('id,order_id,item_name,quantity,observations')
-      .in('order_id', orderIds);
+  const orderIds = orders.map(o => o.id);
+  const { data: items } = await db.from('order_items')
+    .select('id,order_id,item_name,quantity,observations')
+    .in('order_id', orderIds);
 
-    // Extras de los ítems
-    const extrasMap = {};
-    if ((items || []).length > 0) {
-      const { data: extras } = await db.from('order_item_extras')
-        .select('order_item_id,extra_name')
-        .in('order_item_id', items.map(i => i.id));
-      (extras || []).forEach(e => {
-        if (!extrasMap[e.order_item_id]) extrasMap[e.order_item_id] = [];
-        extrasMap[e.order_item_id].push({ extra_name: e.extra_name });
-      });
-    }
-
-    // Agrupar ítems por pedido
-    const itemsByOrder = {};
-    (items || []).forEach(item => {
-      if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
-      itemsByOrder[item.order_id].push({ ...item, order_item_extras: extrasMap[item.id] || [] });
+  const extrasMap = {};
+  if ((items || []).length > 0) {
+    const { data: extras } = await db.from('order_item_extras')
+      .select('order_item_id,extra_name')
+      .in('order_item_id', items.map(i => i.id));
+    (extras || []).forEach(e => {
+      if (!extrasMap[e.order_item_id]) extrasMap[e.order_item_id] = [];
+      extrasMap[e.order_item_id].push({ extra_name: e.extra_name });
     });
+  }
 
-    return orders.map(o => ({
-      ...o,
-      tables: o.table_id ? { number: tableMap[o.table_id] || null } : null,
-      order_items: itemsByOrder[o.id] || []
-    })).map(orderToTicket);
-  } catch(e) { console.warn('Supabase tickets load error:', e); return null; }
+  const itemsByOrder = {};
+  (items || []).forEach(item => {
+    if (!itemsByOrder[item.order_id]) itemsByOrder[item.order_id] = [];
+    itemsByOrder[item.order_id].push({ ...item, order_item_extras: extrasMap[item.id] || [] });
+  });
+
+  const tickets = orders.map(o => ({
+    ...o,
+    tables: o.table_id ? { number: tableMap[o.table_id] || null } : null,
+    order_items: itemsByOrder[o.id] || []
+  })).map(orderToTicket);
+  return { tickets, error: null };
 }
 
 async function dbAdvanceTicket(supabaseId, currentKitchenStatus) {
@@ -248,6 +246,7 @@ function App(){
   const [tickets, setTickets] = useState(db ? [] : DEMO_TICKETS);
   const [loading, setLoading] = useState(!!db);
   const [newAlert, setNewAlert] = useState(null);
+  const [dbError, setDbError] = useState(null);
 
   // Load initial tickets from Supabase
   useEffect(()=>{
@@ -265,51 +264,68 @@ function App(){
     }
 
     // Load from Supabase
-    dbLoadTickets().then(data => {
-      if (data) setTickets(data);
+    dbLoadTickets().then(({ tickets: data, error }) => {
+      if (error) setDbError(error);
+      else { setDbError(null); if (data) setTickets(data); }
       setLoading(false);
     });
 
-    // Realtime: nuevos pedidos via order_status_history, que se inserta DESPUÉS de order_items.
-    // Escuchar orders INSERT directamente causa race condition: los items aún no están committed.
+    // Carga un pedido específico por id y lo agrega/actualiza en el board.
+    const fetchAndAddTicket = async (orderId) => {
+      try {
+        const { data: ord } = await db.from('orders')
+          .select('id,order_number,order_type,status,created_at,table_id')
+          .eq('id', orderId).eq('restaurant_id', RESTAURANT_ID).maybeSingle();
+        if (!ord || !['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
+        const tableMap = {};
+        if (ord.table_id) {
+          const { data: tbl } = await db.from('tables').select('id,number').eq('id', ord.table_id).maybeSingle();
+          if (tbl) tableMap[tbl.id] = tbl.number;
+        }
+        const { data: items } = await db.from('order_items')
+          .select('id,order_id,item_name,quantity,observations').eq('order_id', ord.id);
+        const extrasMap = {};
+        if ((items || []).length > 0) {
+          const { data: extras } = await db.from('order_item_extras')
+            .select('order_item_id,extra_name').in('order_item_id', items.map(i => i.id));
+          (extras || []).forEach(e => {
+            if (!extrasMap[e.order_item_id]) extrasMap[e.order_item_id] = [];
+            extrasMap[e.order_item_id].push({ extra_name: e.extra_name });
+          });
+        }
+        const fullOrder = {
+          ...ord,
+          tables: ord.table_id ? { number: tableMap[ord.table_id] || null } : null,
+          order_items: (items || []).map(i => ({ ...i, order_item_extras: extrasMap[i.id] || [] }))
+        };
+        const ticket = orderToTicket(fullOrder);
+        setTickets(prev => {
+          if (prev.some(t => t.id === ticket.id)) return prev;
+          return [ticket, ...prev];
+        });
+        setNewAlert(ticket.id);
+        setTimeout(() => setNewAlert(null), 4000);
+      } catch(e) { console.error('fetchAndAddTicket error:', e); }
+    };
+
+    // Realtime: escuchar orders INSERT (tabla más confiable en la publicación).
+    // También escuchar order_status_history INSERT como canal secundario.
+    // Delay de 800ms en orders INSERT para que los order_items ya estén committed.
+    const seenOrders = new Set();
     const channel = db.channel('cocina-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_status_history' }, async (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, (payload) => {
+        const ord = payload.new;
+        if (!['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
+        if (seenOrders.has(ord.id)) return;
+        seenOrders.add(ord.id);
+        setTimeout(() => fetchAndAddTicket(ord.id), 800);
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_status_history' }, (payload) => {
         const hist = payload.new;
         if (hist.status !== 'paid') return;
-        try {
-          // Usar dbLoadTickets filtrado por el order_id recibido (evita nested selects)
-          const { data: ord } = await db.from('orders')
-            .select('id,order_number,order_type,status,created_at,table_id')
-            .eq('id', hist.order_id).eq('restaurant_id', RESTAURANT_ID).maybeSingle();
-          if (!ord || !['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
-          // Mesa
-          const tableMap = {};
-          if (ord.table_id) {
-            const { data: tbl } = await db.from('tables').select('id,number').eq('id', ord.table_id).maybeSingle();
-            if (tbl) tableMap[tbl.id] = tbl.number;
-          }
-          // Ítems
-          const { data: items } = await db.from('order_items')
-            .select('id,order_id,item_name,quantity,observations').eq('order_id', ord.id);
-          const extrasMap = {};
-          if ((items || []).length > 0) {
-            const { data: extras } = await db.from('order_item_extras')
-              .select('order_item_id,extra_name').in('order_item_id', items.map(i => i.id));
-            (extras || []).forEach(e => {
-              if (!extrasMap[e.order_item_id]) extrasMap[e.order_item_id] = [];
-              extrasMap[e.order_item_id].push({ extra_name: e.extra_name });
-            });
-          }
-          const fullOrder = {
-            ...ord,
-            tables: ord.table_id ? { number: tableMap[ord.table_id] || null } : null,
-            order_items: (items || []).map(i => ({ ...i, order_item_extras: extrasMap[i.id] || [] }))
-          };
-          const ticket = orderToTicket(fullOrder);
-          setTickets(prev => [ticket, ...prev.filter(t => t.id !== ticket.id)]);
-          setNewAlert(ticket.id);
-          setTimeout(()=>setNewAlert(null), 4000);
-        } catch(e) {}
+        if (seenOrders.has(hist.order_id)) return;
+        seenOrders.add(hist.order_id);
+        fetchAndAddTicket(hist.order_id);
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
         const upd = payload.new;
@@ -322,10 +338,13 @@ function App(){
       })
       .subscribe();
 
-    // Auto-refresh cada 10s como fallback en caso de que Realtime falle
+    // Auto-refresh cada 3s como fallback garantizado si Realtime no llega.
     const refreshInterval = setInterval(() => {
-      dbLoadTickets().then(data => { if (data) setTickets(data); });
-    }, 10000);
+      dbLoadTickets().then(({ tickets: data, error }) => {
+        if (error) setDbError(error);
+        else { setDbError(null); if (data) setTickets(data); }
+      });
+    }, 3000);
 
     return () => {
       db.removeChannel(channel);
@@ -363,6 +382,10 @@ function App(){
           <div style={{width:1,height:20,background:C.border}}/>
           <div style={{fontSize:12,fontWeight:700,color:C.dim,letterSpacing:'0.12em',textTransform:'uppercase'}}>Cocina</div>
           {!db && <div style={{fontSize:11,fontWeight:600,color:'#555',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.06)',borderRadius:5,padding:'2px 8px'}}>DEMO</div>}
+          {db && <div style={{display:'flex',alignItems:'center',gap:5}}>
+            <div style={{width:6,height:6,borderRadius:'50%',background:dbError?'#EF4444':'#22C55E',flexShrink:0}}/>
+            <span style={{fontSize:11,color:dbError?'#EF4444':'#555',fontWeight:600}}>{dbError?'Sin conexión DB':'DB OK'}</span>
+          </div>}
           {urgentes>0&&(
             <div style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,0.08)',border:`1px solid ${C.borderStrong}`,borderRadius:20,padding:'3px 10px',animation:'ring 2s ease infinite'}}>
               <div style={{width:6,height:6,borderRadius:'50%',background:C.white,animation:'pulse 1s ease infinite'}}/>
@@ -378,6 +401,16 @@ function App(){
           <Clock/>
         </div>
       </div>
+
+      {/* Error banner */}
+      {dbError&&(
+        <div style={{margin:'12px 28px 0',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:10,padding:'10px 16px',display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:8,height:8,borderRadius:'50%',background:'#EF4444',flexShrink:0}}/>
+          <span style={{fontSize:13,fontWeight:700,color:'#EF4444'}}>Error de conexión:</span>
+          <span style={{fontSize:12,color:'#F87171',flex:1}}>{dbError}</span>
+          <span style={{fontSize:11,color:'#888'}}>Verificá las variables de entorno en Vercel (SUPABASE_URL, SUPABASE_ANON_KEY)</span>
+        </div>
+      )}
 
       {/* New ticket alert */}
       {newAlert&&(

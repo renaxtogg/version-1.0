@@ -76,28 +76,31 @@ async function dbValidateCoupon(code) {
 async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmount, couponCode, total, payMethod, custName, custRuc, custEmail, language }) {
   const orderNum = 'T-' + String(Math.floor(Date.now() % 90000) + 10000);
   if (!db) return { id: null, order_number: orderNum };
-  try {
-    const { data: order, error } = await db.from('orders').insert({
-      restaurant_id: RESTAURANT_ID, table_id: tableId || null, order_number: orderNum,
-      order_type: orderType, status: 'paid', subtotal, discount_amount: discountAmount || 0,
-      coupon_code: couponCode || null, total, payment_method: payMethod,
-      customer_name: custName || null, customer_ruc: custRuc || null,
-      customer_email: custEmail || null, language
+  const { data: order, error: orderErr } = await db.from('orders').insert({
+    restaurant_id: RESTAURANT_ID, table_id: tableId || null, order_number: orderNum,
+    order_type: orderType, status: 'paid', subtotal, discount_amount: discountAmount || 0,
+    coupon_code: couponCode || null, total, payment_method: payMethod,
+    customer_name: custName || null, customer_ruc: custRuc || null,
+    customer_email: custEmail || null, language
+  }).select().single();
+  if (orderErr || !order) {
+    console.error('Order insert error:', orderErr);
+    throw new Error(orderErr?.message || 'No se pudo crear el pedido');
+  }
+  for (const ci of items) {
+    const { data: oi, error: itemErr } = await db.from('order_items').insert({
+      order_id: order.id, item_id: ci.item.id || null, item_name: ci.item.name,
+      quantity: ci.qty, unit_price: ci.item.price, total_price: ci.total,
+      observations: ci.notes || null
     }).select().single();
-    if (error || !order) return { id: null, order_number: orderNum };
-    for (const ci of items) {
-      const { data: oi } = await db.from('order_items').insert({
-        order_id: order.id, item_id: ci.item.id || null, item_name: ci.item.name,
-        quantity: ci.qty, unit_price: ci.item.price, total_price: ci.total,
-        observations: ci.notes || null
-      }).select().single();
-      if (oi && ci.extras && ci.extras.length > 0) {
-        await db.from('order_item_extras').insert(ci.extras.map(e => ({ order_item_id: oi.id, extra_name: e.n, extra_price: e.p })));
-      }
+    if (itemErr) console.error('order_items insert error:', itemErr);
+    if (oi && ci.extras && ci.extras.length > 0) {
+      const { error: extErr } = await db.from('order_item_extras').insert(ci.extras.map(e => ({ order_item_id: oi.id, extra_name: e.n, extra_price: e.p })));
+      if (extErr) console.error('order_item_extras insert error:', extErr);
     }
-    await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
-    return order;
-  } catch(e) { console.warn('Order submit error:', e); return { id: null, order_number: orderNum }; }
+  }
+  await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
+  return order;
 }
 
 async function dbCallWaiter(tableId, orderId) {
@@ -593,16 +596,24 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   const [ordNum, setOrdNum] = useState('');
   const METHODS = [{ id: 'efectivo', label: 'Efectivo', sub: 'Se cobra en mesa' }, { id: 'tarjeta', label: 'Tarjeta', sub: 'Visa · Mastercard · Amex' }, { id: 'qr', label: 'QR / Billetera digital', sub: 'Tigo Money · Personal Pay' }, { id: 'pos', label: 'POS en mesa', sub: 'Terminal llega a tu mesa' }];
 
+  const [submitError, setSubmitError] = useState(null);
+
   const handleConfirm = async () => {
     setStep('proc');
-    const order = await dbSubmitOrder({
-      tableId: null, orderType: orderMode === 'take' ? 'llevar' : 'local',
-      items: cartItems, subtotal: subtotal || total, discountAmount: discountAmount || 0,
-      couponCode: couponCode || null, total, payMethod: method,
-      custName: name || null, custRuc: ruc || null, custEmail: email || null, language: lang
-    });
-    setOrdNum(order.order_number);
-    setTimeout(() => { setStep('ok'); }, 1200);
+    setSubmitError(null);
+    try {
+      const order = await dbSubmitOrder({
+        tableId: null, orderType: orderMode === 'take' ? 'llevar' : 'local',
+        items: cartItems, subtotal: subtotal || total, discountAmount: discountAmount || 0,
+        couponCode: couponCode || null, total, payMethod: method,
+        custName: name || null, custRuc: ruc || null, custEmail: email || null, language: lang
+      });
+      setOrdNum(order.order_number);
+      setTimeout(() => { setStep('ok'); }, 1200);
+    } catch(e) {
+      setSubmitError(e.message || 'Error al enviar el pedido');
+      setStep('form');
+    }
   };
 
   if (step === 'proc') return <div style={{ minHeight: '844px', background: T.white, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 }}>
@@ -652,6 +663,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
         <div style={{ height: 100 }} />
       </div>
       <div style={{ padding: '12px 20px 32px', background: T.offwhite }}>
+        {submitError && <div style={{ background: '#FEE2E2', border: '1px solid #FECACA', borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>Error: {submitError}</div>}
         <button onClick={handleConfirm} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
           {method === 'efectivo' ? 'Confirmar pedido' : `Pagar ${fmt(total)}`}
         </button>
