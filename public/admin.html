@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — La Huaca</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{background:#0A0A0A;font-family:'Plus Jakarta Sans',sans-serif;min-height:100vh;color:#fff}
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#222;border-radius:4px}
+  input,textarea,select{font-family:inherit;background:#111;border:1px solid #222;color:#fff;outline:none;border-radius:0}
+  input:focus,textarea:focus,select:focus{border-color:#444}
+  button{font-family:inherit;cursor:pointer;border-radius:0}
+  a{color:inherit}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .page{animation:fadeIn .15s ease}
+  .spin{animation:spin .8s linear infinite;display:inline-block;width:20px;height:20px;border:2px solid #222;border-top-color:#fff;border-radius:50%}
+  tr:hover td{background:rgba(255,255,255,.02)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ── DB ── */
+const _initDB = () => {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url || !cfg?.anonKey) return null;
+  const url = cfg.url.replace(/^﻿/, '').trim();
+  const key = cfg.anonKey.replace(/^﻿/, '').trim();
+  if (!url || url.includes('YOUR_') || !key) return null;
+  try { return window.supabase.createClient(url, key); } catch(e) { return null; }
+};
+const db = _initDB();
+const RESTAURANT_ID = ((window.SUPABASE_CONFIG?.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
+
+/* ── UTILS ── */
+const fmt = n => '₲ ' + (n || 0).toLocaleString('es-PY');
+const fmtDate = d => new Date(d).toLocaleDateString('es-PY', {day:'2-digit',month:'2-digit',year:'2-digit'});
+const fmtTime = d => new Date(d).toLocaleTimeString('es-PY', {hour:'2-digit',minute:'2-digit'});
+const fmtDT = d => `${fmtDate(d)} ${fmtTime(d)}`;
+const DAY = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+
+const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',kitchen_received:'En cocina',cooking:'Preparando',ready:'Listo',delivered:'Entregado',cancelled:'Cancelado'};
+const SC = {draft:'#444',confirmed:'#666',paid:'#f59e0b',kitchen_received:'#3b82f6',cooking:'#f97316',ready:'#22c55e',delivered:'#888',cancelled:'#ef4444'};
+const PL = {efectivo:'Efectivo',tarjeta:'Tarjeta',qr:'QR',pos:'POS'};
+
+/* ── PALETTE ── */
+const C = {
+  bg:'#0A0A0A',sidebar:'#0D0D0D',surface:'#111',card:'#161616',
+  border:'#1a1a1a',bStrong:'#2a2a2a',
+  white:'#fff',ink:'#e8e8e8',mid:'#888',dim:'#444',
+  green:'#22c55e',orange:'#f97316',red:'#ef4444',yellow:'#f59e0b',blue:'#3b82f6'
+};
+
+/* ── SHARED COMPONENTS ── */
+function Badge({status}) {
+  const col = SC[status] || '#666';
+  return (
+    <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,background:col+'22',color:col,border:`1px solid ${col}44`}}>
+      <span style={{width:5,height:5,borderRadius:'50%',background:col}}/>
+      {SL[status]||status}
+    </span>
+  );
+}
+
+function KpiCard({label, value, sub, accent}) {
+  return (
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:'20px 24px',flex:1,minWidth:160}}>
+      <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:8}}>{label}</div>
+      <div style={{fontSize:26,fontWeight:800,fontFamily:'JetBrains Mono',color:accent||C.white,lineHeight:1}}>{value}</div>
+      {sub && <div style={{fontSize:12,color:'#444',marginTop:6}}>{sub}</div>}
+    </div>
+  );
+}
+
+function Stars({n}) {
+  return <span style={{color:C.yellow,letterSpacing:2,fontSize:14}}>{'★'.repeat(n)}{'☆'.repeat(5-n)}</span>;
+}
+
+function FlashMsg({msg}) {
+  if (!msg) return null;
+  return (
+    <div style={{padding:'8px 14px',fontSize:12,fontWeight:600,background:msg.ok?'#0a1a0a':'#1a0a0a',border:`1px solid ${msg.ok?'#1a3a1a':'#3a1a1a'}`,color:msg.ok?C.green:C.red}}>
+      {msg.text}
+    </div>
+  );
+}
+
+function Th({children}) {
+  return <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,color:'#555',fontWeight:600,whiteSpace:'nowrap'}}>{children}</th>;
+}
+function Td({children, mono, dim, style:sx}) {
+  return (
+    <td style={{padding:'11px 16px',fontSize:13,fontFamily:mono?'JetBrains Mono':'inherit',color:dim?'#555':'inherit',...sx}}>
+      {children}
+    </td>
+  );
+}
+function EmptyRow({cols, label}) {
+  return <tr><td colSpan={cols} style={{padding:40,textAlign:'center',color:'#333',fontSize:13}}>{label||'Sin datos'}</td></tr>;
+}
+
+/* ── SIDEBAR ── */
+const NAV = [
+  {id:'dashboard',label:'Dashboard',    icon:'◆'},
+  {id:'pedidos',  label:'Pedidos',      icon:'≡'},
+  {id:'menu',     label:'Menú',         icon:'⊞'},
+  {id:'mesas',    label:'Mesas',        icon:'⊡'},
+  {id:'cupones',  label:'Cupones',      icon:'%'},
+  {id:'ratings',  label:'Calificaciones',icon:'★'},
+  {id:'stats',    label:'Estadísticas', icon:'↗'},
+  {id:'config',   label:'Config',       icon:'⚙'},
+];
+
+function Sidebar({page, setPage, restaurant, dbOk}) {
+  return (
+    <aside style={{width:210,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
+      <div style={{padding:'20px 18px 16px',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontFamily:'DM Serif Display',fontSize:17,color:C.white}}>{restaurant?.name||'La Huaca'}</div>
+        <div style={{fontSize:11,color:'#444',marginTop:3}}>Panel Admin</div>
+        {!dbOk && <div style={{marginTop:8,background:'#1a0808',border:'1px solid #3a1010',padding:'5px 8px',fontSize:11,color:C.red}}>Sin conexión DB</div>}
+      </div>
+      <nav style={{padding:'6px 0',flex:1}}>
+        {NAV.map(n => {
+          const active = page === n.id;
+          return (
+            <button key={n.id} onClick={() => setPage(n.id)} style={{display:'flex',alignItems:'center',gap:11,width:'100%',padding:'10px 18px',background:active?'#fff':'none',border:'none',color:active?'#000':C.mid,textAlign:'left',fontSize:13,fontWeight:active?700:400,cursor:'pointer'}}>
+              <span style={{fontSize:13,width:15,textAlign:'center',flexShrink:0,fontFamily:'monospace'}}>{n.icon}</span>
+              {n.label}
+            </button>
+          );
+        })}
+      </nav>
+      <div style={{padding:'12px 18px',borderTop:`1px solid ${C.border}`}}>
+        <a href="cocina.html" style={{display:'block',color:'#444',fontSize:12,textDecoration:'none',padding:'5px 0'}}>→ Cocina (KDS)</a>
+        <a href="index.html" style={{display:'block',color:'#444',fontSize:12,textDecoration:'none',padding:'5px 0'}}>→ App Cliente</a>
+      </div>
+    </aside>
+  );
+}
+
+/* ── DASHBOARD ── */
+function DashboardPage({orders, ratings}) {
+  const today = new Date().toDateString();
+  const todayOrders = orders.filter(o => new Date(o.created_at).toDateString()===today && !['draft','cancelled'].includes(o.status));
+  const todayRevenue = todayOrders.reduce((s,o) => s+(o.total||0), 0);
+  const activeOrders = orders.filter(o => ['paid','kitchen_received','cooking','ready'].includes(o.status));
+  const avg = ratings.length ? (ratings.reduce((s,r)=>s+r.stars,0)/ratings.length).toFixed(1) : '—';
+  const recent = orders.slice(0, 20);
+  return (
+    <div className="page">
+      <div style={{marginBottom:24}}>
+        <h1 style={{fontSize:24,fontWeight:800}}>Dashboard</h1>
+        <div style={{fontSize:12,color:'#555',marginTop:3}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',day:'numeric',month:'long'})}</div>
+      </div>
+      <div style={{display:'flex',gap:10,marginBottom:20,flexWrap:'wrap'}}>
+        <KpiCard label="Pedidos hoy" value={todayOrders.length} sub={`${orders.length} en total`}/>
+        <KpiCard label="Ingresos hoy" value={fmt(todayRevenue)} accent={C.green}/>
+        <KpiCard label="Activos ahora" value={activeOrders.length} accent={C.orange}/>
+        <KpiCard label="Rating" value={avg} sub={`${ratings.length} reseñas`} accent={C.yellow}/>
+      </div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`}}>
+        <div style={{padding:'12px 18px',borderBottom:`1px solid ${C.border}`,fontSize:11,fontWeight:700,color:'#555',letterSpacing:1}}>PEDIDOS RECIENTES</div>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>#</Th><Th>Mesa</Th><Th>Estado</Th><Th>Total</Th><Th>Pago</Th><Th>Hora</Th></tr></thead>
+            <tbody>
+              {recent.map(o => (
+                <tr key={o.id} style={{borderBottom:`1px solid #0d0d0d`}}>
+                  <Td mono dim>{o.order_number}</Td>
+                  <Td>Mesa {o.table_number||'?'}</Td>
+                  <Td><Badge status={o.status}/></Td>
+                  <Td mono>{fmt(o.total)}</Td>
+                  <Td dim>{PL[o.payment_method]||'—'}</Td>
+                  <Td mono dim>{fmtTime(o.created_at)}</Td>
+                </tr>
+              ))}
+              {recent.length===0 && <EmptyRow cols={6} label="No hay pedidos registrados"/>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── PEDIDOS ── */
+function PedidosPage({orders, onRefresh}) {
+  const [filter, setFilter] = useState('all');
+  const [selected, setSelected] = useState(null);
+  const [items, setItems] = useState([]);
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [updating, setUpdating] = useState(false);
+
+  const FILTERS = [
+    {id:'all',label:'Todos'},
+    {id:'active',label:'Activos'},
+    {id:'paid',label:'Nuevos'},
+    {id:'cooking',label:'Preparando'},
+    {id:'ready',label:'Listos'},
+    {id:'delivered',label:'Entregados'},
+    {id:'cancelled',label:'Cancelados'},
+  ];
+
+  const filtered = useMemo(() => {
+    if (filter==='all') return orders;
+    if (filter==='active') return orders.filter(o => ['paid','kitchen_received','cooking','ready'].includes(o.status));
+    if (filter==='paid') return orders.filter(o => ['paid','kitchen_received'].includes(o.status));
+    return orders.filter(o => o.status===filter);
+  }, [orders, filter]);
+
+  async function selectOrder(o) {
+    setSelected(o); setItems([]);
+    if (!db) return;
+    setLoadingItems(true);
+    const {data} = await db.from('order_items').select('item_name,quantity,unit_price,total_price,observations').eq('order_id', o.id);
+    setItems(data||[]);
+    setLoadingItems(false);
+  }
+
+  async function updateStatus(orderId, newStatus) {
+    if (!db) return;
+    setUpdating(true);
+    await db.from('orders').update({status:newStatus,...(newStatus==='delivered'?{completed_at:new Date().toISOString()}:{})}).eq('id',orderId);
+    await db.from('order_status_history').insert({order_id:orderId,status:newStatus,changed_by:'admin'});
+    setSelected(s => s?.id===orderId ? {...s,status:newStatus} : s);
+    setUpdating(false);
+    onRefresh();
+  }
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+        <h1 style={{fontSize:24,fontWeight:800}}>Pedidos</h1>
+        <button onClick={onRefresh} style={{background:C.surface,border:`1px solid ${C.border}`,color:C.mid,padding:'7px 14px',fontSize:13}}>↺ Actualizar</button>
+      </div>
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:0}}>
+        {FILTERS.map(f => (
+          <button key={f.id} onClick={()=>setFilter(f.id)} style={{background:'none',border:'none',color:filter===f.id?'#fff':'#444',padding:'9px 14px',fontSize:12,fontWeight:filter===f.id?700:400,borderBottom:filter===f.id?'2px solid #fff':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+      <div style={{display:'flex',gap:12,paddingTop:14,minHeight:400}}>
+        <div style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>#</Th><Th>Mesa</Th><Th>Estado</Th><Th>Items</Th><Th>Total</Th><Th>Pago</Th><Th>Fecha</Th></tr></thead>
+            <tbody>
+              {filtered.map(o => (
+                <tr key={o.id} onClick={()=>selectOrder(o)} style={{borderBottom:`1px solid #0d0d0d`,cursor:'pointer',background:selected?.id===o.id?'#1a1a1a':'transparent'}}>
+                  <Td mono dim>{o.order_number}</Td>
+                  <Td>Mesa {o.table_number||'?'}</Td>
+                  <Td><Badge status={o.status}/></Td>
+                  <Td dim>{o.items_count||0}</Td>
+                  <Td mono>{fmt(o.total)}</Td>
+                  <Td dim>{PL[o.payment_method]||'—'}</Td>
+                  <Td mono dim>{fmtDT(o.created_at)}</Td>
+                </tr>
+              ))}
+              {filtered.length===0 && <EmptyRow cols={7} label="Sin pedidos"/>}
+            </tbody>
+          </table>
+        </div>
+        {selected && (
+          <div style={{width:290,background:C.surface,border:`1px solid ${C.border}`,flexShrink:0,overflowY:'auto',display:'flex',flexDirection:'column'}}>
+            <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <div>
+                <div style={{fontFamily:'JetBrains Mono',fontSize:15,fontWeight:700}}>{selected.order_number}</div>
+                <div style={{fontSize:11,color:'#444',marginTop:2}}>{fmtDT(selected.created_at)}</div>
+              </div>
+              <button onClick={()=>{setSelected(null);setItems([]);}} style={{background:'none',border:'none',color:'#444',fontSize:20,padding:0,lineHeight:1}}>×</button>
+            </div>
+            <div style={{padding:'10px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:8,flexWrap:'wrap'}}>
+              <Badge status={selected.status}/>
+              <span style={{fontSize:12,color:'#555'}}>{selected.order_type==='llevar'?'Llevar':`Mesa ${selected.table_number||'?'}`}</span>
+            </div>
+            <div style={{flex:1,padding:'10px 18px',borderBottom:`1px solid ${C.border}`}}>
+              {loadingItems && <span style={{fontSize:12,color:'#444'}}>Cargando…</span>}
+              {items.map((it,i) => (
+                <div key={i} style={{borderBottom:`1px solid #0d0d0d`,padding:'7px 0'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}>
+                    <span style={{color:C.ink}}>{it.quantity}× {it.item_name}</span>
+                    <span style={{fontFamily:'JetBrains Mono',color:'#666',flexShrink:0,marginLeft:6}}>{fmt(it.total_price)}</span>
+                  </div>
+                  {it.observations && <div style={{fontSize:11,color:'#555',marginTop:2}}>→ {it.observations}</div>}
+                </div>
+              ))}
+            </div>
+            <div style={{padding:'10px 18px',borderBottom:`1px solid ${C.border}`}}>
+              {selected.discount_amount>0 && (
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4,color:C.green}}>
+                  <span>Descuento ({selected.coupon_code})</span>
+                  <span style={{fontFamily:'JetBrains Mono'}}>-{fmt(selected.discount_amount)}</span>
+                </div>
+              )}
+              <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,fontSize:14}}>
+                <span>Total</span>
+                <span style={{fontFamily:'JetBrains Mono'}}>{fmt(selected.total)}</span>
+              </div>
+            </div>
+            <div style={{padding:'14px 18px',display:'flex',flexDirection:'column',gap:7}}>
+              {selected.status==='paid' && (
+                <button onClick={()=>updateStatus(selected.id,'cooking')} disabled={updating}
+                  style={{background:C.orange,border:'none',color:'#000',padding:9,fontWeight:700,fontSize:12}}>
+                  → Iniciar preparación
+                </button>
+              )}
+              {selected.status==='cooking' && (
+                <button onClick={()=>updateStatus(selected.id,'ready')} disabled={updating}
+                  style={{background:C.green,border:'none',color:'#000',padding:9,fontWeight:700,fontSize:12}}>
+                  ✓ Marcar listo
+                </button>
+              )}
+              {selected.status==='ready' && (
+                <button onClick={()=>updateStatus(selected.id,'delivered')} disabled={updating}
+                  style={{background:C.white,border:'none',color:'#000',padding:9,fontWeight:700,fontSize:12}}>
+                  ✓ Entregar y cerrar
+                </button>
+              )}
+              {!['delivered','cancelled'].includes(selected.status) && (
+                <button onClick={()=>{if(confirm(`¿Cancelar ${selected.order_number}?`))updateStatus(selected.id,'cancelled');}} disabled={updating}
+                  style={{background:'none',border:`1px solid #2a1010`,color:C.red,padding:7,fontSize:12}}>
+                  ✕ Cancelar pedido
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── MENÚ ── */
+function MenuPage({categories, menuItems, onRefresh}) {
+  const [catFilter, setCatFilter] = useState('all');
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [newCat, setNewCat] = useState('');
+  const [form, setForm] = useState({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:''});
+  const [editVals, setEditVals] = useState({});
+
+  const flash = (text, ok=true) => { setMsg({text,ok}); setTimeout(()=>setMsg(null),3000); };
+
+  const visible = catFilter==='all' ? menuItems : menuItems.filter(i=>i.category_id===catFilter);
+  const catName = id => categories.find(c=>c.id===id)?.name||'—';
+
+  async function addCategory() {
+    if (!db||!newCat.trim()) return;
+    const {error} = await db.from('menu_categories').insert({restaurant_id:RESTAURANT_ID,name:newCat.trim(),sort_order:categories.length+1});
+    if (error) flash('Error: '+error.message, false);
+    else { flash('Categoría agregada'); setNewCat(''); onRefresh(); }
+  }
+
+  async function addItem() {
+    if (!db||!form.name||!form.price_guarani||!form.category_id) return;
+    setSaving(true);
+    const {error} = await db.from('menu_items').insert({...form,price_guarani:parseInt(form.price_guarani),restaurant_id:RESTAURANT_ID,promo_tag:form.promo_tag||null});
+    if (error) flash('Error: '+error.message, false);
+    else { flash('Item agregado'); setShowForm(false); setForm({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:''}); onRefresh(); }
+    setSaving(false);
+  }
+
+  async function toggleAvailable(item) {
+    if (!db) return;
+    const {error} = await db.from('menu_items').update({is_available:!item.is_available}).eq('id',item.id);
+    if (error) flash('Error: '+error.message, false);
+    else { flash(item.is_available?'Desactivado':'Activado'); onRefresh(); }
+  }
+
+  async function saveEdit(item) {
+    if (!db) return;
+    const vals = editVals[item.id]||{};
+    const upd = {};
+    if (vals.name&&vals.name!==item.name) upd.name=vals.name;
+    if (vals.price&&parseInt(vals.price)!==item.price_guarani) upd.price_guarani=parseInt(vals.price);
+    if (vals.promo!==undefined&&vals.promo!==item.promo_tag) upd.promo_tag=vals.promo||null;
+    if (!Object.keys(upd).length) { setEditId(null); return; }
+    const {error} = await db.from('menu_items').update(upd).eq('id',item.id);
+    if (error) flash('Error: '+error.message, false);
+    else { flash('Guardado'); setEditId(null); onRefresh(); }
+  }
+
+  function startEdit(item) {
+    setEditId(item.id);
+    setEditVals(v => ({...v,[item.id]:{name:item.name,price:item.price_guarani,promo:item.promo_tag||''}}));
+  }
+
+  function updEdit(id, key, val) {
+    setEditVals(v => ({...v,[id]:{...v[id],[key]:val}}));
+  }
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+        <h1 style={{fontSize:24,fontWeight:800}}>Menú</h1>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <FlashMsg msg={msg}/>
+          <button onClick={()=>setShowForm(!showForm)} style={{background:C.white,border:'none',color:'#000',padding:'8px 16px',fontWeight:700,fontSize:13}}>+ Nuevo item</button>
+        </div>
+      </div>
+      <div style={{display:'flex',gap:14}}>
+        {/* Sidebar categorías */}
+        <div style={{width:175,flexShrink:0}}>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,marginBottom:8}}>
+            <div style={{padding:'9px 13px',fontSize:11,color:'#555',fontWeight:700,borderBottom:`1px solid ${C.border}`}}>CATEGORÍAS</div>
+            {[{id:'all',name:'Todas',cnt:menuItems.length},...categories.map(c=>({id:c.id,name:c.name,cnt:menuItems.filter(i=>i.category_id===c.id).length}))].map(c => {
+              const active = catFilter===c.id;
+              return (
+                <button key={c.id} onClick={()=>setCatFilter(c.id)} style={{display:'block',width:'100%',textAlign:'left',padding:'9px 13px',background:active?'#fff':'none',border:'none',color:active?'#000':C.mid,fontSize:13,cursor:'pointer',borderBottom:`1px solid #0d0d0d`}}>
+                  {c.name} <span style={{color:active?'#444':'#333',fontSize:11}}>({c.cnt})</span>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:12}}>
+            <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:7}}>+ CATEGORÍA</div>
+            <input value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Nombre…"
+              onKeyDown={e=>e.key==='Enter'&&addCategory()}
+              style={{width:'100%',padding:'6px 8px',fontSize:12,marginBottom:7}}/>
+            <button onClick={addCategory} disabled={!newCat.trim()} style={{width:'100%',background:'#1a1a1a',border:`1px solid ${C.border}`,color:C.mid,padding:'6px',fontSize:12}}>Agregar</button>
+          </div>
+        </div>
+
+        {/* Contenido */}
+        <div style={{flex:1}}>
+          {showForm && (
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:20,marginBottom:12}}>
+              <div style={{fontSize:12,fontWeight:700,color:'#555',marginBottom:14}}>NUEVO ITEM</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+                {[
+                  {label:'NOMBRE *',key:'name',type:'text'},
+                  {label:'PRECIO (₲) *',key:'price_guarani',type:'number'},
+                  {label:'PROMO TAG',key:'promo_tag',type:'text',placeholder:'2×1, Chef ★'},
+                ].map(f => (
+                  <div key={f.key}>
+                    <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4}}>{f.label}</label>
+                    <input type={f.type} value={form[f.key]} placeholder={f.placeholder||''} onChange={e=>setForm({...form,[f.key]:e.target.value})} style={{width:'100%',padding:'7px 9px',fontSize:13,fontFamily:f.type==='number'?'JetBrains Mono':'inherit'}}/>
+                  </div>
+                ))}
+                <div>
+                  <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4}}>CATEGORÍA *</label>
+                  <select value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})} style={{width:'100%',padding:'7px 9px',fontSize:13}}>
+                    <option value="">Seleccionar…</option>
+                    {categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div style={{gridColumn:'1/-1'}}>
+                  <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4}}>DESCRIPCIÓN</label>
+                  <textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} rows={2} style={{width:'100%',padding:'7px 9px',fontSize:13,resize:'vertical'}}/>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={addItem} disabled={saving||!form.name||!form.price_guarani||!form.category_id} style={{background:C.white,border:'none',color:'#000',padding:'9px 18px',fontWeight:700,fontSize:13}}>
+                  {saving?'Guardando…':'Guardar'}
+                </button>
+                <button onClick={()=>setShowForm(false)} style={{background:'none',border:`1px solid ${C.border}`,color:C.mid,padding:'9px 14px',fontSize:13}}>Cancelar</button>
+              </div>
+            </div>
+          )}
+
+          <div style={{background:C.surface,border:`1px solid ${C.border}`}}>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Nombre</Th><Th>Categoría</Th><Th>Precio</Th><Th>Promo</Th><Th>Estado</Th><Th>Acc.</Th></tr></thead>
+              <tbody>
+                {visible.map(item => {
+                  const editing = editId===item.id;
+                  const ev = editVals[item.id]||{};
+                  return (
+                    <tr key={item.id} style={{borderBottom:`1px solid #0d0d0d`}}>
+                      <Td>
+                        {editing
+                          ? <input value={ev.name||''} onChange={e=>updEdit(item.id,'name',e.target.value)} style={{background:'#0a0a0a',border:`1px solid ${C.bStrong}`,color:'#fff',padding:'4px 8px',fontSize:13,width:'100%'}}/>
+                          : <span style={{color:item.is_available?C.ink:'#444'}}>{item.name}</span>}
+                      </Td>
+                      <Td dim>{catName(item.category_id)}</Td>
+                      <Td mono>
+                        {editing
+                          ? <input type="number" value={ev.price||''} onChange={e=>updEdit(item.id,'price',e.target.value)} style={{background:'#0a0a0a',border:`1px solid ${C.bStrong}`,color:'#fff',padding:'4px 8px',fontSize:12,width:110,fontFamily:'JetBrains Mono'}}/>
+                          : fmt(item.price_guarani)}
+                      </Td>
+                      <Td>
+                        {editing
+                          ? <input value={ev.promo||''} onChange={e=>updEdit(item.id,'promo',e.target.value)} placeholder="promo…" style={{background:'#0a0a0a',border:`1px solid ${C.bStrong}`,color:'#fff',padding:'4px 8px',fontSize:11,width:90}}/>
+                          : item.promo_tag && <span style={{background:'#1a1400',border:'1px solid #3a2a00',color:C.yellow,padding:'2px 7px',fontSize:11}}>{item.promo_tag}</span>}
+                      </Td>
+                      <Td>
+                        <button onClick={()=>toggleAvailable(item)} style={{background:item.is_available?'#0a1a0a':'#1a1a1a',border:`1px solid ${item.is_available?'#1a3a1a':'#2a2a2a'}`,color:item.is_available?C.green:'#444',padding:'3px 9px',fontSize:11,fontWeight:600}}>
+                          {item.is_available?'Activo':'Inactivo'}
+                        </button>
+                      </Td>
+                      <Td>
+                        {editing
+                          ? <div style={{display:'flex',gap:5}}>
+                              <button onClick={()=>saveEdit(item)} style={{background:C.white,border:'none',color:'#000',padding:'4px 9px',fontSize:11,fontWeight:700}}>✓</button>
+                              <button onClick={()=>setEditId(null)} style={{background:'none',border:`1px solid ${C.border}`,color:C.mid,padding:'4px 7px',fontSize:11}}>✕</button>
+                            </div>
+                          : <button onClick={()=>startEdit(item)} style={{background:'none',border:`1px solid ${C.border}`,color:C.mid,padding:'4px 9px',fontSize:11}}>Editar</button>}
+                      </Td>
+                    </tr>
+                  );
+                })}
+                {visible.length===0 && <EmptyRow cols={6} label="Sin items en esta categoría"/>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── MESAS ── */
+function MesasPage({tables, orders}) {
+  const activeOrders = orders.filter(o => ['paid','kitchen_received','cooking','ready'].includes(o.status));
+  return (
+    <div className="page">
+      <div style={{marginBottom:22}}>
+        <h1 style={{fontSize:24,fontWeight:800}}>Mesas</h1>
+        <div style={{fontSize:12,color:'#555',marginTop:3}}>{activeOrders.length} con pedidos activos · {tables.length} mesas en total</div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:10}}>
+        {tables.map(t => {
+          const order = activeOrders.find(o=>o.table_id===t.id);
+          const busy = !!order;
+          return (
+            <div key={t.id} style={{background:busy?C.surface:'#0d0d0d',border:`1px solid ${busy?C.bStrong:C.border}`,padding:18}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+                <div style={{width:38,height:38,borderRadius:'50%',background:busy?'#fff':'#1a1a1a',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:15,color:busy?'#000':'#333'}}>{t.number}</div>
+                {order && <Badge status={order.status}/>}
+              </div>
+              {order
+                ? <div>
+                    <div style={{fontFamily:'JetBrains Mono',fontSize:11,color:'#888',marginBottom:3}}>{order.order_number}</div>
+                    <div style={{fontSize:15,fontWeight:700}}>{fmt(order.total)}</div>
+                    <div style={{fontSize:11,color:'#555',marginTop:2}}>{fmtTime(order.created_at)}</div>
+                  </div>
+                : <div style={{fontSize:12,color:'#2a2a2a'}}>Libre</div>}
+              <div style={{fontSize:10,color:'#2a2a2a',marginTop:8}}>Cap. {t.capacity}p</div>
+            </div>
+          );
+        })}
+        {tables.length===0 && <div style={{color:'#333',padding:40,fontSize:13}}>No hay mesas configuradas</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ── CUPONES ── */
+function CuponesPage({coupons, onRefresh}) {
+  const [form, setForm] = useState({code:'',discount_type:'percentage',discount_value:'',min_order_amount:'',max_uses:''});
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const flash = (text, ok=true) => { setMsg({text,ok}); setTimeout(()=>setMsg(null),3000); };
+
+  async function addCoupon() {
+    if (!db||!form.code||!form.discount_value) return;
+    setSaving(true);
+    const {error} = await db.from('coupons').insert({
+      restaurant_id:RESTAURANT_ID,code:form.code.toUpperCase().trim(),
+      discount_type:form.discount_type,discount_value:parseInt(form.discount_value),
+      min_order_amount:parseInt(form.min_order_amount)||0,
+      max_uses:form.max_uses?parseInt(form.max_uses):null,is_active:true
+    });
+    if (error) flash('Error: '+error.message, false);
+    else { flash('Cupón creado'); setForm({code:'',discount_type:'percentage',discount_value:'',min_order_amount:'',max_uses:''}); onRefresh(); }
+    setSaving(false);
+  }
+
+  async function toggleCoupon(id, current) {
+    if (!db) return;
+    await db.from('coupons').update({is_active:!current}).eq('id',id);
+    onRefresh();
+  }
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+        <h1 style={{fontSize:24,fontWeight:800}}>Cupones</h1>
+        <FlashMsg msg={msg}/>
+      </div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:20,marginBottom:14}}>
+        <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:12}}>NUEVO CUPÓN</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:10,marginBottom:12}}>
+          <div>
+            <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4}}>CÓDIGO *</label>
+            <input value={form.code} onChange={e=>setForm({...form,code:e.target.value})} placeholder="PROMO20" style={{width:'100%',padding:'7px 9px',fontSize:13,textTransform:'uppercase'}}/>
+          </div>
+          <div>
+            <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4}}>TIPO</label>
+            <select value={form.discount_type} onChange={e=>setForm({...form,discount_type:e.target.value})} style={{width:'100%',padding:'7px 9px',fontSize:13}}>
+              <option value="percentage">Porcentaje %</option>
+              <option value="fixed">Monto fijo ₲</option>
+            </select>
+          </div>
+          <div>
+            <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4}}>VALOR *</label>
+            <input type="number" value={form.discount_value} onChange={e=>setForm({...form,discount_value:e.target.value})} placeholder={form.discount_type==='percentage'?'10':'5000'} style={{width:'100%',padding:'7px 9px',fontSize:13,fontFamily:'JetBrains Mono'}}/>
+          </div>
+          <div>
+            <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4}}>MONTO MÍN. (₲)</label>
+            <input type="number" value={form.min_order_amount} onChange={e=>setForm({...form,min_order_amount:e.target.value})} placeholder="0" style={{width:'100%',padding:'7px 9px',fontSize:13,fontFamily:'JetBrains Mono'}}/>
+          </div>
+          <div>
+            <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4}}>USOS MÁX.</label>
+            <input type="number" value={form.max_uses} onChange={e=>setForm({...form,max_uses:e.target.value})} placeholder="∞" style={{width:'100%',padding:'7px 9px',fontSize:13,fontFamily:'JetBrains Mono'}}/>
+          </div>
+        </div>
+        <button onClick={addCoupon} disabled={saving||!form.code||!form.discount_value} style={{background:C.white,border:'none',color:'#000',padding:'9px 18px',fontWeight:700,fontSize:13}}>
+          {saving?'Creando…':'Crear cupón'}
+        </button>
+      </div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Código</Th><Th>Descuento</Th><Th>Tipo</Th><Th>Mín.</Th><Th>Usos</Th><Th>Vence</Th><Th>Estado</Th></tr></thead>
+          <tbody>
+            {coupons.map(c => (
+              <tr key={c.id} style={{borderBottom:`1px solid #0d0d0d`}}>
+                <Td><span style={{fontFamily:'JetBrains Mono',fontWeight:700,fontSize:14}}>{c.code}</span></Td>
+                <Td><span style={{fontFamily:'JetBrains Mono',color:C.green,fontWeight:700}}>{c.discount_type==='percentage'?`${c.discount_value}%`:fmt(c.discount_value)}</span></Td>
+                <Td dim>{c.discount_type==='percentage'?'Porcentaje':'Fijo'}</Td>
+                <Td mono dim>{c.min_order_amount>0?fmt(c.min_order_amount):'—'}</Td>
+                <Td mono>{c.used_count}/{c.max_uses||'∞'}</Td>
+                <Td dim>{c.valid_until?fmtDate(c.valid_until):'—'}</Td>
+                <Td>
+                  <button onClick={()=>toggleCoupon(c.id,c.is_active)} style={{background:c.is_active?'#0a1a0a':'#1a1a1a',border:`1px solid ${c.is_active?'#1a3a1a':'#2a2a2a'}`,color:c.is_active?C.green:'#444',padding:'3px 9px',fontSize:11,fontWeight:600}}>
+                    {c.is_active?'Activo':'Inactivo'}
+                  </button>
+                </Td>
+              </tr>
+            ))}
+            {coupons.length===0 && <EmptyRow cols={7} label="No hay cupones"/>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ── CALIFICACIONES ── */
+function RatingsPage({ratings}) {
+  const avg = ratings.length ? (ratings.reduce((s,r)=>s+r.stars,0)/ratings.length).toFixed(1) : '0.0';
+  const dist = [5,4,3,2,1].map(s=>({s,n:ratings.filter(r=>r.stars===s).length}));
+  return (
+    <div className="page">
+      <h1 style={{fontSize:24,fontWeight:800,marginBottom:22}}>Calificaciones</h1>
+      <div style={{display:'flex',gap:12,marginBottom:18}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:'22px 28px',minWidth:180}}>
+          <div style={{fontSize:44,fontWeight:800,fontFamily:'JetBrains Mono',color:C.yellow,lineHeight:1}}>{avg}</div>
+          <div style={{fontSize:18,color:C.yellow,margin:'8px 0 4px'}}>{'★'.repeat(Math.round(Number(avg)))}</div>
+          <div style={{fontSize:12,color:'#555'}}>{ratings.length} calificaciones</div>
+        </div>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:'18px 22px',flex:1}}>
+          {dist.map(({s,n}) => {
+            const pct = ratings.length ? Math.round(n/ratings.length*100) : 0;
+            return (
+              <div key={s} style={{display:'flex',alignItems:'center',gap:10,marginBottom:9}}>
+                <span style={{color:C.yellow,fontSize:12,width:10}}>{s}</span>
+                <span style={{color:C.yellow,fontSize:10}}>★</span>
+                <div style={{flex:1,height:7,background:'#1a1a1a',borderRadius:2,overflow:'hidden'}}>
+                  <div style={{width:`${pct}%`,height:'100%',background:C.yellow,borderRadius:2}}/>
+                </div>
+                <span style={{fontSize:11,color:'#555',width:24,textAlign:'right'}}>{n}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Rating</Th><Th>Comentario</Th><Th>Fecha</Th></tr></thead>
+          <tbody>
+            {ratings.map(r => (
+              <tr key={r.id} style={{borderBottom:`1px solid #0d0d0d`}}>
+                <Td><Stars n={r.stars}/></Td>
+                <Td style={{color:r.comment?C.ink:'#333',fontStyle:r.comment?'normal':'italic'}}>{r.comment||'Sin comentario'}</Td>
+                <Td mono dim>{fmtDate(r.created_at)}</Td>
+              </tr>
+            ))}
+            {ratings.length===0 && <EmptyRow cols={3} label="Sin calificaciones aún"/>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ── ESTADÍSTICAS ── */
+function StatsPage({orders}) {
+  const [topItems, setTopItems] = useState([]);
+  const [loadingTop, setLoadingTop] = useState(false);
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    if (loaded.current||!db) return;
+    loaded.current = true;
+    (async () => {
+      setLoadingTop(true);
+      const since = new Date(Date.now()-30*24*60*60*1000).toISOString();
+      const {data:ords} = await db.from('orders').select('id').eq('restaurant_id',RESTAURANT_ID).gte('created_at',since);
+      if (ords?.length) {
+        const {data:itmData} = await db.from('order_items').select('item_name,quantity').in('order_id',ords.map(o=>o.id));
+        const map = {};
+        (itmData||[]).forEach(it=>{map[it.item_name]=(map[it.item_name]||0)+it.quantity;});
+        setTopItems(Object.entries(map).map(([name,qty])=>({name,qty})).sort((a,b)=>b.qty-a.qty).slice(0,8));
+      }
+      setLoadingTop(false);
+    })();
+  }, []);
+
+  const last7 = useMemo(() => Array.from({length:7},(_,i)=>{
+    const d = new Date(); d.setDate(d.getDate()-6+i);
+    const ds = d.toDateString();
+    const dayOrds = orders.filter(o=>new Date(o.created_at).toDateString()===ds&&!['draft','cancelled'].includes(o.status));
+    return {label:DAY[d.getDay()],total:dayOrds.reduce((s,o)=>s+(o.total||0),0),count:dayOrds.length,isToday:i===6};
+  }), [orders]);
+
+  const maxRev = Math.max(...last7.map(d=>d.total),1);
+
+  const validOrds = orders.filter(o=>!['draft','cancelled'].includes(o.status));
+  const avgTicket = validOrds.length ? Math.round(validOrds.reduce((s,o)=>s+(o.total||0),0)/validOrds.length) : 0;
+
+  const payBreakdown = useMemo(()=>{
+    const map={};
+    orders.filter(o=>!['draft','cancelled'].includes(o.status)&&o.payment_method).forEach(o=>{map[o.payment_method]=(map[o.payment_method]||0)+1;});
+    return Object.entries(map).map(([m,n])=>({m,n,label:PL[m]||m})).sort((a,b)=>b.n-a.n);
+  },[orders]);
+
+  return (
+    <div className="page">
+      <h1 style={{fontSize:24,fontWeight:800,marginBottom:22}}>Estadísticas</h1>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:22,marginBottom:14}}>
+        <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:18}}>INGRESOS — ÚLTIMOS 7 DÍAS</div>
+        <div style={{display:'flex',alignItems:'flex-end',gap:10,height:130}}>
+          {last7.map((d,i) => (
+            <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+              <div style={{fontSize:10,color:'#444',fontFamily:'JetBrains Mono',textAlign:'center',minHeight:14}}>
+                {d.total>0?(d.total>=1000000?`${(d.total/1000000).toFixed(1)}M`:`${Math.round(d.total/1000)}k`):''}
+              </div>
+              <div style={{width:'100%',height:`${Math.max(d.total>0?Math.round((d.total/maxRev)*90):0,d.total>0?4:0)}px`,background:d.isToday?'#fff':'#2a2a2a',minHeight:d.total>0?4:0,transition:'height .3s'}}/>
+              <div style={{fontSize:11,color:d.isToday?'#fff':'#444',fontWeight:d.isToday?700:400}}>{d.label}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{display:'flex',gap:20,marginTop:16,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
+          {[
+            {label:'Semana',val:fmt(last7.reduce((s,d)=>s+d.total,0))},
+            {label:'Pedidos semana',val:last7.reduce((s,d)=>s+d.count,0)},
+            {label:'Ticket promedio',val:fmt(avgTicket)},
+          ].map(s=>(
+            <div key={s.label}>
+              <div style={{fontSize:10,color:'#555',fontWeight:700,marginBottom:3}}>{s.label.toUpperCase()}</div>
+              <div style={{fontFamily:'JetBrains Mono',fontSize:15,fontWeight:700}}>{s.val}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:20}}>
+          <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:16}}>TOP ITEMS — 30 DÍAS</div>
+          {loadingTop && <span style={{fontSize:12,color:'#444'}}>Calculando…</span>}
+          {topItems.map((item,i)=>{
+            const maxQ = topItems[0]?.qty||1;
+            return (
+              <div key={i} style={{marginBottom:11}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4}}>
+                  <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'80%',color:i===0?C.white:C.mid}}>{item.name}</span>
+                  <span style={{fontFamily:'JetBrains Mono',color:'#555',flexShrink:0,marginLeft:6}}>{item.qty}</span>
+                </div>
+                <div style={{height:3,background:'#1a1a1a',borderRadius:2,overflow:'hidden'}}>
+                  <div style={{width:`${(item.qty/maxQ)*100}%`,height:'100%',background:i===0?'#fff':'#333'}}/>
+                </div>
+              </div>
+            );
+          })}
+          {!loadingTop&&topItems.length===0&&<div style={{color:'#333',fontSize:12}}>Sin datos suficientes</div>}
+        </div>
+
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:20}}>
+            <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:14}}>MÉTODOS DE PAGO</div>
+            {payBreakdown.length===0 && <div style={{color:'#333',fontSize:12}}>Sin datos</div>}
+            {payBreakdown.map(p=>(
+              <div key={p.m} style={{display:'flex',justifyContent:'space-between',marginBottom:8,fontSize:13}}>
+                <span style={{color:C.mid}}>{p.label}</span>
+                <span style={{fontFamily:'JetBrains Mono',fontWeight:700}}>{p.n}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:20}}>
+            <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:14}}>RESUMEN GENERAL</div>
+            {[
+              {label:'Total pedidos',val:validOrds.length},
+              {label:'Cancelados',val:orders.filter(o=>o.status==='cancelled').length},
+              {label:'Para llevar',val:orders.filter(o=>o.order_type==='llevar'&&!['draft','cancelled'].includes(o.status)).length},
+              {label:'En local',val:orders.filter(o=>o.order_type==='local'&&!['draft','cancelled'].includes(o.status)).length},
+            ].map(r=>(
+              <div key={r.label} style={{display:'flex',justifyContent:'space-between',marginBottom:8,fontSize:13}}>
+                <span style={{color:C.mid}}>{r.label}</span>
+                <span style={{fontFamily:'JetBrains Mono',fontWeight:700}}>{r.val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── CONFIG ── */
+function ConfigPage({restaurant, onRefresh}) {
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  useEffect(()=>{ if(restaurant) setForm(restaurant); },[restaurant]);
+
+  async function save() {
+    if (!db) return;
+    setSaving(true);
+    const {error} = await db.from('restaurants').update({
+      name:form.name,address:form.address,phone:form.phone,
+      instagram:form.instagram,website:form.website,logo_initials:form.logo_initials
+    }).eq('id',RESTAURANT_ID);
+    setMsg(error?{text:'Error: '+error.message,ok:false}:{text:'Guardado correctamente',ok:true});
+    if (!error) onRefresh();
+    setSaving(false);
+    setTimeout(()=>setMsg(null),3000);
+  }
+
+  const fields = [
+    {key:'name',label:'Nombre del restaurante'},
+    {key:'address',label:'Dirección'},
+    {key:'phone',label:'Teléfono'},
+    {key:'instagram',label:'Instagram',placeholder:'@ejemplo'},
+    {key:'website',label:'Sitio web',placeholder:'ejemplo.com'},
+    {key:'logo_initials',label:'Iniciales del logo',placeholder:'LH'},
+  ];
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:22}}>
+        <h1 style={{fontSize:24,fontWeight:800}}>Configuración</h1>
+        <FlashMsg msg={msg}/>
+      </div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:24,maxWidth:560,marginBottom:14}}>
+        <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:18}}>INFO DEL RESTAURANTE</div>
+        <div style={{display:'flex',flexDirection:'column',gap:14,marginBottom:22}}>
+          {fields.map(f=>(
+            <div key={f.key}>
+              <label style={{fontSize:10,color:'#555',display:'block',marginBottom:5,fontWeight:700}}>{f.label.toUpperCase()}</label>
+              <input value={form[f.key]||''} placeholder={f.placeholder||f.label} onChange={e=>setForm({...form,[f.key]:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:14}}/>
+            </div>
+          ))}
+        </div>
+        <button onClick={save} disabled={saving} style={{background:C.white,border:'none',color:'#000',padding:'11px 24px',fontWeight:700,fontSize:14}}>
+          {saving?'Guardando…':'Guardar cambios'}
+        </button>
+      </div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:20,maxWidth:560,marginBottom:14}}>
+        <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:12}}>ACCESOS RÁPIDOS</div>
+        {[
+          {label:'Panel de Cocina (KDS)',href:'cocina.html'},
+          {label:'App del Cliente (Mesa 4)',href:'index.html'},
+          {label:'Diagnóstico de DB',href:'diag.html'},
+        ].map(l=>(
+          <a key={l.href} href={l.href} style={{display:'block',padding:'10px 0',color:C.mid,fontSize:13,textDecoration:'none',borderBottom:`1px solid #0d0d0d`}}>→ {l.label}</a>
+        ))}
+      </div>
+      <div style={{background:'#0d0d0d',border:`1px solid ${C.border}`,padding:16,maxWidth:560}}>
+        <div style={{fontSize:10,color:'#333',fontWeight:700,marginBottom:6}}>RESTAURANT ID</div>
+        <div style={{fontFamily:'JetBrains Mono',fontSize:12,color:'#2a2a2a',wordBreak:'break-all'}}>{RESTAURANT_ID}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ── ROOT APP ── */
+function AdminApp() {
+  const [page, setPage] = useState('dashboard');
+  const [loading, setLoading] = useState(true);
+  const [orders, setOrders] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [menuItems, setMenuItems] = useState([]);
+  const [tables, setTables] = useState([]);
+  const [coupons, setCoupons] = useState([]);
+  const [ratings, setRatings] = useState([]);
+  const [restaurant, setRestaurant] = useState(null);
+
+  useEffect(()=>{ loadAll(); },[]);
+
+  async function loadAll() {
+    setLoading(true);
+    if (!db) { setLoading(false); return; }
+
+    const [restRes,tablesRes,ordersRes,catsRes,itemsRes,couponsRes,ratingsRes] = await Promise.all([
+      db.from('restaurants').select('*').eq('id',RESTAURANT_ID).single(),
+      db.from('tables').select('*').eq('restaurant_id',RESTAURANT_ID).order('number'),
+      db.from('orders').select('id,order_number,order_type,status,subtotal,discount_amount,coupon_code,total,payment_method,customer_name,created_at,table_id')
+        .eq('restaurant_id',RESTAURANT_ID).order('created_at',{ascending:false}).limit(500),
+      db.from('menu_categories').select('*').eq('restaurant_id',RESTAURANT_ID).order('sort_order'),
+      db.from('menu_items').select('*').eq('restaurant_id',RESTAURANT_ID).order('sort_order'),
+      db.from('coupons').select('*').eq('restaurant_id',RESTAURANT_ID).order('created_at',{ascending:false}),
+      db.from('ratings').select('*').eq('restaurant_id',RESTAURANT_ID).order('created_at',{ascending:false}).limit(100),
+    ]);
+
+    const tbls = tablesRes.data||[];
+    const tableMap = {};
+    tbls.forEach(t=>{ tableMap[t.id]=t.number; });
+
+    const rawOrders = ordersRes.data||[];
+    const orderIds = rawOrders.slice(0,100).map(o=>o.id);
+    let countsMap = {};
+    if (orderIds.length) {
+      const {data:cd} = await db.from('order_items').select('order_id').in('order_id',orderIds);
+      (cd||[]).forEach(it=>{ countsMap[it.order_id]=(countsMap[it.order_id]||0)+1; });
+    }
+
+    setRestaurant(restRes.data);
+    setTables(tbls);
+    setOrders(rawOrders.map(o=>({...o,table_number:o.table_id?tableMap[o.table_id]:null,items_count:countsMap[o.id]||0})));
+    setCategories(catsRes.data||[]);
+    setMenuItems(itemsRes.data||[]);
+    setCoupons(couponsRes.data||[]);
+    setRatings(ratingsRes.data||[]);
+    setLoading(false);
+  }
+
+  const renderPage = () => {
+    if (loading) return (
+      <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,flexDirection:'column',gap:14}}>
+        <span className="spin"/>
+        <div style={{fontSize:12,color:'#444'}}>Cargando datos…</div>
+      </div>
+    );
+    if (!db) return (
+      <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,flexDirection:'column',gap:12}}>
+        <div style={{fontSize:32,color:'#222'}}>⚠</div>
+        <div style={{fontSize:15,fontWeight:700}}>Sin conexión a la base de datos</div>
+        <div style={{fontSize:13,color:'#555',maxWidth:340,textAlign:'center'}}>Configurá las credenciales Supabase en <code style={{fontFamily:'JetBrains Mono',color:'#666'}}>config.js</code> o las variables de entorno en Vercel.</div>
+        <a href="diag.html" style={{fontSize:13,color:C.mid,marginTop:8}}>→ Ver diagnóstico</a>
+      </div>
+    );
+    switch(page) {
+      case 'dashboard': return <DashboardPage orders={orders} ratings={ratings}/>;
+      case 'pedidos':   return <PedidosPage orders={orders} onRefresh={loadAll}/>;
+      case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
+      case 'mesas':     return <MesasPage tables={tables} orders={orders}/>;
+      case 'cupones':   return <CuponesPage coupons={coupons} onRefresh={loadAll}/>;
+      case 'ratings':   return <RatingsPage ratings={ratings}/>;
+      case 'stats':     return <StatsPage orders={orders}/>;
+      case 'config':    return <ConfigPage restaurant={restaurant} onRefresh={loadAll}/>;
+      default: return null;
+    }
+  };
+
+  return (
+    <div style={{display:'flex',minHeight:'100vh',width:'100%'}}>
+      <Sidebar page={page} setPage={setPage} restaurant={restaurant} dbOk={!!db}/>
+      <main style={{flex:1,padding:28,overflowY:'auto',minWidth:0}}>
+        {renderPage()}
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<AdminApp/>);
+</script>
+</body>
+</html>
