@@ -59,7 +59,7 @@ Lo que **sí** sería peligroso (y nunca hacemos):
 ### Para deploy en Vercel (producción)
 1. Ir a [Vercel Dashboard → mesa-app → Settings → Environment Variables](https://vercel.com/renaxtoggs-projects/mesa-app/settings/environment-variables)
 2. Agregar:
-   - `SUPABASE_URL` → `https://ocwzupmamfojvdywavqi.supabase.co`
+   - `SUPABASE_URL` → el valor está en Vercel Dashboard → Environment Variables
    - `SUPABASE_ANON_KEY` → el anon key de tu proyecto
    - `RESTAURANT_ID` → `00000000-0000-0000-0000-000000000001`
 3. Redes → Production, Preview, Development
@@ -72,6 +72,6 @@ Lo que **sí** sería peligroso (y nunca hacemos):
 ---
 
 ## 🗝️ Dónde encontrar las credenciales de Supabase
-- **Dashboard:** [supabase.com/dashboard/project/ocwzupmamfojvdywavqi/settings/api](https://supabase.com/dashboard/project/ocwzupmamfojvdywavqi/settings/api)
+- **Dashboard:** supabase.com/dashboard → seleccionar el proyecto → Settings → API
 - **Anon Key:** Settings → API → Project API keys → `anon / public`
 - **Service Role Key:** Settings → API → Project API keys → `service_role` (NUNCA al frontend)
