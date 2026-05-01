@@ -979,7 +979,21 @@ function AdminApp() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<AdminApp/>);
+// Auth guard
+async function bootstrap() {
+  if (!db) { window.location.replace('login.html'); return; }
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) { window.location.replace('login.html'); return; }
+  const { data: profile } = await db.rpc('get_my_profile');
+  if (!profile || !['admin','superadmin'].includes(profile.role)) {
+    await db.auth.signOut();
+    window.location.replace('login.html');
+    return;
+  }
+  window._userProfile = profile;
+  ReactDOM.createRoot(document.getElementById('root')).render(<AdminApp/>);
+}
+bootstrap();
 </script>
 </body>
 </html>

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mesa App · Acceso</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#080810;color:#e8e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center}
+    .card{background:#111120;border:1px solid #1e1e30;border-radius:14px;padding:40px;width:100%;max-width:380px;box-shadow:0 24px 64px #00000080}
+    .logo{text-align:center;margin-bottom:32px}
+    .logo-title{font-size:22px;font-weight:800;color:#e8e8f0;letter-spacing:-.3px}
+    .logo-sub{font-size:11px;font-weight:700;color:#6366f1;letter-spacing:2px;text-transform:uppercase;margin-top:4px}
+    label{display:block;font-size:12px;font-weight:600;color:#8888a8;margin-bottom:6px}
+    input{width:100%;background:#1a1a24;border:1px solid #2a2a40;color:#e8e8f0;padding:11px 14px;border-radius:8px;font-size:14px;outline:none;transition:border-color .15s;font-family:inherit}
+    input:focus{border-color:#6366f1}
+    .field{margin-bottom:18px}
+    .btn{width:100%;background:#6366f1;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;margin-top:4px}
+    .btn:hover{background:#4f46e5}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .error{background:#2a1010;border:1px solid #3a1a1a;color:#f87171;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none}
+    .error.show{display:block}
+    .hint{font-size:11px;color:#44445a;text-align:center;margin-top:20px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-title">Mesa App</div>
+    <div class="logo-sub">Acceso al sistema</div>
+  </div>
+
+  <div id="err" class="error"></div>
+
+  <form id="loginForm">
+    <div class="field">
+      <label for="username">Usuario</label>
+      <input id="username" type="text" autocomplete="username" placeholder="Tu usuario" required/>
+    </div>
+    <div class="field">
+      <label for="password">Contraseña</label>
+      <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" required/>
+    </div>
+    <button class="btn" type="submit" id="submitBtn">Ingresar</button>
+  </form>
+
+  <div class="hint">Mesa App v1.0 · La Huaca</div>
+</div>
+
+<script>
+(function() {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url || !cfg?.anonKey) {
+    showErr('Sin configuración de Supabase. Verificá config.js');
+    return;
+  }
+  const url = cfg.url.replace(/^﻿/, '').trim();
+  const key = cfg.anonKey.replace(/^﻿/, '').trim();
+  const db  = window.supabase.createClient(url, key);
+
+  function showErr(msg) {
+    const el = document.getElementById('err');
+    el.textContent = msg;
+    el.classList.add('show');
+  }
+  function hideErr() {
+    document.getElementById('err').classList.remove('show');
+  }
+  function setLoading(on) {
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = on;
+    btn.innerHTML = on
+      ? '<span class="spinner"></span>Ingresando…'
+      : 'Ingresar';
+  }
+
+  // Redirect si ya hay sesión activa
+  db.auth.getSession().then(({ data: { session } }) => {
+    if (!session) return;
+    db.rpc('get_my_profile').then(({ data }) => {
+      if (data) redirectByRole(data.role);
+    });
+  });
+
+  function redirectByRole(role) {
+    if (role === 'superadmin') window.location.replace('superadmin.html');
+    else if (role === 'admin')  window.location.replace('admin.html');
+    else                        window.location.replace('cocina.html');
+  }
+
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideErr();
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    if (!username || !password) { showErr('Completá usuario y contraseña'); return; }
+
+    setLoading(true);
+    try {
+      // 1. Obtener email interno por username
+      const { data: email, error: emailErr } = await db.rpc('get_user_email', { p_username: username });
+      if (emailErr) throw new Error('Error de servidor: ' + emailErr.message);
+      if (!email)   throw new Error('Usuario no encontrado');
+
+      // 2. Autenticar con Supabase Auth
+      const { error: authErr } = await db.auth.signInWithPassword({ email, password });
+      if (authErr) {
+        if (authErr.message.includes('Invalid login credentials')) throw new Error('Contraseña incorrecta');
+        throw new Error(authErr.message);
+      }
+
+      // 3. Obtener perfil y redirigir
+      const { data: profile } = await db.rpc('get_my_profile');
+      if (!profile || !profile.role) throw new Error('Usuario sin rol asignado. Contactá al administrador.');
+
+      redirectByRole(profile.role);
+    } catch(err) {
+      showErr(err.message);
+      setLoading(false);
+    }
+  });
+})();
+</script>
+</body>
+</html>

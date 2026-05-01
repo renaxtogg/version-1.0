@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mesa App · SuperAdmin</title>
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#080810;color:#e8e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+    ::-webkit-scrollbar{width:6px}
+    ::-webkit-scrollbar-track{background:#0d0d14}
+    ::-webkit-scrollbar-thumb{background:#2a2a40;border-radius:3px}
+    input,select,textarea{background:#1a1a24;border:1px solid #2a2a40;color:#e8e8f0;padding:8px 12px;border-radius:6px;font-size:14px;width:100%;outline:none}
+    input:focus,select:focus,textarea:focus{border-color:#6366f1}
+    button{cursor:pointer;border:none;font-family:inherit}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+    .animate-in{animation:fadeIn .25s ease both}
+    .spin{animation:spin 1s linear infinite}
+    .pulse{animation:pulse 2s ease infinite}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script src="config.js"></script>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ── Paleta ───────────────────────────────────────────────────
+const C = {
+  bg:'#080810', sidebar:'#0c0c18', surface:'#111120', card:'#16161e',
+  border:'#1e1e30', bStrong:'#2a2a40',
+  white:'#fff', ink:'#e8e8f0', mid:'#8888a8', dim:'#44445a',
+  blue:'#6366f1', blueDim:'#1e1e3a', blueHov:'#4f46e5',
+  cyan:'#06b6d4', green:'#22c55e', orange:'#f97316',
+  red:'#ef4444', yellow:'#f59e0b', purple:'#a855f7',
+};
+
+// ── Supabase ─────────────────────────────────────────────────
+const _initDB = () => {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url || !cfg?.anonKey) return null;
+  const url = cfg.url.replace(/^﻿/,'').trim();
+  const key = cfg.anonKey.replace(/^﻿/,'').trim();
+  if (!url || url.includes('YOUR_') || !key) return null;
+  try { return window.supabase.createClient(url,key); } catch(e){ return null; }
+};
+const db = _initDB();
+
+// ── Demo data (fallback sin Supabase) ────────────────────────
+const DEMO = {
+  restaurants:[
+    {id:'r1',name:'La Huaca',city:'Asunción',country:'Paraguay',status:'active',owner_name:'Carlos Gómez',owner_email:'carlos@lahuaca.com.py',owner_phone:'+595 981 123 456',onboarding_date:'2026-01-15',notes:'Cliente ancla'},
+    {id:'r2',name:'El Mercado',city:'Lambaré',country:'Paraguay',status:'active',owner_name:'Sofía Benítez',owner_email:'sofia@elmercadopy.com',owner_phone:'+595 982 200 100',onboarding_date:'2026-02-10',notes:null},
+    {id:'r3',name:'Don Julio Parrilla',city:'Asunción',country:'Paraguay',status:'trial',owner_name:'Julio Fernández',owner_email:'julio@donjulio.com.py',owner_phone:'+595 991 330 220',onboarding_date:'2026-04-20',notes:'Trial 14 días'},
+    {id:'r4',name:'Café Central',city:'Ciudad del Este',country:'Paraguay',status:'suspended',owner_name:'Andrea Sosa',owner_email:'andrea@cafecentral.py',owner_phone:'+595 985 440 330',onboarding_date:'2025-11-01',notes:'Suspendido por falta de pago'},
+  ],
+  plans:[
+    {id:'p1',name:'Starter',price_usd:29,billing_cycle:'monthly'},
+    {id:'p2',name:'Pro',price_usd:59,billing_cycle:'monthly'},
+    {id:'p3',name:'Enterprise',price_usd:119,billing_cycle:'monthly'},
+  ],
+  subscriptions:[
+    {id:'s1',restaurant_id:'r1',plan_id:'p2',status:'active',start_date:'2026-04-01',end_date:'2026-05-01',auto_renew:true,payment_method:'transferencia',plan:{name:'Pro',price_usd:59}},
+    {id:'s2',restaurant_id:'r2',plan_id:'p2',status:'active',start_date:'2026-04-10',end_date:'2026-05-10',auto_renew:true,payment_method:'tarjeta',plan:{name:'Pro',price_usd:59}},
+    {id:'s3',restaurant_id:'r3',plan_id:'p1',status:'trial',start_date:'2026-04-20',end_date:'2026-05-04',auto_renew:false,payment_method:'manual',plan:{name:'Starter',price_usd:29}},
+    {id:'s4',restaurant_id:'r4',plan_id:'p2',status:'suspended',start_date:'2025-11-01',end_date:'2026-04-30',auto_renew:false,payment_method:'transferencia',plan:{name:'Pro',price_usd:59}},
+  ],
+  orders:[
+    {id:'o1',restaurant_id:'r1',total_amount:95000,created_at:'2026-04-30T12:00:00',status:'delivered'},
+    {id:'o2',restaurant_id:'r1',total_amount:42000,created_at:'2026-04-30T13:30:00',status:'delivered'},
+    {id:'o3',restaurant_id:'r1',total_amount:78000,created_at:'2026-04-29T19:00:00',status:'delivered'},
+    {id:'o4',restaurant_id:'r2',total_amount:56000,created_at:'2026-04-30T11:00:00',status:'delivered'},
+    {id:'o5',restaurant_id:'r2',total_amount:89000,created_at:'2026-04-29T20:00:00',status:'delivered'},
+    {id:'o6',restaurant_id:'r3',total_amount:35000,created_at:'2026-04-30T12:30:00',status:'paid'},
+  ],
+  ratings:[
+    {restaurant_id:'r1',stars:5},{restaurant_id:'r1',stars:4},{restaurant_id:'r1',stars:5},
+    {restaurant_id:'r2',stars:4},{restaurant_id:'r2',stars:3},
+    {restaurant_id:'r3',stars:5},
+  ],
+  events:[
+    {id:'e1',restaurant_id:'r1',event_type:'onboarding',description:'Alta en plataforma — Plan Pro',created_at:'2026-01-15T10:00:00',restaurant:{name:'La Huaca'}},
+    {id:'e2',restaurant_id:'r1',event_type:'subscription_renewed',description:'Renovación automática — Plan Pro',created_at:'2026-04-01T08:00:00',restaurant:{name:'La Huaca'}},
+    {id:'e3',restaurant_id:'r2',event_type:'onboarding',description:'Alta en plataforma — Plan Pro',created_at:'2026-02-10T11:30:00',restaurant:{name:'El Mercado'}},
+    {id:'e4',restaurant_id:'r3',event_type:'onboarding',description:'Alta — Trial 14 días Starter',created_at:'2026-04-20T09:15:00',restaurant:{name:'Don Julio Parrilla'}},
+    {id:'e5',restaurant_id:'r4',event_type:'status_changed',description:'Cuenta suspendida por falta de pago',created_at:'2026-04-30T09:00:00',restaurant:{name:'Café Central'}},
+  ],
+};
+
+// ── Utils ────────────────────────────────────────────────────
+const daysUntil = d => {
+  if (!d) return null;
+  const diff = new Date(d) - new Date();
+  return Math.ceil(diff / 86400000);
+};
+const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+const fmtDateTime = d => d ? new Date(d).toLocaleString('es-PY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+const fmtGuarani = n => n ? `₲ ${Number(n).toLocaleString('es-PY')}` : '₲ 0';
+const fmtUSD = n => `$${Number(n).toFixed(2)}`;
+const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
+
+const daysBadge = days => {
+  if (days === null) return {label:'—', color:C.mid, bg:'#1a1a1a'};
+  if (days < 0)  return {label:'Vencido', color:C.red, bg:'#2a1010'};
+  if (days === 0) return {label:'Vence hoy', color:C.red, bg:'#2a1010'};
+  if (days <= 6) return {label:`${days}d`, color:C.red, bg:'#2a1010'};
+  if (days <= 30) return {label:`${days}d`, color:C.yellow, bg:'#2a2010'};
+  return {label:`${days}d`, color:C.green, bg:'#102a10'};
+};
+
+const statusMeta = {
+  active:    {label:'Activo',    color:C.green,  bg:'#102a10'},
+  trial:     {label:'Trial',     color:C.cyan,   bg:'#0a2030'},
+  suspended: {label:'Suspendido',color:C.red,    bg:'#2a1010'},
+  inactive:  {label:'Inactivo',  color:C.mid,    bg:'#1a1a1a'},
+  expired:   {label:'Vencido',   color:C.red,    bg:'#2a1010'},
+  cancelled: {label:'Cancelado', color:C.mid,    bg:'#1a1a1a'},
+};
+
+const eventMeta = {
+  onboarding:           {label:'Alta',        color:C.green,  icon:'🟢'},
+  subscription_renewed: {label:'Renovación',  color:C.blue,   icon:'🔄'},
+  subscription_expired: {label:'Vencimiento', color:C.red,    icon:'🔴'},
+  status_changed:       {label:'Estado',      color:C.yellow, icon:'⚡'},
+  note_added:           {label:'Nota',        color:C.mid,    icon:'📝'},
+  plan_changed:         {label:'Plan',        color:C.purple, icon:'📋'},
+};
+
+// ── Componentes base ─────────────────────────────────────────
+const Btn = ({children,onClick,variant='primary',size='md',disabled,style:sx={}}) => {
+  const base = {border:'none',borderRadius:6,fontWeight:600,cursor:disabled?'not-allowed':'pointer',opacity:disabled?.5:1,transition:'all .15s',...sx};
+  const sz = size==='sm'?{padding:'4px 10px',fontSize:12}:{padding:'8px 16px',fontSize:14};
+  const vars = {
+    primary: {background:C.blue,color:'#fff'},
+    ghost:   {background:'transparent',color:C.mid,border:`1px solid ${C.border}`},
+    danger:  {background:'#2a1010',color:C.red,border:`1px solid #3a1a1a`},
+    success: {background:'#102a10',color:C.green,border:`1px solid #1a3a1a`},
+  };
+  return <button style={{...base,...sz,...vars[variant]}} onClick={disabled?undefined:onClick}>{children}</button>;
+};
+
+const Badge = ({status}) => {
+  const m = statusMeta[status]||{label:status,color:C.mid,bg:'#1a1a1a'};
+  return <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:m.bg,color:m.color}}>{m.label}</span>;
+};
+
+const PlanBadge = ({name}) => {
+  const colors = {Starter:{c:C.cyan,bg:'#0a2030'},Pro:{c:C.blue,bg:'#1a1a3a'},Enterprise:{c:C.purple,bg:'#2a1040'}};
+  const m = colors[name]||{c:C.mid,bg:'#1a1a1a'};
+  return <span style={{padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:m.bg,color:m.c}}>{name||'—'}</span>;
+};
+
+const Kpi = ({label,value,sub,accent,icon}) => (
+  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'20px 24px',flex:1,minWidth:160}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+      <div>
+        <div style={{fontSize:12,color:C.mid,fontWeight:500,marginBottom:6}}>{label}</div>
+        <div style={{fontSize:28,fontWeight:700,color:accent||C.ink,lineHeight:1}}>{value}</div>
+        {sub && <div style={{fontSize:12,color:C.mid,marginTop:6}}>{sub}</div>}
+      </div>
+      {icon && <div style={{fontSize:24,opacity:.7}}>{icon}</div>}
+    </div>
+  </div>
+);
+
+const FlashMsg = ({msg,onClose}) => {
+  useEffect(()=>{if(msg){const t=setTimeout(onClose,3500);return()=>clearTimeout(t);}}, [msg]);
+  if(!msg) return null;
+  const color = msg.type==='error'?C.red:msg.type==='warn'?C.yellow:C.green;
+  return (
+    <div style={{position:'fixed',bottom:24,right:24,background:C.card,border:`1px solid ${color}`,borderRadius:8,padding:'12px 18px',color,fontSize:14,fontWeight:500,zIndex:9999,maxWidth:360,boxShadow:'0 8px 32px #00000080'}}>
+      {msg.text}
+      <span onClick={onClose} style={{marginLeft:12,opacity:.6,cursor:'pointer'}}>✕</span>
+    </div>
+  );
+};
+
+const Modal = ({title,onClose,children,width=520}) => (
+  <div style={{position:'fixed',inset:0,background:'#00000090',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:16}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,width:'100%',maxWidth:width,maxHeight:'90vh',overflowY:'auto',boxShadow:'0 24px 64px #00000080'}} className="animate-in">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 24px',borderBottom:`1px solid ${C.border}`}}>
+        <span style={{fontWeight:700,fontSize:16}}>{title}</span>
+        <button onClick={onClose} style={{background:'none',border:'none',color:C.mid,fontSize:20,cursor:'pointer',lineHeight:1}}>✕</button>
+      </div>
+      <div style={{padding:24}}>{children}</div>
+    </div>
+  </div>
+);
+
+const FormField = ({label,children,hint}) => (
+  <div style={{marginBottom:16}}>
+    <label style={{display:'block',fontSize:12,color:C.mid,fontWeight:600,marginBottom:6}}>{label}</label>
+    {children}
+    {hint && <div style={{fontSize:11,color:C.dim,marginTop:4}}>{hint}</div>}
+  </div>
+);
+
+const Th = ({children,style:sx={}}) => <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.5,whiteSpace:'nowrap',...sx}}>{children}</th>;
+const Td = ({children,style:sx={}}) => <td style={{padding:'12px 14px',fontSize:13,borderTop:`1px solid ${C.border}`,...sx}}>{children}</td>;
+
+const BarRow = ({label,value,max,fmt,color=C.blue}) => (
+  <div style={{marginBottom:10}}>
+    <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,fontSize:13}}>
+      <span style={{color:C.ink}}>{label}</span>
+      <span style={{color:C.mid,fontWeight:600}}>{fmt(value)}</span>
+    </div>
+    <div style={{background:C.border,borderRadius:4,height:6,overflow:'hidden'}}>
+      <div style={{background:color,height:6,borderRadius:4,width:`${Math.min(100,(value/max)*100)}%`,transition:'width .5s ease'}}/>
+    </div>
+  </div>
+);
+
+const Spinner = () => <div style={{width:24,height:24,border:`2px solid ${C.border}`,borderTop:`2px solid ${C.blue}`,borderRadius:'50%'}} className="spin"/>;
+
+// ── Analytics helpers ────────────────────────────────────────
+function buildAnalytics(restaurants, orders, ratings, subscriptions, plans) {
+  const now = new Date();
+  const ago30 = new Date(now - 30*86400000).toISOString();
+  const todayStr = now.toISOString().slice(0,10);
+
+  return restaurants.map(r => {
+    const rOrders = orders.filter(o => o.restaurant_id === r.id);
+    const recent  = rOrders.filter(o => o.created_at >= ago30);
+    const todayOrders = rOrders.filter(o => (o.created_at||'').slice(0,10) === todayStr);
+    const revenue30   = recent.reduce((s,o)=>s+(Number(o.total_amount)||0),0);
+    const rRatings    = ratings.filter(x=>x.restaurant_id===r.id).map(x=>x.stars);
+    const rSub        = subscriptions.find(s=>s.restaurant_id===r.id);
+    const plan        = rSub?.plan || (rSub ? plans.find(p=>p.id===rSub.plan_id) : null);
+    const days        = rSub ? daysUntil(rSub.end_date) : null;
+    return {
+      ...r,
+      orders30:  recent.length,
+      ordersToday: todayOrders.length,
+      revenue30,
+      avgRating: rRatings.length ? +(avg(rRatings).toFixed(1)) : null,
+      subscription: rSub,
+      plan,
+      daysLeft: days,
+    };
+  });
+}
+
+// ── Página: Plataforma (Overview) ───────────────────────────
+function PageOverview({enriched, events, plans, setFlash, reload}) {
+  const activos = enriched.filter(r=>r.status==='active').length;
+  const alertas = enriched.filter(r=>r.daysLeft!==null && r.daysLeft>=0 && r.daysLeft<=6).length;
+  const mrr     = enriched.reduce((s,r)=>s+(r.status!=='suspended'&&r.status!=='inactive'&&r.plan?Number(r.plan.price_usd):0),0);
+  const pedidosHoy = enriched.reduce((s,r)=>s+r.ordersToday,0);
+  const top = [...enriched].sort((a,b)=>b.revenue30-a.revenue30)[0];
+
+  const expirando = enriched.filter(r=>r.daysLeft!==null&&r.daysLeft>=0&&r.daysLeft<=7&&r.status!=='suspended');
+
+  return (
+    <div className="animate-in">
+      {expirando.length>0&&(
+        <div style={{background:'#1a0a0a',border:`1px solid ${C.red}40`,borderRadius:8,padding:'12px 18px',marginBottom:24,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <span style={{color:C.red,fontWeight:700,fontSize:13}}>⚠ Suscripciones por vencer</span>
+          {expirando.map(r=>(
+            <span key={r.id} style={{background:'#2a1010',border:`1px solid ${C.red}40`,borderRadius:20,padding:'3px 12px',fontSize:12,color:C.red}}>
+              {r.name} — {r.daysLeft===0?'hoy':`${r.daysLeft}d`}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div style={{display:'flex',gap:16,marginBottom:24,flexWrap:'wrap'}}>
+        <Kpi label="Restaurantes activos"  value={activos}       sub={`de ${enriched.length} totales`}   icon="🏪" />
+        <Kpi label="MRR"                   value={fmtUSD(mrr)}   sub="ingresos mensuales recurrentes"     icon="💰" accent={C.green}/>
+        <Kpi label="Pedidos hoy"           value={pedidosHoy}    sub="en todos los locales"               icon="📦" accent={C.cyan}/>
+        <Kpi label="Alertas"               value={alertas}       sub="vencen en ≤ 7 días"                 icon="🔔" accent={alertas>0?C.red:C.mid}/>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:20,alignItems:'start'}}>
+        {/* tabla resumen */}
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+          <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,fontWeight:600,fontSize:13}}>Ecosistemas — resumen rápido</div>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead style={{background:C.surface}}>
+              <tr><Th>Local</Th><Th>Plan</Th><Th>Estado</Th><Th>Días</Th><Th>Pedidos 30d</Th><Th>Rating</Th></tr>
+            </thead>
+            <tbody>
+              {enriched.map(r=>{
+                const db2 = daysBadge(r.daysLeft);
+                return (
+                  <tr key={r.id}>
+                    <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
+                    <Td><PlanBadge name={r.plan?.name}/></Td>
+                    <Td><Badge status={r.status}/></Td>
+                    <Td><span style={{color:db2.color,fontWeight:600,fontSize:12}}>{db2.label}</span></Td>
+                    <Td><span style={{fontWeight:600}}>{r.orders30}</span></Td>
+                    <Td>{r.avgRating?<span style={{color:C.yellow}}>{'★'.repeat(Math.round(r.avgRating))} {r.avgRating}</span>:<span style={{color:C.dim}}>—</span>}</Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* panel derecho */}
+        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+          {top&&(
+            <div style={{background:C.card,border:`1px solid ${C.blue}40`,borderRadius:10,padding:20}}>
+              <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:8}}>🏆 MÁS PRODUCTIVO (30 DÍAS)</div>
+              <div style={{fontSize:18,fontWeight:700,color:C.ink}}>{top.name}</div>
+              <div style={{fontSize:13,color:C.mid,marginTop:4}}>{top.city}</div>
+              <div style={{marginTop:14,display:'flex',gap:20}}>
+                <div><div style={{fontSize:11,color:C.mid}}>Ingresos</div><div style={{fontWeight:700,color:C.green,fontSize:16}}>{fmtGuarani(top.revenue30)}</div></div>
+                <div><div style={{fontSize:11,color:C.mid}}>Pedidos</div><div style={{fontWeight:700,color:C.cyan,fontSize:16}}>{top.orders30}</div></div>
+                <div><div style={{fontSize:11,color:C.mid}}>Rating</div><div style={{fontWeight:700,color:C.yellow,fontSize:16}}>{top.avgRating||'—'}</div></div>
+              </div>
+            </div>
+          )}
+
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+            <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontWeight:600,fontSize:13}}>Actividad reciente</div>
+            <div style={{maxHeight:260,overflowY:'auto'}}>
+              {events.slice(0,8).map(ev=>{
+                const m = eventMeta[ev.event_type]||{label:ev.event_type,icon:'•',color:C.mid};
+                return (
+                  <div key={ev.id} style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}20`,display:'flex',gap:10,alignItems:'flex-start'}}>
+                    <span style={{fontSize:14}}>{m.icon}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.restaurant?.name||'—'}</div>
+                      <div style={{fontSize:11,color:C.mid,marginTop:1}}>{ev.description}</div>
+                    </div>
+                    <div style={{fontSize:10,color:C.dim,whiteSpace:'nowrap'}}>{fmtDate(ev.created_at)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Página: Ecosistemas ──────────────────────────────────────
+function PageEcosistemas({enriched, plans, setFlash, reload}) {
+  const [modal, setModal] = useState(null); // null | 'create' | {edit: rest}
+  const [filter, setFilter] = useState('all');
+  const [form, setForm] = useState({name:'',city:'',country:'Paraguay',owner_name:'',owner_email:'',owner_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10)});
+  const [saving, setSaving] = useState(false);
+
+  const shown = filter==='all' ? enriched : enriched.filter(r=>r.status===filter);
+
+  const openEdit = r => {
+    setForm({name:r.name,city:r.city||'',country:r.country||'Paraguay',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10)});
+    setModal({edit:r});
+  };
+
+  const toggleStatus = async r => {
+    const next = r.status==='active'?'suspended':'active';
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    const {error} = await db.from('restaurants').update({status:next}).eq('id',r.id);
+    if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
+    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'status_changed',description:`Estado cambiado a ${next}`});
+    setFlash({type:'ok',text:`${r.name} → ${next}`});
+    reload();
+  };
+
+  const saveRestaurant = async () => {
+    if (!form.name.trim()) { setFlash({type:'error',text:'El nombre es requerido'}); return; }
+    setSaving(true);
+    try {
+      if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); setSaving(false); return; }
+      if (modal==='create') {
+        const {data:rest,error} = await db.from('restaurants')
+          .insert({name:form.name,city:form.city,country:form.country,owner_name:form.owner_name,owner_email:form.owner_email,owner_phone:form.owner_phone,status:form.status,notes:form.notes||null,onboarding_date:form.onboarding_date,timezone:'America/Asuncion'})
+          .select().single();
+        if (error) throw error;
+        if (form.plan_id) {
+          const today = new Date();
+          const end = new Date(today); end.setMonth(end.getMonth()+1);
+          await db.from('subscriptions').insert({restaurant_id:rest.id,plan_id:form.plan_id,status:form.status==='trial'?'trial':'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10)});
+        }
+        await db.from('platform_events').insert({restaurant_id:rest.id,event_type:'onboarding',description:`Alta en plataforma — ${form.status}`});
+        setFlash({type:'ok',text:`${form.name} dado de alta correctamente`});
+      } else {
+        const {error} = await db.from('restaurants').update({name:form.name,city:form.city,country:form.country,owner_name:form.owner_name,owner_email:form.owner_email,owner_phone:form.owner_phone,status:form.status,notes:form.notes||null,onboarding_date:form.onboarding_date}).eq('id',modal.edit.id);
+        if (error) throw error;
+        setFlash({type:'ok',text:`${form.name} actualizado`});
+      }
+      setModal(null); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const filterBtn = (v,label) => (
+    <button onClick={()=>setFilter(v)} style={{padding:'6px 14px',borderRadius:20,fontSize:12,fontWeight:600,border:`1px solid ${filter===v?C.blue:C.border}`,background:filter===v?C.blueDim:'transparent',color:filter===v?C.blue:C.mid,cursor:'pointer'}}>
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {filterBtn('all','Todos')} {filterBtn('active','Activos')} {filterBtn('trial','Trial')} {filterBtn('suspended','Suspendidos')}
+        </div>
+        <Btn onClick={()=>{setForm({name:'',city:'',country:'Paraguay',owner_name:'',owner_email:'',owner_phone:'',status:'active',notes:'',plan_id:plans[1]?.id||'',onboarding_date:new Date().toISOString().slice(0,10)});setModal('create')}}>+ Nuevo ecosistema</Btn>
+      </div>
+
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead style={{background:C.surface}}>
+            <tr><Th>Restaurante</Th><Th>Propietario</Th><Th>Plan</Th><Th>Estado</Th><Th>Vence</Th><Th>Pedidos 30d</Th><Th>Rating</Th><Th>Alta</Th><Th>Acciones</Th></tr>
+          </thead>
+          <tbody>
+            {shown.length===0&&<tr><Td colSpan={9} style={{textAlign:'center',color:C.dim,padding:40}}>Sin resultados</Td></tr>}
+            {shown.map(r=>{
+              const db2 = daysBadge(r.daysLeft);
+              return (
+                <tr key={r.id} style={{transition:'background .1s'}} onMouseEnter={e=>e.currentTarget.style.background=C.surface} onMouseLeave={e=>e.currentTarget.style.background=''}>
+                  <Td>
+                    <div style={{fontWeight:600,color:C.ink}}>{r.name}</div>
+                    <div style={{fontSize:11,color:C.mid}}>{r.city}, {r.country}</div>
+                  </Td>
+                  <Td>
+                    <div style={{fontSize:13}}>{r.owner_name||'—'}</div>
+                    <div style={{fontSize:11,color:C.mid}}>{r.owner_email||''}</div>
+                  </Td>
+                  <Td><PlanBadge name={r.plan?.name}/></Td>
+                  <Td><Badge status={r.status}/></Td>
+                  <Td><span style={{color:db2.color,fontWeight:600,fontSize:12,background:db2.bg,padding:'2px 8px',borderRadius:12}}>{db2.label}</span></Td>
+                  <Td style={{fontWeight:600}}>{r.orders30}</Td>
+                  <Td>{r.avgRating?<span style={{color:C.yellow}}>★ {r.avgRating}</span>:<span style={{color:C.dim}}>—</span>}</Td>
+                  <Td style={{fontSize:11,color:C.mid}}>{fmtDate(r.onboarding_date)}</Td>
+                  <Td>
+                    <div style={{display:'flex',gap:6}}>
+                      <Btn size="sm" variant="ghost" onClick={()=>openEdit(r)}>Editar</Btn>
+                      <Btn size="sm" variant={r.status==='active'?'danger':'success'} onClick={()=>toggleStatus(r)}>
+                        {r.status==='active'?'Suspender':'Activar'}
+                      </Btn>
+                    </div>
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {modal&&(
+        <Modal title={modal==='create'?'Nuevo ecosistema gastronómico':'Editar restaurante'} onClose={()=>setModal(null)}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Nombre del local *"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="Ej: La Huaca"/></FormField>
+            <FormField label="Ciudad"><input value={form.city} onChange={e=>setForm({...form,city:e.target.value})} placeholder="Asunción"/></FormField>
+            <FormField label="País"><input value={form.country} onChange={e=>setForm({...form,country:e.target.value})}/></FormField>
+            <FormField label="Estado">
+              <select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
+                <option value="active">Activo</option>
+                <option value="trial">Trial</option>
+                <option value="inactive">Inactivo</option>
+                <option value="suspended">Suspendido</option>
+              </select>
+            </FormField>
+            <FormField label="Plan de suscripción">
+              <select value={form.plan_id} onChange={e=>setForm({...form,plan_id:e.target.value})}>
+                <option value="">Sin asignar</option>
+                {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtUSD(p.price_usd)}/mes</option>)}
+              </select>
+            </FormField>
+            <FormField label="Fecha de alta"><input type="date" value={form.onboarding_date} onChange={e=>setForm({...form,onboarding_date:e.target.value})}/></FormField>
+          </div>
+          <div style={{borderTop:`1px solid ${C.border}`,marginTop:8,paddingTop:16,marginBottom:8}}>
+            <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:12,textTransform:'uppercase',letterSpacing:.5}}>Datos del propietario</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+              <FormField label="Nombre"><input value={form.owner_name} onChange={e=>setForm({...form,owner_name:e.target.value})} placeholder="Carlos Gómez"/></FormField>
+              <FormField label="Teléfono"><input value={form.owner_phone} onChange={e=>setForm({...form,owner_phone:e.target.value})} placeholder="+595 981..."/></FormField>
+              <div style={{gridColumn:'1/-1'}}>
+                <FormField label="Email"><input value={form.owner_email} onChange={e=>setForm({...form,owner_email:e.target.value})} placeholder="carlos@restaurante.com" type="email"/></FormField>
+              </div>
+            </div>
+          </div>
+          <FormField label="Notas internas"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} rows={2} placeholder="Observaciones..."/></FormField>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+            <Btn onClick={saveRestaurant} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Página: Suscripciones ────────────────────────────────────
+function PageSuscripciones({enriched, plans, setFlash, reload}) {
+  const [editModal, setEditModal] = useState(null);
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  const planTotals = plans.map(p=>{
+    const count = enriched.filter(r=>r.plan?.name===p.name&&r.status!=='suspended').length;
+    return {...p,count};
+  });
+
+  const openEdit = r => {
+    const s = r.subscription||{};
+    setForm({plan_id:s.plan_id||'',status:s.status||'active',start_date:s.start_date||'',end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',notes:s.notes||''});
+    setEditModal(r);
+  };
+
+  const saveSub = async () => {
+    setSaving(true);
+    try {
+      if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); setSaving(false); return; }
+      const sub = editModal.subscription;
+      if (sub?.id) {
+        const {error} = await db.from('subscriptions').update({plan_id:form.plan_id,status:form.status,start_date:form.start_date,end_date:form.end_date,auto_renew:form.auto_renew,payment_method:form.payment_method,notes:form.notes||null}).eq('id',sub.id);
+        if (error) throw error;
+      } else {
+        const {error} = await db.from('subscriptions').insert({restaurant_id:editModal.id,plan_id:form.plan_id,status:form.status,start_date:form.start_date,end_date:form.end_date,auto_renew:form.auto_renew,payment_method:form.payment_method,notes:form.notes||null});
+        if (error) throw error;
+      }
+      await db.from('platform_events').insert({restaurant_id:editModal.id,event_type:'plan_changed',description:`Suscripción actualizada — ${plans.find(p=>p.id===form.plan_id)?.name||form.plan_id}`});
+      setFlash({type:'ok',text:`Suscripción de ${editModal.name} actualizada`});
+      setEditModal(null); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const renew = async r => {
+    if (!r.subscription) return;
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    const end = new Date(r.subscription.end_date); end.setMonth(end.getMonth()+1);
+    const {error} = await db.from('subscriptions').update({status:'active',end_date:end.toISOString().slice(0,10)}).eq('id',r.subscription.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'subscription_renewed',description:`Renovación manual — ${r.plan?.name}`});
+    setFlash({type:'ok',text:`${r.name} renovado hasta ${fmtDate(end.toISOString())}`});
+    reload();
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:14,marginBottom:24,flexWrap:'wrap'}}>
+        {planTotals.map(p=>(
+          <div key={p.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 22px',flex:1,minWidth:140}}>
+            <PlanBadge name={p.name}/>
+            <div style={{fontSize:24,fontWeight:700,marginTop:10,color:C.ink}}>{p.count}</div>
+            <div style={{fontSize:12,color:C.mid,marginTop:2}}>activos · {fmtUSD(p.price_usd)}/mes</div>
+          </div>
+        ))}
+        <div style={{background:C.card,border:`1px solid ${C.green}40`,borderRadius:10,padding:'16px 22px',flex:1,minWidth:140}}>
+          <span style={{fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase'}}>MRR Total</span>
+          <div style={{fontSize:24,fontWeight:700,marginTop:10,color:C.green}}>
+            {fmtUSD(enriched.filter(r=>r.status!=='suspended').reduce((s,r)=>s+(r.plan?.price_usd||0),0))}
+          </div>
+          <div style={{fontSize:12,color:C.mid,marginTop:2}}>mensual recurrente</div>
+        </div>
+      </div>
+
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead style={{background:C.surface}}>
+            <tr><Th>Restaurante</Th><Th>Plan</Th><Th>Estado</Th><Th>Inicio</Th><Th>Vencimiento</Th><Th>Días restantes</Th><Th>Auto-renov.</Th><Th>Pago</Th><Th>Acciones</Th></tr>
+          </thead>
+          <tbody>
+            {enriched.map(r=>{
+              const s = r.subscription;
+              const db2 = daysBadge(r.daysLeft);
+              const totalDays = s ? Math.ceil((new Date(s.end_date)-new Date(s.start_date))/86400000) : 1;
+              const elapsed = s ? Math.ceil((new Date()-new Date(s.start_date))/86400000) : 0;
+              const pct = s ? Math.min(100,Math.max(0,(elapsed/totalDays)*100)) : 0;
+              return (
+                <tr key={r.id}>
+                  <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
+                  <Td><PlanBadge name={r.plan?.name}/></Td>
+                  <Td><Badge status={s?.status||'—'}/></Td>
+                  <Td style={{fontSize:12,color:C.mid}}>{fmtDate(s?.start_date)}</Td>
+                  <Td style={{fontSize:12,color:C.mid}}>{fmtDate(s?.end_date)}</Td>
+                  <Td>
+                    <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                      <span style={{color:db2.color,fontWeight:700,fontSize:13}}>{db2.label}</span>
+                      <div style={{background:C.border,borderRadius:3,height:4,width:100,overflow:'hidden'}}>
+                        <div style={{background:db2.color,height:4,borderRadius:3,width:`${pct}%`}}/>
+                      </div>
+                    </div>
+                  </Td>
+                  <Td><span style={{color:s?.auto_renew?C.green:C.dim,fontSize:12}}>{s?.auto_renew?'✓ Sí':'✗ No'}</span></Td>
+                  <Td style={{fontSize:12,color:C.mid,textTransform:'capitalize'}}>{s?.payment_method||'—'}</Td>
+                  <Td>
+                    <div style={{display:'flex',gap:6}}>
+                      <Btn size="sm" variant="ghost" onClick={()=>openEdit(r)}>Editar</Btn>
+                      {s&&r.daysLeft!==null&&r.daysLeft<=30&&<Btn size="sm" variant="success" onClick={()=>renew(r)}>Renovar</Btn>}
+                    </div>
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {editModal&&(
+        <Modal title={`Suscripción — ${editModal.name}`} onClose={()=>setEditModal(null)}>
+          <FormField label="Plan">
+            <select value={form.plan_id} onChange={e=>setForm({...form,plan_id:e.target.value})}>
+              {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtUSD(p.price_usd)}/mes</option>)}
+            </select>
+          </FormField>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Estado">
+              <select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
+                <option value="active">Activo</option>
+                <option value="trial">Trial</option>
+                <option value="suspended">Suspendido</option>
+                <option value="expired">Vencido</option>
+                <option value="cancelled">Cancelado</option>
+              </select>
+            </FormField>
+            <FormField label="Método de pago">
+              <select value={form.payment_method} onChange={e=>setForm({...form,payment_method:e.target.value})}>
+                <option value="manual">Manual</option>
+                <option value="transferencia">Transferencia</option>
+                <option value="tarjeta">Tarjeta</option>
+                <option value="efectivo">Efectivo</option>
+              </select>
+            </FormField>
+            <FormField label="Fecha inicio"><input type="date" value={form.start_date} onChange={e=>setForm({...form,start_date:e.target.value})}/></FormField>
+            <FormField label="Fecha vencimiento"><input type="date" value={form.end_date} onChange={e=>setForm({...form,end_date:e.target.value})}/></FormField>
+          </div>
+          <FormField label="Auto-renovar">
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <input type="checkbox" checked={form.auto_renew} onChange={e=>setForm({...form,auto_renew:e.target.checked})} style={{width:16,height:16}}/>
+              <span style={{fontSize:13,color:C.mid}}>Renovar automáticamente al vencimiento</span>
+            </div>
+          </FormField>
+          <FormField label="Notas"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} rows={2}/></FormField>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <Btn variant="ghost" onClick={()=>setEditModal(null)}>Cancelar</Btn>
+            <Btn onClick={saveSub} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Página: Analytics ────────────────────────────────────────
+function PageAnalytics({enriched, orders, ratings}) {
+  const maxRev  = Math.max(...enriched.map(r=>r.revenue30),1);
+  const maxOrd  = Math.max(...enriched.map(r=>r.orders30),1);
+  const byRev   = [...enriched].sort((a,b)=>b.revenue30-a.revenue30);
+  const byOrd   = [...enriched].sort((a,b)=>b.orders30-a.orders30);
+  const byRat   = [...enriched].filter(r=>r.avgRating).sort((a,b)=>b.avgRating-a.avgRating);
+
+  const totalOrders   = orders.length;
+  const totalRevenue  = orders.reduce((s,o)=>s+(Number(o.total_amount)||0),0);
+  const allRatings    = ratings.map(r=>r.stars);
+  const platformRating= allRatings.length ? +(avg(allRatings).toFixed(2)) : null;
+
+  const planRevenue = {};
+  enriched.forEach(r=>{ if(r.plan?.name&&r.status!=='suspended'){ planRevenue[r.plan.name]=(planRevenue[r.plan.name]||0)+(r.plan.price_usd||0); }});
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:16,marginBottom:24,flexWrap:'wrap'}}>
+        <Kpi label="Total pedidos procesados" value={totalOrders.toLocaleString('es-PY')} sub="últimos 30 días" icon="📦" accent={C.cyan}/>
+        <Kpi label="Volumen total"             value={fmtGuarani(totalRevenue)}            sub="últimos 30 días" icon="💵" accent={C.green}/>
+        <Kpi label="Rating promedio plataforma" value={platformRating?`★ ${platformRating}`:'—'} sub={`${allRatings.length} calificaciones`} icon="⭐" accent={C.yellow}/>
+        <Kpi label="Restaurantes activos"       value={enriched.filter(r=>r.status==='active').length} sub={`de ${enriched.length} totales`} icon="🏪"/>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:20,marginBottom:20}}>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
+          <div style={{fontWeight:600,fontSize:13,marginBottom:16,color:C.ink}}>Ingresos — 30 días</div>
+          {byRev.map(r=><BarRow key={r.id} label={r.name} value={r.revenue30} max={maxRev} fmt={v=>fmtGuarani(v)} color={C.green}/>)}
+          {byRev.every(r=>r.revenue30===0)&&<div style={{color:C.dim,fontSize:12,textAlign:'center',padding:20}}>Sin datos de pedidos</div>}
+        </div>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
+          <div style={{fontWeight:600,fontSize:13,marginBottom:16,color:C.ink}}>Cantidad de pedidos — 30d</div>
+          {byOrd.map(r=><BarRow key={r.id} label={r.name} value={r.orders30} max={maxOrd} fmt={v=>`${v} ped.`} color={C.blue}/>)}
+        </div>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
+          <div style={{fontWeight:600,fontSize:13,marginBottom:16,color:C.ink}}>Rating promedio</div>
+          {byRat.length>0 ? byRat.map(r=><BarRow key={r.id} label={r.name} value={r.avgRating} max={5} fmt={v=>`★ ${v}`} color={C.yellow}/>) : <div style={{color:C.dim,fontSize:12,textAlign:'center',padding:20}}>Sin calificaciones</div>}
+        </div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
+          <div style={{fontWeight:600,fontSize:13,marginBottom:16}}>MRR por plan</div>
+          {Object.entries(planRevenue).map(([name,usd])=>(
+            <div key={name} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
+              <PlanBadge name={name}/>
+              <span style={{fontWeight:700,color:C.green}}>{fmtUSD(usd)}/mes</span>
+            </div>
+          ))}
+          {Object.keys(planRevenue).length===0&&<div style={{color:C.dim,fontSize:12}}>Sin datos</div>}
+        </div>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
+          <div style={{fontWeight:600,fontSize:13,marginBottom:16}}>Desglose de suscripciones</div>
+          {['active','trial','suspended','expired'].map(st=>{
+            const count = enriched.filter(r=>r.subscription?.status===st||(!r.subscription&&st==='expired')).length;
+            const m = statusMeta[st]||{label:st,color:C.mid};
+            return (
+              <div key={st} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
+                <Badge status={st}/>
+                <span style={{fontWeight:700,fontSize:20,color:m.color}}>{count}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Página: Actividad ────────────────────────────────────────
+function PageActividad({events, restaurants, setFlash, reload}) {
+  const [filterR, setFilterR] = useState('all');
+  const [addModal, setAddModal] = useState(false);
+  const [form, setForm] = useState({restaurant_id:'',event_type:'note_added',description:''});
+  const [saving, setSaving] = useState(false);
+
+  const shown = filterR==='all' ? events : events.filter(e=>e.restaurant_id===filterR);
+
+  const addEvent = async () => {
+    if (!form.description.trim()) { setFlash({type:'error',text:'La descripción es requerida'}); return; }
+    setSaving(true);
+    try {
+      if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); setSaving(false); return; }
+      const {error} = await db.from('platform_events').insert({restaurant_id:form.restaurant_id||null,event_type:form.event_type,description:form.description});
+      if (error) throw error;
+      setFlash({type:'ok',text:'Evento registrado'}); setAddModal(false); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <select value={filterR} onChange={e=>setFilterR(e.target.value)} style={{width:'auto',minWidth:180}}>
+          <option value="all">Todos los restaurantes</option>
+          {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+        <Btn onClick={()=>{setForm({restaurant_id:'',event_type:'note_added',description:''});setAddModal(true)}}>+ Registrar evento</Btn>
+      </div>
+
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+        {shown.length===0&&<div style={{padding:48,textAlign:'center',color:C.dim}}>Sin eventos registrados</div>}
+        {shown.map((ev,i)=>{
+          const m = eventMeta[ev.event_type]||{label:ev.event_type,icon:'•',color:C.mid};
+          return (
+            <div key={ev.id} style={{padding:'16px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:14,alignItems:'flex-start'}}>
+              <div style={{width:36,height:36,borderRadius:'50%',background:C.surface,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{m.icon}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:4}}>
+                  <span style={{fontWeight:700,fontSize:13,color:C.ink}}>{ev.restaurant?.name||'Plataforma'}</span>
+                  <span style={{padding:'1px 8px',borderRadius:12,fontSize:11,fontWeight:600,background:C.surface,color:m.color,border:`1px solid ${m.color}30`}}>{m.label}</span>
+                </div>
+                <div style={{fontSize:13,color:C.mid}}>{ev.description}</div>
+              </div>
+              <div style={{fontSize:11,color:C.dim,whiteSpace:'nowrap'}}>{fmtDateTime(ev.created_at)}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {addModal&&(
+        <Modal title="Registrar evento manual" onClose={()=>setAddModal(false)}>
+          <FormField label="Restaurante">
+            <select value={form.restaurant_id} onChange={e=>setForm({...form,restaurant_id:e.target.value})}>
+              <option value="">Plataforma (sin restaurante)</option>
+              {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Tipo de evento">
+            <select value={form.event_type} onChange={e=>setForm({...form,event_type:e.target.value})}>
+              <option value="note_added">Nota interna</option>
+              <option value="status_changed">Cambio de estado</option>
+              <option value="subscription_renewed">Renovación</option>
+              <option value="plan_changed">Cambio de plan</option>
+              <option value="onboarding">Alta</option>
+            </select>
+          </FormField>
+          <FormField label="Descripción *"><textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} rows={3} placeholder="Detalle del evento..."/></FormField>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <Btn variant="ghost" onClick={()=>setAddModal(false)}>Cancelar</Btn>
+            <Btn onClick={addEvent} disabled={saving}>{saving?'Guardando…':'Registrar'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Página: Usuarios ─────────────────────────────────────────
+function PageUsuarios({restaurants, setFlash}) {
+  const [users, setUsers]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal]   = useState(null); // null | 'create'
+  const [saving, setSaving] = useState(false);
+  const [form, setForm]     = useState({username:'',display_name:'',password:'',role:'cocina',restaurant_id:''});
+
+  const ROLES = ['cocina','admin','superadmin'];
+  const ROLE_COLORS = {cocina:C.cyan, admin:C.blue, superadmin:C.purple};
+
+  const loadUsers = useCallback(async () => {
+    if (!db) { setLoading(false); return; }
+    setLoading(true);
+    const { data, error } = await db.from('user_roles').select('*').order('created_at', {ascending:false});
+    if (!error) setUsers(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadUsers(); }, [loadUsers]);
+
+  const createUser = async () => {
+    if (!form.username.trim())     { setFlash({type:'error',text:'El usuario es requerido'}); return; }
+    if (!form.display_name.trim()) { setFlash({type:'error',text:'El nombre es requerido'}); return; }
+    if (form.password.length < 8)  { setFlash({type:'error',text:'La contraseña debe tener al menos 8 caracteres'}); return; }
+    setSaving(true);
+    try {
+      // Email interno: username sanitizado (solo alfanumérico + guiones)
+      const emailUser = form.username.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+      const internalEmail = `${emailUser}@lahuaca.app`;
+
+      // Crear cuenta con cliente temporal (no pisa la sesión del superadmin)
+      const tmpClient = window.supabase.createClient(
+        db.supabaseUrl || window.SUPABASE_CONFIG.url.trim(),
+        db.supabaseKey || window.SUPABASE_CONFIG.anonKey.trim()
+      );
+      const { data: signUpData, error: signUpErr } = await tmpClient.auth.signUp({
+        email: internalEmail,
+        password: form.password,
+      });
+      if (signUpErr) throw new Error('Error al crear cuenta: ' + signUpErr.message);
+      if (!signUpData?.user?.id) throw new Error('No se obtuvo el ID del usuario nuevo');
+
+      // Asignar rol vía función SECURITY DEFINER (confirma email + inserta rol)
+      const { error: roleErr } = await db.rpc('admin_create_user', {
+        p_email:         internalEmail,
+        p_username:      form.username,
+        p_display_name:  form.display_name,
+        p_role:          form.role,
+        p_restaurant_id: form.restaurant_id || null,
+      });
+      if (roleErr) throw new Error('Error al asignar rol: ' + roleErr.message);
+
+      setFlash({type:'ok', text:`Usuario "${form.username}" creado correctamente`});
+      setModal(null);
+      setForm({username:'',display_name:'',password:'',role:'cocina',restaurant_id:''});
+      loadUsers();
+    } catch(e) { setFlash({type:'error', text: e.message}); }
+    setSaving(false);
+  };
+
+  const toggleUser = async (u) => {
+    if (!db) return;
+    const next = !u.is_active;
+    const { error } = await db.rpc('admin_toggle_user', { p_user_id: u.user_id, p_active: next });
+    if (error) { setFlash({type:'error', text: error.message}); return; }
+    setFlash({type:'ok', text:`${u.display_name || u.username} → ${next ? 'activo' : 'desactivado'}`});
+    loadUsers();
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <div style={{fontSize:13,color:C.mid}}>{users.length} usuario{users.length!==1?'s':''} registrado{users.length!==1?'s':''}</div>
+        <Btn onClick={()=>setModal('create')}>+ Nuevo usuario</Btn>
+      </div>
+
+      {!db && (
+        <div style={{background:'#1a1a0a',border:`1px solid ${C.yellow}40`,borderRadius:8,padding:'12px 18px',marginBottom:20,color:C.yellow,fontSize:13}}>
+          Sin conexión a Supabase — gestión de usuarios no disponible en modo demo
+        </div>
+      )}
+
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+        {loading
+          ? <div style={{padding:40,textAlign:'center'}}><Spinner/></div>
+          : users.length===0
+            ? <div style={{padding:48,textAlign:'center',color:C.dim}}>Sin usuarios registrados</div>
+            : (
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead style={{background:C.surface}}>
+                  <tr><Th>Usuario</Th><Th>Nombre</Th><Th>Rol</Th><Th>Restaurante</Th><Th>Estado</Th><Th>Acciones</Th></tr>
+                </thead>
+                <tbody>
+                  {users.map(u => (
+                    <tr key={u.id}>
+                      <Td><span style={{fontFamily:'monospace',fontSize:13,color:C.ink}}>{u.username||'—'}</span></Td>
+                      <Td style={{fontWeight:600}}>{u.display_name||'—'}</Td>
+                      <Td>
+                        <span style={{padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:ROLE_COLORS[u.role]+'22',color:ROLE_COLORS[u.role]||C.mid}}>
+                          {u.role}
+                        </span>
+                      </Td>
+                      <Td style={{fontSize:12,color:C.mid}}>
+                        {u.restaurant_id ? (u.restaurant_id.slice(0,8)+'…') : <span style={{color:C.dim}}>Todos</span>}
+                      </Td>
+                      <Td>
+                        <span style={{fontSize:11,fontWeight:600,color:u.is_active?C.green:C.dim}}>
+                          {u.is_active?'● Activo':'○ Inactivo'}
+                        </span>
+                      </Td>
+                      <Td>
+                        <Btn size="sm" variant={u.is_active?'danger':'success'} onClick={()=>toggleUser(u)}>
+                          {u.is_active?'Desactivar':'Activar'}
+                        </Btn>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+        }
+      </div>
+
+      {modal==='create'&&(
+        <Modal title="Nuevo usuario" onClose={()=>setModal(null)}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Usuario *" hint="Login del sistema (case-sensitive)">
+              <input value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="ej: jPerez"/>
+            </FormField>
+            <FormField label="Nombre para mostrar *">
+              <input value={form.display_name} onChange={e=>setForm({...form,display_name:e.target.value})} placeholder="ej: Juan Pérez"/>
+            </FormField>
+            <FormField label="Contraseña *" hint="Mínimo 8 caracteres">
+              <input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="••••••••"/>
+            </FormField>
+            <FormField label="Rol">
+              <select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>
+                {ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+              </select>
+            </FormField>
+            <div style={{gridColumn:'1/-1'}}>
+              <FormField label="Restaurante asignado" hint="Dejar vacío = acceso a todos los restaurantes">
+                <select value={form.restaurant_id} onChange={e=>setForm({...form,restaurant_id:e.target.value})}>
+                  <option value="">Todos los restaurantes</option>
+                  {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </FormField>
+            </div>
+          </div>
+          <div style={{background:'#0a0a14',border:`1px solid ${C.border}`,borderRadius:6,padding:'10px 14px',fontSize:12,color:C.dim,marginBottom:16}}>
+            El usuario podrá iniciar sesión en <strong style={{color:C.mid}}>{window.location.origin}/login.html</strong> con su usuario y contraseña.
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+            <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+            <Btn onClick={createUser} disabled={saving}>{saving?'Creando…':'Crear usuario'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Sidebar ──────────────────────────────────────────────────
+const NAV = [
+  {id:'overview',     label:'Plataforma',    icon:'◉'},
+  {id:'ecosistemas',  label:'Ecosistemas',   icon:'🏪'},
+  {id:'suscripciones',label:'Suscripciones', icon:'🔑'},
+  {id:'analytics',    label:'Analytics',     icon:'📊'},
+  {id:'actividad',    label:'Actividad',     icon:'📋'},
+  {id:'usuarios',     label:'Usuarios',      icon:'👥'},
+];
+
+function Sidebar({page, setPage}) {
+  return (
+    <div style={{width:220,background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',minHeight:'100vh',flexShrink:0}}>
+      <div style={{padding:'20px 18px 16px',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontWeight:800,fontSize:15,color:C.ink,letterSpacing:-.3}}>Mesa App</div>
+        <div style={{fontSize:10,fontWeight:700,color:C.blue,letterSpacing:2,marginTop:2,textTransform:'uppercase'}}>SuperAdmin</div>
+      </div>
+      <nav style={{padding:'10px 10px',flex:1}}>
+        {NAV.map(n=>{
+          const active = page===n.id;
+          return (
+            <button key={n.id} onClick={()=>setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:8,width:'100%',border:'none',background:active?C.blueDim:'transparent',color:active?C.blue:C.mid,fontWeight:active?600:400,fontSize:13,cursor:'pointer',transition:'all .15s',marginBottom:2}}>
+              <span style={{fontSize:15,width:20,textAlign:'center'}}>{n.icon}</span>
+              {n.label}
+            </button>
+          );
+        })}
+      </nav>
+      <div style={{padding:'14px 18px',borderTop:`1px solid ${C.border}`}}>
+        <div style={{fontSize:11,color:C.dim,marginBottom:6}}>Links rápidos</div>
+        {[['admin.html','Admin local'],['cocina.html','KDS cocina'],['index.html','App cliente']].map(([href,label])=>(
+          <a key={href} href={href} style={{display:'block',fontSize:12,color:C.mid,textDecoration:'none',padding:'3px 0',transition:'color .1s'}} onMouseEnter={e=>e.target.style.color=C.ink} onMouseLeave={e=>e.target.style.color=C.mid}>{label} →</a>
+        ))}
+        {db&&(
+          <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}}
+            style={{marginTop:10,width:'100%',background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,color:C.dim,fontSize:12,padding:'6px',cursor:'pointer',fontFamily:'inherit'}}>
+            Cerrar sesión
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── App principal ────────────────────────────────────────────
+function App() {
+  const [page, setPage]         = useState('overview');
+  const [loading, setLoading]   = useState(true);
+  const [flash, setFlash]       = useState(null);
+  const [offline, setOffline]   = useState(false);
+  const [rtLive, setRtLive]     = useState(false);
+  const [rawData, setRawData]   = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[]});
+
+  const loadAll = useCallback(async () => {
+    if (!db) {
+      setRawData(DEMO);
+      setOffline(true);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const ago30 = new Date(Date.now()-30*86400000).toISOString();
+      const [rests,subs,plans,events,orders,ratings] = await Promise.all([
+        db.from('restaurants').select('*').order('onboarding_date',{ascending:false}),
+        db.from('subscriptions').select('*, plan:subscription_plans(id,name,price_usd,billing_cycle)'),
+        db.from('subscription_plans').select('*').eq('is_active',true).order('price_usd'),
+        db.from('platform_events').select('*, restaurant:restaurants(name)').order('created_at',{ascending:false}).limit(50),
+        db.from('orders').select('id,restaurant_id,total_amount,created_at,status').gte('created_at',ago30),
+        db.from('ratings').select('restaurant_id,stars'),
+      ]);
+      const err = [rests,subs,plans,events,orders,ratings].find(r=>r.error);
+      if (err) throw err.error;
+      // link subscriptions plans inline for direct access
+      const subsWithPlan = (subs.data||[]).map(s=>({...s,plan:s.plan}));
+      setRawData({restaurants:rests.data||[],subscriptions:subsWithPlan,plans:plans.data||[],events:events.data||[],orders:orders.data||[],ratings:ratings.data||[]});
+    } catch(e) {
+      console.warn('Error cargando datos:',e);
+      setRawData(DEMO);
+      setOffline(true);
+      setFlash({type:'warn',text:'Sin conexión a Supabase — mostrando datos demo'});
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(()=>{ loadAll(); }, [loadAll]);
+
+  useEffect(()=>{
+    if (!db) return;
+    const channel = db.channel('superadmin-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'orders'},        loadAll)
+      .on('postgres_changes',{event:'*',schema:'public',table:'restaurants'},   loadAll)
+      .on('postgres_changes',{event:'*',schema:'public',table:'subscriptions'}, loadAll)
+      .on('postgres_changes',{event:'*',schema:'public',table:'platform_events'},loadAll)
+      .subscribe(status => setRtLive(status==='SUBSCRIBED'));
+    return ()=>{ db.removeChannel(channel); };
+  }, [loadAll]);
+
+  const {restaurants,plans,subscriptions,events,orders,ratings} = rawData;
+  const enriched = buildAnalytics(restaurants, orders, ratings, subscriptions, plans);
+
+  const pageTitles = {overview:'Plataforma',ecosistemas:'Ecosistemas',suscripciones:'Suscripciones',analytics:'Analytics',actividad:'Actividad',usuarios:'Usuarios'};
+
+  return (
+    <div style={{display:'flex',minHeight:'100vh'}}>
+      <Sidebar page={page} setPage={setPage}/>
+      <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
+        {/* Header */}
+        <div style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:'14px 28px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'sticky',top:0,zIndex:10}}>
+          <div style={{fontWeight:700,fontSize:16,color:C.ink}}>{pageTitles[page]}</div>
+          <div style={{display:'flex',alignItems:'center',gap:14}}>
+            {offline&&<span style={{fontSize:11,color:C.yellow,fontWeight:600,background:'#2a2010',padding:'3px 10px',borderRadius:12}}>● Demo offline</span>}
+            {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:'#102010',padding:'3px 10px',borderRadius:12}} className="pulse">● En vivo</span>}
+            {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:600,background:C.surface,padding:'3px 10px',borderRadius:12}}>● Conectado</span>}
+            {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
+            <button onClick={loadAll} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺ Actualizar</button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div style={{flex:1,padding:28,overflowY:'auto'}}>
+          {loading ? (
+            <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:200,gap:14}}>
+              <Spinner/><span style={{color:C.mid}}>Cargando plataforma…</span>
+            </div>
+          ) : (
+            <>
+              {page==='overview'      && <PageOverview     enriched={enriched} events={events} plans={plans} setFlash={setFlash} reload={loadAll}/>}
+              {page==='ecosistemas'   && <PageEcosistemas  enriched={enriched} plans={plans}   setFlash={setFlash} reload={loadAll}/>}
+              {page==='suscripciones' && <PageSuscripciones enriched={enriched} plans={plans} setFlash={setFlash} reload={loadAll}/>}
+              {page==='analytics'     && <PageAnalytics    enriched={enriched} orders={orders} ratings={ratings}/>}
+              {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={loadAll}/>}
+              {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
+            </>
+          )}
+        </div>
+      </div>
+      <FlashMsg msg={flash} onClose={()=>setFlash(null)}/>
+    </div>
+  );
+}
+
+// Auth guard — solo superadmin
+async function bootstrap() {
+  if (!db) { window.location.replace('login.html'); return; }
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) { window.location.replace('login.html'); return; }
+  const { data: profile } = await db.rpc('get_my_profile');
+  if (!profile || profile.role !== 'superadmin') {
+    await db.auth.signOut();
+    window.location.replace('login.html');
+    return;
+  }
+  window._userProfile = profile;
+  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+}
+bootstrap();
+</script>
+</body>
+</html>
