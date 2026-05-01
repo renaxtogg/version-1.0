@@ -5,8 +5,10 @@
   "outputDirectory": "public",
   "rewrites": [
     { "source": "/cocina", "destination": "/cocina.html" },
-    { "source": "/diag", "destination": "/diag.html" },
-    { "source": "/admin", "destination": "/admin.html" }
+    { "source": "/admin", "destination": "/admin.html" },
+    { "source": "/superadmin", "destination": "/superadmin.html" },
+    { "source": "/login", "destination": "/login.html" },
+    { "source": "/diag", "destination": "/diag.html" }
   ],
   "headers": [
     {
