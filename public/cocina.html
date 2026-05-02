@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cocina — La Huaca</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<!-- Supabase JS -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<!-- Configuración del proyecto (SUPABASE_URL + ANON_KEY) -->
 <script src="config.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
@@ -20,9 +18,10 @@
   ::-webkit-scrollbar-thumb{background:#333;border-radius:4px}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-  @keyframes ring{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+  @keyframes ring{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
   @keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
   @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-3px)}40%,80%{transform:translateX(3px)}}
 </style>
 </head>
 <body>
@@ -30,7 +29,7 @@
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
-/* ── SUPABASE CLIENT ─────────────────────── */
+/* ── SUPABASE CLIENT ─── */
 const _initDB = () => {
   const cfg = window.SUPABASE_CONFIG;
   if (!cfg || !cfg.url || !cfg.anonKey) return null;
@@ -42,17 +41,72 @@ const _initDB = () => {
 const db = _initDB();
 const RESTAURANT_ID = ((window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
 
-/* ── STATUS MAPPING ──────────────────────── */
-// Supabase → Kitchen
+/* ── STATUS MAPPING ─── */
 const toKitchenStatus = s => s === 'cooking' ? 'preparando' : s === 'ready' ? 'listo' : 'nuevo';
-// Kitchen → Supabase (on advance)
-const toSupabaseStatus = s => s === 'preparando' ? 'cooking' : s === 'listo' ? 'ready' : 'paid';
-// Kitchen next status
 const nextKitchenStatus = s => s === 'nuevo' ? 'preparando' : 'listo';
-// Supabase next status for advance
 const nextSupabaseStatus = s => s === 'nuevo' ? 'cooking' : 'ready';
 
-/* ── SUPABASE HELPERS ────────────────────── */
+/* ── SONIDO ─── */
+function playBeep(type = 'new') {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const notes = type === 'new' ? [880, 1100] : [660];
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      g.gain.setValueAtTime(0.35, ctx.currentTime + i * 0.28);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.28 + 0.35);
+      osc.start(ctx.currentTime + i * 0.28);
+      osc.stop(ctx.currentTime + i * 0.28 + 0.4);
+    });
+  } catch(e) {}
+}
+
+/* ── ALERGIAS ─── */
+const ALLERGY_KW = ['alergi','celíac','celiac','gluten','lactosa','intoler','maní','maní','nuez','marisco','camarón','creveta','soja','anafilax','sin gluten','sin lactosa'];
+function hasAllergyAlert(text) {
+  if (!text) return false;
+  const l = text.toLowerCase();
+  return ALLERGY_KW.some(k => l.includes(k));
+}
+
+/* ── URGENCIA ─── */
+function urgencyLevel(min, status) {
+  if (status === 'listo' || status === 'entregado') return 0;
+  if (min >= 30) return 3;
+  if (min >= 20) return 2;
+  if (min >= 12) return 1;
+  return 0;
+}
+const URGENCY_COLOR = [null, '#F59E0B', '#F97316', '#EF4444'];
+const URGENCY_LABEL = [null, 'DEMORADO', 'URGENTE', 'CRÍTICO'];
+
+/* ── STATS (localStorage por día) ─── */
+const TODAY_KEY = `cocina_stats_${new Date().toDateString()}`;
+function loadStats() {
+  try { return JSON.parse(localStorage.getItem(TODAY_KEY) || '{"times":[],"hourly":{}}'); }
+  catch { return { times: [], hourly: {} }; }
+}
+function recordDone(minElapsed) {
+  try {
+    const s = loadStats();
+    s.times.push(minElapsed);
+    const h = new Date().getHours();
+    s.hourly[h] = (s.hourly[h] || 0) + 1;
+    localStorage.setItem(TODAY_KEY, JSON.stringify(s));
+  } catch {}
+}
+function getStats() {
+  const s = loadStats();
+  const avg = s.times.length ? Math.round(s.times.reduce((a, b) => a + b, 0) / s.times.length) : null;
+  const peak = Object.entries(s.hourly).sort((a, b) => b[1] - a[1])[0] || null;
+  return { avg, total: s.times.length, peak: peak ? { h: parseInt(peak[0]), n: peak[1] } : null };
+}
+
+/* ── SUPABASE HELPERS ─── */
 function orderToTicket(order) {
   const created = new Date(order.created_at);
   const elapsed = Math.floor((Date.now() - created.getTime()) / 60000);
@@ -74,8 +128,7 @@ function orderToTicket(order) {
   };
 }
 
-// Evita nested selects de PostgREST que fallan con permisos de rol anon.
-// Hace 4 queries planas y combina los datos en el cliente.
+// Hace 4 queries planas y combina en cliente (evita permisos nested PostgREST con anon)
 async function dbLoadTickets() {
   if (!db) return { tickets: null, error: null };
   const { data: orders, error } = await db.from('orders')
@@ -98,14 +151,12 @@ async function dbLoadTickets() {
 
   const orderIds = orders.map(o => o.id);
   const { data: items } = await db.from('order_items')
-    .select('id,order_id,item_name,quantity,observations')
-    .in('order_id', orderIds);
+    .select('id,order_id,item_name,quantity,observations').in('order_id', orderIds);
 
   const extrasMap = {};
   if ((items || []).length > 0) {
     const { data: extras } = await db.from('order_item_extras')
-      .select('order_item_id,extra_name')
-      .in('order_item_id', items.map(i => i.id));
+      .select('order_item_id,extra_name').in('order_item_id', items.map(i => i.id));
     (extras || []).forEach(e => {
       if (!extrasMap[e.order_item_id]) extrasMap[e.order_item_id] = [];
       extrasMap[e.order_item_id].push({ extra_name: e.extra_name });
@@ -128,11 +179,11 @@ async function dbLoadTickets() {
 
 async function dbAdvanceTicket(supabaseId, currentKitchenStatus) {
   if (!db || !supabaseId) return;
-  const newSupabaseStatus = nextSupabaseStatus(currentKitchenStatus);
+  const newStatus = nextSupabaseStatus(currentKitchenStatus);
   try {
-    await db.from('orders').update({ status: newSupabaseStatus }).eq('id', supabaseId);
-    await db.from('order_status_history').insert({ order_id: supabaseId, status: newSupabaseStatus, changed_by: 'kitchen' });
-  } catch(e) { console.warn('Advance ticket error:', e); }
+    await db.from('orders').update({ status: newStatus }).eq('id', supabaseId);
+    await db.from('order_status_history').insert({ order_id: supabaseId, status: newStatus, changed_by: 'kitchen' });
+  } catch(e) { console.warn('Advance error:', e); }
 }
 
 async function dbDismissTicket(supabaseId) {
@@ -140,7 +191,7 @@ async function dbDismissTicket(supabaseId) {
   try {
     await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', supabaseId);
     await db.from('order_status_history').insert({ order_id: supabaseId, status: 'delivered', changed_by: 'kitchen' });
-  } catch(e) { console.warn('Dismiss ticket error:', e); }
+  } catch(e) { console.warn('Dismiss error:', e); }
 }
 
 /* ── PALETTE ─── */
@@ -148,130 +199,321 @@ const C = {
   bg:'#0A0A0A', surface:'#111', card:'#161616',
   border:'rgba(255,255,255,0.07)', borderStrong:'rgba(255,255,255,0.14)',
   white:'#FFF', ink:'#E8E8E8', mid:'#888', dim:'#444',
-  nuevo:'#FFFFFF', preparando:'#D4D4D4', listo:'#666',
 };
 
-/* ── DEMO TICKETS (fallback sin Supabase) ─── */
+/* ── DEMO ─── */
 const DEMO_TICKETS = [
-  { id:'T-2841', _supabaseId:null, mesa:2, tipo:'local', hora:'19:04', elapsed:18, status:'preparando',
+  { id:'T-2841', _supabaseId:null, mesa:2, tipo:'local', hora:'19:04', elapsed:22, status:'preparando',
     items:[{id:1,nombre:'Lomito completo',cant:2,extras:['Extra carne','Huevo frito'],obs:'Sin mayo en una'},{id:2,nombre:'Provoleta parrilla',cant:1,extras:[],obs:''},{id:3,nombre:'Sopa paraguaya',cant:2,extras:[],obs:'Bien caliente'}]},
   { id:'T-2842', _supabaseId:null, mesa:7, tipo:'local', hora:'19:08', elapsed:14, status:'nuevo',
-    items:[{id:4,nombre:'Clásica Comanda',cant:3,extras:['Panceta','Extra queso'],obs:'Una sin cebolla'},{id:5,nombre:'BBQ Smokey',cant:1,extras:['Jalapeños'],obs:''},{id:6,nombre:'Empanada de carne',cant:4,extras:[],obs:''}]},
+    items:[{id:4,nombre:'Clásica Comanda',cant:3,extras:['Panceta','Extra queso'],obs:'Una sin cebolla — cliente tiene ALERGIA a nuez'},{id:5,nombre:'BBQ Smokey',cant:1,extras:['Jalapeños'],obs:''},{id:6,nombre:'Empanada de carne',cant:4,extras:[],obs:''}]},
   { id:'T-2843', _supabaseId:null, mesa:1, tipo:'llevar', hora:'19:11', elapsed:11, status:'nuevo',
-    items:[{id:7,nombre:'Doble Black',cant:2,extras:['Panceta'],obs:'Bien cocida'},{id:8,nombre:'Veggie',cant:1,extras:[],obs:'Sin pepino'}]},
-  { id:'T-2840', _supabaseId:null, mesa:3, tipo:'local', hora:'18:58', elapsed:24, status:'listo',
+    items:[{id:7,nombre:'Doble Black',cant:2,extras:['Panceta'],obs:'Bien cocida'},{id:8,nombre:'Veggie',cant:1,extras:[],obs:'Sin pepino — intolerante al gluten'}]},
+  { id:'T-2840', _supabaseId:null, mesa:3, tipo:'local', hora:'18:58', elapsed:28, status:'listo',
     items:[{id:11,nombre:'Lomito americano',cant:2,extras:[],obs:''},{id:12,nombre:'Empanada de carne',cant:2,extras:['Chimichurri'],obs:''}]},
 ];
 
 /* ── HELPERS ─── */
-function elapsed(min) { if(min<60) return `${min}min`; return `${Math.floor(min/60)}h ${min%60}m`; }
-const STATUS_ORDER = ['nuevo','preparando','listo'];
-const STATUS_LABEL = {nuevo:'Nuevo',preparando:'Preparando',listo:'Listo'};
+function fmtTime(min) { if (min < 60) return `${min}m`; return `${Math.floor(min/60)}h${min%60}m`; }
+
+function sortByUrgency(tickets) {
+  return [...tickets].sort((a, b) => {
+    const ua = urgencyLevel(a.elapsed, a.status);
+    const ub = urgencyLevel(b.elapsed, b.status);
+    if (ua !== ub) return ub - ua;
+    if (a.tipo === 'llevar' && b.tipo !== 'llevar') return -1;
+    if (b.tipo === 'llevar' && a.tipo !== 'llevar') return 1;
+    return b.elapsed - a.elapsed;
+  });
+}
 
 /* ── TICKET CARD ─── */
-function TicketCard({ticket, onAdvance, onDismiss}){
-  const [time,setTime] = useState(ticket.elapsed);
-  const isUrgent = time >= 20 && ticket.status !== 'listo';
-  useEffect(()=>{ const t = setInterval(()=>setTime(v=>v+1),60000); return()=>clearInterval(t); },[]);
-  const nextStatus = STATUS_ORDER[STATUS_ORDER.indexOf(ticket.status)+1];
-  const borderColor = ticket.status==='nuevo' ? (isUrgent ? C.white : C.borderStrong) : ticket.status==='preparando' ? C.borderStrong : C.border;
-  const headerBg = ticket.status==='listo' ? '#1A1A1A' : ticket.status==='preparando' ? '#161616' : '#111';
-  return(
-    <div style={{background:C.card,border:`1.5px solid ${borderColor}`,borderRadius:14,overflow:'hidden',display:'flex',flexDirection:'column',animation:'fadeIn 300ms ease',transition:'border-color 300ms',position:'relative'}}>
-      {isUrgent && ticket.status!=='listo' && <div style={{height:2,background:C.white,animation:'pulse 1.2s ease infinite'}}/>}
-      <div style={{background:headerBg,padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,fontWeight:600,color:C.dim,letterSpacing:'0.08em'}}>{ticket.id}</div>
-          <div style={{width:1,height:14,background:C.border}}/>
-          <div style={{fontFamily:"'DM Serif Display',serif",fontSize:20,color:C.white,fontWeight:400}}>Mesa {ticket.mesa}</div>
-          <div style={{fontSize:11,fontWeight:700,background:ticket.tipo==='llevar'?'rgba(255,255,255,0.1)':'transparent',border:ticket.tipo==='llevar'?`1px solid ${C.borderStrong}`:'none',borderRadius:5,padding:ticket.tipo==='llevar'?'2px 7px':'0',color:ticket.tipo==='llevar'?C.ink:C.dim,letterSpacing:'0.06em',textTransform:'uppercase'}}>
-            {ticket.tipo==='llevar'?'Para llevar':'Local'}
-          </div>
+function TicketCard({ ticket, onAdvance, onDismiss }) {
+  const [time, setTime] = useState(ticket.elapsed);
+  useEffect(() => { const t = setInterval(() => setTime(v => v + 1), 60000); return () => clearInterval(t); }, []);
+
+  const urgency = urgencyLevel(time, ticket.status);
+  const urgColor = URGENCY_COLOR[urgency];
+  const isDone = ticket.status === 'listo' || ticket.status === 'entregado';
+  const isEntregado = ticket.status === 'entregado';
+  const nextStatus = { nuevo: 'preparando', preparando: 'listo' }[ticket.status];
+  const hasAnyAllergy = ticket.items.some(i => hasAllergyAlert(i.obs));
+
+  const borderColor = isDone
+    ? C.border
+    : urgency >= 2 ? urgColor : C.borderStrong;
+
+  return (
+    <div style={{
+      background: C.card,
+      border: `1.5px solid ${borderColor}`,
+      borderRadius: 14,
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+      animation: 'fadeIn 300ms ease',
+      transition: 'border-color 300ms',
+      opacity: isEntregado ? 0.45 : 1,
+    }}>
+      {urgency >= 1 && !isDone && (
+        <div style={{ height: 2, background: urgColor, animation: 'pulse 1.2s ease infinite' }} />
+      )}
+
+      {/* Header */}
+      <div style={{
+        background: isDone ? '#181818' : '#111',
+        padding: '10px 13px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        borderBottom: `1px solid ${C.border}`,
+        gap: 6,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, flex: 1, overflow: 'hidden' }}>
+          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, color: C.dim, letterSpacing: '0.08em', flexShrink: 0 }}>{ticket.id}</div>
+          <div style={{ width: 1, height: 12, background: C.border, flexShrink: 0 }} />
+          <div style={{ fontFamily: "'DM Serif Display',serif", fontSize: 17, color: C.white, flexShrink: 0 }}>Mesa {ticket.mesa}</div>
+          {ticket.tipo === 'llevar' && (
+            <div style={{ fontSize: 10, fontWeight: 800, background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 5, padding: '2px 6px', color: '#FBB724', letterSpacing: '0.06em', flexShrink: 0 }}>LLEVAR</div>
+          )}
+          {hasAnyAllergy && (
+            <div style={{ fontSize: 10, fontWeight: 800, background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 5, padding: '2px 6px', color: '#EF4444', letterSpacing: '0.05em', animation: 'pulse 1s ease infinite', flexShrink: 0 }}>⚠ ALERGIA</div>
+          )}
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,fontWeight:600,color:isUrgent&&ticket.status!=='listo'?C.white:C.mid,animation:isUrgent&&ticket.status!=='listo'?'pulse 1.2s ease infinite':'none'}}>{elapsed(time)}</div>
-          <div style={{fontSize:11,color:C.dim}}>{ticket.hora}</div>
-          <div style={{fontSize:11,fontWeight:800,color:ticket.status==='nuevo'?C.white:ticket.status==='preparando'?C.ink:C.dim,background:ticket.status==='nuevo'?'rgba(255,255,255,0.12)':'transparent',border:`1px solid ${ticket.status==='nuevo'?C.borderStrong:C.border}`,borderRadius:5,padding:'2px 8px',letterSpacing:'0.06em',textTransform:'uppercase'}}>{STATUS_LABEL[ticket.status]}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
+          {urgency >= 1 && !isDone && (
+            <div style={{ fontSize: 10, fontWeight: 800, color: urgColor, animation: urgency >= 2 ? 'pulse 1s ease infinite' : 'none', letterSpacing: '0.06em' }}>{URGENCY_LABEL[urgency]}</div>
+          )}
+          <div style={{
+            fontFamily: "'JetBrains Mono',monospace",
+            fontSize: 13,
+            fontWeight: 700,
+            color: isDone ? C.dim : urgColor || C.mid,
+            animation: urgency >= 2 && !isDone ? 'pulse 1.2s ease infinite' : 'none',
+          }}>{fmtTime(time)}</div>
+          <div style={{ fontSize: 10, color: C.dim }}>{ticket.hora}</div>
         </div>
       </div>
-      <div style={{padding:'8px 0',flex:1}}>
-        {ticket.items.map((item,i)=>(
-          <div key={item.id} style={{padding:'9px 16px',borderBottom:i<ticket.items.length-1?`1px solid ${C.border}`:'none'}}>
-            <div style={{display:'flex',alignItems:'baseline',gap:10}}>
-              <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:600,color:ticket.status==='listo'?C.dim:C.white,minWidth:24,flexShrink:0}}>×{item.cant}</div>
-              <div style={{flex:1}}>
-                <div style={{fontSize:14,fontWeight:700,color:ticket.status==='listo'?C.mid:C.ink,lineHeight:1.2,textDecoration:ticket.status==='listo'?'line-through':'none'}}>{item.nombre}</div>
-                {item.extras.length>0&&(
-                  <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>
-                    {item.extras.map(e=><span key={e} style={{fontSize:11,fontWeight:600,color:C.dim,background:'rgba(255,255,255,0.04)',border:`1px solid ${C.border}`,borderRadius:4,padding:'1px 6px'}}>+ {e}</span>)}
-                  </div>
-                )}
-                {item.obs&&<div style={{marginTop:4,fontSize:12,color:'#AAA',fontStyle:'italic',display:'flex',alignItems:'center',gap:5}}><span style={{fontSize:9,color:C.dim}}>●</span>{item.obs}</div>}
+
+      {/* Items */}
+      <div style={{ padding: '5px 0', flex: 1 }}>
+        {ticket.items.map((item, i) => {
+          const allergyItem = hasAllergyAlert(item.obs);
+          return (
+            <div key={item.id} style={{
+              padding: '8px 13px',
+              borderBottom: i < ticket.items.length - 1 ? `1px solid ${C.border}` : 'none',
+              background: allergyItem ? 'rgba(239,68,68,0.04)' : 'transparent',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <div style={{
+                  fontFamily: "'JetBrains Mono',monospace",
+                  fontSize: 17,
+                  fontWeight: 700,
+                  color: isDone ? C.dim : C.white,
+                  minWidth: 26,
+                  flexShrink: 0,
+                  lineHeight: 1.1,
+                  marginTop: 1,
+                }}>×{item.cant}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: isDone ? C.mid : C.ink,
+                    textDecoration: isDone ? 'line-through' : 'none',
+                    lineHeight: 1.25,
+                  }}>{item.nombre}</div>
+                  {item.extras.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+                      {item.extras.map(e => (
+                        <span key={e} style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: '#AAA',
+                          background: 'rgba(255,255,255,0.06)',
+                          border: `1px solid ${C.borderStrong}`,
+                          borderRadius: 4,
+                          padding: '2px 6px',
+                        }}>+ {e}</span>
+                      ))}
+                    </div>
+                  )}
+                  {item.obs && (
+                    <div style={{
+                      marginTop: allergyItem ? 6 : 5,
+                      fontSize: allergyItem ? 13 : 12,
+                      fontWeight: allergyItem ? 700 : 500,
+                      color: allergyItem ? '#FCA5A5' : '#BBB',
+                      fontStyle: 'italic',
+                      lineHeight: 1.45,
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 6,
+                      background: allergyItem ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.02)',
+                      borderLeft: allergyItem ? '2px solid rgba(239,68,68,0.5)' : `2px solid ${C.border}`,
+                      borderRadius: '0 5px 5px 0',
+                      padding: '5px 8px',
+                    }}>
+                      <span style={{ fontSize: 11, color: allergyItem ? '#EF4444' : C.dim, flexShrink: 0, marginTop: 1 }}>{allergyItem ? '⚠' : '○'}</span>
+                      {item.obs}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
-      <div style={{padding:'10px 14px',borderTop:`1px solid ${C.border}`,display:'flex',gap:8}}>
-        {ticket.status==='listo' ? (
-          <button onClick={()=>onDismiss(ticket)} style={{flex:1,height:36,background:'transparent',border:`1px solid ${C.border}`,borderRadius:8,color:C.dim,fontFamily:"'Plus Jakarta Sans',sans-serif",fontSize:12,fontWeight:700,cursor:'pointer',letterSpacing:'0.04em'}}>ARCHIVAR</button>
-        ) : (
-          <button onClick={()=>onAdvance(ticket)} style={{flex:1,height:36,background:nextStatus==='listo'?C.white:'rgba(255,255,255,0.08)',border:`1px solid ${nextStatus==='listo'?C.white:C.borderStrong}`,borderRadius:8,color:nextStatus==='listo'?'#0A0A0A':C.white,fontFamily:"'Plus Jakarta Sans',sans-serif",fontSize:12,fontWeight:800,cursor:'pointer',letterSpacing:'0.05em',textTransform:'uppercase',transition:'all 150ms'}}>
-            {nextStatus==='preparando'?'→ Preparando':'→ Listo'}
-          </button>
-        )}
-      </div>
+
+      {/* Acción */}
+      {!isEntregado && (
+        <div style={{ padding: '9px 12px', borderTop: `1px solid ${C.border}` }}>
+          {ticket.status === 'listo' ? (
+            <button onClick={() => onDismiss(ticket)} style={{
+              width: '100%', height: 36,
+              background: 'transparent',
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              color: C.dim,
+              fontFamily: "'Plus Jakarta Sans',sans-serif",
+              fontSize: 12, fontWeight: 700,
+              cursor: 'pointer', letterSpacing: '0.05em',
+            }}>ENTREGADO ✓</button>
+          ) : (
+            <button onClick={() => onAdvance(ticket)} style={{
+              width: '100%', height: 38,
+              background: nextStatus === 'listo'
+                ? C.white
+                : urgency >= 2 ? `${urgColor}22` : 'rgba(255,255,255,0.07)',
+              border: `1.5px solid ${nextStatus === 'listo' ? C.white : urgency >= 2 ? urgColor : C.borderStrong}`,
+              borderRadius: 8,
+              color: nextStatus === 'listo' ? '#0A0A0A' : urgency >= 2 ? urgColor : C.white,
+              fontFamily: "'Plus Jakarta Sans',sans-serif",
+              fontSize: 13, fontWeight: 800,
+              cursor: 'pointer', letterSpacing: '0.05em', textTransform: 'uppercase',
+              transition: 'all 150ms',
+            }}>
+              {nextStatus === 'preparando' ? '→ PREPARANDO' : '✓ LISTO'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 /* ── COLUMN ─── */
-function Column({title,tickets,count,onAdvance,onDismiss,accentAlpha}){
-  return(
-    <div style={{display:'flex',flexDirection:'column',gap:0,minWidth:0}}>
-      <div style={{padding:'0 0 14px',display:'flex',alignItems:'center',gap:8}}>
-        <div style={{fontSize:11,fontWeight:800,color:C.mid,letterSpacing:'0.14em',textTransform:'uppercase'}}>{title}</div>
-        {count>0&&<div style={{width:20,height:20,borderRadius:'50%',background:`rgba(255,255,255,${accentAlpha})`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,color:C.white}}>{count}</div>}
+function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0 }}>
+      <div style={{ padding: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: accent || C.mid, letterSpacing: '0.14em', textTransform: 'uppercase' }}>{title}</div>
+        {count > 0 && (
+          <div style={{ minWidth: 22, height: 20, borderRadius: 10, background: accent ? `${accent}1A` : 'rgba(255,255,255,0.06)', border: `1px solid ${accent || C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: accent || C.white, padding: '0 5px' }}>{count}</div>
+        )}
       </div>
-      <div style={{display:'flex',flexDirection:'column',gap:10,flex:1}}>
-        {tickets.length===0&&<div style={{border:`1px dashed ${C.border}`,borderRadius:14,padding:'32px 16px',textAlign:'center',color:C.dim,fontSize:13}}>Sin tickets</div>}
-        {tickets.map(t=><TicketCard key={t.id} ticket={t} onAdvance={onAdvance} onDismiss={onDismiss}/>)}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
+        {tickets.length === 0 && (
+          <div style={{ border: `1px dashed ${C.border}`, borderRadius: 14, padding: '28px 12px', textAlign: 'center', color: C.dim, fontSize: 12 }}>{emptyMsg || 'Sin tickets'}</div>
+        )}
+        {tickets.map(t => (
+          <TicketCard key={t.id} ticket={t} onAdvance={onAdvance} onDismiss={onDismiss} />
+        ))}
       </div>
     </div>
   );
 }
 
+/* ── STATS PANEL ─── */
+function StatsPanel({ tickets }) {
+  const stats = getStats();
+  const enProceso = tickets.filter(t => t.status !== 'listo').length;
+  const preparandoCount = tickets.filter(t => t.status === 'preparando').length;
+  const listoCount = tickets.filter(t => t.status === 'listo').length;
+  const bottleneck = preparandoCount > 4 ? 'en preparación' : listoCount > 3 ? 'listos sin entregar' : null;
+
+  const statBox = (label, val, sub, color) => (
+    <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', flexShrink: 0 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 5 }}>{label}</div>
+      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 22, fontWeight: 600, color: color || C.white, lineHeight: 1 }}>{val}</div>
+      {sub && <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div style={{ margin: '0 20px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+      {statBox('Tiempo promedio', stats.avg ? `${stats.avg}m` : '—', 'por pedido hoy', stats.avg >= 25 ? '#EF4444' : stats.avg >= 15 ? '#F59E0B' : '#22C55E')}
+      {statBox('Entregados hoy', stats.total || 0, 'pedidos completos', C.white)}
+      {statBox('Hora pico', stats.peak ? `${stats.peak.h}:00` : '—', stats.peak ? `${stats.peak.n} pedidos` : 'sin datos aún', '#F59E0B')}
+      {statBox('En proceso', enProceso, 'nuevo + preparando', enProceso >= 8 ? '#EF4444' : enProceso >= 5 ? '#F97316' : C.white)}
+      {bottleneck && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '11px 15px', display: 'flex', alignItems: 'center', gap: 10, animation: 'ring 2s ease infinite' }}>
+          <div style={{ fontSize: 20 }}>⚠</div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#EF4444', letterSpacing: '0.06em' }}>CUELLO DE BOTELLA</div>
+            <div style={{ fontSize: 12, color: '#FCA5A5', marginTop: 3 }}>Acumulado: {bottleneck}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── APP ─── */
-function App(){
+function App() {
   const [tickets, setTickets] = useState(db ? [] : DEMO_TICKETS);
+  const [delivered, setDelivered] = useState([]);
   const [loading, setLoading] = useState(!!db);
   const [newAlert, setNewAlert] = useState(null);
   const [dbError, setDbError] = useState(null);
+  const [soundOn, setSoundOn] = useState(true);
+  const [showStats, setShowStats] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [diag, setDiag] = useState(null);
+  const soundRef = useRef(soundOn);
+  soundRef.current = soundOn;
 
-  // Load initial tickets from Supabase
-  useEffect(()=>{
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+
+  useEffect(() => {
     if (!db) {
-      // Demo: simulate incoming ticket after 8s
-      const t = setTimeout(()=>{
-        const incoming = { id:'T-2845', _supabaseId:null, mesa:9, tipo:'local', hora:new Date().toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'}), elapsed:0, status:'nuevo',
-          items:[{id:20,nombre:'Clásica Comanda',cant:2,extras:['Panceta'],obs:''},{id:21,nombre:'Lomito simple',cant:1,extras:['Huevo frito','Queso'],obs:'Bien tostado el pan'}]
+      const t = setTimeout(() => {
+        const incoming = {
+          id: 'T-2845', _supabaseId: null, mesa: 9, tipo: 'llevar',
+          hora: new Date().toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
+          elapsed: 0, status: 'nuevo',
+          items: [
+            { id: 20, nombre: 'Clásica Comanda', cant: 2, extras: ['Panceta'], obs: '' },
+            { id: 21, nombre: 'Lomito simple', cant: 1, extras: ['Huevo frito', 'Queso'], obs: 'Bien tostado el pan' }
+          ]
         };
-        setTickets(prev=>[incoming,...prev]);
+        setTickets(prev => [incoming, ...prev]);
         setNewAlert(incoming.id);
-        setTimeout(()=>setNewAlert(null),4000);
-      },8000);
-      return ()=>clearTimeout(t);
+        if (soundRef.current) playBeep('new');
+        setTimeout(() => setNewAlert(null), 5000);
+      }, 8000);
+      return () => clearTimeout(t);
     }
 
-    // Load from Supabase + diagnóstico
     const runDiag = async () => {
       const cfg = window.SUPABASE_CONFIG || {};
       const info = { url: (cfg.url || '').slice(0, 40) || '(vacío)', restaurantId: RESTAURANT_ID };
-      // Test básico: contar TODOS los pedidos sin filtro de status
       const { data: allOrders, error: e1 } = await db.from('orders').select('id,status').eq('restaurant_id', RESTAURANT_ID);
-      if (e1) { info.error = e1.message; info.allOrders = null; }
-      else { info.allOrders = (allOrders || []).length; info.statusBreakdown = (allOrders || []).reduce((acc, o) => { acc[o.status] = (acc[o.status]||0)+1; return acc; }, {}); }
+      if (e1) { info.error = e1.message; }
+      else { info.allOrders = (allOrders || []).length; info.statusBreakdown = (allOrders || []).reduce((acc, o) => { acc[o.status] = (acc[o.status] || 0) + 1; return acc; }, {}); }
       setDiag(info);
     };
     runDiag();
@@ -282,13 +524,12 @@ function App(){
       setLoading(false);
     });
 
-    // Carga un pedido específico por id y lo agrega/actualiza en el board.
     const fetchAndAddTicket = async (orderId) => {
       try {
         const { data: ord } = await db.from('orders')
           .select('id,order_number,order_type,status,created_at,table_id')
           .eq('id', orderId).eq('restaurant_id', RESTAURANT_ID).maybeSingle();
-        if (!ord || !['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
+        if (!ord || !['paid', 'kitchen_received', 'cooking', 'ready'].includes(ord.status)) return;
         const tableMap = {};
         if (ord.table_id) {
           const { data: tbl } = await db.from('tables').select('id,number').eq('id', ord.table_id).maybeSingle();
@@ -316,18 +557,16 @@ function App(){
           return [ticket, ...prev];
         });
         setNewAlert(ticket.id);
-        setTimeout(() => setNewAlert(null), 4000);
+        if (soundRef.current) playBeep('new');
+        setTimeout(() => setNewAlert(null), 5000);
       } catch(e) { console.error('fetchAndAddTicket error:', e); }
     };
 
-    // Realtime: escuchar orders INSERT (tabla más confiable en la publicación).
-    // También escuchar order_status_history INSERT como canal secundario.
-    // Delay de 800ms en orders INSERT para que los order_items ya estén committed.
     const seenOrders = new Set();
     const channel = db.channel('cocina-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, (payload) => {
         const ord = payload.new;
-        if (!['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
+        if (!['paid', 'kitchen_received', 'cooking', 'ready'].includes(ord.status)) return;
         if (seenOrders.has(ord.id)) return;
         seenOrders.add(ord.id);
         setTimeout(() => fetchAndAddTicket(ord.id), 800);
@@ -344,13 +583,12 @@ function App(){
         if (upd.restaurant_id !== RESTAURANT_ID) return;
         if (upd.status === 'delivered' || upd.status === 'cancelled') {
           setTickets(prev => prev.filter(t => t._supabaseId !== upd.id));
-        } else if (['paid','kitchen_received','cooking','ready'].includes(upd.status)) {
+        } else if (['paid', 'kitchen_received', 'cooking', 'ready'].includes(upd.status)) {
           setTickets(prev => prev.map(t => t._supabaseId === upd.id ? { ...t, status: toKitchenStatus(upd.status) } : t));
         }
       })
       .subscribe();
 
-    // Auto-refresh cada 3s como fallback garantizado si Realtime no llega.
     const refreshInterval = setInterval(() => {
       dbLoadTickets().then(({ tickets: data, error }) => {
         if (error) setDbError(error);
@@ -366,99 +604,116 @@ function App(){
 
   const advance = async (ticket) => {
     const nextStatus = nextKitchenStatus(ticket.status);
-    // Optimistic update
     setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, status: nextStatus } : t));
-    // Persist to Supabase
     await dbAdvanceTicket(ticket._supabaseId, ticket.status);
   };
 
   const dismiss = async (ticket) => {
-    // Optimistic update
+    recordDone(ticket.elapsed);
+    setDelivered(prev => [{ ...ticket, status: 'entregado' }, ...prev].slice(0, 8));
     setTickets(prev => prev.filter(t => t.id !== ticket.id));
-    // Persist to Supabase
     await dbDismissTicket(ticket._supabaseId);
   };
 
-  const nuevos    = tickets.filter(t=>t.status==='nuevo');
-  const preparando= tickets.filter(t=>t.status==='preparando');
-  const listos    = tickets.filter(t=>t.status==='listo');
-  const urgentes  = tickets.filter(t=>t.elapsed>=20&&t.status!=='listo').length;
-  const total     = tickets.filter(t=>t.status!=='listo').length;
+  const nuevos     = sortByUrgency(tickets.filter(t => t.status === 'nuevo'));
+  const preparando = sortByUrgency(tickets.filter(t => t.status === 'preparando'));
+  const listos     = tickets.filter(t => t.status === 'listo');
+  const urgentes   = tickets.filter(t => urgencyLevel(t.elapsed, t.status) >= 2 && t.status !== 'listo').length;
+  const total      = tickets.filter(t => t.status !== 'listo').length;
 
-  return(
-    <div style={{minHeight:'100vh',background:C.bg,display:'flex',flexDirection:'column'}}>
+  return (
+    <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
+
       {/* Topbar */}
-      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'0 28px',height:56,display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0,position:'sticky',top:0,zIndex:100}}>
-        <div style={{display:'flex',alignItems:'center',gap:20}}>
-          <div style={{fontFamily:"'DM Serif Display',serif",fontSize:20,color:C.white,fontWeight:400}}>La Huaca</div>
-          <div style={{width:1,height:20,background:C.border}}/>
-          <div style={{fontSize:12,fontWeight:700,color:C.dim,letterSpacing:'0.12em',textTransform:'uppercase'}}>Cocina</div>
-          {!db && <div style={{fontSize:11,fontWeight:600,color:'#555',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.06)',borderRadius:5,padding:'2px 8px'}}>DEMO</div>}
-          {db && <div style={{display:'flex',alignItems:'center',gap:5}}>
-            <div style={{width:6,height:6,borderRadius:'50%',background:dbError?'#EF4444':'#22C55E',flexShrink:0}}/>
-            <span style={{fontSize:11,color:dbError?'#EF4444':'#555',fontWeight:600}}>{dbError?'Sin conexión DB':'DB OK'}</span>
-          </div>}
-          {urgentes>0&&(
-            <div style={{display:'flex',alignItems:'center',gap:6,background:'rgba(255,255,255,0.08)',border:`1px solid ${C.borderStrong}`,borderRadius:20,padding:'3px 10px',animation:'ring 2s ease infinite'}}>
-              <div style={{width:6,height:6,borderRadius:'50%',background:C.white,animation:'pulse 1s ease infinite'}}/>
-              <span style={{fontSize:11,fontWeight:800,color:C.white,letterSpacing:'0.06em'}}>{urgentes} URGENTE{urgentes>1?'S':''}</span>
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '0 20px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, position: 'sticky', top: 0, zIndex: 100, gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ fontFamily: "'DM Serif Display',serif", fontSize: 18, color: C.white }}>La Huaca</div>
+          <div style={{ width: 1, height: 16, background: C.border }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.dim, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Cocina</div>
+          {!db && <div style={{ fontSize: 10, fontWeight: 600, color: '#555', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 5, padding: '2px 7px' }}>DEMO</div>}
+          {db && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: dbError ? '#EF4444' : '#22C55E', flexShrink: 0 }} />
+              <span style={{ fontSize: 10, color: dbError ? '#EF4444' : '#555', fontWeight: 600 }}>{dbError ? 'Sin conexión' : 'DB OK'}</span>
+            </div>
+          )}
+          {urgentes > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 20, padding: '3px 10px', animation: 'ring 2s ease infinite' }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#EF4444', animation: 'pulse 1s ease infinite' }} />
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#EF4444', letterSpacing: '0.06em' }}>{urgentes} URGENTE{urgentes > 1 ? 'S' : ''}</span>
             </div>
           )}
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:16}}>
-          {loading && <div style={{width:16,height:16,border:'2px solid #333',borderTopColor:'#888',borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>}
-          <div style={{fontSize:12,color:C.mid}}>
-            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:15,fontWeight:600,color:C.white}}>{total}</span>{' '}en proceso
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {loading && <div style={{ width: 14, height: 14, border: '2px solid #333', borderTopColor: '#888', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
+          <div style={{ fontSize: 11, color: C.mid }}>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, fontWeight: 700, color: C.white }}>{total}</span> activos
           </div>
-          <Clock/>
-          {window._userProfile&&<span style={{fontSize:11,color:'#555',fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
-          {db&&<button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{background:'transparent',border:'1px solid #222',borderRadius:6,color:'#555',fontSize:11,padding:'4px 10px',cursor:'pointer',fontFamily:'inherit'}}>Salir</button>}
+          <Clock />
+          <div style={{ display: 'flex', gap: 5, marginLeft: 4 }}>
+            <Btn active={showStats} onClick={() => setShowStats(v => !v)} title="Estadísticas">STATS</Btn>
+            <Btn onClick={() => { const on = !soundOn; setSoundOn(on); if (on) playBeep('new'); }} title={soundOn ? 'Silenciar' : 'Activar sonido'}>
+              {soundOn ? '🔔' : '🔕'}
+            </Btn>
+            <Btn onClick={toggleFullscreen} title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}>
+              {isFullscreen ? '⊡' : '⛶'}
+            </Btn>
+          </div>
+          {window._userProfile && <span style={{ fontSize: 10, color: '#555', fontWeight: 600 }}>{window._userProfile.display_name || window._userProfile.username}</span>}
+          {db && <button onClick={async () => { await db.auth.signOut(); window.location.replace('login.html'); }} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#555', fontSize: 10, padding: '4px 9px', cursor: 'pointer', fontFamily: 'inherit' }}>Salir</button>}
         </div>
       </div>
 
       {/* Error banner */}
-      {dbError&&(
-        <div style={{margin:'12px 28px 0',background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:10,padding:'10px 16px',display:'flex',alignItems:'center',gap:10}}>
-          <div style={{width:8,height:8,borderRadius:'50%',background:'#EF4444',flexShrink:0}}/>
-          <span style={{fontSize:13,fontWeight:700,color:'#EF4444'}}>Error de conexión:</span>
-          <span style={{fontSize:12,color:'#F87171',flex:1}}>{dbError}</span>
-          <span style={{fontSize:11,color:'#888'}}>Verificá las variables de entorno en Vercel (SUPABASE_URL, SUPABASE_ANON_KEY)</span>
+      {dbError && (
+        <div style={{ margin: '10px 20px 0', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#EF4444' }}>Error DB:</span>
+          <span style={{ fontSize: 11, color: '#F87171', flex: 1 }}>{dbError}</span>
+          <span style={{ fontSize: 10, color: '#888' }}>Verificá SUPABASE_URL y SUPABASE_ANON_KEY en Vercel</span>
         </div>
       )}
 
-      {/* New ticket alert */}
-      {newAlert&&(
-        <div style={{margin:'12px 28px 0',background:'rgba(255,255,255,0.06)',border:`1px solid ${C.borderStrong}`,borderRadius:10,padding:'10px 16px',display:'flex',alignItems:'center',gap:10,animation:'slideIn 300ms ease'}}>
-          <div style={{width:8,height:8,borderRadius:'50%',background:C.white,animation:'pulse 0.8s ease infinite',flexShrink:0}}/>
-          <span style={{fontSize:13,fontWeight:700,color:C.white}}>Nuevo pedido recibido</span>
-          <span style={{fontSize:13,color:C.mid}}>— Mesa {tickets.find(t=>t.id===newAlert)?.mesa} · {tickets.find(t=>t.id===newAlert)?.items.length} items</span>
-        </div>
-      )}
+      {/* Alerta nuevo pedido */}
+      {newAlert && (() => {
+        const t = tickets.find(t => t.id === newAlert);
+        return (
+          <div style={{ margin: '10px 20px 0', background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, animation: 'slideIn 300ms ease' }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.white, animation: 'pulse 0.8s ease infinite', flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.white }}>Nuevo pedido</span>
+            {t && <span style={{ fontSize: 12, color: C.mid }}>— Mesa {t.mesa} · {t.tipo === 'llevar' ? 'Para llevar · ' : ''}{t.items.length} items</span>}
+          </div>
+        );
+      })()}
 
-      {/* Board */}
-      <div style={{flex:1,padding:'20px 28px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:20,alignItems:'start',overflowY:'auto'}}>
-        <Column title="Nuevos"     tickets={nuevos}      count={nuevos.length}      onAdvance={advance} onDismiss={dismiss} accentAlpha={0.15}/>
-        <Column title="Preparando" tickets={preparando}  count={preparando.length}  onAdvance={advance} onDismiss={dismiss} accentAlpha={0.10}/>
-        <Column title="Listos"     tickets={listos}      count={listos.length}      onAdvance={advance} onDismiss={dismiss} accentAlpha={0.06}/>
+      {/* Stats */}
+      {showStats && <div style={{ paddingTop: 14 }}><StatsPanel tickets={tickets} /></div>}
+
+      {/* Board 4 columnas */}
+      <div style={{ flex: 1, padding: '14px 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 0.8fr', gap: 14, alignItems: 'start', overflowY: 'auto' }}>
+        <Column title="Nuevo"      tickets={nuevos}     count={nuevos.length}     onAdvance={advance} onDismiss={dismiss} accent="#FFFFFF" emptyMsg="Sin pedidos nuevos" />
+        <Column title="Preparando" tickets={preparando}  count={preparando.length} onAdvance={advance} onDismiss={dismiss} accent="#D4D4D4" emptyMsg="Cocina libre" />
+        <Column title="Listo"      tickets={listos}      count={listos.length}     onAdvance={advance} onDismiss={dismiss} accent="#888888" emptyMsg="Nada listo aún" />
+        <Column title="Entregado"  tickets={delivered}   count={delivered.length}  onAdvance={advance} onDismiss={dismiss} accent="#444444" emptyMsg="Sin entregas aún" />
       </div>
 
-      {/* Panel diagnóstico — siempre visible cuando db está activo */}
+      {/* Diagnóstico */}
       {db && diag && (
-        <div style={{margin:'0 28px 24px',background:'#0D1117',border:'1px solid #222',borderRadius:10,padding:'12px 16px',fontFamily:"'JetBrains Mono',monospace",fontSize:11}}>
-          <div style={{color:'#555',marginBottom:8,fontFamily:"'Plus Jakarta Sans',sans-serif",fontSize:11,fontWeight:700,letterSpacing:'0.1em',textTransform:'uppercase'}}>Diagnóstico</div>
-          <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'4px 16px',alignItems:'start'}}>
-            <span style={{color:'#555'}}>URL:</span><span style={{color:'#888'}}>{diag.url}…</span>
-            <span style={{color:'#555'}}>Restaurant ID:</span><span style={{color:'#888'}}>{diag.restaurantId}</span>
+        <div style={{ margin: '0 20px 20px', background: '#0D1117', border: '1px solid #1A1A1A', borderRadius: 10, padding: '10px 14px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
+          <div style={{ color: '#333', marginBottom: 5, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Diagnóstico</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 14px' }}>
+            <span style={{ color: '#333' }}>URL:</span><span style={{ color: '#555' }}>{diag.url}…</span>
+            <span style={{ color: '#333' }}>Restaurant:</span><span style={{ color: '#555' }}>{diag.restaurantId}</span>
             {diag.error
-              ? <><span style={{color:'#EF4444'}}>ERROR:</span><span style={{color:'#F87171',gridColumn:'2'}}>{diag.error}</span></>
+              ? <><span style={{ color: '#EF4444' }}>ERROR:</span><span style={{ color: '#F87171' }}>{diag.error}</span></>
               : <>
-                  <span style={{color:'#555'}}>Total pedidos en DB:</span>
-                  <span style={{color: diag.allOrders > 0 ? '#22C55E' : '#F59E0B'}}>{diag.allOrders ?? '…'}{diag.allOrders === 0 ? ' — ningún pedido guardado aún' : ''}</span>
-                  {diag.statusBreakdown && Object.keys(diag.statusBreakdown).length > 0 && (
-                    <><span style={{color:'#555'}}>Por estado:</span>
-                    <span style={{color:'#888'}}>{Object.entries(diag.statusBreakdown).map(([s,n])=>`${s}: ${n}`).join(' · ')}</span></>
-                  )}
-                </>
+                <span style={{ color: '#333' }}>Pedidos DB:</span>
+                <span style={{ color: diag.allOrders > 0 ? '#22C55E' : '#F59E0B' }}>{diag.allOrders ?? '…'}{diag.allOrders === 0 ? ' — ningún pedido aún' : ''}</span>
+                {diag.statusBreakdown && Object.keys(diag.statusBreakdown).length > 0 && (
+                  <><span style={{ color: '#333' }}>Por estado:</span>
+                  <span style={{ color: '#555' }}>{Object.entries(diag.statusBreakdown).map(([s, n]) => `${s}: ${n}`).join(' · ')}</span></>
+                )}
+              </>
             }
           </div>
         </div>
@@ -467,25 +722,48 @@ function App(){
   );
 }
 
-function Clock(){
-  const [time,setTime] = useState(new Date());
-  useEffect(()=>{ const t=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(t); },[]);
-  return <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:15,fontWeight:500,color:C.mid,letterSpacing:'0.04em'}}>{time.toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</div>;
+/* ── UTILS ─── */
+function Btn({ children, onClick, title, active }) {
+  return (
+    <button onClick={onClick} title={title} style={{
+      background: active ? 'rgba(255,255,255,0.1)' : 'transparent',
+      border: `1px solid ${active ? C.borderStrong : C.border}`,
+      borderRadius: 7,
+      color: active ? C.white : C.dim,
+      padding: '5px 9px',
+      fontSize: 12,
+      fontWeight: 700,
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+      letterSpacing: '0.04em',
+      transition: 'all 120ms',
+    }}>{children}</button>
+  );
 }
 
-// Auth guard — verifica sesión antes de montar la app
+function Clock() {
+  const [time, setTime] = useState(new Date());
+  useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
+  return (
+    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, fontWeight: 500, color: C.mid, letterSpacing: '0.04em' }}>
+      {time.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+    </div>
+  );
+}
+
+/* ── AUTH GUARD ─── */
 async function bootstrap() {
   if (!db) { window.location.replace('login.html'); return; }
   const { data: { session } } = await db.auth.getSession();
   if (!session) { window.location.replace('login.html'); return; }
   const { data: profile } = await db.rpc('get_my_profile');
-  if (!profile || !['cocina','admin','superadmin'].includes(profile.role)) {
+  if (!profile || !['cocina', 'admin', 'superadmin'].includes(profile.role)) {
     await db.auth.signOut();
     window.location.replace('login.html');
     return;
   }
   window._userProfile = profile;
-  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 }
 bootstrap();
 </script>
