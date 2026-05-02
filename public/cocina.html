@@ -427,11 +427,28 @@ function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg 
 
 /* ── STATS PANEL ─── */
 function StatsPanel({ tickets }) {
-  const stats = getStats();
+  const [stats, setStats] = useState(getStats());
+  // Refresca stats cada 30s para reflejar pedidos entregados recientes
+  useEffect(() => {
+    const t = setInterval(() => setStats(getStats()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
   const enProceso = tickets.filter(t => t.status !== 'listo').length;
   const preparandoCount = tickets.filter(t => t.status === 'preparando').length;
   const listoCount = tickets.filter(t => t.status === 'listo').length;
-  const bottleneck = preparandoCount > 4 ? 'en preparación' : listoCount > 3 ? 'listos sin entregar' : null;
+  const bottleneck = preparandoCount > 4 ? 'preparando' : listoCount > 3 ? 'listos sin entregar' : null;
+
+  // Distribución de tiempos: rápido <10m, normal 10-20m, lento >20m
+  const s = loadStats();
+  const dist = { rapido: 0, normal: 0, lento: 0 };
+  (s.times || []).forEach(m => { if (m < 10) dist.rapido++; else if (m <= 20) dist.normal++; else dist.lento++; });
+  const distTotal = dist.rapido + dist.normal + dist.lento || 1;
+
+  // Gráfico de barras horario (últimas 10 horas)
+  const nowH = new Date().getHours();
+  const hours = Array.from({ length: 10 }, (_, i) => (nowH - 9 + i + 24) % 24);
+  const maxHourly = Math.max(...hours.map(h => s.hourly[h] || 0), 1);
 
   const statBox = (label, val, sub, color) => (
     <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', flexShrink: 0 }}>
@@ -442,17 +459,66 @@ function StatsPanel({ tickets }) {
   );
 
   return (
-    <div style={{ margin: '0 20px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-      {statBox('Tiempo promedio', stats.avg ? `${stats.avg}m` : '—', 'por pedido hoy', stats.avg >= 25 ? '#EF4444' : stats.avg >= 15 ? '#F59E0B' : '#22C55E')}
-      {statBox('Entregados hoy', stats.total || 0, 'pedidos completos', C.white)}
-      {statBox('Hora pico', stats.peak ? `${stats.peak.h}:00` : '—', stats.peak ? `${stats.peak.n} pedidos` : 'sin datos aún', '#F59E0B')}
+    <div style={{ margin: '0 20px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'stretch' }}>
+      {statBox('Tiempo promedio', stats.avg ? `${stats.avg}m` : '—', 'por pedido hoy', !stats.avg ? C.dim : stats.avg >= 25 ? '#EF4444' : stats.avg >= 15 ? '#F59E0B' : '#22C55E')}
+      {statBox('Entregados hoy', stats.total || 0, 'pedidos completados', C.white)}
       {statBox('En proceso', enProceso, 'nuevo + preparando', enProceso >= 8 ? '#EF4444' : enProceso >= 5 ? '#F97316' : C.white)}
+
+      {/* Distribución de tiempos */}
+      {s.times.length > 0 && (
+        <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', flexShrink: 0, minWidth: 160 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Distribución tiempos</div>
+          {[['Rápido', '< 10m', dist.rapido, '#22C55E'], ['Normal', '10–20m', dist.normal, '#F59E0B'], ['Lento', '> 20m', dist.lento, '#EF4444']].map(([lbl, rng, n, col]) => (
+            <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
+              <div style={{ fontSize: 10, color: C.dim, width: 42, flexShrink: 0 }}>{lbl}</div>
+              <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${(n / distTotal) * 100}%`, background: col, borderRadius: 3, transition: 'width 600ms ease' }} />
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: col, width: 16, textAlign: 'right', flexShrink: 0 }}>{n}</div>
+            </div>
+          ))}
+          <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>{s.times.length} pedidos registrados</div>
+        </div>
+      )}
+
+      {/* Gráfico hora pico */}
+      <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', flex: 1, minWidth: 200 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
+          Pedidos por hora
+          {stats.peak && <span style={{ marginLeft: 8, color: '#F59E0B', fontWeight: 600 }}>pico: {stats.peak.h}:00 ({stats.peak.n})</span>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 36 }}>
+          {hours.map(h => {
+            const n = s.hourly[h] || 0;
+            const pct = n / maxHourly;
+            const isCurrent = h === nowH;
+            const isPeak = stats.peak && h === stats.peak.h;
+            return (
+              <div key={h} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <div style={{
+                  width: '100%',
+                  height: `${Math.max(pct * 32, n > 0 ? 4 : 0)}px`,
+                  background: isPeak ? '#F59E0B' : isCurrent ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.15)',
+                  borderRadius: '2px 2px 0 0',
+                  transition: 'height 400ms ease',
+                  position: 'relative',
+                }}>
+                  {n > 0 && <div style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', fontSize: 9, color: isPeak ? '#F59E0B' : C.dim, fontFamily: "'JetBrains Mono',monospace", whiteSpace: 'nowrap' }}>{n}</div>}
+                </div>
+                <div style={{ fontSize: 8, color: isCurrent ? C.mid : C.dim, fontFamily: "'JetBrains Mono',monospace", marginTop: 1 }}>{h}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Cuello de botella */}
       {bottleneck && (
-        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '11px 15px', display: 'flex', alignItems: 'center', gap: 10, animation: 'ring 2s ease infinite' }}>
-          <div style={{ fontSize: 20 }}>⚠</div>
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '11px 15px', display: 'flex', alignItems: 'center', gap: 10, animation: 'ring 2s ease infinite', flexShrink: 0 }}>
+          <div style={{ fontSize: 22 }}>⚠</div>
           <div>
             <div style={{ fontSize: 11, fontWeight: 800, color: '#EF4444', letterSpacing: '0.06em' }}>CUELLO DE BOTELLA</div>
-            <div style={{ fontSize: 12, color: '#FCA5A5', marginTop: 3 }}>Acumulado: {bottleneck}</div>
+            <div style={{ fontSize: 12, color: '#FCA5A5', marginTop: 3 }}>Acumulado en {bottleneck}</div>
           </div>
         </div>
       )}
