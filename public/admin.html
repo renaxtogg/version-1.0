@@ -1196,12 +1196,18 @@ function ConfigPage({restaurant,onRefresh}) {
 
   async function save(){
     if(!db)return;setSaving(true);
-    const{error}=await db.from('restaurants').update({name:form.name,address:form.address,phone:form.phone,instagram:form.instagram,website:form.website,logo_initials:form.logo_initials,cover_image_url:form.cover_image_url||null}).eq('id',RID);
+    const upd={name:form.name,address:form.address,phone:form.phone,instagram:form.instagram,website:form.website,logo_initials:form.logo_initials};
+    if('cover_image_url' in (restaurant||{})) upd.cover_image_url=form.cover_image_url||null;
+    const{error}=await db.from('restaurants').update(upd).eq('id',RID);
     error?toast('Error: '+error.message,false):(toast('Cambios guardados — se reflejan en la app al refrescar'),onRefresh());
     setSaving(false);
   }
   async function saveHours(){
     if(!db)return;setSavingH(true);
+    if(!('opening_hours' in (restaurant||{}))){
+      toast('Columna opening_hours no existe aún — ejecutá migración 009 en Supabase',false);
+      setSavingH(false);return;
+    }
     const{error}=await db.from('restaurants').update({opening_hours:hours}).eq('id',RID);
     error?toast('Error: '+error.message,false):(toast('Horarios guardados'),onRefresh());
     setSavingH(false);
