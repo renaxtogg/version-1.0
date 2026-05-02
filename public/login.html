@@ -101,10 +101,11 @@
 
     setLoading(true);
     try {
-      // 1. Obtener email interno por username
-      const { data: email, error: emailErr } = await db.rpc('get_user_email', { p_username: username });
+      // 1. Obtener email interno por username (función SECURITY DEFINER, accesible sin auth)
+      const { data: email, error: emailErr } = await db
+        .rpc('get_user_email', { p_username: username });
       if (emailErr) throw new Error('Error de servidor: ' + emailErr.message);
-      if (!email)   throw new Error('Usuario no encontrado');
+      if (!email) throw new Error('Usuario no encontrado');
 
       // 2. Autenticar con Supabase Auth
       const { error: authErr } = await db.auth.signInWithPassword({ email, password });
