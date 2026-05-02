@@ -85,9 +85,9 @@ const URGENCY_COLOR = [null, '#F59E0B', '#F97316', '#EF4444'];
 const URGENCY_LABEL = [null, 'DEMORADO', 'URGENTE', 'CRÍTICO'];
 
 /* ── STATS (localStorage por día) ─── */
-const TODAY_KEY = `cocina_stats_${new Date().toDateString()}`;
+function todayKey() { return `cocina_stats_${new Date().toDateString()}`; }
 function loadStats() {
-  try { return JSON.parse(localStorage.getItem(TODAY_KEY) || '{"times":[],"hourly":{}}'); }
+  try { return JSON.parse(localStorage.getItem(todayKey()) || '{"times":[],"hourly":{}}'); }
   catch { return { times: [], hourly: {} }; }
 }
 function recordDone(minElapsed) {
@@ -96,7 +96,7 @@ function recordDone(minElapsed) {
     s.times.push(minElapsed);
     const h = new Date().getHours();
     s.hourly[h] = (s.hourly[h] || 0) + 1;
-    localStorage.setItem(TODAY_KEY, JSON.stringify(s));
+    localStorage.setItem(todayKey(), JSON.stringify(s));
   } catch {}
 }
 function getStats() {
@@ -203,11 +203,15 @@ const C = {
 
 /* Color por estado de columna */
 const COL_COLOR = {
-  nuevo:      '#60a5fa',   /* azul   */
-  preparando: '#fb923c',   /* naranja */
-  listo:      '#4ade80',   /* verde   */
-  entregado:  '#6b7280',   /* gris    */
+  nuevo:      '#60a5fa',
+  preparando: '#fb923c',
+  listo:      '#4ade80',
+  entregado:  '#6b7280',
 };
+
+/* Lookup tables para urgencia — evitan ternarios en cada render */
+const URGENCY_BORDER = [C.borderStrong, '#F59E0B', '#F97316', '#EF4444'];
+const URGENCY_HEADER = ['#111', 'rgba(245,158,11,0.12)', 'rgba(249,115,22,0.18)', 'rgba(239,68,68,0.22)'];
 
 /* ── DEMO ─── */
 const DEMO_TICKETS = [
@@ -247,18 +251,8 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
   const nextStatus = { nuevo: 'preparando', preparando: 'listo' }[ticket.status];
   const hasAnyAllergy = ticket.items.some(i => hasAllergyAlert(i.obs));
 
-  const borderColor = isDone
-    ? C.border
-    : urgency === 3 ? '#EF4444'
-    : urgency === 2 ? '#F97316'
-    : urgency === 1 ? '#F59E0B'
-    : C.borderStrong;
-
-  const headerBg = isEntregado ? '#181818'
-    : urgency === 3 ? 'rgba(239,68,68,0.22)'
-    : urgency === 2 ? 'rgba(249,115,22,0.18)'
-    : urgency === 1 ? 'rgba(245,158,11,0.12)'
-    : '#111';
+  const borderColor = isDone ? C.border : URGENCY_BORDER[urgency];
+  const headerBg    = isEntregado ? '#181818' : URGENCY_HEADER[urgency];
 
   return (
     <div style={{
@@ -722,8 +716,13 @@ function App() {
 
     const refreshInterval = setInterval(() => {
       dbLoadTickets().then(({ tickets: data, error }) => {
-        if (error) setDbError(error);
-        else { setDbError(null); if (data) setTickets(data); }
+        if (error) { setDbError(error); return; }
+        setDbError(null);
+        if (data) setTickets(prev => {
+          const sig = t => t.id + t.status;
+          const unchanged = prev.length === data.length && prev.every((t, i) => sig(t) === sig(data[i]));
+          return unchanged ? prev : data;
+        });
       });
     }, 3000);
 

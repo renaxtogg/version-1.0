@@ -232,8 +232,9 @@ function DashboardPage({orders,ratings}) {
   });
   const maxRev = Math.max(...last7.map(d=>d.rev),1);
 
-  // Horas pico (distribución por hora del día con todos los pedidos)
-  const hourly = Array.from({length:24},(_,h)=>orders.filter(o=>new Date(o.created_at).getHours()===h && valid(o)).length);
+  // Horas pico — un solo recorrido en lugar de 24 filter calls
+  const hourly = Array(24).fill(0);
+  orders.filter(valid).forEach(o => { hourly[new Date(o.created_at).getHours()]++; });
   const maxHour = Math.max(...hourly,1);
 
   // Top items from orders (approximate via items_count per order is not enough — use preloaded top if available)
@@ -793,22 +794,27 @@ function PersonalPage() {
 ══════════════════════════════════════════════ */
 function ClientesPage({orders}) {
   const [view,setView] = useState('todos');
-  const clientMap = useMemo(()=>{
+  const { clientMap, inactivos, frecuentes } = useMemo(()=>{
     const m={};
     orders.filter(o=>!['draft','cancelled'].includes(o.status)&&o.customer_name).forEach(o=>{
       const k=o.customer_name;
       if(!m[k])m[k]={name:k,phone:o.customer_phone||null,orders:0,total:0,lastDate:o.created_at};
       m[k].orders++;
       m[k].total+=(o.total||0);
-      if(new Date(o.created_at)>new Date(m[k].lastDate))m[k].lastDate=o.created_at;
+      // ISO strings son comparables lexicográficamente — no se necesita new Date()
+      if(o.created_at>m[k].lastDate)m[k].lastDate=o.created_at;
     });
-    return Object.values(m).sort((a,b)=>b.orders-a.orders);
+    const all=Object.values(m).sort((a,b)=>b.orders-a.orders);
+    const cutoff=new Date(Date.now()-30*864e5).toISOString();
+    return {
+      clientMap: all,
+      inactivos: all.filter(c=>c.lastDate<cutoff),
+      frecuentes: all.filter(c=>c.orders>=3),
+    };
   },[orders]);
 
   const now=Date.now();
   const INACTIVE_DAYS=30;
-  const inactivos=clientMap.filter(c=>now-new Date(c.lastDate).getTime()>INACTIVE_DAYS*864e5);
-  const frecuentes=clientMap.filter(c=>c.orders>=3);
   const displayed = view==='frecuentes'?frecuentes:view==='inactivos'?inactivos:clientMap;
 
   return (
@@ -860,29 +866,21 @@ function FinanzasPage({orders}) {
   const [egForm,setEgForm] = useState({date:new Date().toISOString().slice(0,10),desc:'',amount:'',category:'Insumos'});
 
   const valid = o => !['draft','cancelled'].includes(o.status);
-  const now = new Date();
-  function startOf(p) {
+  function periodStart(p, asString=false) {
     const d=new Date();
     if(p==='hoy'){d.setHours(0,0,0,0);}
     else if(p==='semana'){d.setDate(d.getDate()-6);d.setHours(0,0,0,0);}
     else{d.setDate(1);d.setHours(0,0,0,0);}
-    return d;
+    return asString ? d.toISOString().slice(0,10) : d;
   }
-  const start=startOf(period);
+  const start=periodStart(period);
   const periodOrders=orders.filter(o=>valid(o)&&new Date(o.created_at)>=start);
   const ingresos=periodOrders.reduce((s,o)=>s+(o.total||0),0);
   const llevarOrders=periodOrders.filter(o=>o.order_type==='llevar');
   const llevarTotal=llevarOrders.reduce((s,o)=>s+(o.total||0),0);
   const comision=Math.round(llevarTotal*(delivPct/100));
 
-  function startDate(p) {
-    const d=new Date();
-    if(p==='hoy'){d.setHours(0,0,0,0);}
-    else if(p==='semana'){d.setDate(d.getDate()-6);d.setHours(0,0,0,0);}
-    else{d.setDate(1);d.setHours(0,0,0,0);}
-    return d.toISOString().slice(0,10);
-  }
-  const egPeriod=egresos.filter(e=>e.date>=startDate(period));
+  const egPeriod=egresos.filter(e=>e.date>=periodStart(period, true));
   const egresoTotal=egPeriod.reduce((s,e)=>s+(e.amount||0),0);
   const margen=ingresos-egresoTotal-comision;
   const margenPct=ingresos>0?Math.round(margen/ingresos*100):0;
@@ -1015,9 +1013,10 @@ function MarketingPage({coupons,orders,onRefresh}) {
     const m={};
     orders.filter(o=>!['draft','cancelled'].includes(o.status)&&o.customer_name).forEach(o=>{
       const k=o.customer_name;
-      if(!m[k]||new Date(o.created_at)>new Date(m[k].last))m[k]={name:k,phone:o.customer_phone||null,last:o.created_at};
+      if(!m[k]||o.created_at>m[k].last)m[k]={name:k,phone:o.customer_phone||null,last:o.created_at};
     });
-    return Object.values(m).filter(c=>now-new Date(c.last).getTime()>30*864e5).sort((a,b)=>new Date(a.last)-new Date(b.last));
+    const cutoff=new Date(Date.now()-30*864e5).toISOString();
+    return Object.values(m).filter(c=>c.last<cutoff).sort((a,b)=>a.last<b.last?-1:1);
   },[orders]);
 
   async function addCoupon(){
