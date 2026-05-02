@@ -862,11 +862,22 @@ function PageUsuarios({restaurants, setFlash}) {
     loadUsers();
   };
 
+  const restName = id => restaurants.find(r=>r.id===id)?.name || '—';
+
   return (
     <div className="animate-in">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-        <div style={{fontSize:13,color:C.mid}}>{users.length} usuario{users.length!==1?'s':''} registrado{users.length!==1?'s':''}</div>
-        <Btn onClick={()=>setModal('create')}>+ Nuevo usuario</Btn>
+
+      {/* Header */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}>
+        <div>
+          <h2 style={{fontSize:20,fontWeight:700,color:C.ink}}>Usuarios del sistema</h2>
+          <div style={{fontSize:13,color:C.mid,marginTop:3}}>
+            {loading ? 'Cargando…' : `${users.length} usuario${users.length!==1?'s':''} registrado${users.length!==1?'s':''}`}
+          </div>
+        </div>
+        <Btn onClick={()=>{ setForm({username:'',display_name:'',password:'',role:'cocina',restaurant_id:''}); setModal('create'); }}>
+          + Nuevo usuario
+        </Btn>
       </div>
 
       {!db && (
@@ -875,81 +886,103 @@ function PageUsuarios({restaurants, setFlash}) {
         </div>
       )}
 
+      {/* Tabla */}
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-        {loading
-          ? <div style={{padding:40,textAlign:'center'}}><Spinner/></div>
-          : users.length===0
-            ? <div style={{padding:48,textAlign:'center',color:C.dim}}>Sin usuarios registrados</div>
-            : (
-              <table style={{width:'100%',borderCollapse:'collapse'}}>
-                <thead style={{background:C.surface}}>
-                  <tr><Th>Usuario</Th><Th>Nombre</Th><Th>Rol</Th><Th>Restaurante</Th><Th>Estado</Th><Th>Acciones</Th></tr>
-                </thead>
-                <tbody>
-                  {users.map(u => (
-                    <tr key={u.id}>
-                      <Td><span style={{fontFamily:'monospace',fontSize:13,color:C.ink}}>{u.username||'—'}</span></Td>
-                      <Td style={{fontWeight:600}}>{u.display_name||'—'}</Td>
-                      <Td>
-                        <span style={{padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:ROLE_COLORS[u.role]+'22',color:ROLE_COLORS[u.role]||C.mid}}>
-                          {u.role}
-                        </span>
-                      </Td>
-                      <Td style={{fontSize:12,color:C.mid}}>
-                        {u.restaurant_id ? (u.restaurant_id.slice(0,8)+'…') : <span style={{color:C.dim}}>Todos</span>}
-                      </Td>
-                      <Td>
-                        <span style={{fontSize:11,fontWeight:600,color:u.is_active?C.green:C.dim}}>
-                          {u.is_active?'● Activo':'○ Inactivo'}
-                        </span>
-                      </Td>
-                      <Td>
-                        <Btn size="sm" variant={u.is_active?'danger':'success'} onClick={()=>toggleUser(u)}>
-                          {u.is_active?'Desactivar':'Activar'}
-                        </Btn>
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )
-        }
+        {loading ? (
+          <div style={{padding:60,textAlign:'center',display:'flex',justifyContent:'center'}}><Spinner/></div>
+        ) : users.length === 0 ? (
+          <div style={{padding:60,textAlign:'center'}}>
+            <div style={{fontSize:32,marginBottom:12,opacity:.3}}>👥</div>
+            <div style={{color:C.mid,fontSize:14,fontWeight:500}}>Sin usuarios registrados</div>
+            <div style={{color:C.dim,fontSize:12,marginTop:6}}>Creá el primer usuario con el botón de arriba</div>
+          </div>
+        ) : (
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead style={{background:C.surface}}>
+              <tr>
+                <Th>Usuario</Th>
+                <Th>Nombre</Th>
+                <Th>Rol</Th>
+                <Th>Restaurante</Th>
+                <Th>Estado</Th>
+                <Th style={{textAlign:'right'}}>Acción</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id} style={{transition:'background .1s'}} onMouseEnter={e=>e.currentTarget.style.background='#1a1a24'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <Td>
+                    <div style={{fontFamily:'monospace',fontSize:13,color:C.ink,fontWeight:600}}>{u.username||'—'}</div>
+                    <div style={{fontSize:11,color:C.dim,marginTop:2}}>{u.email||''}</div>
+                  </Td>
+                  <Td style={{fontWeight:500,color:C.ink}}>{u.display_name||'—'}</Td>
+                  <Td>
+                    <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:(ROLE_COLORS[u.role]||C.mid)+'22',color:ROLE_COLORS[u.role]||C.mid}}>
+                      {u.role}
+                    </span>
+                  </Td>
+                  <Td style={{fontSize:13,color:C.mid}}>
+                    {u.restaurant_id ? restName(u.restaurant_id) : <span style={{color:C.dim,fontStyle:'italic'}}>Todos</span>}
+                  </Td>
+                  <Td>
+                    <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,fontWeight:600,color:u.is_active?C.green:C.dim}}>
+                      <span style={{width:6,height:6,borderRadius:'50%',background:u.is_active?C.green:C.dim}}/>
+                      {u.is_active?'Activo':'Inactivo'}
+                    </span>
+                  </Td>
+                  <Td style={{textAlign:'right'}}>
+                    <Btn size="sm" variant={u.is_active?'danger':'success'} onClick={()=>toggleUser(u)}>
+                      {u.is_active?'Desactivar':'Activar'}
+                    </Btn>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
-      {modal==='create'&&(
-        <Modal title="Nuevo usuario" onClose={()=>setModal(null)}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
-            <FormField label="Usuario *" hint="Login del sistema (case-sensitive)">
-              <input value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="ej: jPerez"/>
-            </FormField>
-            <FormField label="Nombre para mostrar *">
-              <input value={form.display_name} onChange={e=>setForm({...form,display_name:e.target.value})} placeholder="ej: Juan Pérez"/>
-            </FormField>
-            <FormField label="Contraseña *" hint="Mínimo 8 caracteres">
-              <input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="••••••••"/>
-            </FormField>
-            <FormField label="Rol">
-              <select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>
-                {ROLES.map(r=><option key={r} value={r}>{r}</option>)}
-              </select>
-            </FormField>
-            <div style={{gridColumn:'1/-1'}}>
+      {/* Modal crear usuario */}
+      {modal==='create' && (
+        <div style={{position:'fixed',inset:0,background:'#00000090',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:1000,padding:'40px 16px',overflowY:'auto'}} onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,width:'100%',maxWidth:520,boxShadow:'0 24px 64px #00000080'}} className="animate-in">
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 24px',borderBottom:`1px solid ${C.border}`}}>
+              <span style={{fontWeight:700,fontSize:16,color:C.ink}}>Nuevo usuario</span>
+              <button onClick={()=>setModal(null)} style={{background:'none',border:'none',color:C.mid,fontSize:20,cursor:'pointer',lineHeight:1}}>✕</button>
+            </div>
+            <div style={{padding:24,display:'flex',flexDirection:'column',gap:14}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+                <FormField label="Usuario *" hint="Login del sistema (case-sensitive)">
+                  <input value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="ej: jPerez" autoFocus/>
+                </FormField>
+                <FormField label="Nombre para mostrar *">
+                  <input value={form.display_name} onChange={e=>setForm({...form,display_name:e.target.value})} placeholder="ej: Juan Pérez"/>
+                </FormField>
+                <FormField label="Contraseña *" hint="Mínimo 8 caracteres">
+                  <input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="••••••••"/>
+                </FormField>
+                <FormField label="Rol">
+                  <select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>
+                    {ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+                  </select>
+                </FormField>
+              </div>
               <FormField label="Restaurante asignado" hint="Dejar vacío = acceso a todos los restaurantes">
                 <select value={form.restaurant_id} onChange={e=>setForm({...form,restaurant_id:e.target.value})}>
                   <option value="">Todos los restaurantes</option>
-                  {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+                  {restaurants.map(r=><option key={r.id} value={r.id}>{r.name} — {r.city}</option>)}
                 </select>
               </FormField>
+              <div style={{background:'#0d0d18',border:`1px solid ${C.border}`,borderRadius:6,padding:'10px 14px',fontSize:12,color:C.dim}}>
+                El usuario iniciará sesión en <strong style={{color:C.mid,fontFamily:'monospace'}}>{window.location.origin}/login.html</strong> con su usuario y contraseña.
+              </div>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:4}}>
+                <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+                <Btn onClick={createUser} disabled={saving}>{saving?'Creando…':'Crear usuario'}</Btn>
+              </div>
             </div>
           </div>
-          <div style={{background:'#0a0a14',border:`1px solid ${C.border}`,borderRadius:6,padding:'10px 14px',fontSize:12,color:C.dim,marginBottom:16}}>
-            El usuario podrá iniciar sesión en <strong style={{color:C.mid}}>{window.location.origin}/login.html</strong> con su usuario y contraseña.
-          </div>
-          <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
-            <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-            <Btn onClick={createUser} disabled={saving}>{saving?'Creando…':'Crear usuario'}</Btn>
-          </div>
-        </Modal>
+        </div>
       )}
     </div>
   );
