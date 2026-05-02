@@ -201,6 +201,14 @@ const C = {
   white:'#FFF', ink:'#E8E8E8', mid:'#888', dim:'#444',
 };
 
+/* Color por estado de columna */
+const COL_COLOR = {
+  nuevo:      '#60a5fa',   /* azul   */
+  preparando: '#fb923c',   /* naranja */
+  listo:      '#4ade80',   /* verde   */
+  entregado:  '#6b7280',   /* gris    */
+};
+
 /* ── DEMO ─── */
 const DEMO_TICKETS = [
   { id:'T-2841', _supabaseId:null, mesa:2, tipo:'local', hora:'19:04', elapsed:22, status:'preparando',
@@ -241,12 +249,21 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
 
   const borderColor = isDone
     ? C.border
-    : urgency >= 2 ? urgColor : C.borderStrong;
+    : urgency === 3 ? '#EF4444'
+    : urgency === 2 ? '#F97316'
+    : urgency === 1 ? '#F59E0B'
+    : C.borderStrong;
+
+  const headerBg = isEntregado ? '#181818'
+    : urgency === 3 ? 'rgba(239,68,68,0.22)'
+    : urgency === 2 ? 'rgba(249,115,22,0.18)'
+    : urgency === 1 ? 'rgba(245,158,11,0.12)'
+    : '#111';
 
   return (
     <div style={{
       background: C.card,
-      border: `1.5px solid ${borderColor}`,
+      border: `2px solid ${borderColor}`,
       borderRadius: 14,
       overflow: 'hidden',
       display: 'flex',
@@ -255,13 +272,14 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
       transition: 'border-color 300ms',
       opacity: isEntregado ? 0.45 : 1,
     }}>
-      {urgency >= 1 && !isDone && (
-        <div style={{ height: 2, background: urgColor, animation: 'pulse 1.2s ease infinite' }} />
+      {/* Barra de color urgencia arriba */}
+      {!isDone && (
+        <div style={{ height: urgency >= 1 ? 4 : 2, background: urgency >= 1 ? urgColor : 'rgba(255,255,255,0.06)', animation: urgency >= 2 ? 'pulse 1s ease infinite' : 'none' }} />
       )}
 
       {/* Header */}
       <div style={{
-        background: isDone ? '#181818' : '#111',
+        background: headerBg,
         padding: '10px 13px',
         display: 'flex',
         alignItems: 'center',
@@ -404,18 +422,32 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
 }
 
 /* ── COLUMN ─── */
-function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg }) {
+function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg, statusKey }) {
+  const col = accent || C.mid;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0 }}>
-      <div style={{ padding: '0 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontSize: 11, fontWeight: 800, color: accent || C.mid, letterSpacing: '0.14em', textTransform: 'uppercase' }}>{title}</div>
-        {count > 0 && (
-          <div style={{ minWidth: 22, height: 20, borderRadius: 10, background: accent ? `${accent}1A` : 'rgba(255,255,255,0.06)', border: `1px solid ${accent || C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: accent || C.white, padding: '0 5px' }}>{count}</div>
-        )}
+      {/* Header de columna con color distintivo */}
+      <div style={{
+        background: `${col}14`,
+        border: `1px solid ${col}30`,
+        borderRadius: 10,
+        padding: '10px 14px',
+        marginBottom: 12,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: col, flexShrink: 0 }} />
+          <div style={{ fontSize: 12, fontWeight: 800, color: col, letterSpacing: '0.14em', textTransform: 'uppercase' }}>{title}</div>
+        </div>
+        <div style={{ minWidth: 24, height: 22, borderRadius: 11, background: count > 0 ? col : 'transparent', border: count > 0 ? 'none' : `1px solid ${col}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: count > 0 ? '#000' : col, padding: '0 6px' }}>
+          {count > 0 ? count : '—'}
+        </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
         {tickets.length === 0 && (
-          <div style={{ border: `1px dashed ${C.border}`, borderRadius: 14, padding: '28px 12px', textAlign: 'center', color: C.dim, fontSize: 12 }}>{emptyMsg || 'Sin tickets'}</div>
+          <div style={{ border: `1px dashed ${col}25`, borderRadius: 14, padding: '28px 12px', textAlign: 'center', color: col, opacity: 0.35, fontSize: 12 }}>{emptyMsg || 'Sin tickets'}</div>
         )}
         {tickets.map(t => (
           <TicketCard key={t.id} ticket={t} onAdvance={onAdvance} onDismiss={onDismiss} />
@@ -590,6 +622,39 @@ function App() {
       setLoading(false);
     });
 
+    // Cargar últimas entregas (delivered en las últimas 2 horas)
+    if (db) {
+      const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      db.from('orders')
+        .select('id,order_number,order_type,status,created_at,table_id,completed_at')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .eq('status', 'delivered')
+        .gte('completed_at', since)
+        .order('completed_at', { ascending: false })
+        .limit(10)
+        .then(({ data: dOrds }) => {
+          if (!dOrds || dOrds.length === 0) return;
+          const tableIds = [...new Set(dOrds.map(o => o.table_id).filter(Boolean))];
+          const tableMap = {};
+          const fetchTables = tableIds.length > 0
+            ? db.from('tables').select('id,number').in('id', tableIds).then(({ data: t }) => { (t||[]).forEach(x => { tableMap[x.id] = x.number; }); })
+            : Promise.resolve();
+          fetchTables.then(() => {
+            const dTickets = dOrds.map(o => ({
+              id: o.order_number,
+              _supabaseId: o.id,
+              mesa: o.table_id ? (tableMap[o.table_id] || '?') : '?',
+              tipo: o.order_type === 'llevar' ? 'llevar' : 'local',
+              hora: new Date(o.completed_at || o.created_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
+              elapsed: Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000),
+              status: 'entregado',
+              items: [],
+            }));
+            setDelivered(dTickets);
+          });
+        });
+    }
+
     const fetchAndAddTicket = async (orderId) => {
       try {
         const { data: ord } = await db.from('orders')
@@ -756,11 +821,11 @@ function App() {
       {showStats && <div style={{ paddingTop: 14 }}><StatsPanel tickets={tickets} /></div>}
 
       {/* Board 4 columnas */}
-      <div style={{ flex: 1, padding: '14px 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 0.8fr', gap: 14, alignItems: 'start', overflowY: 'auto' }}>
-        <Column title="Nuevo"      tickets={nuevos}     count={nuevos.length}     onAdvance={advance} onDismiss={dismiss} accent="#FFFFFF" emptyMsg="Sin pedidos nuevos" />
-        <Column title="Preparando" tickets={preparando}  count={preparando.length} onAdvance={advance} onDismiss={dismiss} accent="#D4D4D4" emptyMsg="Cocina libre" />
-        <Column title="Listo"      tickets={listos}      count={listos.length}     onAdvance={advance} onDismiss={dismiss} accent="#888888" emptyMsg="Nada listo aún" />
-        <Column title="Entregado"  tickets={delivered}   count={delivered.length}  onAdvance={advance} onDismiss={dismiss} accent="#444444" emptyMsg="Sin entregas aún" />
+      <div style={{ flex: 1, padding: '14px 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, alignItems: 'start', overflowY: 'auto' }}>
+        <Column title="Nuevo"      tickets={nuevos}     count={nuevos.length}     onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.nuevo}      emptyMsg="Sin pedidos nuevos" />
+        <Column title="Preparando" tickets={preparando}  count={preparando.length} onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.preparando}  emptyMsg="Cocina libre" />
+        <Column title="Listo"      tickets={listos}      count={listos.length}     onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.listo}       emptyMsg="Nada listo aún" />
+        <Column title="Entregado"  tickets={delivered}   count={delivered.length}  onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.entregado}   emptyMsg="Entregas de hoy" />
       </div>
 
       {/* Diagnóstico */}
