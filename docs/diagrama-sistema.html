@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mesa App v1.0 — Diagramas del Sistema</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  :root {
+    --brand:    #7C3AED;
+    --brand-lt: #EDE9FE;
+    --green:    #059669;
+    --green-lt: #D1FAE5;
+    --blue:     #0284C7;
+    --blue-lt:  #E0F2FE;
+    --orange:   #D97706;
+    --orange-lt:#FEF3C7;
+    --red:      #DC2626;
+    --red-lt:   #FEE2E2;
+    --gray:     #6B7280;
+    --gray-lt:  #F3F4F6;
+    --dark:     #111827;
+    --border:   #E5E7EB;
+    --shadow:   0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+    --shadow-md:0 4px 12px rgba(0,0,0,.10);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #FAFAFA;
+    color: var(--dark);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  /* ─── PAGE LAYOUT ─── */
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto 40px;
+    background: white;
+    padding: 20mm 18mm;
+    box-shadow: var(--shadow-md);
+    page-break-after: always;
+  }
+
+  /* ─── COVER ─── */
+  .cover {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 297mm;
+    background: linear-gradient(145deg, #1E1B4B 0%, #4C1D95 60%, #7C3AED 100%);
+    color: white;
+    padding: 40mm 20mm;
+    text-align: center;
+  }
+  .cover .logo-box {
+    width: 80px; height: 80px;
+    border-radius: 20px;
+    background: white;
+    color: var(--brand);
+    font-size: 32px;
+    font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 28px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  }
+  .cover h1 { font-size: 36px; font-weight: 800; letter-spacing: -1px; margin-bottom: 10px; }
+  .cover .subtitle { font-size: 17px; opacity: .75; margin-bottom: 48px; }
+  .cover .meta { font-size: 13px; opacity: .55; margin-top: auto; }
+  .cover .toc {
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 12px;
+    padding: 24px 32px;
+    text-align: left;
+    width: 100%;
+    max-width: 420px;
+  }
+  .cover .toc-title { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; opacity: .55; margin-bottom: 16px; }
+  .cover .toc li { list-style: none; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.08); font-size: 14px; display: flex; gap: 12px; }
+  .cover .toc li:last-child { border-bottom: none; }
+  .cover .toc li .num { opacity: .4; font-weight: 700; font-size: 12px; min-width: 20px; }
+
+  /* ─── PAGE HEADER ─── */
+  .page-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid var(--brand-lt);
+  }
+  .page-header .icon {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+  }
+  .page-header h2 { font-size: 20px; font-weight: 700; }
+  .page-header .section-num { font-size: 11px; font-weight: 700; color: var(--brand); letter-spacing: 1px; text-transform: uppercase; }
+
+  /* ─── SECTION TITLE ─── */
+  .section-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--gray);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    margin: 22px 0 10px;
+  }
+
+  /* ─── BOXES ─── */
+  .box {
+    border-radius: 10px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    background: white;
+    box-shadow: var(--shadow);
+  }
+  .box.brand  { background: var(--brand-lt); border-color: #C4B5FD; }
+  .box.green  { background: var(--green-lt); border-color: #6EE7B7; }
+  .box.blue   { background: var(--blue-lt);  border-color: #7DD3FC; }
+  .box.orange { background: var(--orange-lt);border-color: #FCD34D; }
+  .box.red    { background: var(--red-lt);   border-color: #FCA5A5; }
+  .box.gray   { background: var(--gray-lt);  border-color: var(--border); }
+  .box.dark   { background: var(--dark); color: white; border-color: var(--dark); }
+
+  .box-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; opacity: .6; margin-bottom: 6px; }
+  .box-label { font-size: 14px; font-weight: 700; }
+  .box-sub   { font-size: 11px; color: var(--gray); margin-top: 3px; }
+
+  /* ─── FLOW (horizontal) ─── */
+  .flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .flow-item {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+    position: relative;
+  }
+  .flow-item:not(:last-child)::after {
+    content: '→';
+    position: absolute;
+    right: -10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 16px;
+    color: var(--gray);
+    z-index: 10;
+  }
+  .flow-box {
+    margin: 0 14px;
+    padding: 10px 8px;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    background: white;
+    height: 100%;
+  }
+  .flow-num {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--brand);
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 7px;
+  }
+  .flow-icon { font-size: 22px; margin-bottom: 5px; }
+  .flow-label { font-size: 11px; font-weight: 600; line-height: 1.3; }
+  .flow-desc  { font-size: 10px; color: var(--gray); margin-top: 4px; line-height: 1.3; }
+
+  /* ─── VERTICAL FLOW ─── */
+  .vflow { display: flex; flex-direction: column; gap: 0; }
+  .vflow-item { display: flex; align-items: flex-start; gap: 12px; position: relative; }
+  .vflow-item:not(:last-child) .vflow-line {
+    position: absolute;
+    left: 15px; top: 34px;
+    width: 2px; height: calc(100% + 8px);
+    background: var(--border);
+    z-index: 0;
+  }
+  .vflow-circle {
+    width: 30px; height: 30px; flex-shrink: 0;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700;
+    position: relative; z-index: 1;
+    border: 2px solid white;
+    box-shadow: 0 0 0 2px var(--border);
+  }
+  .vflow-content { flex: 1; padding-bottom: 16px; }
+  .vflow-title { font-size: 13px; font-weight: 600; }
+  .vflow-body  { font-size: 11px; color: var(--gray); margin-top: 3px; }
+
+  /* ─── STATUS BADGE ─── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .3px;
+  }
+  .badge::before { content: '●'; font-size: 7px; }
+  .badge.draft        { background: var(--gray-lt); color: var(--gray); }
+  .badge.confirmed    { background: var(--blue-lt); color: var(--blue); }
+  .badge.paid         { background: var(--green-lt); color: var(--green); }
+  .badge.kitchen      { background: #FEF9C3; color: #A16207; }
+  .badge.cooking      { background: var(--orange-lt); color: var(--orange); }
+  .badge.ready        { background: #DCFCE7; color: #166534; }
+  .badge.delivered    { background: #F3F4F6; color: #374151; }
+  .badge.cancelled    { background: var(--red-lt); color: var(--red); }
+
+  /* ─── GRID ─── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+
+  /* ─── TABLE ─── */
+  .db-table {
+    border-radius: 10px;
+    border: 1.5px solid var(--border);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    font-size: 11px;
+  }
+  .db-table-header {
+    padding: 8px 12px;
+    font-weight: 700;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .db-table-icon {
+    width: 20px; height: 20px;
+    border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px;
+    background: rgba(255,255,255,.25);
+  }
+  .db-table tbody tr { border-top: 1px solid var(--border); }
+  .db-table td { padding: 5px 12px; }
+  .db-table td:first-child { color: var(--gray); font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+  .db-table td:last-child  { color: #4B5563; font-size: 10px; }
+  .db-table .pk { color: var(--orange) !important; font-weight: 700; }
+  .db-table .fk { color: var(--blue) !important; }
+
+  /* ─── ER LINES ─── */
+  .er-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+  .er-note { font-size: 10px; color: var(--gray); margin-top: 8px; padding: 8px 12px; background: var(--gray-lt); border-radius: 8px; }
+
+  /* ─── ARCH ─── */
+  .arch-layer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin-bottom: 4px;
+  }
+  .arch-arrow {
+    text-align: center;
+    font-size: 20px;
+    color: var(--gray);
+    line-height: 1.2;
+    margin: 0;
+    font-weight: 300;
+  }
+  .arch-label { font-size: 11px; font-weight: 700; min-width: 90px; }
+  .arch-desc  { font-size: 11px; color: var(--gray); }
+  .arch-tags  { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .arch-tag   {
+    font-size: 10px; font-weight: 600;
+    background: rgba(255,255,255,.5);
+    border: 1px solid rgba(0,0,0,.1);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+
+  /* ─── KANBAN ─── */
+  .kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .kanban-col-header {
+    border-radius: 8px 8px 0 0;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+  }
+  .kanban-col-body {
+    border: 1.5px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    padding: 8px;
+    background: white;
+    min-height: 120px;
+  }
+  .kanban-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    box-shadow: var(--shadow);
+    font-size: 11px;
+  }
+  .kanban-card .card-num { font-weight: 700; font-size: 13px; }
+  .kanban-card .card-items { color: var(--gray); margin-top: 3px; }
+  .kanban-card .card-time { font-size: 10px; color: var(--gray); margin-top: 4px; }
+  .kanban-card .card-btn {
+    display: inline-block;
+    margin-top: 7px;
+    padding: 3px 10px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: default;
+  }
+
+  /* ─── STATUS FLOW ─── */
+  .status-flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .status-node {
+    flex-shrink: 0;
+    text-align: center;
+    padding: 0 4px;
+  }
+  .status-box {
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1.5px solid;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .status-sub { font-size: 9px; margin-top: 3px; color: var(--gray); }
+  .status-arrow { font-size: 16px; color: var(--gray); flex-shrink: 0; margin: 0 2px; line-height: 1; }
+
+  /* ─── LEGEND ─── */
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--gray); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+  /* ─── TECH STACK ─── */
+  .tech-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: stretch; }
+  .tech-layer-label {
+    width: 80px; flex-shrink: 0;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px;
+    color: var(--gray);
+    display: flex; align-items: center;
+    padding-right: 8px;
+    border-right: 2px solid var(--border);
+  }
+  .tech-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 6px 12px; }
+  .tech-chip {
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1.5px solid;
+  }
+
+  /* ─── FOOTER ─── */
+  .page-footer {
+    margin-top: 28px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--gray);
+  }
+
+  /* ─── PRINT ─── */
+  @media print {
+    body { background: white; }
+    .page { box-shadow: none; margin: 0; }
+    @page { size: A4; margin: 0; }
+    .no-print { display: none; }
+  }
+  @media screen {
+    body { padding: 30px 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- COVER                                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page cover">
+  <div class="logo-box">LA</div>
+  <h1>Mesa App v1.0</h1>
+  <p class="subtitle">Diagramas del Sistema — Arquitectura, Flujos y Base de Datos</p>
+
+  <ul class="toc">
+    <div class="toc-title">Contenido</div>
+    <li><span class="num">01</span>Arquitectura General del Sistema</li>
+    <li><span class="num">02</span>Flujo del Cliente — App QR para pedir</li>
+    <li><span class="num">03</span>Flujo de la Cocina — KDS Kanban</li>
+    <li><span class="num">04</span>Ciclo de vida de un pedido (Status Flow)</li>
+    <li><span class="num">05</span>Base de Datos — Esquema ER</li>
+    <li><span class="num">06</span>Detalle de tablas principales</li>
+    <li><span class="num">07</span>Stack Técnico y Seguridad</li>
+  </ul>
+
+  <p class="meta" style="margin-top:40px">
+    La Huaca · Asunción, Paraguay · Moneda: ₲ Guaraní · Abril 2026
+  </p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- 01 — ARQUITECTURA GENERAL                                  -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="icon" style="background:var(--brand-lt);font-size:20px">🏗️</div>
+    <div>
+      <div class="section-num">01</div>
+      <h2>Arquitectura General del Sistema</h2>
+    </div>
+  </div>
+
+  <!-- Three pillars -->
+  <div class="section-title">Capas del sistema</div>
+  <div style="display:grid;grid-template-columns:1fr 40px 1fr 40px 1fr;gap:0;align-items:center;margin-bottom:24px">
+    <!-- Capa cliente -->
+    <div class="box blue" style="padding:16px">
+      <div class="box-title" style="color:var(--blue)">🖥️ Cliente / Browser</div>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+        <div style="background:white;border-radius:6px;padding:7px 10px;font-size:11px;border:1px solid #BAE6FD">
+          <strong>index.html</strong><br><span style="color:var(--gray)">App QR del cliente · 8 pantallas</span>
+        </div>
+        <div style="background:white;border-radius:6px;padding:7px 10px;font-size:11px;border:1px solid #BAE6FD">
+          <strong>cocina.html</strong><br><span style="color:var(--gray)">KDS cocina · Kanban</span>
+        </div>
+        <div style="background:white;border-radius:6px;padding:7px 10px;font-size:11px;border:1px solid #BAE6FD">
+          <strong>admin.html</strong><br><span style="color:var(--gray)">Panel de administración</span>
+        </div>
+      </div>
+      <div class="arch-tags" style="margin-top:10px">
+        <span class="arch-tag">React 18 CDN</span>
+        <span class="arch-tag">Babel Standalone</span>
+        <span class="arch-tag">CSS-in-JS</span>
+      </div>
+    </div>
+
+    <div style="text-align:center;font-size:22px;color:var(--gray)">⟷</div>
+
+    <!-- Capa hosting -->
+    <div class="box brand" style="padding:16px">
+      <div class="box-title" style="color:var(--brand)">⚡ Vercel CDN</div>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+        <div style="background:white;border-radius:6px;padding:7px 10px;font-size:11px;border:1px solid #C4B5FD">
+          <strong>Deploy estático</strong><br><span style="color:var(--gray)">public/ → CDN global</span>
+        </div>
+        <div style="background:white;border-radius:6px;padding:7px 10px;font-size:11px;border:1px solid #C4B5FD">
+          <strong>build.sh</strong><br><span style="color:var(--gray)">Inyecta config.js desde env vars</span>
+        </div>
+        <div style="background:white;border-radius:6px;padding:7px 10px;font-size:11px;border:1px solid #C4B5FD">
+          <strong>HTTPS automático</strong><br><span style="color:var(--gray)">SSL · Headers de seguridad</span>
+        </div>
+      </div>
+      <div class="arch-tags" style="margin-top:10px">
+        <span class="arch-tag">CI/CD via GitHub</span>
+        <span class="arch-tag">Env Vars seguras</span>
+      </div>
+    </div>
+
+    <div style="text-align:center;font-size:22px;color:var(--gray)">⟷</div>
+
+    <!-- Capa backend -->
+    <div class="box green" style="padding:16px">
+      <div class="box-title" style="color:var(--green)">🗄️ Supabase (Backend)</div>
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+        <div style="background:white;border-radius:6px;padding:7px 10px;font-size:11px;border:1px solid #6EE7B7">
+          <strong>PostgreSQL</strong><br><span style="color:var(--gray)">12 tablas + RLS</span>
+        </div>
+        <div style="background:white;border-radius:6px;padding:7px 10px;font-size:11px;border:1px solid #6EE7B7">
+          <strong>Realtime</strong><br><span style="color:var(--gray)">WebSocket · orders + waiter_calls</span>
+        </div>
+        <div style="background:white;border-radius:6px;padding:7px 10px;font-size:11px;border:1px solid #6EE7B7">
+          <strong>REST API + SDK</strong><br><span style="color:var(--gray)">Supabase JS v2 (UMD)</span>
+        </div>
+      </div>
+      <div class="arch-tags" style="margin-top:10px">
+        <span class="arch-tag">RLS habilitado</span>
+        <span class="arch-tag">Anon key pública</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data flow -->
+  <div class="section-title">Flujo de datos por operación</div>
+  <div style="display:flex;flex-direction:column;gap:6px">
+    <div style="display:grid;grid-template-columns:140px 1fr;gap:0;align-items:center">
+      <div style="font-size:11px;font-weight:700;color:var(--blue);padding:8px 12px;background:var(--blue-lt);border-radius:8px 0 0 8px;text-align:center">Cargar menú</div>
+      <div style="font-size:11px;padding:8px 12px;background:var(--gray-lt);border-radius:0 8px 8px 0;border-left:2px solid var(--blue-lt)">
+        Browser → Vercel (HTML) → Supabase SELECT <code style="font-family:monospace">menu_items + menu_categories</code> → Render React
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:140px 1fr;gap:0;align-items:center">
+      <div style="font-size:11px;font-weight:700;color:var(--green);padding:8px 12px;background:var(--green-lt);border-radius:8px 0 0 8px;text-align:center">Crear pedido</div>
+      <div style="font-size:11px;padding:8px 12px;background:var(--gray-lt);border-radius:0 8px 8px 0;border-left:2px solid var(--green-lt)">
+        Browser → Supabase INSERT <code style="font-family:monospace">orders + order_items + order_item_extras + order_status_history</code>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:140px 1fr;gap:0;align-items:center">
+      <div style="font-size:11px;font-weight:700;color:var(--brand);padding:8px 12px;background:var(--brand-lt);border-radius:8px 0 0 8px;text-align:center">Tracking RT</div>
+      <div style="font-size:11px;padding:8px 12px;background:var(--gray-lt);border-radius:0 8px 8px 0;border-left:2px solid var(--brand-lt)">
+        Supabase Realtime WebSocket → push UPDATE orders → Cliente actualiza pantalla automáticamente
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:140px 1fr;gap:0;align-items:center">
+      <div style="font-size:11px;font-weight:700;color:var(--orange);padding:8px 12px;background:var(--orange-lt);border-radius:8px 0 0 8px;text-align:center">Avanzar ticket</div>
+      <div style="font-size:11px;padding:8px 12px;background:var(--gray-lt);border-radius:0 8px 8px 0;border-left:2px solid var(--orange-lt)">
+        Cocina → Supabase UPDATE <code style="font-family:monospace">orders.status</code> + INSERT <code style="font-family:monospace">order_status_history</code> → Realtime notifica al cliente
+      </div>
+    </div>
+  </div>
+
+  <!-- Tech stack pills -->
+  <div class="section-title" style="margin-top:22px">Stack tecnológico</div>
+  <div>
+    <div class="tech-row">
+      <div class="tech-layer-label">Frontend</div>
+      <div class="tech-chips">
+        <span class="tech-chip" style="background:#EDE9FE;border-color:#C4B5FD;color:#5B21B6">React 18 CDN</span>
+        <span class="tech-chip" style="background:#FEF9C3;border-color:#FCD34D;color:#92400E">Babel Standalone</span>
+        <span class="tech-chip" style="background:#E0F2FE;border-color:#7DD3FC;color:#0369A1">HTML5</span>
+        <span class="tech-chip" style="background:#F0FDF4;border-color:#86EFAC;color:#166534">CSS-in-JS inline</span>
+      </div>
+    </div>
+    <div class="tech-row">
+      <div class="tech-layer-label">Backend</div>
+      <div class="tech-chips">
+        <span class="tech-chip" style="background:#ECFDF5;border-color:#6EE7B7;color:#065F46">Supabase JS v2</span>
+        <span class="tech-chip" style="background:#F0FDF4;border-color:#86EFAC;color:#166534">PostgreSQL</span>
+        <span class="tech-chip" style="background:#ECFDF5;border-color:#6EE7B7;color:#065F46">Row Level Security</span>
+        <span class="tech-chip" style="background:#D1FAE5;border-color:#34D399;color:#065F46">Realtime WebSocket</span>
+      </div>
+    </div>
+    <div class="tech-row">
+      <div class="tech-layer-label">Deploy</div>
+      <div class="tech-chips">
+        <span class="tech-chip" style="background:#F5F3FF;border-color:#C4B5FD;color:#4C1D95">Vercel CDN</span>
+        <span class="tech-chip" style="background:#1F2937;border-color:#374151;color:white">GitHub Actions CI</span>
+        <span class="tech-chip" style="background:#FEF3C7;border-color:#FCD34D;color:#92400E">build.sh injection</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Mesa App v1.0 · La Huaca, Asunción PY</span>
+    <span>01 — Arquitectura General</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- 02 — FLUJO CLIENTE QR                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="icon" style="background:#FEF9C3;font-size:20px">📱</div>
+    <div>
+      <div class="section-num">02</div>
+      <h2>Flujo del Cliente — App QR para Pedir</h2>
+    </div>
+  </div>
+
+  <div class="section-title">Las 8 pantallas del cliente (index.html)</div>
+
+  <!-- Row 1: screens 1-4 -->
+  <div class="flow" style="margin-bottom:16px">
+    <!-- 1 -->
+    <div class="flow-item">
+      <div class="flow-box" style="border-color:#7C3AED;background:var(--brand-lt)">
+        <div class="flow-num">1</div>
+        <div class="flow-icon">📷</div>
+        <div class="flow-label">QR Scan</div>
+        <div class="flow-desc">Cliente escanea QR en la mesa</div>
+        <div style="margin-top:8px;font-size:9px;background:white;border-radius:4px;padding:4px 6px;color:#5B21B6;font-family:monospace">/?mesa=4&token=xxx</div>
+      </div>
+    </div>
+    <!-- 2 -->
+    <div class="flow-item">
+      <div class="flow-box" style="border-color:#0284C7;background:var(--blue-lt)">
+        <div class="flow-num" style="background:var(--blue)">2</div>
+        <div class="flow-icon">🏠</div>
+        <div class="flow-label">Perfil del Local</div>
+        <div class="flow-desc">Info, tipo pedido, idioma</div>
+        <div style="margin-top:8px;font-size:9px;color:var(--blue)">GET restaurants<br>GET tables</div>
+      </div>
+    </div>
+    <!-- 3 -->
+    <div class="flow-item">
+      <div class="flow-box" style="border-color:#059669;background:var(--green-lt)">
+        <div class="flow-num" style="background:var(--green)">3</div>
+        <div class="flow-icon">🍽️</div>
+        <div class="flow-label">Menú</div>
+        <div class="flow-desc">Categorías y platos filtrados</div>
+        <div style="margin-top:8px;font-size:9px;color:var(--green)">GET menu_categories<br>GET menu_items</div>
+      </div>
+    </div>
+    <!-- 4 -->
+    <div class="flow-item">
+      <div class="flow-box" style="border-color:#D97706;background:var(--orange-lt)">
+        <div class="flow-num" style="background:var(--orange)">4</div>
+        <div class="flow-icon">🔧</div>
+        <div class="flow-label">Producto</div>
+        <div class="flow-desc">Extras + observaciones</div>
+        <div style="margin-top:8px;font-size:9px;color:var(--orange)">GET menu_item_extras</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2: screens 5-8 -->
+  <div class="flow" style="margin-bottom:24px">
+    <!-- 5 -->
+    <div class="flow-item">
+      <div class="flow-box" style="border-color:#7C3AED;background:var(--brand-lt)">
+        <div class="flow-num">5</div>
+        <div class="flow-icon">🛒</div>
+        <div class="flow-label">Carrito</div>
+        <div class="flow-desc">Cantidades + cupón</div>
+        <div style="margin-top:8px;font-size:9px;color:#5B21B6">GET coupons<br>→ validar MESA10</div>
+      </div>
+    </div>
+    <!-- 6 -->
+    <div class="flow-item">
+      <div class="flow-box" style="border-color:#DC2626;background:var(--red-lt)">
+        <div class="flow-num" style="background:var(--red)">6</div>
+        <div class="flow-icon">💳</div>
+        <div class="flow-label">Pago</div>
+        <div class="flow-desc">Método + factura (RUC/CI)</div>
+        <div style="margin-top:8px;font-size:9px;color:var(--red)">INSERT orders<br>INSERT order_items<br>INSERT extras<br>INSERT history</div>
+      </div>
+    </div>
+    <!-- 7 -->
+    <div class="flow-item">
+      <div class="flow-box" style="border-color:#059669;background:var(--green-lt)">
+        <div class="flow-num" style="background:var(--green)">7</div>
+        <div class="flow-icon">📡</div>
+        <div class="flow-label">Tracking</div>
+        <div class="flow-desc">Estado en tiempo real</div>
+        <div style="margin-top:8px;font-size:9px;color:var(--green)">SUBSCRIBE orders<br>Realtime WebSocket</div>
+      </div>
+    </div>
+    <!-- 8 -->
+    <div class="flow-item">
+      <div class="flow-box" style="border-color:#D97706;background:var(--orange-lt)">
+        <div class="flow-num" style="background:var(--orange)">8</div>
+        <div class="flow-icon">⭐</div>
+        <div class="flow-label">Calificación</div>
+        <div class="flow-desc">1-5 estrellas + comentario</div>
+        <div style="margin-top:8px;font-size:9px;color:var(--orange)">INSERT ratings</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detailed breakdown of screen 6 (payment - most complex) -->
+  <div class="section-title">Detalle pantalla 6 — Pago (4 INSERTs en cascada)</div>
+  <div style="display:grid;grid-template-columns:1fr 20px 1fr 20px 1fr 20px 1fr;gap:0;align-items:center">
+    <div class="box" style="padding:10px;text-align:center">
+      <div style="font-size:18px;margin-bottom:4px">📋</div>
+      <div style="font-size:11px;font-weight:700">orders</div>
+      <div style="font-size:10px;color:var(--gray);margin-top:4px">status='paid'<br>total, método pago<br>datos factura</div>
+    </div>
+    <div style="text-align:center;color:var(--gray);font-size:14px">→</div>
+    <div class="box" style="padding:10px;text-align:center">
+      <div style="font-size:18px;margin-bottom:4px">🍔</div>
+      <div style="font-size:11px;font-weight:700">order_items</div>
+      <div style="font-size:10px;color:var(--gray);margin-top:4px">snapshot nombre<br>precio al momento<br>cantidad</div>
+    </div>
+    <div style="text-align:center;color:var(--gray);font-size:14px">→</div>
+    <div class="box" style="padding:10px;text-align:center">
+      <div style="font-size:18px;margin-bottom:4px">➕</div>
+      <div style="font-size:11px;font-weight:700">order_item_extras</div>
+      <div style="font-size:10px;color:var(--gray);margin-top:4px">extras elegidos<br>precio unitario<br>(si hay extras)</div>
+    </div>
+    <div style="text-align:center;color:var(--gray);font-size:14px">→</div>
+    <div class="box brand" style="padding:10px;text-align:center">
+      <div style="font-size:18px;margin-bottom:4px">📜</div>
+      <div style="font-size:11px;font-weight:700">order_status_history</div>
+      <div style="font-size:10px;color:#5B21B6;margin-top:4px">status='paid'<br>changed_by='customer'<br>timestamp</div>
+    </div>
+  </div>
+
+  <!-- Payment methods -->
+  <div class="section-title" style="margin-top:20px">Métodos de pago disponibles</div>
+  <div class="grid-4">
+    <div class="box" style="padding:10px;text-align:center">
+      <div style="font-size:22px">💵</div>
+      <div style="font-size:11px;font-weight:700;margin-top:5px">Efectivo</div>
+      <div style="font-size:10px;color:var(--gray)">Pago en caja</div>
+    </div>
+    <div class="box" style="padding:10px;text-align:center">
+      <div style="font-size:22px">💳</div>
+      <div style="font-size:11px;font-weight:700;margin-top:5px">Tarjeta</div>
+      <div style="font-size:10px;color:var(--gray)">Débito / Crédito</div>
+    </div>
+    <div class="box" style="padding:10px;text-align:center">
+      <div style="font-size:22px">📲</div>
+      <div style="font-size:11px;font-weight:700;margin-top:5px">QR</div>
+      <div style="font-size:10px;color:var(--gray)">Tigo Money, etc.</div>
+    </div>
+    <div class="box" style="padding:10px;text-align:center">
+      <div style="font-size:22px">🖥️</div>
+      <div style="font-size:11px;font-weight:700;margin-top:5px">POS</div>
+      <div style="font-size:10px;color:var(--gray)">Terminal físico</div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Mesa App v1.0 · La Huaca, Asunción PY</span>
+    <span>02 — Flujo del Cliente</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- 03 — FLUJO COCINA KDS                                      -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="icon" style="background:#FEF3C7;font-size:20px">👨‍🍳</div>
+    <div>
+      <div class="section-num">03</div>
+      <h2>Flujo de la Cocina — KDS Kanban</h2>
+    </div>
+  </div>
+
+  <div class="section-title">Vista kanban — cocina.html</div>
+  <div class="kanban">
+    <!-- Nuevos -->
+    <div>
+      <div class="kanban-col-header" style="background:#FEF9C3;color:#92400E">
+        🔔 Nuevos <span style="font-size:10px;font-weight:400;opacity:.7">(paid / kitchen_received)</span>
+      </div>
+      <div class="kanban-col-body" style="border-color:#FCD34D">
+        <div class="kanban-card">
+          <div class="card-num">T-2847</div>
+          <div class="card-items">Mesa 4 · 3 ítems<br>Clásica · BBQ · Gaseosa</div>
+          <div class="card-time">⏱ hace 2 min</div>
+          <div class="card-btn" style="background:#059669;color:white">▶ Aceptar</div>
+        </div>
+        <div class="kanban-card">
+          <div class="card-num">T-2848</div>
+          <div class="card-items">Mesa 7 · 5 ítems</div>
+          <div class="card-time">⏱ hace 4 min</div>
+          <div class="card-btn" style="background:#059669;color:white">▶ Aceptar</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preparando -->
+    <div>
+      <div class="kanban-col-header" style="background:var(--orange-lt);color:#92400E">
+        🔥 Preparando <span style="font-size:10px;font-weight:400;opacity:.7">(cooking)</span>
+      </div>
+      <div class="kanban-col-body" style="border-color:#FCD34D">
+        <div class="kanban-card" style="border-left:3px solid var(--orange)">
+          <div class="card-num">T-2845</div>
+          <div class="card-items">Mesa 2 · 2 ítems<br>Doble Black · Tabla</div>
+          <div class="card-time">⏱ hace 8 min</div>
+          <div class="card-btn" style="background:var(--blue);color:white">✓ Listo</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Listos -->
+    <div>
+      <div class="kanban-col-header" style="background:var(--green-lt);color:#065F46">
+        ✅ Listos <span style="font-size:10px;font-weight:400;opacity:.7">(ready)</span>
+      </div>
+      <div class="kanban-col-body" style="border-color:#6EE7B7">
+        <div class="kanban-card" style="border-left:3px solid var(--green)">
+          <div class="card-num">T-2843</div>
+          <div class="card-items">Mesa 1 · 1 ítem</div>
+          <div class="card-time">⏱ hace 12 min</div>
+          <div class="card-btn" style="background:var(--gray);color:white">📦 Archivar</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Transitions diagram -->
+  <div class="section-title" style="margin-top:20px">Acciones de cocina y sus efectos en la BD</div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:grid;grid-template-columns:130px 1fr;gap:0;align-items:center">
+      <div style="font-size:11px;font-weight:700;padding:9px 12px;background:#059669;color:white;border-radius:7px 0 0 7px;text-align:center">▶ Aceptar</div>
+      <div style="font-size:11px;padding:9px 14px;background:var(--gray-lt);border-radius:0 7px 7px 0;border-left:2px solid #059669">
+        UPDATE <code style="font-family:monospace">orders</code> SET status = 'cooking'<br>
+        + INSERT <code style="font-family:monospace">order_status_history</code> (changed_by='kitchen')
+        <span style="float:right;margin-left:10px">→ Realtime notifica al cliente 📡</span>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:130px 1fr;gap:0;align-items:center">
+      <div style="font-size:11px;font-weight:700;padding:9px 12px;background:var(--blue);color:white;border-radius:7px 0 0 7px;text-align:center">✓ Listo</div>
+      <div style="font-size:11px;padding:9px 14px;background:var(--gray-lt);border-radius:0 7px 7px 0;border-left:2px solid var(--blue)">
+        UPDATE <code style="font-family:monospace">orders</code> SET status = 'ready'<br>
+        + INSERT <code style="font-family:monospace">order_status_history</code>
+        <span style="float:right;margin-left:10px">→ Cliente ve "Tu pedido está listo" 🎉</span>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:130px 1fr;gap:0;align-items:center">
+      <div style="font-size:11px;font-weight:700;padding:9px 12px;background:var(--gray);color:white;border-radius:7px 0 0 7px;text-align:center">📦 Archivar</div>
+      <div style="font-size:11px;padding:9px 14px;background:var(--gray-lt);border-radius:0 7px 7px 0;border-left:2px solid var(--gray)">
+        UPDATE <code style="font-family:monospace">orders</code> SET status = 'delivered'<br>
+        + UPDATE <code style="font-family:monospace">orders.completed_at</code> = NOW()
+      </div>
+    </div>
+  </div>
+
+  <!-- Realtime detail -->
+  <div class="section-title" style="margin-top:20px">Subscripción Realtime de la cocina</div>
+  <div style="background:var(--dark);color:#A5F3FC;border-radius:10px;padding:14px 18px;font-family:'JetBrains Mono',monospace;font-size:10.5px;line-height:1.7">
+    <span style="color:#6EE7B7">// cocina.html — escucha nuevos pedidos y cambios de estado</span><br>
+    supabase.channel(<span style="color:#FCD34D">'orders-rt'</span>)<br>
+    &nbsp;&nbsp;.on(<span style="color:#FCD34D">'postgres_changes'</span>, &#123; event: <span style="color:#FCD34D">'INSERT'</span>, table: <span style="color:#FCD34D">'orders'</span> &#125;, callback)<br>
+    &nbsp;&nbsp;.on(<span style="color:#FCD34D">'postgres_changes'</span>, &#123; event: <span style="color:#FCD34D">'UPDATE'</span>, table: <span style="color:#FCD34D">'orders'</span> &#125;, callback)<br>
+    &nbsp;&nbsp;.subscribe()
+  </div>
+
+  <!-- Mode without Supabase -->
+  <div class="section-title" style="margin-top:20px">Modo sin Supabase (Demo)</div>
+  <div class="box orange" style="padding:12px 16px;font-size:11px">
+    Si <code style="font-family:monospace">window.SUPABASE_CONFIG</code> no está configurado, la cocina arranca en <strong>modo DEMO</strong> con 3 pedidos hardcodeados de ejemplo. No hay Realtime ni persistencia. Útil para mostrar la UI sin backend.
+  </div>
+
+  <div class="page-footer">
+    <span>Mesa App v1.0 · La Huaca, Asunción PY</span>
+    <span>03 — Flujo Cocina KDS</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- 04 — STATUS FLOW                                           -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="icon" style="background:#DCFCE7;font-size:20px">🔄</div>
+    <div>
+      <div class="section-num">04</div>
+      <h2>Ciclo de Vida de un Pedido — Status Flow</h2>
+    </div>
+  </div>
+
+  <!-- Main status flow -->
+  <div class="section-title">Estados del pedido (orders.status)</div>
+  <div class="status-flow" style="margin-bottom:24px;justify-content:center">
+    <div class="status-node">
+      <div class="status-box" style="background:#F3F4F6;border-color:#D1D5DB;color:#6B7280">draft</div>
+      <div class="status-sub">Carrito abierto</div>
+    </div>
+    <div class="status-arrow">→</div>
+    <div class="status-node">
+      <div class="status-box" style="background:var(--blue-lt);border-color:#93C5FD;color:var(--blue)">confirmed</div>
+      <div class="status-sub">Pedido armado</div>
+    </div>
+    <div class="status-arrow">→</div>
+    <div class="status-node">
+      <div class="status-box" style="background:var(--green-lt);border-color:#6EE7B7;color:var(--green)">paid</div>
+      <div class="status-sub">Pagado ✓</div>
+    </div>
+    <div class="status-arrow">→</div>
+    <div class="status-node">
+      <div class="status-box" style="background:#FEF9C3;border-color:#FDE68A;color:#92400E">kitchen_received</div>
+      <div class="status-sub">En cocina</div>
+    </div>
+    <div class="status-arrow">→</div>
+    <div class="status-node">
+      <div class="status-box" style="background:var(--orange-lt);border-color:#FCD34D;color:var(--orange)">cooking</div>
+      <div class="status-sub">Preparando</div>
+    </div>
+    <div class="status-arrow">→</div>
+    <div class="status-node">
+      <div class="status-box" style="background:#DCFCE7;border-color:#86EFAC;color:#166534">ready</div>
+      <div class="status-sub">¡Listo!</div>
+    </div>
+    <div class="status-arrow">→</div>
+    <div class="status-node">
+      <div class="status-box" style="background:#F3F4F6;border-color:#D1D5DB;color:#374151">delivered</div>
+      <div class="status-sub">Entregado</div>
+    </div>
+  </div>
+
+  <!-- Who changes what -->
+  <div class="section-title">¿Quién cambia cada estado?</div>
+  <div style="display:flex;flex-direction:column;gap:1px;border-radius:10px;overflow:hidden;border:1px solid var(--border)">
+    <div style="display:grid;grid-template-columns:170px 1fr 1fr 140px;background:#F9FAFB;padding:8px 14px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--gray)">
+      <div>Transición</div>
+      <div>Estado nuevo</div>
+      <div>Actor</div>
+      <div>Qué pasa</div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px 1fr 1fr 140px;padding:9px 14px;font-size:11px;border-top:1px solid var(--border);background:white">
+      <div style="color:var(--gray);font-family:monospace;font-size:10px">draft → paid</div>
+      <div><span class="badge paid">paid</span></div>
+      <div>📱 Cliente (pantalla pago)</div>
+      <div style="font-size:10px;color:var(--gray)">INSERT orders</div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px 1fr 1fr 140px;padding:9px 14px;font-size:11px;border-top:1px solid var(--border);background:white">
+      <div style="color:var(--gray);font-family:monospace;font-size:10px">paid → cooking</div>
+      <div><span class="badge cooking">cooking</span></div>
+      <div>👨‍🍳 Cocina (botón Aceptar)</div>
+      <div style="font-size:10px;color:var(--gray)">UPDATE + history</div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px 1fr 1fr 140px;padding:9px 14px;font-size:11px;border-top:1px solid var(--border);background:white">
+      <div style="color:var(--gray);font-family:monospace;font-size:10px">cooking → ready</div>
+      <div><span class="badge ready">ready</span></div>
+      <div>👨‍🍳 Cocina (botón Listo)</div>
+      <div style="font-size:10px;color:var(--gray)">UPDATE + history</div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px 1fr 1fr 140px;padding:9px 14px;font-size:11px;border-top:1px solid var(--border);background:white">
+      <div style="color:var(--gray);font-family:monospace;font-size:10px">ready → delivered</div>
+      <div><span class="badge delivered">delivered</span></div>
+      <div>👨‍🍳 Cocina (Archivar)</div>
+      <div style="font-size:10px;color:var(--gray)">UPDATE + completed_at</div>
+    </div>
+    <div style="display:grid;grid-template-columns:170px 1fr 1fr 140px;padding:9px 14px;font-size:11px;border-top:1px solid var(--border);background:white">
+      <div style="color:var(--gray);font-family:monospace;font-size:10px">cualquiera → cancelled</div>
+      <div><span class="badge cancelled">cancelled</span></div>
+      <div>🔧 Sistema / Admin</div>
+      <div style="font-size:10px;color:var(--gray)">UPDATE status</div>
+    </div>
+  </div>
+
+  <!-- Client view per status -->
+  <div class="section-title" style="margin-top:22px">Lo que ve el cliente en pantalla de Tracking</div>
+  <div class="grid-3" style="gap:10px">
+    <div class="box" style="padding:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="badge paid">paid</span>
+        <span class="badge kitchen">kitchen_received</span>
+      </div>
+      <div style="font-size:22px;text-align:center;margin:8px 0">⏳</div>
+      <div style="font-size:12px;font-weight:600;text-align:center">Recibido</div>
+      <div style="font-size:10px;color:var(--gray);text-align:center;margin-top:4px">"Tu pedido fue recibido, estamos preparándolo"</div>
+    </div>
+    <div class="box" style="padding:12px;border-color:var(--orange)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="badge cooking">cooking</span>
+      </div>
+      <div style="font-size:22px;text-align:center;margin:8px 0">🔥</div>
+      <div style="font-size:12px;font-weight:600;text-align:center">En cocina</div>
+      <div style="font-size:10px;color:var(--gray);text-align:center;margin-top:4px">"Tu pedido está siendo preparado"</div>
+    </div>
+    <div class="box" style="padding:12px;border-color:var(--green)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span class="badge ready">ready</span>
+      </div>
+      <div style="font-size:22px;text-align:center;margin:8px 0">🎉</div>
+      <div style="font-size:12px;font-weight:600;text-align:center">¡Listo!</div>
+      <div style="font-size:10px;color:var(--gray);text-align:center;margin-top:4px">"Tu pedido está listo, ya va a tu mesa"</div>
+    </div>
+  </div>
+
+  <!-- order_status_history note -->
+  <div class="section-title" style="margin-top:20px">Log de historial inmutable</div>
+  <div class="box green" style="padding:12px 16px;font-size:11px">
+    Cada cambio de estado genera un INSERT en <code style="font-family:monospace">order_status_history</code>. Esta tabla es <strong>append-only</strong> (sin DELETE, sin UPDATE por política). Permite auditoría completa de cada pedido.
+    <div style="margin-top:8px;font-family:monospace;font-size:10px;color:var(--green)">
+      order_id · status_new · changed_at · changed_by ('customer' | 'kitchen' | 'system')
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Mesa App v1.0 · La Huaca, Asunción PY</span>
+    <span>04 — Status Flow del Pedido</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- 05 — ER DIAGRAM                                            -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="icon" style="background:#D1FAE5;font-size:20px">🗄️</div>
+    <div>
+      <div class="section-num">05</div>
+      <h2>Base de Datos — Esquema ER</h2>
+    </div>
+  </div>
+
+  <div class="section-title">Relaciones entre tablas (12 tablas)</div>
+
+  <!-- ER SVG diagram -->
+  <svg viewBox="0 0 680 480" style="width:100%;height:auto;display:block;margin-bottom:12px" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#9CA3AF"/>
+      </marker>
+      <marker id="arrow-b" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#6366F1"/>
+      </marker>
+    </defs>
+
+    <!-- ── restaurants (center-left) ── -->
+    <rect x="10" y="180" width="140" height="90" rx="8" fill="#F0FDF4" stroke="#6EE7B7" stroke-width="1.5"/>
+    <rect x="10" y="180" width="140" height="24" rx="8" fill="#059669"/>
+    <rect x="10" y="196" width="140" height="8" rx="0" fill="#059669"/>
+    <text x="80" y="196" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Inter,sans-serif">restaurants</text>
+    <text x="18" y="216" fill="#374151" font-size="9" font-family="monospace">🔑 id (UUID)</text>
+    <text x="18" y="228" fill="#6B7280" font-size="9" font-family="monospace">   name, address</text>
+    <text x="18" y="240" fill="#6B7280" font-size="9" font-family="monospace">   phone, timezone</text>
+    <text x="18" y="252" fill="#6B7280" font-size="9" font-family="monospace">   is_active</text>
+
+    <!-- ── tables ── -->
+    <rect x="180" y="80" width="130" height="80" rx="8" fill="#EDE9FE" stroke="#C4B5FD" stroke-width="1.5"/>
+    <rect x="180" y="80" width="130" height="24" rx="8" fill="#7C3AED"/>
+    <rect x="180" y="96" width="130" height="8" rx="0" fill="#7C3AED"/>
+    <text x="245" y="96" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Inter,sans-serif">tables</text>
+    <text x="188" y="116" fill="#374151" font-size="9" font-family="monospace">🔑 id · 🔗 restaurant_id</text>
+    <text x="188" y="128" fill="#6B7280" font-size="9" font-family="monospace">   number, qr_token</text>
+    <text x="188" y="140" fill="#6B7280" font-size="9" font-family="monospace">   capacity</text>
+
+    <!-- ── menu_categories ── -->
+    <rect x="180" y="280" width="130" height="68" rx="8" fill="#FEF3C7" stroke="#FCD34D" stroke-width="1.5"/>
+    <rect x="180" y="280" width="130" height="24" rx="8" fill="#D97706"/>
+    <rect x="180" y="296" width="130" height="8" rx="0" fill="#D97706"/>
+    <text x="245" y="296" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Inter,sans-serif">menu_categories</text>
+    <text x="188" y="316" fill="#374151" font-size="9" font-family="monospace">🔑 id · 🔗 restaurant_id</text>
+    <text x="188" y="328" fill="#6B7280" font-size="9" font-family="monospace">   name, sort_order</text>
+
+    <!-- ── menu_items ── -->
+    <rect x="350" y="270" width="140" height="92" rx="8" fill="#FEF3C7" stroke="#FCD34D" stroke-width="1.5"/>
+    <rect x="350" y="270" width="140" height="24" rx="8" fill="#B45309"/>
+    <rect x="350" y="286" width="140" height="8" rx="0" fill="#B45309"/>
+    <text x="420" y="286" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Inter,sans-serif">menu_items</text>
+    <text x="358" y="306" fill="#374151" font-size="9" font-family="monospace">🔑 id · 🔗 category_id</text>
+    <text x="358" y="318" fill="#374151" font-size="9" font-family="monospace">   🔗 restaurant_id</text>
+    <text x="358" y="330" fill="#6B7280" font-size="9" font-family="monospace">   name, description</text>
+    <text x="358" y="342" fill="#6B7280" font-size="9" font-family="monospace">   price_guarani, promo_tag</text>
+
+    <!-- ── menu_item_extras ── -->
+    <rect x="520" y="290" width="148" height="68" rx="8" fill="#FEF9C3" stroke="#FDE68A" stroke-width="1.5"/>
+    <rect x="520" y="290" width="148" height="24" rx="8" fill="#CA8A04"/>
+    <rect x="520" y="306" width="148" height="8" rx="0" fill="#CA8A04"/>
+    <text x="594" y="306" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Inter,sans-serif">menu_item_extras</text>
+    <text x="528" y="326" fill="#374151" font-size="9" font-family="monospace">🔑 id · 🔗 item_id</text>
+    <text x="528" y="338" fill="#6B7280" font-size="9" font-family="monospace">   name, price_guarani</text>
+
+    <!-- ── coupons ── -->
+    <rect x="180" y="390" width="130" height="80" rx="8" fill="#FCE7F3" stroke="#F9A8D4" stroke-width="1.5"/>
+    <rect x="180" y="390" width="130" height="24" rx="8" fill="#BE185D"/>
+    <rect x="180" y="406" width="130" height="8" rx="0" fill="#BE185D"/>
+    <text x="245" y="406" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Inter,sans-serif">coupons</text>
+    <text x="188" y="426" fill="#374151" font-size="9" font-family="monospace">🔑 id · 🔗 restaurant_id</text>
+    <text x="188" y="438" fill="#6B7280" font-size="9" font-family="monospace">   code, discount_type</text>
+    <text x="188" y="450" fill="#6B7280" font-size="9" font-family="monospace">   discount_value</text>
+
+    <!-- ── orders ── -->
+    <rect x="350" y="120" width="148" height="120" rx="8" fill="#E0F2FE" stroke="#7DD3FC" stroke-width="1.5"/>
+    <rect x="350" y="120" width="148" height="24" rx="8" fill="#0284C7"/>
+    <rect x="350" y="136" width="148" height="8" rx="0" fill="#0284C7"/>
+    <text x="424" y="136" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Inter,sans-serif">orders</text>
+    <text x="358" y="156" fill="#374151" font-size="9" font-family="monospace">🔑 id · order_number</text>
+    <text x="358" y="168" fill="#374151" font-size="9" font-family="monospace">🔗 restaurant_id · table_id</text>
+    <text x="358" y="180" fill="#6B7280" font-size="9" font-family="monospace">   status, order_type</text>
+    <text x="358" y="192" fill="#6B7280" font-size="9" font-family="monospace">   total, payment_method</text>
+    <text x="358" y="204" fill="#6B7280" font-size="9" font-family="monospace">   customer_name, coupon</text>
+    <text x="358" y="216" fill="#6B7280" font-size="9" font-family="monospace">   created_at, completed_at</text>
+
+    <!-- ── order_items ── -->
+    <rect x="520" y="120" width="148" height="88" rx="8" fill="#E0F2FE" stroke="#7DD3FC" stroke-width="1.5"/>
+    <rect x="520" y="120" width="148" height="24" rx="8" fill="#0369A1"/>
+    <rect x="520" y="136" width="148" height="8" rx="0" fill="#0369A1"/>
+    <text x="594" y="136" text-anchor="middle" fill="white" font-size="11" font-weight="700" font-family="Inter,sans-serif">order_items</text>
+    <text x="528" y="156" fill="#374151" font-size="9" font-family="monospace">🔑 id · 🔗 order_id</text>
+    <text x="528" y="168" fill="#374151" font-size="9" font-family="monospace">🔗 menu_item_id</text>
+    <text x="528" y="180" fill="#6B7280" font-size="9" font-family="monospace">   item_name (snapshot)</text>
+    <text x="528" y="192" fill="#6B7280" font-size="9" font-family="monospace">   quantity, unit_price</text>
+
+    <!-- ── order_item_extras ── -->
+    <rect x="520" y="220" width="148" height="60" rx="8" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1.5"/>
+    <rect x="520" y="220" width="148" height="24" rx="8" fill="#1D4ED8"/>
+    <rect x="520" y="236" width="148" height="8" rx="0" fill="#1D4ED8"/>
+    <text x="594" y="236" text-anchor="middle" fill="white" font-size="10" font-weight="700" font-family="Inter,sans-serif">order_item_extras</text>
+    <text x="528" y="256" fill="#374151" font-size="9" font-family="monospace">🔑 id · 🔗 order_item_id</text>
+    <text x="528" y="268" fill="#6B7280" font-size="9" font-family="monospace">   extra_name, price</text>
+
+    <!-- ── order_status_history ── -->
+    <rect x="350" y="420" width="148" height="56" rx="8" fill="#F5F3FF" stroke="#C4B5FD" stroke-width="1.5"/>
+    <rect x="350" y="420" width="148" height="24" rx="8" fill="#5B21B6"/>
+    <rect x="350" y="436" width="148" height="8" rx="0" fill="#5B21B6"/>
+    <text x="424" y="436" text-anchor="middle" fill="white" font-size="10" font-weight="700" font-family="Inter,sans-serif">order_status_history</text>
+    <text x="358" y="456" fill="#374151" font-size="9" font-family="monospace">🔗 order_id · status</text>
+    <text x="358" y="468" fill="#6B7280" font-size="9" font-family="monospace">   changed_at, changed_by</text>
+
+    <!-- ── ARROWS ── -->
+    <!-- restaurants → tables -->
+    <line x1="150" y1="210" x2="178" y2="140" stroke="#9CA3AF" stroke-width="1.2" marker-end="url(#arrow)" stroke-dasharray="4,2"/>
+    <!-- restaurants → menu_categories -->
+    <line x1="150" y1="220" x2="178" y2="308" stroke="#9CA3AF" stroke-width="1.2" marker-end="url(#arrow)" stroke-dasharray="4,2"/>
+    <!-- restaurants → coupons -->
+    <line x1="150" y1="240" x2="178" y2="416" stroke="#9CA3AF" stroke-width="1.2" marker-end="url(#arrow)" stroke-dasharray="4,2"/>
+    <!-- restaurants → orders -->
+    <line x1="150" y1="225" x2="348" y2="185" stroke="#9CA3AF" stroke-width="1.2" marker-end="url(#arrow)" stroke-dasharray="4,2"/>
+    <!-- tables → orders -->
+    <line x1="310" y1="140" x2="348" y2="155" stroke="#9CA3AF" stroke-width="1.2" marker-end="url(#arrow)" stroke-dasharray="4,2"/>
+    <!-- menu_categories → menu_items -->
+    <line x1="310" y1="310" x2="348" y2="310" stroke="#9CA3AF" stroke-width="1.2" marker-end="url(#arrow)" stroke-dasharray="4,2"/>
+    <!-- menu_items → menu_item_extras -->
+    <line x1="490" y1="320" x2="518" y2="320" stroke="#9CA3AF" stroke-width="1.2" marker-end="url(#arrow)" stroke-dasharray="4,2"/>
+    <!-- orders → order_items -->
+    <line x1="498" y1="165" x2="518" y2="165" stroke="#6366F1" stroke-width="1.5" marker-end="url(#arrow-b)"/>
+    <!-- order_items → order_item_extras -->
+    <line x1="594" y1="208" x2="594" y2="218" stroke="#6366F1" stroke-width="1.5" marker-end="url(#arrow-b)"/>
+    <!-- orders → order_status_history -->
+    <line x1="424" y1="240" x2="424" y2="418" stroke="#6366F1" stroke-width="1.5" marker-end="url(#arrow-b)"/>
+  </svg>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#9CA3AF;opacity:.6;border:1px dashed #6B7280"></div> FK relación 1:N</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#6366F1"></div> Relación pedido (cascade)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#059669"></div> restaurants (raíz)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#0284C7"></div> orders (núcleo)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#D97706"></div> menú</div>
+  </div>
+
+  <div class="page-footer">
+    <span>Mesa App v1.0 · La Huaca, Asunción PY</span>
+    <span>05 — Diagrama ER</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- 06 — DETALLE DE TABLAS                                     -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="icon" style="background:#FEF3C7;font-size:20px">📋</div>
+    <div>
+      <div class="section-num">06</div>
+      <h2>Detalle de Tablas Principales</h2>
+    </div>
+  </div>
+
+  <div class="er-grid">
+
+    <!-- restaurants -->
+    <table class="db-table">
+      <thead><tr><th colspan="2"><div class="db-table-header" style="background:#059669;color:white"><div class="db-table-icon">🏠</div>restaurants</div></th></tr></thead>
+      <tbody>
+        <tr><td class="pk">id</td><td>UUID PK</td></tr>
+        <tr><td>name</td><td>TEXT NOT NULL</td></tr>
+        <tr><td>address, phone</td><td>TEXT</td></tr>
+        <tr><td>instagram, website</td><td>TEXT</td></tr>
+        <tr><td>logo_initials</td><td>TEXT default 'LH'</td></tr>
+        <tr><td>is_active</td><td>BOOLEAN</td></tr>
+        <tr><td>timezone</td><td>America/Asuncion</td></tr>
+      </tbody>
+    </table>
+
+    <!-- tables -->
+    <table class="db-table">
+      <thead><tr><th colspan="2"><div class="db-table-header" style="background:#7C3AED;color:white"><div class="db-table-icon">🪑</div>tables</div></th></tr></thead>
+      <tbody>
+        <tr><td class="pk">id</td><td>UUID PK</td></tr>
+        <tr><td class="fk">restaurant_id</td><td>FK → restaurants</td></tr>
+        <tr><td>number</td><td>INTEGER</td></tr>
+        <tr><td>qr_token</td><td>TEXT UNIQUE</td></tr>
+        <tr><td>capacity</td><td>INTEGER default 4</td></tr>
+        <tr><td>is_active</td><td>BOOLEAN</td></tr>
+      </tbody>
+    </table>
+
+    <!-- orders -->
+    <table class="db-table">
+      <thead><tr><th colspan="2"><div class="db-table-header" style="background:#0284C7;color:white"><div class="db-table-icon">📋</div>orders</div></th></tr></thead>
+      <tbody>
+        <tr><td class="pk">id</td><td>UUID PK</td></tr>
+        <tr><td>order_number</td><td>TEXT UNIQUE 'T-XXXX'</td></tr>
+        <tr><td class="fk">restaurant_id, table_id</td><td>FK</td></tr>
+        <tr><td>status</td><td>draft→delivered</td></tr>
+        <tr><td>order_type</td><td>local | llevar</td></tr>
+        <tr><td>total, subtotal</td><td>INTEGER ₲</td></tr>
+        <tr><td>payment_method</td><td>efectivo/tarjeta/qr/pos</td></tr>
+        <tr><td>customer_name, ruc</td><td>TEXT (factura)</td></tr>
+        <tr><td>coupon_code</td><td>TEXT</td></tr>
+        <tr><td>completed_at</td><td>TIMESTAMPTZ</td></tr>
+      </tbody>
+    </table>
+
+    <!-- order_items -->
+    <table class="db-table">
+      <thead><tr><th colspan="2"><div class="db-table-header" style="background:#0369A1;color:white"><div class="db-table-icon">🍔</div>order_items</div></th></tr></thead>
+      <tbody>
+        <tr><td class="pk">id</td><td>UUID PK</td></tr>
+        <tr><td class="fk">order_id</td><td>FK → orders</td></tr>
+        <tr><td class="fk">menu_item_id</td><td>FK → menu_items</td></tr>
+        <tr><td>item_name</td><td>snapshot del nombre</td></tr>
+        <tr><td>quantity</td><td>INTEGER</td></tr>
+        <tr><td>unit_price</td><td>INTEGER ₲</td></tr>
+        <tr><td>subtotal</td><td>INTEGER ₲</td></tr>
+        <tr><td>notes</td><td>TEXT (cocina)</td></tr>
+      </tbody>
+    </table>
+
+    <!-- menu_items -->
+    <table class="db-table">
+      <thead><tr><th colspan="2"><div class="db-table-header" style="background:#B45309;color:white"><div class="db-table-icon">🍽️</div>menu_items</div></th></tr></thead>
+      <tbody>
+        <tr><td class="pk">id</td><td>SERIAL PK</td></tr>
+        <tr><td class="fk">category_id</td><td>FK → menu_categories</td></tr>
+        <tr><td class="fk">restaurant_id</td><td>FK → restaurants</td></tr>
+        <tr><td>name, description</td><td>TEXT</td></tr>
+        <tr><td>price_guarani</td><td>INTEGER > 0</td></tr>
+        <tr><td>promo_tag</td><td>'2×1', '−10%', NULL</td></tr>
+        <tr><td>is_available</td><td>BOOLEAN</td></tr>
+        <tr><td>sort_order</td><td>INTEGER</td></tr>
+      </tbody>
+    </table>
+
+    <!-- coupons -->
+    <table class="db-table">
+      <thead><tr><th colspan="2"><div class="db-table-header" style="background:#BE185D;color:white"><div class="db-table-icon">🏷️</div>coupons</div></th></tr></thead>
+      <tbody>
+        <tr><td class="pk">id</td><td>UUID PK</td></tr>
+        <tr><td class="fk">restaurant_id</td><td>FK → restaurants</td></tr>
+        <tr><td>code</td><td>TEXT (ej: MESA10)</td></tr>
+        <tr><td>discount_type</td><td>percentage | fixed</td></tr>
+        <tr><td>discount_value</td><td>INTEGER</td></tr>
+        <tr><td>max_uses</td><td>INTEGER (NULL=∞)</td></tr>
+        <tr><td>valid_until</td><td>TIMESTAMPTZ</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ratings -->
+    <table class="db-table">
+      <thead><tr><th colspan="2"><div class="db-table-header" style="background:#D97706;color:white"><div class="db-table-icon">⭐</div>ratings</div></th></tr></thead>
+      <tbody>
+        <tr><td class="pk">id</td><td>UUID PK</td></tr>
+        <tr><td class="fk">order_id, table_id</td><td>FK (nullable)</td></tr>
+        <tr><td class="fk">restaurant_id</td><td>FK → restaurants</td></tr>
+        <tr><td>stars</td><td>INTEGER 1–5</td></tr>
+        <tr><td>comment</td><td>TEXT (libre)</td></tr>
+        <tr><td>created_at</td><td>TIMESTAMPTZ</td></tr>
+      </tbody>
+    </table>
+
+    <!-- waiter_calls -->
+    <table class="db-table">
+      <thead><tr><th colspan="2"><div class="db-table-header" style="background:#374151;color:white"><div class="db-table-icon">🔔</div>waiter_calls</div></th></tr></thead>
+      <tbody>
+        <tr><td class="pk">id</td><td>UUID PK</td></tr>
+        <tr><td class="fk">restaurant_id, table_id</td><td>FK</td></tr>
+        <tr><td class="fk">order_id</td><td>FK (nullable)</td></tr>
+        <tr><td>status</td><td>pending | attended</td></tr>
+        <tr><td>attended_at</td><td>TIMESTAMPTZ</td></tr>
+      </tbody>
+    </table>
+
+    <!-- order_status_history -->
+    <table class="db-table" style="grid-column:span 1">
+      <thead><tr><th colspan="2"><div class="db-table-header" style="background:#5B21B6;color:white"><div class="db-table-icon">📜</div>order_status_history</div></th></tr></thead>
+      <tbody>
+        <tr><td class="pk">id</td><td>UUID PK</td></tr>
+        <tr><td class="fk">order_id</td><td>FK → orders</td></tr>
+        <tr><td>status</td><td>TEXT (snapshot)</td></tr>
+        <tr><td>changed_at</td><td>TIMESTAMPTZ</td></tr>
+        <tr><td>changed_by</td><td>customer|kitchen|system</td></tr>
+      </tbody>
+    </table>
+
+  </div>
+
+  <div class="er-note">
+    <strong>Convenciones:</strong>
+    <span style="color:var(--orange);font-family:monospace">🔑 PK</span> = Primary Key ·
+    <span style="color:var(--blue);font-family:monospace">🔗 FK</span> = Foreign Key ·
+    Todos los precios en <strong>₲ guaraní enteros</strong> (sin decimales) ·
+    Realtime habilitado en <code style="font-family:monospace">orders</code> y <code style="font-family:monospace">waiter_calls</code> ·
+    RLS habilitado en las 12 tablas.
+  </div>
+
+  <div class="page-footer">
+    <span>Mesa App v1.0 · La Huaca, Asunción PY</span>
+    <span>06 — Detalle de Tablas</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- 07 — STACK + SEGURIDAD                                     -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="icon" style="background:#FEE2E2;font-size:20px">🔐</div>
+    <div>
+      <div class="section-num">07</div>
+      <h2>Stack Técnico y Seguridad</h2>
+    </div>
+  </div>
+
+  <!-- Credential flow -->
+  <div class="section-title">Flujo de credenciales — cómo llegan al browser de forma segura</div>
+  <div style="display:grid;grid-template-columns:1fr 30px 1fr 30px 1fr 30px 1fr;gap:0;align-items:center;margin-bottom:20px">
+    <div class="box dark" style="padding:12px;text-align:center">
+      <div style="font-size:20px;margin-bottom:6px">⚙️</div>
+      <div style="font-size:11px;font-weight:700">Vercel Dashboard</div>
+      <div style="font-size:10px;opacity:.6;margin-top:4px">SUPABASE_URL<br>SUPABASE_ANON_KEY<br>RESTAURANT_ID</div>
+    </div>
+    <div style="text-align:center;font-size:18px;color:var(--gray)">→</div>
+    <div class="box brand" style="padding:12px;text-align:center">
+      <div style="font-size:20px;margin-bottom:6px">🔨</div>
+      <div style="font-size:11px;font-weight:700">build.sh</div>
+      <div style="font-size:10px;color:#5B21B6;margin-top:4px">Lee $ENV_VARS<br>Genera config.js<br>(en build time)</div>
+    </div>
+    <div style="text-align:center;font-size:18px;color:var(--gray)">→</div>
+    <div class="box blue" style="padding:12px;text-align:center">
+      <div style="font-size:20px;margin-bottom:6px">📄</div>
+      <div style="font-size:11px;font-weight:700">public/config.js</div>
+      <div style="font-size:10px;color:var(--blue);margin-top:4px">window.SUPABASE_CONFIG<br>(generado, no en git)<br>.gitignore ✓</div>
+    </div>
+    <div style="text-align:center;font-size:18px;color:var(--gray)">→</div>
+    <div class="box green" style="padding:12px;text-align:center">
+      <div style="font-size:20px;margin-bottom:6px">🌐</div>
+      <div style="font-size:11px;font-weight:700">Browser</div>
+      <div style="font-size:10px;color:var(--green);margin-top:4px">Anon key visible<br>en DevTools<br>(intencional ✓)</div>
+    </div>
+  </div>
+
+  <!-- Security model -->
+  <div class="section-title">Modelo de seguridad de Supabase (por qué la anon key pública es segura)</div>
+  <div class="grid-2" style="margin-bottom:20px">
+    <div class="box green" style="padding:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:10px">✅ Anon Key — segura de ser pública</div>
+      <div style="font-size:11px;line-height:1.6">
+        Diseñada para uso en el browser. Solo permite lo que las <strong>políticas RLS</strong> autorizan.
+        Cualquiera puede ver el menú, crear pedidos, dejar calificaciones. Nada más.
+        Equivalente a "clave de sólo-lectura parcial".
+      </div>
+    </div>
+    <div class="box red" style="padding:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:10px">🚫 Service Role Key — NUNCA al frontend</div>
+      <div style="font-size:11px;line-height:1.6">
+        Da acceso <strong>total sin restricciones</strong> a la base de datos, bypassea RLS.
+        Solo en Supabase Dashboard. Nunca en el código, nunca en git.
+      </div>
+    </div>
+  </div>
+
+  <!-- RLS policies summary -->
+  <div class="section-title">Políticas RLS activas</div>
+  <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:20px">
+    <div style="display:grid;grid-template-columns:180px 80px 1fr;gap:0;align-items:center">
+      <div style="font-size:10px;font-weight:700;padding:6px 10px;background:var(--gray-lt);border-radius:6px 0 0 6px;font-family:monospace">restaurants, tables, menú</div>
+      <div style="font-size:10px;padding:6px 8px;background:var(--green-lt);color:var(--green);font-weight:700;text-align:center;border-left:1px solid var(--border)">SELECT ✓</div>
+      <div style="font-size:10px;padding:6px 10px;background:var(--gray-lt);border-radius:0 6px 6px 0;color:var(--gray);border-left:1px solid var(--border)">Lectura pública (is_active = true)</div>
+    </div>
+    <div style="display:grid;grid-template-columns:180px 80px 1fr;gap:0;align-items:center">
+      <div style="font-size:10px;font-weight:700;padding:6px 10px;background:var(--gray-lt);border-radius:6px 0 0 6px;font-family:monospace">orders, order_items</div>
+      <div style="font-size:10px;padding:6px 8px;background:var(--blue-lt);color:var(--blue);font-weight:700;text-align:center;border-left:1px solid var(--border)">INSERT+SELECT ✓</div>
+      <div style="font-size:10px;padding:6px 10px;background:var(--gray-lt);border-radius:0 6px 6px 0;color:var(--gray);border-left:1px solid var(--border)">Clientes pueden crear y leer sus pedidos</div>
+    </div>
+    <div style="display:grid;grid-template-columns:180px 80px 1fr;gap:0;align-items:center">
+      <div style="font-size:10px;font-weight:700;padding:6px 10px;background:var(--gray-lt);border-radius:6px 0 0 6px;font-family:monospace">orders (UPDATE status)</div>
+      <div style="font-size:10px;padding:6px 8px;background:var(--orange-lt);color:var(--orange);font-weight:700;text-align:center;border-left:1px solid var(--border)">UPDATE ✓</div>
+      <div style="font-size:10px;padding:6px 10px;background:var(--gray-lt);border-radius:0 6px 6px 0;color:var(--gray);border-left:1px solid var(--border)">Cocina puede avanzar el status (Fase 2: con auth)</div>
+    </div>
+    <div style="display:grid;grid-template-columns:180px 80px 1fr;gap:0;align-items:center">
+      <div style="font-size:10px;font-weight:700;padding:6px 10px;background:var(--gray-lt);border-radius:6px 0 0 6px;font-family:monospace">order_status_history</div>
+      <div style="font-size:10px;padding:6px 8px;background:var(--green-lt);color:var(--green);font-weight:700;text-align:center;border-left:1px solid var(--border)">INSERT only ✓</div>
+      <div style="font-size:10px;padding:6px 10px;background:var(--gray-lt);border-radius:0 6px 6px 0;color:var(--gray);border-left:1px solid var(--border)">Append-only — log inmutable de auditoría</div>
+    </div>
+  </div>
+
+  <!-- HTTP security headers -->
+  <div class="section-title">Headers de seguridad HTTP (vercel.json)</div>
+  <div class="grid-3" style="margin-bottom:20px">
+    <div class="box" style="padding:10px">
+      <div style="font-size:10px;font-family:monospace;color:var(--blue);font-weight:700">X-Content-Type-Options</div>
+      <div style="font-size:10px;color:var(--gray);margin-top:4px">nosniff — evita MIME sniffing</div>
+    </div>
+    <div class="box" style="padding:10px">
+      <div style="font-size:10px;font-family:monospace;color:var(--blue);font-weight:700">X-Frame-Options</div>
+      <div style="font-size:10px;color:var(--gray);margin-top:4px">SAMEORIGIN — anti-clickjacking</div>
+    </div>
+    <div class="box" style="padding:10px">
+      <div style="font-size:10px;font-family:monospace;color:var(--blue);font-weight:700">Referrer-Policy</div>
+      <div style="font-size:10px;color:var(--gray);margin-top:4px">strict-origin-when-cross-origin</div>
+    </div>
+  </div>
+
+  <!-- What's left for production -->
+  <div class="section-title">Pendientes para producción (Fase 2)</div>
+  <div class="grid-2">
+    <div style="display:flex;flex-direction:column;gap:5px">
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:7px 10px;background:var(--orange-lt);border-radius:7px">
+        <span>🔒</span> Auth para cocina (Supabase Auth o magic link)
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:7px 10px;background:var(--orange-lt);border-radius:7px">
+        <span>💳</span> Pagos reales (Bancard / Tigo Money API)
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:7px 10px;background:var(--orange-lt);border-radius:7px">
+        <span>📱</span> QR dinámico desde URL param <code style="font-family:monospace">?mesa=4&token=xxx</code>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:5px">
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:7px 10px;background:var(--orange-lt);border-radius:7px">
+        <span>🧾</span> Factura electrónica SIFEN (SET Paraguay)
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:7px 10px;background:var(--orange-lt);border-radius:7px">
+        <span>🏬</span> Multi-restaurante (schema ya listo)
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:7px 10px;background:var(--orange-lt);border-radius:7px">
+        <span>📶</span> PWA / offline con Service Worker
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Mesa App v1.0 · La Huaca, Asunción PY</span>
+    <span>07 — Stack y Seguridad</span>
+  </div>
+</div>
+
+<!-- Print button (hidden in print) -->
+<div class="no-print" style="text-align:center;padding:20px 0 40px">
+  <button onclick="window.print()" style="padding:12px 32px;background:#7C3AED;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(124,58,237,.4)">
+    🖨️ Imprimir / Guardar como PDF
+  </button>
+  <p style="color:#6B7280;font-size:12px;margin-top:10px">
+    Chrome/Edge: Destino → "Guardar como PDF" · Márgenes: Ninguno · Gráficos de fondo: Activar
+  </p>
+</div>
+
+</body>
+</html>

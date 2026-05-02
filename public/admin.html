@@ -350,7 +350,7 @@ function MenuPage({categories, menuItems, onRefresh}) {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
   const [newCat, setNewCat] = useState('');
-  const [form, setForm] = useState({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:''});
+  const [form, setForm] = useState({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:''});
   const [editVals, setEditVals] = useState({});
 
   const flash = (text, ok=true) => { setMsg({text,ok}); setTimeout(()=>setMsg(null),3000); };
@@ -368,9 +368,13 @@ function MenuPage({categories, menuItems, onRefresh}) {
   async function addItem() {
     if (!db||!form.name||!form.price_guarani||!form.category_id) return;
     setSaving(true);
-    const {error} = await db.from('menu_items').insert({...form,price_guarani:parseInt(form.price_guarani),restaurant_id:RESTAURANT_ID,promo_tag:form.promo_tag||null});
+    const {error} = await db.from('menu_items').insert({
+      name:form.name, description:form.description||null, price_guarani:parseInt(form.price_guarani),
+      category_id:form.category_id, restaurant_id:RESTAURANT_ID, is_available:form.is_available,
+      promo_tag:form.promo_tag||null, image_url:form.image_url||null
+    });
     if (error) flash('Error: '+error.message, false);
-    else { flash('Item agregado'); setShowForm(false); setForm({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:''}); onRefresh(); }
+    else { flash('Item agregado'); setShowForm(false); setForm({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:''}); onRefresh(); }
     setSaving(false);
   }
 
@@ -385,9 +389,11 @@ function MenuPage({categories, menuItems, onRefresh}) {
     if (!db) return;
     const vals = editVals[item.id]||{};
     const upd = {};
-    if (vals.name&&vals.name!==item.name) upd.name=vals.name;
-    if (vals.price&&parseInt(vals.price)!==item.price_guarani) upd.price_guarani=parseInt(vals.price);
-    if (vals.promo!==undefined&&vals.promo!==item.promo_tag) upd.promo_tag=vals.promo||null;
+    if (vals.name !== undefined && vals.name !== item.name) upd.name = vals.name;
+    if (vals.desc !== undefined && vals.desc !== item.description) upd.description = vals.desc || null;
+    if (vals.price !== undefined && parseInt(vals.price) !== item.price_guarani) upd.price_guarani = parseInt(vals.price);
+    if (vals.promo !== undefined && vals.promo !== item.promo_tag) upd.promo_tag = vals.promo || null;
+    if (vals.image_url !== undefined && vals.image_url !== item.image_url) upd.image_url = vals.image_url || null;
     if (!Object.keys(upd).length) { setEditId(null); return; }
     const {error} = await db.from('menu_items').update(upd).eq('id',item.id);
     if (error) flash('Error: '+error.message, false);
@@ -396,7 +402,7 @@ function MenuPage({categories, menuItems, onRefresh}) {
 
   function startEdit(item) {
     setEditId(item.id);
-    setEditVals(v => ({...v,[item.id]:{name:item.name,price:item.price_guarani,promo:item.promo_tag||''}}));
+    setEditVals(v => ({...v,[item.id]:{name:item.name,desc:item.description||'',price:item.price_guarani,promo:item.promo_tag||'',image_url:item.image_url||''}}));
   }
 
   function updEdit(id, key, val) {
@@ -445,10 +451,11 @@ function MenuPage({categories, menuItems, onRefresh}) {
                   {label:'NOMBRE *',key:'name',type:'text'},
                   {label:'PRECIO (₲) *',key:'price_guarani',type:'number'},
                   {label:'PROMO TAG',key:'promo_tag',type:'text',placeholder:'2×1, Chef ★'},
+                  {label:'URL IMAGEN',key:'image_url',type:'text',placeholder:'https://…jpg'},
                 ].map(f => (
                   <div key={f.key}>
                     <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4}}>{f.label}</label>
-                    <input type={f.type} value={form[f.key]} placeholder={f.placeholder||''} onChange={e=>setForm({...form,[f.key]:e.target.value})} style={{width:'100%',padding:'7px 9px',fontSize:13,fontFamily:f.type==='number'?'JetBrains Mono':'inherit'}}/>
+                    <input type={f.type} value={form[f.key]||''} placeholder={f.placeholder||''} onChange={e=>setForm({...form,[f.key]:e.target.value})} style={{width:'100%',padding:'7px 9px',fontSize:13,fontFamily:f.type==='number'?'JetBrains Mono':'inherit'}}/>
                   </div>
                 ))}
                 <div>
@@ -460,8 +467,15 @@ function MenuPage({categories, menuItems, onRefresh}) {
                 </div>
                 <div style={{gridColumn:'1/-1'}}>
                   <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4}}>DESCRIPCIÓN</label>
-                  <textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} rows={2} style={{width:'100%',padding:'7px 9px',fontSize:13,resize:'vertical'}}/>
+                  <textarea value={form.description||''} onChange={e=>setForm({...form,description:e.target.value})} rows={2} style={{width:'100%',padding:'7px 9px',fontSize:13,resize:'vertical'}}/>
                 </div>
+                {form.image_url && (
+                  <div style={{gridColumn:'1/-1'}}>
+                    <div style={{height:80,borderRadius:6,overflow:'hidden',background:'#0a0a0a'}}>
+                      <img src={form.image_url} alt="preview" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>
+                    </div>
+                  </div>
+                )}
               </div>
               <div style={{display:'flex',gap:8}}>
                 <button onClick={addItem} disabled={saving||!form.name||!form.price_guarani||!form.category_id} style={{background:C.white,border:'none',color:'#000',padding:'9px 18px',fontWeight:700,fontSize:13}}>
@@ -474,7 +488,7 @@ function MenuPage({categories, menuItems, onRefresh}) {
 
           <div style={{background:C.surface,border:`1px solid ${C.border}`}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Nombre</Th><Th>Categoría</Th><Th>Precio</Th><Th>Promo</Th><Th>Estado</Th><Th>Acc.</Th></tr></thead>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Imagen</Th><Th>Nombre</Th><Th>Categoría</Th><Th>Precio</Th><Th>Promo</Th><Th>Estado</Th><Th>Acc.</Th></tr></thead>
               <tbody>
                 {visible.map(item => {
                   const editing = editId===item.id;
@@ -483,8 +497,21 @@ function MenuPage({categories, menuItems, onRefresh}) {
                     <tr key={item.id} style={{borderBottom:`1px solid #0d0d0d`}}>
                       <Td>
                         {editing
-                          ? <input value={ev.name||''} onChange={e=>updEdit(item.id,'name',e.target.value)} style={{background:'#0a0a0a',border:`1px solid ${C.bStrong}`,color:'#fff',padding:'4px 8px',fontSize:13,width:'100%'}}/>
-                          : <span style={{color:item.is_available?C.ink:'#444'}}>{item.name}</span>}
+                          ? <input value={ev.image_url||''} onChange={e=>updEdit(item.id,'image_url',e.target.value)} placeholder="https://…" style={{background:'#0a0a0a',border:`1px solid ${C.bStrong}`,color:'#fff',padding:'4px 8px',fontSize:11,width:130}}/>
+                          : item.image_url
+                            ? <img src={item.image_url} alt="" style={{width:40,height:40,objectFit:'cover',borderRadius:4,display:'block'}} onError={e=>e.target.style.display='none'}/>
+                            : <div style={{width:40,height:40,background:'#1a1a1a',borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🍽</div>}
+                      </Td>
+                      <Td>
+                        {editing
+                          ? <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                              <input value={ev.name||''} onChange={e=>updEdit(item.id,'name',e.target.value)} placeholder="Nombre" style={{background:'#0a0a0a',border:`1px solid ${C.bStrong}`,color:'#fff',padding:'4px 8px',fontSize:13,width:'100%'}}/>
+                              <input value={ev.desc||''} onChange={e=>updEdit(item.id,'desc',e.target.value)} placeholder="Descripción…" style={{background:'#0a0a0a',border:`1px solid ${C.bStrong}`,color:'#777',padding:'4px 8px',fontSize:11,width:'100%'}}/>
+                            </div>
+                          : <div>
+                              <div style={{color:item.is_available?C.ink:'#444'}}>{item.name}</div>
+                              {item.description && <div style={{fontSize:11,color:'#444',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:180}}>{item.description}</div>}
+                            </div>}
                       </Td>
                       <Td dim>{catName(item.category_id)}</Td>
                       <Td mono>
@@ -824,24 +851,51 @@ function StatsPage({orders}) {
 
 /* ── CONFIG ── */
 function ConfigPage({restaurant, onRefresh}) {
-  const [form, setForm] = useState({});
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState(null);
+  const [form, setForm]   = useState({});
+  const [hours, setHours] = useState([]);
+  const [saving, setSaving]     = useState(false);
+  const [savingHours, setSavingHours] = useState(false);
+  const [msg, setMsg]     = useState(null);
 
-  useEffect(()=>{ if(restaurant) setForm(restaurant); },[restaurant]);
+  useEffect(()=>{
+    if(restaurant) {
+      setForm(restaurant);
+      const h = restaurant.opening_hours;
+      setHours(Array.isArray(h) && h.length > 0 ? h : [
+        {day:'Lun–Vie',hours:'12:00–15:00 · 19:00–23:00'},
+        {day:'Sábados',hours:'12:00–23:30'},
+        {day:'Domingos',hours:'12:00–16:00'}
+      ]);
+    }
+  },[restaurant]);
+
+  const flash = (text, ok=true) => { setMsg({text,ok}); setTimeout(()=>setMsg(null),3500); };
 
   async function save() {
     if (!db) return;
     setSaving(true);
     const {error} = await db.from('restaurants').update({
-      name:form.name,address:form.address,phone:form.phone,
-      instagram:form.instagram,website:form.website,logo_initials:form.logo_initials
+      name:form.name, address:form.address, phone:form.phone,
+      instagram:form.instagram, website:form.website, logo_initials:form.logo_initials,
+      cover_image_url:form.cover_image_url||null
     }).eq('id',RESTAURANT_ID);
-    setMsg(error?{text:'Error: '+error.message,ok:false}:{text:'Guardado correctamente',ok:true});
+    flash(error?'Error: '+error.message:'Info guardada correctamente', !error);
     if (!error) onRefresh();
     setSaving(false);
-    setTimeout(()=>setMsg(null),3000);
   }
+
+  async function saveHours() {
+    if (!db) return;
+    setSavingHours(true);
+    const {error} = await db.from('restaurants').update({ opening_hours: hours }).eq('id',RESTAURANT_ID);
+    flash(error?'Error: '+error.message:'Horarios guardados', !error);
+    if (!error) onRefresh();
+    setSavingHours(false);
+  }
+
+  const addHour = () => setHours(h => [...h, {day:'',hours:''}]);
+  const removeHour = (i) => setHours(h => h.filter((_,idx)=>idx!==i));
+  const updHour = (i,k,v) => setHours(h => h.map((row,idx)=>idx===i?{...row,[k]:v}:row));
 
   const fields = [
     {key:'name',label:'Nombre del restaurante'},
@@ -850,6 +904,7 @@ function ConfigPage({restaurant, onRefresh}) {
     {key:'instagram',label:'Instagram',placeholder:'@ejemplo'},
     {key:'website',label:'Sitio web',placeholder:'ejemplo.com'},
     {key:'logo_initials',label:'Iniciales del logo',placeholder:'LH'},
+    {key:'cover_image_url',label:'URL foto de portada',placeholder:'https://...jpg'},
   ];
 
   return (
@@ -858,21 +913,51 @@ function ConfigPage({restaurant, onRefresh}) {
         <h1 style={{fontSize:24,fontWeight:800}}>Configuración</h1>
         <FlashMsg msg={msg}/>
       </div>
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:24,maxWidth:560,marginBottom:14}}>
+
+      {/* Info del restaurante */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:24,maxWidth:620,marginBottom:14}}>
         <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:18}}>INFO DEL RESTAURANTE</div>
-        <div style={{display:'flex',flexDirection:'column',gap:14,marginBottom:22}}>
+        {form.cover_image_url && (
+          <div style={{marginBottom:16,borderRadius:8,overflow:'hidden',height:120,background:'#0a0a0a'}}>
+            <img src={form.cover_image_url} alt="Portada" style={{width:'100%',height:'100%',objectFit:'cover',opacity:0.8}} onError={e=>e.target.style.display='none'}/>
+          </div>
+        )}
+        <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:20}}>
           {fields.map(f=>(
             <div key={f.key}>
-              <label style={{fontSize:10,color:'#555',display:'block',marginBottom:5,fontWeight:700}}>{f.label.toUpperCase()}</label>
-              <input value={form[f.key]||''} placeholder={f.placeholder||f.label} onChange={e=>setForm({...form,[f.key]:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:14}}/>
+              <label style={{fontSize:10,color:'#555',display:'block',marginBottom:4,fontWeight:700,letterSpacing:1}}>{f.label.toUpperCase()}</label>
+              <input value={form[f.key]||''} placeholder={f.placeholder||f.label} onChange={e=>setForm({...form,[f.key]:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:4}}/>
             </div>
           ))}
         </div>
-        <button onClick={save} disabled={saving} style={{background:C.white,border:'none',color:'#000',padding:'11px 24px',fontWeight:700,fontSize:14}}>
+        <button onClick={save} disabled={saving} style={{background:C.white,border:'none',color:'#000',padding:'10px 22px',fontWeight:700,fontSize:13,borderRadius:4}}>
           {saving?'Guardando…':'Guardar cambios'}
         </button>
       </div>
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:20,maxWidth:560,marginBottom:14}}>
+
+      {/* Horarios */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:24,maxWidth:620,marginBottom:14}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+          <div style={{fontSize:11,color:'#555',fontWeight:700}}>HORARIOS DE APERTURA</div>
+          <button onClick={addHour} style={{background:'#1a1a1a',border:`1px solid ${C.border}`,color:C.mid,padding:'4px 10px',fontSize:12,borderRadius:4,cursor:'pointer'}}>+ Añadir</button>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:16}}>
+          {hours.map((h,i)=>(
+            <div key={i} style={{display:'flex',gap:8,alignItems:'center'}}>
+              <input value={h.day} onChange={e=>updHour(i,'day',e.target.value)} placeholder="Lun–Vie" style={{flex:'0 0 130px',padding:'7px 9px',fontSize:13,borderRadius:4}}/>
+              <input value={h.hours} onChange={e=>updHour(i,'hours',e.target.value)} placeholder="12:00–23:00" style={{flex:1,padding:'7px 9px',fontSize:13,borderRadius:4}}/>
+              <button onClick={()=>removeHour(i)} style={{background:'none',border:`1px solid #2a1010`,color:C.red,padding:'6px 9px',fontSize:12,cursor:'pointer',borderRadius:4,flexShrink:0}}>✕</button>
+            </div>
+          ))}
+          {hours.length===0 && <div style={{color:'#333',fontSize:12}}>Sin horarios definidos</div>}
+        </div>
+        <button onClick={saveHours} disabled={savingHours} style={{background:C.white,border:'none',color:'#000',padding:'10px 22px',fontWeight:700,fontSize:13,borderRadius:4}}>
+          {savingHours?'Guardando…':'Guardar horarios'}
+        </button>
+      </div>
+
+      {/* Accesos */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,padding:20,maxWidth:620,marginBottom:14}}>
         <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:12}}>ACCESOS RÁPIDOS</div>
         {[
           {label:'Panel de Cocina (KDS)',href:'cocina.html'},
@@ -882,7 +967,7 @@ function ConfigPage({restaurant, onRefresh}) {
           <a key={l.href} href={l.href} style={{display:'block',padding:'10px 0',color:C.mid,fontSize:13,textDecoration:'none',borderBottom:`1px solid #0d0d0d`}}>→ {l.label}</a>
         ))}
       </div>
-      <div style={{background:'#0d0d0d',border:`1px solid ${C.border}`,padding:16,maxWidth:560}}>
+      <div style={{background:'#0d0d0d',border:`1px solid ${C.border}`,padding:16,maxWidth:620}}>
         <div style={{fontSize:10,color:'#333',fontWeight:700,marginBottom:6}}>RESTAURANT ID</div>
         <div style={{fontFamily:'JetBrains Mono',fontSize:12,color:'#2a2a2a',wordBreak:'break-all'}}>{RESTAURANT_ID}</div>
       </div>

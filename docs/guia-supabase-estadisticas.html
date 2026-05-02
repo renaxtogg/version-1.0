@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guía Supabase — Estadísticas Mesa App</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink: #111827;
+    --mid: #6b7280;
+    --soft: #9ca3af;
+    --border: #e5e7eb;
+    --bg-code: #f9fafb;
+    --bg-note: #f0fdf4;
+    --accent: #16a34a;
+    --accent-light: #dcfce7;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink);
+    background: #fff;
+    padding: 0;
+  }
+
+  .page {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 48px 56px;
+  }
+
+  /* Cover */
+  .cover {
+    padding: 64px 0 48px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 48px;
+  }
+  .cover-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .cover h1 {
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--ink);
+    margin-bottom: 12px;
+  }
+  .cover-sub {
+    font-size: 15px;
+    color: var(--mid);
+  }
+  .cover-meta {
+    margin-top: 24px;
+    display: flex;
+    gap: 24px;
+    font-size: 12px;
+    color: var(--soft);
+  }
+  .cover-meta span { display: flex; align-items: center; gap: 6px; }
+
+  /* TOC */
+  .toc {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin-bottom: 40px;
+  }
+  .toc h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--mid); margin-bottom: 14px; }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin-bottom: 4px; font-size: 13px; }
+  .toc a { color: var(--ink); text-decoration: none; }
+  .toc a:hover { color: var(--accent); }
+
+  /* Sections */
+  .section { margin-bottom: 44px; }
+  h2.sec-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1.5px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2.sec-title .num {
+    width: 26px; height: 26px;
+    background: var(--ink);
+    color: #fff;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink);
+    margin: 24px 0 10px;
+    letter-spacing: 0.01em;
+  }
+
+  p { margin-bottom: 10px; color: #374151; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin: 12px 0 16px;
+  }
+  th {
+    background: var(--ink);
+    color: #fff;
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) td { background: #fafafa; }
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: #1d4ed8;
+  }
+
+  /* SQL blocks */
+  .sql-block {
+    margin: 12px 0 20px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .sql-header {
+    background: var(--ink);
+    padding: 6px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .sql-header span {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+  }
+  .sql-header .sql-name {
+    color: #86efac;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  pre {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 16px 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    overflow-x: auto;
+    white-space: pre;
+    margin: 0;
+  }
+
+  /* SQL keyword coloring */
+  .kw  { color: #cba6f7; font-weight: 500; }
+  .fn  { color: #89b4fa; }
+  .str { color: #a6e3a1; }
+  .cm  { color: #6c7086; font-style: italic; }
+  .num-lit { color: #fab387; }
+
+  /* Note boxes */
+  .note {
+    background: var(--bg-note);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #166534;
+    margin: 14px 0;
+  }
+  .note strong { display: block; margin-bottom: 3px; }
+
+  .warn {
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    border-radius: 0 8px 8px 0;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #92400e;
+    margin: 14px 0;
+  }
+
+  /* Status chips */
+  .status-flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 12px 0 16px;
+    align-items: center;
+  }
+  .chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 9px;
+    border-radius: 5px;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    color: var(--ink);
+  }
+  .chip.active { background: var(--accent-light); border-color: #86efac; color: #166534; }
+  .arrow { color: var(--soft); font-size: 12px; }
+
+  /* Steps */
+  ol.steps { padding-left: 0; list-style: none; counter-reset: step; }
+  ol.steps li {
+    counter-increment: step;
+    padding: 8px 0 8px 36px;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  ol.steps li:last-child { border-bottom: none; }
+  ol.steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 22px; height: 22px;
+    background: var(--ink);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--soft);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* Print */
+  @media print {
+    body { background: #fff; }
+    .page { padding: 20px 28px; max-width: 100%; }
+    .no-print { display: none !important; }
+    h2.sec-title, .sql-block, .section { page-break-inside: avoid; }
+    a { color: inherit; text-decoration: none; }
+  }
+
+  /* Print button */
+  .print-bar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    background: #111;
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 100;
+  }
+  .print-bar span { color: rgba(255,255,255,0.6); font-size: 12px; }
+  .btn-print {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 7px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-print:hover { background: #15803d; }
+  @media print { .print-bar { display: none; } }
+  body { padding-top: 48px; }
+  @media print { body { padding-top: 0; } }
+</style>
+</head>
+<body>
+
+<div class="print-bar no-print">
+  <span>Guía Supabase — Mesa App v1.0</span>
+  <button class="btn-print" onclick="window.print()">Guardar como PDF (Ctrl+P)</button>
+</div>
+
+<div class="page">
+
+  <!-- COVER -->
+  <div class="cover">
+    <div class="cover-label">Mesa App v1.0</div>
+    <h1>Guía de estadísticas<br>y datos en Supabase</h1>
+    <div class="cover-sub">Cómo leer, filtrar y exportar la información del restaurante</div>
+    <div class="cover-meta">
+      <span>La Huaca · Asunción, Paraguay</span>
+      <span>Base de datos: PostgreSQL + Supabase</span>
+      <span>Moneda: Guaraní (₲)</span>
+    </div>
+  </div>
+
+  <!-- TOC -->
+  <div class="toc">
+    <h2>Contenido</h2>
+    <ol>
+      <li><a href="#s1">Cómo acceder al panel de Supabase</a></li>
+      <li><a href="#s2">Qué datos se guardan en cada pedido</a></li>
+      <li><a href="#s3">Ver datos visualmente (Table Editor)</a></li>
+      <li><a href="#s4">Consultas SQL para estadísticas</a></li>
+      <li><a href="#s5">Ver actividad en tiempo real</a></li>
+      <li><a href="#s6">Exportar a Excel / CSV</a></li>
+      <li><a href="#s7">Referencia de columnas</a></li>
+    </ol>
+  </div>
+
+  <!-- SECTION 1 -->
+  <div class="section" id="s1">
+    <h2 class="sec-title"><span class="num">1</span>Cómo acceder al panel de Supabase</h2>
+
+    <ol class="steps">
+      <li>Abrir <strong>supabase.com/dashboard</strong> en el navegador</li>
+      <li>Iniciar sesión con la cuenta del proyecto</li>
+      <li>Seleccionar el proyecto <strong>mesa-app</strong></li>
+    </ol>
+
+    <h3>Secciones principales que vas a usar</h3>
+    <table>
+      <thead><tr><th>Sección</th><th>Dónde está</th><th>Para qué sirve</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Table Editor</strong></td><td>Ícono de grilla en la barra lateral</td><td>Ver y filtrar datos sin escribir código</td></tr>
+        <tr><td><strong>SQL Editor</strong></td><td>Ícono <code>&lt; &gt;</code> en la barra lateral</td><td>Consultas avanzadas, estadísticas, reportes</td></tr>
+        <tr><td><strong>Database → Replication</strong></td><td>Ícono de base de datos → Replication</td><td>Ver tablas con actualizaciones en tiempo real</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- SECTION 2 -->
+  <div class="section" id="s2">
+    <h2 class="sec-title"><span class="num">2</span>Qué datos se guardan en cada pedido</h2>
+
+    <p>Cada vez que un cliente escanea el QR, arma su pedido y paga, se crean registros en estas tablas:</p>
+
+    <table>
+      <thead><tr><th>Tabla</th><th>Descripción</th><th>Se crea cuando…</th></tr></thead>
+      <tbody>
+        <tr><td><code>orders</code></td><td>Pedido principal: mesa, total, estado, método de pago</td><td>El cliente confirma el pago</td></tr>
+        <tr><td><code>order_items</code></td><td>Cada plato dentro del pedido (nombre, precio, cantidad)</td><td>Inmediatamente después del pedido</td></tr>
+        <tr><td><code>order_item_extras</code></td><td>Extras seleccionados por plato (panceta, huevo, etc.)</td><td>Si el cliente eligió extras</td></tr>
+        <tr><td><code>order_status_history</code></td><td>Log de todos los cambios de estado</td><td>Cada vez que cambia el estado</td></tr>
+        <tr><td><code>ratings</code></td><td>Calificación 1–5 estrellas + comentario</td><td>Al final del flujo (opcional)</td></tr>
+        <tr><td><code>waiter_calls</code></td><td>Llamadas al mozo desde la app</td><td>Si el cliente presiona "Llamar mozo"</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Flujo de estados de un pedido</h3>
+    <div class="status-flow">
+      <span class="chip">draft</span>
+      <span class="arrow">→</span>
+      <span class="chip">confirmed</span>
+      <span class="arrow">→</span>
+      <span class="chip active">paid</span>
+      <span class="arrow">→</span>
+      <span class="chip active">kitchen_received</span>
+      <span class="arrow">→</span>
+      <span class="chip active">cooking</span>
+      <span class="arrow">→</span>
+      <span class="chip active">ready</span>
+      <span class="arrow">→</span>
+      <span class="chip">delivered</span>
+    </div>
+    <div class="note">
+      <strong>Para las estadísticas</strong>
+      Filtrar siempre con <code>status NOT IN ('draft', 'confirmed')</code> para excluir pedidos que nunca se completaron.
+      Los estados resaltados en verde son los que maneja la cocina.
+    </div>
+  </div>
+
+  <!-- SECTION 3 -->
+  <div class="section" id="s3">
+    <h2 class="sec-title"><span class="num">3</span>Ver datos visualmente (Table Editor)</h2>
+
+    <h3>Ver todos los pedidos</h3>
+    <ol class="steps">
+      <li>Clic en <strong>Table Editor</strong> en la barra lateral izquierda</li>
+      <li>Seleccionar la tabla <strong>orders</strong></li>
+      <li>Ver las filas y columnas directamente en pantalla</li>
+    </ol>
+
+    <h3>Columnas más importantes de <code>orders</code></h3>
+    <table>
+      <thead><tr><th>Columna</th><th>Qué contiene</th></tr></thead>
+      <tbody>
+        <tr><td><code>order_number</code></td><td>Número visible del pedido (ej: T-12345)</td></tr>
+        <tr><td><code>table_id</code></td><td>UUID de la mesa (ver número real en tabla <code>tables</code>)</td></tr>
+        <tr><td><code>status</code></td><td>Estado actual del pedido</td></tr>
+        <tr><td><code>subtotal</code></td><td>Importe antes de descuento, en guaraníes</td></tr>
+        <tr><td><code>discount_amount</code></td><td>Descuento aplicado por cupón, en guaraníes</td></tr>
+        <tr><td><code>total</code></td><td>Importe final cobrado, en guaraníes</td></tr>
+        <tr><td><code>payment_method</code></td><td>efectivo / tarjeta / qr / pos</td></tr>
+        <tr><td><code>coupon_code</code></td><td>Código de cupón usado (si aplica)</td></tr>
+        <tr><td><code>created_at</code></td><td>Fecha y hora del pedido (zona horaria UTC)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Filtrar por fecha</h3>
+    <ol class="steps">
+      <li>En el Table Editor, hacer clic en el botón <strong>Filter</strong></li>
+      <li>Seleccionar columna <code>created_at</code></li>
+      <li>Elegir condición <strong>is after</strong> e ingresar la fecha</li>
+      <li>Clic en <strong>Apply</strong></li>
+    </ol>
+
+    <h3>Ver los ítems de un pedido específico</h3>
+    <ol class="steps">
+      <li>Copiar el <code>id</code> (UUID) del pedido que te interesa</li>
+      <li>Ir a la tabla <strong>order_items</strong></li>
+      <li>Filtrar por <code>order_id</code> = el UUID copiado</li>
+    </ol>
+  </div>
+
+  <!-- SECTION 4 -->
+  <div class="section" id="s4">
+    <h2 class="sec-title"><span class="num">4</span>Consultas SQL para estadísticas</h2>
+
+    <p>Ir a <strong>SQL Editor</strong> → clic en <strong>New query</strong> → pegar la consulta → clic en <strong>Run</strong> (o <kbd>Ctrl+Enter</kbd>).</p>
+
+    <h3>4.1 — Pedidos de hoy</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">pedidos_hoy.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  o.order_number,
+  t.number          <span class="kw">AS</span> mesa,
+  o.status,
+  o.total,
+  o.payment_method,
+  o.created_at
+<span class="kw">FROM</span> orders o
+<span class="kw">LEFT JOIN</span> tables t <span class="kw">ON</span> t.id = o.table_id
+<span class="kw">WHERE</span> <span class="fn">DATE</span>(o.created_at) = <span class="fn">CURRENT_DATE</span>
+  <span class="kw">AND</span> o.status != <span class="str">'draft'</span>
+<span class="kw">ORDER BY</span> o.created_at <span class="kw">DESC</span>;</pre>
+    </div>
+
+    <h3>4.2 — Resumen del día (ingresos y métodos de pago)</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">resumen_dia.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  <span class="fn">COUNT</span>(*)                          <span class="kw">AS</span> total_pedidos,
+  <span class="fn">SUM</span>(total)                        <span class="kw">AS</span> ingresos_totales,
+  <span class="fn">ROUND</span>(<span class="fn">AVG</span>(total))                 <span class="kw">AS</span> ticket_promedio,
+  <span class="fn">SUM</span>(discount_amount)              <span class="kw">AS</span> descuentos_aplicados,
+  <span class="fn">COUNT</span>(*) <span class="kw">FILTER</span> (<span class="kw">WHERE</span> payment_method = <span class="str">'efectivo'</span>) <span class="kw">AS</span> pagos_efectivo,
+  <span class="fn">COUNT</span>(*) <span class="kw">FILTER</span> (<span class="kw">WHERE</span> payment_method = <span class="str">'tarjeta'</span>)  <span class="kw">AS</span> pagos_tarjeta,
+  <span class="fn">COUNT</span>(*) <span class="kw">FILTER</span> (<span class="kw">WHERE</span> payment_method = <span class="str">'qr'</span>)       <span class="kw">AS</span> pagos_qr
+<span class="kw">FROM</span> orders
+<span class="kw">WHERE</span> <span class="fn">DATE</span>(created_at) = <span class="fn">CURRENT_DATE</span>
+  <span class="kw">AND</span> status <span class="kw">NOT IN</span> (<span class="str">'draft'</span>, <span class="str">'confirmed'</span>);</pre>
+    </div>
+
+    <h3>4.3 — Platos más vendidos (todos los tiempos)</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">top_platos.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  oi.item_name,
+  <span class="fn">SUM</span>(oi.quantity)                   <span class="kw">AS</span> unidades_vendidas,
+  <span class="fn">SUM</span>(oi.quantity * oi.unit_price)   <span class="kw">AS</span> ingresos_generados
+<span class="kw">FROM</span> order_items oi
+<span class="kw">JOIN</span> orders o <span class="kw">ON</span> o.id = oi.order_id
+<span class="kw">WHERE</span> o.status <span class="kw">NOT IN</span> (<span class="str">'draft'</span>, <span class="str">'confirmed'</span>)
+<span class="kw">GROUP BY</span> oi.item_name
+<span class="kw">ORDER BY</span> unidades_vendidas <span class="kw">DESC</span>
+<span class="kw">LIMIT</span> <span class="num-lit">10</span>;</pre>
+    </div>
+
+    <h3>4.4 — Platos más vendidos (esta semana)</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">top_platos_semana.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  oi.item_name,
+  <span class="fn">SUM</span>(oi.quantity)                     <span class="kw">AS</span> unidades,
+  <span class="fn">SUM</span>(oi.quantity * oi.unit_price)     <span class="kw">AS</span> ingresos
+<span class="kw">FROM</span> order_items oi
+<span class="kw">JOIN</span> orders o <span class="kw">ON</span> o.id = oi.order_id
+<span class="kw">WHERE</span> o.status <span class="kw">NOT IN</span> (<span class="str">'draft'</span>, <span class="str">'confirmed'</span>)
+  <span class="kw">AND</span> o.created_at >= <span class="fn">date_trunc</span>(<span class="str">'week'</span>, <span class="fn">NOW</span>())
+<span class="kw">GROUP BY</span> oi.item_name
+<span class="kw">ORDER BY</span> unidades <span class="kw">DESC</span>
+<span class="kw">LIMIT</span> <span class="num-lit">10</span>;</pre>
+    </div>
+
+    <h3>4.5 — Ingresos por día (últimos 30 días)</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">ingresos_diarios.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  <span class="fn">DATE</span>(created_at)  <span class="kw">AS</span> fecha,
+  <span class="fn">COUNT</span>(*)          <span class="kw">AS</span> pedidos,
+  <span class="fn">SUM</span>(total)        <span class="kw">AS</span> ingresos
+<span class="kw">FROM</span> orders
+<span class="kw">WHERE</span> status <span class="kw">NOT IN</span> (<span class="str">'draft'</span>, <span class="str">'confirmed'</span>)
+  <span class="kw">AND</span> created_at >= <span class="fn">NOW</span>() - <span class="kw">INTERVAL</span> <span class="str">'30 days'</span>
+<span class="kw">GROUP BY</span> <span class="fn">DATE</span>(created_at)
+<span class="kw">ORDER BY</span> fecha <span class="kw">DESC</span>;</pre>
+    </div>
+
+    <h3>4.6 — Ingresos por semana (últimas 8 semanas)</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">ingresos_semanales.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  <span class="fn">DATE_TRUNC</span>(<span class="str">'week'</span>, created_at) <span class="kw">AS</span> semana,
+  <span class="fn">COUNT</span>(*)                       <span class="kw">AS</span> pedidos,
+  <span class="fn">SUM</span>(total)                     <span class="kw">AS</span> ingresos
+<span class="kw">FROM</span> orders
+<span class="kw">WHERE</span> status <span class="kw">NOT IN</span> (<span class="str">'draft'</span>, <span class="str">'confirmed'</span>)
+  <span class="kw">AND</span> created_at >= <span class="fn">NOW</span>() - <span class="kw">INTERVAL</span> <span class="str">'8 weeks'</span>
+<span class="kw">GROUP BY</span> <span class="fn">DATE_TRUNC</span>(<span class="str">'week'</span>, created_at)
+<span class="kw">ORDER BY</span> semana <span class="kw">DESC</span>;</pre>
+    </div>
+
+    <h3>4.7 — Mesa más activa</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">mesas_activas.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  t.number     <span class="kw">AS</span> mesa,
+  <span class="fn">COUNT</span>(*)     <span class="kw">AS</span> pedidos,
+  <span class="fn">SUM</span>(o.total) <span class="kw">AS</span> ingresos
+<span class="kw">FROM</span> orders o
+<span class="kw">LEFT JOIN</span> tables t <span class="kw">ON</span> t.id = o.table_id
+<span class="kw">WHERE</span> o.status <span class="kw">NOT IN</span> (<span class="str">'draft'</span>, <span class="str">'confirmed'</span>)
+<span class="kw">GROUP BY</span> t.number
+<span class="kw">ORDER BY</span> pedidos <span class="kw">DESC</span>;</pre>
+    </div>
+
+    <h3>4.8 — Uso de cupones</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">cupones.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  coupon_code,
+  <span class="fn">COUNT</span>(*)              <span class="kw">AS</span> veces_usado,
+  <span class="fn">SUM</span>(discount_amount)  <span class="kw">AS</span> ahorro_total_clientes
+<span class="kw">FROM</span> orders
+<span class="kw">WHERE</span> coupon_code <span class="kw">IS NOT NULL</span>
+  <span class="kw">AND</span> status <span class="kw">NOT IN</span> (<span class="str">'draft'</span>, <span class="str">'confirmed'</span>)
+<span class="kw">GROUP BY</span> coupon_code
+<span class="kw">ORDER BY</span> veces_usado <span class="kw">DESC</span>;</pre>
+    </div>
+
+    <h3>4.9 — Calificaciones de clientes</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">calificaciones.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  <span class="fn">ROUND</span>(<span class="fn">AVG</span>(stars), <span class="num-lit">1</span>)               <span class="kw">AS</span> promedio,
+  <span class="fn">COUNT</span>(*)                           <span class="kw">AS</span> total_calificaciones,
+  <span class="fn">COUNT</span>(*) <span class="kw">FILTER</span> (<span class="kw">WHERE</span> stars = <span class="num-lit">5</span>)  <span class="kw">AS</span> cinco_estrellas,
+  <span class="fn">COUNT</span>(*) <span class="kw">FILTER</span> (<span class="kw">WHERE</span> stars = <span class="num-lit">4</span>)  <span class="kw">AS</span> cuatro_estrellas,
+  <span class="fn">COUNT</span>(*) <span class="kw">FILTER</span> (<span class="kw">WHERE</span> stars = <span class="num-lit">3</span>)  <span class="kw">AS</span> tres_estrellas,
+  <span class="fn">COUNT</span>(*) <span class="kw">FILTER</span> (<span class="kw">WHERE</span> stars <= <span class="num-lit">2</span>) <span class="kw">AS</span> una_dos_estrellas
+<span class="kw">FROM</span> ratings;</pre>
+    </div>
+
+    <h3>4.10 — Tiempo promedio de preparación (de pago a listo)</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">tiempo_preparacion.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  <span class="fn">ROUND</span>(
+    <span class="fn">AVG</span>(
+      <span class="fn">EXTRACT</span>(<span class="kw">EPOCH FROM</span> (ready_at - paid_at)) / <span class="num-lit">60</span>
+    )
+  ) <span class="kw">AS</span> minutos_promedio_preparacion
+<span class="kw">FROM</span> (
+  <span class="kw">SELECT</span>
+    o.id,
+    <span class="fn">MIN</span>(h.changed_at) <span class="kw">FILTER</span> (<span class="kw">WHERE</span> h.status = <span class="str">'paid'</span>)  <span class="kw">AS</span> paid_at,
+    <span class="fn">MIN</span>(h.changed_at) <span class="kw">FILTER</span> (<span class="kw">WHERE</span> h.status = <span class="str">'ready'</span>) <span class="kw">AS</span> ready_at
+  <span class="kw">FROM</span> orders o
+  <span class="kw">JOIN</span> order_status_history h <span class="kw">ON</span> h.order_id = o.id
+  <span class="kw">GROUP BY</span> o.id
+) t
+<span class="kw">WHERE</span> paid_at <span class="kw">IS NOT NULL</span> <span class="kw">AND</span> ready_at <span class="kw">IS NOT NULL</span>;</pre>
+    </div>
+
+    <h3>4.11 — Extras más pedidos</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">top_extras.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  oie.extra_name,
+  <span class="fn">COUNT</span>(*)        <span class="kw">AS</span> veces_pedido,
+  <span class="fn">SUM</span>(oie.extra_price * oi.quantity) <span class="kw">AS</span> ingresos_extra
+<span class="kw">FROM</span> order_item_extras oie
+<span class="kw">JOIN</span> order_items oi <span class="kw">ON</span> oi.id = oie.order_item_id
+<span class="kw">JOIN</span> orders o <span class="kw">ON</span> o.id = oi.order_id
+<span class="kw">WHERE</span> o.status <span class="kw">NOT IN</span> (<span class="str">'draft'</span>, <span class="str">'confirmed'</span>)
+<span class="kw">GROUP BY</span> oie.extra_name
+<span class="kw">ORDER BY</span> veces_pedido <span class="kw">DESC</span>;</pre>
+    </div>
+
+    <h3>4.12 — Vista completa de ticket (pedido + ítems)</h3>
+    <div class="sql-block">
+      <div class="sql-header"><span class="sql-name">ticket_completo.sql</span><span>SQL</span></div>
+      <pre><span class="kw">SELECT</span>
+  o.order_number,
+  t.number     <span class="kw">AS</span> mesa,
+  o.created_at,
+  oi.item_name,
+  oi.quantity,
+  oi.unit_price,
+  oi.quantity * oi.unit_price <span class="kw">AS</span> subtotal_item
+<span class="kw">FROM</span> orders o
+<span class="kw">JOIN</span> order_items oi <span class="kw">ON</span> oi.order_id = o.id
+<span class="kw">LEFT JOIN</span> tables t <span class="kw">ON</span> t.id = o.table_id
+<span class="kw">WHERE</span> o.status <span class="kw">NOT IN</span> (<span class="str">'draft'</span>, <span class="str">'confirmed'</span>)
+<span class="kw">ORDER BY</span> o.created_at <span class="kw">DESC</span>, oi.item_name;</pre>
+    </div>
+  </div>
+
+  <!-- SECTION 5 -->
+  <div class="section" id="s5">
+    <h2 class="sec-title"><span class="num">5</span>Ver actividad en tiempo real</h2>
+
+    <p>Supabase tiene Realtime habilitado para estas tablas:</p>
+
+    <table>
+      <thead><tr><th>Tabla</th><th>Qué evento escucha</th></tr></thead>
+      <tbody>
+        <tr><td><code>orders</code></td><td>Cambios de estado (cocina avanzando tickets)</td></tr>
+        <tr><td><code>order_status_history</code></td><td>Cada registro nuevo de cambio de estado</td></tr>
+        <tr><td><code>waiter_calls</code></td><td>Llamadas al mozo y cambios a "atendido"</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Ver pedidos entrantes en vivo desde el dashboard</h3>
+    <ol class="steps">
+      <li>Ir a <strong>Table Editor</strong> → tabla <code>orders</code></li>
+      <li>Filtrar por <code>status</code> = <code>paid</code></li>
+      <li>Refrescar la página para ver los nuevos pedidos</li>
+    </ol>
+
+    <div class="note">
+      <strong>Tip</strong>
+      El SQL Editor no se actualiza automáticamente. Para monitoreo en vivo, usar el Table Editor con filtros aplicados y refrescar periódicamente.
+    </div>
+  </div>
+
+  <!-- SECTION 6 -->
+  <div class="section" id="s6">
+    <h2 class="sec-title"><span class="num">6</span>Exportar datos a Excel / CSV</h2>
+
+    <h3>Desde el SQL Editor (recomendado para reportes)</h3>
+    <ol class="steps">
+      <li>Correr cualquier consulta SQL</li>
+      <li>Ver los resultados en la tabla inferior</li>
+      <li>Hacer clic en el botón <strong>Export</strong> (esquina superior derecha de los resultados)</li>
+      <li>Elegir <strong>CSV</strong> — el archivo se descarga directamente</li>
+    </ol>
+
+    <h3>Desde el Table Editor (para tablas completas)</h3>
+    <ol class="steps">
+      <li>Abrir la tabla que querés exportar</li>
+      <li>Hacer clic en el botón <strong>···</strong> (tres puntos, arriba a la derecha)</li>
+      <li>Seleccionar <strong>Export to CSV</strong></li>
+    </ol>
+
+    <div class="warn">
+      Los valores de <code>total</code>, <code>subtotal</code> y <code>discount_amount</code> están en guaraníes enteros (sin decimales). Al abrir en Excel, no dividir ni reformatear esos valores.
+    </div>
+  </div>
+
+  <!-- SECTION 7 -->
+  <div class="section" id="s7">
+    <h2 class="sec-title"><span class="num">7</span>Referencia de columnas</h2>
+
+    <h3>Tabla <code>orders</code></h3>
+    <table>
+      <thead><tr><th>Columna</th><th>Tipo</th><th>Descripción</th></tr></thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>UUID</td><td>Identificador interno del pedido</td></tr>
+        <tr><td><code>order_number</code></td><td>TEXT</td><td>Número visible (ej: T-12345)</td></tr>
+        <tr><td><code>table_id</code></td><td>UUID</td><td>FK a <code>tables.id</code> — hacer JOIN para ver el número de mesa</td></tr>
+        <tr><td><code>order_type</code></td><td>TEXT</td><td><code>local</code> o <code>llevar</code></td></tr>
+        <tr><td><code>status</code></td><td>TEXT</td><td>Estado actual del pedido</td></tr>
+        <tr><td><code>subtotal</code></td><td>INTEGER</td><td>Importe antes de descuento en ₲</td></tr>
+        <tr><td><code>discount_amount</code></td><td>INTEGER</td><td>Descuento aplicado en ₲</td></tr>
+        <tr><td><code>coupon_code</code></td><td>TEXT</td><td>Cupón usado (puede ser NULL)</td></tr>
+        <tr><td><code>total</code></td><td>INTEGER</td><td>Importe final cobrado en ₲</td></tr>
+        <tr><td><code>payment_method</code></td><td>TEXT</td><td>efectivo / tarjeta / qr / pos</td></tr>
+        <tr><td><code>customer_name</code></td><td>TEXT</td><td>Nombre para factura (puede ser NULL)</td></tr>
+        <tr><td><code>created_at</code></td><td>TIMESTAMPTZ</td><td>Fecha y hora del pedido (UTC)</td></tr>
+        <tr><td><code>completed_at</code></td><td>TIMESTAMPTZ</td><td>Fecha y hora de entrega (puede ser NULL)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Tabla <code>ratings</code></h3>
+    <table>
+      <thead><tr><th>Columna</th><th>Tipo</th><th>Descripción</th></tr></thead>
+      <tbody>
+        <tr><td><code>stars</code></td><td>INTEGER</td><td>Calificación del 1 al 5</td></tr>
+        <tr><td><code>comment</code></td><td>TEXT</td><td>Comentario libre (puede ser NULL)</td></tr>
+        <tr><td><code>order_id</code></td><td>UUID</td><td>Pedido que calificó</td></tr>
+        <tr><td><code>created_at</code></td><td>TIMESTAMPTZ</td><td>Cuándo calificó</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Tabla <code>order_status_history</code></h3>
+    <table>
+      <thead><tr><th>Columna</th><th>Tipo</th><th>Descripción</th></tr></thead>
+      <tbody>
+        <tr><td><code>order_id</code></td><td>UUID</td><td>FK al pedido</td></tr>
+        <tr><td><code>status</code></td><td>TEXT</td><td>Estado registrado en este momento</td></tr>
+        <tr><td><code>changed_at</code></td><td>TIMESTAMPTZ</td><td>Cuándo ocurrió el cambio</td></tr>
+        <tr><td><code>changed_by</code></td><td>TEXT</td><td><code>customer</code> / <code>kitchen</code> / <code>system</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="footer">
+    <span>Mesa App v1.0 — La Huaca, Asunción, Paraguay</span>
+    <span>Para guardar como PDF: Ctrl+P → Guardar como PDF</span>
+  </div>
+
+</div>
+</body>
+</html>
