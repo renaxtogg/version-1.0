@@ -115,8 +115,15 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
 async function dbLoadRestaurant() {
   if (!db) return null;
   try {
-    const { data } = await db.from('restaurants').select('id,name,address,phone,instagram,website,logo_initials,cover_image_url,opening_hours').eq('id', RESTAURANT_ID).maybeSingle();
-    return data;
+    const { data, error } = await db.from('restaurants')
+      .select('id,name,address,phone,instagram,website,logo_initials,cover_image_url,opening_hours')
+      .eq('id', RESTAURANT_ID).maybeSingle();
+    if (!error && data) return data;
+    // Fallback si cover_image_url u opening_hours aún no existen en DB
+    const { data: d2 } = await db.from('restaurants')
+      .select('id,name,address,phone,instagram,website,logo_initials')
+      .eq('id', RESTAURANT_ID).maybeSingle();
+    return d2 || null;
   } catch(e) { return null; }
 }
 

@@ -1302,6 +1302,7 @@ function AdminApp() {
       const{data:cd}=await db.from('order_items').select('order_id').in('order_id',orderIds);
       (cd||[]).forEach(it=>{countsMap[it.order_id]=(countsMap[it.order_id]||0)+1;});
     }
+    if(rR.data?.name) document.title=`Admin — ${rR.data.name}`;
     setRestaurant(rR.data);
     setTables(tbls);
     setOrders(rawOrds.map(o=>({...o,table_number:o.table_id?tableMap[o.table_id]:null,items_count:countsMap[o.id]||0})));
