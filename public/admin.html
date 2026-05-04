@@ -1461,15 +1461,19 @@ function AdminApp() {
     const [rR,tR,oR,cR,iR,cpR,raR] = await Promise.all([
       db.from('restaurants').select('*').eq('id',RID).single(),
       db.from('tables').select('*').eq('restaurant_id',RID).order('number'),
-      db.from('orders').select('id,order_number,order_type,status,subtotal,discount_amount,coupon_code,total,payment_method,customer_name,customer_phone,created_at,table_id').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(500),
+      db.from('orders').select('id,order_number,order_type,status,subtotal,discount_amount,coupon_code,total,payment_method,customer_name,created_at,table_id').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(500),
       db.from('menu_categories').select('*').eq('restaurant_id',RID).order('sort_order'),
       db.from('menu_items').select('*').eq('restaurant_id',RID).order('sort_order'),
       db.from('coupons').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}),
       db.from('ratings').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(200),
     ]);
+    if(oR.error) console.error('[admin] orders error | code:',oR.error.code,'| message:',oR.error.message,'| details:',oR.error.details);
+    if(tR.error) console.error('[admin] tables error | code:',tR.error.code,'| message:',tR.error.message);
+    if(rR.error) console.error('[admin] restaurants error | code:',rR.error.code,'| message:',rR.error.message);
     const tbls=tR.data||[];
     const tableMap={};tbls.forEach(t=>{tableMap[t.id]=t.number;});
     const rawOrds=oR.data||[];
+    console.log('[admin] orders loaded:', rawOrds.length, '| RID:', RID);
     const orderIds=rawOrds.slice(0,150).map(o=>o.id);
     let countsMap={};
     if(orderIds.length){
