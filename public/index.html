@@ -147,13 +147,6 @@ async function dbSubmitRating(orderId, tableId, stars, comment) {
   try { await db.from('ratings').insert({ restaurant_id: RESTAURANT_ID, order_id: orderId || null, table_id: tableId || null, stars, comment: comment || null }); } catch(e) {}
 }
 
-function dbSubscribeOrder(orderId, onStatusChange) {
-  if (!db || !orderId) return null;
-  return db.channel('order-' + orderId)
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: 'id=eq.' + orderId }, p => onStatusChange(p.new.status))
-    .subscribe();
-}
-
 /* ── TWEAK DEFAULTS ─────────────────────── */
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "mood": "blanco",
@@ -586,7 +579,7 @@ function ProdCard({ item, onSelect }) {
 /* ══ MODAL: PRODUCTO ════════════════════ */
 const COMBO_EXTRAS = [{ n: 'Papas fritas', p: 8000 }, { n: 'Bebida 350ml', p: 8000 }];
 const COMBO_PRICE  = COMBO_EXTRAS.reduce((s, e) => s + e.p, 0);
-const BURGER_CATS  = ['hamburguesas', 'burger', 'hamburgesas'];
+const BURGER_CATS  = ['hamburguesas', 'burger'];
 
 function ProductModal({ item, onClose, onAdd }) {
   const T = useContext(ThemeCtx);
@@ -1224,6 +1217,13 @@ function App() {
   useEffect(() => {
     dbLoadMenu().then(menu => { if (menu) setLiveMenu(menu); });
     dbLoadRestaurant().then(r => { if (r) setRestaurant(r); });
+    if (!db) return;
+    const reload = () => dbLoadMenu().then(m => { if (m) setLiveMenu(m); });
+    const ch = db.channel('menu-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, reload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_categories', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, reload)
+      .subscribe();
+    return () => { db.removeChannel(ch); };
   }, []);
 
   const showToast = (msg) => setToast(msg);

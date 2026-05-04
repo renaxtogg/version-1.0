@@ -50,7 +50,6 @@ const LS = {
 };
 const ZONES_KEY   = `zones_${RID}`;
 const EGRESOS_KEY = `egresos_${RID}`;
-const SHIFTS_KEY  = `shifts_${RID}`;
 const DELIV_KEY   = `deliv_pct_${RID}`;
 
 /* ── UTILS ── */
@@ -154,6 +153,111 @@ function Btn({children,onClick,variant='primary',disabled,small,style:sx}) {
   );
 }
 function Divider() { return <div style={{height:1,background:C.border,margin:'4px 0'}}/> }
+
+/* ── IMAGE UPLOADER ── */
+async function _compressImg(file) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 900;
+      let w = img.naturalWidth, h = img.naturalHeight;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+        else { w = Math.round(w * MAX / h); h = MAX; }
+      }
+      const cvs = document.createElement('canvas');
+      cvs.width = w; cvs.height = h;
+      cvs.getContext('2d').drawImage(img, 0, 0, w, h);
+      cvs.toBlob(b => resolve(b), 'image/webp', 0.82);
+    };
+    img.onerror = () => resolve(null);
+    img.src = URL.createObjectURL(file);
+  });
+}
+function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images' }) {
+  const [drag, setDrag] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const ref = useRef();
+
+  async function handleFile(file) {
+    if (!['image/jpeg','image/png','image/webp'].includes(file.type)) {
+      toast('Formato no permitido — usá JPG, PNG o WebP', false); return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast('Archivo demasiado grande — máximo 5 MB', false); return;
+    }
+    if (!db) { toast('Sin Supabase — configurá config.js', false); return; }
+    setBusy(true);
+    try {
+      const blob = await _compressImg(file);
+      if (!blob) { toast('No se pudo procesar la imagen', false); setBusy(false); return; }
+      const path = `${RID}/${Date.now()}_${Math.random().toString(36).slice(2)}.webp`;
+      const { error } = await db.storage.from(bucket).upload(path, blob, { contentType: 'image/webp', upsert: false });
+      if (error) {
+        const hint = error.message.includes('Bucket not found')
+          ? `Bucket "${bucket}" no existe — ejecutá la migración ${bucket==='menu-images'?'011':'015'} en Supabase`
+          : error.message;
+        toast('Error al subir: ' + hint, false);
+      } else {
+        const { data: { publicUrl } } = db.storage.from(bucket).getPublicUrl(path);
+        onChange(publicUrl);
+        toast('Imagen subida correctamente');
+      }
+    } catch(e) { toast('Error: ' + e.message, false); }
+    setBusy(false);
+  }
+
+  function onDrop(e) { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }
+
+  if (compact) {
+    return (
+      <div style={{display:'flex',alignItems:'center',gap:6}}>
+        {value
+          ? <img src={value} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:5,flexShrink:0,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
+          : <div style={{width:36,height:36,background:'#1a1a1a',borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>🍽</div>}
+        <div style={{display:'flex',flexDirection:'column',gap:3}}>
+          <button onClick={()=>ref.current.click()} disabled={busy} style={{background:'transparent',border:`1px solid ${C.border}`,color:C.mid,padding:'2px 8px',fontSize:10,fontWeight:600,borderRadius:4,cursor:'pointer',whiteSpace:'nowrap'}}>
+            {busy?'⏳':value?'Cambiar':'Subir foto'}
+          </button>
+          {value&&<button onClick={()=>onChange('')} style={{background:'transparent',border:'1px solid rgba(239,68,68,0.2)',color:'rgba(239,68,68,0.5)',padding:'2px 8px',fontSize:10,fontWeight:600,borderRadius:4,cursor:'pointer'}}>Quitar</button>}
+        </div>
+        <input ref={ref} type="file" accept=".jpg,.jpeg,.png,.webp" style={{display:'none'}} onClick={e=>e.stopPropagation()} onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value='';}}/>
+      </div>
+    );
+  }
+
+  if (value) {
+    return (
+      <div style={{position:'relative',width:'100%',height:150,borderRadius:8,overflow:'hidden',border:`1px solid ${C.border}`}}>
+        <img src={value} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>{e.target.style.display='none';}}/>
+        {busy&&<div style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center'}}><span className="spin"/></div>}
+        <div style={{position:'absolute',bottom:0,left:0,right:0,background:'linear-gradient(transparent,rgba(0,0,0,0.88))',padding:'22px 10px 8px',display:'flex',gap:0}}>
+          <button onClick={()=>ref.current.click()} disabled={busy} style={{flex:1,background:'rgba(255,255,255,0.12)',border:'1px solid rgba(255,255,255,0.18)',color:'#fff',padding:'5px 8px',fontSize:11,fontWeight:700,borderRadius:'5px 0 0 5px',cursor:'pointer'}}>Cambiar portada</button>
+          <button onClick={()=>onChange('')} style={{background:'rgba(239,68,68,0.15)',border:'1px solid rgba(239,68,68,0.3)',borderLeft:'none',color:'#ef4444',padding:'5px 8px',fontSize:11,fontWeight:700,borderRadius:'0 5px 5px 0',cursor:'pointer'}}>Eliminar foto</button>
+        </div>
+        <input ref={ref} type="file" accept=".jpg,.jpeg,.png,.webp" style={{display:'none'}} onClick={e=>e.stopPropagation()} onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value='';}}/>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      onDragOver={e=>{e.preventDefault();setDrag(true)}}
+      onDragLeave={()=>setDrag(false)}
+      onDrop={onDrop}
+      onClick={()=>ref.current.click()}
+      style={{border:`2px dashed ${drag?'#555':'#222'}`,borderRadius:8,padding:'26px 16px',textAlign:'center',cursor:'pointer',background:drag?'rgba(255,255,255,0.04)':'transparent',transition:'border-color .15s,background .15s',userSelect:'none'}}>
+      {busy
+        ? <><span className="spin"/><div style={{fontSize:12,color:'#555',marginTop:10}}>Comprimiendo y subiendo…</div></>
+        : <>
+          <div style={{fontSize:28,marginBottom:6}}>🖼</div>
+          <div style={{fontSize:12,color:'#555'}}>Arrastrá una imagen o hacé clic para subir</div>
+          <div style={{fontSize:10,color:'#333',marginTop:4}}>JPG · PNG · WebP · máx 5 MB · se comprime automáticamente</div>
+        </>}
+      <input ref={ref} type="file" accept=".jpg,.jpeg,.png,.webp" style={{display:'none'}} onClick={e=>e.stopPropagation()} onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value='';}}/>
+    </div>
+  );
+}
 
 /* ── SIDEBAR ── */
 const NAV = [
@@ -356,8 +460,10 @@ function PedidosPage({orders,onRefresh}) {
   }
   async function updateStatus(orderId,newStatus) {
     if(!db)return;setUpd(true);
-    const{error}=await db.from('orders').update({status:newStatus,...(newStatus==='delivered'?{completed_at:new Date().toISOString()}:{})}).eq('id',orderId);
-    if(error){toast('Error: '+error.message,false);}else{toast('Estado actualizado');setSelected(s=>s?.id===orderId?{...s,status:newStatus}:s);onRefresh();}
+    const{data,error}=await db.from('orders').update({status:newStatus,...(newStatus==='delivered'?{completed_at:new Date().toISOString()}:{})}).eq('id',orderId).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo actualizar el estado — verificá RLS en Supabase',false);}
+    else{toast('Estado actualizado');setSelected(s=>s?.id===orderId?{...s,status:newStatus}:s);onRefresh();}
     setUpd(false);
   }
   return (
@@ -445,20 +551,28 @@ function MenuPage({categories,menuItems,onRefresh}) {
 
   async function addCategory() {
     if(!db||!newCat.trim())return;
-    const{error}=await db.from('menu_categories').insert({restaurant_id:RID,name:newCat.trim(),sort_order:categories.length+1});
-    error?toast('Error: '+error.message,false):(toast('Categoría agregada'),setNewCat(''),onRefresh());
+    const{data,error}=await db.from('menu_categories').insert({restaurant_id:RID,name:newCat.trim(),sort_order:categories.length+1}).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo crear la categoría — verificá RLS en Supabase',false);}
+    else{toast('Categoría agregada');setNewCat('');onRefresh();}
   }
   async function addItem() {
     if(!db||!form.name||!form.price_guarani||!form.category_id){toast('Completá nombre, precio y categoría',false);return;}
     setSaving(true);
-    const{error}=await db.from('menu_items').insert({name:form.name,description:form.description||null,price_guarani:parseInt(form.price_guarani),category_id:form.category_id,restaurant_id:RID,is_available:form.is_available,promo_tag:form.promo_tag||null,image_url:form.image_url||null});
-    if(error){toast('Error al guardar: '+error.message,false);}else{toast('Item creado — visible en app cliente al refrescar');setShowForm(false);setForm({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:''});onRefresh();}
+    const{data:maxData}=await db.from('menu_items').select('id').order('id',{ascending:false}).limit(1);
+    const nextId=(maxData&&maxData.length>0?maxData[0].id:0)+1;
+    const{data,error}=await db.from('menu_items').insert({id:nextId,name:form.name,description:form.description||null,price_guarani:parseInt(form.price_guarani),category_id:form.category_id,restaurant_id:RID,is_available:form.is_available,promo_tag:form.promo_tag||null,image_url:form.image_url||null}).select('id');
+    if(error){toast('Error al guardar: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo crear el item — verificá RLS en Supabase',false);}
+    else{toast('Item creado — ya visible en la app');setShowForm(false);setForm({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:''});onRefresh();}
     setSaving(false);
   }
   async function toggleAvail(item) {
     if(!db)return;
-    const{error}=await db.from('menu_items').update({is_available:!item.is_available}).eq('id',item.id);
-    error?toast('Error: '+error.message,false):(toast(item.is_available?'Desactivado — no aparece en carta':'Activado — visible en carta'),onRefresh());
+    const{data,error}=await db.from('menu_items').update({is_available:!item.is_available}).eq('id',item.id).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo actualizar — verificá permisos RLS en Supabase',false);}
+    else{toast(item.is_available?'Desactivado — no aparece en carta':'Activado — visible en carta');onRefresh();}
   }
   async function saveEdit(item) {
     if(!db)return;
@@ -470,13 +584,22 @@ function MenuPage({categories,menuItems,onRefresh}) {
     if(v.promo!==undefined&&v.promo!==(item.promo_tag||''))upd.promo_tag=v.promo||null;
     if(v.img!==undefined&&v.img!==(item.image_url||''))upd.image_url=v.img||null;
     if(!Object.keys(upd).length){setEditId(null);return;}
-    const{error}=await db.from('menu_items').update(upd).eq('id',item.id);
-    error?toast('Error: '+error.message,false):(toast('Guardado — se refleja en la app al refrescar'),setEditId(null),onRefresh());
+    const{data,error}=await db.from('menu_items').update(upd).eq('id',item.id).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo guardar — verificá permisos RLS en Supabase',false);}
+    else{toast('Guardado — reflejado en la app');setEditId(null);onRefresh();}
   }
   async function deleteItem(item) {
     if(!db||!confirm(`¿Eliminar "${item.name}"?`))return;
-    const{error}=await db.from('menu_items').delete().eq('id',item.id);
-    error?toast('Error: '+error.message,false):(toast('Item eliminado'),onRefresh());
+    const{data,error}=await db.from('menu_items').delete().eq('id',item.id).select('id');
+    if(error){
+      const msg = error.message.includes('foreign key') || error.message.includes('order_items')
+        ? 'Este item tiene pedidos históricos. Ejecutá la migración 012 en Supabase para habilitarlo.'
+        : 'Error: '+error.message;
+      toast(msg,false);
+    }
+    else if(!data||data.length===0){toast('No se pudo eliminar — ejecutá la migración 010 en Supabase',false);}
+    else{toast('Item eliminado');onRefresh();}
   }
   function startEdit(item){setEditId(item.id);setEditVals(v=>({...v,[item.id]:{name:item.name,desc:item.description||'',price:item.price_guarani,promo:item.promo_tag||'',img:item.image_url||''}}));}
   function upd(id,k,v){setEditVals(ev=>({...ev,[id]:{...ev[id],[k]:v}}));}
@@ -490,8 +613,8 @@ function MenuPage({categories,menuItems,onRefresh}) {
           <Btn onClick={()=>setShowForm(!showForm)}>+ Nuevo item</Btn>
         </div>
       </div>
-      <div style={{background:'rgba(251,191,36,0.06)',border:'1px solid rgba(251,191,36,0.2)',borderRadius:8,padding:'9px 14px',marginBottom:14,fontSize:12,color:'#888'}}>
-        Los cambios se guardan en Supabase. La app del cliente los ve al refrescar. Si no funcionan, revisá los permisos RLS en Supabase Dashboard.
+      <div style={{background:'rgba(34,197,94,0.06)',border:'1px solid rgba(34,197,94,0.2)',borderRadius:8,padding:'9px 14px',marginBottom:14,fontSize:12,color:'#888'}}>
+        Los cambios se guardan en Supabase. La app del cliente los ve al refrescar. Si crear o eliminar items falla, ejecutá las migraciones <code style={{fontFamily:'JetBrains Mono',color:'#aaa',fontSize:11}}>010</code> y <code style={{fontFamily:'JetBrains Mono',color:'#aaa',fontSize:11}}>012</code> en Supabase. Para subir fotos ejecutá también la <code style={{fontFamily:'JetBrains Mono',color:'#aaa',fontSize:11}}>011</code>.
       </div>
       <div style={{display:'flex',gap:14}}>
         <div style={{width:165,flexShrink:0}}>
@@ -519,8 +642,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                 <div><Lbl>PRECIO (₲) *</Lbl><Inp type="number" mono value={form.price_guarani} onChange={e=>setForm({...form,price_guarani:e.target.value})} placeholder="75000"/></div>
                 <div><Lbl>CATEGORÍA *</Lbl><Sel value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})}><option value="">Seleccionar…</option>{categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Sel></div>
                 <div><Lbl>PROMO TAG</Lbl><Inp value={form.promo_tag} onChange={e=>setForm({...form,promo_tag:e.target.value})} placeholder="2×1, Nuevo, Chef ★"/></div>
-                <div style={{gridColumn:'1/-1'}}><Lbl>URL DE IMAGEN (pegar link de foto)</Lbl><Inp value={form.image_url} onChange={e=>setForm({...form,image_url:e.target.value})} placeholder="https://i.imgur.com/ejemplo.jpg"/></div>
-                {form.image_url&&<div style={{gridColumn:'1/-1',height:80,borderRadius:6,overflow:'hidden'}}><img src={form.image_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>{e.target.style.display='none';}}/></div>}
+                <div style={{gridColumn:'1/-1'}}><Lbl>IMAGEN DEL PRODUCTO</Lbl><ImageUploader value={form.image_url} onChange={url=>setForm({...form,image_url:url})}/></div>
                 <div style={{gridColumn:'1/-1'}}><Lbl>DESCRIPCIÓN</Lbl><textarea value={form.description||''} onChange={e=>setForm({...form,description:e.target.value})} rows={2} style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:'#111',border:'1px solid #222',color:'#fff',borderRadius:6}}/></div>
               </div>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
@@ -538,8 +660,9 @@ function MenuPage({categories,menuItems,onRefresh}) {
                   return (
                     <tr key={item.id} style={{borderBottom:`1px solid #0d0d0d`}}>
                       <Td>
-                        {ed?<Inp value={ev.img||''} onChange={e=>upd(item.id,'img',e.target.value)} placeholder="https://…" style={{width:120,fontSize:11}}/>
-                          :item.image_url?<img src={item.image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4}} onError={e=>{e.target.style.display='none';}}/>
+                        {ed
+                          ?<ImageUploader compact value={ev.img||''} onChange={url=>upd(item.id,'img',url)}/>
+                          :item.image_url?<img src={item.image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
                           :<div style={{width:36,height:36,background:'#1a1a1a',borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>🍽</div>}
                       </Td>
                       <Td>
@@ -618,8 +741,9 @@ function MesasPage({tables,orders,onRefresh}) {
       if(error){toast('Error: '+error.message,false);}
       else{saveZone(data.id,form.zone);toast('Mesa '+num+' creada');onRefresh();setModal(null);}
     } else {
-      const{error}=await db.from('tables').update({number:num,capacity:parseInt(form.capacity)||4}).eq('id',modal.table.id);
+      const{data,error}=await db.from('tables').update({number:num,capacity:parseInt(form.capacity)||4}).eq('id',modal.table.id).select('id');
       if(error){toast('Error: '+error.message,false);}
+      else if(!data||data.length===0){toast('No se pudo actualizar la mesa — verificá RLS en Supabase',false);}
       else{saveZone(modal.table.id,form.zone);toast('Mesa actualizada');onRefresh();setModal(null);}
     }
     setSaving(false);
@@ -630,8 +754,9 @@ function MesasPage({tables,orders,onRefresh}) {
     const hasActive=activeOrders.some(o=>o.table_id===t.id);
     if(hasActive){toast('Mesa con pedido activo, no se puede eliminar',false);return;}
     if(!confirm(`¿Eliminar Mesa ${t.number}? Esta acción no se puede deshacer.`))return;
-    const{error}=await db.from('tables').delete().eq('id',t.id);
+    const{data,error}=await db.from('tables').delete().eq('id',t.id).select('id');
     if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo eliminar — falta política DELETE en Supabase RLS',false);}
     else{const z={...zones};delete z[t.id];setZones(z);LS.set(ZONES_KEY,z);toast('Mesa eliminada');onRefresh();}
   }
 
@@ -1022,13 +1147,17 @@ function MarketingPage({coupons,orders,onRefresh}) {
   async function addCoupon(){
     if(!db||!form.code||!form.discount_value){toast('Completá código y valor',false);return;}
     setSaving(true);
-    const{error}=await db.from('coupons').insert({restaurant_id:RID,code:form.code.toUpperCase().trim(),discount_type:form.discount_type,discount_value:parseInt(form.discount_value),min_order_amount:parseInt(form.min_order_amount)||0,max_uses:form.max_uses?parseInt(form.max_uses):null,is_active:true});
-    error?toast('Error: '+error.message,false):(toast('Cupón creado'),setForm({code:'',discount_type:'percentage',discount_value:'',min_order_amount:'',max_uses:''}),onRefresh());
+    const{data,error}=await db.from('coupons').insert({restaurant_id:RID,code:form.code.toUpperCase().trim(),discount_type:form.discount_type,discount_value:parseInt(form.discount_value),min_order_amount:parseInt(form.min_order_amount)||0,max_uses:form.max_uses?parseInt(form.max_uses):null,is_active:true}).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo crear el cupón — verificá RLS en Supabase',false);}
+    else{toast('Cupón creado');setForm({code:'',discount_type:'percentage',discount_value:'',min_order_amount:'',max_uses:''});onRefresh();}
     setSaving(false);
   }
   async function toggleCoupon(id,current){
-    const{error}=await db.from('coupons').update({is_active:!current}).eq('id',id);
-    error?toast('Error: '+error.message,false):(toast(current?'Cupón desactivado':'Cupón activado'),onRefresh());
+    const{data,error}=await db.from('coupons').update({is_active:!current}).eq('id',id).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo actualizar el cupón — verificá RLS en Supabase',false);}
+    else{toast(current?'Cupón desactivado':'Cupón activado');onRefresh();}
   }
 
   return (
@@ -1196,10 +1325,13 @@ function ConfigPage({restaurant,onRefresh}) {
 
   async function save(){
     if(!db)return;setSaving(true);
-    const upd={name:form.name,address:form.address,phone:form.phone,instagram:form.instagram,website:form.website,logo_initials:form.logo_initials};
+    const upd={name:form.name,address:form.address,phone:form.phone,instagram:form.instagram,website:form.website,logo_initials:form.logo_initials||null};
     if('cover_image_url' in (restaurant||{})) upd.cover_image_url=form.cover_image_url||null;
-    const{error}=await db.from('restaurants').update(upd).eq('id',RID);
-    error?toast('Error: '+error.message,false):(toast('Cambios guardados — se reflejan en la app al refrescar'),onRefresh());
+    if('logo_url' in (restaurant||{})) upd.logo_url=form.logo_url||null;
+    const{data,error}=await db.from('restaurants').update(upd).eq('id',RID).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS en Supabase',false);}
+    else{toast('Cambios guardados — se reflejan en la app al refrescar');onRefresh();}
     setSaving(false);
   }
   async function saveHours(){
@@ -1208,29 +1340,73 @@ function ConfigPage({restaurant,onRefresh}) {
       toast('Columna opening_hours no existe aún — ejecutá migración 009 en Supabase',false);
       setSavingH(false);return;
     }
-    const{error}=await db.from('restaurants').update({opening_hours:hours}).eq('id',RID);
-    error?toast('Error: '+error.message,false):(toast('Horarios guardados'),onRefresh());
+    const{data,error}=await db.from('restaurants').update({opening_hours:hours}).eq('id',RID).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo guardar los horarios — verificá RLS en Supabase',false);}
+    else{toast('Horarios guardados');onRefresh();}
     setSavingH(false);
   }
 
-  const FIELDS=[{key:'name',label:'Nombre del restaurante'},{key:'address',label:'Dirección'},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@lahuaca'},{key:'website',label:'Sitio web',ph:'lahuaca.com.py'},{key:'logo_initials',label:'Iniciales del logo',ph:'LH'},{key:'cover_image_url',label:'URL foto de portada',ph:'https://i.imgur.com/….jpg'}];
+  const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante'},{key:'address',label:'Dirección'},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@lahuaca'},{key:'website',label:'Sitio web',ph:'lahuaca.com.py'}];
 
   return (
     <div className="page">
       <h1 style={{fontSize:22,fontWeight:800,marginBottom:20}}>Configuración</h1>
-      <div style={{background:'rgba(251,191,36,0.06)',border:'1px solid rgba(251,191,36,0.2)',borderRadius:8,padding:'9px 14px',marginBottom:16,fontSize:12,color:'#888'}}>
-        Las fotos se cargan por URL (pegar link directo de imagen). Si los cambios no se reflejan en la app, revisá las políticas RLS de Supabase para la tabla <code style={{fontFamily:'JetBrains Mono'}}>restaurants</code>.
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,maxWidth:760}}>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
-          <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:16}}>INFO DEL RESTAURANTE</div>
-          {form.cover_image_url&&<div style={{marginBottom:14,borderRadius:8,overflow:'hidden',height:100}}><img src={form.cover_image_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover',opacity:.8}} onError={e=>{e.target.style.display='none';}}/></div>}
-          <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
-            {FIELDS.map(f=>(
-              <div key={f.key}><Lbl>{f.label.toUpperCase()}</Lbl><Inp value={form[f.key]||''} onChange={e=>setForm({...form,[f.key]:e.target.value})} placeholder={f.ph||f.label}/></div>
-            ))}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,maxWidth:860}}>
+
+        {/* ── Columna izquierda: info + imágenes ── */}
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+
+          {/* Portada */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>PORTADA DEL RESTAURANTE</div>
+            <ImageUploader
+              value={form.cover_image_url||''}
+              onChange={url=>setForm({...form,cover_image_url:url})}
+              bucket="restaurant-images"
+            />
+            <div style={{fontSize:10,color:'#333',marginTop:8}}>Aparece en la pantalla de bienvenida de los clientes. Recomendado: imagen horizontal 1200×600 px.</div>
           </div>
-          <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
+
+          {/* Logo */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>LOGO O FOTO DE PERFIL</div>
+            <div style={{display:'flex',gap:14,alignItems:'flex-start'}}>
+              <div style={{flexShrink:0}}>
+                {form.logo_url
+                  ? <div style={{position:'relative',width:72,height:72}}>
+                      <img src={form.logo_url} alt="" style={{width:72,height:72,objectFit:'cover',borderRadius:'50%',border:`2px solid ${C.bs}`}} onError={e=>{e.target.style.display='none';}}/>
+                      <button onClick={()=>setForm({...form,logo_url:''})} title="Eliminar logo" style={{position:'absolute',top:-4,right:-4,width:18,height:18,borderRadius:'50%',background:'#ef4444',border:'none',color:'#fff',fontSize:10,lineHeight:'18px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>✕</button>
+                    </div>
+                  : <div style={{width:72,height:72,borderRadius:'50%',background:'#1a1a1a',border:`2px dashed ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,color:'#333'}}>
+                      {form.logo_initials||'?'}
+                    </div>}
+              </div>
+              <div style={{flex:1}}>
+                <ImageUploader
+                  compact
+                  value={form.logo_url||''}
+                  onChange={url=>setForm({...form,logo_url:url})}
+                  bucket="restaurant-images"
+                />
+                <div style={{marginTop:10}}>
+                  <Lbl>INICIALES (fallback si no hay logo)</Lbl>
+                  <Inp value={form.logo_initials||''} onChange={e=>setForm({...form,logo_initials:e.target.value})} placeholder="LH" style={{width:64}}/>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Info básica */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>INFO DEL RESTAURANTE</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+              {INFO_FIELDS.map(f=>(
+                <div key={f.key}><Lbl>{f.label.toUpperCase()}</Lbl><Inp value={form[f.key]||''} onChange={e=>setForm({...form,[f.key]:e.target.value})} placeholder={f.ph||f.label}/></div>
+              ))}
+            </div>
+            <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
+          </div>
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>

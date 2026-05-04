@@ -13,3 +13,4 @@ SET opening_hours = '[
 ]'::jsonb
 WHERE id = '00000000-0000-0000-0000-000000000001'
   AND (opening_hours IS NULL OR opening_hours = '[]'::jsonb);
+//
