@@ -1325,9 +1325,7 @@ function ConfigPage({restaurant,onRefresh}) {
 
   async function save(){
     if(!db)return;setSaving(true);
-    const upd={name:form.name,address:form.address,phone:form.phone,instagram:form.instagram,website:form.website,logo_initials:form.logo_initials||null};
-    if('cover_image_url' in (restaurant||{})) upd.cover_image_url=form.cover_image_url||null;
-    if('logo_url' in (restaurant||{})) upd.logo_url=form.logo_url||null;
+    const upd={name:form.name,address:form.address,phone:form.phone,instagram:form.instagram,website:form.website,logo_initials:form.logo_initials||null,cover_image_url:form.cover_image_url||null,logo_url:form.logo_url||null};
     const{data,error}=await db.from('restaurants').update(upd).eq('id',RID).select('id');
     if(error){toast('Error: '+error.message,false);}
     else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS en Supabase',false);}
