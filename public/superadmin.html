@@ -1470,7 +1470,6 @@ const NAV = [
   {id:'analytics',    label:'Analytics',     icon:'📊'},
   {id:'actividad',    label:'Actividad',     icon:'📋'},
   {id:'usuarios',     label:'Usuarios',      icon:'👥'},
-  {id:'stock',        label:'Stock',         icon:'📦'},
 ];
 
 function Sidebar({page, setPage}) {
@@ -1563,7 +1562,7 @@ function App() {
   const {restaurants,plans,subscriptions,events,orders,ratings} = rawData;
   const enriched = buildAnalytics(restaurants, orders, ratings, subscriptions, plans);
 
-  const pageTitles = {overview:'Plataforma',ecosistemas:'Ecosistemas',suscripciones:'Suscripciones',analytics:'Analytics',actividad:'Actividad',usuarios:'Usuarios',stock:'Stock e Inventario'};
+  const pageTitles = {overview:'Plataforma',ecosistemas:'Ecosistemas',suscripciones:'Suscripciones',analytics:'Analytics',actividad:'Actividad',usuarios:'Usuarios'};
 
   return (
     <div style={{display:'flex',minHeight:'100vh'}}>
@@ -1595,7 +1594,6 @@ function App() {
               {page==='analytics'     && <PageAnalytics    enriched={enriched} orders={orders} ratings={ratings}/>}
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={loadAll}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
-              {page==='stock'         && <PageStock        restaurants={restaurants} setFlash={setFlash}/>}
             </>
           )}
         </div>
