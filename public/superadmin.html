@@ -798,7 +798,7 @@ function PageUsuarios({restaurants, setFlash}) {
   const [loading, setLoading] = useState(true);
   const [modal, setModal]   = useState(null); // null | 'create'
   const [saving, setSaving] = useState(false);
-  const [form, setForm]     = useState({username:'',display_name:'',password:'',role:'cocina',restaurant_id:''});
+  const [form, setForm]     = useState({username:'',display_name:'',password:'',role:'admin',restaurant_id:''});
 
   const ROLES = ['cocina','admin','superadmin'];
   const ROLE_COLORS = {cocina:C.cyan, admin:C.blue, superadmin:C.purple};
@@ -806,48 +806,34 @@ function PageUsuarios({restaurants, setFlash}) {
   const loadUsers = useCallback(async () => {
     if (!db) { setLoading(false); return; }
     setLoading(true);
-    const { data, error } = await db.from('user_roles').select('*').order('created_at', {ascending:false});
-    if (!error) setUsers(data || []);
+    const { data, error } = await db.rpc('admin_list_users');
+    if (!error && data) setUsers(data);
     setLoading(false);
   }, []);
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
   const createUser = async () => {
-    if (!form.username.trim())     { setFlash({type:'error',text:'El usuario es requerido'}); return; }
-    if (!form.display_name.trim()) { setFlash({type:'error',text:'El nombre es requerido'}); return; }
-    if (form.password.length < 8)  { setFlash({type:'error',text:'La contraseña debe tener al menos 8 caracteres'}); return; }
+    if (!form.username.trim())    { setFlash({type:'error',text:'El usuario es requerido'}); return; }
+    if (form.password.length < 8) { setFlash({type:'error',text:'La contraseña debe tener al menos 8 caracteres'}); return; }
     setSaving(true);
     try {
-      // Email interno: username sanitizado (solo alfanumérico + guiones)
-      const emailUser = form.username.toLowerCase().replace(/[^a-z0-9._-]/g, '');
-      const internalEmail = `${emailUser}@lahuaca.app`;
+      const safeUser = form.username.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+      const email = `${safeUser}.${Date.now()}@internal.mesaapp.com`;
 
-      // Crear cuenta con cliente temporal (no pisa la sesión del superadmin)
-      const tmpClient = window.supabase.createClient(
-        db.supabaseUrl || window.SUPABASE_CONFIG.url.trim(),
-        db.supabaseKey || window.SUPABASE_CONFIG.anonKey.trim()
-      );
-      const { data: signUpData, error: signUpErr } = await tmpClient.auth.signUp({
-        email: internalEmail,
-        password: form.password,
-      });
-      if (signUpErr) throw new Error('Error al crear cuenta: ' + signUpErr.message);
-      if (!signUpData?.user?.id) throw new Error('No se obtuvo el ID del usuario nuevo');
-
-      // Asignar rol vía función SECURITY DEFINER (confirma email + inserta rol)
-      const { error: roleErr } = await db.rpc('admin_create_user', {
-        p_email:         internalEmail,
-        p_username:      form.username,
-        p_display_name:  form.display_name,
+      const { data, error } = await db.rpc('admin_create_user', {
+        p_email:         email,
+        p_username:      form.username.trim(),
+        p_display_name:  form.display_name.trim() || form.username.trim(),
         p_role:          form.role,
         p_restaurant_id: form.restaurant_id || null,
+        p_password:      form.password,
       });
-      if (roleErr) throw new Error('Error al asignar rol: ' + roleErr.message);
+      if (error) throw new Error(error.message);
 
       setFlash({type:'ok', text:`Usuario "${form.username}" creado correctamente`});
       setModal(null);
-      setForm({username:'',display_name:'',password:'',role:'cocina',restaurant_id:''});
+      setForm({username:'',display_name:'',password:'',role:'admin',restaurant_id:''});
       loadUsers();
     } catch(e) { setFlash({type:'error', text: e.message}); }
     setSaving(false);
@@ -875,7 +861,7 @@ function PageUsuarios({restaurants, setFlash}) {
             {loading ? 'Cargando…' : `${users.length} usuario${users.length!==1?'s':''} registrado${users.length!==1?'s':''}`}
           </div>
         </div>
-        <Btn onClick={()=>{ setForm({username:'',display_name:'',password:'',role:'cocina',restaurant_id:''}); setModal('create'); }}>
+        <Btn onClick={()=>{ setForm({username:'',display_name:'',password:'',role:'admin',restaurant_id:''}); setModal('create'); }}>
           + Nuevo usuario
         </Btn>
       </div>
@@ -944,7 +930,7 @@ function PageUsuarios({restaurants, setFlash}) {
 
       {/* Modal crear usuario */}
       {modal==='create' && (
-        <div style={{position:'fixed',inset:0,background:'#00000090',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:1000,padding:'40px 16px',overflowY:'auto'}} onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+        <div style={{position:'fixed',inset:0,background:'#00000090',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:'24px 16px'}}>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,width:'100%',maxWidth:520,boxShadow:'0 24px 64px #00000080'}} className="animate-in">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 24px',borderBottom:`1px solid ${C.border}`}}>
               <span style={{fontWeight:700,fontSize:16,color:C.ink}}>Nuevo usuario</span>
@@ -952,14 +938,14 @@ function PageUsuarios({restaurants, setFlash}) {
             </div>
             <div style={{padding:24,display:'flex',flexDirection:'column',gap:14}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
-                <FormField label="Usuario *" hint="Login del sistema (case-sensitive)">
-                  <input value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="ej: jPerez" autoFocus/>
-                </FormField>
-                <FormField label="Nombre para mostrar *">
-                  <input value={form.display_name} onChange={e=>setForm({...form,display_name:e.target.value})} placeholder="ej: Juan Pérez"/>
+                <FormField label="Usuario *" hint="Nombre de login (sin espacios)">
+                  <input value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="ej: jperez" autoFocus/>
                 </FormField>
                 <FormField label="Contraseña *" hint="Mínimo 8 caracteres">
                   <input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="••••••••"/>
+                </FormField>
+                <FormField label="Nombre para mostrar" hint="Opcional — si se deja vacío usa el usuario">
+                  <input value={form.display_name} onChange={e=>setForm({...form,display_name:e.target.value})} placeholder="ej: Juan Pérez"/>
                 </FormField>
                 <FormField label="Rol">
                   <select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>
@@ -974,7 +960,7 @@ function PageUsuarios({restaurants, setFlash}) {
                 </select>
               </FormField>
               <div style={{background:'#0d0d18',border:`1px solid ${C.border}`,borderRadius:6,padding:'10px 14px',fontSize:12,color:C.dim}}>
-                El usuario iniciará sesión en <strong style={{color:C.mid,fontFamily:'monospace'}}>{window.location.origin}/login.html</strong> con su usuario y contraseña.
+                El usuario inicia sesión en <strong style={{color:C.mid,fontFamily:'monospace'}}>{window.location.origin}/login.html</strong> con su usuario y contraseña.
               </div>
               <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:4}}>
                 <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
@@ -988,6 +974,494 @@ function PageUsuarios({restaurants, setFlash}) {
   );
 }
 
+// ── Página: Stock e Inventario ───────────────────────────────
+function PageStock({restaurants, setFlash}) {
+  const [restId, setRestId]         = useState(restaurants[0]?.id || '');
+  const [tab, setTab]               = useState('inventario'); // inventario | cargar | recetas | movimientos
+  const [ingredients, setIngredients] = useState([]);
+  const [menuItems, setMenuItems]   = useState([]);
+  const [recipes, setRecipes]       = useState([]);
+  const [movements, setMovements]   = useState([]);
+  const [alerts, setAlerts]         = useState([]);
+  const [loading, setLoading]       = useState(false);
+  const [modal, setModal]           = useState(null); // null|'new_ing'|'load_stock'|'new_recipe'
+  const [saving, setSaving]         = useState(false);
+
+  // Formularios
+  const emptyIng = {name:'',category:'',unit:'unit',min_threshold:'0',cost_per_unit:'',stock_quantity:'0'};
+  const [ingForm, setIngForm]       = useState(emptyIng);
+  const emptyLoad = {ingredient_id:'',quantity:'',unit:'unit',expiry_date:'',batch_id:'',cost_per_unit:'',notes:''};
+  const [loadForm, setLoadForm]     = useState(emptyLoad);
+  const emptyRec = {menu_item_id:'',ingredient_id:'',quantity_required:'1',unit:'unit',notes:''};
+  const [recForm, setRecForm]       = useState(emptyRec);
+
+  const UNIT_LABELS = {g:'g (gramos)',kg:'kg (kilogramos)',l:'L (litros)',ml:'ml (mililitros)',unit:'unidades enteras',portion:'porciones'};
+  const UNIT_DISPLAY = {g:'g',kg:'kg',l:'L',ml:'ml',unit:'u',portion:'p'};
+
+  const fmtStock = (qty, unit) => {
+    // Almacenamiento interno: siempre en unidad base (g o ml)
+    // Mostrar en kg si >= 1000g, en L si >= 1000ml
+    if ((unit === 'g' || unit === 'kg') && qty >= 1000) return `${(qty/1000).toFixed(2)} kg`;
+    if ((unit === 'ml' || unit === 'l') && qty >= 1000) return `${(qty/1000).toFixed(2)} L`;
+    return `${qty} ${UNIT_DISPLAY[unit]||unit}`;
+  };
+
+  const stockColor = lvl => ({ok:C.green, bajo:C.yellow, critico:C.orange, sin_stock:C.red}[lvl]||C.mid);
+  const stockLabel = lvl => ({ok:'OK', bajo:'Bajo', critico:'Crítico', sin_stock:'Sin stock'}[lvl]||lvl);
+
+  const loadData = useCallback(async () => {
+    if (!db || !restId) return;
+    setLoading(true);
+    try {
+      const [ingsRes, itemsRes, recsRes, movsRes, alertsRes] = await Promise.all([
+        db.rpc('admin_list_ingredients', {p_restaurant_id: restId}),
+        db.from('menu_items').select('id,name,is_available,availability_reason').eq('restaurant_id', restId).eq('is_active', true).order('name'),
+        db.from('recipes').select('*').then(async r => {
+          if (r.error) return {data:[]};
+          // Solo los de este restaurante (via ingredients)
+          const ingIds = (await db.from('ingredients').select('id').eq('restaurant_id', restId)).data?.map(i=>i.id)||[];
+          return {data: (r.data||[]).filter(rec => ingIds.includes(rec.ingredient_id))};
+        }),
+        db.from('stock_movements').select('*, ingredient:ingredients(name,unit)').eq('restaurant_id', restId).order('created_at',{ascending:false}).limit(100),
+        db.from('stock_alerts').select('*, ingredient:ingredients(name,unit)').eq('restaurant_id', restId).is('resolved_at', null).order('created_at',{ascending:false}).limit(30),
+      ]);
+      setIngredients(ingsRes.data || []);
+      setMenuItems(itemsRes.data || []);
+      setRecipes(recsRes.data || []);
+      setMovements(movsRes.data || []);
+      setAlerts(alertsRes.data || []);
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  }, [restId]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Realtime: actualizar cuando cambia stock
+  useEffect(() => {
+    if (!db || !restId) return;
+    const ch = db.channel('stock-admin-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'ingredients',filter:`restaurant_id=eq.${restId}`}, loadData)
+      .on('postgres_changes',{event:'*',schema:'public',table:'stock_alerts',filter:`restaurant_id=eq.${restId}`}, loadData)
+      .subscribe();
+    return () => db.removeChannel(ch);
+  }, [restId, loadData]);
+
+  const createIngredient = async () => {
+    if (!ingForm.name.trim()) { setFlash({type:'warn',text:'El nombre es requerido'}); return; }
+    setSaving(true);
+    try {
+      const {error} = await db.from('ingredients').insert({
+        restaurant_id: restId,
+        name: ingForm.name.trim(),
+        category: ingForm.category.trim() || null,
+        unit: ingForm.unit,
+        stock_quantity: parseFloat(ingForm.stock_quantity)||0,
+        min_threshold: parseFloat(ingForm.min_threshold)||0,
+        cost_per_unit: ingForm.cost_per_unit ? parseFloat(ingForm.cost_per_unit) : null,
+      });
+      if (error) throw error;
+      setFlash({type:'ok',text:'Ingrediente creado'});
+      setModal(null);
+      setIngForm(emptyIng);
+      loadData();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const loadStock = async () => {
+    if (!loadForm.ingredient_id) { setFlash({type:'warn',text:'Seleccioná un ingrediente'}); return; }
+    if (!loadForm.quantity || parseFloat(loadForm.quantity)<=0) { setFlash({type:'warn',text:'Cantidad inválida'}); return; }
+    setSaving(true);
+    try {
+      const {error} = await db.rpc('admin_load_stock', {
+        p_ingredient_id: loadForm.ingredient_id,
+        p_quantity:      parseFloat(loadForm.quantity),
+        p_unit:          loadForm.unit,
+        p_expiry_date:   loadForm.expiry_date || null,
+        p_batch_id:      loadForm.batch_id || null,
+        p_cost_per_unit: loadForm.cost_per_unit ? parseFloat(loadForm.cost_per_unit) : null,
+        p_notes:         loadForm.notes || null,
+      });
+      if (error) throw error;
+      setFlash({type:'ok',text:'Stock cargado correctamente'});
+      setModal(null);
+      setLoadForm(emptyLoad);
+      loadData();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const createRecipe = async () => {
+    if (!recForm.menu_item_id || !recForm.ingredient_id) { setFlash({type:'warn',text:'Seleccioná ítem e ingrediente'}); return; }
+    setSaving(true);
+    try {
+      const {error} = await db.from('recipes').insert({
+        menu_item_id:      parseInt(recForm.menu_item_id),
+        ingredient_id:     recForm.ingredient_id,
+        quantity_required: parseFloat(recForm.quantity_required)||1,
+        unit:              recForm.unit,
+        notes:             recForm.notes || null,
+      });
+      if (error) throw error;
+      setFlash({type:'ok',text:'Receta guardada'});
+      setModal(null);
+      setRecForm(emptyRec);
+      loadData();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const deleteRecipe = async (id) => {
+    const {error} = await db.from('recipes').delete().eq('id', id);
+    if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
+    setFlash({type:'ok',text:'Receta eliminada'});
+    loadData();
+  };
+
+  const ingName = id => ingredients.find(i=>i.id===id)?.name || id;
+  const itemName = id => menuItems.find(i=>i.id===parseInt(id))?.name || id;
+
+  const mvtIcon = t => ({load:'↑',deduct:'↓',adjustment:'≈',waste:'✕',expired:'⚠'}[t]||'•');
+  const mvtColor = t => ({load:C.green,deduct:C.cyan,adjustment:C.yellow,waste:C.orange,expired:C.red}[t]||C.mid);
+
+  const alertIcon = t => ({low_stock:'⚠',critical_stock:'🔴',expiring_soon:'📅',expired:'💀'}[t]||'•');
+  const alertColor = t => ({low_stock:C.yellow,critical_stock:C.red,expiring_soon:C.orange,expired:C.red}[t]||C.mid);
+  const alertLabel = t => ({low_stock:'Stock bajo',critical_stock:'Stock crítico',expiring_soon:'Por vencer',expired:'Vencido'}[t]||t);
+
+  const resolveAlert = async (id) => {
+    const {error} = await db.from('stock_alerts').update({resolved_at: new Date().toISOString()}).eq('id',id);
+    if (!error) loadData();
+  };
+
+  const TabBtn = ({id,label}) => (
+    <button onClick={()=>setTab(id)} style={{
+      padding:'7px 16px',borderRadius:6,border:'none',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',
+      background: tab===id ? C.blue : 'transparent',
+      color: tab===id ? '#fff' : C.mid,
+      transition:'all .15s',
+    }}>{label}</button>
+  );
+
+  return (
+    <div className="animate-in">
+      {/* Header con selector de restaurante y tabs */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <div style={{display:'flex',gap:6,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:4}}>
+          <TabBtn id="inventario"   label="Inventario"/>
+          <TabBtn id="cargar"       label="Cargar stock"/>
+          <TabBtn id="recetas"      label="Recetas"/>
+          <TabBtn id="movimientos"  label="Movimientos"/>
+        </div>
+        <div style={{display:'flex',gap:10,alignItems:'center'}}>
+          <select value={restId} onChange={e=>setRestId(e.target.value)} style={{width:200,fontSize:13}}>
+            {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+          <button onClick={loadData} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'7px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺</button>
+        </div>
+      </div>
+
+      {/* Alertas activas */}
+      {alerts.length > 0 && (
+        <div style={{marginBottom:16,display:'flex',flexDirection:'column',gap:6}}>
+          {alerts.map(al=>(
+            <div key={al.id} style={{background:'#160808',border:`1px solid ${alertColor(al.alert_type)}40`,borderRadius:8,padding:'10px 16px',display:'flex',alignItems:'center',gap:10}}>
+              <span style={{fontSize:16}}>{alertIcon(al.alert_type)}</span>
+              <div style={{flex:1}}>
+                <span style={{fontWeight:700,fontSize:13,color:alertColor(al.alert_type)}}>{alertLabel(al.alert_type)}: </span>
+                <span style={{fontSize:13,color:C.ink}}>{al.ingredient?.name||'—'}</span>
+                {al.current_value!=null && <span style={{fontSize:11,color:C.mid,marginLeft:8}}>({fmtStock(al.current_value, al.ingredient?.unit||'unit')} actual)</span>}
+              </div>
+              <Btn size="sm" variant="ghost" onClick={()=>resolveAlert(al.id)}>Resolver</Btn>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:200,gap:14}}>
+          <Spinner/><span style={{color:C.mid}}>Cargando inventario…</span>
+        </div>
+      ) : (
+
+        <>
+        {/* ── TAB: INVENTARIO ─────────────────────────────────── */}
+        {tab==='inventario' && (
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+              <span style={{fontSize:13,color:C.mid}}>{ingredients.length} ingredientes registrados</span>
+              <Btn size="sm" onClick={()=>setModal('new_ing')}>+ Nuevo ingrediente</Btn>
+            </div>
+
+            {ingredients.length === 0 ? (
+              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>
+                No hay ingredientes registrados.<br/>
+                <span style={{fontSize:12}}>Creá un ingrediente y vinculalo a un ítem del menú con "Recetas".</span>
+              </div>
+            ) : (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                <table style={{width:'100%',borderCollapse:'collapse'}}>
+                  <thead style={{background:C.surface}}>
+                    <tr>
+                      <Th>Ingrediente</Th><Th>Stock actual</Th><Th>Umbral mín.</Th>
+                      <Th>Proyectado</Th><Th>Estado</Th><Th>Vence</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ingredients.map(ing => {
+                      const lvlColor = stockColor(ing.stock_level);
+                      const projDiff = ing.projected_qty - ing.stock_quantity;
+                      return (
+                        <tr key={ing.id}>
+                          <Td>
+                            <div style={{fontWeight:600,color:C.ink}}>{ing.name}</div>
+                            {ing.category&&<div style={{fontSize:11,color:C.dim}}>{ing.category}</div>}
+                          </Td>
+                          <Td>
+                            <span style={{fontWeight:700,color:lvlColor,fontFamily:'monospace'}}>
+                              {fmtStock(ing.stock_quantity, ing.unit)}
+                            </span>
+                          </Td>
+                          <Td style={{color:C.mid,fontSize:12,fontFamily:'monospace'}}>
+                            {ing.min_threshold > 0 ? fmtStock(ing.min_threshold, ing.unit) : '—'}
+                          </Td>
+                          <Td>
+                            <span style={{fontFamily:'monospace',fontSize:12,color: ing.projected_qty < 0 ? C.red : ing.projected_qty < ing.min_threshold ? C.orange : C.mid}}>
+                              {fmtStock(Math.max(0, ing.projected_qty), ing.unit)}
+                            </span>
+                            {projDiff < 0 && <span style={{fontSize:10,color:C.red,marginLeft:4}}>↓{fmtStock(Math.abs(projDiff), ing.unit)}</span>}
+                          </Td>
+                          <Td>
+                            <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:700,background:lvlColor+'22',color:lvlColor}}>
+                              {stockLabel(ing.stock_level)}
+                            </span>
+                            {ing.alert_count > 0 && <span style={{marginLeft:6,fontSize:10,color:C.red}}>⚠{ing.alert_count}</span>}
+                          </Td>
+                          <Td style={{fontSize:12,color: ing.expiry_date && new Date(ing.expiry_date)<new Date() ? C.red : ing.expiry_date && new Date(ing.expiry_date)<new Date(Date.now()+7*86400000) ? C.orange : C.mid}}>
+                            {ing.expiry_date ? fmtDate(ing.expiry_date) : '—'}
+                          </Td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Mini mapa de disponibilidad del menú */}
+            {menuItems.length > 0 && (
+              <div style={{marginTop:20,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontWeight:600,fontSize:13}}>Disponibilidad del menú</div>
+                <div style={{padding:16,display:'flex',flexWrap:'wrap',gap:8}}>
+                  {menuItems.map(mi=>(
+                    <div key={mi.id} style={{
+                      padding:'5px 12px',borderRadius:20,fontSize:12,fontWeight:600,
+                      background: mi.is_available ? '#102a10' : '#2a1010',
+                      color: mi.is_available ? C.green : C.red,
+                      border: `1px solid ${mi.is_available ? C.green : C.red}30`,
+                      title: mi.availability_reason,
+                    }}>
+                      {mi.is_available ? '●' : '○'} {mi.name}
+                      {!mi.is_available && mi.availability_reason && (
+                        <span style={{fontSize:10,fontWeight:400,color:C.red,marginLeft:4}}>({mi.availability_reason})</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TAB: CARGAR STOCK ───────────────────────────────── */}
+        {tab==='cargar' && (
+          <div style={{maxWidth:560}}>
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:24}}>
+              <div style={{fontWeight:700,fontSize:15,marginBottom:20}}>Cargar stock de ingrediente</div>
+              <div style={{display:'flex',flexDirection:'column',gap:14}}>
+                <FormField label="Ingrediente *">
+                  <select value={loadForm.ingredient_id} onChange={e=>setLoadForm({...loadForm,ingredient_id:e.target.value,unit:(ingredients.find(i=>i.id===e.target.value)?.unit||'unit')})}>
+                    <option value="">— Seleccioná un ingrediente —</option>
+                    {ingredients.map(i=><option key={i.id} value={i.id}>{i.name} (stock: {fmtStock(i.stock_quantity,i.unit)})</option>)}
+                  </select>
+                </FormField>
+                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}>
+                  <FormField label="Cantidad recibida *">
+                    <input type="number" min="0" step="0.001" value={loadForm.quantity} onChange={e=>setLoadForm({...loadForm,quantity:e.target.value})} placeholder="ej: 5"/>
+                  </FormField>
+                  <FormField label="Unidad">
+                    <select value={loadForm.unit} onChange={e=>setLoadForm({...loadForm,unit:e.target.value})}>
+                      {Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </FormField>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                  <FormField label="Fecha de vencimiento" hint="Opcional — recomendado para perecederos">
+                    <input type="date" value={loadForm.expiry_date} onChange={e=>setLoadForm({...loadForm,expiry_date:e.target.value})}/>
+                  </FormField>
+                  <FormField label="N° de lote / remito" hint="Para trazabilidad">
+                    <input value={loadForm.batch_id} onChange={e=>setLoadForm({...loadForm,batch_id:e.target.value})} placeholder="Opcional"/>
+                  </FormField>
+                </div>
+                <FormField label="Costo unitario (₲)" hint="Opcional — para reportes de costo">
+                  <input type="number" min="0" value={loadForm.cost_per_unit} onChange={e=>setLoadForm({...loadForm,cost_per_unit:e.target.value})} placeholder="Opcional"/>
+                </FormField>
+                <FormField label="Notas">
+                  <textarea rows={2} value={loadForm.notes} onChange={e=>setLoadForm({...loadForm,notes:e.target.value})} placeholder="Ej: Proveedor X, factura #123"/>
+                </FormField>
+                <div style={{paddingTop:4}}>
+                  <Btn onClick={loadStock} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Confirmar carga de stock'}</Btn>
+                </div>
+              </div>
+            </div>
+
+            <div style={{marginTop:20,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:24}}>
+              <div style={{fontWeight:700,fontSize:15,marginBottom:20}}>Nuevo ingrediente</div>
+              <div style={{display:'flex',flexDirection:'column',gap:14}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                  <FormField label="Nombre *">
+                    <input value={ingForm.name} onChange={e=>setIngForm({...ingForm,name:e.target.value})} placeholder="Ej: Carne vacuna"/>
+                  </FormField>
+                  <FormField label="Categoría">
+                    <input value={ingForm.category} onChange={e=>setIngForm({...ingForm,category:e.target.value})} placeholder="Ej: Carnes, Lácteos…"/>
+                  </FormField>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+                  <FormField label="Unidad base">
+                    <select value={ingForm.unit} onChange={e=>setIngForm({...ingForm,unit:e.target.value})}>
+                      {Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </FormField>
+                  <FormField label="Stock inicial">
+                    <input type="number" min="0" step="0.001" value={ingForm.stock_quantity} onChange={e=>setIngForm({...ingForm,stock_quantity:e.target.value})}/>
+                  </FormField>
+                  <FormField label="Umbral mínimo" hint="Alerta cuando baje de este nivel">
+                    <input type="number" min="0" step="0.001" value={ingForm.min_threshold} onChange={e=>setIngForm({...ingForm,min_threshold:e.target.value})}/>
+                  </FormField>
+                </div>
+                <div style={{paddingTop:4}}>
+                  <Btn onClick={createIngredient} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Crear ingrediente'}</Btn>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB: RECETAS ────────────────────────────────────── */}
+        {tab==='recetas' && (
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+              <span style={{fontSize:13,color:C.mid}}>Vinculá ingredientes a los ítems del menú para activar el descuento automático de stock</span>
+              <Btn size="sm" onClick={()=>setModal('new_recipe')}>+ Nueva receta</Btn>
+            </div>
+
+            {recipes.length === 0 ? (
+              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>
+                No hay recetas configuradas.<br/>
+                <span style={{fontSize:12}}>Los ítems sin receta no descontarán stock automáticamente.</span>
+              </div>
+            ) : (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                <table style={{width:'100%',borderCollapse:'collapse'}}>
+                  <thead style={{background:C.surface}}>
+                    <tr><Th>Ítem del menú</Th><Th>Ingrediente</Th><Th>Cantidad/porción</Th><Th>Notas</Th><Th></Th></tr>
+                  </thead>
+                  <tbody>
+                    {recipes.map(rec=>(
+                      <tr key={rec.id}>
+                        <Td style={{fontWeight:600}}>{itemName(rec.menu_item_id)}</Td>
+                        <Td>{ingName(rec.ingredient_id)}</Td>
+                        <Td style={{fontFamily:'monospace',fontSize:12}}>{rec.quantity_required} {UNIT_DISPLAY[rec.unit]||rec.unit}</Td>
+                        <Td style={{color:C.dim,fontSize:12}}>{rec.notes||'—'}</Td>
+                        <Td style={{textAlign:'right'}}><Btn size="sm" variant="danger" onClick={()=>deleteRecipe(rec.id)}>Eliminar</Btn></Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TAB: MOVIMIENTOS ────────────────────────────────── */}
+        {tab==='movimientos' && (
+          <div>
+            <div style={{marginBottom:14,fontSize:13,color:C.mid}}>Últimos 100 movimientos de stock</div>
+            {movements.length === 0 ? (
+              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>No hay movimientos registrados aún.</div>
+            ) : (
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                <table style={{width:'100%',borderCollapse:'collapse'}}>
+                  <thead style={{background:C.surface}}>
+                    <tr><Th>Fecha</Th><Th>Tipo</Th><Th>Ingrediente</Th><Th>Cantidad</Th><Th>Notas</Th></tr>
+                  </thead>
+                  <tbody>
+                    {movements.map(mv=>{
+                      const col = mvtColor(mv.movement_type);
+                      return (
+                        <tr key={mv.id}>
+                          <Td style={{fontSize:11,color:C.dim,fontFamily:'monospace'}}>{fmtDateTime(mv.created_at)}</Td>
+                          <Td>
+                            <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:700,background:col+'22',color:col}}>
+                              {mvtIcon(mv.movement_type)} {mv.movement_type}
+                            </span>
+                          </Td>
+                          <Td style={{fontWeight:500}}>{mv.ingredient?.name||'—'}</Td>
+                          <Td style={{fontFamily:'monospace',fontSize:12,color:mv.movement_type==='load'?C.green:C.red}}>
+                            {mv.movement_type==='load'?'+':'-'}{fmtStock(mv.quantity, mv.ingredient?.unit||'unit')}
+                          </Td>
+                          <Td style={{fontSize:12,color:C.dim}}>{mv.notes||'—'}</Td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+        </>
+      )}
+
+      {/* Modal: nueva receta */}
+      {modal==='new_recipe' && (
+        <Modal title="Nueva receta" onClose={()=>setModal(null)} width={480}>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <FormField label="Ítem del menú *">
+              <select value={recForm.menu_item_id} onChange={e=>setRecForm({...recForm,menu_item_id:e.target.value})}>
+                <option value="">— Seleccioná un ítem —</option>
+                {menuItems.map(mi=><option key={mi.id} value={mi.id}>{mi.name}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Ingrediente *">
+              <select value={recForm.ingredient_id} onChange={e=>setRecForm({...recForm,ingredient_id:e.target.value,unit:(ingredients.find(i=>i.id===e.target.value)?.unit||'unit')})}>
+                <option value="">— Seleccioná un ingrediente —</option>
+                {ingredients.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
+              </select>
+            </FormField>
+            <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}>
+              <FormField label="Cantidad por porción *">
+                <input type="number" min="0.001" step="0.001" value={recForm.quantity_required} onChange={e=>setRecForm({...recForm,quantity_required:e.target.value})}/>
+              </FormField>
+              <FormField label="Unidad">
+                <select value={recForm.unit} onChange={e=>setRecForm({...recForm,unit:e.target.value})}>
+                  {Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                </select>
+              </FormField>
+            </div>
+            <FormField label="Notas" hint="Opcional — ej: 'Sin grasa'">
+              <input value={recForm.notes} onChange={e=>setRecForm({...recForm,notes:e.target.value})} placeholder="Opcional"/>
+            </FormField>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:4}}>
+              <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+              <Btn onClick={createRecipe} disabled={saving}>{saving?'Guardando…':'Guardar receta'}</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 // ── Sidebar ──────────────────────────────────────────────────
 const NAV = [
   {id:'overview',     label:'Plataforma',    icon:'◉'},
@@ -996,6 +1470,7 @@ const NAV = [
   {id:'analytics',    label:'Analytics',     icon:'📊'},
   {id:'actividad',    label:'Actividad',     icon:'📋'},
   {id:'usuarios',     label:'Usuarios',      icon:'👥'},
+  {id:'stock',        label:'Stock',         icon:'📦'},
 ];
 
 function Sidebar({page, setPage}) {
@@ -1088,7 +1563,7 @@ function App() {
   const {restaurants,plans,subscriptions,events,orders,ratings} = rawData;
   const enriched = buildAnalytics(restaurants, orders, ratings, subscriptions, plans);
 
-  const pageTitles = {overview:'Plataforma',ecosistemas:'Ecosistemas',suscripciones:'Suscripciones',analytics:'Analytics',actividad:'Actividad',usuarios:'Usuarios'};
+  const pageTitles = {overview:'Plataforma',ecosistemas:'Ecosistemas',suscripciones:'Suscripciones',analytics:'Analytics',actividad:'Actividad',usuarios:'Usuarios',stock:'Stock e Inventario'};
 
   return (
     <div style={{display:'flex',minHeight:'100vh'}}>
@@ -1120,6 +1595,7 @@ function App() {
               {page==='analytics'     && <PageAnalytics    enriched={enriched} orders={orders} ratings={ratings}/>}
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={loadAll}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
+              {page==='stock'         && <PageStock        restaurants={restaurants} setFlash={setFlash}/>}
             </>
           )}
         </div>

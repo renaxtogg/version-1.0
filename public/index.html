@@ -116,14 +116,10 @@ async function dbLoadRestaurant() {
   if (!db) return null;
   try {
     const { data, error } = await db.from('restaurants')
-      .select('id,name,address,phone,instagram,website,logo_initials,cover_image_url,opening_hours')
+      .select('*')
       .eq('id', RESTAURANT_ID).maybeSingle();
     if (!error && data) return data;
-    // Fallback si cover_image_url u opening_hours aún no existen en DB
-    const { data: d2 } = await db.from('restaurants')
-      .select('id,name,address,phone,instagram,website,logo_initials')
-      .eq('id', RESTAURANT_ID).maybeSingle();
-    return d2 || null;
+    return null;
   } catch(e) { return null; }
 }
 
@@ -1218,7 +1214,22 @@ function App() {
     dbLoadMenu().then(menu => { if (menu) setLiveMenu(menu); });
     dbLoadRestaurant().then(r => { if (r) setRestaurant(r); });
     if (!db) return;
-    const reload = () => dbLoadMenu().then(m => { if (m) setLiveMenu(m); });
+    const reload = async () => {
+      const m = await dbLoadMenu();
+      if (!m) return;
+      setLiveMenu(m);
+      // Si un ítem del carrito quedó sin stock (is_available=false),
+      // ya no aparece en el menú recargado → removerlo y notificar al usuario.
+      const availableIds = new Set(Object.values(m).flat().map(i => i.id));
+      setCartItems(prev => {
+        const removed = prev.filter(ci => ci.item && !availableIds.has(ci.item.id));
+        if (removed.length > 0) {
+          const names = removed.map(ci => ci.item.name).join(', ');
+          setTimeout(() => setToast(`"${names}" se agotó y fue removido de tu pedido`), 100);
+        }
+        return prev.filter(ci => !ci.item || availableIds.has(ci.item.id));
+      });
+    };
     const ch = db.channel('menu-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, reload)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_categories', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, reload)

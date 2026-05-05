@@ -564,6 +564,7 @@ function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [diag, setDiag] = useState(null);
   const [restaurant, setRestaurant] = useState(null);
+  const [stockAlerts, setStockAlerts] = useState([]);
   const soundRef = useRef(soundOn);
   soundRef.current = soundOn;
 
@@ -603,6 +604,19 @@ function App() {
 
     db.from('restaurants').select('id,name,logo_initials').eq('id', RESTAURANT_ID).maybeSingle()
       .then(({ data }) => { if (data) { setRestaurant(data); document.title = `Cocina — ${data.name}`; } });
+
+    // Cargar alertas de stock activas
+    const loadStockAlerts = () => {
+      db.from('stock_alerts')
+        .select('id,alert_type,ingredient_id,current_value,created_at,ingredients(name,unit)')
+        .eq('restaurant_id', RESTAURANT_ID)
+        .is('resolved_at', null)
+        .in('alert_type', ['critical_stock','expiring_soon','expired'])
+        .order('created_at', {ascending:false})
+        .limit(10)
+        .then(({data}) => { if (data) setStockAlerts(data); });
+    };
+    loadStockAlerts();
 
     const runDiag = async () => {
       const cfg = window.SUPABASE_CONFIG || {};
@@ -693,6 +707,7 @@ function App() {
 
     const seenOrders = new Set();
     const channel = db.channel('cocina-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_alerts', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, loadStockAlerts)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, (payload) => {
         const ord = payload.new;
         if (!['paid', 'kitchen_received', 'cooking', 'ready'].includes(ord.status)) return;
@@ -805,6 +820,30 @@ function App() {
           <span style={{ fontSize: 12, fontWeight: 700, color: '#EF4444' }}>Error DB:</span>
           <span style={{ fontSize: 11, color: '#F87171', flex: 1 }}>{dbError}</span>
           <span style={{ fontSize: 10, color: '#888' }}>Verificá SUPABASE_URL y SUPABASE_ANON_KEY en Vercel</span>
+        </div>
+      )}
+
+      {/* Stock alerts banner */}
+      {stockAlerts.length > 0 && (
+        <div style={{ margin: '10px 20px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {stockAlerts.map(al => {
+            const isExpired   = al.alert_type === 'expired';
+            const isExpiring  = al.alert_type === 'expiring_soon';
+            const borderColor = isExpired ? '#EF4444' : '#F97316';
+            const bgColor     = isExpired ? 'rgba(239,68,68,0.07)' : 'rgba(249,115,22,0.07)';
+            const icon        = isExpired ? '💀' : isExpiring ? '📅' : '🔴';
+            const label       = isExpired ? 'VENCIDO' : isExpiring ? 'POR VENCER' : 'STOCK CRÍTICO';
+            return (
+              <div key={al.id} style={{ background: bgColor, border: `1px solid ${borderColor}40`, borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 14 }}>{icon}</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: borderColor, flexShrink: 0 }}>{label}:</span>
+                <span style={{ fontSize: 12, color: '#e0e0e0', flex: 1 }}>{al.ingredients?.name || al.ingredient_id}</span>
+                {al.current_value != null && (
+                  <span style={{ fontSize: 10, color: '#888', fontFamily: 'monospace' }}>{al.current_value} {al.ingredients?.unit || ''}</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
