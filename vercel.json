@@ -8,7 +8,8 @@
     { "source": "/admin", "destination": "/admin.html" },
     { "source": "/superadmin", "destination": "/superadmin.html" },
     { "source": "/login", "destination": "/login.html" },
-    { "source": "/diag", "destination": "/diag.html" }
+    { "source": "/diag", "destination": "/diag.html" },
+    { "source": "/caja", "destination": "/caja.html" }
   ],
   "headers": [
     {
