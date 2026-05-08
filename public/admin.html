@@ -63,7 +63,7 @@ const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',kitchen_receive
 const SC = {draft:'#444',confirmed:'#666',paid:'#f59e0b',kitchen_received:'#3b82f6',cooking:'#f97316',ready:'#22c55e',delivered:'#888',cancelled:'#ef4444'};
 const PL = {efectivo:'Efectivo',tarjeta:'Tarjeta',qr:'QR',pos:'POS'};
 const EG_CATS = ['Insumos','Personal','Servicios','Alquiler','Mantenimiento','Impuestos','Otro'];
-const ROLES = ['cocina','admin','superadmin','waiter'];
+const ROLES = ['cocina','admin','superadmin','waiter','cajero'];
 
 /* ── PALETTE ── */
 const C = {
@@ -271,6 +271,7 @@ const NAV = [
   null,
   {id:'clientes',  label:'Clientes',     icon:'♦', group:'ANÁLISIS'},
   {id:'finanzas',  label:'Finanzas',     icon:'₲'},
+  {id:'caja',      label:'Caja',         icon:'🖥'},
   null,
   {id:'marketing', label:'Marketing',    icon:'%', group:'ACCIONES'},
   {id:'ratings',   label:'Calificaciones',icon:'★'},
@@ -979,6 +980,219 @@ function ClientesPage({orders}) {
       {clientMap.length===0&&<div style={{marginTop:12,fontSize:12,color:'#444',padding:'10px 14px',background:'rgba(255,255,255,0.02)',borderRadius:8}}>Los pedidos deben incluir nombre del cliente para aparecer aquí.</div>}
     </div>
   );
+}
+
+/* ══════════════════════════════════════════════
+   CAJA ADMIN
+══════════════════════════════════════════════ */
+function CajaAdminPage() {
+  const [turnos,setTurnos]   = useState([]);
+  const [movs,setMovs]       = useState([]);
+  const [quejas,setQuejas]   = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [selTurno,setSelTurno] = useState(null);
+
+  useEffect(()=>{ if(db) loadAll(); else setLoading(false); },[]);
+
+  async function loadAll() {
+    setLoading(true);
+    const [tR,qR] = await Promise.all([
+      db.from('turnos_caja').select('*').eq('restaurant_id',RID).order('fecha_apertura',{ascending:false}).limit(30),
+      db.from('quejas_sugerencias').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(50),
+    ]);
+    const ts = tR.data||[];
+    setTurnos(ts);
+    setQuejas(qR.data||[]);
+    if(ts.length>0){
+      const{data:md}=await db.from('movimientos_caja').select('*').eq('turno_id',ts[0].id).order('created_at',{ascending:false});
+      setMovs(md||[]);
+      setSelTurno(ts[0]);
+    }
+    setLoading(false);
+  }
+
+  async function loadMovs(turno){
+    setSelTurno(turno);
+    const{data}=await db.from('movimientos_caja').select('*').eq('turno_id',turno.id).order('created_at',{ascending:false});
+    setMovs(data||[]);
+  }
+
+  const turnoActivo = turnos.find(t=>t.estado==='abierto');
+  const hoy = new Date().toISOString().slice(0,10);
+  const turnosHoy = turnos.filter(t=>t.fecha_apertura.slice(0,10)===hoy);
+  const cobradosHoy = turnosHoy.reduce((s,t)=>{
+    /* sólo es una estimación rápida basada en movimientos del turno activo */
+    return s;
+  },0);
+
+  const totalCobradoSel  = movs.filter(m=>m.tipo==='cobro').reduce((s,m)=>s+Number(m.monto),0);
+  const pedidosCobradosSel = movs.filter(m=>m.tipo==='cobro').length;
+  const totalEgresosSel  = movs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+Number(m.monto),0);
+
+  const tipoColor={cobro:C.green,egreso:C.red,ingreso_manual:C.cyan,retiro_parcial:C.orange,reposicion:C.yellow,descuento:C.purple,cortesia:C.blue,propina:C.yellow};
+  const quejaCols={queja:C.red,sugerencia:C.blue,comentario_positivo:C.green};
+
+  if(!db) return (
+    <div className="page">
+      <h1 style={{fontSize:22,fontWeight:800,marginBottom:16}}>Caja</h1>
+      <AlertBoxAdmin type="warn">Sin conexión a Supabase. Configurá las credenciales para ver datos de caja.</AlertBoxAdmin>
+      <a href="caja.html" style={{display:'inline-block',marginTop:12,padding:'10px 20px',background:C.white,color:'#000',borderRadius:6,fontSize:13,fontWeight:700,textDecoration:'none'}}>Abrir Panel de Caja →</a>
+    </div>
+  );
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <h1 style={{fontSize:22,fontWeight:800}}>Caja</h1>
+        <a href="caja.html" target="_blank" style={{padding:'9px 18px',background:C.white,color:'#000',borderRadius:6,fontSize:13,fontWeight:700,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>
+          🖥 Abrir Panel de Caja
+        </a>
+      </div>
+
+      {loading && <div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
+      {!loading && (
+        <>
+          {/* Estado del turno actual */}
+          <div style={{background:turnoActivo?'rgba(34,197,94,0.06)':C.surface,border:`1px solid ${turnoActivo?'rgba(34,197,94,0.25)':C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div>
+              <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:4}}>ESTADO DEL TURNO</div>
+              {turnoActivo ? (
+                <div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <div style={{width:8,height:8,borderRadius:'50%',background:C.green}} className="pulse"/>
+                  <span style={{fontWeight:700,color:C.green}}>TURNO ABIERTO</span>
+                  <span style={{fontSize:12,color:'#555'}}>Cajero: {turnoActivo.cajero_nombre||'—'}</span>
+                  <span style={{fontSize:12,color:'#333'}}>Desde: {fmtTime(turnoActivo.fecha_apertura)}</span>
+                </div>
+              ) : (
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <div style={{width:8,height:8,borderRadius:'50%',background:'#333'}}/>
+                  <span style={{color:'#555',fontWeight:700}}>SIN TURNO ACTIVO</span>
+                </div>
+              )}
+            </div>
+            {turnoActivo && (
+              <div style={{fontFamily:'JetBrains Mono',fontSize:11,color:'#444'}}>
+                Fondo apertura: {fmt(turnoActivo.fondo_apertura?.total||0)}
+              </div>
+            )}
+          </div>
+
+          {/* KPIs del turno seleccionado */}
+          {selTurno && (
+            <>
+              <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>
+                {selTurno.estado==='abierto'?'TURNO ACTIVO':'ÚLTIMO TURNO'} — {fmtDate(selTurno.fecha_apertura)}
+              </div>
+              <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+                <KpiCard label="Pedidos cobrados" value={pedidosCobradosSel} sub={`Turno ${selTurno.cajero_nombre||''}`} accent={C.green}/>
+                <KpiCard label="Total cobrado"    value={fmt(totalCobradoSel)} sub="todos los métodos" accent={C.green}/>
+                <KpiCard label="Egresos"          value={fmt(totalEgresosSel)} sub={`${movs.filter(m=>m.tipo==='egreso').length} registros`} accent={C.red}/>
+                {selTurno.estado==='cerrado' && selTurno.diferencia!=null && (
+                  <KpiCard label="Diferencia arqueo" value={`${selTurno.diferencia>=0?'+':''}${fmt(selTurno.diferencia)}`} sub="efectivo" accent={selTurno.diferencia===0?C.green:Math.abs(selTurno.diferencia)<50000?C.yellow:C.red}/>
+                )}
+              </div>
+            </>
+          )}
+
+          <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:14}}>
+            {/* Movimientos del turno seleccionado */}
+            <div>
+              <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>MOVIMIENTOS DEL TURNO</div>
+              {selTurno&&(
+                <div style={{marginBottom:10,display:'flex',gap:6,flexWrap:'wrap'}}>
+                  {turnos.slice(0,5).map(t=>(
+                    <button key={t.id} onClick={()=>loadMovs(t)}
+                      style={{padding:'4px 10px',fontSize:11,borderRadius:5,border:`1px solid ${selTurno?.id===t.id?C.white:C.border}`,background:selTurno?.id===t.id?'rgba(255,255,255,0.08)':'transparent',color:selTurno?.id===t.id?C.white:C.mid,cursor:'pointer',fontWeight:selTurno?.id===t.id?700:400}}>
+                      {fmtDate(t.fecha_apertura)} {t.cajero_nombre?`(${t.cajero_nombre.split(' ')[0]})`:''} {t.estado==='abierto'?'🟢':''}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                <table style={{width:'100%',borderCollapse:'collapse'}}>
+                  <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
+                    <Th>Hora</Th><Th>Tipo</Th><Th>Descripción</Th><Th>Método</Th><Th right>Monto</Th>
+                  </tr></thead>
+                  <tbody>
+                    {movs.slice(0,40).map(m=>(
+                      <tr key={m.id} style={{borderBottom:`1px solid #0d0d0d`}}>
+                        <Td mono dim>{fmtTime(m.created_at)}</Td>
+                        <Td><span style={{background:(tipoColor[m.tipo]||'#666')+'22',color:tipoColor[m.tipo]||'#666',padding:'2px 7px',fontSize:11,fontWeight:700,borderRadius:4}}>{m.tipo}</span></Td>
+                        <Td><span style={{fontSize:12}}>{m.descripcion||'—'}</span></Td>
+                        <Td dim><span style={{fontSize:11}}>{m.metodo_pago||'—'}</span></Td>
+                        <Td mono right style={{color:['cobro','ingreso_manual'].includes(m.tipo)?C.green:['egreso','retiro_parcial'].includes(m.tipo)?C.red:C.mid}}>
+                          {['egreso','retiro_parcial'].includes(m.tipo)?'- ':''}{fmt(m.monto)}
+                        </Td>
+                      </tr>
+                    ))}
+                    {movs.length===0&&<EmptyRow cols={5} label="Sin movimientos en este turno"/>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Panel derecho: historial + quejas */}
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              {/* Historial de turnos */}
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                <div style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,fontSize:10,color:'#555',fontWeight:700,letterSpacing:1}}>HISTORIAL DE TURNOS</div>
+                <table style={{width:'100%',borderCollapse:'collapse'}}>
+                  <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Cajero</Th><Th>Apertura</Th><Th right>Estado</Th></tr></thead>
+                  <tbody>
+                    {turnos.slice(0,8).map(t=>(
+                      <tr key={t.id} style={{borderBottom:`1px solid #0d0d0d`,cursor:'pointer'}} onClick={()=>loadMovs(t)}>
+                        <Td><span style={{fontSize:12}}>{t.cajero_nombre||'—'}</span></Td>
+                        <Td mono dim>{fmtDate(t.fecha_apertura)}</Td>
+                        <Td right>
+                          <span style={{background:t.estado==='abierto'?C.green+'22':C.dim+'22',color:t.estado==='abierto'?C.green:C.dim,border:`1px solid ${t.estado==='abierto'?C.green:C.dim}44`,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>
+                            {t.estado}
+                            {t.estado==='cerrado'&&t.diferencia!=null&&` Δ${fmt(t.diferencia)}`}
+                          </span>
+                        </Td>
+                      </tr>
+                    ))}
+                    {turnos.length===0&&<EmptyRow cols={3} label="Sin turnos registrados"/>}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Quejas recientes */}
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                <div style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  QUEJAS RECIENTES
+                  {quejas.filter(q=>q.estado==='abierto').length>0&&(
+                    <span style={{background:C.red+'22',color:C.red,border:`1px solid ${C.red}44`,padding:'1px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>
+                      {quejas.filter(q=>q.estado==='abierto').length} abiertas
+                    </span>
+                  )}
+                </div>
+                <div style={{maxHeight:200,overflowY:'auto'}}>
+                  {quejas.slice(0,8).map(q=>(
+                    <div key={q.id} style={{padding:'8px 14px',borderBottom:`1px solid #0d0d0d`}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
+                        <span style={{background:(quejaCols[q.tipo]||'#666')+'22',color:quejaCols[q.tipo]||'#666',padding:'1px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>{q.tipo}</span>
+                        {q.urgencia==='alta'&&<span style={{background:C.red+'22',color:C.red,padding:'1px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>⚠ ALTA</span>}
+                        <span style={{fontSize:10,color:'#333'}}>{fmtDate(q.created_at)}</span>
+                      </div>
+                      <div style={{fontSize:11,color:'#555',marginTop:2,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{q.descripcion}</div>
+                    </div>
+                  ))}
+                  {quejas.length===0&&<div style={{padding:20,textAlign:'center',color:'#333',fontSize:12}}>Sin quejas registradas</div>}
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* helper local para la página de caja */
+function AlertBoxAdmin({type='info',children}){
+  const cfg={info:{bg:'rgba(59,130,246,0.08)',border:'rgba(59,130,246,0.25)',color:'#93c5fd'},warn:{bg:'rgba(251,191,36,0.08)',border:'rgba(251,191,36,0.25)',color:'#fde68a'},error:{bg:'rgba(239,68,68,0.08)',border:'rgba(239,68,68,0.25)',color:'#fca5a5'}};
+  const s=cfg[type]||cfg.info;
+  return<div style={{background:s.bg,border:`1px solid ${s.border}`,color:s.color,padding:'10px 14px',borderRadius:8,fontSize:13}}>{children}</div>;
 }
 
 /* ══════════════════════════════════════════════
@@ -1875,6 +2089,7 @@ function AdminApp() {
       case 'mesas':     return <MesasPage tables={tables} orders={orders} onRefresh={loadAll}/>;
       case 'personal':  return <PersonalPage/>;
       case 'clientes':  return <ClientesPage orders={orders}/>;
+      case 'caja':      return <CajaAdminPage/>;
       case 'finanzas':  return <FinanzasPage orders={orders}/>;
       case 'marketing': return <MarketingPage coupons={coupons} orders={orders} onRefresh={loadAll}/>;
       case 'ratings':   return <RatingsPage ratings={ratings}/>;

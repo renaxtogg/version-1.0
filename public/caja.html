@@ -1,0 +1,1231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caja — La Huaca</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{background:#0A0A0A;font-family:'Plus Jakarta Sans',sans-serif;min-height:100vh;color:#fff}
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#222;border-radius:4px}
+  input,textarea,select{font-family:inherit;background:#111;border:1px solid #222;color:#fff;outline:none;border-radius:6px}
+  input:focus,textarea:focus,select:focus{border-color:#444}
+  button{font-family:inherit;cursor:pointer}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .page{animation:fadeIn .15s ease}
+  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #222;border-top-color:#888;border-radius:50%;vertical-align:middle}
+  .pulse{animation:pulse 2s ease infinite}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
+
+/* ── DB ── */
+const _initDB = () => {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url || !cfg?.anonKey) return null;
+  const url = cfg.url.replace(/^﻿/,'').trim();
+  const key = cfg.anonKey.replace(/^﻿/,'').trim();
+  if (!url || url.includes('YOUR_') || !key) return null;
+  try { return window.supabase.createClient(url, key); } catch(e) { return null; }
+};
+const db = _initDB();
+const RID = ((window.SUPABASE_CONFIG?.restaurantId)||'00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
+
+/* ── DENOMINACIONES GUARANÍES ── */
+const DENOMS = [
+  {v:50,   t:'moneda', lbl:'₲ 50'},
+  {v:100,  t:'moneda', lbl:'₲ 100'},
+  {v:500,  t:'moneda', lbl:'₲ 500'},
+  {v:1000, t:'billete',lbl:'₲ 1.000'},
+  {v:2000, t:'billete',lbl:'₲ 2.000'},
+  {v:5000, t:'billete',lbl:'₲ 5.000'},
+  {v:10000,t:'billete',lbl:'₲ 10.000'},
+  {v:20000,t:'billete',lbl:'₲ 20.000'},
+  {v:50000,t:'billete',lbl:'₲ 50.000'},
+  {v:100000,t:'billete',lbl:'₲ 100.000'},
+];
+const emptyDenoms = () => Object.fromEntries(DENOMS.map(d=>[d.v,0]));
+const calcDenomTotal = d => DENOMS.reduce((s,x)=>s+(d[x.v]||0)*x.v, 0);
+
+/* ── CONSTANTES ── */
+const MOTIVOS_CANCEL = ['Error del cliente','Cambio de decisión','Demora excesiva','Error del cajero','Error de cocina','Producto no disponible','Otro'];
+const METODOS_PAGO   = [{id:'efectivo',lbl:'Efectivo'},{id:'tarjeta_credito',lbl:'Tarjeta Cred.'},{id:'tarjeta_debito',lbl:'Tarjeta Déb.'},{id:'qr',lbl:'QR / Transfer.'},{id:'mixto',lbl:'Mixto'}];
+const EG_CATS        = ['Insumos','Propinas al staff','Servicio/Mantenimiento','Devolución a cliente','Otro'];
+const ING_CATS       = ['Delivery externo','Evento privado','Venta de mercadería','Otro'];
+const DELIVERY_PLATS = ['Rappi','PedidosYa','UberEats','Otro'];
+const QUEJA_CATS     = ['Tiempo de espera','Calidad de la comida','Temperatura incorrecta','Error en el pedido','Trato del personal','Limpieza','Precio o cobro incorrecto','Otro'];
+const CORTESIA_MOTIVOS = ['Error de cocina','Cliente VIP','Evento especial','Compensación por queja','Otro'];
+const FONDO_MINIMO   = 50000; // ₲ 50.000 mínimo recomendado
+
+/* ── UTILS ── */
+const fmt    = n => '₲ ' + (n||0).toLocaleString('es-PY');
+const fmtK   = n => n>=1000000?`${(n/1000000).toFixed(1)}M`:n>=1000?`${Math.round(n/1000)}k`:String(n||0);
+const fmtDate= d => new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'2-digit'});
+const fmtTime= d => new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'});
+const fmtDT  = d => `${fmtDate(d)} ${fmtTime(d)}`;
+const fmtDur = (from,to=new Date()) => {
+  const s=Math.floor((new Date(to)-new Date(from))/1000);
+  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
+  return h>0?`${h}h ${m}m`:`${m}m`;
+};
+const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',kitchen_received:'En cocina',cooking:'Preparando',ready:'Listo',delivered:'Entregado',cancelled:'Cancelado'};
+const SC = {paid:'#f59e0b',kitchen_received:'#3b82f6',cooking:'#f97316',ready:'#22c55e',delivered:'#888',cancelled:'#ef4444'};
+
+/* ── PALETA ── */
+const C = {
+  bg:'#0A0A0A',sidebar:'#0D0D0D',surface:'#111',card:'#161616',
+  border:'#1a1a1a',bs:'#2a2a2a',
+  white:'#fff',ink:'#e8e8e8',mid:'#888',dim:'#444',
+  green:'#22c55e',orange:'#f97316',red:'#ef4444',yellow:'#f59e0b',blue:'#3b82f6',purple:'#a855f7',cyan:'#06b6d4',
+};
+
+/* ── TOAST ── */
+const _toast = {fn:null};
+function toast(msg,ok=true){_toast.fn?.({msg,ok,id:Date.now()});}
+function ToastContainer(){
+  const [items,setItems]=useState([]);
+  useEffect(()=>{
+    _toast.fn=item=>{setItems(p=>[...p.slice(-4),item]);setTimeout(()=>setItems(p=>p.filter(i=>i.id!==item.id)),4500);};
+    return()=>{_toast.fn=null;};
+  },[]);
+  return(
+    <div style={{position:'fixed',bottom:20,right:20,zIndex:9999,display:'flex',flexDirection:'column',gap:8,pointerEvents:'none'}}>
+      {items.map(it=>(
+        <div key={it.id} style={{background:it.ok?'#0e1e0e':'#1e0e0e',border:`1px solid ${it.ok?'#1a4a1a':'#4a1a1a'}`,color:it.ok?'#4ade80':'#f87171',padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp 200ms ease',minWidth:220,maxWidth:340}}>
+          {it.ok?'✓ ':'✕ '}{it.msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── MODAL ── */
+function Modal({title,onClose,children,width=460}){
+  useEffect(()=>{const fn=e=>e.key==='Escape'&&onClose();window.addEventListener('keydown',fn);return()=>window.removeEventListener('keydown',fn);},[onClose]);
+  return(
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.88)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#111',border:`1px solid ${C.bs}`,borderRadius:12,padding:28,width:'100%',maxWidth:width,maxHeight:'92vh',overflowY:'auto',animation:'slideUp 200ms ease'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <div style={{fontSize:16,fontWeight:700}}>{title}</div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#555',fontSize:24,lineHeight:1,padding:0}}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* ── SHARED COMPONENTS ── */
+function Lbl({children,required}){return<label style={{fontSize:10,color:'#555',display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}{required&&<span style={{color:C.red,marginLeft:3}}>*</span>}</label>;}
+function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}){return<input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'9px 11px',fontSize:14,fontFamily:mono?'JetBrains Mono':'inherit',borderRadius:6,...(rest.style||{})}}/>;}
+function Sel({value,onChange,children,...rest}){return<select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,...(rest.style||{})}}>{children}</select>;}
+function Textarea({value,onChange,placeholder,rows=3}){return<textarea value={value} onChange={onChange} placeholder={placeholder} rows={rows} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,resize:'vertical'}}/>;}
+function Btn({children,onClick,variant='primary',disabled,small,full,style:sx}){
+  const bg=variant==='primary'?C.white:variant==='danger'?'rgba(239,68,68,0.1)':variant==='success'?'rgba(34,197,94,0.12)':variant==='ghost'?'transparent':'rgba(255,255,255,0.06)';
+  const color=variant==='primary'?'#000':variant==='danger'?C.red:variant==='success'?C.green:C.mid;
+  const border=variant==='primary'?'none':variant==='danger'?'1px solid rgba(239,68,68,0.3)':variant==='success'?'1px solid rgba(34,197,94,0.3)':`1px solid ${C.border}`;
+  return<button onClick={onClick} disabled={disabled} style={{background:bg,border,color,padding:small?'6px 12px':'10px 20px',fontSize:small?12:14,fontWeight:700,borderRadius:6,opacity:disabled?.5:1,width:full?'100%':'auto',...sx}}>{children}</button>;
+}
+function Divider(){return<div style={{height:1,background:C.border,margin:'8px 0'}}/>;}
+function KpiMini({label,value,accent,sub}){
+  return(
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px'}}>
+      <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:4}}>{label}</div>
+      <div style={{fontSize:22,fontWeight:800,fontFamily:'JetBrains Mono',color:accent||C.white,lineHeight:1}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:'#444',marginTop:4}}>{sub}</div>}
+    </div>
+  );
+}
+function Badge({txt,color='#888'}){
+  return<span style={{background:color+'22',color,border:`1px solid ${color}44`,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4,whiteSpace:'nowrap'}}>{txt}</span>;
+}
+function AlertBox({type='info',children}){
+  const cfg={info:{bg:'rgba(59,130,246,0.08)',border:'rgba(59,130,246,0.25)',color:'#93c5fd'},warn:{bg:'rgba(251,191,36,0.08)',border:'rgba(251,191,36,0.25)',color:'#fde68a'},error:{bg:'rgba(239,68,68,0.08)',border:'rgba(239,68,68,0.25)',color:'#fca5a5'},success:{bg:'rgba(34,197,94,0.08)',border:'rgba(34,197,94,0.25)',color:'#86efac'}};
+  const s=cfg[type]||cfg.info;
+  return<div style={{background:s.bg,border:`1px solid ${s.border}`,color:s.color,padding:'10px 14px',borderRadius:8,fontSize:13,marginBottom:12}}>{children}</div>;
+}
+
+/* ═══════════════════════════════════════════
+   PANEL DE DENOMINACIONES (apertura y cierre)
+═══════════════════════════════════════════ */
+function DenomGrid({values,onChange,label=''}){
+  const total=calcDenomTotal(values);
+  return(
+    <div>
+      {label&&<div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:10}}>{label}</div>}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+        {DENOMS.map(d=>(
+          <div key={d.v} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px',display:'flex',alignItems:'center',gap:8}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:10,color:'#555',fontWeight:700,marginBottom:2}}>{d.t==='moneda'?'🪙':'💵'} {d.lbl}</div>
+              <input
+                type="number" min="0" step="1"
+                value={values[d.v]||''}
+                onChange={e=>onChange({...values,[d.v]:Math.max(0,parseInt(e.target.value)||0)})}
+                placeholder="0"
+                style={{width:'100%',background:'transparent',border:'none',color:C.white,fontSize:18,fontFamily:'JetBrains Mono',fontWeight:700,outline:'none',padding:0}}
+              />
+            </div>
+            <div style={{fontSize:11,color:'#444',fontFamily:'JetBrains Mono',textAlign:'right',whiteSpace:'nowrap'}}>
+              {(values[d.v]||0)>0?fmt((values[d.v]||0)*d.v):''}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{fontSize:13,color:'#555',fontWeight:700}}>TOTAL CONTADO</div>
+        <div style={{fontSize:28,fontWeight:800,fontFamily:'JetBrains Mono',color:C.green}}>{fmt(total)}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   PANTALLA: APERTURA DE TURNO
+═══════════════════════════════════════════ */
+function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
+  const [denoms,setDenoms]=useState(emptyDenoms());
+  const [obs,setObs]=useState('');
+  const [busy,setBusy]=useState(false);
+
+  const total=calcDenomTotal(denoms);
+  const fondoBajo=total>0&&total<FONDO_MINIMO;
+
+  async function abrir(){
+    if(total===0){toast('Ingresá al menos una denominación para el fondo inicial',false);return;}
+    setBusy(true);
+    try{
+      const payload={
+        restaurant_id:RID,
+        cajero_id:profile.id,
+        cajero_nombre:profile.display_name||profile.username,
+        fondo_apertura:{denominaciones:denoms,total},
+        observaciones_apertura:obs||null,
+      };
+      const{data,error}=await db.from('turnos_caja').insert(payload).select().single();
+      if(error)throw error;
+      toast('Turno abierto correctamente');
+      onTurnoAbierto(data);
+    }catch(e){toast('Error al abrir turno: '+e.message,false);}
+    setBusy(false);
+  }
+
+  return(
+    <div style={{minHeight:'100vh',background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{width:'100%',maxWidth:600,animation:'fadeIn .2s ease'}}>
+        <div style={{textAlign:'center',marginBottom:28}}>
+          <div style={{fontFamily:'DM Serif Display',fontSize:28,marginBottom:6}}>Apertura de Turno</div>
+          <div style={{fontSize:13,color:'#555'}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
+          <div style={{fontSize:13,color:'#444',marginTop:4}}>Cajero: <span style={{color:C.white,fontWeight:700}}>{profile.display_name||profile.username}</span></div>
+        </div>
+
+        {turnoAbierto&&(
+          <AlertBox type="error">
+            ⚠ Hay un turno anterior abierto desde {fmtDT(turnoAbierto.fecha_apertura)} por <strong>{turnoAbierto.cajero_nombre||'otro cajero'}</strong>. Cerralo antes de abrir uno nuevo.
+          </AlertBox>
+        )}
+        {fondoBajo&&(
+          <AlertBox type="warn">
+            ⚠ El fondo es menor al mínimo recomendado de {fmt(FONDO_MINIMO)}. Podés continuar igual.
+          </AlertBox>
+        )}
+
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:24,marginBottom:16}}>
+          <DenomGrid values={denoms} onChange={setDenoms} label="Fondo inicial — ingresá la cantidad de cada denominación"/>
+          <div style={{marginTop:14}}>
+            <Lbl>OBSERVACIONES (opcional)</Lbl>
+            <Textarea value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ej: Fondo recibido de turno anterior, novedades…" rows={2}/>
+          </div>
+        </div>
+
+        <div style={{display:'flex',gap:10}}>
+          <Btn full onClick={abrir} disabled={busy||!!turnoAbierto}>
+            {busy?<><span className="spin"/> Abriendo…</>:'Abrir Turno →'}
+          </Btn>
+          <Btn variant="ghost" onClick={()=>window.location.href='admin.html'}>Admin</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   SIDEBAR DEL TURNO
+═══════════════════════════════════════════ */
+function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile}){
+  const [hora,setHora]=useState(new Date());
+  useEffect(()=>{const t=setInterval(()=>setHora(new Date()),30000);return()=>clearInterval(t);},[]);
+
+  const cobros=movimientos.filter(m=>m.tipo==='cobro');
+  const totalCobrado=cobros.reduce((s,m)=>s+Number(m.monto),0);
+  const totalEgresos=movimientos.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+Number(m.monto),0);
+  const retiros=movimientos.filter(m=>m.tipo==='retiro_parcial').reduce((s,m)=>s+Number(m.monto),0);
+  const ingresosMan=movimientos.filter(m=>m.tipo==='ingreso_manual').reduce((s,m)=>s+Number(m.monto),0);
+  const efectivoCobros=cobros.filter(m=>m.metodo_pago==='efectivo').reduce((s,m)=>s+Number(m.monto),0);
+  const fondoApertura=turno.fondo_apertura?.total||0;
+  const saldoEstimado=fondoApertura+efectivoCobros+ingresosMan-totalEgresos-retiros;
+
+  const NAV=[
+    {id:'cobros',  icon:'💳', lbl:'Cobrar pedidos'},
+    {id:'cancelaciones', icon:'✕', lbl:'Cancelaciones'},
+    {id:'ingresos_egresos', icon:'₲', lbl:'Ingresos / Egresos'},
+    {id:'quejas',  icon:'💬', lbl:'Quejas / Sugerencias'},
+    {id:'cierre',  icon:'🔒', lbl:'Cierre de caja'},
+  ];
+  if(['admin','superadmin'].includes(profile?.role)){
+    NAV.splice(3,0,{id:'retiro',icon:'💰',lbl:'Retiro de efectivo'});
+  }
+
+  return(
+    <aside style={{width:220,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
+      <div style={{padding:'16px 14px 12px',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontFamily:'DM Serif Display',fontSize:15,color:C.white,marginBottom:2}}>Panel de Caja</div>
+        <div style={{fontSize:11,color:'#444'}}>{profile?.display_name||profile?.username}</div>
+        <div style={{fontSize:10,color:'#333',marginTop:2}}>Desde {fmtTime(turno.fecha_apertura)}</div>
+      </div>
+
+      {/* Reloj y duración */}
+      <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontFamily:'JetBrains Mono',fontSize:22,fontWeight:700,color:C.white}}>{hora.toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>
+        <div style={{fontSize:10,color:'#444',marginTop:2}}>Turno: {fmtDur(turno.fecha_apertura)}</div>
+      </div>
+
+      {/* Saldo estimado */}
+      <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:9,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:6}}>EFECTIVO EN CAJA (est.)</div>
+        <div style={{fontFamily:'JetBrains Mono',fontSize:18,fontWeight:700,color:C.green}}>{fmt(saldoEstimado)}</div>
+        <div style={{fontSize:9,color:'#333',marginTop:4}}>
+          Fondo {fmt(fondoApertura)} + cobros {fmt(efectivoCobros)}
+        </div>
+      </div>
+
+      {/* Stats del turno */}
+      <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:9,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:8}}>RESUMEN DEL TURNO</div>
+        <div style={{display:'flex',flexDirection:'column',gap:5}}>
+          {[
+            {lbl:'Pedidos cobrados',val:cobros.length,color:C.green},
+            {lbl:'Total cobrado',val:fmt(totalCobrado),color:C.white},
+            {lbl:'Egresos',val:fmt(totalEgresos),color:C.red},
+          ].map(({lbl,val,color})=>(
+            <div key={lbl} style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <span style={{fontSize:10,color:'#444'}}>{lbl}</span>
+              <span style={{fontSize:11,fontFamily:'JetBrains Mono',fontWeight:700,color}}>{val}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Navegación */}
+      <nav style={{flex:1,padding:'8px 8px'}}>
+        {NAV.map(n=>(
+          <button key={n.id} onClick={()=>setPanel(n.id)} style={{
+            display:'flex',alignItems:'center',gap:10,width:'100%',
+            padding:'9px 10px',borderRadius:7,border:'none',textAlign:'left',cursor:'pointer',marginBottom:2,
+            background:panel===n.id?'rgba(255,255,255,0.07)':'transparent',
+            color:panel===n.id?C.white:'#444',fontWeight:panel===n.id?700:400,fontSize:13,
+          }}>
+            <span style={{width:18,textAlign:'center',fontSize:14}}>{n.icon}</span>
+            <span>{n.lbl}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div style={{padding:'10px 8px',borderTop:`1px solid ${C.border}`}}>
+        <button onClick={()=>window.location.href='admin.html'} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'7px 10px',borderRadius:6,border:'none',background:'transparent',color:'#333',fontSize:11,cursor:'pointer'}}>
+          ← Admin
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   PANEL: COBRAR PEDIDOS
+═══════════════════════════════════════════ */
+function CobrosPanel({turno,profile,movimientos,onMovimiento}){
+  const [orders,setOrders]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [selected,setSelected]=useState(null);
+  const [cobroModal,setCobroModal]=useState(false);
+  const [searchQ,setSearchQ]=useState('');
+
+  useEffect(()=>{loadOrders();},[]);
+
+  async function loadOrders(){
+    setLoading(true);
+    const{data,error}=await db.from('orders')
+      .select('id,order_number,status,total,payment_method,order_type,customer_name,created_at,tables(number)')
+      .eq('restaurant_id',RID)
+      .in('status',['ready','paid'])
+      .order('created_at',{ascending:true});
+    if(!error)setOrders(data||[]);
+    setLoading(false);
+  }
+
+  const display=orders.filter(o=>{
+    if(!searchQ)return true;
+    const q=searchQ.toLowerCase();
+    return (o.order_number||'').toLowerCase().includes(q)||(o.customer_name||'').toLowerCase().includes(q)||String(o.tables?.number||'').includes(q);
+  });
+
+  function selectOrder(o){setSelected(o);setCobroModal(true);}
+
+  return(
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,gap:10,flexWrap:'wrap'}}>
+        <h1 style={{fontSize:20,fontWeight:800}}>Pedidos listos para cobrar</h1>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Buscar pedido, mesa…" style={{padding:'7px 11px',fontSize:13,borderRadius:6,width:200}}/>
+          <Btn small variant="secondary" onClick={loadOrders}>↻ Actualizar</Btn>
+        </div>
+      </div>
+
+      {loading&&<div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
+      {!loading&&display.length===0&&(
+        <div style={{textAlign:'center',padding:'60px 0',color:'#333'}}>
+          <div style={{fontSize:36,marginBottom:12}}>✓</div>
+          <div style={{fontSize:14,fontWeight:700,color:'#555'}}>No hay pedidos pendientes de cobro</div>
+          <div style={{fontSize:12,color:'#333',marginTop:6}}>Los pedidos con estado "Listo" aparecerán aquí</div>
+        </div>
+      )}
+      {!loading&&display.length>0&&(
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12}}>
+          {display.map(o=>{
+            const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.customer_name||'Sin mesa';
+            const espera=Math.floor((Date.now()-new Date(o.created_at))/60000);
+            const yaCobrado=movimientos.some(m=>m.pedido_id===o.id);
+            return(
+              <div key={o.id} style={{background:C.surface,border:`1px solid ${yaCobrado?C.green:o.status==='ready'?C.orange:C.border}`,borderRadius:10,padding:16,cursor:yaCobrado?'default':'pointer',opacity:yaCobrado?.6:1,position:'relative'}} onClick={()=>!yaCobrado&&selectOrder(o)}>
+                {yaCobrado&&<div style={{position:'absolute',top:10,right:10,background:C.green+'22',color:C.green,border:`1px solid ${C.green}44`,padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>Cobrado ✓</div>}
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:800,fontFamily:'JetBrains Mono'}}>#{o.order_number}</div>
+                    <div style={{fontSize:12,color:'#555',marginTop:2}}>{mesa}</div>
+                  </div>
+                  <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#666'}/>
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div style={{fontSize:20,fontWeight:800,fontFamily:'JetBrains Mono',color:C.green}}>{fmt(o.total)}</div>
+                  <div style={{fontSize:11,color:espera>20?C.orange:espera>40?C.red:'#444'}}>⏱ {espera}m</div>
+                </div>
+                {!yaCobrado&&<Btn full small style={{marginTop:12}} onClick={e=>{e.stopPropagation();selectOrder(o);}}>Cobrar →</Btn>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {cobroModal&&selected&&(
+        <CobroModal
+          order={selected}
+          turno={turno}
+          profile={profile}
+          onClose={()=>{setCobroModal(false);setSelected(null);}}
+          onSuccess={mov=>{
+            onMovimiento(mov);
+            setOrders(p=>p.filter(o=>o.id!==selected.id));
+            setCobroModal(false);setSelected(null);
+            toast(`Pedido #${selected.order_number} cobrado ✓`);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── MODAL: COBRO ────────────────────────────── */
+function CobroModal({order,turno,profile,onClose,onSuccess}){
+  const [metodo,setMetodo]=useState('efectivo');
+  const [montoPagado,setMontoPagado]=useState(String(order.total||0));
+  const [busy,setBusy]=useState(false);
+  const [items,setItems]=useState([]);
+
+  useEffect(()=>{
+    db.from('order_items').select('id,item_name,quantity,unit_price').eq('order_id',order.id)
+      .then(({data})=>setItems(data||[]));
+  },[order.id]);
+
+  const cambio=metodo==='efectivo'?Math.max(0,(parseInt(montoPagado)||0)-order.total):0;
+  const mesa=order.tables?.number?`Mesa ${order.tables.number}`:order.customer_name||'Sin mesa';
+
+  async function confirmar(){
+    if(metodo==='efectivo'&&(parseInt(montoPagado)||0)<order.total){
+      toast('El monto recibido es menor al total',false);return;
+    }
+    setBusy(true);
+    try{
+      const{error:e1}=await db.from('orders').update({status:'delivered'}).eq('id',order.id);
+      if(e1)throw e1;
+      const mov={
+        turno_id:turno.id,restaurant_id:RID,tipo:'cobro',
+        monto:order.total,metodo_pago:metodo,pedido_id:order.id,
+        descripcion:`Cobro pedido #${order.order_number} — ${mesa}`,
+        usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
+        metadata:{orden_numero:order.order_number,mesa,monto_pagado:parseInt(montoPagado)||order.total,cambio},
+      };
+      const{data:movData,error:e2}=await db.from('movimientos_caja').insert(mov).select().single();
+      if(e2)throw e2;
+      onSuccess(movData);
+    }catch(e){toast('Error al cobrar: '+e.message,false);}
+    setBusy(false);
+  }
+
+  return(
+    <Modal title={`Cobrar pedido #${order.order_number}`} onClose={onClose} width={480}>
+      <div style={{marginBottom:16}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+          <span style={{fontSize:12,color:'#555'}}>{mesa}</span>
+          <Badge txt={SL[order.status]} color={SC[order.status]||'#666'}/>
+        </div>
+        {items.length>0&&(
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:12}}>
+            {items.map(it=>(
+              <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}>
+                <span>{it.quantity}× {it.item_name}</span>
+                <span style={{fontFamily:'JetBrains Mono',color:'#555'}}>{fmt(it.unit_price*it.quantity)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderTop:`1px solid ${C.border}`}}>
+          <span style={{fontSize:14,fontWeight:700}}>TOTAL</span>
+          <span style={{fontSize:24,fontWeight:800,fontFamily:'JetBrains Mono',color:C.green}}>{fmt(order.total)}</span>
+        </div>
+      </div>
+
+      <div style={{marginBottom:16}}>
+        <Lbl required>MÉTODO DE PAGO</Lbl>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          {METODOS_PAGO.map(m=>(
+            <button key={m.id} onClick={()=>setMetodo(m.id)} style={{
+              padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?C.white:C.border}`,
+              background:metodo===m.id?'rgba(255,255,255,0.1)':'transparent',
+              color:metodo===m.id?C.white:C.mid,fontSize:12,fontWeight:metodo===m.id?700:400,cursor:'pointer',
+            }}>{m.lbl}</button>
+          ))}
+        </div>
+      </div>
+
+      {metodo==='efectivo'&&(
+        <div style={{marginBottom:16}}>
+          <Lbl required>MONTO RECIBIDO (₲)</Lbl>
+          <Inp type="number" mono value={montoPagado} onChange={e=>setMontoPagado(e.target.value)} placeholder={String(order.total)}/>
+          {cambio>0&&(
+            <div style={{marginTop:8,padding:'10px 14px',background:'rgba(34,197,94,0.08)',border:'1px solid rgba(34,197,94,0.25)',borderRadius:7,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <span style={{fontSize:13,color:'#86efac',fontWeight:700}}>Cambio a devolver</span>
+              <span style={{fontFamily:'JetBrains Mono',fontSize:18,fontWeight:800,color:C.green}}>{fmt(cambio)}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{display:'flex',gap:10}}>
+        <Btn full onClick={confirmar} disabled={busy} variant="success">
+          {busy?<><span className="spin"/> Procesando…</>:'✓ Confirmar cobro'}
+        </Btn>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   PANEL: CANCELACIONES
+═══════════════════════════════════════════ */
+function CancelacionesPanel({turno,profile,onMovimiento}){
+  const [orders,setOrders]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [selected,setSelected]=useState(null);
+  const [form,setForm]=useState({tipo:'total',motivo:'',descripcion:'',perdida:false});
+  const [busy,setBusy]=useState(false);
+
+  useEffect(()=>{loadOrders();},[]);
+
+  async function loadOrders(){
+    setLoading(true);
+    const{data}=await db.from('orders')
+      .select('id,order_number,status,total,customer_name,created_at,tables(number)')
+      .eq('restaurant_id',RID)
+      .in('status',['paid','kitchen_received','cooking','ready'])
+      .order('created_at',{ascending:false});
+    setOrders(data||[]);setLoading(false);
+  }
+
+  async function cancelar(){
+    if(!selected){toast('Seleccioná un pedido',false);return;}
+    if(!form.motivo){toast('Seleccioná un motivo',false);return;}
+    if(form.motivo==='Otro'&&!form.descripcion){toast('Descripción obligatoria para "Otro"',false);return;}
+    const necesitaSupervisor=['kitchen_received','cooking','ready'].includes(selected.status);
+    if(necesitaSupervisor&&!['admin','superadmin'].includes(profile?.role)){
+      toast('Este pedido ya está en cocina. Requiere aprobación de supervisor.',false);return;
+    }
+    setBusy(true);
+    try{
+      const{error:e1}=await db.from('orders').update({status:'cancelled'}).eq('id',selected.id);
+      if(e1)throw e1;
+      const{error:e2}=await db.from('cancelaciones_caja').insert({
+        turno_id:turno.id,restaurant_id:RID,pedido_id:selected.id,
+        pedido_numero:selected.order_number,tipo:form.tipo,
+        items_cancelados:[],monto_cancelado:selected.total,
+        motivo:form.motivo,descripcion:form.descripcion||null,
+        estado_pedido_cancelar:selected.status,perdida_insumos:form.perdida,
+        usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
+      });
+      if(e2)throw e2;
+      toast(`Pedido #${selected.order_number} cancelado`);
+      setSelected(null);setForm({tipo:'total',motivo:'',descripcion:'',perdida:false});
+      loadOrders();
+    }catch(e){toast('Error: '+e.message,false);}
+    setBusy(false);
+  }
+
+  return(
+    <div className="page">
+      <h1 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Cancelaciones</h1>
+      <AlertBox type="warn">Las cancelaciones quedan registradas con usuario, motivo y timestamp. No se pueden borrar del historial.</AlertBox>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:16}}>
+        <div>
+          <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>SELECCIONAR PEDIDO A CANCELAR</div>
+          {loading&&<span className="spin"/>}
+          {!loading&&orders.length===0&&<div style={{color:'#333',fontSize:13,padding:20}}>No hay pedidos activos.</div>}
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {orders.map(o=>{
+              const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.customer_name||'Sin mesa';
+              const enCocina=['kitchen_received','cooking','ready'].includes(o.status);
+              return(
+                <div key={o.id} onClick={()=>setSelected(o)}
+                  style={{background:selected?.id===o.id?'rgba(255,255,255,0.06)':C.surface,border:`1px solid ${selected?.id===o.id?C.white:C.border}`,borderRadius:8,padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,fontFamily:'JetBrains Mono'}}>#{o.order_number}</div>
+                    <div style={{fontSize:11,color:'#555',marginTop:2}}>{mesa}</div>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:10}}>
+                    <Badge txt={SL[o.status]} color={SC[o.status]||'#666'}/>
+                    {enCocina&&<Badge txt="⚠ En cocina" color={C.orange}/>}
+                    <span style={{fontFamily:'JetBrains Mono',fontSize:14,fontWeight:700,color:C.red}}>{fmt(o.total)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,height:'fit-content'}}>
+          <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>MOTIVO DE CANCELACIÓN</div>
+          {selected?(
+            <>
+              <div style={{marginBottom:14,padding:'10px 14px',background:C.card,borderRadius:7,border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:12,fontWeight:700}}>#{selected.order_number}</div>
+                <div style={{fontSize:11,color:'#555',marginTop:2}}>{fmt(selected.total)}</div>
+              </div>
+              {['kitchen_received','cooking','ready'].includes(selected.status)&&(
+                <AlertBox type="error">⚠ Pedido ya enviado a cocina. Solo {['admin','superadmin'].includes(profile?.role)?'podés cancelar':'puede cancelarlo un supervisor'}.</AlertBox>
+              )}
+              <div style={{marginBottom:12}}>
+                <Lbl required>MOTIVO</Lbl>
+                <Sel value={form.motivo} onChange={e=>setForm({...form,motivo:e.target.value})}>
+                  <option value="">Seleccionar…</option>
+                  {MOTIVOS_CANCEL.map(m=><option key={m}>{m}</option>)}
+                </Sel>
+              </div>
+              {(form.motivo==='Otro'||form.motivo)&&(
+                <div style={{marginBottom:12}}>
+                  <Lbl required={form.motivo==='Otro'}>DESCRIPCIÓN ADICIONAL</Lbl>
+                  <Textarea value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} placeholder="Detalles adicionales…" rows={2}/>
+                </div>
+              )}
+              <div style={{marginBottom:14,display:'flex',alignItems:'center',gap:8}}>
+                <input type="checkbox" id="perdida" checked={form.perdida} onChange={e=>setForm({...form,perdida:e.target.checked})} style={{width:14,height:14}}/>
+                <label htmlFor="perdida" style={{fontSize:12,color:C.mid,cursor:'pointer'}}>Generó pérdida de insumos</label>
+              </div>
+              <Btn full variant="danger" onClick={cancelar} disabled={busy||!form.motivo}>
+                {busy?<><span className="spin"/> Cancelando…</>:'Confirmar cancelación'}
+              </Btn>
+            </>
+          ):(
+            <div style={{color:'#333',fontSize:12,padding:'20px 0',textAlign:'center'}}>← Seleccioná un pedido de la lista</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   PANEL: INGRESOS Y EGRESOS MANUALES
+═══════════════════════════════════════════ */
+function IngresosEgresosPanel({turno,profile,movimientos,onMovimiento}){
+  const [tipo,setTipo]=useState('egreso');
+  const [form,setForm]=useState({desc:'',monto:'',categoria:'',metodo:'efectivo',plataforma:'',notas:''});
+  const [busy,setBusy]=useState(false);
+
+  const cats=tipo==='ingreso_manual'?ING_CATS:EG_CATS;
+
+  async function guardar(){
+    if(!form.desc||!form.monto){toast('Descripción y monto son obligatorios',false);return;}
+    if(!form.categoria){toast('Seleccioná una categoría',false);return;}
+    setBusy(true);
+    try{
+      const mov={
+        turno_id:turno.id,restaurant_id:RID,tipo,
+        monto:parseInt(form.monto),metodo_pago:form.metodo,
+        descripcion:form.desc,categoria:form.categoria,
+        usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
+        metadata:{plataforma:form.plataforma||null,notas:form.notas||null},
+      };
+      const{data,error}=await db.from('movimientos_caja').insert(mov).select().single();
+      if(error)throw error;
+      onMovimiento(data);
+      toast(`${tipo==='ingreso_manual'?'Ingreso':'Egreso'} registrado`);
+      setForm({desc:'',monto:'',categoria:'',metodo:'efectivo',plataforma:'',notas:''});
+    }catch(e){toast('Error: '+e.message,false);}
+    setBusy(false);
+  }
+
+  const historial=movimientos.filter(m=>m.tipo===tipo).slice().reverse();
+
+  return(
+    <div className="page">
+      <h1 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Ingresos y Egresos Manuales</h1>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 380px',gap:16}}>
+        {/* Historial */}
+        <div>
+          <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
+            {[['egreso','Egresos'],['ingreso_manual','Ingresos manuales']].map(([id,lbl])=>(
+              <button key={id} onClick={()=>setTipo(id)} style={{padding:'8px 14px',fontSize:12,fontWeight:tipo===id?700:400,color:tipo===id?C.white:'#444',background:'none',border:'none',borderBottom:tipo===id?'2px solid #fff':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+            ))}
+          </div>
+          {historial.length===0?(
+            <div style={{color:'#333',fontSize:13,padding:20,textAlign:'center'}}>Sin registros en este turno</div>
+          ):(
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {historial.map(m=>(
+                <div key={m.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600}}>{m.descripcion}</div>
+                    <div style={{fontSize:11,color:'#444',marginTop:2}}>{m.categoria} · {fmtTime(m.created_at)}</div>
+                  </div>
+                  <div style={{fontFamily:'JetBrains Mono',fontSize:15,fontWeight:700,color:tipo==='egreso'?C.red:C.green}}>{tipo==='egreso'?'- ':''}{fmt(m.monto)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Formulario */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,height:'fit-content'}}>
+          <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>
+            {tipo==='egreso'?'REGISTRAR EGRESO':'REGISTRAR INGRESO MANUAL'}
+          </div>
+          <div style={{marginBottom:12}}>
+            <Lbl required>DESCRIPCIÓN</Lbl>
+            <Inp value={form.desc} onChange={e=>setForm({...form,desc:e.target.value})} placeholder={tipo==='egreso'?'Ej: Compra de insumos…':'Ej: Venta evento especial…'}/>
+          </div>
+          <div style={{marginBottom:12}}>
+            <Lbl required>MONTO (₲)</Lbl>
+            <Inp type="number" mono value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})} placeholder="0"/>
+          </div>
+          <div style={{marginBottom:12}}>
+            <Lbl required>CATEGORÍA</Lbl>
+            <Sel value={form.categoria} onChange={e=>setForm({...form,categoria:e.target.value})}>
+              <option value="">Seleccionar…</option>
+              {cats.map(c=><option key={c}>{c}</option>)}
+            </Sel>
+          </div>
+          {tipo==='ingreso_manual'&&form.categoria==='Delivery externo'&&(
+            <div style={{marginBottom:12}}>
+              <Lbl>PLATAFORMA</Lbl>
+              <Sel value={form.plataforma} onChange={e=>setForm({...form,plataforma:e.target.value})}>
+                <option value="">Seleccionar…</option>
+                {DELIVERY_PLATS.map(p=><option key={p}>{p}</option>)}
+              </Sel>
+            </div>
+          )}
+          <div style={{marginBottom:14}}>
+            <Lbl>MÉTODO DE PAGO</Lbl>
+            <Sel value={form.metodo} onChange={e=>setForm({...form,metodo:e.target.value})}>
+              {METODOS_PAGO.filter(m=>m.id!=='mixto').map(m=><option key={m.id} value={m.id}>{m.lbl}</option>)}
+            </Sel>
+          </div>
+          <Btn full onClick={guardar} disabled={busy}>
+            {busy?<><span className="spin"/> Guardando…</> :`+ Registrar ${tipo==='egreso'?'egreso':'ingreso'}`}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   PANEL: QUEJAS Y SUGERENCIAS
+═══════════════════════════════════════════ */
+function QuejasPanel({turno,profile}){
+  const [quejas,setQuejas]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [showForm,setShowForm]=useState(false);
+  const [form,setForm]=useState({tipo:'queja',categoria:'',urgencia:'media',descripcion:'',compensacion:false,comp_tipo:'',comp_monto:''});
+  const [busy,setBusy]=useState(false);
+
+  useEffect(()=>{loadQuejas();},[]);
+
+  async function loadQuejas(){
+    setLoading(true);
+    const{data}=await db.from('quejas_sugerencias')
+      .select('*').eq('restaurant_id',RID).eq('turno_id',turno.id)
+      .order('created_at',{ascending:false});
+    setQuejas(data||[]);setLoading(false);
+  }
+
+  async function guardar(){
+    if(!form.descripcion){toast('La descripción es obligatoria',false);return;}
+    setBusy(true);
+    try{
+      const{error}=await db.from('quejas_sugerencias').insert({
+        turno_id:turno.id,restaurant_id:RID,
+        tipo:form.tipo,categoria:form.categoria||null,urgencia:form.urgencia,
+        descripcion:form.descripcion,
+        compensacion_ofrecida:form.compensacion,
+        compensacion_tipo:form.compensacion?form.comp_tipo||null:null,
+        compensacion_monto:form.compensacion&&form.comp_monto?parseInt(form.comp_monto):null,
+        usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
+      });
+      if(error)throw error;
+      toast('Registrado correctamente');
+      if(form.urgencia==='alta'&&form.tipo==='queja')toast('⚠ Urgencia alta — notificar al supervisor',false);
+      setShowForm(false);
+      setForm({tipo:'queja',categoria:'',urgencia:'media',descripcion:'',compensacion:false,comp_tipo:'',comp_monto:''});
+      loadQuejas();
+    }catch(e){toast('Error: '+e.message,false);}
+    setBusy(false);
+  }
+
+  const urgColor={alta:C.red,media:C.yellow,baja:C.green};
+  const tipoColor={queja:C.red,sugerencia:C.blue,comentario_positivo:C.green};
+  const tipoIcon={queja:'⚠',sugerencia:'💡',comentario_positivo:'✓'};
+
+  return(
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <h1 style={{fontSize:20,fontWeight:800}}>Quejas y Sugerencias</h1>
+        <Btn small onClick={()=>setShowForm(!showForm)}>+ Nueva queja / sugerencia</Btn>
+      </div>
+
+      {showForm&&(
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,marginBottom:16,animation:'fadeIn .15s ease'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
+            <div>
+              <Lbl required>TIPO</Lbl>
+              <Sel value={form.tipo} onChange={e=>setForm({...form,tipo:e.target.value})}>
+                <option value="queja">Queja</option>
+                <option value="sugerencia">Sugerencia</option>
+                <option value="comentario_positivo">Comentario positivo</option>
+              </Sel>
+            </div>
+            {form.tipo==='queja'&&(
+              <div>
+                <Lbl>CATEGORÍA</Lbl>
+                <Sel value={form.categoria} onChange={e=>setForm({...form,categoria:e.target.value})}>
+                  <option value="">Seleccionar…</option>
+                  {QUEJA_CATS.map(c=><option key={c}>{c}</option>)}
+                </Sel>
+              </div>
+            )}
+            {form.tipo==='queja'&&(
+              <div>
+                <Lbl>URGENCIA</Lbl>
+                <Sel value={form.urgencia} onChange={e=>setForm({...form,urgencia:e.target.value})}>
+                  <option value="baja">Baja</option>
+                  <option value="media">Media</option>
+                  <option value="alta">Alta ⚠</option>
+                </Sel>
+              </div>
+            )}
+          </div>
+          <div style={{marginBottom:12}}>
+            <Lbl required>DESCRIPCIÓN</Lbl>
+            <Textarea value={form.descripcion} onChange={e=>setForm({...form,descripcion:e.target.value})} placeholder="Descripción detallada del caso…" rows={3}/>
+          </div>
+          {form.tipo==='queja'&&(
+            <div style={{marginBottom:14}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                <input type="checkbox" id="comp" checked={form.compensacion} onChange={e=>setForm({...form,compensacion:e.target.checked})} style={{width:14,height:14}}/>
+                <label htmlFor="comp" style={{fontSize:12,color:C.mid,cursor:'pointer'}}>Se ofreció compensación</label>
+              </div>
+              {form.compensacion&&(
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                  <div>
+                    <Lbl>TIPO COMPENSACIÓN</Lbl>
+                    <Sel value={form.comp_tipo} onChange={e=>setForm({...form,comp_tipo:e.target.value})}>
+                      <option value="">Seleccionar…</option>
+                      {['Descuento','Cortesía','Voucher','Reembolso'].map(t=><option key={t}>{t}</option>)}
+                    </Sel>
+                  </div>
+                  <div>
+                    <Lbl>MONTO (₲)</Lbl>
+                    <Inp type="number" mono value={form.comp_monto} onChange={e=>setForm({...form,comp_monto:e.target.value})} placeholder="0"/>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{display:'flex',gap:8}}>
+            <Btn small onClick={guardar} disabled={busy}>{busy?<span className="spin"/>:'Guardar'}</Btn>
+            <Btn small variant="ghost" onClick={()=>setShowForm(false)}>Cancelar</Btn>
+          </div>
+        </div>
+      )}
+
+      {loading&&<span className="spin"/>}
+      {!loading&&quejas.length===0&&<div style={{color:'#333',fontSize:13,padding:20,textAlign:'center'}}>Sin registros en este turno</div>}
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {quejas.map(q=>(
+          <div key={q.id} style={{background:C.surface,border:`1px solid ${tipoColor[q.tipo]||'#333'}44`,borderRadius:8,padding:'12px 14px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <Badge txt={`${tipoIcon[q.tipo]} ${q.tipo.replace('_',' ')}`} color={tipoColor[q.tipo]||'#666'}/>
+                {q.urgencia&&<Badge txt={q.urgencia} color={urgColor[q.urgencia]||'#666'}/>}
+                {q.categoria&&<Badge txt={q.categoria} color="#555"/>}
+              </div>
+              <span style={{fontSize:11,color:'#333'}}>{fmtTime(q.created_at)}</span>
+            </div>
+            <div style={{fontSize:13,color:C.ink,marginBottom:q.compensacion_ofrecida?6:0}}>{q.descripcion}</div>
+            {q.compensacion_ofrecida&&(
+              <div style={{fontSize:11,color:C.yellow,marginTop:4}}>Compensación ofrecida: {q.compensacion_tipo}{q.compensacion_monto?` — ${fmt(q.compensacion_monto)}`:''}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   PANEL: RETIRO DE EFECTIVO (supervisor+)
+═══════════════════════════════════════════ */
+function RetiroPanel({turno,profile,onMovimiento}){
+  const [form,setForm]=useState({monto:'',destino:'Caja fuerte',notas:''});
+  const [busy,setBusy]=useState(false);
+
+  if(!['admin','superadmin'].includes(profile?.role)){
+    return(
+      <div className="page">
+        <h1 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Retiro de Efectivo</h1>
+        <AlertBox type="error">Solo supervisores y administradores pueden realizar retiros de efectivo.</AlertBox>
+      </div>
+    );
+  }
+
+  async function retirar(){
+    if(!form.monto||parseInt(form.monto)<=0){toast('Ingresá un monto válido',false);return;}
+    setBusy(true);
+    try{
+      const mov={
+        turno_id:turno.id,restaurant_id:RID,tipo:'retiro_parcial',
+        monto:parseInt(form.monto),metodo_pago:'efectivo',
+        descripcion:`Retiro parcial → ${form.destino}`,
+        motivo:form.notas||null,
+        usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
+        metadata:{destino:form.destino},
+      };
+      const{data,error}=await db.from('movimientos_caja').insert(mov).select().single();
+      if(error)throw error;
+      onMovimiento(data);
+      toast(`Retiro de ${fmt(parseInt(form.monto))} registrado`);
+      setForm({monto:'',destino:'Caja fuerte',notas:''});
+    }catch(e){toast('Error: '+e.message,false);}
+    setBusy(false);
+  }
+
+  return(
+    <div className="page">
+      <h1 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Retiro Parcial de Efectivo</h1>
+      <AlertBox type="warn">Esta acción queda registrada en el log del turno con tu nombre y timestamp.</AlertBox>
+      <div style={{maxWidth:400}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
+          <div style={{marginBottom:12}}>
+            <Lbl required>MONTO A RETIRAR (₲)</Lbl>
+            <Inp type="number" mono value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})} placeholder="0"/>
+          </div>
+          <div style={{marginBottom:12}}>
+            <Lbl>DESTINO</Lbl>
+            <Sel value={form.destino} onChange={e=>setForm({...form,destino:e.target.value})}>
+              <option>Caja fuerte</option>
+              <option>Otro</option>
+            </Sel>
+          </div>
+          <div style={{marginBottom:14}}>
+            <Lbl>NOTAS</Lbl>
+            <Textarea value={form.notas} onChange={e=>setForm({...form,notas:e.target.value})} placeholder="Motivo del retiro…" rows={2}/>
+          </div>
+          <Btn full variant="danger" onClick={retirar} disabled={busy}>
+            {busy?<><span className="spin"/> Registrando…</>:'Confirmar retiro'}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   PANEL: CIERRE DE CAJA / ARQUEO
+═══════════════════════════════════════════ */
+function CierreCajaPanel({turno,movimientos,profile,onCierre}){
+  const [step,setStep]=useState(1); // 1=resumen, 2=conteo, 3=diferencia, 4=confirmar
+  const [denoms,setDenoms]=useState(emptyDenoms());
+  const [justif,setJustif]=useState('');
+  const [tipoReporte,setTipoReporte]=useState('Z');
+  const [busy,setBusy]=useState(false);
+
+  const cobros=movimientos.filter(m=>m.tipo==='cobro');
+  const totalCobrado=cobros.reduce((s,m)=>s+Number(m.monto),0);
+  const totalEfectivo=cobros.filter(m=>m.metodo_pago==='efectivo').reduce((s,m)=>s+Number(m.monto),0);
+  const totalTarjeta=cobros.filter(m=>['tarjeta_credito','tarjeta_debito'].includes(m.metodo_pago)).reduce((s,m)=>s+Number(m.monto),0);
+  const totalQR=cobros.filter(m=>m.metodo_pago==='qr').reduce((s,m)=>s+Number(m.monto),0);
+  const totalEgresos=movimientos.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+Number(m.monto),0);
+  const totalRetiros=movimientos.filter(m=>m.tipo==='retiro_parcial').reduce((s,m)=>s+Number(m.monto),0);
+  const totalIngresosMan=movimientos.filter(m=>m.tipo==='ingreso_manual').reduce((s,m)=>s+Number(m.monto),0);
+  const fondoApertura=turno.fondo_apertura?.total||0;
+  const esperado=fondoApertura+totalEfectivo+totalIngresosMan-totalEgresos-totalRetiros;
+  const contado=calcDenomTotal(denoms);
+  const diferencia=contado-esperado;
+  const difAbs=Math.abs(diferencia);
+  const UMBRAL_DIFF=50000;
+
+  async function cerrar(){
+    if(tipoReporte==='Z'&&difAbs>UMBRAL_DIFF&&!justif){
+      toast(`Diferencia > ${fmt(UMBRAL_DIFF)}. Justificación obligatoria.`,false);return;
+    }
+    setBusy(true);
+    try{
+      const payload={
+        estado:'cerrado',fecha_cierre:new Date().toISOString(),
+        fondo_cierre_contado:{denominaciones:denoms,total:contado},
+        fondo_cierre_esperado:esperado,diferencia,
+        justificacion_diff:justif||null,tipo_reporte:tipoReporte,
+      };
+      const{error}=await db.from('turnos_caja').update(payload).eq('id',turno.id);
+      if(error)throw error;
+      toast(`Turno cerrado — Reporte ${tipoReporte}`);
+      onCierre();
+    }catch(e){toast('Error al cerrar: '+e.message,false);}
+    setBusy(false);
+  }
+
+  return(
+    <div className="page">
+      <h1 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Cierre de Caja — Arqueo</h1>
+
+      {/* Steps */}
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:20}}>
+        {[['1','Resumen'],['2','Conteo'],['3','Confirmar']].map(([n,lbl])=>(
+          <button key={n} onClick={()=>setStep(parseInt(n))} style={{padding:'8px 16px',fontSize:12,fontWeight:step>=parseInt(n)?700:400,color:step>=parseInt(n)?C.white:'#333',background:'none',border:'none',borderBottom:step===parseInt(n)?'2px solid #fff':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>
+            {n}. {lbl}
+          </button>
+        ))}
+      </div>
+
+      {step===1&&(
+        <div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:10,marginBottom:20}}>
+            {[
+              {lbl:'Pedidos cobrados',val:cobros.length,color:C.green},
+              {lbl:'Total cobrado',val:fmt(totalCobrado),color:C.green},
+              {lbl:'Efectivo cobrado',val:fmt(totalEfectivo),color:C.cyan},
+              {lbl:'Tarjeta cobrado',val:fmt(totalTarjeta),color:C.blue},
+              {lbl:'QR cobrado',val:fmt(totalQR),color:C.purple},
+              {lbl:'Egresos del turno',val:fmt(totalEgresos),color:C.red},
+              {lbl:'Retiros parciales',val:fmt(totalRetiros),color:C.orange},
+              {lbl:'Ingresos manuales',val:fmt(totalIngresosMan),color:C.yellow},
+              {lbl:'Fondo de apertura',val:fmt(fondoApertura),color:C.mid},
+              {lbl:'Efectivo esperado',val:fmt(esperado),color:C.white},
+            ].map(({lbl,val,color})=>(
+              <KpiMini key={lbl} label={lbl} value={val} accent={color}/>
+            ))}
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <div style={{marginRight:'auto',fontSize:12,color:'#555',alignSelf:'center'}}>
+              Turno activo desde {fmtDT(turno.fecha_apertura)} · {fmtDur(turno.fecha_apertura)}
+            </div>
+            <div>
+              <Lbl>TIPO DE REPORTE</Lbl>
+              <div style={{display:'flex',gap:8}}>
+                {[['Z','Reporte Z (cierre definitivo)'],['X','Reporte X (corte sin cerrar)']].map(([t,lbl])=>(
+                  <button key={t} onClick={()=>setTipoReporte(t)} style={{padding:'8px 14px',fontSize:12,borderRadius:6,border:`1px solid ${tipoReporte===t?C.white:C.border}`,background:tipoReporte===t?'rgba(255,255,255,0.08)':'transparent',color:tipoReporte===t?C.white:C.mid,fontWeight:tipoReporte===t?700:400,cursor:'pointer'}}>{lbl}</button>
+                ))}
+              </div>
+            </div>
+            <Btn onClick={()=>setStep(2)}>Continuar →</Btn>
+          </div>
+        </div>
+      )}
+
+      {step===2&&(
+        <div>
+          <DenomGrid values={denoms} onChange={setDenoms} label="Conteo físico — ingresá cuántos billetes/monedas hay en caja"/>
+          <div style={{display:'flex',gap:8,marginTop:16}}>
+            <Btn variant="ghost" onClick={()=>setStep(1)}>← Atrás</Btn>
+            <Btn onClick={()=>setStep(3)} disabled={contado===0}>Ver diferencia →</Btn>
+          </div>
+        </div>
+      )}
+
+      {step===3&&(
+        <div>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,marginBottom:16}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+              <KpiMini label="Efectivo esperado" value={fmt(esperado)} accent={C.mid}/>
+              <KpiMini label="Efectivo contado"  value={fmt(contado)}  accent={C.white}/>
+              <KpiMini label="Diferencia" value={`${diferencia>=0?'+':''}${fmt(diferencia)}`} accent={difAbs===0?C.green:difAbs<UMBRAL_DIFF?C.yellow:C.red}/>
+            </div>
+            {difAbs===0&&<AlertBox type="success" style={{marginTop:12}}>Sin diferencia. Arqueo correcto.</AlertBox>}
+            {difAbs>0&&difAbs<=UMBRAL_DIFF&&<AlertBox type="warn">Diferencia de {fmt(difAbs)} dentro del umbral permitido ({fmt(UMBRAL_DIFF)}).</AlertBox>}
+            {difAbs>UMBRAL_DIFF&&<AlertBox type="error">Diferencia de {fmt(difAbs)} supera el umbral. Se requiere justificación.</AlertBox>}
+          </div>
+
+          {(difAbs>0)&&(
+            <div style={{marginBottom:16}}>
+              <Lbl required={difAbs>UMBRAL_DIFF}>JUSTIFICACIÓN DE DIFERENCIA</Lbl>
+              <Textarea value={justif} onChange={e=>setJustif(e.target.value)} placeholder="Explicá la diferencia encontrada…" rows={3}/>
+            </div>
+          )}
+
+          <div style={{display:'flex',gap:8}}>
+            <Btn variant="ghost" onClick={()=>setStep(2)}>← Atrás</Btn>
+            <Btn variant={difAbs>UMBRAL_DIFF?'danger':'primary'} onClick={cerrar} disabled={busy}>
+              {busy?<><span className="spin"/> Cerrando…</> :tipoReporte==='Z'?'Cerrar turno definitivamente':'Generar Reporte X'}
+            </Btn>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   DASHBOARD PRINCIPAL DEL TURNO
+═══════════════════════════════════════════ */
+function DashboardCaja({turno,profile,onCierre}){
+  const [panel,setPanel]=useState('cobros');
+  const [movimientos,setMovimientos]=useState([]);
+
+  useEffect(()=>{loadMovimientos();},[turno.id]);
+
+  async function loadMovimientos(){
+    const{data}=await db.from('movimientos_caja').select('*').eq('turno_id',turno.id).order('created_at',{ascending:false});
+    setMovimientos(data||[]);
+  }
+  function addMovimiento(m){setMovimientos(p=>[m,...p]);}
+
+  function handleCierre(){
+    if(panel==='cierre')return;
+    loadMovimientos();
+    onCierre();
+  }
+
+  const renderPanel=()=>{
+    switch(panel){
+      case 'cobros':           return <CobrosPanel       turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
+      case 'cancelaciones':    return <CancelacionesPanel turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
+      case 'ingresos_egresos': return <IngresosEgresosPanel turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
+      case 'quejas':           return <QuejasPanel       turno={turno} profile={profile}/>;
+      case 'retiro':           return <RetiroPanel       turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
+      case 'cierre':           return <CierreCajaPanel   turno={turno} movimientos={movimientos} profile={profile} onCierre={handleCierre}/>;
+      default: return null;
+    }
+  };
+
+  return(
+    <div style={{display:'flex',minHeight:'100vh'}}>
+      <SidebarTurno turno={turno} movimientos={movimientos} panel={panel} setPanel={setPanel} profile={profile}/>
+      <main style={{flex:1,padding:24,overflowY:'auto',minWidth:0}}>
+        {renderPanel()}
+      </main>
+      <ToastContainer/>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   APP PRINCIPAL
+═══════════════════════════════════════════ */
+function CajaApp({profile}){
+  const [turno,setTurno]=useState(null);
+  const [turnoConflicto,setTurnoConflicto]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [cerrado,setCerrado]=useState(false);
+
+  useEffect(()=>{checkTurno();},[]);
+
+  async function checkTurno(){
+    setLoading(true);
+    const{data}=await db.from('turnos_caja')
+      .select('*').eq('restaurant_id',RID).eq('estado','abierto')
+      .order('fecha_apertura',{ascending:false}).limit(1);
+    if(data&&data.length>0){
+      const t=data[0];
+      if(t.cajero_id===profile.id||['admin','superadmin'].includes(profile.role)){
+        setTurno(t);
+      } else {
+        setTurnoConflicto(t);
+      }
+    }
+    setLoading(false);
+  }
+
+  if(loading)return(
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:14}}>
+      <span className="spin"/>
+      <div style={{fontSize:12,color:'#444'}}>Verificando turno activo…</div>
+    </div>
+  );
+
+  if(cerrado)return(
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16,padding:20}}>
+      <div style={{fontSize:40}}>✓</div>
+      <div style={{fontFamily:'DM Serif Display',fontSize:24}}>Turno cerrado</div>
+      <div style={{fontSize:13,color:'#555'}}>El arqueo quedó registrado correctamente.</div>
+      <div style={{display:'flex',gap:10}}>
+        <Btn onClick={()=>{setCerrado(false);setTurno(null);checkTurno();}}>Abrir nuevo turno</Btn>
+        <Btn variant="ghost" onClick={()=>window.location.href='admin.html'}>Ir al Admin</Btn>
+      </div>
+    </div>
+  );
+
+  if(turno)return <DashboardCaja turno={turno} profile={profile} onCierre={()=>{setTurno(null);setCerrado(true);}}/>;
+
+  return <AperturaTurnoScreen profile={profile} turnoAbierto={turnoConflicto} onTurnoAbierto={t=>{setTurno(t);setTurnoConflicto(null);}}/>;
+}
+
+/* ── AUTH GUARD ── */
+async function bootstrap(){
+  if(!db){window.location.replace('login.html');return;}
+  const{data:{session}}=await db.auth.getSession();
+  if(!session){window.location.replace('login.html');return;}
+  const{data:profile}=await db.rpc('get_my_profile');
+  if(!profile||!['admin','superadmin','cajero'].includes(profile.role)){
+    await db.auth.signOut();window.location.replace('login.html');return;
+  }
+  window._userProfile=profile;
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <><CajaApp profile={profile}/><ToastContainer/></>
+  );
+}
+bootstrap();
+</script>
+</body>
+</html>
