@@ -1032,14 +1032,18 @@ function TomarPedidoPanel({turno,profile}){
   const [tables,setTables]=useState([]);
   const [loading,setLoading]=useState(true);
   const [selCat,setSelCat]=useState(null);
-  const [cart,setCart]=useState([]);
-  const [orderType,setOrderType]=useState('dine_in');
-  const [tableId,setTableId]=useState('');
-  const [customerName,setCustomerName]=useState('');
+  const [cart,setCart]=useState(()=>{try{return JSON.parse(localStorage.getItem('caja_cart')||'[]');}catch{return [];}});
+  const [orderType,setOrderType]=useState(()=>localStorage.getItem('caja_order_type')||'dine_in');
+  const [tableId,setTableId]=useState(()=>localStorage.getItem('caja_table_id')||'');
+  const [customerName,setCustomerName]=useState(()=>localStorage.getItem('caja_customer_name')||'');
   const [extrasModal,setExtrasModal]=useState(null);
   const [busy,setBusy]=useState(false);
 
   useEffect(()=>{load();},[]);
+  useEffect(()=>{localStorage.setItem('caja_cart',JSON.stringify(cart));},[cart]);
+  useEffect(()=>{localStorage.setItem('caja_order_type',orderType);},[orderType]);
+  useEffect(()=>{localStorage.setItem('caja_table_id',tableId);},[tableId]);
+  useEffect(()=>{localStorage.setItem('caja_customer_name',customerName);},[customerName]);
 
   async function load(){
     const[{data:catData},{data:itemData},{data:tblData}]=await Promise.all([
@@ -1119,6 +1123,7 @@ function TomarPedidoPanel({turno,profile}){
 
       toast(`Pedido ${order.order_number?'#'+order.order_number:''} enviado a cocina ✓`);
       setCart([]);setCustomerName('');setTableId('');
+      localStorage.removeItem('caja_cart');localStorage.removeItem('caja_customer_name');localStorage.removeItem('caja_table_id');
     }catch(e){toast('Error: '+e.message,false);}
     setBusy(false);
   }
@@ -1632,8 +1637,9 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
    DASHBOARD PRINCIPAL DEL TURNO
 ═══════════════════════════════════════════ */
 function DashboardCaja({turno,profile,onCierre}){
-  const [panel,setPanel]=useState('salon');
+  const [panel,setPanel]=useState(()=>localStorage.getItem('caja_panel')||'salon');
   const [movimientos,setMovimientos]=useState([]);
+  function changePanel(p){localStorage.setItem('caja_panel',p);setPanel(p);}
 
   useEffect(()=>{loadMovimientos();},[turno.id]);
 
@@ -1665,7 +1671,7 @@ function DashboardCaja({turno,profile,onCierre}){
 
   return(
     <div style={{display:'flex',minHeight:'100vh'}}>
-      <SidebarTurno turno={turno} movimientos={movimientos} panel={panel} setPanel={setPanel} profile={profile}/>
+      <SidebarTurno turno={turno} movimientos={movimientos} panel={panel} setPanel={changePanel} profile={profile}/>
       <main style={{flex:1,padding:24,overflowY:'auto',minWidth:0}}>
         {renderPanel()}
       </main>
@@ -1726,20 +1732,31 @@ function CajaApp({profile}){
 }
 
 /* ── AUTH GUARD ── */
-async function bootstrap(){
-  if(!db){window.location.replace('login.html');return;}
-  const{data:{session}}=await db.auth.getSession();
-  if(!session){window.location.replace('login.html');return;}
+async function initApp(session){
   const{data:profile}=await db.rpc('get_my_profile');
   if(!profile||!['admin','superadmin','cajero','cocina'].includes(profile.role)){
     await db.auth.signOut();window.location.replace('login.html');return;
   }
-  // Asegurar que profile.id esté seteado (get_my_profile lo incluye como 'id')
   if(!profile.id){profile.id=session.user.id;}
   window._userProfile=profile;
   ReactDOM.createRoot(document.getElementById('root')).render(
     <><CajaApp profile={profile}/><ToastContainer/></>
   );
+}
+
+async function bootstrap(){
+  if(!db){window.location.replace('login.html');return;}
+  const{data:{session}}=await db.auth.getSession();
+  if(session){await initApp(session);return;}
+  /* Token vencido pero refresh token válido — esperamos el refresh automático */
+  await new Promise(resolve=>{
+    const{data:{subscription}}=db.auth.onAuthStateChange(async(event,s)=>{
+      subscription.unsubscribe();
+      if(s){await initApp(s);}else{window.location.replace('login.html');}
+      resolve();
+    });
+    setTimeout(()=>{subscription.unsubscribe();window.location.replace('login.html');resolve();},3000);
+  });
 }
 bootstrap();
 </script>
