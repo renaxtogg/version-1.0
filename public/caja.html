@@ -1079,9 +1079,11 @@ function TomarPedidoPanel({turno,profile}){
     try{
       /* 1. crear order */
       const dbOrderType=orderType==='dine_in'?'local':'llevar';
+      const orderNum='C-'+String(Math.floor(Date.now()%90000)+10000);
       const{data:order,error:e1}=await db.from('orders').insert({
         restaurant_id:RID,
         table_id:orderType==='dine_in'&&tableId?tableId:null,
+        order_number:orderNum,
         order_type:dbOrderType,
         status:'paid',
         customer_name:customerName||null,
