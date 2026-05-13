@@ -41,7 +41,7 @@ function toggleTheme() {
 initTheme();
 </script>
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef, useCallback, useReducer } = React;
 
 /* ── SUPABASE CLIENT ─── */
 const _initDB = () => {
@@ -209,11 +209,17 @@ async function dbDismissTicket(supabaseId) {
 }
 
 /* ── PALETTE ─── */
-const C = {
+const C_DARK = {
   bg:'#0A0A0A', surface:'#111', card:'#161616',
   border:'rgba(255,255,255,0.07)', borderStrong:'rgba(255,255,255,0.14)',
   white:'#FFF', ink:'#E8E8E8', mid:'#888', dim:'#444',
 };
+const C_LIGHT = {
+  bg:'#f5f5f5', surface:'#ffffff', card:'#f0f0f0',
+  border:'rgba(0,0,0,0.1)', borderStrong:'rgba(0,0,0,0.18)',
+  white:'#111', ink:'#111', mid:'#555', dim:'#999',
+};
+const C = {...((localStorage.getItem('mesa_theme')||'dark')==='light' ? C_LIGHT : C_DARK)};
 
 /* Color por estado de columna */
 const COL_COLOR = {
@@ -223,9 +229,9 @@ const COL_COLOR = {
   entregado:  '#6b7280',
 };
 
-/* Lookup tables para urgencia — evitan ternarios en cada render */
-const URGENCY_BORDER = [C.borderStrong, '#F59E0B', '#F97316', '#EF4444'];
-const URGENCY_HEADER = ['#111', 'rgba(245,158,11,0.12)', 'rgba(249,115,22,0.18)', 'rgba(239,68,68,0.22)'];
+/* Lookup tables para urgencia — se recomputan en toggleTheme */
+let URGENCY_BORDER = [C.borderStrong, '#F59E0B', '#F97316', '#EF4444'];
+let URGENCY_HEADER = [C.surface, 'rgba(245,158,11,0.12)', 'rgba(249,115,22,0.18)', 'rgba(239,68,68,0.22)'];
 
 /* ── DEMO ─── */
 const DEMO_TICKETS = [
@@ -579,8 +585,19 @@ function App() {
   const [diag, setDiag] = useState(null);
   const [restaurant, setRestaurant] = useState(null);
   const [stockAlerts, setStockAlerts] = useState([]);
+  const [,forceRender] = useReducer(x=>x+1,0);
   const soundRef = useRef(soundOn);
   soundRef.current = soundOn;
+
+  function toggleTheme(){
+    const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
+    Object.assign(C,next==='dark'?C_DARK:C_LIGHT);
+    URGENCY_BORDER[0]=C.borderStrong;
+    URGENCY_HEADER[0]=C.surface;
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('mesa_theme',next);
+    forceRender();
+  }
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -822,7 +839,7 @@ function App() {
             <Btn onClick={toggleFullscreen} title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}>
               {isFullscreen ? '⊡' : '⛶'}
             </Btn>
-            <button className="ds-theme-btn" onClick={toggleTheme} title="Cambiar tema">
+            <button onClick={toggleTheme} title="Cambiar tema" style={{width:32,height:32,borderRadius:6,background:C.card,border:`1px solid ${C.borderStrong}`,color:C.mid,fontSize:15,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               {document.documentElement.getAttribute('data-theme')==='dark'?'☀️':'🌙'}
             </button>
           </div>

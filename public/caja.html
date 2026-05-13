@@ -100,12 +100,19 @@ const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',kitchen_receive
 const SC = {paid:'#f59e0b',kitchen_received:'#3b82f6',cooking:'#f97316',ready:'#22c55e',delivered:'#888',cancelled:'#ef4444'};
 
 /* ── PALETA ── */
-const C = {
+const C_DARK = {
   bg:'#0A0A0A',sidebar:'#0D0D0D',surface:'#111',card:'#161616',
   border:'#1a1a1a',bs:'#2a2a2a',
   white:'#fff',ink:'#e8e8e8',mid:'#888',dim:'#444',
   green:'#22c55e',orange:'#f97316',red:'#ef4444',yellow:'#f59e0b',blue:'#3b82f6',purple:'#a855f7',cyan:'#06b6d4',
 };
+const C_LIGHT = {
+  bg:'#f5f5f5',sidebar:'#ffffff',surface:'#ffffff',card:'#f0f0f0',
+  border:'#e0e0e0',bs:'#cccccc',
+  white:'#111111',ink:'#111111',mid:'#555555',dim:'#888888',
+  green:'#16a34a',orange:'#ea580c',red:'#dc2626',yellow:'#ca8a04',blue:'#2563eb',purple:'#9333ea',cyan:'#0891b2',
+};
+const C = {...((localStorage.getItem('mesa_theme')||'dark')==='light' ? C_LIGHT : C_DARK)};
 
 /* ── TOAST ── */
 const _toast = {fn:null};
@@ -280,7 +287,7 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
 /* ═══════════════════════════════════════════
    SIDEBAR DEL TURNO
 ═══════════════════════════════════════════ */
-function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile}){
+function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggleTheme}){
   const [hora,setHora]=useState(new Date());
   useEffect(()=>{const t=setInterval(()=>setHora(new Date()),30000);return()=>clearInterval(t);},[]);
 
@@ -366,10 +373,9 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile}){
           ← Admin
         </button>
         <button
-          className="ds-theme-btn"
-          onClick={toggleTheme}
+          onClick={onToggleTheme}
           title="Cambiar tema"
-          style={{marginTop:6,width:'100%',borderRadius:6}}
+          style={{marginTop:6,width:'100%',borderRadius:6,padding:'6px 10px',background:C.card,border:`1px solid ${C.bs}`,color:C.mid,fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
         >
           {document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Claro':'🌙 Oscuro'}
         </button>
@@ -1896,7 +1902,15 @@ function CalculadoraFlotante(){
 function DashboardCaja({turno,profile,onCierre}){
   const [panel,setPanel]=useState(()=>localStorage.getItem('caja_panel')||'salon');
   const [movimientos,setMovimientos]=useState([]);
+  const [,forceRender]=useReducer(x=>x+1,0);
   function changePanel(p){localStorage.setItem('caja_panel',p);setPanel(p);}
+  function toggleTheme(){
+    const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
+    Object.assign(C,next==='dark'?C_DARK:C_LIGHT);
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('mesa_theme',next);
+    forceRender();
+  }
 
   useEffect(()=>{loadMovimientos();},[turno.id]);
 
@@ -1928,7 +1942,7 @@ function DashboardCaja({turno,profile,onCierre}){
 
   return(
     <div style={{display:'flex',minHeight:'100vh'}}>
-      <SidebarTurno turno={turno} movimientos={movimientos} panel={panel} setPanel={changePanel} profile={profile}/>
+      <SidebarTurno turno={turno} movimientos={movimientos} panel={panel} setPanel={changePanel} profile={profile} onToggleTheme={toggleTheme}/>
       <main style={{flex:1,padding:24,overflowY:'auto',minWidth:0}}>
         {renderPanel()}
       </main>

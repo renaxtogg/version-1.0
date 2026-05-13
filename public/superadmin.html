@@ -43,10 +43,10 @@ initTheme();
 </script>
 <script src="config.js"></script>
 <script type="text/babel">
-const { useState, useEffect, useCallback, useRef } = React;
+const { useState, useEffect, useCallback, useRef, useReducer } = React;
 
 // ── Paleta ───────────────────────────────────────────────────
-const C = {
+const C_DARK = {
   bg:'#080810', sidebar:'#0c0c18', surface:'#111120', card:'#16161e',
   border:'#1e1e30', bStrong:'#2a2a40',
   white:'#fff', ink:'#e8e8f0', mid:'#8888a8', dim:'#44445a',
@@ -54,6 +54,15 @@ const C = {
   cyan:'#06b6d4', green:'#22c55e', orange:'#f97316',
   red:'#ef4444', yellow:'#f59e0b', purple:'#a855f7',
 };
+const C_LIGHT = {
+  bg:'#f5f5f5', sidebar:'#ffffff', surface:'#f0f0f0', card:'#ffffff',
+  border:'#e0e0e0', bStrong:'#cccccc',
+  white:'#111111', ink:'#111111', mid:'#555555', dim:'#888888',
+  blue:'#4f46e5', blueDim:'#e8e8ff', blueHov:'#4338ca',
+  cyan:'#0891b2', green:'#16a34a', orange:'#ea580c',
+  red:'#dc2626', yellow:'#ca8a04', purple:'#9333ea',
+};
+const C = {...((localStorage.getItem('mesa_theme')||'dark')==='light' ? C_LIGHT : C_DARK)};
 
 // ── Supabase ─────────────────────────────────────────────────
 const _initDB = () => {
@@ -1528,6 +1537,14 @@ function App() {
   const [offline, setOffline]   = useState(false);
   const [rtLive, setRtLive]     = useState(false);
   const [rawData, setRawData]   = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[]});
+  const [,forceRender] = useReducer(x=>x+1,0);
+  function toggleTheme(){
+    const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
+    Object.assign(C,next==='dark'?C_DARK:C_LIGHT);
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('mesa_theme',next);
+    forceRender();
+  }
 
   const loadAll = useCallback(async () => {
     if (!db) {
@@ -1591,7 +1608,7 @@ function App() {
             {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:600,background:C.surface,padding:'3px 10px',borderRadius:12}}>● Conectado</span>}
             {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
             <button onClick={loadAll} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺ Actualizar</button>
-            <button className="ds-theme-btn" onClick={toggleTheme} title="Cambiar tema">
+            <button onClick={toggleTheme} title="Cambiar tema" style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 10px',color:C.mid,fontSize:14,cursor:'pointer'}}>
               {document.documentElement.getAttribute('data-theme')==='dark'?'☀️':'🌙'}
             </button>
           </div>

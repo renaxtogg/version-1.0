@@ -43,7 +43,7 @@ function toggleTheme() {
 initTheme();
 </script>
 <script type="text/babel">
-const { useState, useEffect, useRef, useMemo, useCallback } = React;
+const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
 
 /* ── DB ── */
 const _initDB = () => {
@@ -80,12 +80,19 @@ const EG_CATS = ['Insumos','Personal','Servicios','Alquiler','Mantenimiento','Im
 const ROLES = ['cocina','admin','superadmin','waiter','cajero'];
 
 /* ── PALETTE ── */
-const C = {
+const C_DARK = {
   bg:'#0A0A0A',sidebar:'#0D0D0D',surface:'#111',card:'#161616',
   border:'#1a1a1a',bs:'#2a2a2a',
   white:'#fff',ink:'#e8e8e8',mid:'#888',dim:'#444',
   green:'#22c55e',orange:'#f97316',red:'#ef4444',yellow:'#f59e0b',blue:'#3b82f6',purple:'#a855f7',
 };
+const C_LIGHT = {
+  bg:'#f5f5f5',sidebar:'#ffffff',surface:'#ffffff',card:'#f0f0f0',
+  border:'#e0e0e0',bs:'#cccccc',
+  white:'#111111',ink:'#111111',mid:'#555555',dim:'#888888',
+  green:'#16a34a',orange:'#ea580c',red:'#dc2626',yellow:'#ca8a04',blue:'#2563eb',purple:'#9333ea',
+};
+const C = {...((localStorage.getItem('mesa_theme')||'dark')==='light' ? C_LIGHT : C_DARK)};
 
 /* ── TOAST ── */
 const _toast = { fn: null };
@@ -293,7 +300,7 @@ const NAV = [
   {id:'config',    label:'Config',       icon:'⚙', group:'SISTEMA'},
 ];
 
-function Sidebar({page,setPage,restaurant,dbOk}) {
+function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme}) {
   return (
     <aside style={{width:200,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
       <div style={{padding:'18px 16px 14px',borderBottom:`1px solid ${C.border}`}}>
@@ -322,10 +329,10 @@ function Sidebar({page,setPage,restaurant,dbOk}) {
       <div style={{padding:'12px 16px',borderTop:`1px solid ${C.border}`}}>
         <a href="cocina.html" style={{display:'block',color:'#333',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ Cocina (KDS)</a>
         <a href="index.html"  style={{display:'block',color:'#333',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ App Cliente</a>
-        <button className="ds-theme-btn" onClick={toggleTheme} title="Cambiar tema" style={{marginTop:8,width:'100%',borderRadius:6,fontSize:12}}>
+        <button onClick={onToggleTheme} title="Cambiar tema" style={{marginTop:8,width:'100%',borderRadius:6,padding:'5px 10px',background:C.card,border:`1px solid ${C.bs}`,color:C.mid,fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
           {document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Claro':'🌙 Oscuro'}
         </button>
-        {db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{marginTop:6,background:'none',border:`1px solid ${C.border}`,color:'#333',fontSize:11,padding:'4px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
+        {db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{marginTop:6,background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'4px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
       </div>
     </aside>
   );
@@ -2043,6 +2050,14 @@ function ConfigPage({restaurant,onRefresh}) {
 function AdminApp() {
   const [page,setPage] = useState('dashboard');
   const [loading,setLoading] = useState(true);
+  const [,forceRender] = useReducer(x=>x+1,0);
+  function toggleTheme(){
+    const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
+    Object.assign(C,next==='dark'?C_DARK:C_LIGHT);
+    document.documentElement.setAttribute('data-theme',next);
+    localStorage.setItem('mesa_theme',next);
+    forceRender();
+  }
   const [orders,setOrders] = useState([]);
   const [categories,setCategories] = useState([]);
   const [menuItems,setMenuItems] = useState([]);
@@ -2118,7 +2133,7 @@ function AdminApp() {
 
   return (
     <div style={{display:'flex',minHeight:'100vh'}}>
-      <Sidebar page={page} setPage={setPage} restaurant={restaurant} dbOk={!!db}/>
+      <Sidebar page={page} setPage={setPage} restaurant={restaurant} dbOk={!!db} onToggleTheme={toggleTheme}/>
       <main style={{flex:1,padding:26,overflowY:'auto',minWidth:0}}>
         {renderPage()}
       </main>
