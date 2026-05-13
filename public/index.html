@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mesa — Comanda</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="design-system.css">
 <!-- Supabase JS -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <!-- Configuración del proyecto (SUPABASE_URL + ANON_KEY) -->
@@ -36,6 +37,12 @@
 </head>
 <body>
 <div id="app"></div>
+<script>
+(function() {
+  var saved = localStorage.getItem('mesa_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+})();
+</script>
 <script type="text/babel">
 
 const { useState, useEffect, useRef, createContext, useContext, useCallback } = React;

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Admin — La Huaca</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="design-system.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -28,6 +29,19 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+function initTheme() {
+  const saved = localStorage.getItem('mesa_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+}
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('mesa_theme', next);
+}
+initTheme();
+</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
@@ -308,7 +322,10 @@ function Sidebar({page,setPage,restaurant,dbOk}) {
       <div style={{padding:'12px 16px',borderTop:`1px solid ${C.border}`}}>
         <a href="cocina.html" style={{display:'block',color:'#333',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ Cocina (KDS)</a>
         <a href="index.html"  style={{display:'block',color:'#333',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ App Cliente</a>
-        {db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{marginTop:8,background:'none',border:`1px solid ${C.border}`,color:'#333',fontSize:11,padding:'4px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
+        <button className="ds-theme-btn" onClick={toggleTheme} title="Cambiar tema" style={{marginTop:8,width:'100%',borderRadius:6,fontSize:12}}>
+          {document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Claro':'🌙 Oscuro'}
+        </button>
+        {db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{marginTop:6,background:'none',border:`1px solid ${C.border}`,color:'#333',fontSize:11,padding:'4px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
       </div>
     </aside>
   );

@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mesa App · SuperAdmin</title>
+  <link rel="stylesheet" href="design-system.css">
   <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
@@ -27,6 +28,19 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+function initTheme() {
+  const saved = localStorage.getItem('mesa_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+}
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('mesa_theme', next);
+}
+initTheme();
+</script>
 <script src="config.js"></script>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
@@ -1577,6 +1591,9 @@ function App() {
             {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:600,background:C.surface,padding:'3px 10px',borderRadius:12}}>● Conectado</span>}
             {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
             <button onClick={loadAll} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺ Actualizar</button>
+            <button className="ds-theme-btn" onClick={toggleTheme} title="Cambiar tema">
+              {document.documentElement.getAttribute('data-theme')==='dark'?'☀️':'🌙'}
+            </button>
           </div>
         </div>
 

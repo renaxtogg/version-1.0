@@ -1,0 +1,1420 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Mozo — Panel</title>
+<link rel="stylesheet" href="design-system.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+:root {
+  --bg: #ffffff; --bg2: #f8fafc; --bg3: #f1f5f9;
+  --surface: #ffffff; --border: #e2e8f0;
+  --text: #0a0a0a; --text2: #475569; --text3: #94a3b8;
+  --accent: #111827; --accent-soft: #f1f5f9;
+  --indigo: #4f46e5; --indigo-soft: #eef2ff;
+  --green: #16a34a; --green-soft: #dcfce7;
+  --orange: #ea580c; --orange-soft: #fff7ed;
+  --red: #dc2626; --red-soft: #fee2e2;
+  --yellow: #ca8a04; --yellow-soft: #fefce8;
+  --blue: #2563eb; --blue-soft: #eff6ff;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-lg: 0 10px 25px rgba(0,0,0,0.12);
+  --radius: 12px; --radius-sm: 8px;
+  --nav-h: 64px; --header-h: 56px;
+}
+[data-theme="dark"] {
+  --bg: #0f172a; --bg2: #1e293b; --bg3: #334155;
+  --surface: #1e293b; --border: #334155;
+  --text: #f8fafc; --text2: #94a3b8; --text3: #64748b;
+  --accent: #f8fafc; --accent-soft: #1e293b;
+  --indigo: #818cf8; --indigo-soft: #1e1b4b;
+  --green: #4ade80; --green-soft: #14532d;
+  --orange: #fb923c; --orange-soft: #431407;
+  --red: #f87171; --red-soft: #450a0a;
+  --yellow: #fbbf24; --yellow-soft: #451a03;
+  --blue: #60a5fa; --blue-soft: #1e3a5f;
+  --shadow: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-lg: 0 10px 25px rgba(0,0,0,0.4);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg); color: var(--text);
+  max-width: 480px; margin: 0 auto; min-height: 100vh;
+  position: relative; overflow-x: hidden;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(220,38,38,0.4); } 70% { box-shadow: 0 0 0 8px rgba(220,38,38,0); } 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); } }
+
+/* HEADER */
+.app-header {
+  position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: 480px; height: var(--header-h);
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; z-index: 100;
+}
+.brand { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; color: var(--text); }
+.brand span { color: var(--indigo); }
+.header-actions { display: flex; gap: 8px; align-items: center; }
+.icon-btn {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: var(--bg2); border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 16px; color: var(--text2);
+  position: relative; transition: background 0.15s;
+}
+.icon-btn:active { background: var(--bg3); }
+.notif-badge {
+  position: absolute; top: 4px; right: 4px;
+  background: var(--red); color: white;
+  font-size: 9px; font-weight: 700; min-width: 16px; height: 16px;
+  border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 4px;
+}
+
+/* MAIN */
+.main { padding-top: var(--header-h); padding-bottom: var(--nav-h); min-height: 100vh; }
+
+/* BOTTOM NAV */
+.bottom-nav {
+  position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: 480px; height: var(--nav-h);
+  background: var(--surface); border-top: 1px solid var(--border);
+  display: flex; z-index: 100;
+}
+.nav-item {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 3px; cursor: pointer; color: var(--text3);
+  font-size: 10px; font-weight: 500; transition: color 0.15s;
+  padding: 8px 0; position: relative;
+}
+.nav-item svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.nav-item.active { color: var(--indigo); }
+.nav-badge {
+  position: absolute; top: 8px; right: calc(50% - 18px);
+  background: var(--red); color: white;
+  font-size: 9px; font-weight: 700; min-width: 16px; height: 16px;
+  border-radius: 8px; display: none; align-items: center; justify-content: center; padding: 0 4px;
+}
+.nav-badge.show { display: flex; }
+
+/* SECTION HEADER */
+.section-header {
+  padding: 16px 16px 8px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.section-title { font-size: 18px; font-weight: 700; color: var(--text); }
+.section-sub { font-size: 13px; color: var(--text2); margin-top: 2px; }
+
+/* TABLE GRID */
+.table-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 16px; }
+.mesa-card {
+  aspect-ratio: 1; border-radius: var(--radius-sm); border: 2px solid var(--border);
+  background: var(--surface); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; cursor: pointer;
+  position: relative; transition: transform 0.1s, box-shadow 0.1s; user-select: none;
+}
+.mesa-card:active { transform: scale(0.95); }
+.mesa-num { font-size: 18px; font-weight: 800; color: var(--text); }
+.mesa-label { font-size: 9px; color: var(--text3); font-weight: 500; margin-top: 2px; }
+.mesa-badge {
+  position: absolute; top: -5px; right: -5px;
+  background: var(--indigo); color: white; font-size: 9px; font-weight: 700;
+  min-width: 18px; height: 18px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center; padding: 0 4px;
+}
+.mesa-card.libre { background: var(--surface); border-color: var(--border); }
+.mesa-card.ocupada { background: var(--green-soft); border-color: var(--green); }
+.mesa-card.ocupada .mesa-num { color: var(--green); }
+.mesa-card.cuenta { background: var(--blue-soft); border-color: var(--blue); }
+.mesa-card.cuenta .mesa-num { color: var(--blue); }
+.mesa-card.alerta { background: var(--red-soft); border-color: var(--red); animation: pulse-ring 1.5s infinite; }
+.mesa-card.alerta .mesa-num { color: var(--red); }
+
+/* LEYENDA */
+.legend { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 16px; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text2); }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+/* ORDER HEADER */
+.order-header {
+  background: var(--text); color: white; padding: 12px 16px 10px;
+}
+.order-header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.order-title { font-size: 13px; font-weight: 600; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; }
+.order-actions { display: flex; gap: 6px; }
+.order-action-btn {
+  width: 36px; height: 36px; border-radius: 9px;
+  background: rgba(255,255,255,0.15);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 16px; transition: background 0.15s;
+  border: none; color: white;
+}
+.order-action-btn:active { background: rgba(255,255,255,0.3); }
+.order-action-btn.primary-action { background: white; color: var(--text); }
+.order-mesa-btn {
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(255,255,255,0.15); border-radius: 8px;
+  padding: 4px 10px; font-size: 14px; font-weight: 700; color: white;
+}
+.order-info {
+  display: flex; gap: 12px; align-items: center; padding: 10px 16px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+.order-info-item { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--text2); }
+.order-status-badge {
+  margin-left: auto; font-size: 11px; font-weight: 700; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 20px;
+  background: var(--orange-soft); color: var(--orange);
+}
+.order-status-badge.lista { background: var(--green-soft); color: var(--green); }
+
+/* ITEMS */
+.items-list { padding: 8px 16px; }
+.item-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px; margin-bottom: 8px;
+}
+.item-top { display: flex; align-items: center; justify-content: space-between; }
+.item-name { font-size: 14px; font-weight: 600; color: var(--text); flex: 1; }
+.item-price { font-size: 14px; font-weight: 700; color: var(--text); margin: 0 12px; }
+.item-del { font-size: 16px; color: var(--text3); cursor: pointer; padding: 4px; }
+.item-del:active { color: var(--red); }
+.item-note { font-size: 11px; color: var(--text2); margin-top: 6px; font-style: italic; background: var(--bg2); padding: 4px 8px; border-radius: 6px; }
+.item-progress { margin-top: 10px; display: flex; align-items: center; gap: 8px; }
+.progress-icon { font-size: 14px; }
+.progress-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 2px; transition: width 0.5s; background: var(--orange); width: 40%; }
+.progress-fill.listo { background: var(--green); width: 85%; }
+.progress-fill.ready { background: var(--green); width: 85%; }
+.progress-fill.cooking { background: var(--orange); width: 40%; }
+.progress-fill.paid { background: var(--orange); width: 20%; }
+.progress-fill.kitchen_received { background: var(--orange); width: 20%; }
+.item-status-text { font-size: 11px; font-weight: 600; color: var(--orange); }
+.item-status-text.lista { color: var(--green); }
+.item-status-text.ready { color: var(--green); }
+
+.items-empty { text-align: center; padding: 40px 20px; color: var(--text3); }
+.items-empty .empty-icon { font-size: 40px; margin-bottom: 10px; }
+
+/* TOTAL BAR */
+.total-bar {
+  margin: 0 16px 16px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px 16px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.total-label { font-size: 13px; color: var(--text2); }
+.total-amount { font-size: 22px; font-weight: 800; color: var(--text); }
+
+/* ALERTS */
+.alerts-list { padding: 8px 16px; }
+.alert-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px; margin-bottom: 8px;
+  display: flex; gap: 12px; align-items: flex-start;
+}
+.alert-card.urgente { border-color: var(--red); background: var(--red-soft); }
+.alert-icon { font-size: 24px; flex-shrink: 0; }
+.alert-body { flex: 1; }
+.alert-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.alert-card.urgente .alert-title { color: var(--red); }
+.alert-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.alert-time { font-size: 11px; color: var(--text3); margin-top: 4px; }
+.alert-action {
+  font-size: 12px; font-weight: 700; color: white; background: var(--red);
+  border-radius: 8px; padding: 6px 12px; cursor: pointer; border: none; margin-top: 8px;
+}
+.alerts-empty { text-align: center; padding: 60px 20px; color: var(--text3); }
+.alerts-empty .empty-icon { font-size: 48px; margin-bottom: 12px; }
+
+/* MODAL */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+  z-index: 200; align-items: flex-end; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--surface); width: 100%; max-width: 480px;
+  border-radius: 20px 20px 0 0; max-height: 90vh;
+  display: flex; flex-direction: column; animation: slideUp 0.25s ease;
+}
+.modal-handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 12px auto 4px; flex-shrink: 0; }
+.modal-header {
+  padding: 8px 16px 14px; display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.modal-title { font-size: 17px; font-weight: 700; color: var(--text); }
+.modal-close { font-size: 20px; color: var(--text3); cursor: pointer; padding: 4px; }
+.modal-body { overflow-y: auto; flex: 1; padding: 16px; }
+.modal-footer { padding: 12px 16px; border-top: 1px solid var(--border); flex-shrink: 0; }
+
+/* SEARCH */
+.search-box {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 14px; margin-bottom: 12px;
+}
+.search-box input { flex: 1; background: none; border: none; outline: none; font-size: 15px; color: var(--text); }
+.search-box input::placeholder { color: var(--text3); }
+
+.category-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 12px; }
+.category-chips::-webkit-scrollbar { display: none; }
+.chip {
+  padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text2);
+  cursor: pointer; white-space: nowrap; transition: all 0.15s; flex-shrink: 0;
+}
+.chip.active { background: var(--indigo); color: white; border-color: var(--indigo); }
+
+.product-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.product-item:last-child { border-bottom: none; }
+.product-img {
+  width: 44px; height: 44px; border-radius: 10px; background: var(--bg3);
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; overflow: hidden;
+}
+.product-img img { width: 100%; height: 100%; object-fit: cover; }
+.product-info { flex: 1; }
+.product-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.product-price { font-size: 13px; color: var(--text2); margin-top: 2px; }
+.product-add-btn {
+  width: 28px; height: 28px; border-radius: 8px; background: var(--indigo-soft);
+  border: 1px solid var(--indigo); color: var(--indigo); font-size: 18px;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; font-weight: 700;
+}
+.product-qty-ctrl { display: flex; align-items: center; gap: 8px; }
+.qty-btn {
+  width: 28px; height: 28px; border-radius: 8px; background: var(--bg2);
+  border: 1px solid var(--border); font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-weight: 700; color: var(--text);
+}
+.qty-btn:active { background: var(--bg3); }
+.qty-num { font-size: 15px; font-weight: 700; min-width: 20px; text-align: center; color: var(--text); }
+
+/* PAYMENT */
+.pay-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.pay-item:last-child { border-bottom: none; }
+.pay-item-name { flex: 1; font-size: 13px; color: var(--text); }
+.pay-item-price { font-size: 13px; font-weight: 700; color: var(--text); }
+
+.tip-section { margin-top: 16px; }
+.section-label { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.tip-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.tip-chip {
+  padding: 8px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;
+  border: 2px solid var(--border); background: var(--surface); color: var(--text2); cursor: pointer;
+}
+.tip-chip.active { background: var(--indigo); color: white; border-color: var(--indigo); }
+
+.payment-methods { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-top: 8px; }
+.pay-method {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 6px; border-radius: var(--radius-sm); border: 2px solid var(--border);
+  background: var(--surface); cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text2); text-align: center;
+}
+.pay-method .pay-icon { font-size: 20px; }
+.pay-method.active { border-color: var(--indigo); background: var(--indigo-soft); color: var(--indigo); }
+
+.pay-summary { margin-top: 16px; background: var(--bg2); border-radius: var(--radius-sm); padding: 14px; }
+.pay-row { display: flex; justify-content: space-between; font-size: 14px; color: var(--text2); margin-bottom: 6px; }
+.pay-row.total { font-size: 18px; font-weight: 800; color: var(--text); margin-bottom: 0; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.pay-row.total span:last-child { color: var(--indigo); }
+
+/* BUTTONS */
+.btn {
+  padding: 14px 18px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 700;
+  cursor: pointer; border: none; display: flex; align-items: center; justify-content: center; gap: 6px;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.btn:active { opacity: 0.85; transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn-primary { background: var(--text); color: white; flex: 1; }
+.btn-secondary { background: var(--bg2); color: var(--text); border: 1px solid var(--border); }
+.btn-indigo { background: var(--indigo); color: white; flex: 1; }
+.btn-full { width: 100%; }
+.btn-sm { padding: 10px 14px; font-size: 13px; }
+
+/* DIALOG */
+.dialog-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 300; align-items: center; justify-content: center; padding: 20px; }
+.dialog-overlay.open { display: flex; }
+.dialog { background: var(--surface); border-radius: var(--radius); padding: 24px; width: 100%; max-width: 320px; animation: fadeIn 0.2s ease; }
+.dialog-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+.dialog-body { font-size: 14px; color: var(--text2); margin-bottom: 20px; line-height: 1.5; }
+.dialog-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.dialog-btn { padding: 10px 20px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 700; cursor: pointer; border: none; }
+.dialog-btn.cancel { background: var(--bg2); color: var(--text2); }
+.dialog-btn.confirm { background: var(--indigo); color: white; }
+.dialog-btn.danger { background: var(--red); color: white; }
+
+/* TOAST */
+.toast {
+  position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+  background: var(--text); color: white; padding: 12px 20px;
+  border-radius: var(--radius); font-size: 14px; font-weight: 600;
+  z-index: 400; opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  white-space: nowrap; display: flex; align-items: center; gap: 8px;
+}
+.toast.show { opacity: 1; }
+
+/* NO ORDER */
+.no-order-state { padding: 60px 20px; text-align: center; }
+.no-order-state .big-icon { font-size: 64px; margin-bottom: 16px; }
+.no-order-state h3 { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+.no-order-state p { font-size: 14px; color: var(--text2); margin-bottom: 24px; }
+
+/* NOTE */
+.note-field {
+  width: 100%; padding: 10px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--bg2); color: var(--text);
+  font-size: 14px; font-family: inherit; resize: none; outline: none; margin-top: 8px;
+}
+.note-field:focus { border-color: var(--indigo); }
+
+/* LOADING */
+.loading-screen {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100vh; gap: 16px;
+}
+.spinner {
+  width: 40px; height: 40px; border: 3px solid var(--border);
+  border-top-color: var(--indigo); border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ALERT POPUP (llamada al mozo en tiempo real) */
+@keyframes slideDown { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.alert-popup {
+  position: fixed; top: 70px; left: 16px; right: 16px; max-width: 448px;
+  margin: 0 auto; background: var(--red); color: white;
+  border-radius: var(--radius); padding: 14px 16px;
+  z-index: 350; animation: slideDown 0.3s ease; box-shadow: var(--shadow-lg);
+  display: flex; align-items: center; gap: 12px;
+}
+.alert-popup-icon { font-size: 26px; flex-shrink: 0; }
+.alert-popup-body { flex: 1; }
+.alert-popup-title { font-size: 15px; font-weight: 700; }
+.alert-popup-sub { font-size: 13px; opacity: 0.85; margin-top: 2px; }
+.alert-popup-btn {
+  background: white; color: var(--red); border: none; border-radius: 8px;
+  padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; flex-shrink: 0;
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+function initTheme() {
+  const saved = localStorage.getItem('mesa_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+}
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('mesa_theme', next);
+}
+initTheme();
+</script>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ── SUPABASE ── */
+const _initDB = () => {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg || !cfg.url || !cfg.anonKey) return null;
+  const url = cfg.url.replace(/^﻿/, '').trim();
+  const key = cfg.anonKey.replace(/^﻿/, '').trim();
+  if (!url || url.includes('YOUR_') || !key) return null;
+  try { return window.supabase.createClient(url, key); } catch(e) { return null; }
+};
+const db = _initDB();
+const RID = ((window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
+
+/* ── UTILS ── */
+const fGs = n => '₲ ' + Math.round(n || 0).toLocaleString('es-PY');
+const timeStr = dt => new Date(dt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+const minAgo = dt => Math.floor((Date.now() - new Date(dt)) / 60000);
+
+/* ── STATUS ── */
+function getMesaStatus(tableId, ordersMap, callsMap, tablesById) {
+  if (callsMap[tableId]) return 'alerta';
+  const tbl = tablesById && tablesById[tableId];
+  const occupied = tbl ? tbl.is_occupied : !!ordersMap[tableId];
+  if (!occupied) return 'libre';
+  const order = ordersMap[tableId];
+  if (order && order.status === 'ready') return 'cuenta';
+  return 'ocupada';
+}
+
+const fGsK = n => '₲ ' + (n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? Math.round(n/1000)+'k' : String(Math.round(n||0)));
+
+function statusLabel(s) {
+  return { libre: 'Libre', ocupada: 'Ocupada', cuenta: 'Cuenta', alerta: '🙋 Alerta' }[s] || s;
+}
+
+function orderStatusText(status) {
+  return {
+    paid: 'En cocina', kitchen_received: 'En cocina',
+    cooking: 'Preparando', ready: 'Listo ✓', delivered: 'Entregado'
+  }[status] || status;
+}
+
+function orderStatusClass(status) {
+  if (status === 'ready') return 'lista';
+  return '';
+}
+
+function progressClass(status) {
+  return { cooking: 'cooking', ready: 'ready', paid: 'paid', kitchen_received: 'kitchen_received' }[status] || 'paid';
+}
+
+/* ── SONIDO ── */
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [880, 1100, 880].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.frequency.value = freq; osc.type = 'sine';
+      g.gain.setValueAtTime(0.4, ctx.currentTime + i * 0.22);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.22 + 0.25);
+      osc.start(ctx.currentTime + i * 0.22);
+      osc.stop(ctx.currentTime + i * 0.22 + 0.3);
+    });
+  } catch(e) {}
+}
+
+/* ── APP ── */
+function App() {
+  const [tables, setTables] = useState([]);
+  const [ordersMap, setOrdersMap] = useState({});
+  const [waiterCalls, setWaiterCalls] = useState([]);
+  const [callsMap, setCallsMap] = useState({});
+  const [menu, setMenu] = useState([]);
+  const [categories, setCategories] = useState([]);
+
+  // Persistir vista y mesa activa en localStorage
+  const [currentView, setCurrentView] = useState(() => localStorage.getItem('mozo_view') || 'mesas');
+  const [activeTableId, setActiveTableId] = useState(() => localStorage.getItem('mozo_tableId') || null);
+
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);
+  const [dark, setDark] = useState(() => (localStorage.getItem('mesa_theme') || 'dark') === 'dark');
+  const [alertPopup, setAlertPopup] = useState(null); // {tableNum, callId}
+  const [sessionTotals, setSessionTotals] = useState({}); // tableId -> total acumulado
+  const [historialModal, setHistorialModal] = useState(false);
+  const [historialOrders, setHistorialOrders] = useState([]);
+  const [loadingHistorial, setLoadingHistorial] = useState(false);
+
+  // Modals
+  const [productModal, setProductModal] = useState(false);
+  const [cobroModal, setCobroModal] = useState(false);
+  const [mesaDialog, setMesaDialog] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
+
+  // Product selection
+  const [selectedProducts, setSelectedProducts] = useState({});
+  const [productSearch, setProductSearch] = useState('');
+  const [activeCategory, setActiveCategory] = useState('Todos');
+  const [orderNote, setOrderNote] = useState('');
+
+  // Payment
+  const [tipPct, setTipPct] = useState(0);
+  const [payMethod, setPayMethod] = useState('efectivo');
+
+  const toastTimer = useRef(null);
+  const alertTimer = useRef(null);
+  // Ref para que el handler de realtime siempre llame la versión más reciente de loadData
+  const loadDataRef = useRef(null);
+  // IDs de waiter_calls conocidos para detectar nuevos
+  const knownCallIds = useRef(new Set());
+
+  // Persistir vista activa
+  useEffect(() => { localStorage.setItem('mozo_view', currentView); }, [currentView]);
+  // Persistir mesa activa
+  useEffect(() => {
+    if (activeTableId) localStorage.setItem('mozo_tableId', activeTableId);
+    else localStorage.removeItem('mozo_tableId');
+  }, [activeTableId]);
+
+  useEffect(() => {
+    loadDataRef.current = loadData;
+  });
+
+  useEffect(() => {
+    loadData();
+    if (db) setupRealtime();
+  }, []);
+
+  async function loadData() {
+    if (!db) { setLoading(false); return; }
+    try {
+      const [tablesRes, ordersRes, callsRes, menuRes] = await Promise.all([
+        db.from('tables').select('*').eq('restaurant_id', RID).eq('is_active', true).order('number'),
+        db.from('orders').select('*, order_items(*)').eq('restaurant_id', RID).in('status', ['paid', 'kitchen_received', 'cooking', 'ready']).order('created_at'),
+        db.from('waiter_calls').select('*, tables(number)').eq('restaurant_id', RID).eq('status', 'pending').order('created_at'),
+        db.from('menu_categories').select('*, menu_items(*)').eq('restaurant_id', RID).eq('is_active', true).order('sort_order'),
+      ]);
+
+      const allTables = tablesRes.data || [];
+      setTables(allTables);
+
+      const om = {};
+      (ordersRes.data || []).forEach(o => { if (o.table_id) om[o.table_id] = o; });
+      setOrdersMap(om);
+
+      // Totales de sesión para mesas ocupadas
+      const occupiedIds = allTables.filter(t => t.is_occupied).map(t => t.id);
+      if (occupiedIds.length > 0) {
+        const { data: sessData } = await db
+          .from('orders').select('table_id, total')
+          .eq('restaurant_id', RID)
+          .in('table_id', occupiedIds)
+          .neq('status', 'cancelled');
+        const st = {};
+        (sessData || []).forEach(o => {
+          st[o.table_id] = (st[o.table_id] || 0) + Number(o.total || 0);
+        });
+        setSessionTotals(st);
+      } else {
+        setSessionTotals({});
+      }
+
+      const newCalls = callsRes.data || [];
+      const cm = {};
+      newCalls.forEach(c => { if (c.table_id) cm[c.table_id] = c; });
+      setCallsMap(cm);
+      setWaiterCalls(newCalls);
+
+      // Detectar llamadas nuevas (no vistas antes) y mostrar popup + sonido
+      const incoming = newCalls.filter(c => !knownCallIds.current.has(c.id));
+      if (incoming.length > 0 && knownCallIds.current.size > 0) {
+        // size > 0 evita disparar en la carga inicial
+        const last = incoming[incoming.length - 1];
+        playBeep();
+        setAlertPopup({ tableNum: last.tables?.number || '?', callId: last.id });
+        clearTimeout(alertTimer.current);
+        alertTimer.current = setTimeout(() => setAlertPopup(null), 8000);
+      }
+      // Actualizar set de IDs conocidos
+      knownCallIds.current = new Set(newCalls.map(c => c.id));
+
+      const items = [];
+      const cats = [];
+      (menuRes.data || []).forEach(cat => {
+        const avail = (cat.menu_items || []).filter(i => i.is_available);
+        if (avail.length > 0) {
+          cats.push(cat.name);
+          avail.forEach(item => items.push({ ...item, cat: cat.name }));
+        }
+      });
+      setCategories(cats);
+      setMenu(items);
+      setLoading(false);
+    } catch(e) {
+      console.error('loadData error:', e);
+      setLoading(false);
+    }
+  }
+
+  function setupRealtime() {
+    db.channel('mozo-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RID}` }, () => loadDataRef.current?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'waiter_calls', filter: `restaurant_id=eq.${RID}` }, () => loadDataRef.current?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => loadDataRef.current?.())
+      .subscribe();
+  }
+
+  function showToast(msg) {
+    setToast(msg);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2800);
+  }
+
+  function toggleDark() {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.setAttribute('data-theme', next ? 'dark' : 'light');
+    localStorage.setItem('mesa_theme', next ? 'dark' : 'light');
+  }
+
+  /* ── MESA ACTIONS ── */
+  function handleMesaClick(tableId) {
+    const mesa = tables.find(t => t.id === tableId);
+    if (!mesa) return;
+    const status = getMesaStatus(tableId, ordersMap, callsMap, tablesById);
+
+    if (status === 'libre') {
+      setMesaDialog({
+        title: `Mesa ${mesa.number}`,
+        body: 'Mesa disponible. ¿Qué deseas hacer?',
+        actions: [
+          { label: 'Crear nueva orden', primary: true, action: () => createOrder(tableId, mesa.number) },
+          { label: 'Cancelar', action: null },
+        ],
+      });
+    } else if (status === 'alerta') {
+      setMesaDialog({
+        title: `🙋 Mesa ${mesa.number} — Asistencia`,
+        body: 'El cliente ha solicitado asistencia. ¿Fue atendida?',
+        actions: [
+          { label: 'Sí, ya la atendí ✓', primary: true, action: () => attendCall(tableId) },
+          { label: 'Ver orden', action: () => openOrderView(tableId) },
+          { label: 'Cancelar', action: null },
+        ],
+      });
+    } else {
+      openOrderView(tableId);
+    }
+  }
+
+  function openOrderView(tableId) {
+    setActiveTableId(tableId);
+    setCurrentView('orden');
+    setMesaDialog(null);
+    setAlertPopup(null);
+  }
+
+  async function createOrder(tableId, tableNum) {
+    setMesaDialog(null);
+    if (!db) { showToast('Sin conexión'); return; }
+    const orderNum = 'W-' + tableNum + '-' + Date.now().toString().slice(-4);
+    const { data: order, error } = await db.from('orders').insert({
+      restaurant_id: RID,
+      table_id: tableId,
+      order_number: orderNum,
+      order_type: 'local',
+      status: 'kitchen_received',
+      subtotal: 0,
+      discount_amount: 0,
+      total: 0,
+    }).select().single();
+    if (error) { showToast('Error al crear orden'); console.error(error); return; }
+    await db.from('order_status_history').insert({ order_id: order.id, status: 'kitchen_received', changed_by: 'mozo' });
+    // Solo actualiza occupied_since si la mesa no estaba ya ocupada
+    await db.from('tables').update({ is_occupied: true, occupied_since: order.created_at }).eq('id', tableId).eq('is_occupied', false);
+    await loadData();
+    openOrderView(tableId);
+    showToast('✅ Orden creada — Mesa ' + tableNum);
+  }
+
+  async function attendCall(tableId) {
+    setMesaDialog(null);
+    const call = callsMap[tableId];
+    if (!call || !db) return;
+    await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).eq('id', call.id);
+    await loadData();
+    showToast('✅ Asistencia registrada');
+  }
+
+  function liberarMesa(tableId) {
+    const mesa = tables.find(t => t.id === tableId);
+    setConfirmDialog({
+      title: `Liberar Mesa ${mesa?.number}`,
+      body: '¿Confirmar que el servicio concluyó y la mesa quedó libre?',
+      onOk: async () => {
+        if (!db) return;
+        await db.from('tables').update({ is_occupied: false, occupied_since: null }).eq('id', tableId);
+        await loadData();
+        setActiveTableId(null);
+        setCurrentView('mesas');
+        showToast('✅ Mesa ' + (mesa?.number || '') + ' liberada');
+      },
+    });
+  }
+
+  async function loadHistorial(tableId) {
+    if (!db) return;
+    setLoadingHistorial(true);
+    setHistorialOrders([]);
+    setHistorialModal(true);
+    const tbl = tablesById[tableId];
+    let q = db.from('orders')
+      .select('id, order_number, status, total, created_at, order_items(id, item_name, quantity, total_price)')
+      .eq('restaurant_id', RID)
+      .eq('table_id', tableId)
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false });
+    if (tbl?.occupied_since) q = q.gte('created_at', tbl.occupied_since);
+    const { data } = await q;
+    setHistorialOrders(data || []);
+    setLoadingHistorial(false);
+  }
+
+  /* ── PRODUCT MODAL ── */
+  function openProductModal() {
+    setSelectedProducts({});
+    setProductSearch('');
+    setActiveCategory('Todos');
+    setOrderNote('');
+    setProductModal(true);
+  }
+
+  async function confirmAddProducts() {
+    if (!db) { showToast('Sin conexión'); return; }
+    const order = ordersMap[activeTableId];
+    if (!order) { showToast('Sin orden activa'); return; }
+
+    const items = Object.entries(selectedProducts)
+      .filter(([, qty]) => qty > 0)
+      .map(([id, qty]) => {
+        const p = menu.find(m => m.id === parseInt(id));
+        return {
+          order_id: order.id,
+          item_id: p.id,
+          item_name: p.name,
+          quantity: qty,
+          unit_price: p.price_guarani,
+          total_price: p.price_guarani * qty,
+          observations: orderNote || null,
+        };
+      });
+
+    if (items.length === 0) { showToast('Seleccioná al menos un ítem'); return; }
+
+    const { error } = await db.from('order_items').insert(items);
+    if (error) { showToast('Error al agregar'); console.error(error); return; }
+
+    const addedTotal = items.reduce((s, i) => s + i.total_price, 0);
+    const newTotal = (order.subtotal || 0) + addedTotal;
+    await db.from('orders').update({ subtotal: newTotal, total: newTotal }).eq('id', order.id);
+
+    await loadData();
+    setProductModal(false);
+    showToast(`✅ ${items.length} ítem(s) agregado(s)`);
+  }
+
+  /* ── REMOVE ITEM ── */
+  async function removeItem(itemId) {
+    if (!db) return;
+    const order = ordersMap[activeTableId];
+    if (!order) return;
+    const item = (order.order_items || []).find(i => i.id === itemId);
+    if (!item) return;
+    await db.from('order_items').delete().eq('id', itemId);
+    const newTotal = Math.max(0, (order.subtotal || 0) - item.total_price);
+    await db.from('orders').update({ subtotal: newTotal, total: newTotal }).eq('id', order.id);
+    await loadData();
+    showToast('Ítem eliminado');
+  }
+
+  /* ── COBRO ── */
+  function openCobroModal() {
+    setTipPct(0);
+    setPayMethod('efectivo');
+    setCobroModal(true);
+  }
+
+  async function processPay() {
+    if (!db) { showToast('Sin conexión'); return; }
+    const order = ordersMap[activeTableId];
+    if (!order) return;
+    const base = order.total || 0;
+    const total = Math.round(base * (1 + tipPct / 100));
+    const pmMap = { efectivo: 'efectivo', pos: 'pos', qr: 'qr', tarjeta: 'tarjeta' };
+    const pm = pmMap[payMethod] || 'efectivo';
+
+    await db.from('orders').update({
+      status: 'delivered',
+      payment_method: pm,
+      total: total,
+      completed_at: new Date().toISOString(),
+    }).eq('id', order.id);
+    await db.from('order_status_history').insert({ order_id: order.id, status: 'delivered', changed_by: 'mozo' });
+
+    await loadData();
+    setCobroModal(false);
+    showToast('✅ Cobro registrado — ' + fGs(total));
+  }
+
+  /* ── FINALIZAR ── */
+  function finalizarOrden() {
+    setConfirmDialog({
+      title: 'Finalizar orden',
+      body: '¿Finalizar la orden sin cobrar? Se marcará como entregada.',
+      onOk: async () => {
+        const order = ordersMap[activeTableId];
+        if (!order || !db) return;
+        await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', order.id);
+        await db.from('order_status_history').insert({ order_id: order.id, status: 'delivered', changed_by: 'mozo' });
+        await loadData();
+        showToast('✅ Orden finalizada — Liberá la mesa cuando el cliente se vaya');
+      },
+    });
+  }
+
+  /* ── ALERTS ── */
+  async function handleAlertAction(callId) {
+    if (!db) return;
+    await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).eq('id', callId);
+    await loadData();
+    showToast('✅ Asistencia registrada');
+  }
+
+  function clearAlerts() {
+    setConfirmDialog({
+      title: 'Limpiar alertas',
+      body: '¿Marcar todas las alertas como atendidas?',
+      onOk: async () => {
+        if (!db || waiterCalls.length === 0) return;
+        const ids = waiterCalls.map(c => c.id);
+        await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).in('id', ids);
+        await loadData();
+        showToast('✅ Alertas limpiadas');
+      },
+    });
+  }
+
+  /* ── COMPUTED ── */
+  const tablesById = useMemo(() => {
+    const m = {};
+    tables.forEach(t => { m[t.id] = t; });
+    return m;
+  }, [tables]);
+
+  const totalActivo = useMemo(() =>
+    Object.values(ordersMap).reduce((sum, o) => sum + Number(o.total || 0), 0)
+  , [ordersMap]);
+
+  const activeOrder = activeTableId ? ordersMap[activeTableId] : null;
+  const activeTable = activeTableId ? tables.find(t => t.id === activeTableId) : null;
+  const activeTableOccupied = activeTableId ? (tablesById[activeTableId]?.is_occupied ?? false) : false;
+  const pendingAlerts = waiterCalls.length;
+
+  const filteredMenu = useMemo(() => menu.filter(p =>
+    (activeCategory === 'Todos' || p.cat === activeCategory) &&
+    p.name.toLowerCase().includes(productSearch.toLowerCase())
+  ), [menu, activeCategory, productSearch]);
+
+  const selectedCount = Object.values(selectedProducts).reduce((s, q) => s + q, 0);
+  const selectedTotal = Object.entries(selectedProducts).reduce((s, [id, q]) => {
+    const p = menu.find(m => m.id === parseInt(id));
+    return s + (p ? p.price_guarani * q : 0);
+  }, 0);
+
+  const orderBase = activeOrder ? (activeOrder.total || 0) : 0;
+  const tipAmt = Math.round(orderBase * tipPct / 100);
+  const payTotal = orderBase + tipAmt;
+
+  /* ── LOADING ── */
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="spinner"></div>
+        <div style={{ color: 'var(--text2)', fontSize: 14 }}>Cargando panel del mozo...</div>
+      </div>
+    );
+  }
+
+  /* ── RENDER ── */
+  return (
+    <>
+      {/* HEADER */}
+      <header className="app-header">
+        <div className="brand">Mo<span>zo</span></div>
+        <div className="header-actions">
+          <div className="icon-btn" onClick={toggleDark} title="Cambiar tema">{dark ? '☀️' : '🌙'}</div>
+          <div className="icon-btn" onClick={() => setCurrentView('alertas')}>
+            🔔
+            {pendingAlerts > 0 && <span className="notif-badge">{pendingAlerts}</span>}
+          </div>
+          <div className="icon-btn" onClick={loadData} title="Actualizar">↺</div>
+        </div>
+      </header>
+
+      {/* MAIN */}
+      <main className="main">
+
+        {/* ─── MESAS ─── */}
+        {currentView === 'mesas' && (
+          <div>
+            <div className="section-header">
+              <div>
+                <div className="section-title">Mesas</div>
+                <div className="section-sub">{tables.length} mesas · {Object.keys(ordersMap).length} activas</div>
+              </div>
+            </div>
+
+            <div className="ds-monto-card">
+              <div>
+                <div className="ds-monto-label">Monto en uso</div>
+                <div className="ds-monto-value">{fGs(totalActivo)}</div>
+              </div>
+              <div style={{ fontSize: 32 }}>💳</div>
+            </div>
+
+            {!db && (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text3)' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🔌</div>
+                <div style={{ fontWeight: 700, marginBottom: 8 }}>Sin conexión a Supabase</div>
+                <div style={{ fontSize: 13 }}>Verificá las credenciales en config.js</div>
+              </div>
+            )}
+
+            <div className="table-grid">
+              {tables.map(mesa => {
+                const status = getMesaStatus(mesa.id, ordersMap, callsMap, tablesById);
+                const order = ordersMap[mesa.id];
+                const itemCount = order?.order_items?.length || 0;
+                const sesTotal = sessionTotals[mesa.id] || 0;
+                return (
+                  <div key={mesa.id} className={`mesa-card ${status}`} onClick={() => handleMesaClick(mesa.id)}>
+                    {itemCount > 0 && <div className="mesa-badge">{itemCount}</div>}
+                    {sesTotal > 0 && (
+                      <div style={{ fontSize: 9, fontWeight: 700, color: status === 'cuenta' ? 'var(--blue)' : 'var(--green)', marginBottom: 1, letterSpacing: '-0.3px' }}>
+                        {fGsK(sesTotal)}
+                      </div>
+                    )}
+                    <div className="mesa-num">{mesa.number}</div>
+                    <div className="mesa-label">{statusLabel(status)}</div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="legend">
+              <div className="legend-item"><div className="legend-dot" style={{ background: '#f1f5f9', border: '1px solid #e2e8f0' }}></div>Libre</div>
+              <div className="legend-item"><div className="legend-dot" style={{ background: '#dcfce7' }}></div>Ocupada</div>
+              <div className="legend-item"><div className="legend-dot" style={{ background: '#eff6ff' }}></div>Cuenta</div>
+              <div className="legend-item"><div className="legend-dot" style={{ background: '#fee2e2' }}></div>Alerta 🙋</div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── ORDEN ─── */}
+        {currentView === 'orden' && (
+          <div>
+            {!activeTableId ? (
+              <div className="no-order-state">
+                <div className="big-icon">🍽</div>
+                <h3>Sin orden activa</h3>
+                <p>Seleccioná una mesa con orden para gestionarla.</p>
+                <button className="btn btn-primary" onClick={() => setCurrentView('mesas')}>← Ver mesas</button>
+              </div>
+            ) : !activeOrder && !activeTableOccupied ? (
+              <div className="no-order-state">
+                <div className="big-icon">🍽</div>
+                <h3>Sin orden activa</h3>
+                <p>Seleccioná una mesa con orden para gestionarla.</p>
+                <button className="btn btn-primary" onClick={() => setCurrentView('mesas')}>← Ver mesas</button>
+              </div>
+            ) : (
+              <>
+                <div className="order-header">
+                  <div className="order-header-top">
+                    <div className="order-title">{activeOrder ? 'Orden en curso' : 'Servicio activo'}</div>
+                    <div className="order-actions">
+                      <button className="order-action-btn" onClick={() => activeOrder ? openProductModal() : createOrder(activeTableId, activeTable?.number)} title={activeOrder ? 'Agregar ítems' : 'Nueva orden'}>＋</button>
+                      {activeOrder && <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">💳</button>}
+                      {activeOrder && <button className="order-action-btn" onClick={finalizarOrden} title="Finalizar sin cobrar">✅</button>}
+                      <button className="order-action-btn" onClick={() => loadHistorial(activeTableId)} title="Historial">📋</button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <div className="order-mesa-btn">🪑 Mesa {activeTable?.number}</div>
+                    {activeOrder && (
+                      <div style={{ marginLeft: 'auto', fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
+                        {orderStatusText(activeOrder.status)}
+                      </div>
+                    )}
+                    {sessionTotals[activeTableId] > 0 && (
+                      <div style={{ marginLeft: activeOrder ? 0 : 'auto', fontSize: 12, color: 'rgba(100,255,150,0.9)', fontWeight: 700 }}>
+                        Total sesión: {fGs(sessionTotals[activeTableId])}
+                      </div>
+                    )}
+                    <button
+                      style={{ marginLeft: 'auto', background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.5)', color: '#4ade80', borderRadius: 8, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                      onClick={() => liberarMesa(activeTableId)}
+                    >🟢 Liberar mesa</button>
+                  </div>
+                </div>
+
+                {activeOrder ? (
+                  <>
+                    <div className="order-info">
+                      <div className="order-info-item">🕐 {timeStr(activeOrder.created_at)}</div>
+                      <div className="order-info-item" style={{ fontSize: 12 }}>{activeOrder.order_number}</div>
+                      <div className={`order-status-badge ${orderStatusClass(activeOrder.status)}`}>
+                        {orderStatusText(activeOrder.status).toUpperCase()}
+                      </div>
+                    </div>
+
+                    <div className="items-list">
+                      {(!activeOrder.order_items || activeOrder.order_items.length === 0) ? (
+                        <div className="items-empty">
+                          <div className="empty-icon">🍽</div>
+                          <p>Sin productos en esta orden</p>
+                          <button className="btn btn-indigo btn-sm" style={{ margin: '12px auto 0', display: 'inline-flex' }} onClick={openProductModal}>＋ Agregar productos</button>
+                        </div>
+                      ) : (
+                        activeOrder.order_items.map(item => (
+                          <div key={item.id} className="item-card">
+                            <div className="item-top">
+                              <div style={{ flex: 1 }}>
+                                <div className="item-name">{item.quantity}× {item.item_name}</div>
+                                {item.observations && <div className="item-note">📝 {item.observations}</div>}
+                              </div>
+                              <div className="item-price">{fGs(item.total_price)}</div>
+                              <div className="item-del" onClick={() => removeItem(item.id)}>🗑</div>
+                            </div>
+                            <div className="item-progress">
+                              <span className="progress-icon">🧑‍🍳</span>
+                              <div className="progress-bar">
+                                <div className={`progress-fill ${progressClass(activeOrder.status)}`}></div>
+                              </div>
+                              <span className={`item-status-text ${orderStatusClass(activeOrder.status)}`}>
+                                {orderStatusText(activeOrder.status)}
+                              </span>
+                              <span className="progress-icon">🍴</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="total-bar">
+                      <div className="total-label">Total de la orden</div>
+                      <div className="total-amount">{fGs(activeOrder.total)}</div>
+                    </div>
+                  </>
+                ) : (
+                  /* Mesa ocupada pero sin orden activa — pedidos entregados */
+                  <div style={{ padding: '24px 16px' }}>
+                    <div style={{ background: 'var(--green-soft)', border: '1px solid var(--green)', borderRadius: 'var(--radius)', padding: '16px', marginBottom: 16, textAlign: 'center' }}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>✅</div>
+                      <div style={{ fontWeight: 700, color: 'var(--green)' }}>Todos los pedidos entregados</div>
+                      <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 4 }}>
+                        {sessionTotals[activeTableId] > 0 ? `Total consumido: ${fGs(sessionTotals[activeTableId])}` : 'Sin consumo registrado'}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <button className="btn btn-indigo btn-full" onClick={() => createOrder(activeTableId, activeTable?.number)}>＋ Nueva orden</button>
+                      <button
+                        className="btn btn-full"
+                        style={{ background: 'var(--green)', color: 'white' }}
+                        onClick={() => liberarMesa(activeTableId)}
+                      >🟢 Liberar mesa</button>
+                      <button className="btn btn-secondary btn-full" onClick={() => loadHistorial(activeTableId)}>📋 Ver historial del servicio</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ─── ALERTAS ─── */}
+        {currentView === 'alertas' && (
+          <div>
+            <div className="section-header">
+              <div className="section-title">Alertas</div>
+              {waiterCalls.length > 0 && (
+                <button className="btn btn-secondary btn-sm" onClick={clearAlerts}>Limpiar todo</button>
+              )}
+            </div>
+            <div className="alerts-list">
+              {waiterCalls.length === 0 ? (
+                <div className="alerts-empty">
+                  <div className="empty-icon">✨</div>
+                  <p>Todo bajo control 👌</p>
+                </div>
+              ) : (
+                waiterCalls.map(call => (
+                  <div key={call.id} className="alert-card urgente">
+                    <div className="alert-icon">🙋</div>
+                    <div className="alert-body">
+                      <div className="alert-title">Asistencia solicitada</div>
+                      <div className="alert-sub">Mesa {call.tables?.number || '—'}</div>
+                      <div className="alert-time">hace {minAgo(call.created_at)} min</div>
+                      <button className="alert-action" onClick={() => handleAlertAction(call.id)}>Ya voy ✓</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* BOTTOM NAV */}
+      <nav className="bottom-nav">
+        <div className={`nav-item ${currentView === 'mesas' ? 'active' : ''}`} onClick={() => setCurrentView('mesas')}>
+          <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          Mesas
+        </div>
+        <div className={`nav-item ${currentView === 'orden' ? 'active' : ''}`} onClick={() => setCurrentView('orden')}>
+          <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6M9 16h4"/></svg>
+          Orden
+          {activeOrder && activeOrder.order_items?.length > 0 && (
+            <span className="nav-badge show">{activeOrder.order_items.length}</span>
+          )}
+        </div>
+        <div className={`nav-item ${currentView === 'alertas' ? 'active' : ''}`} onClick={() => setCurrentView('alertas')}>
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
+          Alertas
+          {pendingAlerts > 0 && <span className="nav-badge show">{pendingAlerts}</span>}
+        </div>
+      </nav>
+
+      {/* ─── MODAL: HISTORIAL DE SERVICIO ─── */}
+      {historialModal && (
+        <div className="modal-overlay open" onClick={e => { if (e.target.classList.contains('modal-overlay')) setHistorialModal(false); }}>
+          <div className="modal">
+            <div className="modal-handle"></div>
+            <div className="modal-header">
+              <div className="modal-title">Historial — Mesa {activeTable?.number}</div>
+              <div className="modal-close" onClick={() => setHistorialModal(false)}>✕</div>
+            </div>
+            <div className="modal-body">
+              {loadingHistorial && <div style={{ textAlign: 'center', padding: 30 }}><div className="spinner"></div></div>}
+              {!loadingHistorial && historialOrders.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 30, color: 'var(--text3)' }}>Sin órdenes en esta sesión</div>
+              )}
+              {!loadingHistorial && historialOrders.map((ord, idx) => (
+                <div key={ord.id} style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div>
+                      <span style={{ fontSize: 12, fontWeight: 700 }}>#{ord.order_number}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>🕐 {timeStr(ord.created_at)}</span>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: ord.status === 'delivered' ? 'var(--green)' : 'var(--orange)' }}>
+                      {fGs(ord.total)}
+                    </div>
+                  </div>
+                  {(ord.order_items || []).map(it => (
+                    <div key={it.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 8px', background: 'var(--bg2)', borderRadius: 6, marginBottom: 3 }}>
+                      <span>{it.quantity}× {it.item_name}</span>
+                      <span style={{ color: 'var(--text2)' }}>{fGs(it.total_price)}</span>
+                    </div>
+                  ))}
+                  {idx < historialOrders.length - 1 && <div style={{ height: 1, background: 'var(--border)', margin: '10px 0' }}></div>}
+                </div>
+              ))}
+              {!loadingHistorial && historialOrders.length > 0 && (
+                <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text2)' }}>Total del servicio</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)' }}>
+                    {fGs(historialOrders.reduce((s, o) => s + Number(o.total || 0), 0))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary btn-full" onClick={() => setHistorialModal(false)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: PRODUCTOS ─── */}
+      {productModal && (
+        <div className="modal-overlay open" onClick={e => { if (e.target.classList.contains('modal-overlay')) setProductModal(false); }}>
+          <div className="modal">
+            <div className="modal-handle"></div>
+            <div className="modal-header">
+              <div className="modal-title">Agregar a Mesa {activeTable?.number}</div>
+              <div className="modal-close" onClick={() => setProductModal(false)}>✕</div>
+            </div>
+            <div className="modal-body">
+              <div className="search-box">
+                <span>🔍</span>
+                <input
+                  type="text"
+                  placeholder="Buscar producto..."
+                  value={productSearch}
+                  onChange={e => setProductSearch(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="category-chips">
+                {['Todos', ...categories].map(c => (
+                  <div key={c} className={`chip ${activeCategory === c ? 'active' : ''}`} onClick={() => setActiveCategory(c)}>{c}</div>
+                ))}
+              </div>
+              <div>
+                {filteredMenu.map(p => {
+                  const qty = selectedProducts[p.id] || 0;
+                  return (
+                    <div key={p.id} className="product-item">
+                      <div className="product-img">
+                        {p.image_url ? <img src={p.image_url} alt={p.name} /> : '🍽'}
+                      </div>
+                      <div className="product-info">
+                        <div className="product-name">{p.name}</div>
+                        <div className="product-price">{fGs(p.price_guarani)}</div>
+                      </div>
+                      {qty === 0 ? (
+                        <div className="product-add-btn" onClick={() => setSelectedProducts(prev => ({ ...prev, [p.id]: 1 }))}>+</div>
+                      ) : (
+                        <div className="product-qty-ctrl">
+                          <div className="qty-btn" onClick={() => setSelectedProducts(prev => {
+                            const next = { ...prev };
+                            if (next[p.id] > 1) next[p.id]--; else delete next[p.id];
+                            return next;
+                          })}>−</div>
+                          <div className="qty-num">{qty}</div>
+                          <div className="qty-btn" onClick={() => setSelectedProducts(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }))}>+</div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {filteredMenu.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text3)' }}>Sin resultados</div>
+                )}
+              </div>
+              <div className="section-label" style={{ marginTop: 16 }}>Nota para cocina</div>
+              <textarea
+                className="note-field"
+                rows={2}
+                placeholder="Ej: sin cebolla, punto medio..."
+                value={orderNote}
+                onChange={e => setOrderNote(e.target.value)}
+              />
+            </div>
+            <div className="modal-footer">
+              <button
+                className="btn btn-indigo btn-full"
+                onClick={confirmAddProducts}
+                disabled={selectedCount === 0}
+              >
+                Agregar {selectedCount} ítem(s) · {fGs(selectedTotal)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL: COBRO ─── */}
+      {cobroModal && activeOrder && (
+        <div className="modal-overlay open" onClick={e => { if (e.target.classList.contains('modal-overlay')) setCobroModal(false); }}>
+          <div className="modal">
+            <div className="modal-handle"></div>
+            <div className="modal-header">
+              <div className="modal-title">Cobro — Mesa {activeTable?.number}</div>
+              <div className="modal-close" onClick={() => setCobroModal(false)}>✕</div>
+            </div>
+            <div className="modal-body">
+              <div className="section-label">Ítems</div>
+              {(activeOrder.order_items || []).map(item => (
+                <div key={item.id} className="pay-item">
+                  <div className="pay-item-name">{item.quantity}× {item.item_name}</div>
+                  <div className="pay-item-price">{fGs(item.total_price)}</div>
+                </div>
+              ))}
+
+              <div className="tip-section">
+                <div className="section-label">Propina</div>
+                <div className="tip-chips">
+                  {[0, 5, 10, 15].map(pct => (
+                    <div key={pct} className={`tip-chip ${tipPct === pct ? 'active' : ''}`} onClick={() => setTipPct(pct)}>{pct}%</div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="tip-section">
+                <div className="section-label">Método de pago</div>
+                <div className="payment-methods">
+                  {[
+                    { key: 'efectivo', icon: '💵', label: 'Efectivo' },
+                    { key: 'pos', icon: '💳', label: 'Tarjeta POS' },
+                    { key: 'qr', icon: '📱', label: 'QR Mesa' },
+                    { key: 'tarjeta', icon: '📲', label: 'Transferencia' },
+                  ].map(m => (
+                    <div key={m.key} className={`pay-method ${payMethod === m.key ? 'active' : ''}`} onClick={() => setPayMethod(m.key)}>
+                      <div className="pay-icon">{m.icon}</div>
+                      {m.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pay-summary">
+                <div className="pay-row"><span>Subtotal</span><span>{fGs(orderBase)}</span></div>
+                <div className="pay-row"><span>Propina ({tipPct}%)</span><span>{fGs(tipAmt)}</span></div>
+                <div className="pay-row total"><span>Total a pagar</span><span>{fGs(payTotal)}</span></div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-indigo btn-full" onClick={processPay}>
+                Cobrar {fGs(payTotal)} →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── DIALOG: MESA ─── */}
+      {mesaDialog && (
+        <div className="dialog-overlay open">
+          <div className="dialog">
+            <div className="dialog-title">{mesaDialog.title}</div>
+            <div className="dialog-body">{mesaDialog.body}</div>
+            <div className="dialog-actions">
+              {mesaDialog.actions.map((a, i) => (
+                <button
+                  key={i}
+                  className={`dialog-btn ${a.primary ? 'confirm' : 'cancel'}`}
+                  onClick={() => { setMesaDialog(null); a.action && a.action(); }}
+                >{a.label}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── DIALOG: CONFIRM ─── */}
+      {confirmDialog && (
+        <div className="dialog-overlay open">
+          <div className="dialog">
+            <div className="dialog-title">{confirmDialog.title}</div>
+            <div className="dialog-body">{confirmDialog.body}</div>
+            <div className="dialog-actions">
+              <button className="dialog-btn cancel" onClick={() => setConfirmDialog(null)}>Cancelar</button>
+              <button className="dialog-btn confirm" onClick={() => { setConfirmDialog(null); confirmDialog.onOk(); }}>Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ALERT POPUP — nueva llamada al mozo en tiempo real */}
+      {alertPopup && (
+        <div className="alert-popup">
+          <div className="alert-popup-icon">🙋</div>
+          <div className="alert-popup-body">
+            <div className="alert-popup-title">¡Asistencia solicitada!</div>
+            <div className="alert-popup-sub">Mesa {alertPopup.tableNum}</div>
+          </div>
+          <button className="alert-popup-btn" onClick={async () => {
+            setAlertPopup(null);
+            if (db) {
+              await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).eq('id', alertPopup.callId);
+              await loadData();
+              showToast('✅ Asistencia registrada');
+            }
+          }}>Ya voy ✓</button>
+        </div>
+      )}
+
+      {/* TOAST */}
+      <div className={`toast ${toast ? 'show' : ''}`}>
+        {toast && <span>{toast}</span>}
+      </div>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
