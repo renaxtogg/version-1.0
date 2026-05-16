@@ -58,7 +58,9 @@ const _initDB = () => {
 };
 const db = _initDB();
 const RESTAURANT_ID = ((window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
-const TABLE_NUM = 4; // En producción viene del QR token en la URL
+const _urlParams = new URLSearchParams(window.location.search);
+const TABLE_NUM = parseInt(_urlParams.get('mesa') || '4', 10);
+const TABLE_TOKEN = _urlParams.get('token') || null;
 
 /* ── SUPABASE HELPERS ────────────────────── */
 async function dbLoadMenu() {
@@ -345,12 +347,21 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
     ? restaurant.opening_hours.map(h => ({ d: h.day, h: h.hours }))
     : DEFAULT_HOURS;
 
-  const restName    = restaurant?.name     || 'La Huaca';
-  const restAddr    = restaurant?.address  || 'Av. España 1840, Asunción';
-  const restIg      = restaurant?.instagram || '@lahuaca.py';
-  const restPhone   = restaurant?.phone    || '+595 21 000 000';
+  const restName     = restaurant?.name     || 'La Huaca';
+  const restAddr     = restaurant?.address  || 'Av. España 1840, Asunción';
+  const restIg       = restaurant?.instagram || '@lahuaca.py';
+  const restPhone    = restaurant?.phone    || '+595 21 000 000';
   const restInitials = restaurant?.logo_initials || 'LH';
-  const coverUrl    = restaurant?.cover_image_url || null;
+  const coverUrl     = restaurant?.cover_image_url || null;
+
+  // Estado abierto/cerrado (heurístico — reemplazar con campo real en producción)
+  const now = new Date();
+  const hh = now.getHours() + now.getMinutes() / 60;
+  const dow = now.getDay();
+  let isOpen = false, closingHint = '';
+  if (dow === 0) { isOpen = hh >= 12 && hh < 16; closingHint = isOpen ? 'Cierra a las 16:00' : ''; }
+  else if (dow === 6) { isOpen = hh >= 12 && hh < 23.5; closingHint = isOpen ? 'Cierra a las 23:30' : ''; }
+  else { isOpen = (hh >= 12 && hh < 15) || (hh >= 19 && hh < 23); closingHint = isOpen ? (hh < 15 ? 'Cierra a las 15:00' : 'Cierra a las 23:00') : ''; }
 
   const LANGS = [{ c: 'es', l: 'Español' }, { c: 'en', l: 'English' }, { c: 'pt', l: 'Português' }, { c: 'de', l: 'Deutsch' }];
   const COPY = {
@@ -363,38 +374,81 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
 
   return (
     <div style={{ minHeight: '100%', background: T.offwhite, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ height: 190, background: T.hdrBg, position: 'relative', flexShrink: 0, overflow: 'hidden' }}>
+      {/* ── Cover ── */}
+      <div style={{ height: 200, background: T.hdrBg, position: 'relative', flexShrink: 0, overflow: 'hidden' }}>
         {coverUrl
-          ? <img src={coverUrl} alt="Portada" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.7 }} />
+          ? <img src={coverUrl} alt="Portada" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
           : <>
               <div style={{ position: 'absolute', inset: 0, backgroundImage: `radial-gradient(ellipse at 30% 60%,rgba(255,255,255,0.04) 0%,transparent 70%)` }} />
               <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(45deg,rgba(255,255,255,0.015) 0,rgba(255,255,255,0.015) 1px,transparent 0,transparent 50%)', backgroundSize: '20px 20px' }} />
             </>}
-        <div style={{ position: 'absolute', bottom: 52, left: 114, zIndex: 2 }}>
-          <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.menuTitleSz, color: T.hdrText, lineHeight: 1.1 }}>{restName}</div>
-          <div style={{ fontSize: 11, color: T.hdrSub, marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}><Icon name="map" size={11} color={T.hdrSub} />{restAddr}</div>
+        {/* Gradient overlay para legibilidad */}
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom,rgba(0,0,0,0.1) 0%,rgba(0,0,0,0.55) 100%)' }} />
+        {/* Badge mesa */}
+        <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 3 }}>
+          <div style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(6px)', borderRadius: 20, padding: '5px 11px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.85)', letterSpacing: '0.07em' }}>
+            Mesa {TABLE_NUM}
+          </div>
         </div>
-        <div style={{ position: 'absolute', bottom: 14, right: 16, display: 'flex', gap: 6, zIndex: 2 }}>
-          {[restIg, restaurant?.website || 'lahuaca.com.py'].filter(Boolean).slice(0,2).map((s, i) =>
-          <div key={i} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: '4px 10px', fontSize: 11, color: T.hdrSub, fontWeight: 500 }}>{s}</div>)}
+        {/* Badge estado */}
+        <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: isOpen ? 'rgba(22,163,74,0.88)' : 'rgba(220,38,38,0.82)', backdropFilter: 'blur(6px)', borderRadius: 20, padding: '5px 11px' }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff', animation: isOpen ? 'pulse 2s ease infinite' : 'none' }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.04em' }}>
+              {closingHint || (isOpen ? 'Abierto ahora' : 'Cerrado')}
+            </span>
+          </div>
         </div>
       </div>
+
+      {/* ── Info blanca ── */}
       <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, position: 'relative' }}>
-        <div style={{ position: 'absolute', top: -44, left: 20, width: 84, height: 84, borderRadius: '50%', background: T.black, border: `3px solid ${T.white}`, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
+        {/* Logo superpuesto al borde cover/white */}
+        <div style={{ position: 'absolute', top: -40, left: 20, width: 80, height: 80, borderRadius: '50%', background: T.black, border: `3px solid ${T.white}`, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
           {restaurant?.logo_url
             ? <img src={restaurant.logo_url} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: 28, color: T.hdrText, lineHeight: 1 }}>{restInitials}</div>}
+            : <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: 26, color: T.hdrText, lineHeight: 1 }}>{restInitials}</div>}
         </div>
-        <div style={{ paddingTop: 50, paddingLeft: 20, paddingRight: 16, paddingBottom: 14 }}>
-          <div style={{ fontSize: 12, color: T.gray, marginBottom: 10 }}>Cocina de autor · Asunción</div>
-          <button onClick={() => setShowHours(v => !v)} style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: T.dark, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: "'Plus Jakarta Sans',sans-serif", marginBottom: showHours ? 8 : 0 }}>
-            <Icon name="clock" size={13} color={T.dark} />{tx.hours}
-            <span style={{ display: 'inline-block', transform: showHours ? 'rotate(180deg)' : 'none', transition: 'transform 200ms' }}><Icon name="chevdown" size={12} color={T.silver} /></span>
-          </button>
-          {showHours && <div style={{ background: T.light, borderRadius: 8, padding: '10px 12px', animation: 'fadeIn 200ms', marginBottom: 8 }}>
-            {hours.map((h, i) => <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: T.mid, marginBottom: i < hours.length - 1 ? 6 : 0 }}><span style={{ fontWeight: 700, color: T.dark }}>{h.d}</span><span>{h.h}</span></div>)}
-          </div>}
+
+        <div style={{ paddingTop: 50, paddingLeft: 20, paddingRight: 16, paddingBottom: 12 }}>
+          {/* Nombre y dirección */}
+          <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.menuTitleSz, color: T.ink, lineHeight: 1.1 }}>{restName}</div>
+          <div style={{ fontSize: 11, color: T.gray, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="map" size={11} color={T.silver} />{restAddr}
+          </div>
+
+          {/* Botones de acción rápida */}
+          <div style={{ display: 'flex', gap: 7, marginTop: 14, flexWrap: 'wrap' }}>
+            {restPhone && (
+              <a href={`tel:${restPhone.replace(/\s/g,'')}`} style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', background: T.light, border: `1px solid ${T.border}`, borderRadius: 9999, fontSize: 12, fontWeight: 700, color: T.ink, textDecoration: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif", flexShrink: 0 }}>
+                <Icon name="phone" size={12} color={T.ink} />Llamar
+              </a>
+            )}
+            {restIg && (
+              <a href={`https://www.instagram.com/${restIg.replace('@','')}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', background: T.light, border: `1px solid ${T.border}`, borderRadius: 9999, fontSize: 12, fontWeight: 700, color: T.ink, textDecoration: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif", flexShrink: 0 }}>
+                <Icon name="instagram" size={12} color={T.ink} />{restIg}
+              </a>
+            )}
+            {restAddr && (
+              <a href={`https://maps.google.com/?q=${encodeURIComponent(restAddr)}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', background: T.light, border: `1px solid ${T.border}`, borderRadius: 9999, fontSize: 12, fontWeight: 700, color: T.ink, textDecoration: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif", flexShrink: 0 }}>
+                <Icon name="map" size={12} color={T.ink} />Cómo llegar
+              </a>
+            )}
+          </div>
+
+          {/* Horarios */}
+          <div style={{ marginTop: 14 }}>
+            <button onClick={() => setShowHours(v => !v)} style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: T.dark, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+              <Icon name="clock" size={13} color={T.dark} />{tx.hours}
+              <span style={{ display: 'inline-block', transform: showHours ? 'rotate(180deg)' : 'none', transition: 'transform 200ms' }}><Icon name="chevdown" size={12} color={T.silver} /></span>
+            </button>
+            {showHours && <div style={{ background: T.light, borderRadius: 8, padding: '10px 12px', animation: 'fadeIn 200ms', marginTop: 8 }}>
+              {hours.map((h, i) => <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: T.mid, marginBottom: i < hours.length - 1 ? 6 : 0 }}><span style={{ fontWeight: 700, color: T.dark }}>{h.d}</span><span>{h.h}</span></div>)}
+            </div>}
+          </div>
         </div>
+
+        {/* Modo de servicio + Idioma + Mozo */}
         <div style={{ padding: '0 20px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6 }}>
             {['eat', 'take'].map(m => <button key={m} onClick={() => setOrderMode(m)} style={{ flex: 1, height: 40, border: `1.5px solid ${orderMode === m ? T.black : T.border}`, borderRadius: 10, background: orderMode === m ? T.black : 'transparent', color: orderMode === m ? T.white : T.mid, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 150ms' }}>{m === 'eat' ? tx.eat : tx.take}</button>)}
@@ -414,11 +468,9 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
           </div>
         </div>
       </div>
-      <div style={{ padding: '14px 20px', display: 'flex', gap: 14 }}>
-        {[{ icon: 'instagram', label: restIg }, { icon: 'phone', label: restPhone }].map((s, i) =>
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: T.silver }}><Icon name={s.icon} size={13} color={T.silver} />{s.label}</div>)}
-      </div>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '0 20px 36px', gap: 10 }}>
+
+      {/* ── CTAs ── */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '14px 20px 36px', gap: 10 }}>
         <button onClick={onReserve} style={{ width: '100%', height: 46, background: 'transparent', color: T.ink, border: `1.5px solid ${T.border}`, borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <Icon name="calendar" size={16} color={T.ink} />{tx.reserve}
         </button>
@@ -657,7 +709,11 @@ function ProductModal({ item, onClose, onAdd }) {
           </div>}
           <div style={{ marginBottom: 22 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>Observaciones para cocina</div>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Sin sal, sin cebolla, alergia a…" style={{ width: '100%', height: 76, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, resize: 'none', outline: 'none', background: T.offwhite }} />
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Sin sal, sin cebolla, término de cocción, alergia a…" style={{ width: '100%', height: 76, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, resize: 'none', outline: 'none', background: T.offwhite }} />
+            <div style={{ marginTop: 8, background: '#FFF7ED', border: '1px solid #FDE68A', borderRadius: 8, padding: '8px 10px', display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 14, flexShrink: 0 }}>⚠️</span>
+              <span style={{ fontSize: 11, color: '#92400E', lineHeight: 1.5 }}>Si tenés alergias o intolerancias, indicalas arriba. El local tomará las precauciones necesarias.</span>
+            </div>
           </div>
           <button onClick={() => { onAdd(item, qty, allExtras, notes); onClose(); }} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
             <span>Agregar al pedido</span>
@@ -677,8 +733,12 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
   const [appliedCode, setAppliedCode] = useState('');
   const [discAmount, setDiscAmount] = useState(0);
   const [validating, setValidating] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
   const sub = items.reduce((s, ci) => s + ci.total, 0);
   const total = sub - discAmount;
+
+  const confirmDelete = (i) => { setPendingDelete(i); };
+  const doDelete = () => { onRemove(pendingDelete); setPendingDelete(null); };
 
   const applyCode = async () => {
     if (!coupon.trim()) return;
@@ -696,17 +756,37 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
 
   return (
     <div style={{ minHeight: '100%', background: T.offwhite, display: 'flex', flexDirection: 'column' }}>
+      {/* Modal confirm delete */}
+      {pendingDelete !== null && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={() => setPendingDelete(null)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)' }} />
+          <div style={{ position: 'relative', background: T.white, borderRadius: 16, padding: '24px 20px', width: '100%', maxWidth: 320, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.ink, marginBottom: 6 }}>¿Eliminar este ítem?</div>
+            <div style={{ fontSize: 13, color: T.gray, marginBottom: 20 }}>{items[pendingDelete]?.item?.name}</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setPendingDelete(null)} style={{ flex: 1, height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, background: 'transparent', color: T.ink, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Cancelar</button>
+              <button onClick={doDelete} style={{ flex: 1, height: 44, border: 'none', borderRadius: 10, background: '#EF4444', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ background: T.hdrBg, padding: '52px 20px 16px', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
           <button onClick={onBack} style={{ width: 38, height: 38, background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="back" size={17} color={T.hdrText} /></button>
           <div style={{ flex: 1 }}><div style={{ fontSize: 11, color: T.hdrSub }}>Mesa {TABLE_NUM}</div><div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.titleSz, color: T.hdrText }}>Mi pedido</div></div>
           {items.length > 0 && onSplit && <button onClick={onSplit} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.13)', borderRadius: 9999, padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: T.hdrText, fontSize: 11, fontWeight: 700, fontFamily: "'Plus Jakarta Sans',sans-serif", flexShrink: 0 }}>
-            <Icon name="scissors" size={13} color={T.hdrText} />Dividir
+            <Icon name="scissors" size={13} color={T.hdrText} />Dividir cuenta
           </button>}
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-        {items.length === 0 && <div style={{ textAlign: 'center', padding: '60px 0' }}><Icon name="utensils" size={40} color={T.border} /><div style={{ marginTop: 14, fontSize: 14, color: T.silver }}>Tu pedido está vacío</div></div>}
+        {items.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '60px 0' }}>
+            <Icon name="utensils" size={40} color={T.border} />
+            <div style={{ marginTop: 14, fontSize: 14, color: T.silver, marginBottom: 20 }}>Tu pedido está vacío</div>
+            <button onClick={onBack} style={{ height: 44, padding: '0 20px', background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 12, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Ver el menú</button>
+          </div>
+        )}
         {items.map((ci, i) =>
         <div key={i} style={{ background: T.white, borderRadius: 12, padding: '14px', marginBottom: 10, border: `1px solid ${T.border}` }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
@@ -720,7 +800,7 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
               {ci.extras?.length > 0 && <div style={{ fontSize: 11, color: T.gray, marginTop: 2 }}>+ {ci.extras.map(e => e.n).join(', ')}</div>}
               {ci.notes && <div style={{ fontSize: 11, color: T.silver, fontStyle: 'italic', marginTop: 2 }}>"{ci.notes}"</div>}
             </div>
-            <button onClick={() => onRemove(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 }}><Icon name="trash" size={15} color={T.silver} /></button>
+            <button onClick={() => confirmDelete(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 }}><Icon name="trash" size={15} color={T.silver} /></button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -754,7 +834,12 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
         </div>
         <div style={{ height: 100 }} />
       </div>
-      <div style={{ padding: '12px 20px 32px', background: T.offwhite }}>
+      <div style={{ padding: '12px 20px 32px', background: T.offwhite, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {items.length > 0 && (
+          <button onClick={onBack} style={{ width: '100%', height: 44, background: 'transparent', color: T.ink, border: `1.5px solid ${T.border}`, borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Icon name="plus" size={15} color={T.ink} />Agregar más productos
+          </button>
+        )}
         <button onClick={() => onPay(total, sub, discAmount, applied ? appliedCode : '')} disabled={items.length === 0} style={{ width: '100%', height: 54, background: items.length === 0 ? T.light : T.btnPrimary, color: items.length === 0 ? T.silver : T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: items.length === 0 ? 'default' : 'pointer', transition: 'all 200ms' }}>Pasar a pagar</button>
       </div>
     </div>
@@ -764,15 +849,22 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
 /* ══ SCREEN: PAGO ════════════════════════ */
 function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone, cartItems, orderMode, lang }) {
   const T = useContext(ThemeCtx);
-  const [step, setStep] = useState('method');
+  const [step, setStep] = useState('form');
   const [method, setMethod] = useState('efectivo');
+  const [needsInvoice, setNeedsInvoice] = useState(false);
   const [name, setName] = useState('');
   const [ruc, setRuc] = useState('');
   const [email, setEmail] = useState('');
   const [ordNum, setOrdNum] = useState('');
-  const METHODS = [{ id: 'efectivo', label: 'Efectivo', sub: 'Se cobra en mesa' }, { id: 'tarjeta', label: 'Tarjeta', sub: 'Visa · Mastercard · Amex' }, { id: 'qr', label: 'QR / Billetera digital', sub: 'Tigo Money · Personal Pay' }, { id: 'pos', label: 'POS en mesa', sub: 'Terminal llega a tu mesa' }];
-
   const [submitError, setSubmitError] = useState(null);
+
+  const METHODS = [
+    { id: 'efectivo', label: 'Efectivo', sub: 'Se cobra en mesa o caja', info: 'El pago se realiza en mesa o caja. El mozo te asistirá.' },
+    { id: 'tarjeta', label: 'Tarjeta', sub: 'Visa · Mastercard · Amex', info: 'El mozo acercará la terminal de pago a tu mesa.' },
+    { id: 'qr', label: 'QR / Billetera digital', sub: 'Tigo Money · Personal Pay', info: 'El pago digital estará disponible próximamente. Confirmá el pedido y pagá en mesa.' },
+    { id: 'pos', label: 'POS en mesa', sub: 'Terminal llega a tu mesa', info: 'El mozo acercará el POS a tu mesa en breve.' }
+  ];
+  const currentMethod = METHODS.find(m => m.id === method);
 
   const handleConfirm = async () => {
     setStep('proc');
@@ -782,33 +874,62 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
         tableId: null, orderType: orderMode === 'take' ? 'llevar' : 'local',
         items: cartItems, subtotal: subtotal || total, discountAmount: discountAmount || 0,
         couponCode: couponCode || null, total, payMethod: method,
-        custName: name || null, custRuc: ruc || null, custEmail: email || null, language: lang
+        custName: (needsInvoice && name) ? name : null,
+        custRuc: (needsInvoice && ruc) ? ruc : null,
+        custEmail: (needsInvoice && email) ? email : null,
+        language: lang
       });
       setOrdNum(order.order_number);
-      setTimeout(() => { setStep('ok'); }, 1200);
+      setStep('ok');
     } catch(e) {
       setSubmitError(e.message || 'Error al enviar el pedido');
       setStep('form');
     }
   };
 
-  if (step === 'proc') return <div style={{ minHeight: '100%', background: T.white, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 }}>
-    <div style={{ width: 56, height: 56, border: `3px solid ${T.border}`, borderTopColor: T.black, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-    <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.titleSz, color: T.ink }}>Procesando…</div>
-    <div style={{ fontSize: 12, color: T.silver }}>{fmt(total)}</div>
-  </div>;
-
-  if (step === 'ok') return <div style={{ minHeight: '100%', background: T.black, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', textAlign: 'center' }}>
-    <div style={{ width: 76, height: 76, border: '1px solid rgba(255,255,255,0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 28 }}><Icon name="check" size={34} color={T.btnPrimaryText} sw={2} /></div>
-    <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: T.btnPrimaryText, marginBottom: 10 }}>¡Pagado!</div>
-    <div style={{ fontSize: 14, color: T.hdrSub, lineHeight: 1.7, marginBottom: 4 }}>Tu pedido pasó a cocina.</div>
-    <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz + 2, color: 'rgba(255,255,255,0.35)', marginBottom: 36 }}>{fmt(total)}</div>
-    <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '14px 24px', width: '100%', marginBottom: 24, textAlign: 'left' }}>
-      <div style={{ fontSize: 11, color: '#444', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>N° de ticket</div>
-      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 20, fontWeight: 500, color: T.btnPrimaryText }}>{ordNum || '#????'}</div>
+  if (step === 'proc') return (
+    <div style={{ minHeight: '100%', background: T.white, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 }}>
+      <div style={{ width: 56, height: 56, border: `3px solid ${T.border}`, borderTopColor: T.black, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.titleSz, color: T.ink }}>Enviando pedido…</div>
+      <div style={{ fontSize: 12, color: T.silver }}>{fmt(total)}</div>
     </div>
-    <button onClick={() => onDone(ordNum)} style={{ width: '100%', height: 52, background: T.white, color: T.black, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>Seguir mi pedido</button>
-  </div>;
+  );
+
+  if (step === 'ok') {
+    const isPending = method === 'efectivo' || method === 'pos';
+    const confirmTitle = isPending ? 'Pedido enviado' : 'Pedido confirmado';
+    const confirmSub = method === 'efectivo' ? 'Tu pedido fue a cocina. Pagás en mesa o caja.' :
+                       method === 'pos' ? 'Tu pedido fue a cocina. El mozo acercará el POS.' :
+                       method === 'tarjeta' ? 'Tu pedido fue a cocina. El mozo procesará el pago.' :
+                       'Tu pedido fue a cocina.';
+    return (
+      <div style={{ minHeight: '100%', background: T.black, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', textAlign: 'center' }}>
+        <div style={{ width: 76, height: 76, border: '1px solid rgba(255,255,255,0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 28 }}>
+          <Icon name="check" size={34} color={T.btnPrimaryText} sw={2} />
+        </div>
+        <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: T.btnPrimaryText, marginBottom: 10 }}>{confirmTitle}</div>
+        <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.55)', lineHeight: 1.7, marginBottom: 4 }}>{confirmSub}</div>
+        <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz + 2, color: 'rgba(255,255,255,0.3)', marginBottom: 32 }}>{fmt(total)}</div>
+        <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '14px 20px', width: '100%', marginBottom: 10, textAlign: 'left' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>N° de ticket</div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 20, fontWeight: 500, color: T.btnPrimaryText }}>{ordNum || '#????'}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>Mesa</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: T.btnPrimaryText }}>{TABLE_NUM}</div>
+            </div>
+          </div>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 10 }}>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>Pago</div>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', fontWeight: 600 }}>{currentMethod?.label}{isPending ? ' — pendiente en mesa' : ''}</div>
+          </div>
+        </div>
+        <button onClick={() => onDone(ordNum, method)} style={{ width: '100%', height: 52, background: T.white, color: T.black, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', marginTop: 14 }}>Seguir mi pedido</button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: '100%', background: T.offwhite, display: 'flex', flexDirection: 'column' }}>
@@ -820,28 +941,49 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10 }}>Método de pago</div>
-        {METHODS.map(m => <div key={m.id} onClick={() => setMethod(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: T.white, border: `2px solid ${method === m.id ? T.black : T.border}`, borderRadius: 12, marginBottom: 8, cursor: 'pointer', transition: 'border-color 150ms' }}>
-          <div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{m.label}</div><div style={{ fontSize: 12, color: T.gray, marginTop: 1 }}>{m.sub}</div></div>
-          <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${method === m.id ? T.black : T.border}`, background: method === m.id ? T.black : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 150ms' }}>
-            {method === m.id && <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.white }} />}
+        {METHODS.map(m => (
+          <div key={m.id} onClick={() => setMethod(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: T.white, border: `2px solid ${method === m.id ? T.black : T.border}`, borderRadius: 12, marginBottom: 8, cursor: 'pointer', transition: 'border-color 150ms' }}>
+            <div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{m.label}</div><div style={{ fontSize: 12, color: T.gray, marginTop: 1 }}>{m.sub}</div></div>
+            <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${method === m.id ? T.black : T.border}`, background: method === m.id ? T.black : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 150ms' }}>
+              {method === m.id && <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.white }} />}
+            </div>
           </div>
-        </div>)}
-        {method === 'qr' && <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '24px', marginBottom: 10, textAlign: 'center' }}>
-          <div style={{ fontSize: 12, color: T.gray, marginBottom: 16, fontWeight: 600 }}>Escaneá para pagar</div>
-          <div style={{ display: 'inline-block', border: `1px solid ${T.border}`, borderRadius: 8, padding: 8 }}><QRSvg size={160} fgColor={T.black} /></div>
-          <div style={{ fontSize: 11, color: T.silver, marginTop: 12 }}>Billetera PY · Tigo Money · Personal Pay</div>
-        </div>}
-        <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10, marginTop: 6 }}>Datos para factura <span style={{ fontWeight: 400, color: T.border }}>(opcional)</span></div>
-        <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
-          {[{ val: name, set: setName, ph: 'Nombre o razón social' }, { val: ruc, set: setRuc, ph: 'RUC / Cédula de identidad' }, { val: email, set: setEmail, ph: 'Email para factura electrónica', type: 'email' }].map((f, i) =>
-          <input key={i} value={f.val} onChange={e => f.set(e.target.value)} placeholder={f.ph} type={f.type || 'text'} style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, outline: 'none', background: T.offwhite }} />)}
+        ))}
+        {/* Texto contextual por método */}
+        {currentMethod && (
+          <div style={{ background: method === 'qr' ? '#FFF7ED' : T.light, border: `1px solid ${method === 'qr' ? '#FDE68A' : T.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: method === 'qr' ? '#92400E' : T.mid, lineHeight: 1.5 }}>
+            {method === 'qr' && <span style={{ marginRight: 6 }}>⚠️</span>}{currentMethod.info}
+          </div>
+        )}
+        {method === 'qr' && (
+          <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '24px', marginBottom: 14, textAlign: 'center' }}>
+            <div style={{ fontSize: 12, color: T.gray, marginBottom: 16, fontWeight: 600 }}>QR de referencia</div>
+            <div style={{ display: 'inline-block', border: `1px solid ${T.border}`, borderRadius: 8, padding: 8 }}><QRSvg size={140} fgColor={T.black} /></div>
+            <div style={{ fontSize: 11, color: T.silver, marginTop: 12 }}>Billetera PY · Tigo Money · Personal Pay</div>
+          </div>
+        )}
+        {/* Toggle factura */}
+        <div onClick={() => setNeedsInvoice(v => !v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, marginBottom: needsInvoice ? 8 : 10, cursor: 'pointer' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>¿Necesitás factura?</div>
+            <div style={{ fontSize: 12, color: T.gray, marginTop: 1 }}>Nombre, RUC/Cédula, email</div>
+          </div>
+          <div style={{ width: 44, height: 26, borderRadius: 13, background: needsInvoice ? T.black : T.border, position: 'relative', transition: 'background 200ms', flexShrink: 0 }}>
+            <div style={{ position: 'absolute', top: 3, left: needsInvoice ? 21 : 3, width: 20, height: 20, borderRadius: '50%', background: T.white, transition: 'left 200ms', boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }} />
+          </div>
         </div>
+        {needsInvoice && (
+          <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, animation: 'slideDown 200ms' }}>
+            {[{ val: name, set: setName, ph: 'Nombre o razón social' }, { val: ruc, set: setRuc, ph: 'RUC / Cédula de identidad' }, { val: email, set: setEmail, ph: 'Email para factura electrónica', type: 'email' }].map((f, i) =>
+            <input key={i} value={f.val} onChange={e => f.set(e.target.value)} placeholder={f.ph} type={f.type || 'text'} style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, outline: 'none', background: T.offwhite }} />)}
+          </div>
+        )}
         <div style={{ height: 100 }} />
       </div>
       <div style={{ padding: '12px 20px 32px', background: T.offwhite }}>
         {submitError && <div style={{ background: '#FEE2E2', border: '1px solid #FECACA', borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>Error: {submitError}</div>}
         <button onClick={handleConfirm} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
-          {method === 'efectivo' ? 'Confirmar pedido' : `Pagar ${fmt(total)}`}
+          {method === 'efectivo' || method === 'pos' ? 'Confirmar pedido' : `Confirmar y pagar ${fmt(total)}`}
         </button>
       </div>
     </div>
@@ -849,9 +991,18 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
 }
 
 /* ══ SCREEN: SEGUIMIENTO ════════════════ */
-function TrackingScreen({ onRate, orderNumber }) {
+function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaiter }) {
   const T = useContext(ThemeCtx);
-  const STEPS = [{ label: 'Pago confirmado', sub: 'Recibimos tu pago' }, { label: 'Pedido recibido', sub: 'El local tiene tu pedido' }, { label: 'Cocina recibió tu pedido', sub: `Ticket ${orderNumber || '#????'} en cola` }, { label: 'Cocinando', sub: 'Tu plato está en preparación' }, { label: 'Listo para retirar', sub: '¡Tu pedido está listo!' }, { label: 'Entregado', sub: '¡Buen provecho!' }];
+  const readyLabel = orderMode === 'take' ? 'Listo para retirar' : 'Listo — el mozo lo lleva';
+  const readySub   = orderMode === 'take' ? 'Pasá a buscar tu pedido en caja' : 'El mozo está en camino a tu mesa';
+  const STEPS = [
+    { label: 'Pedido enviado', sub: 'Recibimos tu solicitud' },
+    { label: 'Pedido recibido', sub: 'El local tiene tu pedido' },
+    { label: 'En cola de cocina', sub: `Ticket ${orderNumber || '#????'}` },
+    { label: 'Cocinando', sub: 'Tu plato está en preparación' },
+    { label: readyLabel, sub: readySub },
+    { label: 'Entregado', sub: '¡Buen provecho! 🎉' }
+  ];
   const STATUS_MAP = { paid: 1, kitchen_received: 2, cooking: 3, ready: 4, delivered: 5 };
   const [active, setActive] = useState(1);
 
@@ -897,10 +1048,22 @@ function TrackingScreen({ onRate, orderNumber }) {
 
   return (
     <div style={{ minHeight: '100%', background: T.trackBg, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '60px 24px 28px', flexShrink: 0 }}>
+      <div style={{ padding: '52px 24px 20px', flexShrink: 0 }}>
         <div style={{ fontSize: 11, color: T.trackSub, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>Mesa {TABLE_NUM} · {orderNumber || 'Ticket en proceso'}</div>
         <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: T.trackText, lineHeight: 1.1, marginBottom: 6 }}>Seguimiento</div>
-        <div style={{ fontSize: 13, color: T.trackSub }}>Actualización en tiempo real</div>
+        <div style={{ fontSize: 13, color: T.trackSub, marginBottom: 16 }}>Actualización en tiempo real</div>
+        {/* Resumen de ítems */}
+        {cartItems && cartItems.length > 0 && (
+          <div style={{ background: `${T.trackText}08`, border: `1px solid ${T.trackText}12`, borderRadius: 10, padding: '10px 14px' }}>
+            {cartItems.slice(0, 3).map((ci, i) => (
+              <div key={i} style={{ fontSize: 12, color: T.trackSub, display: 'flex', justifyContent: 'space-between', marginBottom: i < Math.min(cartItems.length, 3) - 1 ? 4 : 0 }}>
+                <span>{ci.qty}× {ci.item.name}</span>
+                <span style={{ opacity: 0.6 }}>{fmt(ci.total)}</span>
+              </div>
+            ))}
+            {cartItems.length > 3 && <div style={{ fontSize: 11, color: T.trackSub, opacity: 0.5, marginTop: 4 }}>+{cartItems.length - 3} ítem{cartItems.length - 3 > 1 ? 's' : ''} más</div>}
+          </div>
+        )}
       </div>
       <div style={{ flex: 1, padding: '0 24px', overflowY: 'auto' }}>
         {STEPS.map((s, i) => {
@@ -919,10 +1082,20 @@ function TrackingScreen({ onRate, orderNumber }) {
             </div>
           </div>;
         })}
+        <div style={{ height: 20 }} />
       </div>
-      {active === STEPS.length - 1 && <div style={{ padding: '16px 24px 40px', animation: 'fadeIn 400ms' }}>
-        <button onClick={onRate} style={{ width: '100%', height: 52, background: T.trackText, color: T.trackBg, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>Calificar el servicio</button>
-      </div>}
+      <div style={{ padding: '12px 24px 40px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {onCallWaiter && active < STEPS.length - 1 && (
+          <button onClick={onCallWaiter} style={{ width: '100%', height: 46, background: 'transparent', color: T.trackText, border: `1.5px solid ${T.trackText}30`, borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <Icon name="bell" size={15} color={T.trackText} />Llamar al mozo
+          </button>
+        )}
+        {active === STEPS.length - 1 && (
+          <button onClick={onRate} style={{ width: '100%', height: 52, background: T.trackText, color: T.trackBg, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', animation: 'fadeIn 400ms' }}>
+            Calificar el servicio
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -939,34 +1112,74 @@ function RatingScreen({ onDone, orderId, tableId }) {
   const [rating, setRating] = useState(0);
   const [hover, setHover] = useState(0);
   const [comment, setComment] = useState('');
+  const [reasons, setReasons] = useState([]);
   const [sent, setSent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const REASONS = ['Comida', 'Atención', 'Tiempo de espera', 'Precio', 'Limpieza'];
+  const toggleReason = (r) => setReasons(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r]);
+  const restIg = restaurant?.instagram || '@lahuaca.py';
 
   const handleSubmit = async () => {
     if (!rating) return;
     setSubmitting(true);
-    await dbSubmitRating(orderId, tableId, rating, comment);
+    const fullComment = [reasons.length ? `[${reasons.join(', ')}]` : '', comment].filter(Boolean).join(' — ');
+    await dbSubmitRating(orderId, tableId, rating, fullComment || null);
     setSent(true);
     setSubmitting(false);
   };
 
-  if (sent) return <div style={{ minHeight: '100%', background: T.rateBg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40, textAlign: 'center' }}>
-    <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: T.rateText, marginBottom: 12 }}>¡Gracias!</div>
-    <div style={{ fontSize: 14, color: T.rateSub, lineHeight: 1.7, marginBottom: 40 }}>Tu opinión nos ayuda<br />a ser mejores cada día.</div>
-    <button onClick={onDone} style={{ width: '100%', height: 52, background: T.rateText, color: T.rateBg, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>Volver al inicio</button>
-  </div>;
+  if (sent) return (
+    <div style={{ minHeight: '100%', background: T.rateBg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40, textAlign: 'center' }}>
+      <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: T.rateText, marginBottom: 12 }}>¡Gracias!</div>
+      <div style={{ fontSize: 14, color: T.rateSub, lineHeight: 1.7, marginBottom: 32 }}>Tu opinión nos ayuda<br />a ser mejores cada día.</div>
+      {rating >= 4 && restIg && (
+        <a href={`https://www.instagram.com/${restIg.replace('@','')}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, height: 44, padding: '0 20px', background: `${T.rateText}10`, border: `1px solid ${T.rateText}20`, borderRadius: 12, fontSize: 13, fontWeight: 700, color: T.rateText, textDecoration: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif", marginBottom: 16 }}>
+          <Icon name="instagram" size={15} color={T.rateText} />Seguinos en Instagram
+        </a>
+      )}
+      <button onClick={onDone} style={{ width: '100%', height: 52, background: T.rateText, color: T.rateBg, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>Volver al inicio</button>
+    </div>
+  );
 
   return (
-    <div style={{ minHeight: '100%', background: T.rateBg, display: 'flex', flexDirection: 'column', padding: '64px 24px 40px' }}>
+    <div style={{ minHeight: '100%', background: T.rateBg, display: 'flex', flexDirection: 'column', padding: '56px 24px 36px' }}>
       <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: T.rateText, lineHeight: 1.1, marginBottom: 6 }}>¿Cómo estuvo<br />tu experiencia?</div>
-      <div style={{ fontSize: 13, color: T.rateSub, marginBottom: 44 }}>{restaurant?.name || 'La Huaca'} · Mesa {TABLE_NUM}</div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 36 }}>
-        {[1,2,3,4,5].map(s => <button key={s} onMouseEnter={() => setHover(s)} onMouseLeave={() => setHover(0)} onClick={() => setRating(s)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, transition: 'transform 150ms', transform: (hover || rating) >= s ? 'scale(1.1)' : 'scale(1)' }}>
+      <div style={{ fontSize: 13, color: T.rateSub, marginBottom: 32 }}>{restaurant?.name || 'La Huaca'} · Mesa {TABLE_NUM}</div>
+      {/* Estrellas */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        {[1,2,3,4,5].map(s => <button key={s} onMouseEnter={() => setHover(s)} onMouseLeave={() => setHover(0)} onClick={() => setRating(s)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, transition: 'transform 150ms', transform: (hover || rating) >= s ? 'scale(1.12)' : 'scale(1)' }}>
           <svg width="40" height="40" viewBox="0 0 24 24" fill={(hover || rating) >= s ? T.rateText : 'transparent'} stroke={(hover || rating) >= s ? T.rateText : `${T.rateText}25`} strokeWidth="1.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
         </button>)}
       </div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: T.rateSub, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>Comentario o sugerencia</div>
-      <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder="¿Qué podemos mejorar?" style={{ flex: 1, minHeight: 110, border: `1px solid ${T.rateInputBorder}`, borderRadius: 12, padding: '12px', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.rateInputText, background: T.rateInput, resize: 'none', outline: 'none', marginBottom: 20 }} />
+      {/* Mensajes contextuales */}
+      {rating > 0 && rating <= 3 && (
+        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 8, padding: '8px 12px', marginBottom: 16, fontSize: 12, color: '#B91C1C', lineHeight: 1.5 }}>
+          Lamentamos que no haya sido lo esperado. Contanos qué mejorar.
+        </div>
+      )}
+      {rating >= 4 && (
+        <div style={{ background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.15)', borderRadius: 8, padding: '8px 12px', marginBottom: 16, fontSize: 12, color: '#15803D', fontWeight: 600, lineHeight: 1.5 }}>
+          ¡Nos alegra que hayas disfrutado! 🎉 Esperamos verte pronto.
+        </div>
+      )}
+      {/* Chips de motivos */}
+      {rating > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.rateSub, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>¿Qué querés calificar?</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+            {REASONS.map(r => {
+              const sel = reasons.includes(r);
+              return <button key={r} onClick={() => toggleReason(r)} style={{ height: 32, padding: '0 12px', borderRadius: 9999, border: `1.5px solid ${sel ? T.rateText : `${T.rateText}25`}`, background: sel ? T.rateText : 'transparent', color: sel ? T.rateBg : `${T.rateText}65`, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", transition: 'all 150ms' }}>{r}</button>;
+            })}
+          </div>
+        </div>
+      )}
+      {/* Comentario */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: T.rateSub, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>
+        {rating > 0 && rating <= 3 ? 'Contanos qué pasó' : 'Comentario o sugerencia'}
+      </div>
+      <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder={rating > 0 && rating <= 3 ? '¿Qué salió mal? ¿Cómo podemos mejorar?' : '¿Qué fue lo mejor? ¿Algo para mejorar?'} style={{ flex: 1, minHeight: 90, border: `1px solid ${T.rateInputBorder}`, borderRadius: 12, padding: '12px', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.rateInputText, background: T.rateInput, resize: 'none', outline: 'none', marginBottom: 20 }} />
       <button onClick={handleSubmit} disabled={!rating || submitting} style={{ width: '100%', height: 54, background: rating ? T.rateText : `${T.rateText}12`, color: rating ? T.rateBg : `${T.rateText}30`, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: rating ? 'pointer' : 'default', transition: 'all 250ms', opacity: submitting ? 0.7 : 1 }}>
         {submitting ? 'Enviando…' : 'Enviar calificación'}
       </button>
@@ -1216,6 +1429,8 @@ function App() {
   const [toast, setToast]           = useState(null);
   const [liveMenu, setLiveMenu]     = useState(null);
   const [restaurant, setRestaurant] = useState(null);
+  const [lastWaiterCall, setLastWaiterCall] = useState(0);
+  const [payMethod, setPayMethod]   = useState('efectivo');
 
   useEffect(() => {
     dbLoadMenu().then(menu => { if (menu) setLiveMenu(menu); });
@@ -1262,7 +1477,13 @@ function App() {
   }).filter(Boolean));
 
   const handleCallWaiter = async () => {
-    showToast(`El mozo fue llamado a la mesa ${TABLE_NUM}`);
+    const now = Date.now();
+    if (now - lastWaiterCall < 30000) {
+      showToast('Ya llamaste al mozo. Esperá un momento.');
+      return;
+    }
+    setLastWaiterCall(now);
+    showToast(`El mozo fue avisado — Mesa ${TABLE_NUM}`);
     await dbCallWaiter(null, null);
   };
 
@@ -1282,8 +1503,8 @@ function App() {
                 {screen === 'reserve' && <ReservationScreen onBack={() => setScreen('profile')} onDone={() => setScreen('qr')} />}
                 {screen === 'menu'    && <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} onCallWaiter={handleCallWaiter} orderMode={orderMode} />}
                 {screen === 'cart'    && <CartScreen items={cartItems} onBack={() => setScreen('menu')} onPay={(t, sub, disc, code) => { setPayTotal(t); setPaySubtotal(sub); setPayDiscount(disc); setPayCoupon(code); setScreen('pay'); }} onRemove={removeItem} onQty={updateQty} onCouponApplied={() => {}} onSplit={() => setShowSplit(true)} />}
-                {screen === 'pay'     && <PayScreen total={payTotal} subtotal={paySubtotal} discountAmount={payDiscount} couponCode={payCoupon} cartItems={cartItems} orderMode={orderMode} lang={lang} onBack={() => setScreen('cart')} onDone={(ordNum) => { setCurrentOrderNum(ordNum); setScreen('track'); }} />}
-                {screen === 'track'   && <TrackingScreen onRate={() => setScreen('rate')} orderNumber={currentOrderNum} />}
+                {screen === 'pay'     && <PayScreen total={payTotal} subtotal={paySubtotal} discountAmount={payDiscount} couponCode={payCoupon} cartItems={cartItems} orderMode={orderMode} lang={lang} onBack={() => setScreen('cart')} onDone={(ordNum, method) => { setCurrentOrderNum(ordNum); if (method) setPayMethod(method); setScreen('track'); }} />}
+                {screen === 'track'   && <TrackingScreen onRate={() => setScreen('rate')} orderNumber={currentOrderNum} orderMode={orderMode} cartItems={cartItems} onCallWaiter={handleCallWaiter} />}
                 {screen === 'rate'    && <RatingScreen onDone={clearSession} orderId={null} tableId={null} />}
               </div>
             </div>

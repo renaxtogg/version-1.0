@@ -9,7 +9,8 @@
     { "source": "/superadmin", "destination": "/superadmin.html" },
     { "source": "/login", "destination": "/login.html" },
     { "source": "/diag", "destination": "/diag.html" },
-    { "source": "/caja", "destination": "/caja.html" }
+    { "source": "/caja", "destination": "/caja.html" },
+    { "source": "/mozo", "destination": "/mozo.html" }
   ],
   "headers": [
     {

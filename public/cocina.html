@@ -21,8 +21,10 @@
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
   @keyframes ring{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
   @keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes slideRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-3px)}40%,80%{transform:translateX(3px)}}
+  @keyframes starPop{0%{transform:scale(0.6);opacity:0}60%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
 </style>
 </head>
 <body>
@@ -80,7 +82,7 @@ function playBeep(type = 'new') {
 }
 
 /* ── ALERGIAS ─── */
-const ALLERGY_KW = ['alergi','celíac','celiac','gluten','lactosa','intoler','maní','maní','nuez','marisco','camarón','creveta','soja','anafilax','sin gluten','sin lactosa'];
+const ALLERGY_KW = ['alergi','celíac','celiac','gluten','lactosa','intoler','maní','nuez','marisco','camarón','creveta','soja','anafilax','sin gluten','sin lactosa'];
 function hasAllergyAlert(text) {
   if (!text) return false;
   const l = text.toLowerCase();
@@ -120,29 +122,60 @@ function getStats() {
   return { avg, total: s.times.length, peak: peak ? { h: parseInt(peak[0]), n: peak[1] } : null };
 }
 
+/* ── ESTACIONES DE PRODUCCIÓN ─── */
+const STATIONS = [
+  { key: 'todas',     label: 'Todas',     icon: '⊞', color: '#888' },
+  { key: 'cocina',    label: 'Cocina',    icon: '🍳', color: '#fb923c' },
+  { key: 'parrilla',  label: 'Parrilla',  icon: '🔥', color: '#f87171' },
+  { key: 'bar',       label: 'Bar',       icon: '🍺', color: '#60a5fa' },
+  { key: 'cafeteria', label: 'Cafetería', icon: '☕', color: '#c084fc' },
+  { key: 'postres',   label: 'Postres',   icon: '🍮', color: '#f9a8d4' },
+];
+
+function filterTicketsForStation(tickets, station) {
+  if (station === 'todas') return tickets;
+  return tickets.reduce((acc, ticket) => {
+    const filtered = ticket.items.filter(i =>
+      i.station === station || (!i.station && station === 'cocina')
+    );
+    if (filtered.length > 0) acc.push({ ...ticket, items: filtered });
+    return acc;
+  }, []);
+}
+
 /* ── SUPABASE HELPERS ─── */
 function orderToTicket(order) {
   const created = new Date(order.created_at);
   const elapsed = Math.floor((Date.now() - created.getTime()) / 60000);
+
+  // Mesa: llevar orders no tienen mesa; local sin table_id = sin mesa asignada
+  let mesa = null;
+  const isLlevar = order.order_type === 'llevar';
+  if (!isLlevar && order.tables && order.tables.number != null) {
+    mesa = order.tables.number;
+  }
+
   return {
     id: order.order_number,
     _supabaseId: order.id,
-    mesa: order.tables ? order.tables.number : '?',
-    tipo: order.order_type === 'llevar' ? 'llevar' : 'local',
+    mesa,
+    tipo: isLlevar ? 'llevar' : 'local',
     hora: created.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
     elapsed,
     status: toKitchenStatus(order.status),
     items: (order.order_items || []).map((oi, i) => ({
-      id: i + 1,
+      id: oi.id || i + 1,
       nombre: oi.item_name,
       cant: oi.quantity,
       extras: (oi.order_item_extras || []).map(e => e.extra_name),
-      obs: oi.observations || ''
+      obs: oi.observations || '',
+      station: oi.production_station || null,
+      kitchenStatus: oi.kitchen_status || 'pending',
     }))
   };
 }
 
-// Hace 4 queries planas y combina en cliente (evita permisos nested PostgREST con anon)
+// Hace queries planas y combina en cliente (evita permisos nested PostgREST con anon)
 async function dbLoadTickets() {
   if (!db) return { tickets: null, error: null };
   const { data: orders, error } = await db.from('orders')
@@ -165,7 +198,8 @@ async function dbLoadTickets() {
 
   const orderIds = orders.map(o => o.id);
   const { data: items } = await db.from('order_items')
-    .select('id,order_id,item_name,quantity,observations').in('order_id', orderIds);
+    .select('id,order_id,item_name,quantity,observations,production_station,kitchen_status')
+    .in('order_id', orderIds);
 
   const extrasMap = {};
   if ((items || []).length > 0) {
@@ -185,7 +219,7 @@ async function dbLoadTickets() {
 
   const tickets = orders.map(o => ({
     ...o,
-    tables: o.table_id ? { number: tableMap[o.table_id] || null } : null,
+    tables: o.table_id ? { number: tableMap[o.table_id] ?? null } : null,
     order_items: itemsByOrder[o.id] || []
   })).map(orderToTicket);
   return { tickets, error: null };
@@ -208,6 +242,17 @@ async function dbDismissTicket(supabaseId) {
   } catch(e) { console.warn('Dismiss error:', e); }
 }
 
+async function dbLoadRatings() {
+  if (!db) return [];
+  const { data } = await db.from('ratings')
+    .select('id,stars,comment,created_at,table_id,order_id')
+    .eq('restaurant_id', RESTAURANT_ID)
+    .gte('stars', 4)
+    .order('created_at', { ascending: false })
+    .limit(30);
+  return data || [];
+}
+
 /* ── PALETTE ─── */
 const C_DARK = {
   bg:'#0A0A0A', surface:'#111', card:'#161616',
@@ -221,7 +266,6 @@ const C_LIGHT = {
 };
 const C = {...((localStorage.getItem('mesa_theme')||'dark')==='light' ? C_LIGHT : C_DARK)};
 
-/* Color por estado de columna */
 const COL_COLOR = {
   nuevo:      '#60a5fa',
   preparando: '#fb923c',
@@ -229,20 +273,34 @@ const COL_COLOR = {
   entregado:  '#6b7280',
 };
 
-/* Lookup tables para urgencia — se recomputan en toggleTheme */
 let URGENCY_BORDER = [C.borderStrong, '#F59E0B', '#F97316', '#EF4444'];
 let URGENCY_HEADER = [C.surface, 'rgba(245,158,11,0.12)', 'rgba(249,115,22,0.18)', 'rgba(239,68,68,0.22)'];
 
 /* ── DEMO ─── */
 const DEMO_TICKETS = [
   { id:'T-2841', _supabaseId:null, mesa:2, tipo:'local', hora:'19:04', elapsed:22, status:'preparando',
-    items:[{id:1,nombre:'Lomito completo',cant:2,extras:['Extra carne','Huevo frito'],obs:'Sin mayo en una'},{id:2,nombre:'Provoleta parrilla',cant:1,extras:[],obs:''},{id:3,nombre:'Sopa paraguaya',cant:2,extras:[],obs:'Bien caliente'}]},
+    items:[
+      {id:1,nombre:'Lomito completo',cant:2,extras:['Extra carne','Huevo frito'],obs:'Sin mayo en una',station:'cocina',kitchenStatus:'cooking'},
+      {id:2,nombre:'Provoleta parrilla',cant:1,extras:[],obs:'',station:'parrilla',kitchenStatus:'cooking'},
+      {id:3,nombre:'Sopa paraguaya',cant:2,extras:[],obs:'Bien caliente',station:'cocina',kitchenStatus:'cooking'},
+    ]},
   { id:'T-2842', _supabaseId:null, mesa:7, tipo:'local', hora:'19:08', elapsed:14, status:'nuevo',
-    items:[{id:4,nombre:'Clásica Comanda',cant:3,extras:['Panceta','Extra queso'],obs:'Una sin cebolla — cliente tiene ALERGIA a nuez'},{id:5,nombre:'BBQ Smokey',cant:1,extras:['Jalapeños'],obs:''},{id:6,nombre:'Empanada de carne',cant:4,extras:[],obs:''}]},
-  { id:'T-2843', _supabaseId:null, mesa:1, tipo:'llevar', hora:'19:11', elapsed:11, status:'nuevo',
-    items:[{id:7,nombre:'Doble Black',cant:2,extras:['Panceta'],obs:'Bien cocida'},{id:8,nombre:'Veggie',cant:1,extras:[],obs:'Sin pepino — intolerante al gluten'}]},
+    items:[
+      {id:4,nombre:'Clásica Comanda',cant:3,extras:['Panceta','Extra queso'],obs:'Una sin cebolla — cliente tiene ALERGIA a nuez',station:'cocina',kitchenStatus:'pending'},
+      {id:5,nombre:'BBQ Smokey',cant:1,extras:['Jalapeños'],obs:'',station:'cocina',kitchenStatus:'pending'},
+      {id:6,nombre:'Coca-Cola',cant:3,extras:[],obs:'',station:'bar',kitchenStatus:'pending'},
+    ]},
+  { id:'T-2843', _supabaseId:null, mesa:null, tipo:'llevar', hora:'19:11', elapsed:11, status:'nuevo',
+    items:[
+      {id:7,nombre:'Doble Black',cant:2,extras:['Panceta'],obs:'Bien cocida',station:'cocina',kitchenStatus:'pending'},
+      {id:8,nombre:'Cerveza Pilsen',cant:2,extras:[],obs:'Bien fría',station:'bar',kitchenStatus:'pending'},
+      {id:9,nombre:'Veggie',cant:1,extras:[],obs:'Sin pepino — intolerante al gluten',station:'cocina',kitchenStatus:'pending'},
+    ]},
   { id:'T-2840', _supabaseId:null, mesa:3, tipo:'local', hora:'18:58', elapsed:28, status:'listo',
-    items:[{id:11,nombre:'Lomito americano',cant:2,extras:[],obs:''},{id:12,nombre:'Empanada de carne',cant:2,extras:['Chimichurri'],obs:''}]},
+    items:[
+      {id:10,nombre:'Lomito americano',cant:2,extras:[],obs:'',station:'cocina',kitchenStatus:'ready'},
+      {id:11,nombre:'Agua mineral',cant:2,extras:[],obs:'',station:'bar',kitchenStatus:'ready'},
+    ]},
 ];
 
 /* ── HELPERS ─── */
@@ -259,6 +317,12 @@ function sortByUrgency(tickets) {
   });
 }
 
+function mesaLabel(ticket) {
+  if (ticket.tipo === 'llevar') return 'Para llevar';
+  if (ticket.mesa != null) return `Mesa ${ticket.mesa}`;
+  return 'Sin mesa asignada';
+}
+
 /* ── TICKET CARD ─── */
 function TicketCard({ ticket, onAdvance, onDismiss }) {
   const [time, setTime] = useState(ticket.elapsed);
@@ -270,6 +334,8 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
   const isEntregado = ticket.status === 'entregado';
   const nextStatus = { nuevo: 'preparando', preparando: 'listo' }[ticket.status];
   const hasAnyAllergy = ticket.items.some(i => hasAllergyAlert(i.obs));
+  const isLlevar = ticket.tipo === 'llevar';
+  const hasNoMesa = !isLlevar && ticket.mesa == null;
 
   const borderColor = isDone ? C.border : URGENCY_BORDER[urgency];
   const headerBg    = isEntregado ? '#181818' : URGENCY_HEADER[urgency];
@@ -286,7 +352,7 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
       transition: 'border-color 300ms',
       opacity: isEntregado ? 0.45 : 1,
     }}>
-      {/* Barra de color urgencia arriba */}
+      {/* Barra de urgencia */}
       {!isDone && (
         <div style={{ height: urgency >= 1 ? 4 : 2, background: urgency >= 1 ? urgColor : 'rgba(255,255,255,0.06)', animation: urgency >= 2 ? 'pulse 1s ease infinite' : 'none' }} />
       )}
@@ -294,18 +360,27 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
       {/* Header */}
       <div style={{
         background: headerBg,
-        padding: '10px 13px',
+        padding: '11px 13px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         borderBottom: `1px solid ${C.border}`,
         gap: 6,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, flex: 1, overflow: 'hidden', flexWrap: 'wrap' }}>
+          {/* Ticket number */}
           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, color: C.dim, letterSpacing: '0.08em', flexShrink: 0 }}>{ticket.id}</div>
           <div style={{ width: 1, height: 12, background: C.border, flexShrink: 0 }} />
-          <div style={{ fontFamily: "'DM Serif Display',serif", fontSize: 17, color: C.white, flexShrink: 0 }}>Mesa {ticket.mesa}</div>
-          {ticket.tipo === 'llevar' && (
+          {/* Mesa display — fix: no more "Mesa ?" */}
+          {isLlevar ? (
+            <div style={{ fontFamily: "'DM Serif Display',serif", fontSize: 16, color: '#FBB724', flexShrink: 0 }}>Para llevar</div>
+          ) : ticket.mesa != null ? (
+            <div style={{ fontFamily: "'DM Serif Display',serif", fontSize: 17, color: C.white, flexShrink: 0 }}>Mesa {ticket.mesa}</div>
+          ) : (
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.mid, flexShrink: 0 }}>Sin mesa asignada</div>
+          )}
+          {/* Badges */}
+          {isLlevar && (
             <div style={{ fontSize: 10, fontWeight: 800, background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 5, padding: '2px 6px', color: '#FBB724', letterSpacing: '0.06em', flexShrink: 0 }}>LLEVAR</div>
           )}
           {hasAnyAllergy && (
@@ -318,7 +393,7 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
           )}
           <div style={{
             fontFamily: "'JetBrains Mono',monospace",
-            fontSize: 13,
+            fontSize: 14,
             fontWeight: 700,
             color: isDone ? C.dim : urgColor || C.mid,
             animation: urgency >= 2 && !isDone ? 'pulse 1.2s ease infinite' : 'none',
@@ -327,46 +402,63 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
         </div>
       </div>
 
+      {/* Alerta de alergia global */}
+      {hasAnyAllergy && !isDone && (
+        <div style={{ background: 'rgba(239,68,68,0.1)', borderBottom: `1px solid rgba(239,68,68,0.25)`, padding: '7px 13px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 14 }}>⚠</span>
+          <span style={{ fontSize: 12, fontWeight: 800, color: '#EF4444', letterSpacing: '0.04em' }}>ALERGIA / ATENCIÓN — Verificar ítems marcados</span>
+        </div>
+      )}
+
       {/* Items */}
       <div style={{ padding: '5px 0', flex: 1 }}>
         {ticket.items.map((item, i) => {
           const allergyItem = hasAllergyAlert(item.obs);
           return (
             <div key={item.id} style={{
-              padding: '8px 13px',
+              padding: '9px 13px',
               borderBottom: i < ticket.items.length - 1 ? `1px solid ${C.border}` : 'none',
               background: allergyItem ? 'rgba(239,68,68,0.04)' : 'transparent',
             }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                {/* Cantidad grande */}
                 <div style={{
                   fontFamily: "'JetBrains Mono',monospace",
-                  fontSize: 17,
+                  fontSize: 20,
                   fontWeight: 700,
                   color: isDone ? C.dim : C.white,
-                  minWidth: 26,
+                  minWidth: 30,
                   flexShrink: 0,
                   lineHeight: 1.1,
                   marginTop: 1,
                 }}>×{item.cant}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: 14,
-                    fontWeight: 700,
-                    color: isDone ? C.mid : C.ink,
-                    textDecoration: isDone ? 'line-through' : 'none',
-                    lineHeight: 1.25,
-                  }}>{item.nombre}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{
+                      fontSize: 15,
+                      fontWeight: 700,
+                      color: isDone ? C.mid : C.ink,
+                      textDecoration: isDone ? 'line-through' : 'none',
+                      lineHeight: 1.25,
+                    }}>{item.nombre}</div>
+                    {/* Estación badge */}
+                    {item.station && (() => {
+                      const st = STATIONS.find(s => s.key === item.station);
+                      return st ? (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: st.color, background: `${st.color}18`, border: `1px solid ${st.color}35`, borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
+                          {st.icon} {st.label}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
                   {item.extras.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
                       {item.extras.map(e => (
                         <span key={e} style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: '#AAA',
+                          fontSize: 11, fontWeight: 600, color: '#AAA',
                           background: 'rgba(255,255,255,0.06)',
                           border: `1px solid ${C.borderStrong}`,
-                          borderRadius: 4,
-                          padding: '2px 6px',
+                          borderRadius: 4, padding: '2px 6px',
                         }}>+ {e}</span>
                       ))}
                     </div>
@@ -398,31 +490,31 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
         })}
       </div>
 
-      {/* Acción */}
+      {/* Acción — botones grandes para pantalla táctil */}
       {!isEntregado && (
-        <div style={{ padding: '9px 12px', borderTop: `1px solid ${C.border}` }}>
+        <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.border}` }}>
           {ticket.status === 'listo' ? (
             <button onClick={() => onDismiss(ticket)} style={{
-              width: '100%', height: 36,
+              width: '100%', height: 44,
               background: 'transparent',
-              border: `1px solid ${C.border}`,
-              borderRadius: 8,
-              color: C.dim,
+              border: `1.5px solid ${C.borderStrong}`,
+              borderRadius: 10,
+              color: C.mid,
               fontFamily: "'Plus Jakarta Sans',sans-serif",
-              fontSize: 12, fontWeight: 700,
-              cursor: 'pointer', letterSpacing: '0.05em',
-            }}>ENTREGADO ✓</button>
+              fontSize: 13, fontWeight: 800,
+              cursor: 'pointer', letterSpacing: '0.06em',
+            }}>✓ ENTREGADO</button>
           ) : (
             <button onClick={() => onAdvance(ticket)} style={{
-              width: '100%', height: 38,
+              width: '100%', height: 50,
               background: nextStatus === 'listo'
                 ? C.white
                 : urgency >= 2 ? `${urgColor}22` : 'rgba(255,255,255,0.07)',
-              border: `1.5px solid ${nextStatus === 'listo' ? C.white : urgency >= 2 ? urgColor : C.borderStrong}`,
-              borderRadius: 8,
+              border: `2px solid ${nextStatus === 'listo' ? C.white : urgency >= 2 ? urgColor : C.borderStrong}`,
+              borderRadius: 10,
               color: nextStatus === 'listo' ? '#0A0A0A' : urgency >= 2 ? urgColor : C.white,
               fontFamily: "'Plus Jakarta Sans',sans-serif",
-              fontSize: 13, fontWeight: 800,
+              fontSize: 15, fontWeight: 800,
               cursor: 'pointer', letterSpacing: '0.05em', textTransform: 'uppercase',
               transition: 'all 150ms',
             }}>
@@ -436,11 +528,10 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
 }
 
 /* ── COLUMN ─── */
-function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg, statusKey }) {
+function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg }) {
   const col = accent || C.mid;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0 }}>
-      {/* Header de columna con color distintivo */}
       <div style={{
         background: `${col}14`,
         border: `1px solid ${col}30`,
@@ -471,10 +562,42 @@ function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg,
   );
 }
 
+/* ── STATION TABS ─── */
+function StationTabs({ active, onChange, ticketsByStation }) {
+  return (
+    <div style={{ padding: '0 20px 10px', display: 'flex', gap: 6, overflowX: 'auto', flexShrink: 0 }}>
+      {STATIONS.map(st => {
+        const count = ticketsByStation[st.key] || 0;
+        const isActive = active === st.key;
+        return (
+          <button key={st.key} onClick={() => onChange(st.key)} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 14px',
+            background: isActive ? `${st.color}22` : 'transparent',
+            border: `1.5px solid ${isActive ? st.color : C.border}`,
+            borderRadius: 20,
+            color: isActive ? st.color : C.mid,
+            fontFamily: "'Plus Jakarta Sans',sans-serif",
+            fontSize: 12, fontWeight: 700,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            transition: 'all 150ms',
+          }}>
+            <span>{st.icon}</span>
+            <span>{st.label}</span>
+            {count > 0 && (
+              <span style={{ background: isActive ? st.color : C.dim, color: isActive ? '#000' : C.bg, borderRadius: 10, fontSize: 10, fontWeight: 800, padding: '0 5px', minWidth: 16, textAlign: 'center' }}>{count}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ── STATS PANEL ─── */
 function StatsPanel({ tickets }) {
   const [stats, setStats] = useState(getStats());
-  // Refresca stats cada 30s para reflejar pedidos entregados recientes
   useEffect(() => {
     const t = setInterval(() => setStats(getStats()), 30000);
     return () => clearInterval(t);
@@ -485,13 +608,11 @@ function StatsPanel({ tickets }) {
   const listoCount = tickets.filter(t => t.status === 'listo').length;
   const bottleneck = preparandoCount > 4 ? 'preparando' : listoCount > 3 ? 'listos sin entregar' : null;
 
-  // Distribución de tiempos: rápido <10m, normal 10-20m, lento >20m
   const s = loadStats();
   const dist = { rapido: 0, normal: 0, lento: 0 };
   (s.times || []).forEach(m => { if (m < 10) dist.rapido++; else if (m <= 20) dist.normal++; else dist.lento++; });
   const distTotal = dist.rapido + dist.normal + dist.lento || 1;
 
-  // Gráfico de barras horario (últimas 10 horas)
   const nowH = new Date().getHours();
   const hours = Array.from({ length: 10 }, (_, i) => (nowH - 9 + i + 24) % 24);
   const maxHourly = Math.max(...hours.map(h => s.hourly[h] || 0), 1);
@@ -505,12 +626,11 @@ function StatsPanel({ tickets }) {
   );
 
   return (
-    <div style={{ margin: '0 20px 16px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'stretch' }}>
+    <div style={{ margin: '0 20px 14px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'stretch' }}>
       {statBox('Tiempo promedio', stats.avg ? `${stats.avg}m` : '—', 'por pedido hoy', !stats.avg ? C.dim : stats.avg >= 25 ? '#EF4444' : stats.avg >= 15 ? '#F59E0B' : '#22C55E')}
       {statBox('Entregados hoy', stats.total || 0, 'pedidos completados', C.white)}
       {statBox('En proceso', enProceso, 'nuevo + preparando', enProceso >= 8 ? '#EF4444' : enProceso >= 5 ? '#F97316' : C.white)}
 
-      {/* Distribución de tiempos */}
       {s.times.length > 0 && (
         <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', flexShrink: 0, minWidth: 160 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Distribución tiempos</div>
@@ -527,7 +647,6 @@ function StatsPanel({ tickets }) {
         </div>
       )}
 
-      {/* Gráfico hora pico */}
       <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', flex: 1, minWidth: 200 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
           Pedidos por hora
@@ -558,7 +677,6 @@ function StatsPanel({ tickets }) {
         </div>
       </div>
 
-      {/* Cuello de botella */}
       {bottleneck && (
         <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '11px 15px', display: 'flex', alignItems: 'center', gap: 10, animation: 'ring 2s ease infinite', flexShrink: 0 }}>
           <div style={{ fontSize: 22 }}>⚠</div>
@@ -572,6 +690,164 @@ function StatsPanel({ tickets }) {
   );
 }
 
+/* ── FELICITACIONES PANEL ─── */
+function FelicitacionesPanel({ onClose }) {
+  const [ratings, setRatings] = useState([]);
+  const [current, setCurrent] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Demo ratings si no hay DB
+    if (!db) {
+      setRatings([
+        { id: 1, stars: 5, comment: '¡Excelente atención y la comida estaba deliciosa! Volveremos pronto.', created_at: new Date(Date.now() - 3600000).toISOString(), table_id: null },
+        { id: 2, stars: 5, comment: 'El lomito americano espectacular. Recomendadísimo.', created_at: new Date(Date.now() - 7200000).toISOString(), table_id: null },
+        { id: 3, stars: 4, comment: 'Muy rico, buen precio. La provoleta estaba perfecta.', created_at: new Date(Date.now() - 1800000).toISOString(), table_id: null },
+      ]);
+      setLoading(false);
+      return;
+    }
+    dbLoadRatings().then(data => {
+      setRatings(data);
+      setLoading(false);
+    });
+
+    // Suscripción realtime para nuevas calificaciones
+    if (!db) return;
+    const ch = db.channel('ratings-feliz')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ratings', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, (payload) => {
+        const r = payload.new;
+        if (r.stars >= 4) {
+          setRatings(prev => [r, ...prev].slice(0, 30));
+        }
+      })
+      .subscribe();
+    return () => db.removeChannel(ch);
+  }, []);
+
+  // Auto-rotar cada 5 segundos
+  useEffect(() => {
+    if (ratings.length <= 1) return;
+    const t = setInterval(() => setCurrent(v => (v + 1) % ratings.length), 5000);
+    return () => clearInterval(t);
+  }, [ratings.length]);
+
+  const rating = ratings[current];
+
+  const stars = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, right: 0, bottom: 0,
+      width: 360,
+      background: C.surface,
+      borderLeft: `1px solid ${C.border}`,
+      zIndex: 200,
+      display: 'flex', flexDirection: 'column',
+      animation: 'slideRight 250ms ease',
+      boxShadow: '-8px 0 32px rgba(0,0,0,0.4)',
+    }}>
+      {/* Header */}
+      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.white, letterSpacing: '0.04em' }}>⭐ Felicitaciones</div>
+          <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>Calificaciones 4 y 5 estrellas</div>
+        </div>
+        <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.dim, fontSize: 16, padding: '4px 10px', cursor: 'pointer' }}>×</button>
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+            <div style={{ width: 24, height: 24, border: '2px solid #333', borderTopColor: '#888', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          </div>
+        ) : ratings.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: C.dim }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>☆</div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Aún no hay felicitaciones recientes.</div>
+            <div style={{ fontSize: 11, marginTop: 8, opacity: 0.6 }}>Las calificaciones de 4 y 5 estrellas aparecerán aquí.</div>
+          </div>
+        ) : (
+          <>
+            {/* Featured (current) */}
+            {rating && (
+              <div style={{
+                background: C.card,
+                border: `2px solid rgba(250,204,21,0.3)`,
+                borderRadius: 14,
+                padding: 18,
+                marginBottom: 16,
+                animation: 'fadeIn 400ms ease',
+              }} key={rating.id}>
+                <div style={{ fontSize: 22, color: '#FBBF24', letterSpacing: 2, animation: 'starPop 400ms ease', marginBottom: 10 }}>
+                  {stars(rating.stars)}
+                </div>
+                {rating.comment ? (
+                  <div style={{ fontSize: 15, color: C.ink, fontStyle: 'italic', lineHeight: 1.55, marginBottom: 12 }}>
+                    "{rating.comment}"
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: C.mid, fontStyle: 'italic', marginBottom: 12 }}>
+                    {rating.stars === 5 ? '5 estrellas sin comentario' : '4 estrellas sin comentario'}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, color: C.dim }}>
+                  {new Date(rating.created_at).toLocaleString('es-PY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+            )}
+
+            {/* Dots de navegación */}
+            {ratings.length > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 16 }}>
+                {ratings.map((_, i) => (
+                  <button key={i} onClick={() => setCurrent(i)} style={{
+                    width: i === current ? 20 : 6, height: 6,
+                    borderRadius: 3,
+                    background: i === current ? '#FBBF24' : C.dim,
+                    border: 'none', cursor: 'pointer',
+                    transition: 'all 300ms',
+                    padding: 0,
+                  }} />
+                ))}
+              </div>
+            )}
+
+            {/* Lista de todas */}
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
+              Todas las recientes ({ratings.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {ratings.map((r, i) => (
+                <button key={r.id} onClick={() => setCurrent(i)} style={{
+                  background: i === current ? `rgba(250,204,21,0.08)` : 'transparent',
+                  border: `1px solid ${i === current ? 'rgba(250,204,21,0.25)' : C.border}`,
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', gap: 3,
+                }}>
+                  <div style={{ fontSize: 13, color: '#FBBF24', letterSpacing: 1 }}>{'★'.repeat(r.stars)}</div>
+                  {r.comment && (
+                    <div style={{ fontSize: 11, color: C.mid, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                      {r.comment}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: C.dim }}>
+                    {new Date(r.created_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── APP ─── */
 function App() {
   const [tickets, setTickets] = useState(db ? [] : DEMO_TICKETS);
@@ -581,6 +857,8 @@ function App() {
   const [dbError, setDbError] = useState(null);
   const [soundOn, setSoundOn] = useState(true);
   const [showStats, setShowStats] = useState(false);
+  const [showFelicitaciones, setShowFelicitaciones] = useState(false);
+  const [activeStation, setActiveStation] = useState('todas');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [diag, setDiag] = useState(null);
   const [restaurant, setRestaurant] = useState(null);
@@ -589,7 +867,7 @@ function App() {
   const soundRef = useRef(soundOn);
   soundRef.current = soundOn;
 
-  function toggleTheme(){
+  function toggleThemeFn(){
     const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
     Object.assign(C,next==='dark'?C_DARK:C_LIGHT);
     URGENCY_BORDER[0]=C.borderStrong;
@@ -617,12 +895,13 @@ function App() {
     if (!db) {
       const t = setTimeout(() => {
         const incoming = {
-          id: 'T-2845', _supabaseId: null, mesa: 9, tipo: 'llevar',
+          id: 'T-2845', _supabaseId: null, mesa: 9, tipo: 'local',
           hora: new Date().toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
           elapsed: 0, status: 'nuevo',
           items: [
-            { id: 20, nombre: 'Clásica Comanda', cant: 2, extras: ['Panceta'], obs: '' },
-            { id: 21, nombre: 'Lomito simple', cant: 1, extras: ['Huevo frito', 'Queso'], obs: 'Bien tostado el pan' }
+            { id: 20, nombre: 'Clásica Comanda', cant: 2, extras: ['Panceta'], obs: '', station: 'cocina', kitchenStatus: 'pending' },
+            { id: 21, nombre: 'Lomito simple', cant: 1, extras: ['Huevo frito'], obs: 'Bien tostado el pan', station: 'cocina', kitchenStatus: 'pending' },
+            { id: 22, nombre: 'Coca-Cola', cant: 2, extras: [], obs: '', station: 'bar', kitchenStatus: 'pending' },
           ]
         };
         setTickets(prev => [incoming, ...prev]);
@@ -636,7 +915,6 @@ function App() {
     db.from('restaurants').select('id,name,logo_initials').eq('id', RESTAURANT_ID).maybeSingle()
       .then(({ data }) => { if (data) { setRestaurant(data); document.title = `Cocina — ${data.name}`; } });
 
-    // Cargar alertas de stock activas
     const loadStockAlerts = () => {
       db.from('stock_alerts')
         .select('id,alert_type,ingredient_id,current_value,created_at,ingredients(name,unit)')
@@ -665,38 +943,39 @@ function App() {
       setLoading(false);
     });
 
-    // Cargar últimas entregas (delivered en las últimas 2 horas)
-    if (db) {
-      const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-      db.from('orders')
-        .select('id,order_number,order_type,status,created_at,table_id,completed_at')
-        .eq('restaurant_id', RESTAURANT_ID)
-        .eq('status', 'delivered')
-        .gte('completed_at', since)
-        .order('completed_at', { ascending: false })
-        .limit(10)
-        .then(({ data: dOrds }) => {
-          if (!dOrds || dOrds.length === 0) return;
-          const tableIds = [...new Set(dOrds.map(o => o.table_id).filter(Boolean))];
-          const tableMap = {};
-          const fetchTables = tableIds.length > 0
-            ? db.from('tables').select('id,number').in('id', tableIds).then(({ data: t }) => { (t||[]).forEach(x => { tableMap[x.id] = x.number; }); })
-            : Promise.resolve();
-          fetchTables.then(() => {
-            const dTickets = dOrds.map(o => ({
+    // Cargar entregas recientes (últimas 2 horas)
+    const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    db.from('orders')
+      .select('id,order_number,order_type,status,created_at,table_id,completed_at')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('status', 'delivered')
+      .gte('completed_at', since)
+      .order('completed_at', { ascending: false })
+      .limit(10)
+      .then(({ data: dOrds }) => {
+        if (!dOrds || dOrds.length === 0) return;
+        const tableIds = [...new Set(dOrds.map(o => o.table_id).filter(Boolean))];
+        const tableMap = {};
+        const fetchTables = tableIds.length > 0
+          ? db.from('tables').select('id,number').in('id', tableIds).then(({ data: t }) => { (t||[]).forEach(x => { tableMap[x.id] = x.number; }); })
+          : Promise.resolve();
+        fetchTables.then(() => {
+          const dTickets = dOrds.map(o => {
+            const isLlevar = o.order_type === 'llevar';
+            return {
               id: o.order_number,
               _supabaseId: o.id,
-              mesa: o.table_id ? (tableMap[o.table_id] || '?') : '?',
-              tipo: o.order_type === 'llevar' ? 'llevar' : 'local',
+              mesa: isLlevar ? null : (o.table_id ? (tableMap[o.table_id] ?? null) : null),
+              tipo: isLlevar ? 'llevar' : 'local',
               hora: new Date(o.completed_at || o.created_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
               elapsed: Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000),
               status: 'entregado',
               items: [],
-            }));
-            setDelivered(dTickets);
+            };
           });
+          setDelivered(dTickets);
         });
-    }
+      });
 
     const fetchAndAddTicket = async (orderId) => {
       try {
@@ -710,7 +989,7 @@ function App() {
           if (tbl) tableMap[tbl.id] = tbl.number;
         }
         const { data: items } = await db.from('order_items')
-          .select('id,order_id,item_name,quantity,observations').eq('order_id', ord.id);
+          .select('id,order_id,item_name,quantity,observations,production_station,kitchen_status').eq('order_id', ord.id);
         const extrasMap = {};
         if ((items || []).length > 0) {
           const { data: extras } = await db.from('order_item_extras')
@@ -722,7 +1001,7 @@ function App() {
         }
         const fullOrder = {
           ...ord,
-          tables: ord.table_id ? { number: tableMap[ord.table_id] || null } : null,
+          tables: ord.table_id ? { number: tableMap[ord.table_id] ?? null } : null,
           order_items: (items || []).map(i => ({ ...i, order_item_extras: extrasMap[i.id] || [] }))
         };
         const ticket = orderToTicket(fullOrder);
@@ -795,11 +1074,27 @@ function App() {
     await dbDismissTicket(ticket._supabaseId);
   };
 
-  const nuevos     = sortByUrgency(tickets.filter(t => t.status === 'nuevo'));
-  const preparando = sortByUrgency(tickets.filter(t => t.status === 'preparando'));
-  const listos     = tickets.filter(t => t.status === 'listo');
-  const urgentes   = tickets.filter(t => urgencyLevel(t.elapsed, t.status) >= 2 && t.status !== 'listo').length;
-  const total      = tickets.filter(t => t.status !== 'listo').length;
+  // Filtrar por estación activa
+  const filtered = filterTicketsForStation(tickets, activeStation);
+  const nuevos     = sortByUrgency(filtered.filter(t => t.status === 'nuevo'));
+  const preparando = sortByUrgency(filtered.filter(t => t.status === 'preparando'));
+  const listos     = filtered.filter(t => t.status === 'listo');
+
+  const urgentes = tickets.filter(t => urgencyLevel(t.elapsed, t.status) >= 2 && t.status !== 'listo').length;
+  const total    = tickets.filter(t => t.status !== 'listo').length;
+
+  // Conteos por estación (para los tabs)
+  const ticketsByStation = STATIONS.reduce((acc, st) => {
+    if (st.key === 'todas') {
+      acc['todas'] = tickets.filter(t => t.status !== 'listo' && t.status !== 'entregado').length;
+    } else {
+      acc[st.key] = tickets.filter(t =>
+        t.status !== 'listo' && t.status !== 'entregado' &&
+        t.items.some(i => i.station === st.key || (!i.station && st.key === 'cocina'))
+      ).length;
+    }
+    return acc;
+  }, {});
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
@@ -833,13 +1128,14 @@ function App() {
           <Clock />
           <div style={{ display: 'flex', gap: 5, marginLeft: 4 }}>
             <Btn active={showStats} onClick={() => setShowStats(v => !v)} title="Estadísticas">STATS</Btn>
+            <Btn active={showFelicitaciones} onClick={() => setShowFelicitaciones(v => !v)} title="Felicitaciones de clientes">⭐</Btn>
             <Btn onClick={() => { const on = !soundOn; setSoundOn(on); if (on) playBeep('new'); }} title={soundOn ? 'Silenciar' : 'Activar sonido'}>
               {soundOn ? '🔔' : '🔕'}
             </Btn>
             <Btn onClick={toggleFullscreen} title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}>
               {isFullscreen ? '⊡' : '⛶'}
             </Btn>
-            <button onClick={toggleTheme} title="Cambiar tema" style={{width:32,height:32,borderRadius:6,background:C.card,border:`1px solid ${C.borderStrong}`,color:C.mid,fontSize:15,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <button onClick={toggleThemeFn} title="Cambiar tema" style={{width:32,height:32,borderRadius:6,background:C.card,border:`1px solid ${C.borderStrong}`,color:C.mid,fontSize:15,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
               {document.documentElement.getAttribute('data-theme')==='dark'?'☀️':'🌙'}
             </button>
           </div>
@@ -857,16 +1153,16 @@ function App() {
         </div>
       )}
 
-      {/* Stock alerts banner */}
+      {/* Stock alerts */}
       {stockAlerts.length > 0 && (
         <div style={{ margin: '10px 20px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {stockAlerts.map(al => {
-            const isExpired   = al.alert_type === 'expired';
-            const isExpiring  = al.alert_type === 'expiring_soon';
+            const isExpired  = al.alert_type === 'expired';
+            const isExpiring = al.alert_type === 'expiring_soon';
             const borderColor = isExpired ? '#EF4444' : '#F97316';
             const bgColor     = isExpired ? 'rgba(239,68,68,0.07)' : 'rgba(249,115,22,0.07)';
-            const icon        = isExpired ? '💀' : isExpiring ? '📅' : '🔴';
-            const label       = isExpired ? 'VENCIDO' : isExpiring ? 'POR VENCER' : 'STOCK CRÍTICO';
+            const icon  = isExpired ? '💀' : isExpiring ? '📅' : '🔴';
+            const label = isExpired ? 'VENCIDO' : isExpiring ? 'POR VENCER' : 'STOCK CRÍTICO';
             return (
               <div key={al.id} style={{ background: bgColor, border: `1px solid ${borderColor}40`, borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 14 }}>{icon}</span>
@@ -888,7 +1184,7 @@ function App() {
           <div style={{ margin: '10px 20px 0', background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, animation: 'slideIn 300ms ease' }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.white, animation: 'pulse 0.8s ease infinite', flexShrink: 0 }} />
             <span style={{ fontSize: 13, fontWeight: 700, color: C.white }}>Nuevo pedido</span>
-            {t && <span style={{ fontSize: 12, color: C.mid }}>— Mesa {t.mesa} · {t.tipo === 'llevar' ? 'Para llevar · ' : ''}{t.items.length} items</span>}
+            {t && <span style={{ fontSize: 12, color: C.mid }}>— {mesaLabel(t)} · {t.items.length} ítems</span>}
           </div>
         );
       })()}
@@ -896,35 +1192,32 @@ function App() {
       {/* Stats */}
       {showStats && <div style={{ paddingTop: 14 }}><StatsPanel tickets={tickets} /></div>}
 
+      {/* Station filter tabs */}
+      <div style={{ paddingTop: 12 }}>
+        <StationTabs active={activeStation} onChange={setActiveStation} ticketsByStation={ticketsByStation} />
+      </div>
+
       {/* Board 4 columnas */}
-      <div style={{ flex: 1, padding: '14px 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, alignItems: 'start', overflowY: 'auto' }}>
+      <div style={{ flex: 1, padding: '0 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, alignItems: 'start', overflowY: 'auto' }}>
         <Column title="Nuevo"      tickets={nuevos}     count={nuevos.length}     onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.nuevo}      emptyMsg="Sin pedidos nuevos" />
         <Column title="Preparando" tickets={preparando}  count={preparando.length} onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.preparando}  emptyMsg="Cocina libre" />
         <Column title="Listo"      tickets={listos}      count={listos.length}     onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.listo}       emptyMsg="Nada listo aún" />
         <Column title="Entregado"  tickets={delivered}   count={delivered.length}  onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.entregado}   emptyMsg="Entregas de hoy" />
       </div>
 
-      {/* Diagnóstico */}
-      {db && diag && (
+      {/* Diagnóstico (oculto por defecto — solo visible si hay error) */}
+      {db && diag && diag.error && (
         <div style={{ margin: '0 20px 20px', background: '#0D1117', border: '1px solid #1A1A1A', borderRadius: 10, padding: '10px 14px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
-          <div style={{ color: '#333', marginBottom: 5, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Diagnóstico</div>
+          <div style={{ color: '#555', marginBottom: 5, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Diagnóstico</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 14px' }}>
             <span style={{ color: '#333' }}>URL:</span><span style={{ color: '#555' }}>{diag.url}…</span>
-            <span style={{ color: '#333' }}>Restaurant:</span><span style={{ color: '#555' }}>{diag.restaurantId}</span>
-            {diag.error
-              ? <><span style={{ color: '#EF4444' }}>ERROR:</span><span style={{ color: '#F87171' }}>{diag.error}</span></>
-              : <>
-                <span style={{ color: '#333' }}>Pedidos DB:</span>
-                <span style={{ color: diag.allOrders > 0 ? '#22C55E' : '#F59E0B' }}>{diag.allOrders ?? '…'}{diag.allOrders === 0 ? ' — ningún pedido aún' : ''}</span>
-                {diag.statusBreakdown && Object.keys(diag.statusBreakdown).length > 0 && (
-                  <><span style={{ color: '#333' }}>Por estado:</span>
-                  <span style={{ color: '#555' }}>{Object.entries(diag.statusBreakdown).map(([s, n]) => `${s}: ${n}`).join(' · ')}</span></>
-                )}
-              </>
-            }
+            <span style={{ color: '#EF4444' }}>ERROR:</span><span style={{ color: '#F87171' }}>{diag.error}</span>
           </div>
         </div>
       )}
+
+      {/* Panel de felicitaciones */}
+      {showFelicitaciones && <FelicitacionesPanel onClose={() => setShowFelicitaciones(false)} />}
     </div>
   );
 }
