@@ -11,8 +11,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{background:#080810;color:#e8e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
-    ::-webkit-scrollbar{width:6px}
+    html,body,#root{height:100%}
+    body{background:#080810;color:#e8e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    ::-webkit-scrollbar{width:6px;height:6px}
     ::-webkit-scrollbar-track{background:#0d0d14}
     ::-webkit-scrollbar-thumb{background:#2a2a40;border-radius:3px}
     input,select,textarea{background:#1a1a24;border:1px solid #2a2a40;color:#e8e8f0;padding:8px 12px;border-radius:6px;font-size:14px;width:100%;outline:none}
@@ -24,6 +25,7 @@
     .animate-in{animation:fadeIn .25s ease both}
     .spin{animation:spin 1s linear infinite}
     .pulse{animation:pulse 2s ease infinite}
+    .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   </style>
 </head>
 <body>
@@ -32,12 +34,6 @@
 function initTheme() {
   const saved = localStorage.getItem('mesa_theme') || 'dark';
   document.documentElement.setAttribute('data-theme', saved);
-}
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  const next = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('mesa_theme', next);
 }
 initTheme();
 </script>
@@ -75,32 +71,32 @@ const _initDB = () => {
 };
 const db = _initDB();
 
-// ── Demo data (fallback sin Supabase) ────────────────────────
+// ── Demo data ────────────────────────────────────────────────
 const DEMO = {
   restaurants:[
-    {id:'r1',name:'La Huaca',city:'Asunción',country:'Paraguay',status:'active',owner_name:'Carlos Gómez',owner_email:'carlos@lahuaca.com.py',owner_phone:'+595 981 123 456',onboarding_date:'2026-01-15',notes:'Cliente ancla'},
-    {id:'r2',name:'El Mercado',city:'Lambaré',country:'Paraguay',status:'active',owner_name:'Sofía Benítez',owner_email:'sofia@elmercadopy.com',owner_phone:'+595 982 200 100',onboarding_date:'2026-02-10',notes:null},
-    {id:'r3',name:'Don Julio Parrilla',city:'Asunción',country:'Paraguay',status:'trial',owner_name:'Julio Fernández',owner_email:'julio@donjulio.com.py',owner_phone:'+595 991 330 220',onboarding_date:'2026-04-20',notes:'Trial 14 días'},
-    {id:'r4',name:'Café Central',city:'Ciudad del Este',country:'Paraguay',status:'suspended',owner_name:'Andrea Sosa',owner_email:'andrea@cafecentral.py',owner_phone:'+595 985 440 330',onboarding_date:'2025-11-01',notes:'Suspendido por falta de pago'},
+    {id:'r1',name:'La Huaca',city:'Asunción',country:'Paraguay',status:'active',address:'Mcal. Estigarribia 1234',phone:'+595 21 555 0100',email:'contacto@lahuaca.com.py',owner_name:'Carlos Gómez',owner_email:'carlos@lahuaca.com.py',owner_phone:'+595 981 123 456',onboarding_date:'2026-01-15',notes:'Cliente ancla',ruc:'80000001-1',legal_name:'La Huaca S.A.'},
+    {id:'r2',name:'El Mercado',city:'Lambaré',country:'Paraguay',status:'active',address:'Av. Santa Teresa 1230',phone:'+595 21 555 0200',email:'info@elmercadopy.com',owner_name:'Sofía Benítez',owner_email:'sofia@elmercadopy.com',owner_phone:'+595 982 200 100',onboarding_date:'2026-02-10',notes:null,ruc:'80000002-2',legal_name:null},
+    {id:'r3',name:'Don Julio Parrilla',city:'Asunción',country:'Paraguay',status:'trial',address:'Mcal. López 4590',phone:'+595 21 600 8800',email:'julio@donjulio.com.py',owner_name:'Julio Fernández',owner_email:'julio@donjulio.com.py',owner_phone:'+595 991 330 220',onboarding_date:'2026-04-20',notes:'Trial 14 días',ruc:null,legal_name:null},
+    {id:'r4',name:'Café Central',city:'Ciudad del Este',country:'Paraguay',status:'suspended',address:'Palma 580',phone:'+595 61 777 3300',email:'andrea@cafecentral.py',owner_name:'Andrea Sosa',owner_email:'andrea@cafecentral.py',owner_phone:'+595 985 440 330',onboarding_date:'2025-11-01',notes:'Suspendido por falta de pago',ruc:'80000004-4',legal_name:'Café Central EIRL'},
   ],
   plans:[
-    {id:'p1',name:'Starter',price_usd:29,billing_cycle:'monthly'},
-    {id:'p2',name:'Pro',price_usd:59,billing_cycle:'monthly'},
-    {id:'p3',name:'Enterprise',price_usd:119,billing_cycle:'monthly'},
+    {id:'p1',name:'Starter',price_usd:29,billing_cycle:'monthly',max_tables:5,max_menu_items:30,features:['Pedidos QR','KDS cocina','Analytics básico'],is_active:true},
+    {id:'p2',name:'Pro',price_usd:59,billing_cycle:'monthly',max_tables:15,max_menu_items:100,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones'],is_active:true},
+    {id:'p3',name:'Enterprise',price_usd:119,billing_cycle:'monthly',max_tables:50,max_menu_items:500,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones','Soporte prioritario','Branding propio'],is_active:true},
   ],
   subscriptions:[
-    {id:'s1',restaurant_id:'r1',plan_id:'p2',status:'active',start_date:'2026-04-01',end_date:'2026-05-01',auto_renew:true,payment_method:'transferencia',plan:{name:'Pro',price_usd:59}},
-    {id:'s2',restaurant_id:'r2',plan_id:'p2',status:'active',start_date:'2026-04-10',end_date:'2026-05-10',auto_renew:true,payment_method:'tarjeta',plan:{name:'Pro',price_usd:59}},
-    {id:'s3',restaurant_id:'r3',plan_id:'p1',status:'trial',start_date:'2026-04-20',end_date:'2026-05-04',auto_renew:false,payment_method:'manual',plan:{name:'Starter',price_usd:29}},
-    {id:'s4',restaurant_id:'r4',plan_id:'p2',status:'suspended',start_date:'2025-11-01',end_date:'2026-04-30',auto_renew:false,payment_method:'transferencia',plan:{name:'Pro',price_usd:59}},
+    {id:'s1',restaurant_id:'r1',plan_id:'p2',status:'active',start_date:'2026-04-01',end_date:'2026-06-01',auto_renew:true,payment_method:'transferencia',monthly_amount:59,plan:{name:'Pro',price_usd:59}},
+    {id:'s2',restaurant_id:'r2',plan_id:'p2',status:'active',start_date:'2026-04-10',end_date:'2026-06-10',auto_renew:true,payment_method:'tarjeta',monthly_amount:59,plan:{name:'Pro',price_usd:59}},
+    {id:'s3',restaurant_id:'r3',plan_id:'p1',status:'trial',start_date:'2026-04-20',end_date:'2026-05-20',auto_renew:false,payment_method:'manual',monthly_amount:29,plan:{name:'Starter',price_usd:29}},
+    {id:'s4',restaurant_id:'r4',plan_id:'p2',status:'suspended',start_date:'2025-11-01',end_date:'2026-04-30',auto_renew:false,payment_method:'transferencia',monthly_amount:59,plan:{name:'Pro',price_usd:59}},
   ],
   orders:[
-    {id:'o1',restaurant_id:'r1',total:95000,created_at:'2026-04-30T12:00:00',status:'delivered'},
-    {id:'o2',restaurant_id:'r1',total:42000,created_at:'2026-04-30T13:30:00',status:'delivered'},
-    {id:'o3',restaurant_id:'r1',total:78000,created_at:'2026-04-29T19:00:00',status:'delivered'},
-    {id:'o4',restaurant_id:'r2',total:56000,created_at:'2026-04-30T11:00:00',status:'delivered'},
-    {id:'o5',restaurant_id:'r2',total:89000,created_at:'2026-04-29T20:00:00',status:'delivered'},
-    {id:'o6',restaurant_id:'r3',total:35000,created_at:'2026-04-30T12:30:00',status:'paid'},
+    {id:'o1',restaurant_id:'r1',total:95000,created_at:'2026-05-16T12:00:00',status:'delivered'},
+    {id:'o2',restaurant_id:'r1',total:42000,created_at:'2026-05-16T13:30:00',status:'delivered'},
+    {id:'o3',restaurant_id:'r1',total:78000,created_at:'2026-05-15T19:00:00',status:'delivered'},
+    {id:'o4',restaurant_id:'r2',total:56000,created_at:'2026-05-16T11:00:00',status:'delivered'},
+    {id:'o5',restaurant_id:'r2',total:89000,created_at:'2026-05-15T20:00:00',status:'delivered'},
+    {id:'o6',restaurant_id:'r3',total:35000,created_at:'2026-05-16T12:30:00',status:'paid'},
   ],
   ratings:[
     {restaurant_id:'r1',stars:5},{restaurant_id:'r1',stars:4},{restaurant_id:'r1',stars:5},
@@ -113,23 +109,23 @@ const DEMO = {
     {id:'e3',restaurant_id:'r2',event_type:'onboarding',description:'Alta en plataforma — Plan Pro',created_at:'2026-02-10T11:30:00',restaurant:{name:'El Mercado'}},
     {id:'e4',restaurant_id:'r3',event_type:'onboarding',description:'Alta — Trial 14 días Starter',created_at:'2026-04-20T09:15:00',restaurant:{name:'Don Julio Parrilla'}},
     {id:'e5',restaurant_id:'r4',event_type:'status_changed',description:'Cuenta suspendida por falta de pago',created_at:'2026-04-30T09:00:00',restaurant:{name:'Café Central'}},
+    {id:'e6',restaurant_id:'r1',event_type:'plan_changed',description:'Cambio a Plan Pro desde Starter',created_at:'2026-03-01T10:00:00',restaurant:{name:'La Huaca'}},
   ],
 };
 
 // ── Utils ────────────────────────────────────────────────────
 const daysUntil = d => {
   if (!d) return null;
-  const diff = new Date(d) - new Date();
-  return Math.ceil(diff / 86400000);
+  return Math.ceil((new Date(d) - new Date()) / 86400000);
 };
 const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'short',year:'numeric'}) : '—';
 const fmtDateTime = d => d ? new Date(d).toLocaleString('es-PY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
-const fmtGuarani = n => n ? `₲ ${Number(n).toLocaleString('es-PY')}` : '₲ 0';
-const fmtUSD = n => `$${Number(n).toFixed(2)}`;
+const fmtGuarani = n => n ? `₲ ${Number(n).toLocaleString('es-PY')}` : '₲ 0';
+const fmtUSD = n => `$${Number(n||0).toFixed(2)}`;
 const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
 
 const daysBadge = days => {
-  if (days === null) return {label:'—', color:C.mid, bg:'#1a1a1a'};
+  if (days === null) return {label:'—', color:C.mid, bg:'transparent'};
   if (days < 0)  return {label:'Vencido', color:C.red, bg:'#2a1010'};
   if (days === 0) return {label:'Vence hoy', color:C.red, bg:'#2a1010'};
   if (days <= 6) return {label:`${days}d`, color:C.red, bg:'#2a1010'};
@@ -144,6 +140,7 @@ const statusMeta = {
   inactive:  {label:'Inactivo',  color:C.mid,    bg:'#1a1a1a'},
   expired:   {label:'Vencido',   color:C.red,    bg:'#2a1010'},
   cancelled: {label:'Cancelado', color:C.mid,    bg:'#1a1a1a'},
+  past_due:  {label:'Mora',      color:C.orange, bg:'#2a1808'},
 };
 
 const eventMeta = {
@@ -153,7 +150,12 @@ const eventMeta = {
   status_changed:       {label:'Estado',      color:C.yellow, icon:'⚡'},
   note_added:           {label:'Nota',        color:C.mid,    icon:'📝'},
   plan_changed:         {label:'Plan',        color:C.purple, icon:'📋'},
+  user_created:         {label:'Usuario',     color:C.cyan,   icon:'👤'},
+  payment_received:     {label:'Pago',        color:C.green,  icon:'💰'},
 };
+
+const ALL_ROLES = ['superadmin','admin','cajero','cocina','mozo','delivery'];
+const ROLE_COLORS = {superadmin:C.purple, admin:C.blue, cajero:C.cyan, cocina:C.orange, mozo:C.green, delivery:C.yellow};
 
 // ── Componentes base ─────────────────────────────────────────
 const Btn = ({children,onClick,variant='primary',size='md',disabled,style:sx={}}) => {
@@ -164,82 +166,100 @@ const Btn = ({children,onClick,variant='primary',size='md',disabled,style:sx={}}
     ghost:   {background:'transparent',color:C.mid,border:`1px solid ${C.border}`},
     danger:  {background:'#2a1010',color:C.red,border:`1px solid #3a1a1a`},
     success: {background:'#102a10',color:C.green,border:`1px solid #1a3a1a`},
+    warn:    {background:'#2a1808',color:C.orange,border:`1px solid #3a2010`},
   };
   return <button style={{...base,...sz,...vars[variant]}} onClick={disabled?undefined:onClick}>{children}</button>;
 };
 
 const Badge = ({status}) => {
   const m = statusMeta[status]||{label:status,color:C.mid,bg:'#1a1a1a'};
-  return <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:m.bg,color:m.color}}>{m.label}</span>;
+  return <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:m.bg,color:m.color,whiteSpace:'nowrap'}}>{m.label}</span>;
 };
 
 const PlanBadge = ({name}) => {
+  if (!name) return <span style={{color:C.dim,fontSize:11}}>—</span>;
   const colors = {Starter:{c:C.cyan,bg:'#0a2030'},Pro:{c:C.blue,bg:'#1a1a3a'},Enterprise:{c:C.purple,bg:'#2a1040'}};
   const m = colors[name]||{c:C.mid,bg:'#1a1a1a'};
-  return <span style={{padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:m.bg,color:m.c}}>{name||'—'}</span>;
+  return <span style={{padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:m.bg,color:m.c,whiteSpace:'nowrap'}}>{name}</span>;
 };
 
 const Kpi = ({label,value,sub,accent,icon}) => (
-  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'20px 24px',flex:1,minWidth:160}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-      <div>
-        <div style={{fontSize:12,color:C.mid,fontWeight:500,marginBottom:6}}>{label}</div>
-        <div style={{fontSize:28,fontWeight:700,color:accent||C.ink,lineHeight:1}}>{value}</div>
-        {sub && <div style={{fontSize:12,color:C.mid,marginTop:6}}>{sub}</div>}
+  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'18px 20px',flex:'1 1 140px',minWidth:130}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+      <div style={{minWidth:0}}>
+        <div style={{fontSize:11,color:C.mid,fontWeight:500,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>{label}</div>
+        <div style={{fontSize:24,fontWeight:700,color:accent||C.ink,lineHeight:1}}>{value}</div>
+        {sub && <div style={{fontSize:11,color:C.mid,marginTop:5}}>{sub}</div>}
       </div>
-      {icon && <div style={{fontSize:24,opacity:.7}}>{icon}</div>}
+      {icon && <div style={{fontSize:22,opacity:.7,flexShrink:0}}>{icon}</div>}
     </div>
   </div>
 );
 
 const FlashMsg = ({msg,onClose}) => {
-  useEffect(()=>{if(msg){const t=setTimeout(onClose,3500);return()=>clearTimeout(t);}}, [msg]);
+  useEffect(()=>{ if(msg){const t=setTimeout(onClose,3800);return()=>clearTimeout(t);} },[msg]);
   if(!msg) return null;
   const color = msg.type==='error'?C.red:msg.type==='warn'?C.yellow:C.green;
   return (
-    <div style={{position:'fixed',bottom:24,right:24,background:C.card,border:`1px solid ${color}`,borderRadius:8,padding:'12px 18px',color,fontSize:14,fontWeight:500,zIndex:9999,maxWidth:360,boxShadow:'0 8px 32px #00000080'}}>
-      {msg.text}
-      <span onClick={onClose} style={{marginLeft:12,opacity:.6,cursor:'pointer'}}>✕</span>
+    <div style={{position:'fixed',bottom:24,right:24,background:C.card,border:`1px solid ${color}`,borderRadius:8,padding:'12px 18px',color,fontSize:14,fontWeight:500,zIndex:9999,maxWidth:380,boxShadow:'0 8px 32px #00000080',display:'flex',alignItems:'center',gap:12}}>
+      <span style={{flex:1}}>{msg.text}</span>
+      <span onClick={onClose} style={{opacity:.6,cursor:'pointer',flexShrink:0}}>✕</span>
     </div>
   );
 };
 
-const Modal = ({title,onClose,children,width=520}) => (
-  <div style={{position:'fixed',inset:0,background:'#00000090',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:16}} onClick={e=>e.target===e.currentTarget&&onClose()}>
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,width:'100%',maxWidth:width,maxHeight:'90vh',overflowY:'auto',boxShadow:'0 24px 64px #00000080'}} className="animate-in">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 24px',borderBottom:`1px solid ${C.border}`}}>
-        <span style={{fontWeight:700,fontSize:16}}>{title}</span>
-        <button onClick={onClose} style={{background:'none',border:'none',color:C.mid,fontSize:20,cursor:'pointer',lineHeight:1}}>✕</button>
+const Modal = ({title,onClose,children,width=540}) => (
+  <div style={{position:'fixed',inset:0,background:'#00000094',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:'16px'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,width:'100%',maxWidth:width,maxHeight:'calc(100vh - 32px)',overflowY:'auto',boxShadow:'0 24px 64px #00000080',display:'flex',flexDirection:'column'}} className="animate-in">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:1,flexShrink:0}}>
+        <span style={{fontWeight:700,fontSize:15,color:C.ink}}>{title}</span>
+        <button onClick={onClose} style={{background:'none',border:'none',color:C.mid,fontSize:20,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>✕</button>
       </div>
-      <div style={{padding:24}}>{children}</div>
+      <div style={{padding:24,overflowY:'auto'}}>{children}</div>
     </div>
   </div>
 );
 
-const FormField = ({label,children,hint}) => (
-  <div style={{marginBottom:16}}>
-    <label style={{display:'block',fontSize:12,color:C.mid,fontWeight:600,marginBottom:6}}>{label}</label>
+const FormField = ({label,children,hint,col}) => (
+  <div style={{marginBottom:14,gridColumn:col}}>
+    <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>{label}</label>
     {children}
     {hint && <div style={{fontSize:11,color:C.dim,marginTop:4}}>{hint}</div>}
   </div>
 );
 
-const Th = ({children,style:sx={}}) => <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.5,whiteSpace:'nowrap',...sx}}>{children}</th>;
-const Td = ({children,style:sx={}}) => <td style={{padding:'12px 14px',fontSize:13,borderTop:`1px solid ${C.border}`,...sx}}>{children}</td>;
+const Th = ({children,style:sx={}}) => <th style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.5,whiteSpace:'nowrap',background:C.surface,...sx}}>{children}</th>;
+const Td = ({children,style:sx={}}) => <td style={{padding:'11px 14px',fontSize:13,borderTop:`1px solid ${C.border}`,...sx}}>{children}</td>;
 
 const BarRow = ({label,value,max,fmt,color=C.blue}) => (
   <div style={{marginBottom:10}}>
     <div style={{display:'flex',justifyContent:'space-between',marginBottom:4,fontSize:13}}>
-      <span style={{color:C.ink}}>{label}</span>
-      <span style={{color:C.mid,fontWeight:600}}>{fmt(value)}</span>
+      <span style={{color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'60%'}}>{label}</span>
+      <span style={{color:C.mid,fontWeight:600,flexShrink:0}}>{fmt(value)}</span>
     </div>
     <div style={{background:C.border,borderRadius:4,height:6,overflow:'hidden'}}>
-      <div style={{background:color,height:6,borderRadius:4,width:`${Math.min(100,(value/max)*100)}%`,transition:'width .5s ease'}}/>
+      <div style={{background:color,height:6,borderRadius:4,width:`${Math.min(100,max>0?(value/max)*100:0)}%`,transition:'width .5s ease'}}/>
     </div>
   </div>
 );
 
-const Spinner = () => <div style={{width:24,height:24,border:`2px solid ${C.border}`,borderTop:`2px solid ${C.blue}`,borderRadius:'50%'}} className="spin"/>;
+const Spinner = () => <div style={{width:24,height:24,border:`2px solid ${C.border}`,borderTop:`2px solid ${C.blue}`,borderRadius:'50%',flexShrink:0}} className="spin"/>;
+
+const SectionCard = ({title,action,children}) => (
+  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+    {(title||action)&&<div style={{padding:'12px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      {title&&<span style={{fontWeight:600,fontSize:13,color:C.ink}}>{title}</span>}
+      {action}
+    </div>}
+    {children}
+  </div>
+);
+
+const FilterBtn = ({active,onClick,children}) => (
+  <button onClick={onClick} style={{padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:600,border:`1px solid ${active?C.blue:C.border}`,background:active?C.blueDim:'transparent',color:active?C.blue:C.mid,cursor:'pointer',transition:'all .15s',whiteSpace:'nowrap'}}>
+    {children}
+  </button>
+);
 
 // ── Analytics helpers ────────────────────────────────────────
 function buildAnalytics(restaurants, orders, ratings, subscriptions, plans) {
@@ -248,41 +268,53 @@ function buildAnalytics(restaurants, orders, ratings, subscriptions, plans) {
   const todayStr = now.toISOString().slice(0,10);
 
   return restaurants.map(r => {
-    const rOrders = orders.filter(o => o.restaurant_id === r.id);
-    const recent  = rOrders.filter(o => o.created_at >= ago30);
+    const rOrders     = orders.filter(o => o.restaurant_id === r.id);
+    const recent      = rOrders.filter(o => (o.created_at||'') >= ago30);
     const todayOrders = rOrders.filter(o => (o.created_at||'').slice(0,10) === todayStr);
     const revenue30   = recent.reduce((s,o)=>s+(Number(o.total)||0),0);
     const rRatings    = ratings.filter(x=>x.restaurant_id===r.id).map(x=>x.stars);
     const rSub        = subscriptions.find(s=>s.restaurant_id===r.id);
     const plan        = rSub?.plan || (rSub ? plans.find(p=>p.id===rSub.plan_id) : null);
-    const days        = rSub ? daysUntil(rSub.end_date) : null;
     return {
       ...r,
-      orders30:  recent.length,
-      ordersToday: todayOrders.length,
+      orders30:     recent.length,
+      ordersToday:  todayOrders.length,
       revenue30,
-      avgRating: rRatings.length ? +(avg(rRatings).toFixed(1)) : null,
+      avgRating:    rRatings.length ? +(avg(rRatings).toFixed(1)) : null,
       subscription: rSub,
       plan,
-      daysLeft: days,
+      daysLeft:     rSub ? daysUntil(rSub.end_date) : null,
     };
   });
 }
 
-// ── Página: Plataforma (Overview) ───────────────────────────
-function PageOverview({enriched, events, plans, setFlash, reload}) {
-  const activos = enriched.filter(r=>r.status==='active').length;
-  const alertas = enriched.filter(r=>r.daysLeft!==null && r.daysLeft>=0 && r.daysLeft<=6).length;
-  const mrr     = enriched.reduce((s,r)=>s+(r.status!=='suspended'&&r.status!=='inactive'&&r.plan?Number(r.plan.price_usd):0),0);
+// ── Página: Plataforma (Overview) ────────────────────────────
+function PageOverview({enriched, events, plans, setFlash, reload, setPage}) {
+  const activos    = enriched.filter(r=>r.status==='active').length;
+  const trials     = enriched.filter(r=>r.status==='trial').length;
+  const suspendidos= enriched.filter(r=>r.status==='suspended').length;
+  const alertas    = enriched.filter(r=>r.daysLeft!==null&&r.daysLeft>=0&&r.daysLeft<=6).length;
+  const mrr        = enriched.reduce((s,r)=>s+(['active','trial'].includes(r.status)&&r.plan?Number(r.plan.price_usd):0),0);
   const pedidosHoy = enriched.reduce((s,r)=>s+r.ordersToday,0);
-  const top = [...enriched].sort((a,b)=>b.revenue30-a.revenue30)[0];
+  const pedidos30  = enriched.reduce((s,r)=>s+r.orders30,0);
+  const vol30      = enriched.reduce((s,r)=>s+r.revenue30,0);
+  const expirando  = enriched.filter(r=>r.daysLeft!==null&&r.daysLeft>=0&&r.daysLeft<=7&&r.status!=='suspended');
+  const top        = [...enriched].sort((a,b)=>b.revenue30-a.revenue30)[0];
 
-  const expirando = enriched.filter(r=>r.daysLeft!==null&&r.daysLeft>=0&&r.daysLeft<=7&&r.status!=='suspended');
+  const toggleStatus = async r => {
+    const next = r.status==='active'?'suspended':(r.status==='suspended'?'active':r.status);
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    const {error} = await db.from('restaurants').update({status:next}).eq('id',r.id);
+    if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
+    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'status_changed',description:`Estado cambiado a ${next}`});
+    setFlash({type:'ok',text:`${r.name} → ${next}`});
+    reload();
+  };
 
   return (
     <div className="animate-in">
       {expirando.length>0&&(
-        <div style={{background:'#1a0a0a',border:`1px solid ${C.red}40`,borderRadius:8,padding:'12px 18px',marginBottom:24,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+        <div style={{background:'#1a0a0a',border:`1px solid ${C.red}40`,borderRadius:8,padding:'12px 18px',marginBottom:20,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
           <span style={{color:C.red,fontWeight:700,fontSize:13}}>⚠ Suscripciones por vencer</span>
           {expirando.map(r=>(
             <span key={r.id} style={{background:'#2a1010',border:`1px solid ${C.red}40`,borderRadius:20,padding:'3px 12px',fontSize:12,color:C.red}}>
@@ -292,72 +324,86 @@ function PageOverview({enriched, events, plans, setFlash, reload}) {
         </div>
       )}
 
-      <div style={{display:'flex',gap:16,marginBottom:24,flexWrap:'wrap'}}>
-        <Kpi label="Restaurantes activos"  value={activos}       sub={`de ${enriched.length} totales`}   icon="🏪" />
-        <Kpi label="MRR"                   value={fmtUSD(mrr)}   sub="ingresos mensuales recurrentes"     icon="💰" accent={C.green}/>
-        <Kpi label="Pedidos hoy"           value={pedidosHoy}    sub="en todos los locales"               icon="📦" accent={C.cyan}/>
-        <Kpi label="Alertas"               value={alertas}       sub="vencen en ≤ 7 días"                 icon="🔔" accent={alertas>0?C.red:C.mid}/>
+      {/* KPIs */}
+      <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
+        <Kpi label="Restaurantes activos"  value={activos}          sub={`de ${enriched.length} totales`}    icon="🏪"/>
+        <Kpi label="Trial"                 value={trials}           sub="periodo de prueba"                  icon="⏳" accent={C.cyan}/>
+        <Kpi label="Suspendidos"           value={suspendidos}      sub="sin acceso operativo"               icon="⛔" accent={suspendidos>0?C.red:C.mid}/>
+        <Kpi label="MRR"                   value={fmtUSD(mrr)}      sub="ingresos mensuales recurrentes"     icon="💰" accent={C.green}/>
+        <Kpi label="Pedidos hoy"           value={pedidosHoy}       sub="todos los locales"                  icon="📦" accent={C.cyan}/>
+        <Kpi label="Pedidos 30 días"       value={pedidos30}        sub={`₲ ${Number(vol30).toLocaleString('es-PY')} vol.`} icon="📈" accent={C.blue}/>
+        <Kpi label="Alertas"               value={alertas}          sub="vencen en ≤ 7 días"                 icon="🔔" accent={alertas>0?C.red:C.mid}/>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:20,alignItems:'start'}}>
-        {/* tabla resumen */}
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-          <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,fontWeight:600,fontSize:13}}>Ecosistemas — resumen rápido</div>
-          <table style={{width:'100%',borderCollapse:'collapse'}}>
-            <thead style={{background:C.surface}}>
-              <tr><Th>Local</Th><Th>Plan</Th><Th>Estado</Th><Th>Días</Th><Th>Pedidos 30d</Th><Th>Rating</Th></tr>
-            </thead>
-            <tbody>
-              {enriched.map(r=>{
-                const db2 = daysBadge(r.daysLeft);
-                return (
-                  <tr key={r.id}>
-                    <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
-                    <Td><PlanBadge name={r.plan?.name}/></Td>
-                    <Td><Badge status={r.status}/></Td>
-                    <Td><span style={{color:db2.color,fontWeight:600,fontSize:12}}>{db2.label}</span></Td>
-                    <Td><span style={{fontWeight:600}}>{r.orders30}</span></Td>
-                    <Td>{r.avgRating?<span style={{color:C.yellow}}>{'★'.repeat(Math.round(r.avgRating))} {r.avgRating}</span>:<span style={{color:C.dim}}>—</span>}</Td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:18,alignItems:'start'}}>
+        {/* Tabla resumen */}
+        <SectionCard title="Ecosistemas — resumen">
+          <div className="tbl-wrap">
+            <table style={{width:'100%',borderCollapse:'collapse',minWidth:600}}>
+              <thead><tr>
+                <Th>Local</Th><Th>Plan</Th><Th>Estado</Th><Th>Días</Th>
+                <Th>Pedidos 30d</Th><Th>Rating</Th><Th>Acciones</Th>
+              </tr></thead>
+              <tbody>
+                {enriched.map(r=>{
+                  const db2 = daysBadge(r.daysLeft);
+                  return (
+                    <tr key={r.id} onMouseEnter={e=>e.currentTarget.style.background=C.surface} onMouseLeave={e=>e.currentTarget.style.background=''} style={{transition:'background .1s'}}>
+                      <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
+                      <Td><PlanBadge name={r.plan?.name}/></Td>
+                      <Td><Badge status={r.status}/></Td>
+                      <Td><span style={{color:db2.color,fontWeight:600,fontSize:12,background:db2.bg,padding:'2px 7px',borderRadius:10}}>{db2.label}</span></Td>
+                      <Td style={{fontWeight:600}}>{r.orders30}</Td>
+                      <Td>{r.avgRating?<span style={{color:C.yellow}}>★ {r.avgRating}</span>:<span style={{color:C.dim}}>—</span>}</Td>
+                      <Td>
+                        <div style={{display:'flex',gap:4}}>
+                          <a href={`admin.html`} target="_blank" rel="noreferrer"><Btn size="sm" variant="ghost">Admin</Btn></a>
+                          <Btn size="sm" variant={r.status==='active'?'danger':'success'} onClick={()=>toggleStatus(r)}>
+                            {r.status==='active'?'Suspender':'Activar'}
+                          </Btn>
+                        </div>
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
 
-        {/* panel derecho */}
+        {/* Panel lateral */}
         <div style={{display:'flex',flexDirection:'column',gap:16}}>
           {top&&(
-            <div style={{background:C.card,border:`1px solid ${C.blue}40`,borderRadius:10,padding:20}}>
-              <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:8}}>🏆 MÁS PRODUCTIVO (30 DÍAS)</div>
-              <div style={{fontSize:18,fontWeight:700,color:C.ink}}>{top.name}</div>
-              <div style={{fontSize:13,color:C.mid,marginTop:4}}>{top.city}</div>
-              <div style={{marginTop:14,display:'flex',gap:20}}>
-                <div><div style={{fontSize:11,color:C.mid}}>Ingresos</div><div style={{fontWeight:700,color:C.green,fontSize:16}}>{fmtGuarani(top.revenue30)}</div></div>
-                <div><div style={{fontSize:11,color:C.mid}}>Pedidos</div><div style={{fontWeight:700,color:C.cyan,fontSize:16}}>{top.orders30}</div></div>
-                <div><div style={{fontSize:11,color:C.mid}}>Rating</div><div style={{fontWeight:700,color:C.yellow,fontSize:16}}>{top.avgRating||'—'}</div></div>
+            <div style={{background:C.card,border:`1px solid ${C.blue}40`,borderRadius:10,padding:18}}>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>🏆 Más productivo (30d)</div>
+              <div style={{fontSize:17,fontWeight:700}}>{top.name}</div>
+              <div style={{fontSize:12,color:C.mid,marginTop:3}}>{top.city}</div>
+              <div style={{marginTop:14,display:'flex',gap:16}}>
+                <div><div style={{fontSize:10,color:C.mid,textTransform:'uppercase'}}>Ingresos</div><div style={{fontWeight:700,color:C.green,fontSize:15}}>{fmtGuarani(top.revenue30)}</div></div>
+                <div><div style={{fontSize:10,color:C.mid,textTransform:'uppercase'}}>Pedidos</div><div style={{fontWeight:700,color:C.cyan,fontSize:15}}>{top.orders30}</div></div>
+                <div><div style={{fontSize:10,color:C.mid,textTransform:'uppercase'}}>Rating</div><div style={{fontWeight:700,color:C.yellow,fontSize:15}}>{top.avgRating||'—'}</div></div>
               </div>
             </div>
           )}
 
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-            <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontWeight:600,fontSize:13}}>Actividad reciente</div>
-            <div style={{maxHeight:260,overflowY:'auto'}}>
-              {events.slice(0,8).map(ev=>{
+          <SectionCard title="Actividad reciente">
+            <div style={{maxHeight:280,overflowY:'auto'}}>
+              {events.slice(0,10).map(ev=>{
                 const m = eventMeta[ev.event_type]||{label:ev.event_type,icon:'•',color:C.mid};
                 return (
-                  <div key={ev.id} style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}20`,display:'flex',gap:10,alignItems:'flex-start'}}>
-                    <span style={{fontSize:14}}>{m.icon}</span>
+                  <div key={ev.id} style={{padding:'9px 16px',borderBottom:`1px solid ${C.border}20`,display:'flex',gap:10,alignItems:'flex-start'}}>
+                    <span style={{fontSize:13,flexShrink:0}}>{m.icon}</span>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.restaurant?.name||'—'}</div>
-                      <div style={{fontSize:11,color:C.mid,marginTop:1}}>{ev.description}</div>
+                      <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.restaurant?.name||'Plataforma'}</div>
+                      <div style={{fontSize:11,color:C.mid,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.description}</div>
                     </div>
                     <div style={{fontSize:10,color:C.dim,whiteSpace:'nowrap'}}>{fmtDate(ev.created_at)}</div>
                   </div>
                 );
               })}
+              {events.length===0&&<div style={{padding:30,textAlign:'center',color:C.dim,fontSize:12}}>Sin eventos</div>}
             </div>
-          </div>
+          </SectionCard>
         </div>
       </div>
     </div>
@@ -366,47 +412,61 @@ function PageOverview({enriched, events, plans, setFlash, reload}) {
 
 // ── Página: Ecosistemas ──────────────────────────────────────
 function PageEcosistemas({enriched, plans, setFlash, reload}) {
-  const [modal, setModal] = useState(null); // null | 'create' | {edit: rest}
+  const [modal, setModal] = useState(null);
   const [filter, setFilter] = useState('all');
-  const [form, setForm] = useState({name:'',city:'',country:'Paraguay',owner_name:'',owner_email:'',owner_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10)});
+  const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10)};
+  const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
   const shown = filter==='all' ? enriched : enriched.filter(r=>r.status===filter);
 
+  const openCreate = () => {
+    setForm({...emptyForm, plan_id: plans[1]?.id||''});
+    setModal('create');
+  };
+
   const openEdit = r => {
-    setForm({name:r.name,city:r.city||'',country:r.country||'Paraguay',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10)});
+    setForm({name:r.name||'',legal_name:r.legal_name||'',ruc:r.ruc||'',city:r.city||'',country:r.country||'Paraguay',address:r.address||'',phone:r.phone||'',email:r.email||'',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10)});
     setModal({edit:r});
   };
 
   const toggleStatus = async r => {
-    const next = r.status==='active'?'suspended':'active';
+    const next = r.status==='active'?'suspended':r.status==='suspended'?'active':'active';
     if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
     const {error} = await db.from('restaurants').update({status:next}).eq('id',r.id);
     if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
-    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'status_changed',description:`Estado cambiado a ${next}`});
+    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'status_changed',description:`Estado cambiado a ${next}`}).catch(()=>{});
     setFlash({type:'ok',text:`${r.name} → ${next}`});
     reload();
   };
 
   const saveRestaurant = async () => {
     if (!form.name.trim()) { setFlash({type:'error',text:'El nombre es requerido'}); return; }
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
     setSaving(true);
     try {
-      if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); setSaving(false); return; }
+      const payload = {
+        name:form.name.trim(), legal_name:form.legal_name||null, ruc:form.ruc||null,
+        city:form.city, country:form.country, address:form.address||null,
+        phone:form.phone||null, email:form.email||null,
+        owner_name:form.owner_name||null, owner_email:form.owner_email||null,
+        owner_phone:form.owner_phone||null, status:form.status,
+        notes:form.notes||null, onboarding_date:form.onboarding_date,
+        timezone:'America/Asuncion'
+      };
       if (modal==='create') {
-        const {data:rest,error} = await db.from('restaurants')
-          .insert({name:form.name,city:form.city,country:form.country,owner_name:form.owner_name,owner_email:form.owner_email,owner_phone:form.owner_phone,status:form.status,notes:form.notes||null,onboarding_date:form.onboarding_date,timezone:'America/Asuncion'})
-          .select().single();
+        const {data:rest,error} = await db.from('restaurants').insert(payload).select().single();
         if (error) throw error;
         if (form.plan_id) {
           const today = new Date();
           const end = new Date(today); end.setMonth(end.getMonth()+1);
-          await db.from('subscriptions').insert({restaurant_id:rest.id,plan_id:form.plan_id,status:form.status==='trial'?'trial':'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10)});
+          const plan = plans.find(p=>p.id===form.plan_id);
+          await db.from('subscriptions').insert({restaurant_id:rest.id,plan_id:form.plan_id,status:form.status==='trial'?'trial':'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10),monthly_amount:plan?.price_usd||0}).catch(()=>{});
         }
-        await db.from('platform_events').insert({restaurant_id:rest.id,event_type:'onboarding',description:`Alta en plataforma — ${form.status}`});
+        await db.from('platform_events').insert({restaurant_id:rest.id,event_type:'onboarding',description:`Alta en plataforma — ${form.status}`}).catch(()=>{});
         setFlash({type:'ok',text:`${form.name} dado de alta correctamente`});
       } else {
-        const {error} = await db.from('restaurants').update({name:form.name,city:form.city,country:form.country,owner_name:form.owner_name,owner_email:form.owner_email,owner_phone:form.owner_phone,status:form.status,notes:form.notes||null,onboarding_date:form.onboarding_date}).eq('id',modal.edit.id);
+        const {error} = await db.from('restaurants').update(payload).eq('id',modal.edit.id);
         if (error) throw error;
         setFlash({type:'ok',text:`${form.name} actualizado`});
       }
@@ -415,95 +475,108 @@ function PageEcosistemas({enriched, plans, setFlash, reload}) {
     setSaving(false);
   };
 
-  const filterBtn = (v,label) => (
-    <button onClick={()=>setFilter(v)} style={{padding:'6px 14px',borderRadius:20,fontSize:12,fontWeight:600,border:`1px solid ${filter===v?C.blue:C.border}`,background:filter===v?C.blueDim:'transparent',color:filter===v?C.blue:C.mid,cursor:'pointer'}}>
-      {label}
-    </button>
-  );
+  const sf = v => e => setForm(f=>({...f,[v]:e.target.value}));
 
   return (
     <div className="animate-in">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:12}}>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          {filterBtn('all','Todos')} {filterBtn('active','Activos')} {filterBtn('trial','Trial')} {filterBtn('suspended','Suspendidos')}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,flexWrap:'wrap',gap:10}}>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {['all','active','trial','suspended','inactive'].map(v=>(
+            <FilterBtn key={v} active={filter===v} onClick={()=>setFilter(v)}>
+              {{all:'Todos',active:'Activos',trial:'Trial',suspended:'Suspendidos',inactive:'Inactivos'}[v]}
+            </FilterBtn>
+          ))}
         </div>
-        <Btn onClick={()=>{setForm({name:'',city:'',country:'Paraguay',owner_name:'',owner_email:'',owner_phone:'',status:'active',notes:'',plan_id:plans[1]?.id||'',onboarding_date:new Date().toISOString().slice(0,10)});setModal('create')}}>+ Nuevo ecosistema</Btn>
+        <Btn onClick={openCreate}>+ Nuevo ecosistema</Btn>
       </div>
 
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead style={{background:C.surface}}>
-            <tr><Th>Restaurante</Th><Th>Propietario</Th><Th>Plan</Th><Th>Estado</Th><Th>Vence</Th><Th>Pedidos 30d</Th><Th>Rating</Th><Th>Alta</Th><Th>Acciones</Th></tr>
-          </thead>
-          <tbody>
-            {shown.length===0&&<tr><Td colSpan={9} style={{textAlign:'center',color:C.dim,padding:40}}>Sin resultados</Td></tr>}
-            {shown.map(r=>{
-              const db2 = daysBadge(r.daysLeft);
-              return (
-                <tr key={r.id} style={{transition:'background .1s'}} onMouseEnter={e=>e.currentTarget.style.background=C.surface} onMouseLeave={e=>e.currentTarget.style.background=''}>
-                  <Td>
-                    <div style={{fontWeight:600,color:C.ink}}>{r.name}</div>
-                    <div style={{fontSize:11,color:C.mid}}>{r.city}, {r.country}</div>
-                  </Td>
-                  <Td>
-                    <div style={{fontSize:13}}>{r.owner_name||'—'}</div>
-                    <div style={{fontSize:11,color:C.mid}}>{r.owner_email||''}</div>
-                  </Td>
-                  <Td><PlanBadge name={r.plan?.name}/></Td>
-                  <Td><Badge status={r.status}/></Td>
-                  <Td><span style={{color:db2.color,fontWeight:600,fontSize:12,background:db2.bg,padding:'2px 8px',borderRadius:12}}>{db2.label}</span></Td>
-                  <Td style={{fontWeight:600}}>{r.orders30}</Td>
-                  <Td>{r.avgRating?<span style={{color:C.yellow}}>★ {r.avgRating}</span>:<span style={{color:C.dim}}>—</span>}</Td>
-                  <Td style={{fontSize:11,color:C.mid}}>{fmtDate(r.onboarding_date)}</Td>
-                  <Td>
-                    <div style={{display:'flex',gap:6}}>
-                      <Btn size="sm" variant="ghost" onClick={()=>openEdit(r)}>Editar</Btn>
-                      <Btn size="sm" variant={r.status==='active'?'danger':'success'} onClick={()=>toggleStatus(r)}>
-                        {r.status==='active'?'Suspender':'Activar'}
-                      </Btn>
-                    </div>
-                  </Td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <SectionCard>
+        <div className="tbl-wrap">
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:780}}>
+            <thead><tr>
+              <Th>Restaurante</Th><Th>Propietario</Th><Th>Plan</Th><Th>Estado</Th>
+              <Th>Vence</Th><Th>Pedidos 30d</Th><Th>Rating</Th><Th>Acciones</Th>
+            </tr></thead>
+            <tbody>
+              {shown.length===0&&<tr><td colSpan={8} style={{textAlign:'center',color:C.dim,padding:40,fontSize:13}}>Sin resultados</td></tr>}
+              {shown.map(r=>{
+                const db2 = daysBadge(r.daysLeft);
+                return (
+                  <tr key={r.id} onMouseEnter={e=>e.currentTarget.style.background=C.surface} onMouseLeave={e=>e.currentTarget.style.background=''} style={{transition:'background .1s'}}>
+                    <Td>
+                      <div style={{fontWeight:600,color:C.ink}}>{r.name}</div>
+                      <div style={{fontSize:11,color:C.mid}}>{r.city}{r.country&&`, ${r.country}`}</div>
+                    </Td>
+                    <Td>
+                      <div style={{fontSize:13}}>{r.owner_name||<span style={{color:C.dim}}>—</span>}</div>
+                      <div style={{fontSize:11,color:C.mid}}>{r.owner_email||''}</div>
+                    </Td>
+                    <Td><PlanBadge name={r.plan?.name}/></Td>
+                    <Td><Badge status={r.status}/></Td>
+                    <Td><span style={{color:db2.color,fontWeight:600,fontSize:12,background:db2.bg,padding:'2px 7px',borderRadius:10}}>{db2.label}</span></Td>
+                    <Td style={{fontWeight:600}}>{r.orders30}</Td>
+                    <Td>{r.avgRating?<span style={{color:C.yellow}}>★ {r.avgRating}</span>:<span style={{color:C.dim}}>—</span>}</Td>
+                    <Td>
+                      <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                        <Btn size="sm" variant="ghost" onClick={()=>openEdit(r)}>Editar</Btn>
+                        <Btn size="sm" variant={r.status==='active'?'danger':'success'} onClick={()=>toggleStatus(r)}>
+                          {r.status==='active'?'Suspender':'Activar'}
+                        </Btn>
+                        <a href="admin.html" target="_blank" rel="noreferrer" style={{textDecoration:'none'}}><Btn size="sm" variant="ghost">↗ Admin</Btn></a>
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
 
       {modal&&(
-        <Modal title={modal==='create'?'Nuevo ecosistema gastronómico':'Editar restaurante'} onClose={()=>setModal(null)}>
+        <Modal title={modal==='create'?'Nuevo ecosistema gastronómico':'Editar restaurante'} onClose={()=>setModal(null)} width={600}>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
-            <FormField label="Nombre del local *"><input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="Ej: La Huaca"/></FormField>
-            <FormField label="Ciudad"><input value={form.city} onChange={e=>setForm({...form,city:e.target.value})} placeholder="Asunción"/></FormField>
-            <FormField label="País"><input value={form.country} onChange={e=>setForm({...form,country:e.target.value})}/></FormField>
-            <FormField label="Estado">
-              <select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
-                <option value="active">Activo</option>
-                <option value="trial">Trial</option>
-                <option value="inactive">Inactivo</option>
-                <option value="suspended">Suspendido</option>
-              </select>
+            <FormField label="Nombre del local *" col="1/-1">
+              <input value={form.name} onChange={sf('name')} placeholder="Ej: La Huaca" autoFocus/>
             </FormField>
+            <FormField label="Razón social"><input value={form.legal_name} onChange={sf('legal_name')} placeholder="La Huaca S.A."/></FormField>
+            <FormField label="RUC"><input value={form.ruc} onChange={sf('ruc')} placeholder="80000001-1"/></FormField>
+            <FormField label="Ciudad"><input value={form.city} onChange={sf('city')} placeholder="Asunción"/></FormField>
+            <FormField label="País"><input value={form.country} onChange={sf('country')}/></FormField>
+            <FormField label="Dirección" col="1/-1"><input value={form.address} onChange={sf('address')} placeholder="Mcal. Estigarribia 1234"/></FormField>
+            <FormField label="Teléfono"><input value={form.phone} onChange={sf('phone')} placeholder="+595 21 555 0100"/></FormField>
+            <FormField label="Email del local"><input type="email" value={form.email} onChange={sf('email')} placeholder="contacto@restaurante.com"/></FormField>
             <FormField label="Plan de suscripción">
-              <select value={form.plan_id} onChange={e=>setForm({...form,plan_id:e.target.value})}>
+              <select value={form.plan_id} onChange={sf('plan_id')}>
                 <option value="">Sin asignar</option>
                 {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtUSD(p.price_usd)}/mes</option>)}
               </select>
             </FormField>
-            <FormField label="Fecha de alta"><input type="date" value={form.onboarding_date} onChange={e=>setForm({...form,onboarding_date:e.target.value})}/></FormField>
+            <FormField label="Estado">
+              <select value={form.status} onChange={sf('status')}>
+                <option value="active">Activo</option>
+                <option value="trial">Trial</option>
+                <option value="suspended">Suspendido</option>
+                <option value="inactive">Inactivo</option>
+              </select>
+            </FormField>
+            <FormField label="Fecha de alta"><input type="date" value={form.onboarding_date} onChange={sf('onboarding_date')}/></FormField>
           </div>
-          <div style={{borderTop:`1px solid ${C.border}`,marginTop:8,paddingTop:16,marginBottom:8}}>
-            <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:12,textTransform:'uppercase',letterSpacing:.5}}>Datos del propietario</div>
+
+          <div style={{borderTop:`1px solid ${C.border}`,margin:'12px 0',paddingTop:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:.5}}>Datos del propietario</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
-              <FormField label="Nombre"><input value={form.owner_name} onChange={e=>setForm({...form,owner_name:e.target.value})} placeholder="Carlos Gómez"/></FormField>
-              <FormField label="Teléfono"><input value={form.owner_phone} onChange={e=>setForm({...form,owner_phone:e.target.value})} placeholder="+595 981..."/></FormField>
-              <div style={{gridColumn:'1/-1'}}>
-                <FormField label="Email"><input value={form.owner_email} onChange={e=>setForm({...form,owner_email:e.target.value})} placeholder="carlos@restaurante.com" type="email"/></FormField>
-              </div>
+              <FormField label="Nombre"><input value={form.owner_name} onChange={sf('owner_name')} placeholder="Carlos Gómez"/></FormField>
+              <FormField label="Teléfono"><input value={form.owner_phone} onChange={sf('owner_phone')} placeholder="+595 981 123 456"/></FormField>
+              <FormField label="Email" col="1/-1"><input type="email" value={form.owner_email} onChange={sf('owner_email')} placeholder="carlos@restaurante.com"/></FormField>
             </div>
           </div>
-          <FormField label="Notas internas"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} rows={2} placeholder="Observaciones..."/></FormField>
-          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+
+          <FormField label="Notas internas">
+            <textarea value={form.notes} onChange={sf('notes')} rows={2} placeholder="Observaciones internas..."/>
+          </FormField>
+
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
             <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
             <Btn onClick={saveRestaurant} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
           </div>
@@ -526,23 +599,25 @@ function PageSuscripciones({enriched, plans, setFlash, reload}) {
 
   const openEdit = r => {
     const s = r.subscription||{};
-    setForm({plan_id:s.plan_id||'',status:s.status||'active',start_date:s.start_date||'',end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',notes:s.notes||''});
+    setForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||r.plan?.price_usd||'',notes:s.notes||''});
     setEditModal(r);
   };
 
   const saveSub = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
     setSaving(true);
     try {
-      if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); setSaving(false); return; }
       const sub = editModal.subscription;
+      const payload = {plan_id:form.plan_id,status:form.status,start_date:form.start_date,end_date:form.end_date||null,auto_renew:form.auto_renew,payment_method:form.payment_method,monthly_amount:parseFloat(form.monthly_amount)||null,notes:form.notes||null};
       if (sub?.id) {
-        const {error} = await db.from('subscriptions').update({plan_id:form.plan_id,status:form.status,start_date:form.start_date,end_date:form.end_date,auto_renew:form.auto_renew,payment_method:form.payment_method,notes:form.notes||null}).eq('id',sub.id);
+        const {error} = await db.from('subscriptions').update(payload).eq('id',sub.id);
         if (error) throw error;
       } else {
-        const {error} = await db.from('subscriptions').insert({restaurant_id:editModal.id,plan_id:form.plan_id,status:form.status,start_date:form.start_date,end_date:form.end_date,auto_renew:form.auto_renew,payment_method:form.payment_method,notes:form.notes||null});
+        const {error} = await db.from('subscriptions').insert({restaurant_id:editModal.id,...payload});
         if (error) throw error;
       }
-      await db.from('platform_events').insert({restaurant_id:editModal.id,event_type:'plan_changed',description:`Suscripción actualizada — ${plans.find(p=>p.id===form.plan_id)?.name||form.plan_id}`});
+      const planName = plans.find(p=>p.id===form.plan_id)?.name||'';
+      await db.from('platform_events').insert({restaurant_id:editModal.id,event_type:'plan_changed',description:`Suscripción actualizada — ${planName}`}).catch(()=>{});
       setFlash({type:'ok',text:`Suscripción de ${editModal.name} actualizada`});
       setEditModal(null); reload();
     } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
@@ -550,112 +625,121 @@ function PageSuscripciones({enriched, plans, setFlash, reload}) {
   };
 
   const renew = async r => {
-    if (!r.subscription) return;
     if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
-    const end = new Date(r.subscription.end_date); end.setMonth(end.getMonth()+1);
+    if (!r.subscription?.id) { openEdit(r); return; }
+    const base = r.subscription.end_date && new Date(r.subscription.end_date) > new Date()
+      ? new Date(r.subscription.end_date)
+      : new Date();
+    const end = new Date(base); end.setMonth(end.getMonth()+1);
     const {error} = await db.from('subscriptions').update({status:'active',end_date:end.toISOString().slice(0,10)}).eq('id',r.subscription.id);
     if (error) { setFlash({type:'error',text:error.message}); return; }
-    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'subscription_renewed',description:`Renovación manual — ${r.plan?.name}`});
+    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'subscription_renewed',description:`Renovación manual — ${r.plan?.name}`}).catch(()=>{});
+    if (r.subscription.monthly_amount) {
+      await db.from('payments').insert({restaurant_id:r.id,subscription_id:r.subscription.id,amount:r.subscription.monthly_amount,currency:'USD',method:r.subscription.payment_method||'manual',status:'paid',notes:'Renovación manual'}).catch(()=>{});
+    }
     setFlash({type:'ok',text:`${r.name} renovado hasta ${fmtDate(end.toISOString())}`});
     reload();
   };
 
+  const sf = v => e => setForm(f=>({...f,[v]:e.target.value}));
+  const mrrTotal = enriched.filter(r=>r.status!=='suspended').reduce((s,r)=>s+(r.plan?.price_usd||0),0);
+
   return (
     <div className="animate-in">
-      <div style={{display:'flex',gap:14,marginBottom:24,flexWrap:'wrap'}}>
+      <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
         {planTotals.map(p=>(
-          <div key={p.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 22px',flex:1,minWidth:140}}>
+          <div key={p.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 20px',flex:'1 1 130px',minWidth:120}}>
             <PlanBadge name={p.name}/>
-            <div style={{fontSize:24,fontWeight:700,marginTop:10,color:C.ink}}>{p.count}</div>
+            <div style={{fontSize:22,fontWeight:700,marginTop:10}}>{p.count}</div>
             <div style={{fontSize:12,color:C.mid,marginTop:2}}>activos · {fmtUSD(p.price_usd)}/mes</div>
           </div>
         ))}
-        <div style={{background:C.card,border:`1px solid ${C.green}40`,borderRadius:10,padding:'16px 22px',flex:1,minWidth:140}}>
-          <span style={{fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase'}}>MRR Total</span>
-          <div style={{fontSize:24,fontWeight:700,marginTop:10,color:C.green}}>
-            {fmtUSD(enriched.filter(r=>r.status!=='suspended').reduce((s,r)=>s+(r.plan?.price_usd||0),0))}
-          </div>
+        <div style={{background:C.card,border:`1px solid ${C.green}40`,borderRadius:10,padding:'16px 20px',flex:'1 1 130px',minWidth:120}}>
+          <span style={{fontSize:10,fontWeight:700,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>MRR Total</span>
+          <div style={{fontSize:22,fontWeight:700,marginTop:10,color:C.green}}>{fmtUSD(mrrTotal)}</div>
           <div style={{fontSize:12,color:C.mid,marginTop:2}}>mensual recurrente</div>
         </div>
       </div>
 
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead style={{background:C.surface}}>
-            <tr><Th>Restaurante</Th><Th>Plan</Th><Th>Estado</Th><Th>Inicio</Th><Th>Vencimiento</Th><Th>Días restantes</Th><Th>Auto-renov.</Th><Th>Pago</Th><Th>Acciones</Th></tr>
-          </thead>
-          <tbody>
-            {enriched.map(r=>{
-              const s = r.subscription;
-              const db2 = daysBadge(r.daysLeft);
-              const totalDays = s ? Math.ceil((new Date(s.end_date)-new Date(s.start_date))/86400000) : 1;
-              const elapsed = s ? Math.ceil((new Date()-new Date(s.start_date))/86400000) : 0;
-              const pct = s ? Math.min(100,Math.max(0,(elapsed/totalDays)*100)) : 0;
-              return (
-                <tr key={r.id}>
-                  <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
-                  <Td><PlanBadge name={r.plan?.name}/></Td>
-                  <Td><Badge status={s?.status||'—'}/></Td>
-                  <Td style={{fontSize:12,color:C.mid}}>{fmtDate(s?.start_date)}</Td>
-                  <Td style={{fontSize:12,color:C.mid}}>{fmtDate(s?.end_date)}</Td>
-                  <Td>
-                    <div style={{display:'flex',flexDirection:'column',gap:4}}>
-                      <span style={{color:db2.color,fontWeight:700,fontSize:13}}>{db2.label}</span>
-                      <div style={{background:C.border,borderRadius:3,height:4,width:100,overflow:'hidden'}}>
-                        <div style={{background:db2.color,height:4,borderRadius:3,width:`${pct}%`}}/>
+      <SectionCard>
+        <div className="tbl-wrap">
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:860}}>
+            <thead><tr>
+              <Th>Restaurante</Th><Th>Plan</Th><Th>Estado</Th><Th>Inicio</Th><Th>Vencimiento</Th>
+              <Th>Días</Th><Th>Monto/mes</Th><Th>Auto-renov.</Th><Th>Pago</Th><Th>Acciones</Th>
+            </tr></thead>
+            <tbody>
+              {enriched.map(r=>{
+                const s = r.subscription;
+                const db2 = daysBadge(r.daysLeft);
+                const pct = s ? (() => {
+                  const total = Math.ceil((new Date(s.end_date)-new Date(s.start_date))/86400000)||1;
+                  const elapsed = Math.ceil((new Date()-new Date(s.start_date))/86400000);
+                  return Math.min(100,Math.max(0,(elapsed/total)*100));
+                })() : 0;
+                return (
+                  <tr key={r.id}>
+                    <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
+                    <Td><PlanBadge name={r.plan?.name}/></Td>
+                    <Td><Badge status={s?.status||'—'}/></Td>
+                    <Td style={{fontSize:12,color:C.mid,whiteSpace:'nowrap'}}>{fmtDate(s?.start_date)}</Td>
+                    <Td style={{fontSize:12,color:C.mid,whiteSpace:'nowrap'}}>{fmtDate(s?.end_date)}</Td>
+                    <Td>
+                      <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                        <span style={{color:db2.color,fontWeight:700,fontSize:12}}>{db2.label}</span>
+                        <div style={{background:C.border,borderRadius:3,height:3,width:80,overflow:'hidden'}}>
+                          <div style={{background:db2.color,height:3,borderRadius:3,width:`${pct}%`}}/>
+                        </div>
                       </div>
-                    </div>
-                  </Td>
-                  <Td><span style={{color:s?.auto_renew?C.green:C.dim,fontSize:12}}>{s?.auto_renew?'✓ Sí':'✗ No'}</span></Td>
-                  <Td style={{fontSize:12,color:C.mid,textTransform:'capitalize'}}>{s?.payment_method||'—'}</Td>
-                  <Td>
-                    <div style={{display:'flex',gap:6}}>
-                      <Btn size="sm" variant="ghost" onClick={()=>openEdit(r)}>Editar</Btn>
-                      {s&&r.daysLeft!==null&&r.daysLeft<=30&&<Btn size="sm" variant="success" onClick={()=>renew(r)}>Renovar</Btn>}
-                    </div>
-                  </Td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                    </Td>
+                    <Td style={{fontWeight:600,color:C.green,whiteSpace:'nowrap'}}>{s?.monthly_amount?fmtUSD(s.monthly_amount):r.plan?.price_usd?fmtUSD(r.plan.price_usd):'—'}</Td>
+                    <Td><span style={{color:s?.auto_renew?C.green:C.dim,fontSize:12}}>{s?.auto_renew?'✓ Sí':'✗ No'}</span></Td>
+                    <Td style={{fontSize:12,color:C.mid,textTransform:'capitalize',whiteSpace:'nowrap'}}>{s?.payment_method||'—'}</Td>
+                    <Td>
+                      <div style={{display:'flex',gap:4}}>
+                        <Btn size="sm" variant="ghost" onClick={()=>openEdit(r)}>Editar</Btn>
+                        <Btn size="sm" variant="success" onClick={()=>renew(r)}>Renovar</Btn>
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
 
       {editModal&&(
         <Modal title={`Suscripción — ${editModal.name}`} onClose={()=>setEditModal(null)}>
           <FormField label="Plan">
-            <select value={form.plan_id} onChange={e=>setForm({...form,plan_id:e.target.value})}>
+            <select value={form.plan_id} onChange={sf('plan_id')}>
               {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtUSD(p.price_usd)}/mes</option>)}
             </select>
           </FormField>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
             <FormField label="Estado">
-              <select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
-                <option value="active">Activo</option>
-                <option value="trial">Trial</option>
-                <option value="suspended">Suspendido</option>
-                <option value="expired">Vencido</option>
-                <option value="cancelled">Cancelado</option>
+              <select value={form.status} onChange={sf('status')}>
+                {['active','trial','suspended','expired','cancelled','past_due'].map(s=><option key={s} value={s}>{statusMeta[s]?.label||s}</option>)}
               </select>
+            </FormField>
+            <FormField label="Monto mensual (USD)">
+              <input type="number" step="0.01" value={form.monthly_amount} onChange={sf('monthly_amount')} placeholder="59.00"/>
             </FormField>
             <FormField label="Método de pago">
-              <select value={form.payment_method} onChange={e=>setForm({...form,payment_method:e.target.value})}>
-                <option value="manual">Manual</option>
-                <option value="transferencia">Transferencia</option>
-                <option value="tarjeta">Tarjeta</option>
-                <option value="efectivo">Efectivo</option>
+              <select value={form.payment_method} onChange={sf('payment_method')}>
+                {['manual','transferencia','tarjeta','efectivo','qr'].map(m=><option key={m} value={m}>{m}</option>)}
               </select>
             </FormField>
-            <FormField label="Fecha inicio"><input type="date" value={form.start_date} onChange={e=>setForm({...form,start_date:e.target.value})}/></FormField>
-            <FormField label="Fecha vencimiento"><input type="date" value={form.end_date} onChange={e=>setForm({...form,end_date:e.target.value})}/></FormField>
+            <FormField label="Auto-renovar">
+              <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
+                <input type="checkbox" checked={form.auto_renew} onChange={e=>setForm(f=>({...f,auto_renew:e.target.checked}))} style={{width:16,height:16,cursor:'pointer'}}/>
+                <span style={{fontSize:13,color:C.mid}}>Renovar automáticamente</span>
+              </div>
+            </FormField>
+            <FormField label="Fecha inicio"><input type="date" value={form.start_date} onChange={sf('start_date')}/></FormField>
+            <FormField label="Fecha vencimiento"><input type="date" value={form.end_date} onChange={sf('end_date')}/></FormField>
           </div>
-          <FormField label="Auto-renovar">
-            <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <input type="checkbox" checked={form.auto_renew} onChange={e=>setForm({...form,auto_renew:e.target.checked})} style={{width:16,height:16}}/>
-              <span style={{fontSize:13,color:C.mid}}>Renovar automáticamente al vencimiento</span>
-            </div>
-          </FormField>
-          <FormField label="Notas"><textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} rows={2}/></FormField>
+          <FormField label="Notas"><textarea value={form.notes} onChange={sf('notes')} rows={2}/></FormField>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <Btn variant="ghost" onClick={()=>setEditModal(null)}>Cancelar</Btn>
             <Btn onClick={saveSub} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
@@ -666,71 +750,228 @@ function PageSuscripciones({enriched, plans, setFlash, reload}) {
   );
 }
 
-// ── Página: Analytics ────────────────────────────────────────
-function PageAnalytics({enriched, orders, ratings}) {
-  const maxRev  = Math.max(...enriched.map(r=>r.revenue30),1);
-  const maxOrd  = Math.max(...enriched.map(r=>r.orders30),1);
-  const byRev   = [...enriched].sort((a,b)=>b.revenue30-a.revenue30);
-  const byOrd   = [...enriched].sort((a,b)=>b.orders30-a.orders30);
-  const byRat   = [...enriched].filter(r=>r.avgRating).sort((a,b)=>b.avgRating-a.avgRating);
+// ── Página: Planes ───────────────────────────────────────────
+function PagePlanes({plans, setFlash, reload}) {
+  const [modal, setModal] = useState(null);
+  const [form, setForm]   = useState({name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true});
+  const [saving, setSaving] = useState(false);
 
-  const totalOrders   = orders.length;
-  const totalRevenue  = orders.reduce((s,o)=>s+(Number(o.total)||0),0);
-  const allRatings    = ratings.map(r=>r.stars);
-  const platformRating= allRatings.length ? +(avg(allRatings).toFixed(2)) : null;
+  const emptyForm = {name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true};
 
-  const planRevenue = {};
-  enriched.forEach(r=>{ if(r.plan?.name&&r.status!=='suspended'){ planRevenue[r.plan.name]=(planRevenue[r.plan.name]||0)+(r.plan.price_usd||0); }});
+  const openEdit = p => {
+    setForm({name:p.name,price_usd:p.price_usd,billing_cycle:p.billing_cycle,max_tables:p.max_tables||'',max_menu_items:p.max_menu_items||'',features:Array.isArray(p.features)?p.features.join(', '):(p.features||''),is_active:p.is_active!==false});
+    setModal({edit:p});
+  };
+
+  const savePlan = async () => {
+    if (!form.name.trim()) { setFlash({type:'error',text:'El nombre es requerido'}); return; }
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSaving(true);
+    try {
+      const feats = form.features ? form.features.split(',').map(s=>s.trim()).filter(Boolean) : [];
+      const payload = {name:form.name.trim(),price_usd:parseFloat(form.price_usd)||0,billing_cycle:form.billing_cycle,max_tables:parseInt(form.max_tables)||null,max_menu_items:parseInt(form.max_menu_items)||null,features:JSON.stringify(feats),is_active:form.is_active};
+      if (modal==='create') {
+        const {error} = await db.from('subscription_plans').insert(payload);
+        if (error) throw error;
+        setFlash({type:'ok',text:`Plan "${form.name}" creado`});
+      } else {
+        const {error} = await db.from('subscription_plans').update(payload).eq('id',modal.edit.id);
+        if (error) throw error;
+        setFlash({type:'ok',text:`Plan "${form.name}" actualizado`});
+      }
+      setModal(null); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const toggleActive = async p => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    const {error} = await db.from('subscription_plans').update({is_active:!p.is_active}).eq('id',p.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:`Plan ${p.name} ${p.is_active?'desactivado':'activado'}`});
+    reload();
+  };
+
+  const sf = v => e => setForm(f=>({...f,[v]:e.target.value}));
+  const planColors = {Starter:C.cyan,Pro:C.blue,Enterprise:C.purple};
 
   return (
     <div className="animate-in">
-      <div style={{display:'flex',gap:16,marginBottom:24,flexWrap:'wrap'}}>
-        <Kpi label="Total pedidos procesados" value={totalOrders.toLocaleString('es-PY')} sub="últimos 30 días" icon="📦" accent={C.cyan}/>
-        <Kpi label="Volumen total"             value={fmtGuarani(totalRevenue)}            sub="últimos 30 días" icon="💵" accent={C.green}/>
-        <Kpi label="Rating promedio plataforma" value={platformRating?`★ ${platformRating}`:'—'} sub={`${allRatings.length} calificaciones`} icon="⭐" accent={C.yellow}/>
-        <Kpi label="Restaurantes activos"       value={enriched.filter(r=>r.status==='active').length} sub={`de ${enriched.length} totales`} icon="🏪"/>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <div style={{fontSize:13,color:C.mid}}>{plans.length} planes configurados</div>
+        <Btn onClick={()=>{setForm(emptyForm);setModal('create')}}>+ Nuevo plan</Btn>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:20,marginBottom:20}}>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
-          <div style={{fontWeight:600,fontSize:13,marginBottom:16,color:C.ink}}>Ingresos — 30 días</div>
-          {byRev.map(r=><BarRow key={r.id} label={r.name} value={r.revenue30} max={maxRev} fmt={v=>fmtGuarani(v)} color={C.green}/>)}
-          {byRev.every(r=>r.revenue30===0)&&<div style={{color:C.dim,fontSize:12,textAlign:'center',padding:20}}>Sin datos de pedidos</div>}
-        </div>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
-          <div style={{fontWeight:600,fontSize:13,marginBottom:16,color:C.ink}}>Cantidad de pedidos — 30d</div>
-          {byOrd.map(r=><BarRow key={r.id} label={r.name} value={r.orders30} max={maxOrd} fmt={v=>`${v} ped.`} color={C.blue}/>)}
-        </div>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
-          <div style={{fontWeight:600,fontSize:13,marginBottom:16,color:C.ink}}>Rating promedio</div>
-          {byRat.length>0 ? byRat.map(r=><BarRow key={r.id} label={r.name} value={r.avgRating} max={5} fmt={v=>`★ ${v}`} color={C.yellow}/>) : <div style={{color:C.dim,fontSize:12,textAlign:'center',padding:20}}>Sin calificaciones</div>}
-        </div>
-      </div>
-
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
-          <div style={{fontWeight:600,fontSize:13,marginBottom:16}}>MRR por plan</div>
-          {Object.entries(planRevenue).map(([name,usd])=>(
-            <div key={name} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
-              <PlanBadge name={name}/>
-              <span style={{fontWeight:700,color:C.green}}>{fmtUSD(usd)}/mes</span>
-            </div>
-          ))}
-          {Object.keys(planRevenue).length===0&&<div style={{color:C.dim,fontSize:12}}>Sin datos</div>}
-        </div>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
-          <div style={{fontWeight:600,fontSize:13,marginBottom:16}}>Desglose de suscripciones</div>
-          {['active','trial','suspended','expired'].map(st=>{
-            const count = enriched.filter(r=>r.subscription?.status===st||(!r.subscription&&st==='expired')).length;
-            const m = statusMeta[st]||{label:st,color:C.mid};
-            return (
-              <div key={st} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
-                <Badge status={st}/>
-                <span style={{fontWeight:700,fontSize:20,color:m.color}}>{count}</span>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:16,marginBottom:24}}>
+        {plans.map(p=>{
+          const featArr = Array.isArray(p.features) ? p.features : (typeof p.features==='string'?JSON.parse(p.features||'[]'):[]);
+          const accentColor = planColors[p.name]||C.mid;
+          return (
+            <div key={p.id} style={{background:C.card,border:`1px solid ${accentColor}40`,borderRadius:12,padding:22,opacity:p.is_active?1:.6}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+                <div>
+                  <PlanBadge name={p.name}/>
+                  <div style={{fontSize:26,fontWeight:800,marginTop:10,color:accentColor}}>{fmtUSD(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
+                </div>
+                <div style={{display:'flex',gap:6}}>
+                  <Btn size="sm" variant="ghost" onClick={()=>openEdit(p)}>Editar</Btn>
+                  <Btn size="sm" variant={p.is_active?'danger':'success'} onClick={()=>toggleActive(p)}>{p.is_active?'Desact.':'Activar'}</Btn>
+                </div>
               </div>
-            );
-          })}
-        </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:14}}>
+                <div style={{background:C.surface,borderRadius:6,padding:'8px 12px',textAlign:'center'}}>
+                  <div style={{fontSize:18,fontWeight:700,color:C.ink}}>{p.max_tables??'∞'}</div>
+                  <div style={{fontSize:10,color:C.mid,marginTop:2}}>Mesas</div>
+                </div>
+                <div style={{background:C.surface,borderRadius:6,padding:'8px 12px',textAlign:'center'}}>
+                  <div style={{fontSize:18,fontWeight:700,color:C.ink}}>{p.max_menu_items??'∞'}</div>
+                  <div style={{fontSize:10,color:C.mid,marginTop:2}}>Ítems menú</div>
+                </div>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                {featArr.map((f,i)=>(
+                  <div key={i} style={{fontSize:12,color:C.mid,display:'flex',gap:6,alignItems:'center'}}>
+                    <span style={{color:accentColor,fontSize:10}}>✓</span>{f}
+                  </div>
+                ))}
+              </div>
+              {!p.is_active&&<div style={{marginTop:12,fontSize:11,color:C.dim,fontStyle:'italic'}}>Plan inactivo — no disponible para nuevas suscripciones</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {modal&&(
+        <Modal title={modal==='create'?'Nuevo plan':'Editar plan'} onClose={()=>setModal(null)}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Nombre *"><input value={form.name} onChange={sf('name')} placeholder="Pro"/></FormField>
+            <FormField label="Precio mensual (USD) *"><input type="number" step="0.01" value={form.price_usd} onChange={sf('price_usd')} placeholder="59.00"/></FormField>
+            <FormField label="Ciclo de facturación">
+              <select value={form.billing_cycle} onChange={sf('billing_cycle')}>
+                <option value="monthly">Mensual</option>
+                <option value="annual">Anual</option>
+                <option value="free">Gratuito</option>
+              </select>
+            </FormField>
+            <FormField label="Activo">
+              <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
+                <input type="checkbox" checked={form.is_active} onChange={e=>setForm(f=>({...f,is_active:e.target.checked}))} style={{width:16,height:16,cursor:'pointer'}}/>
+                <span style={{fontSize:13,color:C.mid}}>Disponible para suscribir</span>
+              </div>
+            </FormField>
+            <FormField label="Máx. mesas"><input type="number" value={form.max_tables} onChange={sf('max_tables')} placeholder="15"/></FormField>
+            <FormField label="Máx. ítems menú"><input type="number" value={form.max_menu_items} onChange={sf('max_menu_items')} placeholder="100"/></FormField>
+          </div>
+          <FormField label="Características" hint="Separadas por coma: Pedidos QR, KDS cocina, Cupones...">
+            <textarea value={form.features} onChange={sf('features')} rows={3} placeholder="Pedidos QR, KDS cocina, Analytics completo"/>
+          </FormField>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
+            <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+            <Btn onClick={savePlan} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Página: Analytics ────────────────────────────────────────
+function PageAnalytics({enriched, orders, ratings}) {
+  const [range, setRange] = useState('30d');
+
+  const now = new Date();
+  const rangeMs = {today:86400000,'7d':7*86400000,'30d':30*86400000,'90d':90*86400000}[range]||30*86400000;
+  const since = new Date(now - rangeMs).toISOString();
+  const todayStr = now.toISOString().slice(0,10);
+
+  const filteredOrders = range==='today'
+    ? orders.filter(o=>(o.created_at||'').slice(0,10)===todayStr)
+    : orders.filter(o=>(o.created_at||'')>=since);
+
+  const enrichedFiltered = enriched.map(r => {
+    const rOrds = filteredOrders.filter(o=>o.restaurant_id===r.id);
+    return {...r, orders30:rOrds.length, revenue30:rOrds.reduce((s,o)=>s+(Number(o.total)||0),0)};
+  });
+
+  const totalOrders   = filteredOrders.length;
+  const totalRevenue  = filteredOrders.reduce((s,o)=>s+(Number(o.total)||0),0);
+  const allRatings    = ratings.map(r=>r.stars);
+  const platformRating= allRatings.length ? +(avg(allRatings).toFixed(2)) : null;
+
+  const maxRev = Math.max(...enrichedFiltered.map(r=>r.revenue30),1);
+  const maxOrd = Math.max(...enrichedFiltered.map(r=>r.orders30),1);
+  const byRev  = [...enrichedFiltered].sort((a,b)=>b.revenue30-a.revenue30);
+  const byOrd  = [...enrichedFiltered].sort((a,b)=>b.orders30-a.orders30);
+  const byRat  = [...enriched].filter(r=>r.avgRating).sort((a,b)=>b.avgRating-a.avgRating);
+
+  const planRevenue = {};
+  enriched.forEach(r=>{ if(r.plan?.name&&r.status!=='suspended') planRevenue[r.plan.name]=(planRevenue[r.plan.name]||0)+(r.plan.price_usd||0); });
+
+  const rangeLabels = {today:'Hoy','7d':'7 días','30d':'30 días','90d':'90 días'};
+
+  return (
+    <div className="animate-in">
+      {/* Filtro rango */}
+      <div style={{display:'flex',gap:6,marginBottom:20,flexWrap:'wrap'}}>
+        {Object.entries(rangeLabels).map(([v,l])=>(
+          <FilterBtn key={v} active={range===v} onClick={()=>setRange(v)}>{l}</FilterBtn>
+        ))}
+        <span style={{marginLeft:8,fontSize:12,color:C.mid,alignSelf:'center'}}>Mostrando datos de: <strong style={{color:C.ink}}>{rangeLabels[range]}</strong></span>
+      </div>
+
+      <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
+        <Kpi label="Pedidos procesados" value={totalOrders.toLocaleString('es-PY')} sub={`período seleccionado`} icon="📦" accent={C.cyan}/>
+        <Kpi label="Volumen total"       value={fmtGuarani(totalRevenue)}             sub="en guaraníes"         icon="💵" accent={C.green}/>
+        <Kpi label="Rating plataforma"   value={platformRating?`★ ${platformRating}`:'—'} sub={`${allRatings.length} calificaciones`} icon="⭐" accent={C.yellow}/>
+        <Kpi label="Restaurantes activos" value={enriched.filter(r=>r.status==='active').length} sub={`de ${enriched.length} totales`} icon="🏪"/>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16,marginBottom:16}}>
+        <SectionCard title={`Ingresos — ${rangeLabels[range]}`}>
+          <div style={{padding:'16px 20px'}}>
+            {byRev.map(r=><BarRow key={r.id} label={r.name} value={r.revenue30} max={maxRev} fmt={v=>fmtGuarani(v)} color={C.green}/>)}
+            {byRev.every(r=>r.revenue30===0)&&<div style={{color:C.dim,fontSize:12,textAlign:'center',padding:'16px 0'}}>Sin datos de pedidos</div>}
+          </div>
+        </SectionCard>
+        <SectionCard title={`Pedidos — ${rangeLabels[range]}`}>
+          <div style={{padding:'16px 20px'}}>
+            {byOrd.map(r=><BarRow key={r.id} label={r.name} value={r.orders30} max={maxOrd} fmt={v=>`${v} ped.`} color={C.blue}/>)}
+            {byOrd.every(r=>r.orders30===0)&&<div style={{color:C.dim,fontSize:12,textAlign:'center',padding:'16px 0'}}>Sin pedidos en el período</div>}
+          </div>
+        </SectionCard>
+        <SectionCard title="Rating promedio">
+          <div style={{padding:'16px 20px'}}>
+            {byRat.length>0 ? byRat.map(r=><BarRow key={r.id} label={r.name} value={r.avgRating} max={5} fmt={v=>`★ ${v}`} color={C.yellow}/>) : <div style={{color:C.dim,fontSize:12,textAlign:'center',padding:'16px 0'}}>Sin calificaciones</div>}
+          </div>
+        </SectionCard>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+        <SectionCard title="MRR por plan">
+          <div style={{padding:'4px 20px 12px'}}>
+            {Object.entries(planRevenue).length===0&&<div style={{color:C.dim,fontSize:12,padding:'12px 0'}}>Sin datos</div>}
+            {Object.entries(planRevenue).map(([name,usd])=>(
+              <div key={name} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
+                <PlanBadge name={name}/>
+                <span style={{fontWeight:700,color:C.green}}>{fmtUSD(usd)}/mes</span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+        <SectionCard title="Desglose suscripciones">
+          <div style={{padding:'4px 20px 12px'}}>
+            {['active','trial','suspended','expired','cancelled'].map(st=>{
+              const count = enriched.filter(r=>r.subscription?.status===st||(!r.subscription&&st==='expired')).length;
+              const m = statusMeta[st]||{label:st,color:C.mid};
+              return (
+                <div key={st} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
+                  <Badge status={st}/>
+                  <span style={{fontWeight:700,fontSize:18,color:m.color}}>{count}</span>
+                </div>
+              );
+            })}
+          </div>
+        </SectionCard>
       </div>
     </div>
   );
@@ -739,72 +980,81 @@ function PageAnalytics({enriched, orders, ratings}) {
 // ── Página: Actividad ────────────────────────────────────────
 function PageActividad({events, restaurants, setFlash, reload}) {
   const [filterR, setFilterR] = useState('all');
+  const [filterType, setFilterType] = useState('all');
   const [addModal, setAddModal] = useState(false);
   const [form, setForm] = useState({restaurant_id:'',event_type:'note_added',description:''});
   const [saving, setSaving] = useState(false);
 
-  const shown = filterR==='all' ? events : events.filter(e=>e.restaurant_id===filterR);
+  let shown = filterR==='all' ? events : events.filter(e=>e.restaurant_id===filterR);
+  if (filterType!=='all') shown = shown.filter(e=>e.event_type===filterType);
 
   const addEvent = async () => {
     if (!form.description.trim()) { setFlash({type:'error',text:'La descripción es requerida'}); return; }
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
     setSaving(true);
     try {
-      if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); setSaving(false); return; }
       const {error} = await db.from('platform_events').insert({restaurant_id:form.restaurant_id||null,event_type:form.event_type,description:form.description});
       if (error) throw error;
-      setFlash({type:'ok',text:'Evento registrado'}); setAddModal(false); reload();
+      setFlash({type:'ok',text:'Evento registrado'}); setAddModal(false);
+      setForm({restaurant_id:'',event_type:'note_added',description:''});
+      reload();
     } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
     setSaving(false);
   };
 
+  const eventTypes = Object.entries(eventMeta).map(([k,v])=>({value:k,label:v.label}));
+
   return (
     <div className="animate-in">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:12}}>
-        <select value={filterR} onChange={e=>setFilterR(e.target.value)} style={{width:'auto',minWidth:180}}>
-          <option value="all">Todos los restaurantes</option>
-          {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,flexWrap:'wrap',gap:10}}>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+          <select value={filterR} onChange={e=>setFilterR(e.target.value)} style={{width:'auto',minWidth:180,fontSize:13}}>
+            <option value="all">Todos los restaurantes</option>
+            {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+          <select value={filterType} onChange={e=>setFilterType(e.target.value)} style={{width:'auto',minWidth:160,fontSize:13}}>
+            <option value="all">Todos los tipos</option>
+            {eventTypes.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+          <span style={{fontSize:12,color:C.dim}}>{shown.length} evento{shown.length!==1?'s':''}</span>
+        </div>
         <Btn onClick={()=>{setForm({restaurant_id:'',event_type:'note_added',description:''});setAddModal(true)}}>+ Registrar evento</Btn>
       </div>
 
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-        {shown.length===0&&<div style={{padding:48,textAlign:'center',color:C.dim}}>Sin eventos registrados</div>}
-        {shown.map((ev,i)=>{
+      <SectionCard>
+        {shown.length===0&&<div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>Sin eventos registrados con los filtros actuales</div>}
+        {shown.map(ev=>{
           const m = eventMeta[ev.event_type]||{label:ev.event_type,icon:'•',color:C.mid};
           return (
-            <div key={ev.id} style={{padding:'16px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:14,alignItems:'flex-start'}}>
-              <div style={{width:36,height:36,borderRadius:'50%',background:C.surface,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{m.icon}</div>
+            <div key={ev.id} style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:14,alignItems:'flex-start'}}>
+              <div style={{width:34,height:34,borderRadius:'50%',background:C.surface,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}}>{m.icon}</div>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:4}}>
-                  <span style={{fontWeight:700,fontSize:13,color:C.ink}}>{ev.restaurant?.name||'Plataforma'}</span>
+                <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:3}}>
+                  <span style={{fontWeight:700,fontSize:13}}>{ev.restaurant?.name||'Plataforma'}</span>
                   <span style={{padding:'1px 8px',borderRadius:12,fontSize:11,fontWeight:600,background:C.surface,color:m.color,border:`1px solid ${m.color}30`}}>{m.label}</span>
                 </div>
                 <div style={{fontSize:13,color:C.mid}}>{ev.description}</div>
               </div>
-              <div style={{fontSize:11,color:C.dim,whiteSpace:'nowrap'}}>{fmtDateTime(ev.created_at)}</div>
+              <div style={{fontSize:11,color:C.dim,whiteSpace:'nowrap',flexShrink:0}}>{fmtDateTime(ev.created_at)}</div>
             </div>
           );
         })}
-      </div>
+      </SectionCard>
 
       {addModal&&(
         <Modal title="Registrar evento manual" onClose={()=>setAddModal(false)}>
           <FormField label="Restaurante">
-            <select value={form.restaurant_id} onChange={e=>setForm({...form,restaurant_id:e.target.value})}>
+            <select value={form.restaurant_id} onChange={e=>setForm(f=>({...f,restaurant_id:e.target.value}))}>
               <option value="">Plataforma (sin restaurante)</option>
               {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </FormField>
           <FormField label="Tipo de evento">
-            <select value={form.event_type} onChange={e=>setForm({...form,event_type:e.target.value})}>
-              <option value="note_added">Nota interna</option>
-              <option value="status_changed">Cambio de estado</option>
-              <option value="subscription_renewed">Renovación</option>
-              <option value="plan_changed">Cambio de plan</option>
-              <option value="onboarding">Alta</option>
+            <select value={form.event_type} onChange={e=>setForm(f=>({...f,event_type:e.target.value}))}>
+              {eventTypes.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </FormField>
-          <FormField label="Descripción *"><textarea value={form.description} onChange={e=>setForm({...form,description:e.target.value})} rows={3} placeholder="Detalle del evento..."/></FormField>
+          <FormField label="Descripción *"><textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} rows={3} placeholder="Detalle del evento..."/></FormField>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <Btn variant="ghost" onClick={()=>setAddModal(false)}>Cancelar</Btn>
             <Btn onClick={addEvent} disabled={saving}>{saving?'Guardando…':'Registrar'}</Btn>
@@ -817,14 +1067,13 @@ function PageActividad({events, restaurants, setFlash, reload}) {
 
 // ── Página: Usuarios ─────────────────────────────────────────
 function PageUsuarios({restaurants, setFlash}) {
-  const [users, setUsers]   = useState([]);
+  const [users, setUsers]     = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal]   = useState(null); // null | 'create'
-  const [saving, setSaving] = useState(false);
-  const [form, setForm]     = useState({username:'',display_name:'',password:'',role:'admin',restaurant_id:''});
-
-  const ROLES = ['cocina','admin','superadmin'];
-  const ROLE_COLORS = {cocina:C.cyan, admin:C.blue, superadmin:C.purple};
+  const [modal, setModal]     = useState(null);
+  const [editModal, setEditModal] = useState(null);
+  const [saving, setSaving]   = useState(false);
+  const [form, setForm]       = useState({username:'',display_name:'',password:'',role:'admin',restaurant_id:''});
+  const [editForm, setEditForm] = useState({role:'admin',restaurant_id:'',display_name:''});
 
   const loadUsers = useCallback(async () => {
     if (!db) { setLoading(false); return; }
@@ -841,643 +1090,184 @@ function PageUsuarios({restaurants, setFlash}) {
     if (form.password.length < 8) { setFlash({type:'error',text:'La contraseña debe tener al menos 8 caracteres'}); return; }
     setSaving(true);
     try {
-      const safeUser = form.username.toLowerCase().replace(/[^a-z0-9._-]/g, '');
-      const email = `${safeUser}.${Date.now()}@internal.mesaapp.com`;
-
-      const { data, error } = await db.rpc('admin_create_user', {
-        p_email:         email,
-        p_username:      form.username.trim(),
-        p_display_name:  form.display_name.trim() || form.username.trim(),
-        p_role:          form.role,
-        p_restaurant_id: form.restaurant_id || null,
-        p_password:      form.password,
+      const safeUser = form.username.toLowerCase().replace(/[^a-z0-9._-]/g,'');
+      const email    = `${safeUser}.${Date.now()}@internal.mesaapp.com`;
+      const { error } = await db.rpc('admin_create_user', {
+        p_email: email, p_username: form.username.trim(),
+        p_display_name: form.display_name.trim()||form.username.trim(),
+        p_role: form.role, p_restaurant_id: form.restaurant_id||null,
+        p_password: form.password,
       });
       if (error) throw new Error(error.message);
-
-      setFlash({type:'ok', text:`Usuario "${form.username}" creado correctamente`});
+      await db.from('platform_events').insert({event_type:'user_created',description:`Usuario "${form.username}" creado con rol ${form.role}`}).catch(()=>{});
+      setFlash({type:'ok',text:`Usuario "${form.username}" creado correctamente`});
       setModal(null);
       setForm({username:'',display_name:'',password:'',role:'admin',restaurant_id:''});
       loadUsers();
-    } catch(e) { setFlash({type:'error', text: e.message}); }
+    } catch(e) { setFlash({type:'error',text:e.message}); }
     setSaving(false);
   };
 
-  const toggleUser = async (u) => {
+  const openEdit = u => {
+    setEditForm({role:u.role,restaurant_id:u.restaurant_id||'',display_name:u.display_name||''});
+    setEditModal(u);
+  };
+
+  const saveEdit = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    setSaving(true);
+    try {
+      const { error } = await db.rpc('admin_update_user_role', {
+        p_user_id: editModal.user_id, p_role: editForm.role,
+        p_restaurant_id: editForm.restaurant_id||null,
+        p_display_name: editForm.display_name||null,
+      });
+      if (error) throw new Error(error.message);
+      setFlash({type:'ok',text:`${editModal.display_name||editModal.username} actualizado`});
+      setEditModal(null); loadUsers();
+    } catch(e) { setFlash({type:'error',text:e.message}); }
+    setSaving(false);
+  };
+
+  const toggleUser = async u => {
     if (!db) return;
     const next = !u.is_active;
     const { error } = await db.rpc('admin_toggle_user', { p_user_id: u.user_id, p_active: next });
-    if (error) { setFlash({type:'error', text: error.message}); return; }
-    setFlash({type:'ok', text:`${u.display_name || u.username} → ${next ? 'activo' : 'desactivado'}`});
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:`${u.display_name||u.username} → ${next?'activo':'desactivado'}`});
     loadUsers();
   };
 
-  const restName = id => restaurants.find(r=>r.id===id)?.name || '—';
+  const restName = id => restaurants.find(r=>r.id===id)?.name||'—';
 
   return (
     <div className="animate-in">
-
-      {/* Header */}
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
         <div>
-          <h2 style={{fontSize:20,fontWeight:700,color:C.ink}}>Usuarios del sistema</h2>
+          <div style={{fontSize:16,fontWeight:700}}>Usuarios del sistema</div>
           <div style={{fontSize:13,color:C.mid,marginTop:3}}>
-            {loading ? 'Cargando…' : `${users.length} usuario${users.length!==1?'s':''} registrado${users.length!==1?'s':''}`}
+            {loading?'Cargando…':`${users.length} usuario${users.length!==1?'s':''} registrado${users.length!==1?'s':''}`}
           </div>
         </div>
-        <Btn onClick={()=>{ setForm({username:'',display_name:'',password:'',role:'admin',restaurant_id:''}); setModal('create'); }}>
-          + Nuevo usuario
-        </Btn>
+        <Btn onClick={()=>{setForm({username:'',display_name:'',password:'',role:'admin',restaurant_id:''});setModal('create')}}>+ Nuevo usuario</Btn>
       </div>
 
-      {!db && (
+      {!db&&(
         <div style={{background:'#1a1a0a',border:`1px solid ${C.yellow}40`,borderRadius:8,padding:'12px 18px',marginBottom:20,color:C.yellow,fontSize:13}}>
           Sin conexión a Supabase — gestión de usuarios no disponible en modo demo
         </div>
       )}
 
-      {/* Tabla */}
-      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+      <SectionCard>
         {loading ? (
-          <div style={{padding:60,textAlign:'center',display:'flex',justifyContent:'center'}}><Spinner/></div>
-        ) : users.length === 0 ? (
+          <div style={{padding:60,display:'flex',justifyContent:'center',alignItems:'center',gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando usuarios…</span></div>
+        ) : users.length===0 ? (
           <div style={{padding:60,textAlign:'center'}}>
             <div style={{fontSize:32,marginBottom:12,opacity:.3}}>👥</div>
             <div style={{color:C.mid,fontSize:14,fontWeight:500}}>Sin usuarios registrados</div>
             <div style={{color:C.dim,fontSize:12,marginTop:6}}>Creá el primer usuario con el botón de arriba</div>
           </div>
         ) : (
-          <table style={{width:'100%',borderCollapse:'collapse'}}>
-            <thead style={{background:C.surface}}>
-              <tr>
-                <Th>Usuario</Th>
-                <Th>Nombre</Th>
-                <Th>Rol</Th>
-                <Th>Restaurante</Th>
-                <Th>Estado</Th>
-                <Th style={{textAlign:'right'}}>Acción</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map(u => (
-                <tr key={u.id} style={{transition:'background .1s'}} onMouseEnter={e=>e.currentTarget.style.background='#1a1a24'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                  <Td>
-                    <div style={{fontFamily:'monospace',fontSize:13,color:C.ink,fontWeight:600}}>{u.username||'—'}</div>
-                    <div style={{fontSize:11,color:C.dim,marginTop:2}}>{u.email||''}</div>
-                  </Td>
-                  <Td style={{fontWeight:500,color:C.ink}}>{u.display_name||'—'}</Td>
-                  <Td>
-                    <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:(ROLE_COLORS[u.role]||C.mid)+'22',color:ROLE_COLORS[u.role]||C.mid}}>
-                      {u.role}
-                    </span>
-                  </Td>
-                  <Td style={{fontSize:13,color:C.mid}}>
-                    {u.restaurant_id ? restName(u.restaurant_id) : <span style={{color:C.dim,fontStyle:'italic'}}>Todos</span>}
-                  </Td>
-                  <Td>
-                    <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,fontWeight:600,color:u.is_active?C.green:C.dim}}>
-                      <span style={{width:6,height:6,borderRadius:'50%',background:u.is_active?C.green:C.dim}}/>
-                      {u.is_active?'Activo':'Inactivo'}
-                    </span>
-                  </Td>
-                  <Td style={{textAlign:'right'}}>
-                    <Btn size="sm" variant={u.is_active?'danger':'success'} onClick={()=>toggleUser(u)}>
-                      {u.is_active?'Desactivar':'Activar'}
-                    </Btn>
-                  </Td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* Modal crear usuario */}
-      {modal==='create' && (
-        <div style={{position:'fixed',inset:0,background:'#00000090',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:'24px 16px'}}>
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,width:'100%',maxWidth:520,boxShadow:'0 24px 64px #00000080'}} className="animate-in">
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'18px 24px',borderBottom:`1px solid ${C.border}`}}>
-              <span style={{fontWeight:700,fontSize:16,color:C.ink}}>Nuevo usuario</span>
-              <button onClick={()=>setModal(null)} style={{background:'none',border:'none',color:C.mid,fontSize:20,cursor:'pointer',lineHeight:1}}>✕</button>
-            </div>
-            <div style={{padding:24,display:'flex',flexDirection:'column',gap:14}}>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
-                <FormField label="Usuario *" hint="Nombre de login (sin espacios)">
-                  <input value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="ej: jperez" autoFocus/>
-                </FormField>
-                <FormField label="Contraseña *" hint="Mínimo 8 caracteres">
-                  <input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="••••••••"/>
-                </FormField>
-                <FormField label="Nombre para mostrar" hint="Opcional — si se deja vacío usa el usuario">
-                  <input value={form.display_name} onChange={e=>setForm({...form,display_name:e.target.value})} placeholder="ej: Juan Pérez"/>
-                </FormField>
-                <FormField label="Rol">
-                  <select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>
-                    {ROLES.map(r=><option key={r} value={r}>{r}</option>)}
-                  </select>
-                </FormField>
-              </div>
-              <FormField label="Restaurante asignado" hint="Dejar vacío = acceso a todos los restaurantes">
-                <select value={form.restaurant_id} onChange={e=>setForm({...form,restaurant_id:e.target.value})}>
-                  <option value="">Todos los restaurantes</option>
-                  {restaurants.map(r=><option key={r.id} value={r.id}>{r.name} — {r.city}</option>)}
-                </select>
-              </FormField>
-              <div style={{background:'#0d0d18',border:`1px solid ${C.border}`,borderRadius:6,padding:'10px 14px',fontSize:12,color:C.dim}}>
-                El usuario inicia sesión en <strong style={{color:C.mid,fontFamily:'monospace'}}>{window.location.origin}/login.html</strong> con su usuario y contraseña.
-              </div>
-              <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:4}}>
-                <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-                <Btn onClick={createUser} disabled={saving}>{saving?'Creando…':'Crear usuario'}</Btn>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Página: Stock e Inventario ───────────────────────────────
-function PageStock({restaurants, setFlash}) {
-  const [restId, setRestId]         = useState(restaurants[0]?.id || '');
-  const [tab, setTab]               = useState('inventario'); // inventario | cargar | recetas | movimientos
-  const [ingredients, setIngredients] = useState([]);
-  const [menuItems, setMenuItems]   = useState([]);
-  const [recipes, setRecipes]       = useState([]);
-  const [movements, setMovements]   = useState([]);
-  const [alerts, setAlerts]         = useState([]);
-  const [loading, setLoading]       = useState(false);
-  const [modal, setModal]           = useState(null); // null|'new_ing'|'load_stock'|'new_recipe'
-  const [saving, setSaving]         = useState(false);
-
-  // Formularios
-  const emptyIng = {name:'',category:'',unit:'unit',min_threshold:'0',cost_per_unit:'',stock_quantity:'0'};
-  const [ingForm, setIngForm]       = useState(emptyIng);
-  const emptyLoad = {ingredient_id:'',quantity:'',unit:'unit',expiry_date:'',batch_id:'',cost_per_unit:'',notes:''};
-  const [loadForm, setLoadForm]     = useState(emptyLoad);
-  const emptyRec = {menu_item_id:'',ingredient_id:'',quantity_required:'1',unit:'unit',notes:''};
-  const [recForm, setRecForm]       = useState(emptyRec);
-
-  const UNIT_LABELS = {g:'g (gramos)',kg:'kg (kilogramos)',l:'L (litros)',ml:'ml (mililitros)',unit:'unidades enteras',portion:'porciones'};
-  const UNIT_DISPLAY = {g:'g',kg:'kg',l:'L',ml:'ml',unit:'u',portion:'p'};
-
-  const fmtStock = (qty, unit) => {
-    // Almacenamiento interno: siempre en unidad base (g o ml)
-    // Mostrar en kg si >= 1000g, en L si >= 1000ml
-    if ((unit === 'g' || unit === 'kg') && qty >= 1000) return `${(qty/1000).toFixed(2)} kg`;
-    if ((unit === 'ml' || unit === 'l') && qty >= 1000) return `${(qty/1000).toFixed(2)} L`;
-    return `${qty} ${UNIT_DISPLAY[unit]||unit}`;
-  };
-
-  const stockColor = lvl => ({ok:C.green, bajo:C.yellow, critico:C.orange, sin_stock:C.red}[lvl]||C.mid);
-  const stockLabel = lvl => ({ok:'OK', bajo:'Bajo', critico:'Crítico', sin_stock:'Sin stock'}[lvl]||lvl);
-
-  const loadData = useCallback(async () => {
-    if (!db || !restId) return;
-    setLoading(true);
-    try {
-      const [ingsRes, itemsRes, recsRes, movsRes, alertsRes] = await Promise.all([
-        db.rpc('admin_list_ingredients', {p_restaurant_id: restId}),
-        db.from('menu_items').select('id,name,is_available,availability_reason').eq('restaurant_id', restId).eq('is_active', true).order('name'),
-        db.from('recipes').select('*').then(async r => {
-          if (r.error) return {data:[]};
-          // Solo los de este restaurante (via ingredients)
-          const ingIds = (await db.from('ingredients').select('id').eq('restaurant_id', restId)).data?.map(i=>i.id)||[];
-          return {data: (r.data||[]).filter(rec => ingIds.includes(rec.ingredient_id))};
-        }),
-        db.from('stock_movements').select('*, ingredient:ingredients(name,unit)').eq('restaurant_id', restId).order('created_at',{ascending:false}).limit(100),
-        db.from('stock_alerts').select('*, ingredient:ingredients(name,unit)').eq('restaurant_id', restId).is('resolved_at', null).order('created_at',{ascending:false}).limit(30),
-      ]);
-      setIngredients(ingsRes.data || []);
-      setMenuItems(itemsRes.data || []);
-      setRecipes(recsRes.data || []);
-      setMovements(movsRes.data || []);
-      setAlerts(alertsRes.data || []);
-    } catch(e) { console.error(e); }
-    setLoading(false);
-  }, [restId]);
-
-  useEffect(() => { loadData(); }, [loadData]);
-
-  // Realtime: actualizar cuando cambia stock
-  useEffect(() => {
-    if (!db || !restId) return;
-    const ch = db.channel('stock-admin-rt')
-      .on('postgres_changes',{event:'*',schema:'public',table:'ingredients',filter:`restaurant_id=eq.${restId}`}, loadData)
-      .on('postgres_changes',{event:'*',schema:'public',table:'stock_alerts',filter:`restaurant_id=eq.${restId}`}, loadData)
-      .subscribe();
-    return () => db.removeChannel(ch);
-  }, [restId, loadData]);
-
-  const createIngredient = async () => {
-    if (!ingForm.name.trim()) { setFlash({type:'warn',text:'El nombre es requerido'}); return; }
-    setSaving(true);
-    try {
-      const {error} = await db.from('ingredients').insert({
-        restaurant_id: restId,
-        name: ingForm.name.trim(),
-        category: ingForm.category.trim() || null,
-        unit: ingForm.unit,
-        stock_quantity: parseFloat(ingForm.stock_quantity)||0,
-        min_threshold: parseFloat(ingForm.min_threshold)||0,
-        cost_per_unit: ingForm.cost_per_unit ? parseFloat(ingForm.cost_per_unit) : null,
-      });
-      if (error) throw error;
-      setFlash({type:'ok',text:'Ingrediente creado'});
-      setModal(null);
-      setIngForm(emptyIng);
-      loadData();
-    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
-    setSaving(false);
-  };
-
-  const loadStock = async () => {
-    if (!loadForm.ingredient_id) { setFlash({type:'warn',text:'Seleccioná un ingrediente'}); return; }
-    if (!loadForm.quantity || parseFloat(loadForm.quantity)<=0) { setFlash({type:'warn',text:'Cantidad inválida'}); return; }
-    setSaving(true);
-    try {
-      const {error} = await db.rpc('admin_load_stock', {
-        p_ingredient_id: loadForm.ingredient_id,
-        p_quantity:      parseFloat(loadForm.quantity),
-        p_unit:          loadForm.unit,
-        p_expiry_date:   loadForm.expiry_date || null,
-        p_batch_id:      loadForm.batch_id || null,
-        p_cost_per_unit: loadForm.cost_per_unit ? parseFloat(loadForm.cost_per_unit) : null,
-        p_notes:         loadForm.notes || null,
-      });
-      if (error) throw error;
-      setFlash({type:'ok',text:'Stock cargado correctamente'});
-      setModal(null);
-      setLoadForm(emptyLoad);
-      loadData();
-    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
-    setSaving(false);
-  };
-
-  const createRecipe = async () => {
-    if (!recForm.menu_item_id || !recForm.ingredient_id) { setFlash({type:'warn',text:'Seleccioná ítem e ingrediente'}); return; }
-    setSaving(true);
-    try {
-      const {error} = await db.from('recipes').insert({
-        menu_item_id:      parseInt(recForm.menu_item_id),
-        ingredient_id:     recForm.ingredient_id,
-        quantity_required: parseFloat(recForm.quantity_required)||1,
-        unit:              recForm.unit,
-        notes:             recForm.notes || null,
-      });
-      if (error) throw error;
-      setFlash({type:'ok',text:'Receta guardada'});
-      setModal(null);
-      setRecForm(emptyRec);
-      loadData();
-    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
-    setSaving(false);
-  };
-
-  const deleteRecipe = async (id) => {
-    const {error} = await db.from('recipes').delete().eq('id', id);
-    if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
-    setFlash({type:'ok',text:'Receta eliminada'});
-    loadData();
-  };
-
-  const ingName = id => ingredients.find(i=>i.id===id)?.name || id;
-  const itemName = id => menuItems.find(i=>i.id===parseInt(id))?.name || id;
-
-  const mvtIcon = t => ({load:'↑',deduct:'↓',adjustment:'≈',waste:'✕',expired:'⚠'}[t]||'•');
-  const mvtColor = t => ({load:C.green,deduct:C.cyan,adjustment:C.yellow,waste:C.orange,expired:C.red}[t]||C.mid);
-
-  const alertIcon = t => ({low_stock:'⚠',critical_stock:'🔴',expiring_soon:'📅',expired:'💀'}[t]||'•');
-  const alertColor = t => ({low_stock:C.yellow,critical_stock:C.red,expiring_soon:C.orange,expired:C.red}[t]||C.mid);
-  const alertLabel = t => ({low_stock:'Stock bajo',critical_stock:'Stock crítico',expiring_soon:'Por vencer',expired:'Vencido'}[t]||t);
-
-  const resolveAlert = async (id) => {
-    const {error} = await db.from('stock_alerts').update({resolved_at: new Date().toISOString()}).eq('id',id);
-    if (!error) loadData();
-  };
-
-  const TabBtn = ({id,label}) => (
-    <button onClick={()=>setTab(id)} style={{
-      padding:'7px 16px',borderRadius:6,border:'none',fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:'pointer',
-      background: tab===id ? C.blue : 'transparent',
-      color: tab===id ? '#fff' : C.mid,
-      transition:'all .15s',
-    }}>{label}</button>
-  );
-
-  return (
-    <div className="animate-in">
-      {/* Header con selector de restaurante y tabs */}
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:12}}>
-        <div style={{display:'flex',gap:6,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:4}}>
-          <TabBtn id="inventario"   label="Inventario"/>
-          <TabBtn id="cargar"       label="Cargar stock"/>
-          <TabBtn id="recetas"      label="Recetas"/>
-          <TabBtn id="movimientos"  label="Movimientos"/>
-        </div>
-        <div style={{display:'flex',gap:10,alignItems:'center'}}>
-          <select value={restId} onChange={e=>setRestId(e.target.value)} style={{width:200,fontSize:13}}>
-            {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-          <button onClick={loadData} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'7px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺</button>
-        </div>
-      </div>
-
-      {/* Alertas activas */}
-      {alerts.length > 0 && (
-        <div style={{marginBottom:16,display:'flex',flexDirection:'column',gap:6}}>
-          {alerts.map(al=>(
-            <div key={al.id} style={{background:'#160808',border:`1px solid ${alertColor(al.alert_type)}40`,borderRadius:8,padding:'10px 16px',display:'flex',alignItems:'center',gap:10}}>
-              <span style={{fontSize:16}}>{alertIcon(al.alert_type)}</span>
-              <div style={{flex:1}}>
-                <span style={{fontWeight:700,fontSize:13,color:alertColor(al.alert_type)}}>{alertLabel(al.alert_type)}: </span>
-                <span style={{fontSize:13,color:C.ink}}>{al.ingredient?.name||'—'}</span>
-                {al.current_value!=null && <span style={{fontSize:11,color:C.mid,marginLeft:8}}>({fmtStock(al.current_value, al.ingredient?.unit||'unit')} actual)</span>}
-              </div>
-              <Btn size="sm" variant="ghost" onClick={()=>resolveAlert(al.id)}>Resolver</Btn>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {loading ? (
-        <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:200,gap:14}}>
-          <Spinner/><span style={{color:C.mid}}>Cargando inventario…</span>
-        </div>
-      ) : (
-
-        <>
-        {/* ── TAB: INVENTARIO ─────────────────────────────────── */}
-        {tab==='inventario' && (
-          <div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-              <span style={{fontSize:13,color:C.mid}}>{ingredients.length} ingredientes registrados</span>
-              <Btn size="sm" onClick={()=>setModal('new_ing')}>+ Nuevo ingrediente</Btn>
-            </div>
-
-            {ingredients.length === 0 ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>
-                No hay ingredientes registrados.<br/>
-                <span style={{fontSize:12}}>Creá un ingrediente y vinculalo a un ítem del menú con "Recetas".</span>
-              </div>
-            ) : (
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-                <table style={{width:'100%',borderCollapse:'collapse'}}>
-                  <thead style={{background:C.surface}}>
-                    <tr>
-                      <Th>Ingrediente</Th><Th>Stock actual</Th><Th>Umbral mín.</Th>
-                      <Th>Proyectado</Th><Th>Estado</Th><Th>Vence</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ingredients.map(ing => {
-                      const lvlColor = stockColor(ing.stock_level);
-                      const projDiff = ing.projected_qty - ing.stock_quantity;
-                      return (
-                        <tr key={ing.id}>
-                          <Td>
-                            <div style={{fontWeight:600,color:C.ink}}>{ing.name}</div>
-                            {ing.category&&<div style={{fontSize:11,color:C.dim}}>{ing.category}</div>}
-                          </Td>
-                          <Td>
-                            <span style={{fontWeight:700,color:lvlColor,fontFamily:'monospace'}}>
-                              {fmtStock(ing.stock_quantity, ing.unit)}
-                            </span>
-                          </Td>
-                          <Td style={{color:C.mid,fontSize:12,fontFamily:'monospace'}}>
-                            {ing.min_threshold > 0 ? fmtStock(ing.min_threshold, ing.unit) : '—'}
-                          </Td>
-                          <Td>
-                            <span style={{fontFamily:'monospace',fontSize:12,color: ing.projected_qty < 0 ? C.red : ing.projected_qty < ing.min_threshold ? C.orange : C.mid}}>
-                              {fmtStock(Math.max(0, ing.projected_qty), ing.unit)}
-                            </span>
-                            {projDiff < 0 && <span style={{fontSize:10,color:C.red,marginLeft:4}}>↓{fmtStock(Math.abs(projDiff), ing.unit)}</span>}
-                          </Td>
-                          <Td>
-                            <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:700,background:lvlColor+'22',color:lvlColor}}>
-                              {stockLabel(ing.stock_level)}
-                            </span>
-                            {ing.alert_count > 0 && <span style={{marginLeft:6,fontSize:10,color:C.red}}>⚠{ing.alert_count}</span>}
-                          </Td>
-                          <Td style={{fontSize:12,color: ing.expiry_date && new Date(ing.expiry_date)<new Date() ? C.red : ing.expiry_date && new Date(ing.expiry_date)<new Date(Date.now()+7*86400000) ? C.orange : C.mid}}>
-                            {ing.expiry_date ? fmtDate(ing.expiry_date) : '—'}
-                          </Td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* Mini mapa de disponibilidad del menú */}
-            {menuItems.length > 0 && (
-              <div style={{marginTop:20,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-                <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontWeight:600,fontSize:13}}>Disponibilidad del menú</div>
-                <div style={{padding:16,display:'flex',flexWrap:'wrap',gap:8}}>
-                  {menuItems.map(mi=>(
-                    <div key={mi.id} style={{
-                      padding:'5px 12px',borderRadius:20,fontSize:12,fontWeight:600,
-                      background: mi.is_available ? '#102a10' : '#2a1010',
-                      color: mi.is_available ? C.green : C.red,
-                      border: `1px solid ${mi.is_available ? C.green : C.red}30`,
-                      title: mi.availability_reason,
-                    }}>
-                      {mi.is_available ? '●' : '○'} {mi.name}
-                      {!mi.is_available && mi.availability_reason && (
-                        <span style={{fontSize:10,fontWeight:400,color:C.red,marginLeft:4}}>({mi.availability_reason})</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+          <div className="tbl-wrap">
+            <table style={{width:'100%',borderCollapse:'collapse',minWidth:620}}>
+              <thead><tr>
+                <Th>Usuario</Th><Th>Nombre</Th><Th>Rol</Th><Th>Restaurante</Th><Th>Estado</Th><Th style={{textAlign:'right'}}>Acciones</Th>
+              </tr></thead>
+              <tbody>
+                {users.map(u=>(
+                  <tr key={u.id} onMouseEnter={e=>e.currentTarget.style.background=C.surface} onMouseLeave={e=>e.currentTarget.style.background=''} style={{transition:'background .1s'}}>
+                    <Td>
+                      <div style={{fontFamily:'monospace',fontSize:13,fontWeight:600}}>{u.username||'—'}</div>
+                      <div style={{fontSize:11,color:C.dim,marginTop:2}}>{u.email||''}</div>
+                    </Td>
+                    <Td style={{fontWeight:500}}>{u.display_name||'—'}</Td>
+                    <Td>
+                      <span style={{padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:(ROLE_COLORS[u.role]||C.mid)+'22',color:ROLE_COLORS[u.role]||C.mid}}>
+                        {u.role}
+                      </span>
+                    </Td>
+                    <Td style={{fontSize:13,color:C.mid}}>
+                      {u.restaurant_id ? restName(u.restaurant_id) : <span style={{color:C.dim,fontStyle:'italic'}}>Todos</span>}
+                    </Td>
+                    <Td>
+                      <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,fontWeight:600,color:u.is_active?C.green:C.dim}}>
+                        <span style={{width:6,height:6,borderRadius:'50%',background:u.is_active?C.green:C.dim}}/>
+                        {u.is_active?'Activo':'Inactivo'}
+                      </span>
+                    </Td>
+                    <Td style={{textAlign:'right'}}>
+                      <div style={{display:'flex',gap:4,justifyContent:'flex-end'}}>
+                        <Btn size="sm" variant="ghost" onClick={()=>openEdit(u)}>Editar</Btn>
+                        <Btn size="sm" variant={u.is_active?'danger':'success'} onClick={()=>toggleUser(u)}>
+                          {u.is_active?'Desactivar':'Activar'}
+                        </Btn>
+                      </div>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
+      </SectionCard>
 
-        {/* ── TAB: CARGAR STOCK ───────────────────────────────── */}
-        {tab==='cargar' && (
-          <div style={{maxWidth:560}}>
-            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:24}}>
-              <div style={{fontWeight:700,fontSize:15,marginBottom:20}}>Cargar stock de ingrediente</div>
-              <div style={{display:'flex',flexDirection:'column',gap:14}}>
-                <FormField label="Ingrediente *">
-                  <select value={loadForm.ingredient_id} onChange={e=>setLoadForm({...loadForm,ingredient_id:e.target.value,unit:(ingredients.find(i=>i.id===e.target.value)?.unit||'unit')})}>
-                    <option value="">— Seleccioná un ingrediente —</option>
-                    {ingredients.map(i=><option key={i.id} value={i.id}>{i.name} (stock: {fmtStock(i.stock_quantity,i.unit)})</option>)}
-                  </select>
-                </FormField>
-                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}>
-                  <FormField label="Cantidad recibida *">
-                    <input type="number" min="0" step="0.001" value={loadForm.quantity} onChange={e=>setLoadForm({...loadForm,quantity:e.target.value})} placeholder="ej: 5"/>
-                  </FormField>
-                  <FormField label="Unidad">
-                    <select value={loadForm.unit} onChange={e=>setLoadForm({...loadForm,unit:e.target.value})}>
-                      {Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
-                    </select>
-                  </FormField>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                  <FormField label="Fecha de vencimiento" hint="Opcional — recomendado para perecederos">
-                    <input type="date" value={loadForm.expiry_date} onChange={e=>setLoadForm({...loadForm,expiry_date:e.target.value})}/>
-                  </FormField>
-                  <FormField label="N° de lote / remito" hint="Para trazabilidad">
-                    <input value={loadForm.batch_id} onChange={e=>setLoadForm({...loadForm,batch_id:e.target.value})} placeholder="Opcional"/>
-                  </FormField>
-                </div>
-                <FormField label="Costo unitario (₲)" hint="Opcional — para reportes de costo">
-                  <input type="number" min="0" value={loadForm.cost_per_unit} onChange={e=>setLoadForm({...loadForm,cost_per_unit:e.target.value})} placeholder="Opcional"/>
-                </FormField>
-                <FormField label="Notas">
-                  <textarea rows={2} value={loadForm.notes} onChange={e=>setLoadForm({...loadForm,notes:e.target.value})} placeholder="Ej: Proveedor X, factura #123"/>
-                </FormField>
-                <div style={{paddingTop:4}}>
-                  <Btn onClick={loadStock} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Confirmar carga de stock'}</Btn>
-                </div>
-              </div>
-            </div>
-
-            <div style={{marginTop:20,background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:24}}>
-              <div style={{fontWeight:700,fontSize:15,marginBottom:20}}>Nuevo ingrediente</div>
-              <div style={{display:'flex',flexDirection:'column',gap:14}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                  <FormField label="Nombre *">
-                    <input value={ingForm.name} onChange={e=>setIngForm({...ingForm,name:e.target.value})} placeholder="Ej: Carne vacuna"/>
-                  </FormField>
-                  <FormField label="Categoría">
-                    <input value={ingForm.category} onChange={e=>setIngForm({...ingForm,category:e.target.value})} placeholder="Ej: Carnes, Lácteos…"/>
-                  </FormField>
-                </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
-                  <FormField label="Unidad base">
-                    <select value={ingForm.unit} onChange={e=>setIngForm({...ingForm,unit:e.target.value})}>
-                      {Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
-                    </select>
-                  </FormField>
-                  <FormField label="Stock inicial">
-                    <input type="number" min="0" step="0.001" value={ingForm.stock_quantity} onChange={e=>setIngForm({...ingForm,stock_quantity:e.target.value})}/>
-                  </FormField>
-                  <FormField label="Umbral mínimo" hint="Alerta cuando baje de este nivel">
-                    <input type="number" min="0" step="0.001" value={ingForm.min_threshold} onChange={e=>setIngForm({...ingForm,min_threshold:e.target.value})}/>
-                  </FormField>
-                </div>
-                <div style={{paddingTop:4}}>
-                  <Btn onClick={createIngredient} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Crear ingrediente'}</Btn>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── TAB: RECETAS ────────────────────────────────────── */}
-        {tab==='recetas' && (
-          <div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-              <span style={{fontSize:13,color:C.mid}}>Vinculá ingredientes a los ítems del menú para activar el descuento automático de stock</span>
-              <Btn size="sm" onClick={()=>setModal('new_recipe')}>+ Nueva receta</Btn>
-            </div>
-
-            {recipes.length === 0 ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>
-                No hay recetas configuradas.<br/>
-                <span style={{fontSize:12}}>Los ítems sin receta no descontarán stock automáticamente.</span>
-              </div>
-            ) : (
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-                <table style={{width:'100%',borderCollapse:'collapse'}}>
-                  <thead style={{background:C.surface}}>
-                    <tr><Th>Ítem del menú</Th><Th>Ingrediente</Th><Th>Cantidad/porción</Th><Th>Notas</Th><Th></Th></tr>
-                  </thead>
-                  <tbody>
-                    {recipes.map(rec=>(
-                      <tr key={rec.id}>
-                        <Td style={{fontWeight:600}}>{itemName(rec.menu_item_id)}</Td>
-                        <Td>{ingName(rec.ingredient_id)}</Td>
-                        <Td style={{fontFamily:'monospace',fontSize:12}}>{rec.quantity_required} {UNIT_DISPLAY[rec.unit]||rec.unit}</Td>
-                        <Td style={{color:C.dim,fontSize:12}}>{rec.notes||'—'}</Td>
-                        <Td style={{textAlign:'right'}}><Btn size="sm" variant="danger" onClick={()=>deleteRecipe(rec.id)}>Eliminar</Btn></Td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── TAB: MOVIMIENTOS ────────────────────────────────── */}
-        {tab==='movimientos' && (
-          <div>
-            <div style={{marginBottom:14,fontSize:13,color:C.mid}}>Últimos 100 movimientos de stock</div>
-            {movements.length === 0 ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>No hay movimientos registrados aún.</div>
-            ) : (
-              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-                <table style={{width:'100%',borderCollapse:'collapse'}}>
-                  <thead style={{background:C.surface}}>
-                    <tr><Th>Fecha</Th><Th>Tipo</Th><Th>Ingrediente</Th><Th>Cantidad</Th><Th>Notas</Th></tr>
-                  </thead>
-                  <tbody>
-                    {movements.map(mv=>{
-                      const col = mvtColor(mv.movement_type);
-                      return (
-                        <tr key={mv.id}>
-                          <Td style={{fontSize:11,color:C.dim,fontFamily:'monospace'}}>{fmtDateTime(mv.created_at)}</Td>
-                          <Td>
-                            <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:700,background:col+'22',color:col}}>
-                              {mvtIcon(mv.movement_type)} {mv.movement_type}
-                            </span>
-                          </Td>
-                          <Td style={{fontWeight:500}}>{mv.ingredient?.name||'—'}</Td>
-                          <Td style={{fontFamily:'monospace',fontSize:12,color:mv.movement_type==='load'?C.green:C.red}}>
-                            {mv.movement_type==='load'?'+':'-'}{fmtStock(mv.quantity, mv.ingredient?.unit||'unit')}
-                          </Td>
-                          <Td style={{fontSize:12,color:C.dim}}>{mv.notes||'—'}</Td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-        </>
-      )}
-
-      {/* Modal: nueva receta */}
-      {modal==='new_recipe' && (
-        <Modal title="Nueva receta" onClose={()=>setModal(null)} width={480}>
-          <div style={{display:'flex',flexDirection:'column',gap:14}}>
-            <FormField label="Ítem del menú *">
-              <select value={recForm.menu_item_id} onChange={e=>setRecForm({...recForm,menu_item_id:e.target.value})}>
-                <option value="">— Seleccioná un ítem —</option>
-                {menuItems.map(mi=><option key={mi.id} value={mi.id}>{mi.name}</option>)}
+      {/* Modal crear */}
+      {modal==='create'&&(
+        <Modal title="Nuevo usuario" onClose={()=>setModal(null)}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Usuario *" hint="Sin espacios, sin acentos">
+              <input value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} placeholder="ej: jperez" autoFocus/>
+            </FormField>
+            <FormField label="Contraseña *" hint="Mínimo 8 caracteres">
+              <input type="password" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="••••••••"/>
+            </FormField>
+            <FormField label="Nombre para mostrar" hint="Opcional">
+              <input value={form.display_name} onChange={e=>setForm(f=>({...f,display_name:e.target.value}))} placeholder="Juan Pérez"/>
+            </FormField>
+            <FormField label="Rol">
+              <select value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+                {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
               </select>
             </FormField>
-            <FormField label="Ingrediente *">
-              <select value={recForm.ingredient_id} onChange={e=>setRecForm({...recForm,ingredient_id:e.target.value,unit:(ingredients.find(i=>i.id===e.target.value)?.unit||'unit')})}>
-                <option value="">— Seleccioná un ingrediente —</option>
-                {ingredients.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
+          </div>
+          <FormField label="Restaurante asignado" hint="Vacío = acceso a todos (solo para superadmin)">
+            <select value={form.restaurant_id} onChange={e=>setForm(f=>({...f,restaurant_id:e.target.value}))}>
+              <option value="">Todos los restaurantes</option>
+              {restaurants.map(r=><option key={r.id} value={r.id}>{r.name} — {r.city}</option>)}
+            </select>
+          </FormField>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'10px 14px',fontSize:12,color:C.dim,marginBottom:14}}>
+            El usuario inicia sesión en <strong style={{color:C.mid,fontFamily:'monospace'}}>{typeof window!=='undefined'?window.location.origin:''}/login.html</strong>
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+            <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+            <Btn onClick={createUser} disabled={saving}>{saving?'Creando…':'Crear usuario'}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal editar */}
+      {editModal&&(
+        <Modal title={`Editar — ${editModal.display_name||editModal.username}`} onClose={()=>setEditModal(null)}>
+          <FormField label="Nombre para mostrar">
+            <input value={editForm.display_name} onChange={e=>setEditForm(f=>({...f,display_name:e.target.value}))}/>
+          </FormField>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Rol">
+              <select value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))}>
+                {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
               </select>
             </FormField>
-            <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:12}}>
-              <FormField label="Cantidad por porción *">
-                <input type="number" min="0.001" step="0.001" value={recForm.quantity_required} onChange={e=>setRecForm({...recForm,quantity_required:e.target.value})}/>
-              </FormField>
-              <FormField label="Unidad">
-                <select value={recForm.unit} onChange={e=>setRecForm({...recForm,unit:e.target.value})}>
-                  {Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
-                </select>
-              </FormField>
-            </div>
-            <FormField label="Notas" hint="Opcional — ej: 'Sin grasa'">
-              <input value={recForm.notes} onChange={e=>setRecForm({...recForm,notes:e.target.value})} placeholder="Opcional"/>
+            <FormField label="Restaurante asignado">
+              <select value={editForm.restaurant_id} onChange={e=>setEditForm(f=>({...f,restaurant_id:e.target.value}))}>
+                <option value="">Todos los restaurantes</option>
+                {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
             </FormField>
-            <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:4}}>
-              <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
-              <Btn onClick={createRecipe} disabled={saving}>{saving?'Guardando…':'Guardar receta'}</Btn>
-            </div>
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <Btn variant="ghost" onClick={()=>setEditModal(null)}>Cancelar</Btn>
+            <Btn onClick={saveEdit} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
           </div>
         </Modal>
       )}
@@ -1487,18 +1277,25 @@ function PageStock({restaurants, setFlash}) {
 
 // ── Sidebar ──────────────────────────────────────────────────
 const NAV = [
-  {id:'overview',     label:'Plataforma',    icon:'◉'},
-  {id:'ecosistemas',  label:'Ecosistemas',   icon:'🏪'},
-  {id:'suscripciones',label:'Suscripciones', icon:'🔑'},
-  {id:'analytics',    label:'Analytics',     icon:'📊'},
-  {id:'actividad',    label:'Actividad',     icon:'📋'},
-  {id:'usuarios',     label:'Usuarios',      icon:'👥'},
+  {id:'overview',      label:'Plataforma',    icon:'◉'},
+  {id:'ecosistemas',   label:'Ecosistemas',   icon:'🏪'},
+  {id:'suscripciones', label:'Suscripciones', icon:'🔑'},
+  {id:'planes',        label:'Planes',        icon:'📋'},
+  {id:'analytics',     label:'Analytics',     icon:'📊'},
+  {id:'actividad',     label:'Actividad',     icon:'📋'},
+  {id:'usuarios',      label:'Usuarios',      icon:'👥'},
 ];
 
 function Sidebar({page, setPage}) {
+  const signOut = async () => {
+    if (db) { try { await db.auth.signOut(); } catch(e){} }
+    localStorage.removeItem('mesa_session');
+    window.location.replace('login.html');
+  };
+
   return (
-    <div style={{width:220,background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',minHeight:'100vh',flexShrink:0}}>
-      <div style={{padding:'20px 18px 16px',borderBottom:`1px solid ${C.border}`}}>
+    <div style={{width:220,background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',height:'100%',flexShrink:0,overflowY:'auto'}}>
+      <div style={{padding:'20px 18px 16px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{fontWeight:800,fontSize:15,color:C.ink,letterSpacing:-.3}}>Mesa App</div>
         <div style={{fontSize:10,fontWeight:700,color:C.blue,letterSpacing:2,marginTop:2,textTransform:'uppercase'}}>SuperAdmin</div>
       </div>
@@ -1513,17 +1310,16 @@ function Sidebar({page, setPage}) {
           );
         })}
       </nav>
-      <div style={{padding:'14px 18px',borderTop:`1px solid ${C.border}`}}>
-        <div style={{fontSize:11,color:C.dim,marginBottom:6}}>Links rápidos</div>
-        {[['admin.html','Admin local'],['cocina.html','KDS cocina'],['index.html','App cliente']].map(([href,label])=>(
-          <a key={href} href={href} style={{display:'block',fontSize:12,color:C.mid,textDecoration:'none',padding:'3px 0',transition:'color .1s'}} onMouseEnter={e=>e.target.style.color=C.ink} onMouseLeave={e=>e.target.style.color=C.mid}>{label} →</a>
+      <div style={{padding:'14px 16px',borderTop:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{fontSize:10,color:C.dim,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Links rápidos</div>
+        {[['admin.html','Admin local'],['cocina.html','KDS cocina'],['caja.html','Panel caja'],['index.html','App cliente']].map(([href,label])=>(
+          <a key={href} href={href} target="_blank" rel="noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'space-between',fontSize:12,color:C.mid,textDecoration:'none',padding:'5px 0',transition:'color .1s'}} onMouseEnter={e=>e.currentTarget.style.color=C.ink} onMouseLeave={e=>e.currentTarget.style.color=C.mid}>
+            <span>{label}</span><span style={{fontSize:10,opacity:.5}}>↗</span>
+          </a>
         ))}
-        {db&&(
-          <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}}
-            style={{marginTop:10,width:'100%',background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,color:C.dim,fontSize:12,padding:'6px',cursor:'pointer',fontFamily:'inherit'}}>
-            Cerrar sesión
-          </button>
-        )}
+        <button onClick={signOut} style={{marginTop:10,width:'100%',background:'#1a0808',border:`1px solid ${C.red}30`,borderRadius:6,color:C.red,fontSize:12,padding:'7px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+          Cerrar sesión
+        </button>
       </div>
     </div>
   );
@@ -1531,16 +1327,17 @@ function Sidebar({page, setPage}) {
 
 // ── App principal ────────────────────────────────────────────
 function App() {
-  const [page, setPage]         = useState('overview');
-  const [loading, setLoading]   = useState(true);
-  const [flash, setFlash]       = useState(null);
-  const [offline, setOffline]   = useState(false);
-  const [rtLive, setRtLive]     = useState(false);
-  const [rawData, setRawData]   = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[]});
+  const [page, setPage]       = useState('overview');
+  const [loading, setLoading] = useState(true);
+  const [flash, setFlash]     = useState(null);
+  const [offline, setOffline] = useState(false);
+  const [rtLive, setRtLive]   = useState(false);
+  const [rawData, setRawData] = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[]});
   const [,forceRender] = useReducer(x=>x+1,0);
+
   function toggleTheme(){
-    const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
-    Object.assign(C,next==='dark'?C_DARK:C_LIGHT);
+    const next = document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
+    Object.assign(C, next==='dark'?C_DARK:C_LIGHT);
     document.documentElement.setAttribute('data-theme',next);
     localStorage.setItem('mesa_theme',next);
     forceRender();
@@ -1548,9 +1345,7 @@ function App() {
 
   const loadAll = useCallback(async () => {
     if (!db) {
-      setRawData(DEMO);
-      setOffline(true);
-      setLoading(false);
+      setRawData(DEMO); setOffline(true); setLoading(false);
       return;
     }
     setLoading(true);
@@ -1559,72 +1354,71 @@ function App() {
       const [rests,subs,plans,events,orders,ratings] = await Promise.all([
         db.from('restaurants').select('*').order('created_at',{ascending:false}),
         db.from('subscriptions').select('*, plan:subscription_plans(id,name,price_usd,billing_cycle)').then(r=>r.error?{data:[]}:r),
-        db.from('subscription_plans').select('*').eq('is_active',true).order('price_usd').then(r=>r.error?{data:[]}:r),
-        db.from('platform_events').select('*, restaurant:restaurants(name)').order('created_at',{ascending:false}).limit(50).then(r=>r.error?{data:[]}:r),
+        db.from('subscription_plans').select('*').order('price_usd').then(r=>r.error?{data:[]}:r),
+        db.from('platform_events').select('*, restaurant:restaurants(name)').order('created_at',{ascending:false}).limit(100).then(r=>r.error?{data:[]}:r),
         db.from('orders').select('id,restaurant_id,total,created_at,status').gte('created_at',ago30).then(r=>r.error?{data:[]}:r),
         db.from('ratings').select('restaurant_id,stars').then(r=>r.error?{data:[]}:r),
       ]);
       if (rests.error) throw rests.error;
-      const subsWithPlan = (subs.data||[]).map(s=>({...s,plan:s.plan}));
-      setRawData({restaurants:rests.data||[],subscriptions:subsWithPlan,plans:plans.data||[],events:events.data||[],orders:orders.data||[],ratings:ratings.data||[]});
+      setRawData({restaurants:rests.data||[],subscriptions:(subs.data||[]),plans:plans.data||[],events:events.data||[],orders:orders.data||[],ratings:ratings.data||[]});
       setOffline(false);
     } catch(e) {
       console.warn('Error cargando datos:',e);
-      setRawData(DEMO);
-      setOffline(true);
-      setFlash({type:'warn',text:'Sin conexión a Supabase — mostrando datos demo'});
+      setRawData(DEMO); setOffline(true);
+      setFlash({type:'warn',text:'Sin conexión a Supabase — datos demo'});
     }
     setLoading(false);
   }, []);
 
-  useEffect(()=>{ loadAll(); }, [loadAll]);
+  useEffect(()=>{ loadAll(); },[loadAll]);
 
   useEffect(()=>{
     if (!db) return;
-    const channel = db.channel('superadmin-rt')
-      .on('postgres_changes',{event:'*',schema:'public',table:'orders'},        loadAll)
-      .on('postgres_changes',{event:'*',schema:'public',table:'restaurants'},   loadAll)
-      .on('postgres_changes',{event:'*',schema:'public',table:'subscriptions'}, loadAll)
+    const ch = db.channel('superadmin-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'orders'},         loadAll)
+      .on('postgres_changes',{event:'*',schema:'public',table:'restaurants'},    loadAll)
+      .on('postgres_changes',{event:'*',schema:'public',table:'subscriptions'},  loadAll)
       .on('postgres_changes',{event:'*',schema:'public',table:'platform_events'},loadAll)
-      .subscribe(status => setRtLive(status==='SUBSCRIBED'));
-    return ()=>{ db.removeChannel(channel); };
-  }, [loadAll]);
+      .subscribe(s=>setRtLive(s==='SUBSCRIBED'));
+    return ()=>{ db.removeChannel(ch); };
+  },[loadAll]);
 
   const {restaurants,plans,subscriptions,events,orders,ratings} = rawData;
   const enriched = buildAnalytics(restaurants, orders, ratings, subscriptions, plans);
 
-  const pageTitles = {overview:'Plataforma',ecosistemas:'Ecosistemas',suscripciones:'Suscripciones',analytics:'Analytics',actividad:'Actividad',usuarios:'Usuarios'};
+  const pageTitles = {overview:'Plataforma',ecosistemas:'Ecosistemas',suscripciones:'Suscripciones',planes:'Planes SaaS',analytics:'Analytics',actividad:'Actividad',usuarios:'Usuarios'};
 
   return (
-    <div style={{display:'flex',minHeight:'100vh'}}>
+    <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
       <Sidebar page={page} setPage={setPage}/>
-      <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
+      <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
         {/* Header */}
-        <div style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:'14px 28px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'sticky',top:0,zIndex:10}}>
-          <div style={{fontWeight:700,fontSize:16,color:C.ink}}>{pageTitles[page]}</div>
-          <div style={{display:'flex',alignItems:'center',gap:14}}>
+        <div style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,zIndex:10}}>
+          <div style={{fontWeight:700,fontSize:15,color:C.ink}}>{pageTitles[page]||page}</div>
+          <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
             {offline&&<span style={{fontSize:11,color:C.yellow,fontWeight:600,background:'#2a2010',padding:'3px 10px',borderRadius:12}}>● Demo offline</span>}
             {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:'#102010',padding:'3px 10px',borderRadius:12}} className="pulse">● En vivo</span>}
             {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:600,background:C.surface,padding:'3px 10px',borderRadius:12}}>● Conectado</span>}
             {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
-            <button onClick={loadAll} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺ Actualizar</button>
-            <button onClick={toggleTheme} title="Cambiar tema" style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 10px',color:C.mid,fontSize:14,cursor:'pointer'}}>
+            <button onClick={loadAll} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺</button>
+            <button onClick={toggleTheme} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 10px',color:C.mid,fontSize:14,cursor:'pointer'}}>
               {document.documentElement.getAttribute('data-theme')==='dark'?'☀️':'🌙'}
             </button>
           </div>
         </div>
 
         {/* Content */}
-        <div style={{flex:1,padding:28,overflowY:'auto'}}>
+        <div style={{flex:1,padding:24,overflowY:'auto'}}>
           {loading ? (
             <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:200,gap:14}}>
               <Spinner/><span style={{color:C.mid}}>Cargando plataforma…</span>
             </div>
           ) : (
             <>
-              {page==='overview'      && <PageOverview     enriched={enriched} events={events} plans={plans} setFlash={setFlash} reload={loadAll}/>}
-              {page==='ecosistemas'   && <PageEcosistemas  enriched={enriched} plans={plans}   setFlash={setFlash} reload={loadAll}/>}
+              {page==='overview'      && <PageOverview     enriched={enriched} events={events} plans={plans} setFlash={setFlash} reload={loadAll} setPage={setPage}/>}
+              {page==='ecosistemas'   && <PageEcosistemas  enriched={enriched} plans={plans} setFlash={setFlash} reload={loadAll}/>}
               {page==='suscripciones' && <PageSuscripciones enriched={enriched} plans={plans} setFlash={setFlash} reload={loadAll}/>}
+              {page==='planes'        && <PagePlanes        plans={plans} setFlash={setFlash} reload={loadAll}/>}
               {page==='analytics'     && <PageAnalytics    enriched={enriched} orders={orders} ratings={ratings}/>}
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={loadAll}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
@@ -1637,9 +1431,13 @@ function App() {
   );
 }
 
-// Auth guard — solo superadmin
+// ── Auth guard — solo superadmin ─────────────────────────────
 async function bootstrap() {
-  if (!db) { window.location.replace('login.html'); return; }
+  if (!db) {
+    // Sin config de Supabase — modo demo directo
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+    return;
+  }
   const { data: { session } } = await db.auth.getSession();
   if (!session) { window.location.replace('login.html'); return; }
   const { data: profile } = await db.rpc('get_my_profile');
