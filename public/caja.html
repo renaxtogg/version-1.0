@@ -57,7 +57,7 @@ const _initDB = () => {
   try { return window.supabase.createClient(url, key); } catch(e) { return null; }
 };
 const db = _initDB();
-const RID = ((window.SUPABASE_CONFIG?.restaurantId)||'00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
+let RID = ((window.SUPABASE_CONFIG?.restaurantId)||'00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
 
 /* ── DENOMINACIONES GUARANÍES ── */
 const DENOMS = [
@@ -287,6 +287,14 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
 /* ═══════════════════════════════════════════
    SIDEBAR DEL TURNO
 ═══════════════════════════════════════════ */
+async function cerrarSesion(){
+  if(!window.confirm('¿Cerrar sesión?'))return;
+  try{await db.auth.signOut();}catch(e){}
+  localStorage.removeItem('caja_panel');
+  localStorage.removeItem('caja_cart');
+  window.location.replace('login.html');
+}
+
 function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggleTheme}){
   const [hora,setHora]=useState(new Date());
   useEffect(()=>{const t=setInterval(()=>setHora(new Date()),30000);return()=>clearInterval(t);},[]);
@@ -304,14 +312,12 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
     {id:'salon',   icon:'🪑', lbl:'Vista del salón'},
     {id:'pedido',  icon:'📋', lbl:'Tomar pedido'},
     {id:'cobros',  icon:'💳', lbl:'Cobrar pedidos'},
+    {id:'retiro',  icon:'💰', lbl:'Retiro de efectivo'},
     {id:'cancelaciones', icon:'✕', lbl:'Cancelaciones'},
     {id:'ingresos_egresos', icon:'₲', lbl:'Ingresos / Egresos'},
     {id:'quejas',  icon:'💬', lbl:'Quejas / Sugerencias'},
     {id:'cierre',  icon:'🔒', lbl:'Cierre de caja'},
   ];
-  if(['admin','superadmin'].includes(profile?.role)){
-    NAV.splice(3,0,{id:'retiro',icon:'💰',lbl:'Retiro de efectivo'});
-  }
 
   return(
     <aside style={{width:220,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
@@ -369,15 +375,22 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
       </nav>
 
       <div style={{padding:'10px 8px',borderTop:`1px solid ${C.border}`}}>
-        <button onClick={()=>window.location.href='admin.html'} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'7px 10px',borderRadius:6,border:'none',background:'transparent',color:'#333',fontSize:11,cursor:'pointer'}}>
+        <button onClick={()=>window.location.href='admin.html'} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'7px 10px',borderRadius:6,border:'none',background:'transparent',color:'#555',fontSize:11,cursor:'pointer'}}>
           ← Admin
         </button>
         <button
           onClick={onToggleTheme}
           title="Cambiar tema"
-          style={{marginTop:6,width:'100%',borderRadius:6,padding:'6px 10px',background:C.card,border:`1px solid ${C.bs}`,color:C.mid,fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
+          style={{marginTop:4,width:'100%',borderRadius:6,padding:'6px 10px',background:C.card,border:`1px solid ${C.bs}`,color:C.mid,fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
         >
           {document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Claro':'🌙 Oscuro'}
+        </button>
+        <button
+          onClick={cerrarSesion}
+          title="Cerrar sesión"
+          style={{marginTop:4,width:'100%',borderRadius:6,padding:'6px 10px',background:'rgba(239,68,68,0.07)',border:'1px solid rgba(239,68,68,0.2)',color:'#ef4444',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
+        >
+          ⏻ Cerrar sesión
         </button>
       </div>
     </aside>
@@ -399,9 +412,9 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
   async function loadOrders(){
     setLoading(true);
     const{data,error}=await db.from('orders')
-      .select('id,order_number,status,total,payment_method,order_type,customer_name,created_at,tables(number)')
+      .select('id,order_number,status,total,payment_method,order_type,customer_name,created_at,table_id,tables(number)')
       .eq('restaurant_id',RID)
-      .in('status',['ready','paid'])
+      .in('status',['paid','kitchen_received','cooking','ready'])
       .order('created_at',{ascending:true});
     if(!error)setOrders(data||[]);
     setLoading(false);
@@ -429,31 +442,39 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
       {!loading&&display.length===0&&(
         <div style={{textAlign:'center',padding:'60px 0',color:'#333'}}>
           <div style={{fontSize:36,marginBottom:12}}>✓</div>
-          <div style={{fontSize:14,fontWeight:700,color:'#555'}}>No hay pedidos pendientes de cobro</div>
-          <div style={{fontSize:12,color:'#333',marginTop:6}}>Los pedidos con estado "Listo" aparecerán aquí</div>
+          <div style={{fontSize:14,fontWeight:700,color:'#555'}}>No hay pedidos activos</div>
+          <div style={{fontSize:12,color:'#444',marginTop:6}}>Aparecen aquí pedidos en cualquier estado activo (Nuevo, En cocina, Preparando, Listo)</div>
         </div>
       )}
       {!loading&&display.length>0&&(
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12}}>
           {display.map(o=>{
-            const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.customer_name||'Sin mesa';
+            const typeLabel={local:'En mesa',llevar:'Para llevar',delivery:'Delivery',dine_in:'En mesa',takeaway:'Para llevar'};
+            const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.order_type==='llevar'||o.order_type==='takeaway'?'Para llevar':o.order_type==='delivery'?'Delivery':o.customer_name||'Sin mesa';
             const espera=Math.floor((Date.now()-new Date(o.created_at))/60000);
-            const yaCobrado=movimientos.some(m=>m.pedido_id===o.id);
+            const yaCobrado=movimientos.some(m=>m.pedido_id===o.id&&m.tipo==='cobro');
+            const enCocina=['kitchen_received','cooking'].includes(o.status);
+            const listo=o.status==='ready';
+            const borderColor=yaCobrado?C.green:listo?C.green:enCocina?C.orange:C.border;
             return(
-              <div key={o.id} style={{background:C.surface,border:`1px solid ${yaCobrado?C.green:o.status==='ready'?C.orange:C.border}`,borderRadius:10,padding:16,cursor:yaCobrado?'default':'pointer',opacity:yaCobrado?.6:1,position:'relative'}} onClick={()=>!yaCobrado&&selectOrder(o)}>
+              <div key={o.id} style={{background:C.surface,border:`1px solid ${borderColor}`,borderRadius:10,padding:16,cursor:yaCobrado?'default':'pointer',opacity:yaCobrado?.6:1,position:'relative'}} onClick={()=>!yaCobrado&&selectOrder(o)}>
                 {yaCobrado&&<div style={{position:'absolute',top:10,right:10,background:C.green+'22',color:C.green,border:`1px solid ${C.green}44`,padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>Cobrado ✓</div>}
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:800,fontFamily:'JetBrains Mono'}}>#{o.order_number}</div>
-                    <div style={{fontSize:12,color:'#555',marginTop:2}}>{mesa}</div>
+                    <div style={{fontSize:12,color:'#666',marginTop:2}}>{mesa}</div>
                   </div>
                   <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#666'}/>
                 </div>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div style={{fontSize:20,fontWeight:800,fontFamily:'JetBrains Mono',color:C.green}}>{fmt(o.total)}</div>
-                  <div style={{fontSize:11,color:espera>20?C.orange:espera>40?C.red:'#444'}}>⏱ {espera}m</div>
+                  <div style={{fontSize:11,color:espera>30?C.red:espera>15?C.orange:'#555'}}>⏱ {espera}m</div>
                 </div>
-                {!yaCobrado&&<Btn full small style={{marginTop:12}} onClick={e=>{e.stopPropagation();selectOrder(o);}}>Cobrar →</Btn>}
+                {!yaCobrado&&(
+                  <Btn full small style={{marginTop:12}} variant={listo?'success':'secondary'} onClick={e=>{e.stopPropagation();selectOrder(o);}}>
+                    {listo?'✓ Cobrar':'Cobrar →'}
+                  </Btn>
+                )}
               </div>
             );
           })}
@@ -980,64 +1001,115 @@ function QuejasPanel({turno,profile}){
 }
 
 /* ═══════════════════════════════════════════
-   PANEL: RETIRO DE EFECTIVO (supervisor+)
+   PANEL: RETIRO DE EFECTIVO
 ═══════════════════════════════════════════ */
-function RetiroPanel({turno,profile,onMovimiento}){
+function RetiroPanel({turno,profile,movimientos,onMovimiento}){
   const [form,setForm]=useState({monto:'',destino:'Caja fuerte',notas:''});
   const [busy,setBusy]=useState(false);
+  const [historial,setHistorial]=useState([]);
 
-  if(!['admin','superadmin'].includes(profile?.role)){
-    return(
-      <div className="page">
-        <h1 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Retiro de Efectivo</h1>
-        <AlertBox type="error">Solo supervisores y administradores pueden realizar retiros de efectivo.</AlertBox>
-      </div>
-    );
-  }
+  /* Saldo efectivo estimado */
+  const cobros=movimientos.filter(m=>m.tipo==='cobro');
+  const efectivoCobros=cobros.filter(m=>m.metodo_pago==='efectivo').reduce((s,m)=>s+Number(m.monto),0);
+  const ingresosMan=movimientos.filter(m=>m.tipo==='ingreso_manual'&&m.metodo_pago==='efectivo').reduce((s,m)=>s+Number(m.monto),0);
+  const egresosEfectivo=movimientos.filter(m=>m.tipo==='egreso'&&m.metodo_pago==='efectivo').reduce((s,m)=>s+Number(m.monto),0);
+  const retirosYa=movimientos.filter(m=>m.tipo==='retiro_parcial').reduce((s,m)=>s+Number(m.monto),0);
+  const fondoApertura=turno.fondo_apertura?.total||0;
+  const saldoEfectivo=fondoApertura+efectivoCobros+ingresosMan-egresosEfectivo-retirosYa;
+
+  const retirosMov=movimientos.filter(m=>m.tipo==='retiro_parcial');
 
   async function retirar(){
-    if(!form.monto||parseInt(form.monto)<=0){toast('Ingresá un monto válido',false);return;}
+    const monto=parseInt(form.monto)||0;
+    if(monto<=0){toast('Ingresá un monto válido',false);return;}
+    if(!form.notas){toast('El motivo/notas es obligatorio',false);return;}
+    if(monto>saldoEfectivo){
+      toast(`No podés retirar más que el efectivo disponible (${fmt(saldoEfectivo)})`,false);return;
+    }
+    if(!window.confirm(`¿Confirmar retiro de ${fmt(monto)} → ${form.destino}?`))return;
     setBusy(true);
     try{
       const mov={
         turno_id:turno.id,restaurant_id:RID,tipo:'retiro_parcial',
-        monto:parseInt(form.monto),metodo_pago:'efectivo',
+        monto,metodo_pago:'efectivo',
         descripcion:`Retiro parcial → ${form.destino}`,
-        motivo:form.notas||null,
+        motivo:form.notas,
         usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
         metadata:{destino:form.destino},
       };
       const{data,error}=await db.from('movimientos_caja').insert(mov).select().single();
       if(error)throw error;
       onMovimiento(data);
-      toast(`Retiro de ${fmt(parseInt(form.monto))} registrado`);
+      toast(`Retiro de ${fmt(monto)} registrado`);
       setForm({monto:'',destino:'Caja fuerte',notas:''});
     }catch(e){toast('Error: '+e.message,false);}
     setBusy(false);
   }
 
+  const montoNum=parseInt(form.monto)||0;
+  const excede=montoNum>saldoEfectivo&&montoNum>0;
+
   return(
     <div className="page">
       <h1 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Retiro Parcial de Efectivo</h1>
       <AlertBox type="warn">Esta acción queda registrada en el log del turno con tu nombre y timestamp.</AlertBox>
-      <div style={{maxWidth:400}}>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 380px',gap:16,alignItems:'start'}}>
+        {/* Historial de retiros del turno */}
+        <div>
+          <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>RETIROS DE ESTE TURNO</div>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+              <span style={{fontSize:11,color:'#555'}}>Efectivo disponible (est.)</span>
+              <span style={{fontFamily:'JetBrains Mono',fontSize:16,fontWeight:700,color:C.green}}>{fmt(saldoEfectivo)}</span>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between'}}>
+              <span style={{fontSize:11,color:'#555'}}>Total retirado hoy</span>
+              <span style={{fontFamily:'JetBrains Mono',fontSize:14,fontWeight:700,color:C.orange}}>{fmt(retirosYa)}</span>
+            </div>
+          </div>
+          {retirosMov.length===0?(
+            <div style={{color:'#333',fontSize:13,padding:20,textAlign:'center'}}>Sin retiros en este turno</div>
+          ):(
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {retirosMov.map(m=>(
+                <div key={m.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600}}>{m.descripcion}</div>
+                    <div style={{fontSize:11,color:'#444',marginTop:2}}>{m.usuario_nombre} · {fmtTime(m.created_at)}</div>
+                    {m.motivo&&<div style={{fontSize:11,color:'#555',marginTop:1}}>📝 {m.motivo}</div>}
+                  </div>
+                  <div style={{fontFamily:'JetBrains Mono',fontSize:15,fontWeight:700,color:C.orange}}>- {fmt(m.monto)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Formulario */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,height:'fit-content'}}>
+          <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>NUEVO RETIRO</div>
           <div style={{marginBottom:12}}>
             <Lbl required>MONTO A RETIRAR (₲)</Lbl>
             <Inp type="number" mono value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})} placeholder="0"/>
+            {excede&&(
+              <div style={{fontSize:11,color:C.red,marginTop:4}}>⚠ Supera el efectivo disponible ({fmt(saldoEfectivo)})</div>
+            )}
           </div>
           <div style={{marginBottom:12}}>
             <Lbl>DESTINO</Lbl>
             <Sel value={form.destino} onChange={e=>setForm({...form,destino:e.target.value})}>
               <option>Caja fuerte</option>
+              <option>Depósito bancario</option>
+              <option>Gerencia</option>
               <option>Otro</option>
             </Sel>
           </div>
           <div style={{marginBottom:14}}>
-            <Lbl>NOTAS</Lbl>
-            <Textarea value={form.notas} onChange={e=>setForm({...form,notas:e.target.value})} placeholder="Motivo del retiro…" rows={2}/>
+            <Lbl required>MOTIVO / NOTAS</Lbl>
+            <Textarea value={form.notas} onChange={e=>setForm({...form,notas:e.target.value})} placeholder="Motivo obligatorio del retiro…" rows={2}/>
           </div>
-          <Btn full variant="danger" onClick={retirar} disabled={busy}>
+          <Btn full variant="danger" onClick={retirar} disabled={busy||excede||!form.notas}>
             {busy?<><span className="spin"/> Registrando…</>:'Confirmar retiro'}
           </Btn>
         </div>
@@ -1504,7 +1576,9 @@ function SalonPanel({profile}){
 
   function OrderRow({order}){
     const espera=Math.floor((Date.now()-new Date(order.created_at))/60000);
+    const typeLabel={local:'En mesa',llevar:'Para llevar',delivery:'Delivery',dine_in:'En mesa',takeaway:'Para llevar'};
     const name=order.customer_name?` — ${order.customer_name}`:'';
+    const tipo=typeLabel[order.order_type]||order.order_type||'';
     return(
       <div onClick={()=>setSelOrder(order)} style={{
         background:C.surface,border:`1px solid ${(SC[order.status]||'#333')}44`,
@@ -1517,7 +1591,8 @@ function SalonPanel({profile}){
           </div>
           <div style={{display:'flex',gap:6,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
             <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#666'}/>
-            <span style={{fontSize:10,color:'#444'}}>⏱ {espera}m</span>
+            {tipo&&<Badge txt={tipo} color={C.blue}/>}
+            <span style={{fontSize:10,color:'#555'}}>⏱ {espera}m</span>
           </div>
         </div>
         <div style={{fontFamily:'JetBrains Mono',fontSize:15,fontWeight:800,color:C.green,whiteSpace:'nowrap'}}>{fmt(order.total)}</div>
@@ -1571,12 +1646,13 @@ function SalonPanel({profile}){
                 {tables.map(t=><TableCard key={t.id} table={t}/>)}
               </div>
             )}
-            {/* Pedidos en mesa sin table_id (edge case) */}
-            {dineInOrders.filter(o=>!tables.find(t=>t.id===o.table_id)).length>0&&(
+            {/* Pedidos con table_id que no está en la lista de mesas (mesa eliminada o de otro restaurante) */}
+            {dineInOrders.filter(o=>o.table_id&&!tables.find(t=>t.id===o.table_id)).length>0&&(
               <div style={{marginTop:16}}>
-                <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:8}}>PEDIDOS EN MESA (sin número asignado)</div>
+                <div style={{fontSize:10,color:C.yellow,fontWeight:700,letterSpacing:1,marginBottom:8}}>⚠ PEDIDOS CON MESA NO REGISTRADA</div>
+                <AlertBox type="warn">Estos pedidos tienen una mesa asignada que no aparece en el listado. Verificar configuración de mesas.</AlertBox>
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                  {dineInOrders.filter(o=>!tables.find(t=>t.id===o.table_id)).map(o=><OrderRow key={o.id} order={o}/>)}
+                  {dineInOrders.filter(o=>o.table_id&&!tables.find(t=>t.id===o.table_id)).map(o=><OrderRow key={o.id} order={o}/>)}
                 </div>
               </div>
             )}
@@ -1934,7 +2010,7 @@ function DashboardCaja({turno,profile,onCierre}){
       case 'cancelaciones':    return <CancelacionesPanel turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
       case 'ingresos_egresos': return <IngresosEgresosPanel turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
       case 'quejas':           return <QuejasPanel       turno={turno} profile={profile}/>;
-      case 'retiro':           return <RetiroPanel       turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
+      case 'retiro':           return <RetiroPanel       turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
       case 'cierre':           return <CierreCajaPanel   turno={turno} movimientos={movimientos} profile={profile} onCierre={handleCierre}/>;
       default: return null;
     }
@@ -1994,6 +2070,7 @@ function CajaApp({profile}){
       <div style={{display:'flex',gap:10}}>
         <Btn onClick={()=>{setCerrado(false);setTurno(null);checkTurno();}}>Abrir nuevo turno</Btn>
         <Btn variant="ghost" onClick={()=>window.location.href='admin.html'}>Ir al Admin</Btn>
+        <Btn variant="danger" onClick={cerrarSesion}>Cerrar sesión</Btn>
       </div>
     </div>
   );
@@ -2010,6 +2087,7 @@ async function initApp(session){
     await db.auth.signOut();window.location.replace('login.html');return;
   }
   if(!profile.id){profile.id=session.user.id;}
+  if(profile.restaurant_id) RID = profile.restaurant_id;
   window._userProfile=profile;
   ReactDOM.createRoot(document.getElementById('root')).render(
     <><CajaApp profile={profile}/><ToastContainer/></>

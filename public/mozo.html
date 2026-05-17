@@ -134,6 +134,11 @@ body {
 .mesa-card.libre { background: var(--surface); border-color: var(--border); }
 .mesa-card.ocupada { background: var(--green-soft); border-color: var(--green); }
 .mesa-card.ocupada .mesa-num { color: var(--green); }
+.mesa-card.cocina { background: var(--orange-soft); border-color: var(--orange); }
+.mesa-card.cocina .mesa-num { color: var(--orange); }
+.mesa-card.lista { background: var(--green-soft); border-color: var(--green); }
+.mesa-card.lista .mesa-num { color: var(--green); }
+.mesa-card.lista .mesa-label { color: var(--green); font-weight: 700; }
 .mesa-card.cuenta { background: var(--blue-soft); border-color: var(--blue); }
 .mesa-card.cuenta .mesa-num { color: var(--blue); }
 .mesa-card.alerta { background: var(--red-soft); border-color: var(--red); animation: pulse-ring 1.5s infinite; }
@@ -446,18 +451,22 @@ const minAgo = dt => Math.floor((Date.now() - new Date(dt)) / 60000);
 /* ── STATUS ── */
 function getMesaStatus(tableId, ordersMap, callsMap, tablesById) {
   if (callsMap[tableId]) return 'alerta';
-  const tbl = tablesById && tablesById[tableId];
-  const occupied = tbl ? tbl.is_occupied : !!ordersMap[tableId];
-  if (!occupied) return 'libre';
   const order = ordersMap[tableId];
-  if (order && order.status === 'ready') return 'cuenta';
-  return 'ocupada';
+  const tbl = tablesById && tablesById[tableId];
+  // Mesa ocupada si: flag en DB ó hay orden activa en ordersMap
+  const occupied = (tbl ? tbl.is_occupied : false) || !!order;
+  if (!occupied) return 'libre';
+  if (!order) return 'ocupada';
+  if (order.status === 'ready') return 'lista';
+  if (order.status === 'cooking' || order.status === 'kitchen_received') return 'cocina';
+  if (order.status === 'pending_payment') return 'cuenta';
+  return 'ocupada'; // draft, confirmed, paid → ocupada
 }
 
 const fGsK = n => '₲ ' + (n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? Math.round(n/1000)+'k' : String(Math.round(n||0)));
 
 function statusLabel(s) {
-  return { libre: 'Libre', ocupada: 'Ocupada', cuenta: 'Cuenta', alerta: '🙋 Alerta' }[s] || s;
+  return { libre: 'Libre', ocupada: 'Ocupada', cocina: 'En cocina', lista: '✓ Lista', cuenta: 'Cuenta', alerta: '🙋 Alerta' }[s] || s;
 }
 
 function orderStatusText(status) {
@@ -555,25 +564,43 @@ function App() {
     if (db) setupRealtime();
   }, []);
 
+  // Prioridad de status: más alto = más "activo" (se prefiere en ordersMap)
+  const STATUS_PRIORITY = ['draft', 'confirmed', 'paid', 'pending_payment', 'kitchen_received', 'cooking', 'ready'];
+
   async function loadData() {
     if (!db) { setLoading(false); return; }
     try {
       const [tablesRes, ordersRes, callsRes, menuRes] = await Promise.all([
         db.from('tables').select('*').eq('restaurant_id', RID).eq('is_active', true).order('number'),
-        db.from('orders').select('*, order_items(*)').eq('restaurant_id', RID).in('status', ['paid', 'kitchen_received', 'cooking', 'ready']).order('created_at'),
-        db.from('waiter_calls').select('*, tables(number)').eq('restaurant_id', RID).eq('status', 'pending').order('created_at'),
+        db.from('orders').select('*, order_items(*)').eq('restaurant_id', RID)
+          .in('status', ['draft', 'confirmed', 'paid', 'pending_payment', 'kitchen_received', 'cooking', 'ready'])
+          .order('created_at'),
+        db.from('waiter_calls').select('*').eq('restaurant_id', RID).eq('status', 'pending').order('created_at'),
         db.from('menu_categories').select('*, menu_items(*)').eq('restaurant_id', RID).eq('is_active', true).order('sort_order'),
       ]);
 
       const allTables = tablesRes.data || [];
       setTables(allTables);
 
+      // Para cada mesa, quedarse con la orden de mayor prioridad (más avanzada en el flujo)
       const om = {};
-      (ordersRes.data || []).forEach(o => { if (o.table_id) om[o.table_id] = o; });
+      (ordersRes.data || []).forEach(o => {
+        if (!o.table_id) return;
+        const existing = om[o.table_id];
+        if (!existing) { om[o.table_id] = o; return; }
+        const newPrio = STATUS_PRIORITY.indexOf(o.status);
+        const exPrio  = STATUS_PRIORITY.indexOf(existing.status);
+        if (newPrio > exPrio) om[o.table_id] = o;
+        else if (newPrio === exPrio && new Date(o.created_at) > new Date(existing.created_at)) om[o.table_id] = o;
+      });
       setOrdersMap(om);
 
-      // Totales de sesión para mesas ocupadas
-      const occupiedIds = allTables.filter(t => t.is_occupied).map(t => t.id);
+      // Totales de sesión para mesas ocupadas (por flag o por ordersMap activo)
+      const activeTableIds = new Set([
+        ...allTables.filter(t => t.is_occupied).map(t => t.id),
+        ...Object.keys(om),
+      ]);
+      const occupiedIds = [...activeTableIds];
       if (occupiedIds.length > 0) {
         const { data: sessData } = await db
           .from('orders').select('table_id, total')
@@ -590,23 +617,28 @@ function App() {
       }
 
       const newCalls = callsRes.data || [];
+      // Enriquecer llamadas con número de mesa desde allTables (evita depender del join de RLS)
+      const tableNumById = {};
+      allTables.forEach(t => { tableNumById[t.id] = t.number; });
+      const enrichedCalls = newCalls.map(c => ({
+        ...c,
+        _tableNum: c.table_id ? (tableNumById[c.table_id] || '?') : null,
+      }));
       const cm = {};
-      newCalls.forEach(c => { if (c.table_id) cm[c.table_id] = c; });
+      enrichedCalls.forEach(c => { if (c.table_id) cm[c.table_id] = c; });
       setCallsMap(cm);
-      setWaiterCalls(newCalls);
+      setWaiterCalls(enrichedCalls);
 
       // Detectar llamadas nuevas (no vistas antes) y mostrar popup + sonido
-      const incoming = newCalls.filter(c => !knownCallIds.current.has(c.id));
+      const incoming = enrichedCalls.filter(c => !knownCallIds.current.has(c.id));
       if (incoming.length > 0 && knownCallIds.current.size > 0) {
-        // size > 0 evita disparar en la carga inicial
         const last = incoming[incoming.length - 1];
         playBeep();
-        setAlertPopup({ tableNum: last.tables?.number || '?', callId: last.id });
+        setAlertPopup({ tableNum: last._tableNum, callId: last.id });
         clearTimeout(alertTimer.current);
         alertTimer.current = setTimeout(() => setAlertPopup(null), 8000);
       }
-      // Actualizar set de IDs conocidos
-      knownCallIds.current = new Set(newCalls.map(c => c.id));
+      knownCallIds.current = new Set(enrichedCalls.map(c => c.id));
 
       const items = [];
       const cats = [];
@@ -693,15 +725,16 @@ function App() {
       table_id: tableId,
       order_number: orderNum,
       order_type: 'local',
-      status: 'kitchen_received',
+      status: 'confirmed',
       subtotal: 0,
       discount_amount: 0,
       total: 0,
     }).select().single();
     if (error) { showToast('Error al crear orden'); console.error(error); return; }
-    await db.from('order_status_history').insert({ order_id: order.id, status: 'kitchen_received', changed_by: 'mozo' });
-    // Solo actualiza occupied_since si la mesa no estaba ya ocupada
-    await db.from('tables').update({ is_occupied: true, occupied_since: order.created_at }).eq('id', tableId).eq('is_occupied', false);
+    await db.from('order_status_history').insert({ order_id: order.id, status: 'confirmed', changed_by: 'mozo' });
+    // El trigger fn_occupy_table_on_order ya marca la mesa como ocupada en Supabase.
+    // Hacemos update directo también por si el trigger tardó.
+    await db.from('tables').update({ is_occupied: true, occupied_since: order.created_at }).eq('id', tableId);
     await loadData();
     openOrderView(tableId);
     showToast('✅ Orden creada — Mesa ' + tableNum);
@@ -718,11 +751,20 @@ function App() {
 
   function liberarMesa(tableId) {
     const mesa = tables.find(t => t.id === tableId);
+    const order = ordersMap[tableId];
+    const hasPending = order && (order.total || 0) > 0;
     setConfirmDialog({
       title: `Liberar Mesa ${mesa?.number}`,
-      body: '¿Confirmar que el servicio concluyó y la mesa quedó libre?',
+      body: hasPending
+        ? `⚠️ Hay una orden con ${fGs(order.total)} sin cobrar. ¿Liberar igualmente?`
+        : '¿Confirmar que el servicio concluyó y la mesa quedó libre?',
+      danger: hasPending,
       onOk: async () => {
         if (!db) return;
+        // Cancelar órdenes activas si quedan sin cobrar
+        if (order && !['delivered', 'cancelled'].includes(order.status)) {
+          await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', order.id);
+        }
         await db.from('tables').update({ is_occupied: false, occupied_since: null }).eq('id', tableId);
         await loadData();
         setActiveTableId(null);
@@ -807,6 +849,21 @@ function App() {
     showToast('Ítem eliminado');
   }
 
+  /* ── ENVIAR A COCINA ── */
+  async function enviarACocina() {
+    if (!db) { showToast('Sin conexión'); return; }
+    const order = ordersMap[activeTableId];
+    if (!order) return;
+    if ((order.order_items || []).length === 0) {
+      showToast('Agregá al menos un producto antes de enviar a cocina');
+      return;
+    }
+    await db.from('orders').update({ status: 'kitchen_received' }).eq('id', order.id);
+    await db.from('order_status_history').insert({ order_id: order.id, status: 'kitchen_received', changed_by: 'mozo' });
+    await loadData();
+    showToast('✅ Orden enviada a cocina');
+  }
+
   /* ── COBRO ── */
   function openCobroModal() {
     setTipPct(0);
@@ -838,16 +895,20 @@ function App() {
 
   /* ── FINALIZAR ── */
   function finalizarOrden() {
+    const order = ordersMap[activeTableId];
+    const hasTotal = order && (order.total || 0) > 0;
     setConfirmDialog({
-      title: 'Finalizar orden',
-      body: '¿Finalizar la orden sin cobrar? Se marcará como entregada.',
+      title: hasTotal ? '⚠️ Marcar como entregada SIN cobrar' : 'Finalizar orden',
+      body: hasTotal
+        ? `Esta orden tiene un total de ${fGs(order.total)}. ¿Confirmar que se entregó sin registrar cobro? Esta acción queda registrada.`
+        : '¿Finalizar la orden? Se marcará como entregada.',
+      danger: hasTotal,
       onOk: async () => {
-        const order = ordersMap[activeTableId];
         if (!order || !db) return;
         await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', order.id);
-        await db.from('order_status_history').insert({ order_id: order.id, status: 'delivered', changed_by: 'mozo' });
+        await db.from('order_status_history').insert({ order_id: order.id, status: 'delivered', changed_by: 'mozo_sin_cobro' });
         await loadData();
-        showToast('✅ Orden finalizada — Liberá la mesa cuando el cliente se vaya');
+        showToast('Orden marcada como entregada sin cobro');
       },
     });
   }
@@ -983,9 +1044,11 @@ function App() {
 
             <div className="legend">
               <div className="legend-item"><div className="legend-dot" style={{ background: '#f1f5f9', border: '1px solid #e2e8f0' }}></div>Libre</div>
-              <div className="legend-item"><div className="legend-dot" style={{ background: '#dcfce7' }}></div>Ocupada</div>
-              <div className="legend-item"><div className="legend-dot" style={{ background: '#eff6ff' }}></div>Cuenta</div>
-              <div className="legend-item"><div className="legend-dot" style={{ background: '#fee2e2' }}></div>Alerta 🙋</div>
+              <div className="legend-item"><div className="legend-dot" style={{ background: '#dcfce7', border: '1px solid #16a34a' }}></div>Ocupada</div>
+              <div className="legend-item"><div className="legend-dot" style={{ background: '#fff7ed', border: '1px solid #ea580c' }}></div>En cocina</div>
+              <div className="legend-item"><div className="legend-dot" style={{ background: '#dcfce7', border: '2px solid #16a34a' }}></div>Lista ✓</div>
+              <div className="legend-item"><div className="legend-dot" style={{ background: '#eff6ff', border: '1px solid #2563eb' }}></div>Cuenta</div>
+              <div className="legend-item"><div className="legend-dot" style={{ background: '#fee2e2', border: '1px solid #dc2626' }}></div>Alerta 🙋</div>
             </div>
           </div>
         )}
@@ -1014,8 +1077,11 @@ function App() {
                     <div className="order-title">{activeOrder ? 'Orden en curso' : 'Servicio activo'}</div>
                     <div className="order-actions">
                       <button className="order-action-btn" onClick={() => activeOrder ? openProductModal() : createOrder(activeTableId, activeTable?.number)} title={activeOrder ? 'Agregar ítems' : 'Nueva orden'}>＋</button>
+                      {activeOrder && ['confirmed', 'draft'].includes(activeOrder.status) && (
+                        <button className="order-action-btn" onClick={enviarACocina} title="Enviar a cocina">🧑‍🍳</button>
+                      )}
                       {activeOrder && <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">💳</button>}
-                      {activeOrder && <button className="order-action-btn" onClick={finalizarOrden} title="Finalizar sin cobrar">✅</button>}
+                      {activeOrder && <button className="order-action-btn" onClick={finalizarOrden} title="Marcar entregada sin cobrar">✅</button>}
                       <button className="order-action-btn" onClick={() => loadHistorial(activeTableId)} title="Historial">📋</button>
                     </div>
                   </div>
@@ -1133,9 +1199,14 @@ function App() {
                     <div className="alert-icon">🙋</div>
                     <div className="alert-body">
                       <div className="alert-title">Asistencia solicitada</div>
-                      <div className="alert-sub">Mesa {call.tables?.number || '—'}</div>
+                      <div className="alert-sub">
+                        {call._tableNum != null ? `Mesa ${call._tableNum}` : 'Mesa desconocida'}
+                      </div>
                       <div className="alert-time">hace {minAgo(call.created_at)} min</div>
-                      <button className="alert-action" onClick={() => handleAlertAction(call.id)}>Ya voy ✓</button>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <button className="alert-action" onClick={() => handleAlertAction(call.id)}>Ya voy ✓</button>
+                        <button className="alert-action" style={{ background: 'var(--text2)' }} onClick={() => handleAlertAction(call.id)}>Atendida</button>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -1381,7 +1452,7 @@ function App() {
             <div className="dialog-body">{confirmDialog.body}</div>
             <div className="dialog-actions">
               <button className="dialog-btn cancel" onClick={() => setConfirmDialog(null)}>Cancelar</button>
-              <button className="dialog-btn confirm" onClick={() => { setConfirmDialog(null); confirmDialog.onOk(); }}>Confirmar</button>
+              <button className={`dialog-btn ${confirmDialog.danger ? 'danger' : 'confirm'}`} onClick={() => { setConfirmDialog(null); confirmDialog.onOk(); }}>Confirmar</button>
             </div>
           </div>
         </div>
@@ -1393,7 +1464,7 @@ function App() {
           <div className="alert-popup-icon">🙋</div>
           <div className="alert-popup-body">
             <div className="alert-popup-title">¡Asistencia solicitada!</div>
-            <div className="alert-popup-sub">Mesa {alertPopup.tableNum}</div>
+            <div className="alert-popup-sub">{alertPopup.tableNum != null ? `Mesa ${alertPopup.tableNum}` : 'Mesa desconocida'}</div>
           </div>
           <button className="alert-popup-btn" onClick={async () => {
             setAlertPopup(null);

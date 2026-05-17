@@ -896,27 +896,30 @@ function PersonalPage() {
   async function loadProfiles() {
     if(!db){setLoading(false);return;}
     setLoading(true);
-    // Primero intentamos con la función RPC que bypassa RLS
+    setError(null);
     const {data:rpcData,error:rpcErr} = await db.rpc('admin_list_restaurant_users',{p_restaurant_id:RID});
-    if(!rpcErr && rpcData) {
-      setProfiles(rpcData);setLoading(false);return;
+    if(!rpcErr) {
+      setProfiles(rpcData||[]);setLoading(false);return;
     }
-    // Fallback: query directa a user_roles (funciona si el admin tiene permisos)
+    console.warn('[Personal] RPC falló:',rpcErr?.message);
+    // Fallback: query directa (funciona para superadmin con superadmin_manage_roles)
     const{data,error:e}=await db.from('user_roles')
       .select('id,user_id,username,display_name,role,email,is_active,created_at')
       .eq('restaurant_id',RID)
       .order('created_at',{ascending:false});
-    if(e) {
-      // Último fallback: mostrar al menos el propio usuario
-      const{data:me}=await db.from('user_roles')
-        .select('id,user_id,username,display_name,role,email,is_active,created_at')
-        .eq('user_id',(await db.auth.getUser()).data?.user?.id||'')
-        .limit(1);
-      if(me?.length) setProfiles(me);
-      else setError('No se pudo cargar el personal. Ejecutá la migración 023 en Supabase para habilitar el acceso.');
-    } else {
-      setProfiles(data||[]);
+    if(!e) {
+      setProfiles(data||[]);setLoading(false);return;
     }
+    console.warn('[Personal] Query directa falló:',e?.message);
+    // Último recurso: al menos mostrar el propio usuario
+    const uid=(await db.auth.getUser()).data?.user?.id||'';
+    const{data:me,error:meErr}=await db.from('user_roles')
+      .select('id,user_id,username,display_name,role,email,is_active,created_at')
+      .eq('user_id',uid)
+      .limit(1);
+    if(!meErr && me?.length) { setProfiles(me);setLoading(false);return; }
+    console.warn('[Personal] Query propia falló:',meErr?.message,'uid:',uid);
+    setError(`Error al cargar personal: ${rpcErr?.message||e?.message||'Sin acceso a user_roles'}. Revisá la consola del navegador.`);
     setLoading(false);
   }
 

@@ -50,6 +50,14 @@ ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "sa_payments_all" ON public.payments FOR ALL USING (true) WITH CHECK (true);
 
 -- ─── 5. FUNCIÓN admin_toggle_user ──────────────────────────
+-- Eliminar TODAS las sobrecargas que existan con ese nombre
+DO $$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN SELECT oid::regprocedure AS sig FROM pg_proc WHERE proname = 'admin_toggle_user' AND pronamespace = 'public'::regnamespace LOOP
+    EXECUTE 'DROP FUNCTION IF EXISTS ' || r.sig;
+  END LOOP;
+END$$;
 CREATE OR REPLACE FUNCTION public.admin_toggle_user(
   p_user_id UUID,
   p_active  BOOLEAN
@@ -78,6 +86,13 @@ $$;
 GRANT EXECUTE ON FUNCTION public.admin_toggle_user TO authenticated;
 
 -- ─── 6. FUNCIÓN admin_update_user_role ─────────────────────
+DO $$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN SELECT oid::regprocedure AS sig FROM pg_proc WHERE proname = 'admin_update_user_role' AND pronamespace = 'public'::regnamespace LOOP
+    EXECUTE 'DROP FUNCTION IF EXISTS ' || r.sig;
+  END LOOP;
+END$$;
 CREATE OR REPLACE FUNCTION public.admin_update_user_role(
   p_user_id       UUID,
   p_role          TEXT,

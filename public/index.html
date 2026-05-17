@@ -142,9 +142,26 @@ async function dbSaveReservation(res) {
   return { ok: true };
 }
 
+// UUID de la mesa actual (cargado al inicio desde Supabase)
+let _tableUUID = null;
+async function _initTableUUID() {
+  if (!db || _tableUUID) return;
+  try {
+    const { data } = await db.from('tables')
+      .select('id')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('number', TABLE_NUM)
+      .maybeSingle();
+    if (data) _tableUUID = data.id;
+  } catch(e) {}
+}
+_initTableUUID();
+
 async function dbCallWaiter(tableId, orderId) {
   if (!db) return;
-  try { await db.from('waiter_calls').insert({ restaurant_id: RESTAURANT_ID, table_id: tableId || null, order_id: orderId || null, status: 'pending' }); } catch(e) {}
+  // Usar el UUID de mesa real si está disponible
+  const tid = tableId || _tableUUID || null;
+  try { await db.from('waiter_calls').insert({ restaurant_id: RESTAURANT_ID, table_id: tid, order_id: orderId || null, status: 'pending' }); } catch(e) {}
 }
 
 async function dbSubmitRating(orderId, tableId, stars, comment) {
@@ -1484,7 +1501,7 @@ function App() {
     }
     setLastWaiterCall(now);
     showToast(`El mozo fue avisado — Mesa ${TABLE_NUM}`);
-    await dbCallWaiter(null, null);
+    await dbCallWaiter(_tableUUID, null);
   };
 
   return (
