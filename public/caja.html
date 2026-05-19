@@ -13,6 +13,7 @@
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{background:#F5F5F7;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:#1D1D1F;-webkit-font-smoothing:antialiased}
+  .ds-product-price{color:#000000!important;font-weight:700!important}
   ::-webkit-scrollbar{width:4px;height:4px}
   ::-webkit-scrollbar-track{background:#F5F5F7}
   ::-webkit-scrollbar-thumb{background:#D2D2D7;border-radius:4px}
@@ -31,17 +32,8 @@
 <body>
 <div id="root"></div>
 <script>
-function initTheme() {
-  const saved = localStorage.getItem('mesa_theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', saved);
-}
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  const next = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('mesa_theme', next);
-}
-initTheme();
+document.documentElement.setAttribute('data-theme', 'light');
+localStorage.setItem('mesa_theme', 'light');
 </script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
@@ -303,14 +295,14 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
   const saldoEstimado=fondoApertura+efectivoCobros+ingresosMan-totalEgresos-retiros;
 
   const NAV=[
-    {id:'salon',   icon:'🪑', lbl:'Vista del salón'},
-    {id:'pedido',  icon:'📋', lbl:'Tomar pedido'},
-    {id:'cobros',  icon:'💳', lbl:'Cobrar pedidos'},
-    {id:'retiro',  icon:'💰', lbl:'Retiro de efectivo'},
+    {id:'salon',   icon:'',  lbl:'Vista del salón'},
+    {id:'pedido',  icon:'',  lbl:'Tomar pedido'},
+    {id:'cobros',  icon:'',  lbl:'Cobrar pedidos'},
+    {id:'retiro',  icon:'',  lbl:'Retiro de efectivo'},
     {id:'cancelaciones', icon:'✕', lbl:'Cancelaciones'},
     {id:'ingresos_egresos', icon:'₲', lbl:'Ingresos / Egresos'},
-    {id:'quejas',  icon:'💬', lbl:'Quejas / Sugerencias'},
-    {id:'cierre',  icon:'🔒', lbl:'Cierre de caja'},
+    {id:'quejas',  icon:'',  lbl:'Quejas / Sugerencias'},
+    {id:'cierre',  icon:'',  lbl:'Cierre de caja'},
   ];
 
   return(
@@ -318,19 +310,19 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
       <div style={{padding:'16px 14px 12px',borderBottom:`1px solid ${C.border}`}}>
         <div style={{fontFamily:'inherit',fontWeight:800,fontSize:18,color:'#000000',letterSpacing:'-1px',marginBottom:2}}>Mythos</div>
         <div style={{fontSize:11,fontWeight:500,color:'#6E6E73'}}>Caja · {profile?.display_name||profile?.username}</div>
-        <div style={{fontSize:10,color:'#86868B',marginTop:2}}>Desde {fmtTime(turno.fecha_apertura)}</div>
+        <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>Desde {fmtTime(turno.fecha_apertura)}</div>
       </div>
 
       {/* Reloj y duración */}
       <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:22,fontWeight:700,color:C.ink}}>{hora.toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>
-        <div style={{fontSize:10,color:'#86868B',marginTop:2}}>Turno: {fmtDur(turno.fecha_apertura)}</div>
+        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:22,fontWeight:800,color:'#000000'}}>{hora.toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>
+        <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>Turno: {fmtDur(turno.fecha_apertura)}</div>
       </div>
 
       {/* Saldo estimado */}
       <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
         <div style={{fontSize:9,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>EFECTIVO EN CAJA (est.)</div>
-        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:18,fontWeight:700,color:C.green}}>{fmt(saldoEstimado)}</div>
+        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:18,fontWeight:700,color:'#000000'}}>{fmt(saldoEstimado)}</div>
         <div style={{fontSize:9,color:'#86868B',marginTop:4}}>
           Fondo {fmt(fondoApertura)} + cobros {fmt(efectivoCobros)}
         </div>
@@ -338,16 +330,16 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
 
       {/* Stats del turno */}
       <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontSize:9,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:8}}>RESUMEN DEL TURNO</div>
-        <div style={{display:'flex',flexDirection:'column',gap:5}}>
+        <div style={{fontSize:11,fontWeight:700,color:'#6E6E73',letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>RESUMEN DEL TURNO</div>
+        <div style={{display:'flex',flexDirection:'column',gap:0}}>
           {[
-            {lbl:'Pedidos cobrados',val:cobros.length,color:C.green},
-            {lbl:'Total cobrado',val:fmt(totalCobrado),color:C.ink},
-            {lbl:'Egresos',val:fmt(totalEgresos),color:C.red},
-          ].map(({lbl,val,color})=>(
-            <div key={lbl} style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <span style={{fontSize:10,color:'#86868B'}}>{lbl}</span>
-              <span style={{fontSize:11,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color}}>{val}</span>
+            {lbl:'Pedidos cobrados',val:cobros.length},
+            {lbl:'Total cobrado',val:fmt(totalCobrado)},
+            {lbl:'Egresos',val:fmt(totalEgresos)},
+          ].map(({lbl,val})=>(
+            <div key={lbl} style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingBottom:8,borderBottom:'1px solid #F0F0F0'}}>
+              <span style={{fontSize:12,color:'#6E6E73',fontWeight:500}}>{lbl}</span>
+              <span style={{fontSize:lbl==='Total cobrado'?20:16,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:lbl==='Total cobrado'?800:700,color:'#000000'}}>{val}</span>
             </div>
           ))}
         </div>
@@ -356,13 +348,16 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
       {/* Navegación */}
       <nav style={{flex:1,padding:'8px 8px'}}>
         {NAV.map(n=>(
-          <button key={n.id} onClick={()=>setPanel(n.id)} style={{
-            display:'flex',alignItems:'center',gap:10,width:'100%',
-            padding:'9px 10px',borderRadius:7,border:'none',textAlign:'left',cursor:'pointer',marginBottom:2,
-            background:panel===n.id?'rgba(0,0,0,0.06)':'transparent',
-            color:panel===n.id?C.ink:'#86868B',fontWeight:panel===n.id?700:400,fontSize:13,
+          <button key={n.id} onClick={()=>setPanel(n.id)}
+            onMouseEnter={e=>{if(panel!==n.id)e.currentTarget.style.background='#F5F5F7';}}
+            onMouseLeave={e=>{if(panel!==n.id)e.currentTarget.style.background='transparent';}}
+            style={{
+              display:'flex',alignItems:'center',gap:10,width:'100%',
+              padding:'8px 12px',borderRadius:8,border:'none',textAlign:'left',cursor:'pointer',marginBottom:2,
+              background:panel===n.id?'#000000':'transparent',
+              color:panel===n.id?'#FFFFFF':'#1D1D1F',fontWeight:panel===n.id?700:500,fontSize:13,
           }}>
-            <span style={{width:18,textAlign:'center',fontSize:14}}>{n.icon}</span>
+            {n.icon&&<span style={{width:18,textAlign:'center',fontSize:14}}>{n.icon}</span>}
             <span>{n.lbl}</span>
           </button>
         ))}
@@ -371,13 +366,6 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
       <div style={{padding:'10px 8px',borderTop:`1px solid ${C.border}`}}>
         <button onClick={()=>window.location.href='admin.html'} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'7px 10px',borderRadius:6,border:'none',background:'transparent',color:'#6E6E73',fontSize:11,cursor:'pointer'}}>
           ← Admin
-        </button>
-        <button
-          onClick={onToggleTheme}
-          title="Cambiar tema"
-          style={{marginTop:4,width:'100%',borderRadius:6,padding:'6px 10px',background:C.card,border:`1px solid ${C.bs}`,color:C.mid,fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
-        >
-          Tema
         </button>
         <button
           onClick={cerrarSesion}
@@ -544,7 +532,7 @@ function CobroModal({order,turno,profile,onClose,onSuccess}){
             {items.map(it=>(
               <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}>
                 <span>{it.quantity}× {it.item_name}</span>
-                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#6E6E73'}}>{fmt(it.unit_price*it.quantity)}</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#000000',fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
               </div>
             ))}
           </div>
@@ -1292,7 +1280,7 @@ function TomarPedidoPanel({turno,profile}){
                   fontWeight:selCat===c.id?700:400,
                   border:`1px solid ${selCat===c.id?'#000000':C.border}`,
                   background:selCat===c.id?'#000000':'transparent',
-                  color:selCat===c.id?'#FFFFFF':C.mid,
+                  color:selCat===c.id?'#FFFFFF':'#000000',
                 }}>{c.name}</button>
               ))}
             </div>
@@ -1553,8 +1541,8 @@ function SalonPanel({profile}){
             {fmtK(sesTotal)==='0'?'':fmt(sesTotal)}
           </div>
         )}
-        <div style={{fontSize:17,fontWeight:800,color:occ?'#FFFFFF':'#AEAEB2'}}>Mesa {table.number}</div>
-        {table.capacity&&<div style={{fontSize:10,color:'#3a3a3a',marginTop:1}}>{table.capacity} pax</div>}
+        <div style={{fontSize:17,fontWeight:occ?800:600,color:occ?'#FFFFFF':'#000000'}}>Mesa {table.number}</div>
+        {table.capacity&&<div style={{fontSize:10,color:'#6E6E73',marginTop:1}}>{table.capacity} pax</div>}
         {occ?(
           <>
             {order&&<div style={{marginTop:8}}><Badge txt={SL[order.status]} color={SC[order.status]||'#6E6E73'}/></div>}
@@ -1696,7 +1684,7 @@ function SalonPanel({profile}){
                 {(ord.order_items||[]).map(it=>(
                   <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,padding:'4px 8px',background:C.card,borderRadius:6,marginBottom:3}}>
                     <span>{it.quantity}× {it.item_name}{it.observations?<span style={{color:'#6E6E73',fontSize:11}}> — {it.observations}</span>:null}</span>
-                    <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#6E6E73'}}>{fmt(it.unit_price*it.quantity)}</span>
+                    <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#000000',fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
                   </div>
                 ))}
                 {idx<selTable.orders.length-1&&<Divider/>}
