@@ -30,8 +30,7 @@
 <div id="root"></div>
 <script>
 function initTheme() {
-  const saved = localStorage.getItem('mesa_theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', saved);
+  document.documentElement.setAttribute('data-theme','light');
 }
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme');
@@ -149,14 +148,14 @@ function KpiCard({label,value,sub,accent,icon,onClick}) {
     <div onClick={onClick} style={{background:C.surface,border:`1px solid ${C.border}`,padding:'18px 20px',flex:1,minWidth:140,borderRadius:8,cursor:onClick?'pointer':'default',transition:'border-color .15s'}} onMouseEnter={e=>{if(onClick)e.currentTarget.style.borderColor=C.bs;}} onMouseLeave={e=>{if(onClick)e.currentTarget.style.borderColor=C.border;}}>
       {icon && <div style={{fontSize:20,marginBottom:8}}>{icon}</div>}
       <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>{label}{onClick&&<span style={{color:'#D2D2D7',marginLeft:4}}>→</span>}</div>
-      <div style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||C.ink,lineHeight:1}}>{value}</div>
+      <div style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||'#000000',lineHeight:1}}>{value}</div>
       {sub && <div style={{fontSize:11,color:'#86868B',marginTop:5}}>{sub}</div>}
     </div>
   );
 }
 function Stars({n}) { return <span style={{color:C.yellow,letterSpacing:2,fontSize:14}}>{'★'.repeat(n)}{'☆'.repeat(5-n)}</span>; }
 function Th({children,right}) { return <th style={{padding:'9px 14px',textAlign:right?'right':'left',fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,whiteSpace:'nowrap',textTransform:'uppercase'}}>{children}</th>; }
-function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?'#6E6E73':'inherit',textAlign:right?'right':'left',...sx}}>{children}</td>; }
+function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?'#6E6E73':'#000000',textAlign:right?'right':'left',...sx}}>{children}</td>; }
 function EmptyRow({cols,label}) { return <tr><td colSpan={cols} style={{padding:40,textAlign:'center',color:'#D2D2D7',fontSize:13}}>{label||'Sin datos'}</td></tr>; }
 function Lbl({children}) { return <label style={{fontSize:10,color:'#6E6E73',display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}</label>; }
 function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}) {
@@ -319,8 +318,8 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme}) {
           const active = page === n.id;
           return (
             <div key={n.id}>
-              {n.group && <div style={{padding:'8px 16px 3px',fontSize:9,color:'#D2D2D7',fontWeight:800,letterSpacing:'0.14em',textTransform:'uppercase'}}>{n.group}</div>}
-              <button onClick={() => setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 16px',background:active?'#000000':'none',border:'none',color:active?'#FFFFFF':C.dim,textAlign:'left',fontSize:13,fontWeight:active?700:400,cursor:'pointer',borderLeft:active?`2px solid ${C.ink}`:'2px solid transparent'}}>
+              {n.group && <div style={{padding:'8px 16px 3px',fontSize:9,color:'#6E6E73',fontWeight:800,letterSpacing:'0.14em',textTransform:'uppercase'}}>{n.group}</div>}
+              <button onClick={() => setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 16px',background:active?'#000000':'none',border:'none',color:active?'#FFFFFF':'#1D1D1F',textAlign:'left',fontSize:13,fontWeight:active?700:400,cursor:'pointer',borderLeft:active?`2px solid ${C.ink}`:'2px solid transparent'}}>
                 <span style={{fontSize:12,width:14,textAlign:'center',flexShrink:0,fontFamily:'monospace'}}>{n.icon}</span>
                 {n.label}
               </button>
@@ -331,10 +330,7 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme}) {
       <div style={{padding:'12px 16px',borderTop:`1px solid ${C.border}`}}>
         <a href="cocina.html" style={{display:'block',color:'#6E6E73',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ Cocina (KDS)</a>
         <a href="index.html"  style={{display:'block',color:'#6E6E73',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ App Cliente</a>
-        <button onClick={onToggleTheme} title="Cambiar tema" style={{marginTop:8,width:'100%',borderRadius:6,padding:'5px 10px',background:C.card,border:`1px solid ${C.bs}`,color:C.mid,fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
-          Tema
-        </button>
-        {db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{marginTop:6,background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'4px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
+{db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{marginTop:6,background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'4px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
       </div>
     </aside>
   );
@@ -375,7 +371,7 @@ function DashboardPage({orders,ratings,setPage}) {
   return (
     <div className="page">
       <div style={{marginBottom:20}}>
-        <h1 style={{fontSize:22,fontWeight:800}}>Dashboard</h1>
+        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Dashboard</h1>
         <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
       </div>
 
@@ -398,8 +394,8 @@ function DashboardPage({orders,ratings,setPage}) {
             {last7.map((d,i) => (
               <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
                 <div style={{fontSize:9,color:'#86868B',fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'center',minHeight:12}}>{d.rev>0?fmtK(d.rev):''}</div>
-                <div style={{width:'100%',height:`${Math.max(d.rev>0?Math.round((d.rev/maxRev)*80):0,d.rev>0?3:0)}px`,background:d.isToday?'#fff':'#F5F5F7',borderRadius:'3px 3px 0 0',transition:'height .3s',minHeight:d.rev>0?3:0}}/>
-                <div style={{fontSize:10,color:d.isToday?C.white:'#86868B',fontWeight:d.isToday?700:400}}>{d.label}</div>
+                <div style={{width:'100%',height:`${Math.max(d.rev>0?Math.round((d.rev/maxRev)*80):0,d.rev>0?3:0)}px`,background:d.rev===maxRev&&d.rev>0?'#000000':'#D2D2D7',borderRadius:'3px 3px 0 0',transition:'height .3s',minHeight:d.rev>0?3:0}}/>
+                <div style={{fontSize:10,color:'#6E6E73',fontWeight:400}}>{d.label}</div>
               </div>
             ))}
           </div>
@@ -414,13 +410,13 @@ function DashboardPage({orders,ratings,setPage}) {
               const isPeak = n === maxHour && n > 0;
               return (
                 <div key={h} title={`${h}:00 — ${n} pedidos`} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
-                  <div style={{width:'100%',height:`${Math.max(n>0?Math.round((n/maxHour)*68):0,n>0?2:0)}px`,background:isPeak?C.yellow:isNow?'rgba(255,255,255,0.4)':'rgba(255,255,255,0.12)',borderRadius:'2px 2px 0 0',transition:'height .3s'}}/>
-                  {h%4===0 && <div style={{fontSize:8,color:'#D2D2D7',fontFamily:"'SF Mono',ui-monospace,monospace"}}>{h}</div>}
+                  <div style={{width:'100%',height:`${Math.max(n>0?Math.round((n/maxHour)*68):0,n>0?2:0)}px`,background:isPeak?'#000000':isNow?'#6E6E73':'#D2D2D7',borderRadius:'2px 2px 0 0',transition:'height .3s'}}/>
+                  {h%4===0 && <div style={{fontSize:8,color:'#6E6E73',fontFamily:"'SF Mono',ui-monospace,monospace"}}>{h}</div>}
                 </div>
               );
             })}
           </div>
-          <div style={{fontSize:10,color:'#86868B',marginTop:8}}>
+          <div style={{fontSize:10,color:'#1D1D1F',marginTop:8}}>
             {maxHour>0 ? `Pico: ${hourly.indexOf(maxHour)}:00 (${maxHour} pedidos)` : 'Sin datos suficientes'}
           </div>
         </div>
@@ -432,7 +428,7 @@ function DashboardPage({orders,ratings,setPage}) {
           <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>MÉTODOS DE PAGO</div>
           {Object.entries(orders.filter(o=>valid(o)&&o.payment_method).reduce((acc,o)=>{acc[o.payment_method]=(acc[o.payment_method]||0)+1;return acc;},{})).sort((a,b)=>b[1]-a[1]).map(([m,n])=>(
             <div key={m} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:9}}>
-              <span style={{fontSize:12,color:C.mid}}>{PL[m]||m}</span>
+              <span style={{fontSize:12,color:'#1D1D1F'}}>{PL[m]||m}</span>
               <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:13,fontWeight:700}}>{n}</span>
             </div>
           ))}
@@ -497,7 +493,7 @@ function PedidosPage({orders,onRefresh}) {
   return (
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-        <h1 style={{fontSize:22,fontWeight:800}}>Pedidos</h1>
+        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Pedidos</h1>
         <Btn onClick={onRefresh} variant="secondary">↺ Actualizar</Btn>
       </div>
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:0}}>
@@ -635,7 +631,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
   return (
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-        <h1 style={{fontSize:22,fontWeight:800}}>Menú</h1>
+        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Menú</h1>
         <div style={{display:'flex',gap:8}}>
           <a href="index.html" target="_blank" style={{fontSize:12,color:'#6E6E73',padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:6,textDecoration:'none'}}>Ver app →</a>
           <Btn onClick={()=>setShowForm(!showForm)}>+ Nuevo item</Btn>
@@ -797,7 +793,7 @@ function MesasPage({tables,orders,onRefresh}) {
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <div>
-          <h1 style={{fontSize:22,fontWeight:800}}>Mesas</h1>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Mesas</h1>
           <div style={{fontSize:12,color:'#6E6E73',marginTop:2}}>{activeOrders.length} con pedidos activos · {tables.length} mesas</div>
         </div>
         <Btn onClick={openAdd}>+ Nueva mesa</Btn>
@@ -937,7 +933,7 @@ function PersonalPage() {
   return (
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-        <h1 style={{fontSize:22,fontWeight:800}}>Personal</h1>
+        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Personal</h1>
         <Btn small variant="secondary" onClick={loadProfiles}>↺ Actualizar</Btn>
       </div>
       <div style={{fontSize:12,color:'#6E6E73',marginBottom:16}}>Usuarios con acceso al sistema · restaurante {RID.slice(0,8)}…</div>
@@ -1033,7 +1029,7 @@ function ClientesPage({orders}) {
 
   return (
     <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,marginBottom:16}}>Clientes</h1>
+      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:16}}>Clientes</h1>
       <div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
         <KpiCard label="Clientes únicos"  value={clientMap.length} sub="con nombre registrado"/>
         <KpiCard label="Frecuentes"       value={frecuentes.length} sub="3+ pedidos" accent={C.green}/>
@@ -1121,7 +1117,7 @@ function CajaAdminPage() {
 
   if(!db) return (
     <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,marginBottom:16}}>Caja</h1>
+      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:16}}>Caja</h1>
       <AlertBoxAdmin type="warn">Sin conexión a Supabase. Configurá las credenciales para ver datos de caja.</AlertBoxAdmin>
       <a href="caja.html" style={{display:'inline-block',marginTop:12,padding:'10px 20px',background:'#000000',color:'#FFFFFF',borderRadius:6,fontSize:13,fontWeight:700,textDecoration:'none'}}>Abrir Panel de Caja →</a>
     </div>
@@ -1130,7 +1126,7 @@ function CajaAdminPage() {
   return (
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-        <h1 style={{fontSize:22,fontWeight:800}}>Caja</h1>
+        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Caja</h1>
         <a href="caja.html" target="_blank" style={{padding:'9px 18px',background:'#000000',color:'#FFFFFF',borderRadius:6,fontSize:13,fontWeight:700,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>
           🖥 Abrir Panel de Caja
         </a>
@@ -1373,7 +1369,7 @@ function FinanzasPage({orders}) {
   return (
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-        <h1 style={{fontSize:22,fontWeight:800}}>Finanzas</h1>
+        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Finanzas</h1>
         <div style={{display:'flex',gap:6}}>
           {['hoy','semana','mes'].map(p=>(
             <button key={p} onClick={()=>setPeriod(p)} style={{background:period===p?'rgba(255,255,255,0.1)':'transparent',border:`1px solid ${period===p?C.bs:C.border}`,color:period===p?C.white:C.mid,padding:'6px 14px',fontSize:12,fontWeight:period===p?700:400,borderRadius:6,cursor:'pointer',textTransform:'capitalize'}}>{p}</button>
@@ -1510,7 +1506,7 @@ function MarketingPage({coupons,orders,onRefresh}) {
 
   return (
     <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,marginBottom:16}}>Marketing</h1>
+      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:16}}>Marketing</h1>
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
         {[['cupones','Cupones'],['whatsapp','WhatsApp'],['inactivos','Clientes inactivos']].map(([id,lbl])=>(
           <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:'#86868B',padding:'8px 14px',fontSize:12,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
@@ -1614,7 +1610,7 @@ function RatingsPage({ratings}) {
   const dist = [5,4,3,2,1].map(s=>({s,n:ratings.filter(r=>r.stars===s).length}));
   return (
     <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,marginBottom:20}}>Calificaciones</h1>
+      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:20}}>Calificaciones</h1>
       <div style={{display:'flex',gap:12,marginBottom:16}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'20px 26px',minWidth:160}}>
           <div style={{fontSize:42,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.yellow,lineHeight:1}}>{avg}</div>
@@ -1802,7 +1798,7 @@ function StockPage() {
 
   return (
     <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,marginBottom:16}}>Stock e Inventario</h1>
+      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:16}}>Stock e Inventario</h1>
 
       {/* Tabs + refresh */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
@@ -2063,7 +2059,7 @@ function ConfigPage({restaurant,onRefresh}) {
 
   return (
     <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,marginBottom:20}}>Configuración</h1>
+      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:20}}>Configuración</h1>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,maxWidth:860}}>
 
         {/* ── Columna izquierda: info + imágenes ── */}
