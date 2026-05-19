@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Admin — La Huaca</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<title>Mythos · Admin</title>
 <link rel="stylesheet" href="design-system.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
@@ -13,18 +12,18 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{background:#0A0A0A;font-family:'Plus Jakarta Sans',sans-serif;min-height:100vh;color:#fff}
+  body{background:#F5F5F7;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:#1D1D1F;-webkit-font-smoothing:antialiased}
   ::-webkit-scrollbar{width:4px;height:4px}
-  ::-webkit-scrollbar-track{background:transparent}
-  ::-webkit-scrollbar-thumb{background:#222;border-radius:4px}
-  input,textarea,select{font-family:inherit;background:#111;border:1px solid #222;color:#fff;outline:none;border-radius:6px}
-  input:focus,textarea:focus,select:focus{border-color:#444}
+  ::-webkit-scrollbar-track{background:#F5F5F7}
+  ::-webkit-scrollbar-thumb{background:#D2D2D7;border-radius:4px}
+  input,textarea,select{font-family:inherit;background:#FFFFFF;border:1px solid #D2D2D7;color:#1D1D1F;outline:none;border-radius:8px}
+  input:focus,textarea:focus,select:focus{border-color:#000000}
   button{font-family:inherit;cursor:pointer}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
   @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   .page{animation:fadeIn .15s ease}
-  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #222;border-top-color:#888;border-radius:50%;vertical-align:middle}
+  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #D2D2D7;border-top-color:#1D1D1F;border-radius:50%;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -74,7 +73,7 @@ const fmtTime = d => new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minu
 const fmtDT   = d => `${fmtDate(d)} ${fmtTime(d)}`;
 const DAY = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',kitchen_received:'En cocina',cooking:'Preparando',ready:'Listo',delivered:'Entregado',cancelled:'Cancelado'};
-const SC = {draft:'#444',confirmed:'#666',paid:'#f59e0b',kitchen_received:'#3b82f6',cooking:'#f97316',ready:'#22c55e',delivered:'#888',cancelled:'#ef4444'};
+const SC = {draft:'#86868B',confirmed:'#6E6E73',paid:'#FF9500',kitchen_received:'#007AFF',cooking:'#FF9500',ready:'#34C759',delivered:'#86868B',cancelled:'#FF3B30'};
 const PL = {efectivo:'Efectivo',tarjeta:'Tarjeta',qr:'QR',pos:'POS'};
 const EG_CATS = ['Insumos','Personal','Servicios','Alquiler','Mantenimiento','Impuestos','Otro'];
 function mesaLabel(o) {
@@ -88,19 +87,14 @@ function mesaLabel(o) {
 const ROLES = ['cocina','admin','superadmin','waiter','cajero'];
 
 /* ── PALETTE ── */
-const C_DARK = {
-  bg:'#0A0A0A',sidebar:'#0D0D0D',surface:'#111',card:'#161616',
-  border:'#1a1a1a',bs:'#2a2a2a',
-  white:'#fff',ink:'#e8e8e8',mid:'#888',dim:'#444',
-  green:'#22c55e',orange:'#f97316',red:'#ef4444',yellow:'#f59e0b',blue:'#3b82f6',purple:'#a855f7',
-};
 const C_LIGHT = {
-  bg:'#f5f5f5',sidebar:'#ffffff',surface:'#ffffff',card:'#f0f0f0',
-  border:'#e0e0e0',bs:'#cccccc',
-  white:'#111111',ink:'#111111',mid:'#555555',dim:'#888888',
-  green:'#16a34a',orange:'#ea580c',red:'#dc2626',yellow:'#ca8a04',blue:'#2563eb',purple:'#9333ea',
+  bg:'#F5F5F7',sidebar:'#FFFFFF',surface:'#FFFFFF',card:'#FFFFFF',
+  border:'#D2D2D7',bs:'#86868B',
+  white:'#FFFFFF',ink:'#1D1D1F',mid:'#6E6E73',dim:'#86868B',
+  green:'#34C759',orange:'#FF9500',red:'#FF3B30',yellow:'#FF9500',blue:'#007AFF',purple:'#000000',
 };
-const C = {...((localStorage.getItem('mesa_theme')||'dark')==='light' ? C_LIGHT : C_DARK)};
+const C_DARK = C_LIGHT;
+const C = {...C_LIGHT};
 
 /* ── TOAST ── */
 const _toast = { fn: null };
@@ -117,7 +111,7 @@ function ToastContainer() {
   return (
     <div style={{position:'fixed',bottom:20,right:20,zIndex:9999,display:'flex',flexDirection:'column',gap:8,pointerEvents:'none'}}>
       {items.map(it => (
-        <div key={it.id} style={{background:it.ok?'#0e1e0e':'#1e0e0e',border:`1px solid ${it.ok?'#1a4a1a':'#4a1a1a'}`,color:it.ok?'#4ade80':'#f87171',padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp 200ms ease',minWidth:220,maxWidth:320}}>
+        <div key={it.id} style={{background:it.ok?'#F0FAF3':'#FFF1F0',border:`1px solid ${it.ok?'#A3D9B1':'#FFB3AD'}`,color:it.ok?'#1A7E37':'#C0190F',padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp 200ms ease',minWidth:220,maxWidth:320}}>
           {it.ok ? '✓ ' : '✕ '}{it.msg}
         </div>
       ))}
@@ -134,10 +128,10 @@ function Modal({ title, onClose, children, width=420 }) {
   }, [onClose]);
   return (
     <div onClick={e => e.target===e.currentTarget && onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
-      <div style={{background:'#111',border:`1px solid ${C.bs}`,borderRadius:12,padding:28,width:'100%',maxWidth:width,maxHeight:'90vh',overflowY:'auto',animation:'slideUp 200ms ease'}}>
+      <div style={{background:'#F5F5F7',border:`1px solid ${C.bs}`,borderRadius:12,padding:28,width:'100%',maxWidth:width,maxHeight:'90vh',overflowY:'auto',animation:'slideUp 200ms ease'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
           <div style={{fontSize:15,fontWeight:700}}>{title}</div>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'#555',fontSize:22,lineHeight:1,padding:0}}>×</button>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#6E6E73',fontSize:22,lineHeight:1,padding:0}}>×</button>
         </div>
         {children}
       </div>
@@ -147,33 +141,33 @@ function Modal({ title, onClose, children, width=420 }) {
 
 /* ── SHARED COMPONENTS ── */
 function Badge({status}) {
-  const col = SC[status]||'#666';
+  const col = SC[status]||'#6E6E73';
   return <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,background:col+'22',color:col,border:`1px solid ${col}44`,borderRadius:5}}><span style={{width:5,height:5,borderRadius:'50%',background:col}}/>{SL[status]||status}</span>;
 }
 function KpiCard({label,value,sub,accent,icon,onClick}) {
   return (
     <div onClick={onClick} style={{background:C.surface,border:`1px solid ${C.border}`,padding:'18px 20px',flex:1,minWidth:140,borderRadius:8,cursor:onClick?'pointer':'default',transition:'border-color .15s'}} onMouseEnter={e=>{if(onClick)e.currentTarget.style.borderColor=C.bs;}} onMouseLeave={e=>{if(onClick)e.currentTarget.style.borderColor=C.border;}}>
       {icon && <div style={{fontSize:20,marginBottom:8}}>{icon}</div>}
-      <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>{label}{onClick&&<span style={{color:'#333',marginLeft:4}}>→</span>}</div>
-      <div style={{fontSize:24,fontWeight:800,fontFamily:'JetBrains Mono',color:accent||C.white,lineHeight:1}}>{value}</div>
-      {sub && <div style={{fontSize:11,color:'#444',marginTop:5}}>{sub}</div>}
+      <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>{label}{onClick&&<span style={{color:'#D2D2D7',marginLeft:4}}>→</span>}</div>
+      <div style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||C.ink,lineHeight:1}}>{value}</div>
+      {sub && <div style={{fontSize:11,color:'#86868B',marginTop:5}}>{sub}</div>}
     </div>
   );
 }
 function Stars({n}) { return <span style={{color:C.yellow,letterSpacing:2,fontSize:14}}>{'★'.repeat(n)}{'☆'.repeat(5-n)}</span>; }
-function Th({children,right}) { return <th style={{padding:'9px 14px',textAlign:right?'right':'left',fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,whiteSpace:'nowrap',textTransform:'uppercase'}}>{children}</th>; }
-function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?'JetBrains Mono':'inherit',color:dim?'#555':'inherit',textAlign:right?'right':'left',...sx}}>{children}</td>; }
-function EmptyRow({cols,label}) { return <tr><td colSpan={cols} style={{padding:40,textAlign:'center',color:'#333',fontSize:13}}>{label||'Sin datos'}</td></tr>; }
-function Lbl({children}) { return <label style={{fontSize:10,color:'#555',display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}</label>; }
+function Th({children,right}) { return <th style={{padding:'9px 14px',textAlign:right?'right':'left',fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,whiteSpace:'nowrap',textTransform:'uppercase'}}>{children}</th>; }
+function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?'#6E6E73':'inherit',textAlign:right?'right':'left',...sx}}>{children}</td>; }
+function EmptyRow({cols,label}) { return <tr><td colSpan={cols} style={{padding:40,textAlign:'center',color:'#D2D2D7',fontSize:13}}>{label||'Sin datos'}</td></tr>; }
+function Lbl({children}) { return <label style={{fontSize:10,color:'#6E6E73',display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}</label>; }
 function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}) {
-  return <input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'8px 10px',fontSize:13,fontFamily:mono?'JetBrains Mono':'inherit',borderRadius:6,...(rest.style||{})}}/>;
+  return <input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'8px 10px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',borderRadius:6,...(rest.style||{})}}/>;
 }
 function Sel({value,onChange,children,...rest}) {
   return <select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'8px 10px',fontSize:13,borderRadius:6,...(rest.style||{})}}>{children}</select>;
 }
 function Btn({children,onClick,variant='primary',disabled,small,style:sx}) {
-  const bg = variant==='primary'?C.white:variant==='danger'?'rgba(239,68,68,0.1)':variant==='ghost'?'transparent':'rgba(255,255,255,0.06)';
-  const color = variant==='primary'?'#000':variant==='danger'?C.red:C.mid;
+  const bg = variant==='primary'?'#000000':variant==='danger'?'rgba(239,68,68,0.1)':variant==='ghost'?'transparent':'#F5F5F7';
+  const color = variant==='primary'?'#FFFFFF':variant==='danger'?C.red:C.mid;
   const border = variant==='primary'?'none':variant==='danger'?'1px solid rgba(239,68,68,0.3)':`1px solid ${C.border}`;
   return (
     <button onClick={onClick} disabled={disabled} style={{background:bg,border,color,padding:small?'5px 10px':'9px 18px',fontSize:small?11:13,fontWeight:700,borderRadius:6,opacity:disabled?0.5:1,...sx}}>
@@ -243,7 +237,7 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
       <div style={{display:'flex',alignItems:'center',gap:6}}>
         {value
           ? <img src={value} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:5,flexShrink:0,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
-          : <div style={{width:36,height:36,background:'#1a1a1a',borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>🍽</div>}
+          : <div style={{width:36,height:36,background:'#FFFFFF',borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>🍽</div>}
         <div style={{display:'flex',flexDirection:'column',gap:3}}>
           <button onClick={()=>ref.current.click()} disabled={busy} style={{background:'transparent',border:`1px solid ${C.border}`,color:C.mid,padding:'2px 8px',fontSize:10,fontWeight:600,borderRadius:4,cursor:'pointer',whiteSpace:'nowrap'}}>
             {busy?'⏳':value?'Cambiar':'Subir foto'}
@@ -262,7 +256,7 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
         {busy&&<div style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center'}}><span className="spin"/></div>}
         <div style={{position:'absolute',bottom:0,left:0,right:0,background:'linear-gradient(transparent,rgba(0,0,0,0.88))',padding:'22px 10px 8px',display:'flex',gap:0}}>
           <button onClick={()=>ref.current.click()} disabled={busy} style={{flex:1,background:'rgba(255,255,255,0.12)',border:'1px solid rgba(255,255,255,0.18)',color:'#fff',padding:'5px 8px',fontSize:11,fontWeight:700,borderRadius:'5px 0 0 5px',cursor:'pointer'}}>Cambiar portada</button>
-          <button onClick={()=>onChange('')} style={{background:'rgba(239,68,68,0.15)',border:'1px solid rgba(239,68,68,0.3)',borderLeft:'none',color:'#ef4444',padding:'5px 8px',fontSize:11,fontWeight:700,borderRadius:'0 5px 5px 0',cursor:'pointer'}}>Eliminar foto</button>
+          <button onClick={()=>onChange('')} style={{background:'rgba(239,68,68,0.15)',border:'1px solid rgba(239,68,68,0.3)',borderLeft:'none',color:'#FF3B30',padding:'5px 8px',fontSize:11,fontWeight:700,borderRadius:'0 5px 5px 0',cursor:'pointer'}}>Eliminar foto</button>
         </div>
         <input ref={ref} type="file" accept=".jpg,.jpeg,.png,.webp" style={{display:'none'}} onClick={e=>e.stopPropagation()} onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value='';}}/>
       </div>
@@ -275,13 +269,13 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
       onDragLeave={()=>setDrag(false)}
       onDrop={onDrop}
       onClick={()=>ref.current.click()}
-      style={{border:`2px dashed ${drag?'#555':'#222'}`,borderRadius:8,padding:'26px 16px',textAlign:'center',cursor:'pointer',background:drag?'rgba(255,255,255,0.04)':'transparent',transition:'border-color .15s,background .15s',userSelect:'none'}}>
+      style={{border:`2px dashed ${drag?'#6E6E73':'#D2D2D7'}`,borderRadius:8,padding:'26px 16px',textAlign:'center',cursor:'pointer',background:drag?'rgba(255,255,255,0.04)':'transparent',transition:'border-color .15s,background .15s',userSelect:'none'}}>
       {busy
-        ? <><span className="spin"/><div style={{fontSize:12,color:'#555',marginTop:10}}>Comprimiendo y subiendo…</div></>
+        ? <><span className="spin"/><div style={{fontSize:12,color:'#6E6E73',marginTop:10}}>Comprimiendo y subiendo…</div></>
         : <>
           <div style={{fontSize:28,marginBottom:6}}>🖼</div>
-          <div style={{fontSize:12,color:'#555'}}>Arrastrá una imagen o hacé clic para subir</div>
-          <div style={{fontSize:10,color:'#333',marginTop:4}}>JPG · PNG · WebP · máx 5 MB · se comprime automáticamente</div>
+          <div style={{fontSize:12,color:'#6E6E73'}}>Arrastrá una imagen o hacé clic para subir</div>
+          <div style={{fontSize:10,color:'#D2D2D7',marginTop:4}}>JPG · PNG · WebP · máx 5 MB · se comprime automáticamente</div>
         </>}
       <input ref={ref} type="file" accept=".jpg,.jpeg,.png,.webp" style={{display:'none'}} onClick={e=>e.stopPropagation()} onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value='';}}/>
     </div>
@@ -312,11 +306,11 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme}) {
   return (
     <aside style={{width:200,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
       <div style={{padding:'18px 16px 14px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontFamily:'DM Serif Display',fontSize:16,color:C.white}}>{restaurant?.name||'La Huaca'}</div>
-        <div style={{fontSize:10,color:'#333',marginTop:2}}>Panel Admin</div>
+        <div style={{fontFamily:'inherit',fontSize:20,fontWeight:800,letterSpacing:'-0.5px',color:'#000000'}}>Mythos</div>
+        <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>{restaurant?.name||'La Huaca'} · Admin</div>
         <div style={{display:'flex',alignItems:'center',gap:6,marginTop:8}}>
           <div style={{width:6,height:6,borderRadius:'50%',background:dbOk?C.green:C.red,flexShrink:0}}/>
-          <span style={{fontSize:10,color:dbOk?'#444':C.red,fontWeight:600}}>{dbOk?'Supabase OK':'Sin DB'}</span>
+          <span style={{fontSize:10,color:dbOk?'#86868B':C.red,fontWeight:600}}>{dbOk?'Supabase OK':'Sin DB'}</span>
         </div>
       </div>
       <nav style={{padding:'6px 0',flex:1}}>
@@ -325,8 +319,8 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme}) {
           const active = page === n.id;
           return (
             <div key={n.id}>
-              {n.group && <div style={{padding:'8px 16px 3px',fontSize:9,color:'#333',fontWeight:800,letterSpacing:'0.14em',textTransform:'uppercase'}}>{n.group}</div>}
-              <button onClick={() => setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 16px',background:active?'rgba(255,255,255,0.08)':'none',border:'none',color:active?C.white:C.dim,textAlign:'left',fontSize:13,fontWeight:active?700:400,cursor:'pointer',borderLeft:active?`2px solid ${C.white}`:'2px solid transparent'}}>
+              {n.group && <div style={{padding:'8px 16px 3px',fontSize:9,color:'#D2D2D7',fontWeight:800,letterSpacing:'0.14em',textTransform:'uppercase'}}>{n.group}</div>}
+              <button onClick={() => setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 16px',background:active?'#000000':'none',border:'none',color:active?'#FFFFFF':C.dim,textAlign:'left',fontSize:13,fontWeight:active?700:400,cursor:'pointer',borderLeft:active?`2px solid ${C.ink}`:'2px solid transparent'}}>
                 <span style={{fontSize:12,width:14,textAlign:'center',flexShrink:0,fontFamily:'monospace'}}>{n.icon}</span>
                 {n.label}
               </button>
@@ -335,10 +329,10 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme}) {
         })}
       </nav>
       <div style={{padding:'12px 16px',borderTop:`1px solid ${C.border}`}}>
-        <a href="cocina.html" style={{display:'block',color:'#333',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ Cocina (KDS)</a>
-        <a href="index.html"  style={{display:'block',color:'#333',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ App Cliente</a>
+        <a href="cocina.html" style={{display:'block',color:'#6E6E73',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ Cocina (KDS)</a>
+        <a href="index.html"  style={{display:'block',color:'#6E6E73',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ App Cliente</a>
         <button onClick={onToggleTheme} title="Cambiar tema" style={{marginTop:8,width:'100%',borderRadius:6,padding:'5px 10px',background:C.card,border:`1px solid ${C.bs}`,color:C.mid,fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
-          {document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Claro':'🌙 Oscuro'}
+          Tema
         </button>
         {db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{marginTop:6,background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'4px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
       </div>
@@ -382,7 +376,7 @@ function DashboardPage({orders,ratings,setPage}) {
     <div className="page">
       <div style={{marginBottom:20}}>
         <h1 style={{fontSize:22,fontWeight:800}}>Dashboard</h1>
-        <div style={{fontSize:12,color:'#555',marginTop:3}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
+        <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
       </div>
 
       {/* KPIs fila 1 */}
@@ -399,13 +393,13 @@ function DashboardPage({orders,ratings,setPage}) {
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:14}}>
         {/* Ingresos 7 días */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
-          <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:16}}>INGRESOS — ÚLTIMOS 7 DÍAS</div>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:16}}>INGRESOS — ÚLTIMOS 7 DÍAS</div>
           <div style={{display:'flex',alignItems:'flex-end',gap:8,height:100}}>
             {last7.map((d,i) => (
               <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
-                <div style={{fontSize:9,color:'#444',fontFamily:'JetBrains Mono',textAlign:'center',minHeight:12}}>{d.rev>0?fmtK(d.rev):''}</div>
-                <div style={{width:'100%',height:`${Math.max(d.rev>0?Math.round((d.rev/maxRev)*80):0,d.rev>0?3:0)}px`,background:d.isToday?'#fff':'#2a2a2a',borderRadius:'3px 3px 0 0',transition:'height .3s',minHeight:d.rev>0?3:0}}/>
-                <div style={{fontSize:10,color:d.isToday?C.white:'#444',fontWeight:d.isToday?700:400}}>{d.label}</div>
+                <div style={{fontSize:9,color:'#86868B',fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'center',minHeight:12}}>{d.rev>0?fmtK(d.rev):''}</div>
+                <div style={{width:'100%',height:`${Math.max(d.rev>0?Math.round((d.rev/maxRev)*80):0,d.rev>0?3:0)}px`,background:d.isToday?'#fff':'#F5F5F7',borderRadius:'3px 3px 0 0',transition:'height .3s',minHeight:d.rev>0?3:0}}/>
+                <div style={{fontSize:10,color:d.isToday?C.white:'#86868B',fontWeight:d.isToday?700:400}}>{d.label}</div>
               </div>
             ))}
           </div>
@@ -413,7 +407,7 @@ function DashboardPage({orders,ratings,setPage}) {
 
         {/* Horas pico */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
-          <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:16}}>HORAS PICO</div>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:16}}>HORAS PICO</div>
           <div style={{display:'flex',alignItems:'flex-end',gap:2,height:80}}>
             {hourly.map((n,h) => {
               const isNow = new Date().getHours()===h;
@@ -421,12 +415,12 @@ function DashboardPage({orders,ratings,setPage}) {
               return (
                 <div key={h} title={`${h}:00 — ${n} pedidos`} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
                   <div style={{width:'100%',height:`${Math.max(n>0?Math.round((n/maxHour)*68):0,n>0?2:0)}px`,background:isPeak?C.yellow:isNow?'rgba(255,255,255,0.4)':'rgba(255,255,255,0.12)',borderRadius:'2px 2px 0 0',transition:'height .3s'}}/>
-                  {h%4===0 && <div style={{fontSize:8,color:'#333',fontFamily:'JetBrains Mono'}}>{h}</div>}
+                  {h%4===0 && <div style={{fontSize:8,color:'#D2D2D7',fontFamily:"'SF Mono',ui-monospace,monospace"}}>{h}</div>}
                 </div>
               );
             })}
           </div>
-          <div style={{fontSize:10,color:'#444',marginTop:8}}>
+          <div style={{fontSize:10,color:'#86868B',marginTop:8}}>
             {maxHour>0 ? `Pico: ${hourly.indexOf(maxHour)}:00 (${maxHour} pedidos)` : 'Sin datos suficientes'}
           </div>
         </div>
@@ -435,17 +429,17 @@ function DashboardPage({orders,ratings,setPage}) {
       {/* Métodos de pago + Pedidos recientes */}
       <div style={{display:'grid',gridTemplateColumns:'220px 1fr',gap:14}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18}}>
-          <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>MÉTODOS DE PAGO</div>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>MÉTODOS DE PAGO</div>
           {Object.entries(orders.filter(o=>valid(o)&&o.payment_method).reduce((acc,o)=>{acc[o.payment_method]=(acc[o.payment_method]||0)+1;return acc;},{})).sort((a,b)=>b[1]-a[1]).map(([m,n])=>(
             <div key={m} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:9}}>
               <span style={{fontSize:12,color:C.mid}}>{PL[m]||m}</span>
-              <span style={{fontFamily:'JetBrains Mono',fontSize:13,fontWeight:700}}>{n}</span>
+              <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:13,fontWeight:700}}>{n}</span>
             </div>
           ))}
-          {orders.filter(o=>valid(o)&&o.payment_method).length===0 && <div style={{color:'#333',fontSize:12}}>Sin datos</div>}
+          {orders.filter(o=>valid(o)&&o.payment_method).length===0 && <div style={{color:'#D2D2D7',fontSize:12}}>Sin datos</div>}
         </div>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-          <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:'#555',letterSpacing:1}}>PEDIDOS RECIENTES</div>
+          <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:'#6E6E73',letterSpacing:1}}>PEDIDOS RECIENTES</div>
           <table style={{width:'100%',borderCollapse:'collapse'}}>
             <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>#</Th><Th>Mesa</Th><Th>Estado</Th><Th right>Total</Th><Th>Pago</Th><Th>Hora</Th></tr></thead>
             <tbody>
@@ -508,8 +502,8 @@ function PedidosPage({orders,onRefresh}) {
       </div>
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:0}}>
         {FILTERS.map(f=>(
-          <button key={f.id} onClick={()=>setFilter(f.id)} style={{background:'none',border:'none',color:filter===f.id?C.white:'#444',padding:'8px 13px',fontSize:12,fontWeight:filter===f.id?700:400,borderBottom:filter===f.id?'2px solid #fff':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>
-            {f.label} {f.id!=='all'&&<span style={{color:'#555',fontSize:10}}>({filtered.length})</span>}
+          <button key={f.id} onClick={()=>setFilter(f.id)} style={{background:'none',border:'none',color:filter===f.id?C.ink:'#86868B',padding:'8px 13px',fontSize:12,fontWeight:filter===f.id?700:400,borderBottom:filter===f.id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>
+            {f.label} {f.id!=='all'&&<span style={{color:'#6E6E73',fontSize:10}}>({filtered.length})</span>}
           </button>
         ))}
       </div>
@@ -519,7 +513,7 @@ function PedidosPage({orders,onRefresh}) {
             <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>#</Th><Th>Mesa</Th><Th>Estado</Th><Th>Items</Th><Th right>Total</Th><Th>Pago</Th><Th>Fecha</Th></tr></thead>
             <tbody>
               {filtered.map(o=>(
-                <tr key={o.id} onClick={()=>selectOrder(o)} style={{borderBottom:`1px solid #0d0d0d`,cursor:'pointer',background:selected?.id===o.id?'#1a1a1a':'transparent'}}>
+                <tr key={o.id} onClick={()=>selectOrder(o)} style={{borderBottom:`1px solid #0d0d0d`,cursor:'pointer',background:selected?.id===o.id?'#FFFFFF':'transparent'}}>
                   <Td mono dim>{o.order_number}</Td>
                   <Td>{mesaLabel(o)}</Td>
                   <Td><Badge status={o.status}/></Td>
@@ -536,25 +530,25 @@ function PedidosPage({orders,onRefresh}) {
         {selected&&(
           <div style={{width:280,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,flexShrink:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
             <div style={{padding:'13px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between'}}>
-              <div><div style={{fontFamily:'JetBrains Mono',fontSize:14,fontWeight:700}}>{selected.order_number}</div><div style={{fontSize:10,color:'#444',marginTop:2}}>{fmtDT(selected.created_at)}</div></div>
-              <button onClick={()=>{setSelected(null);setItems([]);}} style={{background:'none',border:'none',color:'#444',fontSize:20,lineHeight:1,padding:0}}>×</button>
+              <div><div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:14,fontWeight:700}}>{selected.order_number}</div><div style={{fontSize:10,color:'#86868B',marginTop:2}}>{fmtDT(selected.created_at)}</div></div>
+              <button onClick={()=>{setSelected(null);setItems([]);}} style={{background:'none',border:'none',color:'#86868B',fontSize:20,lineHeight:1,padding:0}}>×</button>
             </div>
             <div style={{padding:'8px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
               <Badge status={selected.status}/>
-              <span style={{fontSize:12,color:'#555'}}>{mesaLabel(selected)}</span>
+              <span style={{fontSize:12,color:'#6E6E73'}}>{mesaLabel(selected)}</span>
             </div>
             <div style={{flex:1,padding:'8px 16px',overflowY:'auto',borderBottom:`1px solid ${C.border}`}}>
               {loadingItems&&<span className="spin"/>}
               {items.map((it,i)=>(
                 <div key={i} style={{borderBottom:`1px solid #0d0d0d`,padding:'6px 0'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}><span>{it.quantity}× {it.item_name}</span><span style={{fontFamily:'JetBrains Mono',color:'#666',marginLeft:6}}>{fmt(it.total_price)}</span></div>
-                  {it.observations&&<div style={{fontSize:11,color:'#555',marginTop:2}}>→ {it.observations}</div>}
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}><span>{it.quantity}× {it.item_name}</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#6E6E73',marginLeft:6}}>{fmt(it.total_price)}</span></div>
+                  {it.observations&&<div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>→ {it.observations}</div>}
                 </div>
               ))}
             </div>
             <div style={{padding:'8px 16px',borderBottom:`1px solid ${C.border}`}}>
-              {selected.discount_amount>0&&<div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4,color:C.green}}><span>Descuento</span><span style={{fontFamily:'JetBrains Mono'}}>-{fmt(selected.discount_amount)}</span></div>}
-              <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,fontSize:14}}><span>Total</span><span style={{fontFamily:'JetBrains Mono'}}>{fmt(selected.total)}</span></div>
+              {selected.discount_amount>0&&<div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4,color:C.green}}><span>Descuento</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>-{fmt(selected.discount_amount)}</span></div>}
+              <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,fontSize:14}}><span>Total</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(selected.total)}</span></div>
             </div>
             <div style={{padding:'12px 16px',display:'flex',flexDirection:'column',gap:7}}>
               {selected.status==='paid'&&<Btn onClick={()=>updateStatus(selected.id,'cooking')} disabled={upd}>→ Iniciar preparación</Btn>}
@@ -643,26 +637,26 @@ function MenuPage({categories,menuItems,onRefresh}) {
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <h1 style={{fontSize:22,fontWeight:800}}>Menú</h1>
         <div style={{display:'flex',gap:8}}>
-          <a href="index.html" target="_blank" style={{fontSize:12,color:'#555',padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:6,textDecoration:'none'}}>Ver app →</a>
+          <a href="index.html" target="_blank" style={{fontSize:12,color:'#6E6E73',padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:6,textDecoration:'none'}}>Ver app →</a>
           <Btn onClick={()=>setShowForm(!showForm)}>+ Nuevo item</Btn>
         </div>
       </div>
-      <div style={{background:'rgba(34,197,94,0.06)',border:'1px solid rgba(34,197,94,0.2)',borderRadius:8,padding:'9px 14px',marginBottom:14,fontSize:12,color:'#888'}}>
-        Los cambios se guardan en Supabase. La app del cliente los ve al refrescar. Si crear o eliminar items falla, ejecutá las migraciones <code style={{fontFamily:'JetBrains Mono',color:'#aaa',fontSize:11}}>010</code> y <code style={{fontFamily:'JetBrains Mono',color:'#aaa',fontSize:11}}>012</code> en Supabase. Para subir fotos ejecutá también la <code style={{fontFamily:'JetBrains Mono',color:'#aaa',fontSize:11}}>011</code>.
+      <div style={{background:'rgba(34,197,94,0.06)',border:'1px solid rgba(34,197,94,0.2)',borderRadius:8,padding:'9px 14px',marginBottom:14,fontSize:12,color:'#86868B'}}>
+        Los cambios se guardan en Supabase. La app del cliente los ve al refrescar. Si crear o eliminar items falla, ejecutá las migraciones <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#AEAEB2',fontSize:11}}>010</code> y <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#AEAEB2',fontSize:11}}>012</code> en Supabase. Para subir fotos ejecutá también la <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#AEAEB2',fontSize:11}}>011</code>.
       </div>
       <div style={{display:'flex',gap:14}}>
         <div style={{width:165,flexShrink:0}}>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,marginBottom:10,overflow:'hidden'}}>
-            <div style={{padding:'8px 12px',fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,borderBottom:`1px solid ${C.border}`}}>CATEGORÍAS</div>
+            <div style={{padding:'8px 12px',fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,borderBottom:`1px solid ${C.border}`}}>CATEGORÍAS</div>
             {[{id:'all',name:'Todas',cnt:menuItems.length},...categories.map(c=>({id:c.id,name:c.name,cnt:menuItems.filter(i=>i.category_id===c.id).length}))].map(c=>{
               const active=catFilter===c.id;
               return <button key={c.id} onClick={()=>setCatFilter(c.id)} style={{display:'flex',justifyContent:'space-between',width:'100%',textAlign:'left',padding:'8px 12px',background:active?'rgba(255,255,255,0.08)':'none',border:'none',color:active?C.white:C.mid,fontSize:13,cursor:'pointer',borderBottom:`1px solid #0d0d0d`,borderLeft:active?`2px solid ${C.white}`:'2px solid transparent'}}>
-                <span>{c.name}</span><span style={{color:'#333',fontSize:11}}>{c.cnt}</span>
+                <span>{c.name}</span><span style={{color:'#D2D2D7',fontSize:11}}>{c.cnt}</span>
               </button>;
             })}
           </div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:12}}>
-            <div style={{fontSize:10,color:'#555',fontWeight:700,marginBottom:7}}>+ CATEGORÍA</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:7}}>+ CATEGORÍA</div>
             <Inp value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="Nombre…" onKeyDown={e=>e.key==='Enter'&&addCategory()}/>
             <Btn variant="secondary" onClick={addCategory} style={{marginTop:7,width:'100%'}} small disabled={!newCat.trim()}>Agregar</Btn>
           </div>
@@ -670,14 +664,14 @@ function MenuPage({categories,menuItems,onRefresh}) {
         <div style={{flex:1}}>
           {showForm&&(
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20,marginBottom:12}}>
-              <div style={{fontSize:11,color:'#555',fontWeight:700,marginBottom:14,letterSpacing:1}}>NUEVO ITEM</div>
+              <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,marginBottom:14,letterSpacing:1}}>NUEVO ITEM</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
                 <div><Lbl>NOMBRE *</Lbl><Inp value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="Lomito completo"/></div>
                 <div><Lbl>PRECIO (₲) *</Lbl><Inp type="number" mono value={form.price_guarani} onChange={e=>setForm({...form,price_guarani:e.target.value})} placeholder="75000"/></div>
                 <div><Lbl>CATEGORÍA *</Lbl><Sel value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})}><option value="">Seleccionar…</option>{categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Sel></div>
                 <div><Lbl>PROMO TAG</Lbl><Inp value={form.promo_tag} onChange={e=>setForm({...form,promo_tag:e.target.value})} placeholder="2×1, Nuevo, Chef ★"/></div>
                 <div style={{gridColumn:'1/-1'}}><Lbl>IMAGEN DEL PRODUCTO</Lbl><ImageUploader value={form.image_url} onChange={url=>setForm({...form,image_url:url})}/></div>
-                <div style={{gridColumn:'1/-1'}}><Lbl>DESCRIPCIÓN</Lbl><textarea value={form.description||''} onChange={e=>setForm({...form,description:e.target.value})} rows={2} style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:'#111',border:'1px solid #222',color:'#fff',borderRadius:6}}/></div>
+                <div style={{gridColumn:'1/-1'}}><Lbl>DESCRIPCIÓN</Lbl><textarea value={form.description||''} onChange={e=>setForm({...form,description:e.target.value})} rows={2} style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:'#F5F5F7',border:'1px solid #222',color:'#fff',borderRadius:6}}/></div>
               </div>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
                 <Btn onClick={addItem} disabled={saving}>{saving?'Guardando…':'Guardar item'}</Btn>
@@ -697,14 +691,14 @@ function MenuPage({categories,menuItems,onRefresh}) {
                         {ed
                           ?<ImageUploader compact value={ev.img||''} onChange={url=>upd(item.id,'img',url)}/>
                           :item.image_url?<img src={item.image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
-                          :<div style={{width:36,height:36,background:'#1a1a1a',borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>🍽</div>}
+                          :<div style={{width:36,height:36,background:'#FFFFFF',borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>🍽</div>}
                       </Td>
                       <Td>
                         {ed?<div style={{display:'flex',flexDirection:'column',gap:4}}>
                             <Inp value={ev.name||''} onChange={e=>upd(item.id,'name',e.target.value)} placeholder="Nombre" style={{fontSize:13}}/>
                             <Inp value={ev.desc||''} onChange={e=>upd(item.id,'desc',e.target.value)} placeholder="Descripción" style={{fontSize:11,color:'#777'}}/>
                           </div>
-                          :<div><div style={{color:item.is_available?C.ink:'#444'}}>{item.name}</div>{item.description&&<div style={{fontSize:11,color:'#444',marginTop:2,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>}</div>}
+                          :<div><div style={{color:item.is_available?C.ink:'#86868B'}}>{item.name}</div>{item.description&&<div style={{fontSize:11,color:'#86868B',marginTop:2,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>}</div>}
                       </Td>
                       <Td dim>{catName(item.category_id)}</Td>
                       <Td mono right>
@@ -712,10 +706,10 @@ function MenuPage({categories,menuItems,onRefresh}) {
                       </Td>
                       <Td>
                         {ed?<Inp value={ev.promo||''} onChange={e=>upd(item.id,'promo',e.target.value)} placeholder="promo…" style={{width:80,fontSize:11}}/>
-                          :item.promo_tag&&<span style={{background:'#1a1400',border:'1px solid #3a2a00',color:C.yellow,padding:'2px 6px',fontSize:11,borderRadius:4}}>{item.promo_tag}</span>}
+                          :item.promo_tag&&<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 6px',fontSize:11,borderRadius:4}}>{item.promo_tag}</span>}
                       </Td>
                       <Td>
-                        <button onClick={()=>toggleAvail(item)} style={{background:item.is_available?'rgba(34,197,94,0.1)':'rgba(255,255,255,0.04)',border:`1px solid ${item.is_available?'rgba(34,197,94,0.3)':C.border}`,color:item.is_available?C.green:'#444',padding:'3px 9px',fontSize:11,fontWeight:600,borderRadius:5}}>
+                        <button onClick={()=>toggleAvail(item)} style={{background:item.is_available?'rgba(34,197,94,0.1)':'rgba(255,255,255,0.04)',border:`1px solid ${item.is_available?'rgba(34,197,94,0.3)':C.border}`,color:item.is_available?C.green:'#86868B',padding:'3px 9px',fontSize:11,fontWeight:600,borderRadius:5}}>
                           {item.is_available?'Activo':'Inactivo'}
                         </button>
                       </Td>
@@ -804,7 +798,7 @@ function MesasPage({tables,orders,onRefresh}) {
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:800}}>Mesas</h1>
-          <div style={{fontSize:12,color:'#555',marginTop:2}}>{activeOrders.length} con pedidos activos · {tables.length} mesas</div>
+          <div style={{fontSize:12,color:'#6E6E73',marginTop:2}}>{activeOrders.length} con pedidos activos · {tables.length} mesas</div>
         </div>
         <Btn onClick={openAdd}>+ Nueva mesa</Btn>
       </div>
@@ -812,7 +806,7 @@ function MesasPage({tables,orders,onRefresh}) {
       {/* Filtro zonas */}
       <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
         {['todas',...allZones,'sin zona'].map(z=>(
-          <button key={z} onClick={()=>setActiveZone(z)} style={{background:activeZone===z?'rgba(255,255,255,0.1)':'transparent',border:`1px solid ${activeZone===z?C.bs:C.border}`,color:activeZone===z?C.white:C.mid,padding:'5px 12px',fontSize:12,fontWeight:activeZone===z?700:400,borderRadius:20,cursor:'pointer',textTransform:'capitalize'}}>
+          <button key={z} onClick={()=>setActiveZone(z)} style={{background:activeZone===z?'#000000':'transparent',border:`1px solid ${activeZone===z?C.bs:C.border}`,color:activeZone===z?C.white:C.mid,padding:'5px 12px',fontSize:12,fontWeight:activeZone===z?700:400,borderRadius:20,cursor:'pointer',textTransform:'capitalize'}}>
             {z}
           </button>
         ))}
@@ -821,24 +815,24 @@ function MesasPage({tables,orders,onRefresh}) {
       {/* Grupos por zona */}
       {grouped.map(({zone,items})=>(
         <div key={zone} style={{marginBottom:24}}>
-          {grouped.length>1&&<div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:'0.14em',textTransform:'uppercase',marginBottom:10,display:'flex',alignItems:'center',gap:8}}>{zone}<div style={{flex:1,height:1,background:C.border}}/></div>}
+          {grouped.length>1&&<div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:'0.14em',textTransform:'uppercase',marginBottom:10,display:'flex',alignItems:'center',gap:8}}>{zone}<div style={{flex:1,height:1,background:C.border}}/></div>}
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(175px,1fr))',gap:10}}>
             {items.map(t=>{
               const order=activeOrders.find(o=>o.table_id===t.id);
               const busy=!!order;
               return (
-                <div key={t.id} style={{background:busy?C.surface:'#0d0d0d',border:`1px solid ${busy?C.bs:C.border}`,borderRadius:10,padding:16,position:'relative'}}>
+                <div key={t.id} style={{background:busy?'#000000':'#F5F5F7',border:`1px solid ${busy?'#000000':C.border}`,borderRadius:10,padding:16,position:'relative'}}>
                   {busy&&<div style={{position:'absolute',top:10,right:10}}><Badge status={order.status}/></div>}
                   <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-                    <div style={{width:36,height:36,borderRadius:'50%',background:busy?C.white:'#1a1a1a',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:15,color:busy?'#000':'#333',flexShrink:0}}>{t.number}</div>
+                    <div style={{width:36,height:36,borderRadius:'50%',background:'#FFFFFF',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:15,color:busy?'#000000':'#D2D2D7',flexShrink:0}}>{t.number}</div>
                     <div>
-                      <div style={{fontSize:11,color:'#555'}}>Cap. {t.capacity||4}p</div>
-                      {zones[t.id]&&<div style={{fontSize:10,color:'#444',marginTop:1}}>{zones[t.id]}</div>}
+                      <div style={{fontSize:11,color:'#6E6E73'}}>Cap. {t.capacity||4}p</div>
+                      {zones[t.id]&&<div style={{fontSize:10,color:'#86868B',marginTop:1}}>{zones[t.id]}</div>}
                     </div>
                   </div>
                   {order
-                    ?<div><div style={{fontFamily:'JetBrains Mono',fontSize:11,color:'#888',marginBottom:2}}>{order.order_number}</div><div style={{fontSize:14,fontWeight:700}}>{fmt(order.total)}</div><div style={{fontSize:10,color:'#555',marginTop:1}}>{fmtTime(order.created_at)}</div></div>
-                    :<div style={{fontSize:12,color:'#2a2a2a'}}>Libre</div>}
+                    ?<div><div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#86868B',marginBottom:2}}>{order.order_number}</div><div style={{fontSize:14,fontWeight:700}}>{fmt(order.total)}</div><div style={{fontSize:10,color:'#6E6E73',marginTop:1}}>{fmtTime(order.created_at)}</div></div>
+                    :<div style={{fontSize:12,color:'#6E6E73'}}>Libre</div>}
                   <div style={{display:'flex',gap:6,marginTop:12}}>
                     <button onClick={()=>openEdit(t)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.dim,padding:'4px',fontSize:11,borderRadius:5,cursor:'pointer'}}>Editar</button>
                     <button onClick={()=>deleteTable(t)} style={{background:'transparent',border:'1px solid rgba(239,68,68,0.2)',color:'rgba(239,68,68,0.6)',padding:'4px 8px',fontSize:11,borderRadius:5,cursor:'pointer'}}>✕</button>
@@ -849,7 +843,7 @@ function MesasPage({tables,orders,onRefresh}) {
           </div>
         </div>
       ))}
-      {tables.length===0&&<div style={{color:'#333',padding:40,textAlign:'center',fontSize:13}}>No hay mesas. Creá la primera con "+ Nueva mesa"</div>}
+      {tables.length===0&&<div style={{color:'#D2D2D7',padding:40,textAlign:'center',fontSize:13}}>No hay mesas. Creá la primera con "+ Nueva mesa"</div>}
 
       {/* Modal add/edit */}
       {modal&&(
@@ -861,14 +855,14 @@ function MesasPage({tables,orders,onRefresh}) {
             </div>
             <div>
               <Lbl>ZONA</Lbl>
-              <input list="zonas-list" value={form.zone} onChange={e=>setForm({...form,zone:e.target.value})} placeholder="Salón, Terraza, Barra…" style={{width:'100%',padding:'8px 10px',fontSize:13,borderRadius:6,background:'#111',border:'1px solid #222',color:'#fff'}}/>
+              <input list="zonas-list" value={form.zone} onChange={e=>setForm({...form,zone:e.target.value})} placeholder="Salón, Terraza, Barra…" style={{width:'100%',padding:'8px 10px',fontSize:13,borderRadius:6,background:'#FFFFFF',border:'1px solid #D2D2D7',color:'#1D1D1F'}}/>
               <datalist id="zonas-list">{allZones.map(z=><option key={z} value={z}/>)}</datalist>
-              <div style={{fontSize:10,color:'#444',marginTop:4}}>Las zonas se guardan en este navegador (no en DB)</div>
+              <div style={{fontSize:10,color:'#86868B',marginTop:4}}>Las zonas se guardan en este navegador (no en DB)</div>
             </div>
             {modal.mode==='edit'&&modal.table.qr_token&&(
               <div style={{background:'#0a0a0a',border:`1px solid ${C.border}`,borderRadius:6,padding:10}}>
-                <div style={{fontSize:10,color:'#555',fontWeight:700,marginBottom:4}}>TOKEN QR</div>
-                <div style={{fontFamily:'JetBrains Mono',fontSize:11,color:'#444',wordBreak:'break-all'}}>{modal.table.qr_token}</div>
+                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:4}}>TOKEN QR</div>
+                <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#86868B',wordBreak:'break-all'}}>{modal.table.qr_token}</div>
               </div>
             )}
             <div style={{display:'flex',gap:8,marginTop:4}}>
@@ -946,13 +940,13 @@ function PersonalPage() {
         <h1 style={{fontSize:22,fontWeight:800}}>Personal</h1>
         <Btn small variant="secondary" onClick={loadProfiles}>↺ Actualizar</Btn>
       </div>
-      <div style={{fontSize:12,color:'#555',marginBottom:16}}>Usuarios con acceso al sistema · restaurante {RID.slice(0,8)}…</div>
-      {loading&&<div style={{display:'flex',gap:10,alignItems:'center',color:'#555',fontSize:13}}><span className="spin"/>Cargando personal…</div>}
+      <div style={{fontSize:12,color:'#6E6E73',marginBottom:16}}>Usuarios con acceso al sistema · restaurante {RID.slice(0,8)}…</div>
+      {loading&&<div style={{display:'flex',gap:10,alignItems:'center',color:'#6E6E73',fontSize:13}}><span className="spin"/>Cargando personal…</div>}
       {error&&(
         <div style={{color:C.orange,fontSize:13,padding:16,background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.2)',borderRadius:8,marginBottom:14}}>
           <div style={{fontWeight:700,marginBottom:4}}>Atención</div>
           {error}
-          <div style={{marginTop:8,fontSize:11,color:'#888'}}>Si acabás de ejecutar la migración 023, recargá la página y volvé a intentar.</div>
+          <div style={{marginTop:8,fontSize:11,color:'#86868B'}}>Si acabás de ejecutar la migración 023, recargá la página y volvé a intentar.</div>
         </div>
       )}
       {!loading&&(
@@ -974,7 +968,7 @@ function PersonalPage() {
                       ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:120}}>
                           {ROLES.map(r=><option key={r} value={r}>{r}</option>)}
                         </Sel>
-                      :<span style={{background:(roleColor[p.role]||'#666')+'22',color:roleColor[p.role]||'#666',border:`1px solid ${(roleColor[p.role]||'#666')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{p.role}</span>}
+                      :<span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{p.role}</span>}
                   </Td>
                   <Td>
                     {editId===p.id
@@ -1001,7 +995,7 @@ function PersonalPage() {
         </div>
       )}
       {profiles.length>0&&(
-        <div style={{marginTop:10,fontSize:11,color:'#444'}}>
+        <div style={{marginTop:10,fontSize:11,color:'#86868B'}}>
           {profiles.filter(p=>p.is_active!==false).length} activos · {profiles.filter(p=>p.is_active===false).length} inactivos · Para crear usuarios usá el panel SuperAdmin.
         </div>
       )}
@@ -1047,7 +1041,7 @@ function ClientesPage({orders}) {
       </div>
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:0}}>
         {[['todos','Todos'],['frecuentes','Frecuentes'],['inactivos',`Inactivos +${INACTIVE_DAYS}d`]].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?C.white:'#444',padding:'8px 14px',fontSize:12,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid #fff':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+          <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?C.ink:'#86868B',padding:'8px 14px',fontSize:12,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginTop:0}}>
@@ -1060,9 +1054,9 @@ function ClientesPage({orders}) {
                 <tr key={i} style={{borderBottom:`1px solid #0d0d0d`}}>
                   <Td>{c.name}</Td>
                   <Td dim>{c.phone||'—'}</Td>
-                  <Td right><span style={{fontFamily:'JetBrains Mono',fontWeight:700,color:c.orders>=3?C.green:C.white}}>{c.orders}</span></Td>
+                  <Td right><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color:c.orders>=3?C.green:C.ink}}>{c.orders}</span></Td>
                   <Td mono right>{fmt(c.total)}</Td>
-                  <Td><span style={{color:diasInactivo>30?C.orange:C.mid}}>{fmtDate(c.lastDate)} <span style={{fontSize:10,color:'#555'}}>{diasInactivo>0?`hace ${diasInactivo}d`:''}</span></span></Td>
+                  <Td><span style={{color:diasInactivo>30?C.orange:C.mid}}>{fmtDate(c.lastDate)} <span style={{fontSize:10,color:'#6E6E73'}}>{diasInactivo>0?`hace ${diasInactivo}d`:''}</span></span></Td>
                 </tr>
               );
             })}
@@ -1070,7 +1064,7 @@ function ClientesPage({orders}) {
           </tbody>
         </table>
       </div>
-      {clientMap.length===0&&<div style={{marginTop:12,fontSize:12,color:'#444',padding:'10px 14px',background:'rgba(255,255,255,0.02)',borderRadius:8}}>Los pedidos deben incluir nombre del cliente para aparecer aquí.</div>}
+      {clientMap.length===0&&<div style={{marginTop:12,fontSize:12,color:'#86868B',padding:'10px 14px',background:'rgba(255,255,255,0.02)',borderRadius:8}}>Los pedidos deben incluir nombre del cliente para aparecer aquí.</div>}
     </div>
   );
 }
@@ -1129,7 +1123,7 @@ function CajaAdminPage() {
     <div className="page">
       <h1 style={{fontSize:22,fontWeight:800,marginBottom:16}}>Caja</h1>
       <AlertBoxAdmin type="warn">Sin conexión a Supabase. Configurá las credenciales para ver datos de caja.</AlertBoxAdmin>
-      <a href="caja.html" style={{display:'inline-block',marginTop:12,padding:'10px 20px',background:C.white,color:'#000',borderRadius:6,fontSize:13,fontWeight:700,textDecoration:'none'}}>Abrir Panel de Caja →</a>
+      <a href="caja.html" style={{display:'inline-block',marginTop:12,padding:'10px 20px',background:'#000000',color:'#FFFFFF',borderRadius:6,fontSize:13,fontWeight:700,textDecoration:'none'}}>Abrir Panel de Caja →</a>
     </div>
   );
 
@@ -1137,7 +1131,7 @@ function CajaAdminPage() {
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <h1 style={{fontSize:22,fontWeight:800}}>Caja</h1>
-        <a href="caja.html" target="_blank" style={{padding:'9px 18px',background:C.white,color:'#000',borderRadius:6,fontSize:13,fontWeight:700,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>
+        <a href="caja.html" target="_blank" style={{padding:'9px 18px',background:'#000000',color:'#FFFFFF',borderRadius:6,fontSize:13,fontWeight:700,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>
           🖥 Abrir Panel de Caja
         </a>
       </div>
@@ -1148,23 +1142,23 @@ function CajaAdminPage() {
           {/* Estado del turno actual */}
           <div style={{background:turnoActivo?'rgba(34,197,94,0.06)':C.surface,border:`1px solid ${turnoActivo?'rgba(34,197,94,0.25)':C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <div>
-              <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:4}}>ESTADO DEL TURNO</div>
+              <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:4}}>ESTADO DEL TURNO</div>
               {turnoActivo ? (
                 <div style={{display:'flex',alignItems:'center',gap:10}}>
                   <div style={{width:8,height:8,borderRadius:'50%',background:C.green}} className="pulse"/>
                   <span style={{fontWeight:700,color:C.green}}>TURNO ABIERTO</span>
-                  <span style={{fontSize:12,color:'#555'}}>Cajero: {turnoActivo.cajero_nombre||'—'}</span>
-                  <span style={{fontSize:12,color:'#333'}}>Desde: {fmtTime(turnoActivo.fecha_apertura)}</span>
+                  <span style={{fontSize:12,color:'#6E6E73'}}>Cajero: {turnoActivo.cajero_nombre||'—'}</span>
+                  <span style={{fontSize:12,color:'#D2D2D7'}}>Desde: {fmtTime(turnoActivo.fecha_apertura)}</span>
                 </div>
               ) : (
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <div style={{width:8,height:8,borderRadius:'50%',background:'#333'}}/>
-                  <span style={{color:'#555',fontWeight:700}}>SIN TURNO ACTIVO</span>
+                  <div style={{width:8,height:8,borderRadius:'50%',background:'#D2D2D7'}}/>
+                  <span style={{color:'#6E6E73',fontWeight:700}}>SIN TURNO ACTIVO</span>
                 </div>
               )}
             </div>
             {turnoActivo && (
-              <div style={{fontFamily:'JetBrains Mono',fontSize:11,color:'#444'}}>
+              <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#86868B'}}>
                 Fondo apertura: {fmt(turnoActivo.fondo_apertura?.total||0)}
               </div>
             )}
@@ -1173,7 +1167,7 @@ function CajaAdminPage() {
           {/* KPIs del turno seleccionado */}
           {selTurno && (
             <>
-              <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>
+              <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>
                 {selTurno.estado==='abierto'?'TURNO ACTIVO':'ÚLTIMO TURNO'} — {fmtDate(selTurno.fecha_apertura)}
               </div>
               <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
@@ -1190,12 +1184,12 @@ function CajaAdminPage() {
           <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:14}}>
             {/* Movimientos del turno seleccionado */}
             <div>
-              <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>MOVIMIENTOS DEL TURNO</div>
+              <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>MOVIMIENTOS DEL TURNO</div>
               {selTurno&&(
                 <div style={{marginBottom:10,display:'flex',gap:6,flexWrap:'wrap'}}>
                   {turnos.slice(0,5).map(t=>(
                     <button key={t.id} onClick={()=>loadMovs(t)}
-                      style={{padding:'4px 10px',fontSize:11,borderRadius:5,border:`1px solid ${selTurno?.id===t.id?C.white:C.border}`,background:selTurno?.id===t.id?'rgba(255,255,255,0.08)':'transparent',color:selTurno?.id===t.id?C.white:C.mid,cursor:'pointer',fontWeight:selTurno?.id===t.id?700:400}}>
+                      style={{padding:'4px 10px',fontSize:11,borderRadius:5,border:`1px solid ${selTurno?.id===t.id?"#000000":C.border}`,background:selTurno?.id===t.id?'rgba(255,255,255,0.08)':'transparent',color:selTurno?.id===t.id?C.white:C.mid,cursor:'pointer',fontWeight:selTurno?.id===t.id?700:400}}>
                       {fmtDate(t.fecha_apertura)} {t.cajero_nombre?`(${t.cajero_nombre.split(' ')[0]})`:''} {t.estado==='abierto'?'🟢':''}
                     </button>
                   ))}
@@ -1210,7 +1204,7 @@ function CajaAdminPage() {
                     {movs.slice(0,40).map(m=>(
                       <tr key={m.id} style={{borderBottom:`1px solid #0d0d0d`}}>
                         <Td mono dim>{fmtTime(m.created_at)}</Td>
-                        <Td><span style={{background:(tipoColor[m.tipo]||'#666')+'22',color:tipoColor[m.tipo]||'#666',padding:'2px 7px',fontSize:11,fontWeight:700,borderRadius:4}}>{m.tipo}</span></Td>
+                        <Td><span style={{background:(tipoColor[m.tipo]||'#6E6E73')+'22',color:tipoColor[m.tipo]||'#6E6E73',padding:'2px 7px',fontSize:11,fontWeight:700,borderRadius:4}}>{m.tipo}</span></Td>
                         <Td><span style={{fontSize:12}}>{m.descripcion||'—'}</span></Td>
                         <Td dim><span style={{fontSize:11}}>{m.metodo_pago||'—'}</span></Td>
                         <Td mono right style={{color:['cobro','ingreso_manual'].includes(m.tipo)?C.green:['egreso','retiro_parcial'].includes(m.tipo)?C.red:C.mid}}>
@@ -1228,7 +1222,7 @@ function CajaAdminPage() {
             <div style={{display:'flex',flexDirection:'column',gap:14}}>
               {/* Historial de turnos */}
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-                <div style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,fontSize:10,color:'#555',fontWeight:700,letterSpacing:1}}>HISTORIAL DE TURNOS</div>
+                <div style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>HISTORIAL DE TURNOS</div>
                 <table style={{width:'100%',borderCollapse:'collapse'}}>
                   <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Cajero</Th><Th>Apertura</Th><Th right>Estado</Th></tr></thead>
                   <tbody>
@@ -1251,7 +1245,7 @@ function CajaAdminPage() {
 
               {/* Quejas recientes */}
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-                <div style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   QUEJAS RECIENTES
                   {quejas.filter(q=>q.estado==='abierto').length>0&&(
                     <span style={{background:C.red+'22',color:C.red,border:`1px solid ${C.red}44`,padding:'1px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>
@@ -1263,14 +1257,14 @@ function CajaAdminPage() {
                   {quejas.slice(0,8).map(q=>(
                     <div key={q.id} style={{padding:'8px 14px',borderBottom:`1px solid #0d0d0d`}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
-                        <span style={{background:(quejaCols[q.tipo]||'#666')+'22',color:quejaCols[q.tipo]||'#666',padding:'1px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>{q.tipo}</span>
+                        <span style={{background:(quejaCols[q.tipo]||'#6E6E73')+'22',color:quejaCols[q.tipo]||'#6E6E73',padding:'1px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>{q.tipo}</span>
                         {q.urgencia==='alta'&&<span style={{background:C.red+'22',color:C.red,padding:'1px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>⚠ ALTA</span>}
-                        <span style={{fontSize:10,color:'#333'}}>{fmtDate(q.created_at)}</span>
+                        <span style={{fontSize:10,color:'#D2D2D7'}}>{fmtDate(q.created_at)}</span>
                       </div>
-                      <div style={{fontSize:11,color:'#555',marginTop:2,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{q.descripcion}</div>
+                      <div style={{fontSize:11,color:'#6E6E73',marginTop:2,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{q.descripcion}</div>
                     </div>
                   ))}
-                  {quejas.length===0&&<div style={{padding:20,textAlign:'center',color:'#333',fontSize:12}}>Sin quejas registradas</div>}
+                  {quejas.length===0&&<div style={{padding:20,textAlign:'center',color:'#D2D2D7',fontSize:12}}>Sin quejas registradas</div>}
                 </div>
               </div>
             </div>
@@ -1398,16 +1392,16 @@ function FinanzasPage({orders}) {
 
       {/* Config comisión delivery */}
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:14,display:'flex',alignItems:'center',gap:14}}>
-        <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1}}>COMISIÓN DELIVERY %</div>
-        <input type="number" value={delivPct} onChange={e=>{const v=parseInt(e.target.value)||0;setDelivPct(v);LS.set(DELIV_KEY,v);}} min={0} max={50} style={{width:70,padding:'6px 9px',fontSize:14,fontFamily:'JetBrains Mono',textAlign:'right',background:'#111',border:'1px solid #333',color:'#fff',borderRadius:6}}/>
-        <span style={{fontSize:12,color:'#555'}}>% sobre total pedidos para llevar</span>
+        <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>COMISIÓN DELIVERY %</div>
+        <input type="number" value={delivPct} onChange={e=>{const v=parseInt(e.target.value)||0;setDelivPct(v);LS.set(DELIV_KEY,v);}} min={0} max={50} style={{width:70,padding:'6px 9px',fontSize:14,fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'right',background:'#F5F5F7',border:'1px solid #333',color:'#fff',borderRadius:6}}/>
+        <span style={{fontSize:12,color:'#6E6E73'}}>% sobre total pedidos para llevar</span>
       </div>
 
       <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:14}}>
         {/* Egresos list */}
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-            <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1}}>EGRESOS REGISTRADOS</div>
+            <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>EGRESOS REGISTRADOS</div>
             <Btn small onClick={()=>setShowEgForm(!showEgForm)}>+ Agregar</Btn>
           </div>
           {showEgForm&&(
@@ -1431,7 +1425,7 @@ function FinanzasPage({orders}) {
                     <Td>{e.desc}</Td>
                     <Td dim>{e.category}</Td>
                     <Td mono right style={{color:C.red}}>{fmt(e.amount)}</Td>
-                    <Td><button onClick={()=>delEgreso(e)} style={{background:'none',border:'none',color:'#444',cursor:'pointer',fontSize:14}}>✕</button></Td>
+                    <Td><button onClick={()=>delEgreso(e)} style={{background:'none',border:'none',color:'#86868B',cursor:'pointer',fontSize:14}}>✕</button></Td>
                   </tr>
                 ))}
                 {egPeriod.length===0&&<EmptyRow cols={5} label="Sin egresos este período"/>}
@@ -1442,22 +1436,22 @@ function FinanzasPage({orders}) {
 
         {/* Distribución por categoría */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18}}>
-          <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>EGRESOS POR CATEGORÍA</div>
-          {egByCat.length===0&&<div style={{color:'#333',fontSize:12}}>Sin egresos este período</div>}
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>EGRESOS POR CATEGORÍA</div>
+          {egByCat.length===0&&<div style={{color:'#D2D2D7',fontSize:12}}>Sin egresos este período</div>}
           {egByCat.map(({cat,total})=>(
             <div key={cat} style={{marginBottom:12}}>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4}}>
                 <span style={{color:C.mid}}>{cat}</span>
-                <span style={{fontFamily:'JetBrains Mono',color:C.red}}>{fmt(total)}</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.red}}>{fmt(total)}</span>
               </div>
-              <div style={{height:4,background:'#1a1a1a',borderRadius:2,overflow:'hidden'}}>
+              <div style={{height:4,background:'#FFFFFF',borderRadius:2,overflow:'hidden'}}>
                 <div style={{width:`${(total/maxCat)*100}%`,height:'100%',background:C.red,borderRadius:2}}/>
               </div>
             </div>
           ))}
           {egByCat.length>0&&(
             <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12,marginTop:4,display:'flex',justifyContent:'space-between',fontSize:13,fontWeight:700}}>
-              <span>Total</span><span style={{fontFamily:'JetBrains Mono',color:C.red}}>{fmt(egresoTotal)}</span>
+              <span>Total</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.red}}>{fmt(egresoTotal)}</span>
             </div>
           )}
         </div>
@@ -1519,14 +1513,14 @@ function MarketingPage({coupons,orders,onRefresh}) {
       <h1 style={{fontSize:22,fontWeight:800,marginBottom:16}}>Marketing</h1>
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
         {[['cupones','Cupones'],['whatsapp','WhatsApp'],['inactivos','Clientes inactivos']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.white:'#444',padding:'8px 14px',fontSize:12,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid #fff':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:'#86868B',padding:'8px 14px',fontSize:12,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
 
       {tab==='cupones'&&(
         <div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18,marginBottom:14}}>
-            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:12}}>NUEVO CUPÓN / DESCUENTO</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:12}}>NUEVO CUPÓN / DESCUENTO</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10,marginBottom:12}}>
               <div><Lbl>CÓDIGO *</Lbl><Inp value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} placeholder="PROMO20"/></div>
               <div><Lbl>TIPO</Lbl><Sel value={form.discount_type} onChange={e=>setForm({...form,discount_type:e.target.value})}><option value="percentage">% Porcentaje</option><option value="fixed">₲ Fijo</option></Sel></div>
@@ -1542,12 +1536,12 @@ function MarketingPage({coupons,orders,onRefresh}) {
               <tbody>
                 {coupons.map(c=>(
                   <tr key={c.id} style={{borderBottom:`1px solid #0d0d0d`}}>
-                    <Td><span style={{fontFamily:'JetBrains Mono',fontWeight:700}}>{c.code}</span></Td>
-                    <Td><span style={{fontFamily:'JetBrains Mono',color:C.green,fontWeight:700}}>{c.discount_type==='percentage'?`${c.discount_value}%`:fmt(c.discount_value)}</span></Td>
+                    <Td><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{c.code}</span></Td>
+                    <Td><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green,fontWeight:700}}>{c.discount_type==='percentage'?`${c.discount_value}%`:fmt(c.discount_value)}</span></Td>
                     <Td dim>{c.discount_type==='percentage'?'Porcentaje':'Fijo'}</Td>
                     <Td mono dim>{c.min_order_amount>0?fmt(c.min_order_amount):'—'}</Td>
                     <Td mono>{c.used_count||0}/{c.max_uses||'∞'}</Td>
-                    <Td><button onClick={()=>toggleCoupon(c.id,c.is_active)} style={{background:c.is_active?'rgba(34,197,94,0.1)':'rgba(255,255,255,0.04)',border:`1px solid ${c.is_active?'rgba(34,197,94,0.3)':C.border}`,color:c.is_active?C.green:'#444',padding:'3px 9px',fontSize:11,fontWeight:600,borderRadius:5}}>{c.is_active?'Activo':'Inactivo'}</button></Td>
+                    <Td><button onClick={()=>toggleCoupon(c.id,c.is_active)} style={{background:c.is_active?'rgba(34,197,94,0.1)':'rgba(255,255,255,0.04)',border:`1px solid ${c.is_active?'rgba(34,197,94,0.3)':C.border}`,color:c.is_active?C.green:'#86868B',padding:'3px 9px',fontSize:11,fontWeight:600,borderRadius:5}}>{c.is_active?'Activo':'Inactivo'}</button></Td>
                   </tr>
                 ))}
                 {coupons.length===0&&<EmptyRow cols={6} label="Sin cupones"/>}
@@ -1560,33 +1554,33 @@ function MarketingPage({coupons,orders,onRefresh}) {
       {tab==='whatsapp'&&(
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
           <div>
-            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>PLANTILLA</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>PLANTILLA</div>
             <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
               {TPLS.map(t=>(
-                <button key={t.id} onClick={()=>setTplId(t.id)} style={{textAlign:'left',padding:'10px 14px',background:tplId===t.id?'rgba(255,255,255,0.08)':'#0d0d0d',border:`1px solid ${tplId===t.id?C.bs:C.border}`,borderRadius:8,cursor:'pointer',color:tplId===t.id?C.white:C.mid,fontSize:13,fontWeight:tplId===t.id?600:400}}>
+                <button key={t.id} onClick={()=>setTplId(t.id)} style={{textAlign:'left',padding:'10px 14px',background:tplId===t.id?'rgba(255,255,255,0.08)':'#F5F5F7',border:`1px solid ${tplId===t.id?C.bs:C.border}`,borderRadius:8,cursor:'pointer',color:tplId===t.id?C.white:C.mid,fontSize:13,fontWeight:tplId===t.id?600:400}}>
                   {t.label}
                 </button>
               ))}
             </div>
-            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>VARIABLES</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>VARIABLES</div>
             {['nombre','descuento','codigo','fecha'].map(k=>(
               <div key={k} style={{marginBottom:8}}><Lbl>{k.toUpperCase()}</Lbl><Inp value={tplVars[k]||''} onChange={e=>setTplVars({...tplVars,[k]:e.target.value})} placeholder={k}/></div>
             ))}
           </div>
           <div>
-            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>PREVIEW</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>PREVIEW</div>
             <div style={{background:'#0a1a12',border:'1px solid rgba(34,197,94,0.2)',borderRadius:12,padding:18,fontSize:14,lineHeight:1.6,color:'#d1fae5',minHeight:180,fontFamily:'inherit',whiteSpace:'pre-wrap',marginBottom:12}}>
               {preview}
             </div>
             <Btn onClick={copyMsg} variant={copied?'primary':'secondary'}>{copied?'✓ Copiado!':'Copiar mensaje'}</Btn>
-            <div style={{fontSize:11,color:'#444',marginTop:8}}>Pegá el mensaje en WhatsApp Web o WhatsApp Desktop manualmente.</div>
+            <div style={{fontSize:11,color:'#86868B',marginTop:8}}>Pegá el mensaje en WhatsApp Web o WhatsApp Desktop manualmente.</div>
           </div>
         </div>
       )}
 
       {tab==='inactivos'&&(
         <div>
-          <div style={{fontSize:12,color:'#555',marginBottom:12}}>{inactivos.length} clientes sin pedidos en los últimos 30 días</div>
+          <div style={{fontSize:12,color:'#6E6E73',marginBottom:12}}>{inactivos.length} clientes sin pedidos en los últimos 30 días</div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Cliente</Th><Th>Teléfono</Th><Th>Último pedido</Th><Th>Días inactivo</Th></tr></thead>
@@ -1598,7 +1592,7 @@ function MarketingPage({coupons,orders,onRefresh}) {
                       <Td>{c.name}</Td>
                       <Td dim>{c.phone||'—'}</Td>
                       <Td dim>{fmtDate(c.last)}</Td>
-                      <Td><span style={{color:dias>60?C.red:C.orange,fontFamily:'JetBrains Mono',fontWeight:700}}>{dias}d</span></Td>
+                      <Td><span style={{color:dias>60?C.red:C.orange,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{dias}d</span></Td>
                     </tr>
                   );
                 })}
@@ -1623,9 +1617,9 @@ function RatingsPage({ratings}) {
       <h1 style={{fontSize:22,fontWeight:800,marginBottom:20}}>Calificaciones</h1>
       <div style={{display:'flex',gap:12,marginBottom:16}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'20px 26px',minWidth:160}}>
-          <div style={{fontSize:42,fontWeight:800,fontFamily:'JetBrains Mono',color:C.yellow,lineHeight:1}}>{avg}</div>
+          <div style={{fontSize:42,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.yellow,lineHeight:1}}>{avg}</div>
           <div style={{fontSize:16,color:C.yellow,margin:'8px 0 4px'}}>{'★'.repeat(Math.round(Number(avg)))}</div>
-          <div style={{fontSize:12,color:'#555'}}>{ratings.length} calificaciones</div>
+          <div style={{fontSize:12,color:'#6E6E73'}}>{ratings.length} calificaciones</div>
         </div>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'16px 20px',flex:1}}>
           {dist.map(({s,n})=>{
@@ -1634,8 +1628,8 @@ function RatingsPage({ratings}) {
               <div key={s} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
                 <span style={{color:C.yellow,fontSize:12,width:10}}>{s}</span>
                 <span style={{color:C.yellow,fontSize:10}}>★</span>
-                <div style={{flex:1,height:6,background:'#1a1a1a',borderRadius:3,overflow:'hidden'}}><div style={{width:`${pct}%`,height:'100%',background:C.yellow,borderRadius:3}}/></div>
-                <span style={{fontSize:11,color:'#555',width:24,textAlign:'right'}}>{n}</span>
+                <div style={{flex:1,height:6,background:'#FFFFFF',borderRadius:3,overflow:'hidden'}}><div style={{width:`${pct}%`,height:'100%',background:C.yellow,borderRadius:3}}/></div>
+                <span style={{fontSize:11,color:'#6E6E73',width:24,textAlign:'right'}}>{n}</span>
               </div>
             );
           })}
@@ -1648,7 +1642,7 @@ function RatingsPage({ratings}) {
             {ratings.map(r=>(
               <tr key={r.id} style={{borderBottom:`1px solid #0d0d0d`}}>
                 <Td><Stars n={r.stars}/></Td>
-                <Td style={{color:r.comment?C.ink:'#333',fontStyle:r.comment?'normal':'italic'}}>{r.comment||'Sin comentario'}</Td>
+                <Td style={{color:r.comment?C.ink:'#D2D2D7',fontStyle:r.comment?'normal':'italic'}}>{r.comment||'Sin comentario'}</Td>
                 <Td mono dim>{fmtDate(r.created_at)}</Td>
               </tr>
             ))}
@@ -1802,7 +1796,7 @@ function StockPage() {
     <div>
       <Lbl>{label}</Lbl>
       {children}
-      {hint&&<div style={{fontSize:10,color:'#444',marginTop:3}}>{hint}</div>}
+      {hint&&<div style={{fontSize:10,color:'#86868B',marginTop:3}}>{hint}</div>}
     </div>
   );
 
@@ -1850,7 +1844,7 @@ function StockPage() {
               <Btn small onClick={()=>setModal('new_ing')}>+ Nuevo ingrediente</Btn>
             </div>
             {ingredients.length===0 ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:'#333',fontSize:14}}>No hay ingredientes.<br/><span style={{fontSize:12}}>Creá uno y vinculalo al menú con "Recetas".</span></div>
+              <div style={{textAlign:'center',padding:'60px 0',color:'#D2D2D7',fontSize:14}}>No hay ingredientes.<br/><span style={{fontSize:12}}>Creá uno y vinculalo al menú con "Recetas".</span></div>
             ) : (
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -1862,9 +1856,9 @@ function StockPage() {
                       return (
                         <tr key={ing.id} style={{borderBottom:`1px solid #0d0d0d`}}>
                           <Td><div style={{fontWeight:600}}>{ing.name}</div>{ing.category&&<div style={{fontSize:11,color:C.dim}}>{ing.category}</div>}</Td>
-                          <Td><span style={{fontWeight:700,color:lc,fontFamily:'JetBrains Mono'}}>{fmtStock(ing.stock_quantity,ing.unit)}</span></Td>
+                          <Td><span style={{fontWeight:700,color:lc,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmtStock(ing.stock_quantity,ing.unit)}</span></Td>
                           <Td mono dim>{ing.min_threshold>0?fmtStock(ing.min_threshold,ing.unit):'—'}</Td>
-                          <Td><span style={{fontFamily:'JetBrains Mono',fontSize:12,color:ing.projected_qty<0?C.red:ing.projected_qty<ing.min_threshold?C.orange:C.mid}}>{fmtStock(Math.max(0,ing.projected_qty),ing.unit)}</span>{diff<0&&<span style={{fontSize:10,color:C.red,marginLeft:4}}>↓{fmtStock(Math.abs(diff),ing.unit)}</span>}</Td>
+                          <Td><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,color:ing.projected_qty<0?C.red:ing.projected_qty<ing.min_threshold?C.orange:C.mid}}>{fmtStock(Math.max(0,ing.projected_qty),ing.unit)}</span>{diff<0&&<span style={{fontSize:10,color:C.red,marginLeft:4}}>↓{fmtStock(Math.abs(diff),ing.unit)}</span>}</Td>
                           <Td><span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:700,background:lc+'22',color:lc}}>{stockLabel(ing.stock_level)}</span>{ing.alert_count>0&&<span style={{marginLeft:6,fontSize:10,color:C.red}}>⚠{ing.alert_count}</span>}</Td>
                           <Td style={{fontSize:12,color:ing.expiry_date&&new Date(ing.expiry_date)<new Date()?C.red:ing.expiry_date&&new Date(ing.expiry_date)<new Date(Date.now()+7*86400000)?C.orange:C.mid}}>{ing.expiry_date?fmtDate(ing.expiry_date):'—'}</Td>
                         </tr>
@@ -1941,7 +1935,7 @@ function StockPage() {
               <Btn small onClick={()=>setModal('new_recipe')}>+ Nueva receta</Btn>
             </div>
             {recipes.length===0 ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:'#333',fontSize:14}}>No hay recetas.<br/><span style={{fontSize:12}}>Sin receta, el stock no se descuenta automáticamente.</span></div>
+              <div style={{textAlign:'center',padding:'60px 0',color:'#D2D2D7',fontSize:14}}>No hay recetas.<br/><span style={{fontSize:12}}>Sin receta, el stock no se descuenta automáticamente.</span></div>
             ) : (
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -1968,7 +1962,7 @@ function StockPage() {
           <div>
             <div style={{marginBottom:12,fontSize:13,color:C.mid}}>Últimos 100 movimientos de stock</div>
             {movements.length===0 ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:'#333',fontSize:14}}>No hay movimientos registrados aún.</div>
+              <div style={{textAlign:'center',padding:'60px 0',color:'#D2D2D7',fontSize:14}}>No hay movimientos registrados aún.</div>
             ) : (
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -2077,26 +2071,26 @@ function ConfigPage({restaurant,onRefresh}) {
 
           {/* Portada */}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
-            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>PORTADA DEL RESTAURANTE</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>PORTADA DEL RESTAURANTE</div>
             <ImageUploader
               value={form.cover_image_url||''}
               onChange={url=>setForm({...form,cover_image_url:url})}
               bucket="restaurant-images"
             />
-            <div style={{fontSize:10,color:'#333',marginTop:8}}>Aparece en la pantalla de bienvenida de los clientes. Recomendado: imagen horizontal 1200×600 px.</div>
+            <div style={{fontSize:10,color:'#D2D2D7',marginTop:8}}>Aparece en la pantalla de bienvenida de los clientes. Recomendado: imagen horizontal 1200×600 px.</div>
           </div>
 
           {/* Logo */}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
-            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>LOGO O FOTO DE PERFIL</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>LOGO O FOTO DE PERFIL</div>
             <div style={{display:'flex',gap:14,alignItems:'flex-start'}}>
               <div style={{flexShrink:0}}>
                 {form.logo_url
                   ? <div style={{position:'relative',width:72,height:72}}>
                       <img src={form.logo_url} alt="" style={{width:72,height:72,objectFit:'cover',borderRadius:'50%',border:`2px solid ${C.bs}`}} onError={e=>{e.target.style.display='none';}}/>
-                      <button onClick={()=>setForm({...form,logo_url:''})} title="Eliminar logo" style={{position:'absolute',top:-4,right:-4,width:18,height:18,borderRadius:'50%',background:'#ef4444',border:'none',color:'#fff',fontSize:10,lineHeight:'18px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>✕</button>
+                      <button onClick={()=>setForm({...form,logo_url:''})} title="Eliminar logo" style={{position:'absolute',top:-4,right:-4,width:18,height:18,borderRadius:'50%',background:'#FF3B30',border:'none',color:'#fff',fontSize:10,lineHeight:'18px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>✕</button>
                     </div>
-                  : <div style={{width:72,height:72,borderRadius:'50%',background:'#1a1a1a',border:`2px dashed ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,color:'#333'}}>
+                  : <div style={{width:72,height:72,borderRadius:'50%',background:'#FFFFFF',border:`2px dashed ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,color:'#D2D2D7'}}>
                       {form.logo_initials||'?'}
                     </div>}
               </div>
@@ -2117,7 +2111,7 @@ function ConfigPage({restaurant,onRefresh}) {
 
           {/* Info básica */}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
-            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>INFO DEL RESTAURANTE</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>INFO DEL RESTAURANTE</div>
             <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
               {INFO_FIELDS.map(f=>(
                 <div key={f.key}><Lbl>{f.label.toUpperCase()}</Lbl><Inp value={form[f.key]||''} onChange={e=>setForm({...form,[f.key]:e.target.value})} placeholder={f.ph||f.label}/></div>
@@ -2129,7 +2123,7 @@ function ConfigPage({restaurant,onRefresh}) {
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-              <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1}}>HORARIOS</div>
+              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>HORARIOS</div>
               <Btn small variant="secondary" onClick={()=>setHours(h=>[...h,{day:'',hours:''}])}>+ Añadir</Btn>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
@@ -2144,14 +2138,14 @@ function ConfigPage({restaurant,onRefresh}) {
             <Btn onClick={saveHours} disabled={savingH}>{savingH?'Guardando…':'Guardar horarios'}</Btn>
           </div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18}}>
-            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:12}}>ACCESOS RÁPIDOS</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:12}}>ACCESOS RÁPIDOS</div>
             {[{l:'Cocina (KDS)',h:'cocina.html'},{l:'App Cliente',h:'index.html'},{l:'Diagnóstico DB',h:'diag.html'}].map(a=>(
               <a key={a.h} href={a.h} style={{display:'block',padding:'9px 0',color:C.mid,fontSize:13,textDecoration:'none',borderBottom:`1px solid #0d0d0d`}}>→ {a.l}</a>
             ))}
           </div>
-          <div style={{background:'#0d0d0d',border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
-            <div style={{fontSize:9,color:'#333',fontWeight:700,marginBottom:5,letterSpacing:1}}>RESTAURANT ID</div>
-            <div style={{fontFamily:'JetBrains Mono',fontSize:11,color:'#2a2a2a',wordBreak:'break-all'}}>{RID}</div>
+          <div style={{background:'#F5F5F7',border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
+            <div style={{fontSize:9,color:'#D2D2D7',fontWeight:700,marginBottom:5,letterSpacing:1}}>RESTAURANT ID</div>
+            <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#F5F5F7',wordBreak:'break-all'}}>{RID}</div>
           </div>
         </div>
       </div>
@@ -2220,12 +2214,12 @@ function AdminApp() {
   }
 
   function renderPage() {
-    if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,flexDirection:'column',gap:14}}><span className="spin"/><div style={{fontSize:12,color:'#444'}}>Cargando datos…</div></div>;
+    if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,flexDirection:'column',gap:14}}><span className="spin"/><div style={{fontSize:12,color:'#86868B'}}>Cargando datos…</div></div>;
     if(!db) return (
       <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,flexDirection:'column',gap:12}}>
-        <div style={{fontSize:32,color:'#222'}}>⚠</div>
+        <div style={{fontSize:32,color:'#D2D2D7'}}>⚠</div>
         <div style={{fontSize:15,fontWeight:700}}>Sin conexión a la base de datos</div>
-        <div style={{fontSize:13,color:'#555',maxWidth:340,textAlign:'center'}}>Configurá las credenciales en <code style={{fontFamily:'JetBrains Mono',color:'#666'}}>config.js</code> o en variables de entorno de Vercel.</div>
+        <div style={{fontSize:13,color:'#6E6E73',maxWidth:340,textAlign:'center'}}>Configurá las credenciales en <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#6E6E73'}}>config.js</code> o en variables de entorno de Vercel.</div>
         <a href="diag.html" style={{fontSize:13,color:C.mid,marginTop:8}}>→ Ver diagnóstico</a>
       </div>
     );

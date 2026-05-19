@@ -3,35 +3,37 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Mesa App · Acceso</title>
+  <title>Mythos · Acceso</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{background:#080810;color:#e8e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center}
-    .card{background:#111120;border:1px solid #1e1e30;border-radius:14px;padding:40px;width:100%;max-width:380px;box-shadow:0 24px 64px #00000080}
-    .logo{text-align:center;margin-bottom:32px}
-    .logo-title{font-size:22px;font-weight:800;color:#e8e8f0;letter-spacing:-.3px}
-    .logo-sub{font-size:11px;font-weight:700;color:#6366f1;letter-spacing:2px;text-transform:uppercase;margin-top:4px}
-    label{display:block;font-size:12px;font-weight:600;color:#8888a8;margin-bottom:6px}
-    input{width:100%;background:#1a1a24;border:1px solid #2a2a40;color:#e8e8f0;padding:11px 14px;border-radius:8px;font-size:14px;outline:none;transition:border-color .15s;font-family:inherit}
-    input:focus{border-color:#6366f1}
-    .field{margin-bottom:18px}
-    .btn{width:100%;background:#6366f1;color:#fff;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;margin-top:4px}
-    .btn:hover{background:#4f46e5}
-    .btn:disabled{opacity:.5;cursor:not-allowed}
-    .error{background:#2a1010;border:1px solid #3a1a1a;color:#f87171;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none}
+    body{background:#F5F5F7;color:#1D1D1F;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
+    .card{background:#fff;border:1px solid #D2D2D7;border-radius:20px;padding:48px 40px;width:100%;max-width:380px;box-shadow:0 4px 24px rgba(0,0,0,0.08),0 0 1px rgba(0,0,0,0.04)}
+    .logo{text-align:center;margin-bottom:36px}
+    .logo-title{font-size:32px;font-weight:800;color:#000;letter-spacing:-1.2px}
+    .logo-sub{font-size:13px;font-weight:500;color:#6E6E73;margin-top:4px}
+    label{display:block;font-size:13px;font-weight:500;color:#6E6E73;margin-bottom:6px}
+    input{width:100%;background:#fff;border:1px solid #D2D2D7;color:#1D1D1F;padding:11px 14px;border-radius:10px;font-size:15px;outline:none;transition:border-color .15s;font-family:inherit}
+    input:focus{border-color:#000}
+    input::placeholder{color:#AEAEB2}
+    .field{margin-bottom:20px}
+    .btn{width:100%;background:#000;color:#fff;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;margin-top:4px;font-family:inherit}
+    .btn:hover{opacity:0.84}
+    .btn:active{opacity:0.72}
+    .btn:disabled{opacity:.38;cursor:not-allowed}
+    .error{background:#fff;border:1px solid #FFCDD0;color:#C0190F;border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:20px;display:none}
     .error.show{display:block}
-    .hint{font-size:11px;color:#44445a;text-align:center;margin-top:20px}
+    .hint{font-size:12px;color:#AEAEB2;text-align:center;margin-top:24px}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+    .spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
   </style>
 </head>
 <body>
 <div class="card">
   <div class="logo">
-    <div class="logo-title">Mesa App</div>
-    <div class="logo-sub">Acceso al sistema</div>
+    <div class="logo-title">Mythos</div>
+    <div class="logo-sub">Iniciá sesión para continuar</div>
   </div>
 
   <div id="err" class="error"></div>
@@ -48,7 +50,7 @@
     <button class="btn" type="submit" id="submitBtn">Ingresar</button>
   </form>
 
-  <div class="hint">Mesa App v1.0 · La Huaca</div>
+  <div class="hint">Mythos · Sistema gastronómico</div>
 </div>
 
 <script>

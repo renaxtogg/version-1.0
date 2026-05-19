@@ -16,6 +16,7 @@ supabase/.temp/
 
 # Vercel
 .vercel
+.env.vercel
 
 # OS y editor
 .DS_Store

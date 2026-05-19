@@ -3,21 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mesa App · SuperAdmin</title>
+  <title>Mythos · Superadmin</title>
   <link rel="stylesheet" href="design-system.css">
   <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <style>
-    *{box-sizing:border-box;margin:0;padding:0}
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     html,body,#root{height:100%}
-    body{background:#080810;color:#e8e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    body{background:#F5F5F7;color:#1D1D1F;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
     ::-webkit-scrollbar{width:6px;height:6px}
-    ::-webkit-scrollbar-track{background:#0d0d14}
-    ::-webkit-scrollbar-thumb{background:#2a2a40;border-radius:3px}
-    input,select,textarea{background:#1a1a24;border:1px solid #2a2a40;color:#e8e8f0;padding:8px 12px;border-radius:6px;font-size:14px;width:100%;outline:none}
-    input:focus,select:focus,textarea:focus{border-color:#6366f1}
+    ::-webkit-scrollbar-track{background:#F5F5F7}
+    ::-webkit-scrollbar-thumb{background:#D2D2D7;border-radius:4px}
+    input,select,textarea{background:#FFFFFF;border:1px solid #D2D2D7;color:#1D1D1F;padding:8px 12px;border-radius:8px;font-size:14px;width:100%;outline:none;font-family:inherit}
+    input:focus,select:focus,textarea:focus{border-color:#000}
     button{cursor:pointer;border:none;font-family:inherit}
     @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -43,22 +43,22 @@ const { useState, useEffect, useCallback, useRef, useReducer } = React;
 
 // ── Paleta ───────────────────────────────────────────────────
 const C_DARK = {
-  bg:'#080810', sidebar:'#0c0c18', surface:'#111120', card:'#16161e',
-  border:'#1e1e30', bStrong:'#2a2a40',
-  white:'#fff', ink:'#e8e8f0', mid:'#8888a8', dim:'#44445a',
-  blue:'#6366f1', blueDim:'#1e1e3a', blueHov:'#4f46e5',
-  cyan:'#06b6d4', green:'#22c55e', orange:'#f97316',
-  red:'#ef4444', yellow:'#f59e0b', purple:'#a855f7',
+  bg:'#F5F5F7', sidebar:'#FFFFFF', surface:'#FFFFFF', card:'#FFFFFF',
+  border:'#D2D2D7', bStrong:'#86868B',
+  white:'#FFFFFF', ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
+  blue:'#000000', blueDim:'#F5F5F7', blueHov:'#000000',
+  cyan:'#06b6d4', green:'#34C759', orange:'#FF9500',
+  red:'#FF3B30', yellow:'#FF9500', purple:'#a855f7',
 };
 const C_LIGHT = {
-  bg:'#f5f5f5', sidebar:'#ffffff', surface:'#f0f0f0', card:'#ffffff',
-  border:'#e0e0e0', bStrong:'#cccccc',
-  white:'#111111', ink:'#111111', mid:'#555555', dim:'#888888',
-  blue:'#4f46e5', blueDim:'#e8e8ff', blueHov:'#4338ca',
-  cyan:'#0891b2', green:'#16a34a', orange:'#ea580c',
-  red:'#dc2626', yellow:'#ca8a04', purple:'#9333ea',
+  bg:'#F5F5F7', sidebar:'#FFFFFF', surface:'#FFFFFF', card:'#FFFFFF',
+  border:'#D2D2D7', bStrong:'#86868B',
+  white:'#FFFFFF', ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
+  blue:'#000000', blueDim:'#F5F5F7', blueHov:'#000000',
+  cyan:'#0891b2', green:'#34C759', orange:'#FF9500',
+  red:'#FF3B30', yellow:'#ca8a04', purple:'#9333ea',
 };
-const C = {...((localStorage.getItem('mesa_theme')||'dark')==='light' ? C_LIGHT : C_DARK)};
+const C = {...((localStorage.getItem('mesa_theme')||'light')==='light' ? C_LIGHT : C_DARK)};
 
 // ── Supabase ─────────────────────────────────────────────────
 const _initDB = () => {
@@ -126,36 +126,36 @@ const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
 
 const daysBadge = days => {
   if (days === null) return {label:'—', color:C.mid, bg:'transparent'};
-  if (days < 0)  return {label:'Vencido', color:C.red, bg:'#2a1010'};
-  if (days === 0) return {label:'Vence hoy', color:C.red, bg:'#2a1010'};
-  if (days <= 6) return {label:`${days}d`, color:C.red, bg:'#2a1010'};
-  if (days <= 30) return {label:`${days}d`, color:C.yellow, bg:'#2a2010'};
-  return {label:`${days}d`, color:C.green, bg:'#102a10'};
+  if (days < 0)  return {label:'Vencido', color:C.red, bg:'#FFEDEC'};
+  if (days === 0) return {label:'Vence hoy', color:C.red, bg:'#FFEDEC'};
+  if (days <= 6) return {label:`${days}d`, color:C.red, bg:'#FFEDEC'};
+  if (days <= 30) return {label:`${days}d`, color:C.yellow, bg:'#FFF4E0'};
+  return {label:`${days}d`, color:C.green, bg:'#E8F9ED'};
 };
 
 const statusMeta = {
-  active:    {label:'Activo',    color:C.green,  bg:'#102a10'},
-  trial:     {label:'Trial',     color:C.cyan,   bg:'#0a2030'},
-  suspended: {label:'Suspendido',color:C.red,    bg:'#2a1010'},
-  inactive:  {label:'Inactivo',  color:C.mid,    bg:'#1a1a1a'},
-  expired:   {label:'Vencido',   color:C.red,    bg:'#2a1010'},
-  cancelled: {label:'Cancelado', color:C.mid,    bg:'#1a1a1a'},
-  past_due:  {label:'Mora',      color:C.orange, bg:'#2a1808'},
+  active:    {label:'Activo',    color:C.green,  bg:'#E8F9ED'},
+  trial:     {label:'Trial',     color:C.cyan,   bg:'#E8F3FF'},
+  suspended: {label:'Suspendido',color:C.red,    bg:'#FFEDEC'},
+  inactive:  {label:'Inactivo',  color:C.mid,    bg:'#FFFFFF'},
+  expired:   {label:'Vencido',   color:C.red,    bg:'#FFEDEC'},
+  cancelled: {label:'Cancelado', color:C.mid,    bg:'#FFFFFF'},
+  past_due:  {label:'Mora',      color:'#8A4B00', bg:'#FFF4E0'},
 };
 
 const eventMeta = {
-  onboarding:           {label:'Alta',        color:C.green,  icon:'🟢'},
-  subscription_renewed: {label:'Renovación',  color:C.blue,   icon:'🔄'},
-  subscription_expired: {label:'Vencimiento', color:C.red,    icon:'🔴'},
-  status_changed:       {label:'Estado',      color:C.yellow, icon:'⚡'},
-  note_added:           {label:'Nota',        color:C.mid,    icon:'📝'},
-  plan_changed:         {label:'Plan',        color:C.purple, icon:'📋'},
-  user_created:         {label:'Usuario',     color:C.cyan,   icon:'👤'},
-  payment_received:     {label:'Pago',        color:C.green,  icon:'💰'},
+  onboarding:           {label:'Alta',        color:C.green,  icon:'·'},
+  subscription_renewed: {label:'Renovación',  color:C.blue,   icon:'·'},
+  subscription_expired: {label:'Vencimiento', color:C.red,    icon:'·'},
+  status_changed:       {label:'Estado',      color:C.yellow, icon:'·'},
+  note_added:           {label:'Nota',        color:C.mid,    icon:'·'},
+  plan_changed:         {label:'Plan',        color:C.purple, icon:'·'},
+  user_created:         {label:'Usuario',     color:C.cyan,   icon:'·'},
+  payment_received:     {label:'Pago',        color:C.green,  icon:'·'},
 };
 
 const ALL_ROLES = ['superadmin','admin','cajero','cocina','mozo','delivery'];
-const ROLE_COLORS = {superadmin:C.purple, admin:C.blue, cajero:C.cyan, cocina:C.orange, mozo:C.green, delivery:C.yellow};
+const ROLE_COLORS = {superadmin:C.mid, admin:C.mid, cajero:C.mid, cocina:C.mid, mozo:C.mid, delivery:C.mid};
 
 // ── Componentes base ─────────────────────────────────────────
 const Btn = ({children,onClick,variant='primary',size='md',disabled,style:sx={}}) => {
@@ -164,22 +164,22 @@ const Btn = ({children,onClick,variant='primary',size='md',disabled,style:sx={}}
   const vars = {
     primary: {background:C.blue,color:'#fff'},
     ghost:   {background:'transparent',color:C.mid,border:`1px solid ${C.border}`},
-    danger:  {background:'#2a1010',color:C.red,border:`1px solid #3a1a1a`},
-    success: {background:'#102a10',color:C.green,border:`1px solid #1a3a1a`},
-    warn:    {background:'#2a1808',color:C.orange,border:`1px solid #3a2010`},
+    danger:  {background:'#FFEDEC',color:C.red,border:`1px solid #FFB3AD`},
+    success: {background:'#E8F9ED',color:C.green,border:`1px solid #A3D9B1`},
+    warn:    {background:'#FFF4E0',color:'#8A4B00',border:`1px solid #FFD580`},
   };
   return <button style={{...base,...sz,...vars[variant]}} onClick={disabled?undefined:onClick}>{children}</button>;
 };
 
 const Badge = ({status}) => {
-  const m = statusMeta[status]||{label:status,color:C.mid,bg:'#1a1a1a'};
+  const m = statusMeta[status]||{label:status,color:C.mid,bg:'#FFFFFF'};
   return <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:m.bg,color:m.color,whiteSpace:'nowrap'}}>{m.label}</span>;
 };
 
 const PlanBadge = ({name}) => {
   if (!name) return <span style={{color:C.dim,fontSize:11}}>—</span>;
-  const colors = {Starter:{c:C.cyan,bg:'#0a2030'},Pro:{c:C.blue,bg:'#1a1a3a'},Enterprise:{c:C.purple,bg:'#2a1040'}};
-  const m = colors[name]||{c:C.mid,bg:'#1a1a1a'};
+  const colors = {Starter:{c:C.ink,bg:'#F5F5F7'},Pro:{c:C.ink,bg:'#F5F5F7'},Enterprise:{c:C.ink,bg:'#F5F5F7'}};
+  const m = colors[name]||{c:C.mid,bg:'#FFFFFF'};
   return <span style={{padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:m.bg,color:m.c,whiteSpace:'nowrap'}}>{name}</span>;
 };
 
@@ -203,7 +203,7 @@ const FlashMsg = ({msg,onClose}) => {
   return (
     <div style={{position:'fixed',bottom:24,right:24,background:C.card,border:`1px solid ${color}`,borderRadius:8,padding:'12px 18px',color,fontSize:14,fontWeight:500,zIndex:9999,maxWidth:380,boxShadow:'0 8px 32px #00000080',display:'flex',alignItems:'center',gap:12}}>
       <span style={{flex:1}}>{msg.text}</span>
-      <span onClick={onClose} style={{opacity:.6,cursor:'pointer',flexShrink:0}}>✕</span>
+      <span onClick={onClose} style={{opacity:.6,cursor:'pointer',flexShrink:0}}>×</span>
     </div>
   );
 };
@@ -213,7 +213,7 @@ const Modal = ({title,onClose,children,width=540}) => (
     <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,width:'100%',maxWidth:width,maxHeight:'calc(100vh - 32px)',overflowY:'auto',boxShadow:'0 24px 64px #00000080',display:'flex',flexDirection:'column'}} className="animate-in">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:1,flexShrink:0}}>
         <span style={{fontWeight:700,fontSize:15,color:C.ink}}>{title}</span>
-        <button onClick={onClose} style={{background:'none',border:'none',color:C.mid,fontSize:20,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>✕</button>
+        <button onClick={onClose} style={{background:'none',border:'none',color:C.mid,fontSize:20,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>×</button>
       </div>
       <div style={{padding:24,overflowY:'auto'}}>{children}</div>
     </div>
@@ -243,7 +243,7 @@ const BarRow = ({label,value,max,fmt,color=C.blue}) => (
   </div>
 );
 
-const Spinner = () => <div style={{width:24,height:24,border:`2px solid ${C.border}`,borderTop:`2px solid ${C.blue}`,borderRadius:'50%',flexShrink:0}} className="spin"/>;
+const Spinner = () => <div style={{width:24,height:24,border:`2px solid ${C.border}`,borderTop:`2px solid ${C.ink}`,borderRadius:'50%',flexShrink:0}} className="spin"/>;
 
 const SectionCard = ({title,action,children}) => (
   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
@@ -256,7 +256,7 @@ const SectionCard = ({title,action,children}) => (
 );
 
 const FilterBtn = ({active,onClick,children}) => (
-  <button onClick={onClick} style={{padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:600,border:`1px solid ${active?C.blue:C.border}`,background:active?C.blueDim:'transparent',color:active?C.blue:C.mid,cursor:'pointer',transition:'all .15s',whiteSpace:'nowrap'}}>
+  <button onClick={onClick} style={{padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:600,border:`1px solid ${active?'#000000':C.border}`,background:active?'#000000':'transparent',color:active?'#FFFFFF':C.mid,cursor:'pointer',transition:'all .15s',whiteSpace:'nowrap'}}>
     {children}
   </button>
 );
@@ -314,10 +314,10 @@ function PageOverview({enriched, events, plans, setFlash, reload, setPage}) {
   return (
     <div className="animate-in">
       {expirando.length>0&&(
-        <div style={{background:'#1a0a0a',border:`1px solid ${C.red}40`,borderRadius:8,padding:'12px 18px',marginBottom:20,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-          <span style={{color:C.red,fontWeight:700,fontSize:13}}>⚠ Suscripciones por vencer</span>
+        <div style={{background:'#FFF1F0',border:'1px solid #FFCDD0',borderRadius:12,padding:'16px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <span style={{color:'#C0190F',fontWeight:600,fontSize:13}}>Suscripciones por vencer</span>
           {expirando.map(r=>(
-            <span key={r.id} style={{background:'#2a1010',border:`1px solid ${C.red}40`,borderRadius:20,padding:'3px 12px',fontSize:12,color:C.red}}>
+            <span key={r.id} style={{background:'#FFEDEC',color:'#C0190F',borderRadius:6,padding:'4px 10px',fontSize:13}}>
               {r.name} — {r.daysLeft===0?'hoy':`${r.daysLeft}d`}
             </span>
           ))}
@@ -326,13 +326,13 @@ function PageOverview({enriched, events, plans, setFlash, reload, setPage}) {
 
       {/* KPIs */}
       <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
-        <Kpi label="Restaurantes activos"  value={activos}          sub={`de ${enriched.length} totales`}    icon="🏪"/>
-        <Kpi label="Trial"                 value={trials}           sub="periodo de prueba"                  icon="⏳" accent={C.cyan}/>
-        <Kpi label="Suspendidos"           value={suspendidos}      sub="sin acceso operativo"               icon="⛔" accent={suspendidos>0?C.red:C.mid}/>
-        <Kpi label="MRR"                   value={fmtUSD(mrr)}      sub="ingresos mensuales recurrentes"     icon="💰" accent={C.green}/>
-        <Kpi label="Pedidos hoy"           value={pedidosHoy}       sub="todos los locales"                  icon="📦" accent={C.cyan}/>
-        <Kpi label="Pedidos 30 días"       value={pedidos30}        sub={`₲ ${Number(vol30).toLocaleString('es-PY')} vol.`} icon="📈" accent={C.blue}/>
-        <Kpi label="Alertas"               value={alertas}          sub="vencen en ≤ 7 días"                 icon="🔔" accent={alertas>0?C.red:C.mid}/>
+        <Kpi label="Restaurantes activos"  value={activos}          sub={`de ${enriched.length} totales`}    />
+        <Kpi label="Trial"                 value={trials}           sub="periodo de prueba"                 />
+        <Kpi label="Suspendidos"           value={suspendidos}      sub="sin acceso operativo"               accent={suspendidos>0?C.red:C.mid}/>
+        <Kpi label="MRR"                   value={fmtUSD(mrr)}      sub="ingresos mensuales recurrentes"    />
+        <Kpi label="Pedidos hoy"           value={pedidosHoy}       sub="todos los locales"                 />
+        <Kpi label="Pedidos 30 días"       value={pedidos30}        sub={`₲ ${Number(vol30).toLocaleString('es-PY')} vol.`}/>
+        <Kpi label="Alertas"               value={alertas}          sub="vencen en ≤ 7 días"                 accent={alertas>0?C.red:C.mid}/>
       </div>
 
       <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:18,alignItems:'start'}}>
@@ -354,7 +354,7 @@ function PageOverview({enriched, events, plans, setFlash, reload, setPage}) {
                       <Td><Badge status={r.status}/></Td>
                       <Td><span style={{color:db2.color,fontWeight:600,fontSize:12,background:db2.bg,padding:'2px 7px',borderRadius:10}}>{db2.label}</span></Td>
                       <Td style={{fontWeight:600}}>{r.orders30}</Td>
-                      <Td>{r.avgRating?<span style={{color:C.yellow}}>★ {r.avgRating}</span>:<span style={{color:C.dim}}>—</span>}</Td>
+                      <Td>{r.avgRating?<span style={{color:C.ink}}>{r.avgRating}</span>:<span style={{color:C.dim}}>—</span>}</Td>
                       <Td>
                         <div style={{display:'flex',gap:4}}>
                           <a href={`admin.html`} target="_blank" rel="noreferrer"><Btn size="sm" variant="ghost">Admin</Btn></a>
@@ -375,13 +375,13 @@ function PageOverview({enriched, events, plans, setFlash, reload, setPage}) {
         <div style={{display:'flex',flexDirection:'column',gap:16}}>
           {top&&(
             <div style={{background:C.card,border:`1px solid ${C.blue}40`,borderRadius:10,padding:18}}>
-              <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>🏆 Más productivo (30d)</div>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Más productivo (30d)</div>
               <div style={{fontSize:17,fontWeight:700}}>{top.name}</div>
               <div style={{fontSize:12,color:C.mid,marginTop:3}}>{top.city}</div>
               <div style={{marginTop:14,display:'flex',gap:16}}>
-                <div><div style={{fontSize:10,color:C.mid,textTransform:'uppercase'}}>Ingresos</div><div style={{fontWeight:700,color:C.green,fontSize:15}}>{fmtGuarani(top.revenue30)}</div></div>
-                <div><div style={{fontSize:10,color:C.mid,textTransform:'uppercase'}}>Pedidos</div><div style={{fontWeight:700,color:C.cyan,fontSize:15}}>{top.orders30}</div></div>
-                <div><div style={{fontSize:10,color:C.mid,textTransform:'uppercase'}}>Rating</div><div style={{fontWeight:700,color:C.yellow,fontSize:15}}>{top.avgRating||'—'}</div></div>
+                <div><div style={{fontSize:10,color:C.mid,textTransform:'uppercase'}}>Ingresos</div><div style={{fontWeight:700,color:C.ink,fontSize:15}}>{fmtGuarani(top.revenue30)}</div></div>
+                <div><div style={{fontSize:10,color:C.mid,textTransform:'uppercase'}}>Pedidos</div><div style={{fontWeight:700,color:C.ink,fontSize:15}}>{top.orders30}</div></div>
+                <div><div style={{fontSize:10,color:C.mid,textTransform:'uppercase'}}>Rating</div><div style={{fontWeight:700,color:C.ink,fontSize:15}}>{top.avgRating||'—'}</div></div>
               </div>
             </div>
           )}
@@ -392,7 +392,7 @@ function PageOverview({enriched, events, plans, setFlash, reload, setPage}) {
                 const m = eventMeta[ev.event_type]||{label:ev.event_type,icon:'•',color:C.mid};
                 return (
                   <div key={ev.id} style={{padding:'9px 16px',borderBottom:`1px solid ${C.border}20`,display:'flex',gap:10,alignItems:'flex-start'}}>
-                    <span style={{fontSize:13,flexShrink:0}}>{m.icon}</span>
+                    <div style={{width:6,height:6,borderRadius:'50%',background:'#D2D2D7',flexShrink:0,marginTop:5}}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.restaurant?.name||'Plataforma'}</div>
                       <div style={{fontSize:11,color:C.mid,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ev.description}</div>
@@ -515,7 +515,7 @@ function PageEcosistemas({enriched, plans, setFlash, reload}) {
                     <Td><Badge status={r.status}/></Td>
                     <Td><span style={{color:db2.color,fontWeight:600,fontSize:12,background:db2.bg,padding:'2px 7px',borderRadius:10}}>{db2.label}</span></Td>
                     <Td style={{fontWeight:600}}>{r.orders30}</Td>
-                    <Td>{r.avgRating?<span style={{color:C.yellow}}>★ {r.avgRating}</span>:<span style={{color:C.dim}}>—</span>}</Td>
+                    <Td>{r.avgRating?<span style={{color:C.ink}}>{r.avgRating}</span>:<span style={{color:C.dim}}>—</span>}</Td>
                     <Td>
                       <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
                         <Btn size="sm" variant="ghost" onClick={()=>openEdit(r)}>Editar</Btn>
@@ -656,7 +656,7 @@ function PageSuscripciones({enriched, plans, setFlash, reload}) {
         ))}
         <div style={{background:C.card,border:`1px solid ${C.green}40`,borderRadius:10,padding:'16px 20px',flex:'1 1 130px',minWidth:120}}>
           <span style={{fontSize:10,fontWeight:700,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>MRR Total</span>
-          <div style={{fontSize:22,fontWeight:700,marginTop:10,color:C.green}}>{fmtUSD(mrrTotal)}</div>
+          <div style={{fontSize:22,fontWeight:700,marginTop:10,color:C.ink}}>{fmtUSD(mrrTotal)}</div>
           <div style={{fontSize:12,color:C.mid,marginTop:2}}>mensual recurrente</div>
         </div>
       </div>
@@ -688,12 +688,12 @@ function PageSuscripciones({enriched, plans, setFlash, reload}) {
                       <div style={{display:'flex',flexDirection:'column',gap:4}}>
                         <span style={{color:db2.color,fontWeight:700,fontSize:12}}>{db2.label}</span>
                         <div style={{background:C.border,borderRadius:3,height:3,width:80,overflow:'hidden'}}>
-                          <div style={{background:db2.color,height:3,borderRadius:3,width:`${pct}%`}}/>
+                          <div style={{background:'#D2D2D7',height:3,borderRadius:3,width:`${pct}%`}}/>
                         </div>
                       </div>
                     </Td>
-                    <Td style={{fontWeight:600,color:C.green,whiteSpace:'nowrap'}}>{s?.monthly_amount?fmtUSD(s.monthly_amount):r.plan?.price_usd?fmtUSD(r.plan.price_usd):'—'}</Td>
-                    <Td><span style={{color:s?.auto_renew?C.green:C.dim,fontSize:12}}>{s?.auto_renew?'✓ Sí':'✗ No'}</span></Td>
+                    <Td style={{fontWeight:600,color:C.ink,whiteSpace:'nowrap'}}>{s?.monthly_amount?fmtUSD(s.monthly_amount):r.plan?.price_usd?fmtUSD(r.plan.price_usd):'—'}</Td>
+                    <Td><span style={{color:s?.auto_renew?C.green:C.dim,fontSize:12}}>{s?.auto_renew?'Sí':'No'}</span></Td>
                     <Td style={{fontSize:12,color:C.mid,textTransform:'capitalize',whiteSpace:'nowrap'}}>{s?.payment_method||'—'}</Td>
                     <Td>
                       <div style={{display:'flex',gap:4}}>
@@ -793,7 +793,7 @@ function PagePlanes({plans, setFlash, reload}) {
   };
 
   const sf = v => e => setForm(f=>({...f,[v]:e.target.value}));
-  const planColors = {Starter:C.cyan,Pro:C.blue,Enterprise:C.purple};
+  const planColors = {Starter:C.ink,Pro:C.ink,Enterprise:C.ink};
 
   return (
     <div className="animate-in">
@@ -807,11 +807,11 @@ function PagePlanes({plans, setFlash, reload}) {
           const featArr = Array.isArray(p.features) ? p.features : (typeof p.features==='string'?JSON.parse(p.features||'[]'):[]);
           const accentColor = planColors[p.name]||C.mid;
           return (
-            <div key={p.id} style={{background:C.card,border:`1px solid ${accentColor}40`,borderRadius:12,padding:22,opacity:p.is_active?1:.6}}>
+            <div key={p.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:22,opacity:p.is_active?1:.6}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
                 <div>
                   <PlanBadge name={p.name}/>
-                  <div style={{fontSize:26,fontWeight:800,marginTop:10,color:accentColor}}>{fmtUSD(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
+                  <div style={{fontSize:26,fontWeight:800,marginTop:10,color:C.ink}}>{fmtUSD(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
                 </div>
                 <div style={{display:'flex',gap:6}}>
                   <Btn size="sm" variant="ghost" onClick={()=>openEdit(p)}>Editar</Btn>
@@ -831,7 +831,7 @@ function PagePlanes({plans, setFlash, reload}) {
               <div style={{display:'flex',flexDirection:'column',gap:4}}>
                 {featArr.map((f,i)=>(
                   <div key={i} style={{fontSize:12,color:C.mid,display:'flex',gap:6,alignItems:'center'}}>
-                    <span style={{color:accentColor,fontSize:10}}>✓</span>{f}
+                    <span style={{color:C.mid,fontSize:10}}>–</span>{f}
                   </div>
                 ))}
               </div>
@@ -920,28 +920,28 @@ function PageAnalytics({enriched, orders, ratings}) {
       </div>
 
       <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
-        <Kpi label="Pedidos procesados" value={totalOrders.toLocaleString('es-PY')} sub={`período seleccionado`} icon="📦" accent={C.cyan}/>
-        <Kpi label="Volumen total"       value={fmtGuarani(totalRevenue)}             sub="en guaraníes"         icon="💵" accent={C.green}/>
-        <Kpi label="Rating plataforma"   value={platformRating?`★ ${platformRating}`:'—'} sub={`${allRatings.length} calificaciones`} icon="⭐" accent={C.yellow}/>
-        <Kpi label="Restaurantes activos" value={enriched.filter(r=>r.status==='active').length} sub={`de ${enriched.length} totales`} icon="🏪"/>
+        <Kpi label="Pedidos procesados" value={totalOrders.toLocaleString('es-PY')} sub={`período seleccionado`}/>
+        <Kpi label="Volumen total"       value={fmtGuarani(totalRevenue)}             sub="en guaraníes"         />
+        <Kpi label="Rating plataforma"   value={platformRating?`${platformRating}`:'—'} sub={`${allRatings.length} calificaciones`} />
+        <Kpi label="Restaurantes activos" value={enriched.filter(r=>r.status==='active').length} sub={`de ${enriched.length} totales`} />
       </div>
 
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16,marginBottom:16}}>
         <SectionCard title={`Ingresos — ${rangeLabels[range]}`}>
           <div style={{padding:'16px 20px'}}>
-            {byRev.map(r=><BarRow key={r.id} label={r.name} value={r.revenue30} max={maxRev} fmt={v=>fmtGuarani(v)} color={C.green}/>)}
+            {byRev.map(r=><BarRow key={r.id} label={r.name} value={r.revenue30} max={maxRev} fmt={v=>fmtGuarani(v)} color={'#D2D2D7'}/>)}
             {byRev.every(r=>r.revenue30===0)&&<div style={{color:C.dim,fontSize:12,textAlign:'center',padding:'16px 0'}}>Sin datos de pedidos</div>}
           </div>
         </SectionCard>
         <SectionCard title={`Pedidos — ${rangeLabels[range]}`}>
           <div style={{padding:'16px 20px'}}>
-            {byOrd.map(r=><BarRow key={r.id} label={r.name} value={r.orders30} max={maxOrd} fmt={v=>`${v} ped.`} color={C.blue}/>)}
+            {byOrd.map(r=><BarRow key={r.id} label={r.name} value={r.orders30} max={maxOrd} fmt={v=>`${v} ped.`} color={'#D2D2D7'}/>)}
             {byOrd.every(r=>r.orders30===0)&&<div style={{color:C.dim,fontSize:12,textAlign:'center',padding:'16px 0'}}>Sin pedidos en el período</div>}
           </div>
         </SectionCard>
         <SectionCard title="Rating promedio">
           <div style={{padding:'16px 20px'}}>
-            {byRat.length>0 ? byRat.map(r=><BarRow key={r.id} label={r.name} value={r.avgRating} max={5} fmt={v=>`★ ${v}`} color={C.yellow}/>) : <div style={{color:C.dim,fontSize:12,textAlign:'center',padding:'16px 0'}}>Sin calificaciones</div>}
+            {byRat.length>0 ? byRat.map(r=><BarRow key={r.id} label={r.name} value={r.avgRating} max={5} fmt={v=>`${v}/5`} color={'#D2D2D7'}/>) : <div style={{color:C.dim,fontSize:12,textAlign:'center',padding:'16px 0'}}>Sin calificaciones</div>}
           </div>
         </SectionCard>
       </div>
@@ -953,7 +953,7 @@ function PageAnalytics({enriched, orders, ratings}) {
             {Object.entries(planRevenue).map(([name,usd])=>(
               <div key={name} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
                 <PlanBadge name={name}/>
-                <span style={{fontWeight:700,color:C.green}}>{fmtUSD(usd)}/mes</span>
+                <span style={{fontWeight:700,color:C.ink}}>{fmtUSD(usd)}/mes</span>
               </div>
             ))}
           </div>
@@ -966,7 +966,7 @@ function PageAnalytics({enriched, orders, ratings}) {
               return (
                 <div key={st} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
                   <Badge status={st}/>
-                  <span style={{fontWeight:700,fontSize:18,color:m.color}}>{count}</span>
+                  <span style={{fontWeight:700,fontSize:18,color:C.ink}}>{count}</span>
                 </div>
               );
             })}
@@ -1027,11 +1027,11 @@ function PageActividad({events, restaurants, setFlash, reload}) {
           const m = eventMeta[ev.event_type]||{label:ev.event_type,icon:'•',color:C.mid};
           return (
             <div key={ev.id} style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:14,alignItems:'flex-start'}}>
-              <div style={{width:34,height:34,borderRadius:'50%',background:C.surface,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}}>{m.icon}</div>
+              <div style={{width:34,height:34,borderRadius:'50%',background:C.surface,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><div style={{width:6,height:6,borderRadius:'50%',background:'#D2D2D7'}}/></div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:3}}>
                   <span style={{fontWeight:700,fontSize:13}}>{ev.restaurant?.name||'Plataforma'}</span>
-                  <span style={{padding:'1px 8px',borderRadius:12,fontSize:11,fontWeight:600,background:C.surface,color:m.color,border:`1px solid ${m.color}30`}}>{m.label}</span>
+                  <span style={{padding:'1px 8px',borderRadius:12,fontSize:11,fontWeight:600,background:C.surface,color:C.mid,border:`1px solid ${C.border}`}}>{m.label}</span>
                 </div>
                 <div style={{fontSize:13,color:C.mid}}>{ev.description}</div>
               </div>
@@ -1153,7 +1153,7 @@ function PageUsuarios({restaurants, setFlash}) {
       </div>
 
       {!db&&(
-        <div style={{background:'#1a1a0a',border:`1px solid ${C.yellow}40`,borderRadius:8,padding:'12px 18px',marginBottom:20,color:C.yellow,fontSize:13}}>
+        <div style={{background:'#FFF4E0',border:`1px solid #FFD580`,borderRadius:8,padding:'12px 18px',marginBottom:20,color:'#8A4B00',fontSize:13}}>
           Sin conexión a Supabase — gestión de usuarios no disponible en modo demo
         </div>
       )}
@@ -1163,7 +1163,7 @@ function PageUsuarios({restaurants, setFlash}) {
           <div style={{padding:60,display:'flex',justifyContent:'center',alignItems:'center',gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando usuarios…</span></div>
         ) : users.length===0 ? (
           <div style={{padding:60,textAlign:'center'}}>
-            <div style={{fontSize:32,marginBottom:12,opacity:.3}}>👥</div>
+            
             <div style={{color:C.mid,fontSize:14,fontWeight:500}}>Sin usuarios registrados</div>
             <div style={{color:C.dim,fontSize:12,marginTop:6}}>Creá el primer usuario con el botón de arriba</div>
           </div>
@@ -1190,8 +1190,8 @@ function PageUsuarios({restaurants, setFlash}) {
                       {u.restaurant_id ? restName(u.restaurant_id) : <span style={{color:C.dim,fontStyle:'italic'}}>Todos</span>}
                     </Td>
                     <Td>
-                      <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,fontWeight:600,color:u.is_active?C.green:C.dim}}>
-                        <span style={{width:6,height:6,borderRadius:'50%',background:u.is_active?C.green:C.dim}}/>
+                      <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,fontWeight:600,color:u.is_active?C.ink:C.dim}}>
+                        <span style={{width:6,height:6,borderRadius:'50%',background:u.is_active?C.ink:C.dim}}/>
                         {u.is_active?'Activo':'Inactivo'}
                       </span>
                     </Td>
@@ -1278,12 +1278,12 @@ function PageUsuarios({restaurants, setFlash}) {
 // ── Sidebar ──────────────────────────────────────────────────
 const NAV = [
   {id:'overview',      label:'Plataforma',    icon:'◉'},
-  {id:'ecosistemas',   label:'Ecosistemas',   icon:'🏪'},
-  {id:'suscripciones', label:'Suscripciones', icon:'🔑'},
-  {id:'planes',        label:'Planes',        icon:'📋'},
-  {id:'analytics',     label:'Analytics',     icon:'📊'},
-  {id:'actividad',     label:'Actividad',     icon:'📋'},
-  {id:'usuarios',      label:'Usuarios',      icon:'👥'},
+  {id:'ecosistemas',   label:'Ecosistemas'},
+  {id:'suscripciones', label:'Suscripciones'},
+  {id:'planes',        label:'Planes'},
+  {id:'analytics',     label:'Analytics'},
+  {id:'actividad',     label:'Actividad'},
+  {id:'usuarios',      label:'Usuarios'},
 ];
 
 function Sidebar({page, setPage}) {
@@ -1296,15 +1296,15 @@ function Sidebar({page, setPage}) {
   return (
     <div style={{width:220,background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',height:'100%',flexShrink:0,overflowY:'auto'}}>
       <div style={{padding:'20px 18px 16px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-        <div style={{fontWeight:800,fontSize:15,color:C.ink,letterSpacing:-.3}}>Mesa App</div>
-        <div style={{fontSize:10,fontWeight:700,color:C.blue,letterSpacing:2,marginTop:2,textTransform:'uppercase'}}>SuperAdmin</div>
+        <div style={{fontWeight:800,fontSize:18,color:'#000000',letterSpacing:'-1px'}}>Mythos</div>
+        <div style={{fontSize:11,fontWeight:500,color:'#6E6E73',marginTop:2}}>Superadmin</div>
       </div>
       <nav style={{padding:'10px 10px',flex:1}}>
         {NAV.map(n=>{
           const active = page===n.id;
           return (
-            <button key={n.id} onClick={()=>setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:8,width:'100%',border:'none',background:active?C.blueDim:'transparent',color:active?C.blue:C.mid,fontWeight:active?600:400,fontSize:13,cursor:'pointer',transition:'all .15s',marginBottom:2}}>
-              <span style={{fontSize:15,width:20,textAlign:'center'}}>{n.icon}</span>
+            <button key={n.id} onClick={()=>setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:8,width:'100%',border:'none',background:active?'#000000':'transparent',color:active?'#FFFFFF':C.mid,fontWeight:active?600:400,fontSize:13,cursor:'pointer',transition:'all .15s',marginBottom:2}}>
+              
               {n.label}
             </button>
           );
@@ -1317,7 +1317,7 @@ function Sidebar({page, setPage}) {
             <span>{label}</span><span style={{fontSize:10,opacity:.5}}>↗</span>
           </a>
         ))}
-        <button onClick={signOut} style={{marginTop:10,width:'100%',background:'#1a0808',border:`1px solid ${C.red}30`,borderRadius:6,color:C.red,fontSize:12,padding:'7px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+        <button onClick={signOut} style={{marginTop:10,width:'100%',background:'#000000',border:'none',borderRadius:6,color:'#FFFFFF',fontSize:12,padding:'7px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
           Cerrar sesión
         </button>
       </div>
@@ -1396,14 +1396,11 @@ function App() {
         <div style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,zIndex:10}}>
           <div style={{fontWeight:700,fontSize:15,color:C.ink}}>{pageTitles[page]||page}</div>
           <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
-            {offline&&<span style={{fontSize:11,color:C.yellow,fontWeight:600,background:'#2a2010',padding:'3px 10px',borderRadius:12}}>● Demo offline</span>}
-            {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:'#102010',padding:'3px 10px',borderRadius:12}} className="pulse">● En vivo</span>}
+            {offline&&<span style={{fontSize:11,color:'#86868B',fontWeight:500,background:C.surface,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Demo offline</span>}
+            {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:'#E8F9ED',padding:'3px 10px',borderRadius:12}} className="pulse">● En vivo</span>}
             {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:600,background:C.surface,padding:'3px 10px',borderRadius:12}}>● Conectado</span>}
             {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
             <button onClick={loadAll} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺</button>
-            <button onClick={toggleTheme} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 10px',color:C.mid,fontSize:14,cursor:'pointer'}}>
-              {document.documentElement.getAttribute('data-theme')==='dark'?'☀️':'🌙'}
-            </button>
           </div>
         </div>
 

@@ -1,76 +1,353 @@
 /* ═══════════════════════════════════════════
-   MESA APP — DESIGN SYSTEM v1.0
-   Incluir en todos los módulos vía <link>
+   MYTHOS — DESIGN SYSTEM v2.0
+   Importar en todos los paneles vía <link>
 ═══════════════════════════════════════════ */
 
 :root {
-  --bg-primary: #0f0f0f;
-  --bg-secondary: #1a1a1a;
-  --bg-card: #1e1e1e;
-  --bg-card-hover: #252525;
-  --accent: #ffffff;
-  --accent-secondary: #f0f0f0;
-  --text-primary: #ffffff;
-  --text-secondary: #a0a0a0;
-  --text-muted: #606060;
-  --border: #2a2a2a;
-  --border-hover: #404040;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --badge-bg: #ef4444;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-  --shadow: 0 2px 8px rgba(0,0,0,0.4);
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}
+  /* Color */
+  --bg:          #FFFFFF;
+  --bg-subtle:   #F5F5F7;
+  --bg-hover:    #E8E8ED;
+  --surface:     #FFFFFF;
+  --border:      #D2D2D7;
+  --border-strong: #86868B;
 
-[data-theme="light"] {
-  --bg-primary: #f5f5f5;
-  --bg-secondary: #ffffff;
-  --bg-card: #ffffff;
-  --bg-card-hover: #f0f0f0;
+  --text-primary:   #1D1D1F;
+  --text-secondary: #6E6E73;
+  --text-tertiary:  #86868B;
+  --text-disabled:  #AEAEB2;
+  --text-inverse:   #FFFFFF;
+
+  --black: #000000;
+  --white: #FFFFFF;
+
+  /* Semánticos — solo texto/íconos, nunca fondo de área grande */
+  --error:   #FF3B30;
+  --success: #34C759;
+  --warning: #FF9500;
+  --info:    #007AFF;
+
+  /* Tipografía */
+  --font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, monospace;
+
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-md:   17px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  28px;
+  --text-3xl:  34px;
+
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semibold: 600;
+  --weight-bold:    700;
+
+  /* Espaciado — grid de 8px */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Border radius */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  20px;
+  --radius-full: 999px;
+
+  /* Sombras — monocromáticas y sutiles */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.10), 0 0 1px rgba(0,0,0,0.06);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12), 0 0 1px rgba(0,0,0,0.04);
+
+  /* Transiciones */
+  --transition: 150ms ease;
+  --transition-slow: 250ms ease;
+
+  /* Compatibilidad con vars legacy usadas en paneles */
+  --bg-primary: #F5F5F7;
+  --bg-secondary: #FFFFFF;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F5F5F7;
   --accent: #000000;
-  --accent-secondary: #111111;
-  --text-primary: #111111;
-  --text-secondary: #555555;
-  --text-muted: #999999;
-  --border: #e0e0e0;
-  --border-hover: #cccccc;
-  --shadow: 0 2px 8px rgba(0,0,0,0.1);
+  --accent-secondary: #1D1D1F;
+  --text-muted: #86868B;
+  --border-hover: #86868B;
+  --danger: #FF3B30;
+  --badge-bg: #FF3B30;
+  --radius: 12px;
+  --shadow: 0 1px 4px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.04);
 }
 
-/* ── THEME TOGGLE BUTTON ── */
-.ds-theme-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  cursor: pointer;
-  display: flex;
+/* Dark mode — solo para cocina.html (KDS) */
+[data-theme="dark"] {
+  --bg:          #000000;
+  --bg-subtle:   #1C1C1E;
+  --bg-hover:    #2C2C2E;
+  --surface:     #1C1C1E;
+  --border:      #38383A;
+  --border-strong: #636366;
+
+  --text-primary:   #F5F5F7;
+  --text-secondary: #AEAEB2;
+  --text-tertiary:  #636366;
+  --text-disabled:  #3A3A3C;
+  --text-inverse:   #000000;
+
+  --bg-primary: #000000;
+  --bg-secondary: #1C1C1E;
+  --bg-card: #1C1C1E;
+  --bg-card-hover: #2C2C2E;
+  --accent: #FFFFFF;
+  --text-muted: #636366;
+  --border-hover: #636366;
+}
+
+/* ── RESET BASE ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+/* ── BOTONES ── */
+.btn {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  transition: background 0.15s, border-color 0.15s;
-  flex-shrink: 0;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-md);
+  font-family: var(--font);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  border: none;
+  transition: opacity var(--transition), transform var(--transition);
+  white-space: nowrap;
 }
-.ds-theme-btn:hover {
-  background: var(--bg-card-hover);
-  border-color: var(--border-hover);
+.btn:active { transform: scale(0.98); }
+.btn-primary   { background: var(--black); color: var(--white); }
+.btn-secondary { background: var(--bg-subtle); color: var(--text-primary); border: 1px solid var(--border); }
+.btn-ghost     { background: transparent; color: var(--text-primary); }
+.btn-danger    { background: var(--error); color: var(--white); }
+.btn:hover { opacity: 0.84; }
+.btn:disabled { opacity: 0.38; cursor: not-allowed; }
+.btn-sm { padding: var(--space-2) var(--space-3); font-size: var(--text-sm); border-radius: var(--radius-sm); }
+.btn-lg { padding: var(--space-4) var(--space-6); font-size: var(--text-md); }
+
+/* ── CARDS ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+}
+.card-sm { padding: var(--space-4); border-radius: var(--radius-md); }
+.card-interactive {
+  cursor: pointer;
+  transition: background var(--transition), box-shadow var(--transition);
+}
+.card-interactive:hover {
+  background: var(--bg-subtle);
+  box-shadow: var(--shadow-sm);
 }
 
-/* ── POS PRODUCT GRID ── */
+/* ── INPUTS ── */
+.input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  background: var(--bg);
+  transition: border-color var(--transition);
+  outline: none;
+}
+.input:focus { border-color: var(--black); }
+.input::placeholder { color: var(--text-tertiary); }
+
+label {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+/* ── BADGES / ESTADO ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.badge-default  { background: var(--bg-subtle); color: var(--text-secondary); border: 1px solid var(--border); }
+.badge-success  { background: #E8F9ED; color: #1A7E37; }
+.badge-warning  { background: #FFF4E0; color: #8A4B00; }
+.badge-error    { background: #FFEDEC; color: #C0190F; }
+.badge-neutral  { background: var(--bg-subtle); color: var(--text-primary); }
+
+/* ── TABLA DE DATOS ── */
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+}
+.data-table td {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--bg-subtle);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+.data-table tr:hover td { background: var(--bg-subtle); }
+.data-table tr:last-child td { border-bottom: none; }
+
+/* ── MODAL ── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+  padding: var(--space-4);
+}
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: var(--space-8);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+.modal-title {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+
+/* ── SIDEBAR NAV ── */
+.sidebar {
+  width: 240px;
+  min-height: 100vh;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6) var(--space-4);
+  gap: var(--space-1);
+}
+.sidebar-brand {
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: -1px;
+  color: var(--black);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+}
+.sidebar-item:hover { background: var(--bg-subtle); color: var(--text-primary); }
+.sidebar-item.active { background: var(--bg-subtle); color: var(--text-primary); font-weight: var(--weight-semibold); }
+
+/* ── STAT CARD ── */
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5) var(--space-6);
+}
+.stat-label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-2);
+}
+.stat-value {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+.stat-sub {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  margin-top: var(--space-1);
+}
+
+/* ── LEGACY COMPAT (paneles existentes) ── */
+.ds-card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  padding: 16px;
+}
+.ds-topbar {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+}
 .ds-product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
   gap: 10px;
 }
-
 .ds-product-card {
-  background: var(--bg-card);
+  background: var(--surface);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   cursor: pointer;
@@ -82,109 +359,42 @@
   text-align: left;
 }
 .ds-product-card:hover {
-  border-color: var(--border-hover);
-  background: var(--bg-card-hover);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow);
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
 }
-
-.ds-product-card-img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  display: block;
-}
+.ds-product-card-img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
 .ds-product-card-placeholder {
-  width: 100%;
-  aspect-ratio: 1;
-  background: var(--bg-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 100%; aspect-ratio: 1;
+  background: var(--bg-subtle);
+  display: flex; align-items: center; justify-content: center;
   font-size: 36px;
 }
-
 .ds-product-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: var(--danger);
-  color: white;
-  width: 24px;
-  height: 24px;
+  position: absolute; top: 8px; right: 8px;
+  background: var(--error); color: white;
+  width: 24px; height: 24px;
   border-radius: 50%;
-  font-size: 12px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
 }
-
-.ds-product-info {
-  padding: 10px 12px;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.ds-product-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ds-product-price {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.ds-product-extras-tag {
-  font-size: 9px;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
-}
-
-/* ── MONTO EN USO CARD ── */
+.ds-product-info { padding: 10px 12px; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.ds-product-name { font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-product-price { font-size: 12px; color: var(--text-secondary); }
+.ds-product-extras-tag { font-size: 9px; color: var(--text-tertiary); letter-spacing: 0.5px; }
 .ds-monto-card {
   margin: 0 16px 16px;
-  background: var(--bg-card);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
 }
-.ds-monto-label {
-  font-size: 11px;
-  color: var(--text-secondary);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.ds-monto-label { font-size: 11px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.ds-monto-value { font-size: 28px; font-weight: 700; color: var(--text-primary); margin-top: 4px; }
+.ds-theme-btn {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--bg-subtle); border: 1px solid var(--border);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; transition: background 0.15s, border-color 0.15s; flex-shrink: 0;
 }
-.ds-monto-value {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text-primary);
-  margin-top: 4px;
-}
-
-/* ── BASE CARD ── */
-.ds-card {
-  background: var(--bg-card);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  padding: 16px;
-}
-
-/* ── BASE TOPBAR ── */
-.ds-topbar {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  height: 56px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  gap: 12px;
-}
+.ds-theme-btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }

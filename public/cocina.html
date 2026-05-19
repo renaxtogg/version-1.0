@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cocina — La Huaca</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<title>Mythos · Cocina</title>
 <link rel="stylesheet" href="design-system.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
@@ -13,10 +12,13 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{background:#0A0A0A;font-family:'Plus Jakarta Sans',sans-serif;min-height:100vh;color:#fff}
+  body{background:#000000;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:#F5F5F7;-webkit-font-smoothing:antialiased}
   ::-webkit-scrollbar{width:4px;height:4px}
-  ::-webkit-scrollbar-track{background:transparent}
-  ::-webkit-scrollbar-thumb{background:#333;border-radius:4px}
+  ::-webkit-scrollbar-track{background:#1C1C1E}
+  ::-webkit-scrollbar-thumb{background:#38383A;border-radius:4px}
+  input,textarea,select{font-family:inherit;background:#1C1C1E;border:1px solid #38383A;color:#F5F5F7;outline:none;border-radius:8px}
+  input:focus,textarea:focus,select:focus{border-color:#FFFFFF}
+  button{font-family:inherit;cursor:pointer}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
   @keyframes ring{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
@@ -25,9 +27,10 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-3px)}40%,80%{transform:translateX(3px)}}
   @keyframes starPop{0%{transform:scale(0.6);opacity:0}60%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
+  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #38383A;border-top-color:#F5F5F7;border-radius:50%;vertical-align:middle}
 </style>
 </head>
-<body>
+<body data-theme="dark">
 <div id="root"></div>
 <script>
 function initTheme() {
@@ -255,16 +258,12 @@ async function dbLoadRatings() {
 
 /* ── PALETTE ─── */
 const C_DARK = {
-  bg:'#0A0A0A', surface:'#111', card:'#161616',
-  border:'rgba(255,255,255,0.07)', borderStrong:'rgba(255,255,255,0.14)',
-  white:'#FFF', ink:'#E8E8E8', mid:'#888', dim:'#444',
+  bg:'#000000', surface:'#1C1C1E', card:'#2C2C2E',
+  border:'#38383A', borderStrong:'#636366',
+  white:'#F5F5F7', ink:'#F5F5F7', mid:'#AEAEB2', dim:'#636366',
 };
-const C_LIGHT = {
-  bg:'#f5f5f5', surface:'#ffffff', card:'#f0f0f0',
-  border:'rgba(0,0,0,0.1)', borderStrong:'rgba(0,0,0,0.18)',
-  white:'#111', ink:'#111', mid:'#555', dim:'#999',
-};
-const C = {...((localStorage.getItem('mesa_theme')||'dark')==='light' ? C_LIGHT : C_DARK)};
+const C_LIGHT = C_DARK;
+const C = {...C_DARK};
 
 const COL_COLOR = {
   nuevo:      '#60a5fa',
@@ -369,7 +368,7 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, flex: 1, overflow: 'hidden', flexWrap: 'wrap' }}>
           {/* Ticket number */}
-          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, color: C.dim, letterSpacing: '0.08em', flexShrink: 0 }}>{ticket.id}</div>
+          <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 10, fontWeight: 600, color: C.dim, letterSpacing: '0.08em', flexShrink: 0 }}>{ticket.id}</div>
           <div style={{ width: 1, height: 12, background: C.border, flexShrink: 0 }} />
           {/* Mesa display — fix: no more "Mesa ?" */}
           {isLlevar ? (
@@ -392,7 +391,7 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
             <div style={{ fontSize: 10, fontWeight: 800, color: urgColor, animation: urgency >= 2 ? 'pulse 1s ease infinite' : 'none', letterSpacing: '0.06em' }}>{URGENCY_LABEL[urgency]}</div>
           )}
           <div style={{
-            fontFamily: "'JetBrains Mono',monospace",
+            fontFamily: "'SF Mono',ui-monospace,monospace",
             fontSize: 14,
             fontWeight: 700,
             color: isDone ? C.dim : urgColor || C.mid,
@@ -423,7 +422,7 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                 {/* Cantidad grande */}
                 <div style={{
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "'SF Mono',ui-monospace,monospace",
                   fontSize: 20,
                   fontWeight: 700,
                   color: isDone ? C.dim : C.white,
@@ -500,7 +499,7 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
               border: `1.5px solid ${C.borderStrong}`,
               borderRadius: 10,
               color: C.mid,
-              fontFamily: "'Plus Jakarta Sans',sans-serif",
+              fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
               fontSize: 13, fontWeight: 800,
               cursor: 'pointer', letterSpacing: '0.06em',
             }}>✓ ENTREGADO</button>
@@ -512,8 +511,8 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
                 : urgency >= 2 ? `${urgColor}22` : 'rgba(255,255,255,0.07)',
               border: `2px solid ${nextStatus === 'listo' ? C.white : urgency >= 2 ? urgColor : C.borderStrong}`,
               borderRadius: 10,
-              color: nextStatus === 'listo' ? '#0A0A0A' : urgency >= 2 ? urgColor : C.white,
-              fontFamily: "'Plus Jakarta Sans',sans-serif",
+              color: nextStatus === 'listo' ? '#000000' : urgency >= 2 ? urgColor : C.white,
+              fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
               fontSize: 15, fontWeight: 800,
               cursor: 'pointer', letterSpacing: '0.05em', textTransform: 'uppercase',
               transition: 'all 150ms',
@@ -577,7 +576,7 @@ function StationTabs({ active, onChange, ticketsByStation }) {
             border: `1.5px solid ${isActive ? st.color : C.border}`,
             borderRadius: 20,
             color: isActive ? st.color : C.mid,
-            fontFamily: "'Plus Jakarta Sans',sans-serif",
+            fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
             fontSize: 12, fontWeight: 700,
             cursor: 'pointer',
             whiteSpace: 'nowrap',
@@ -620,7 +619,7 @@ function StatsPanel({ tickets }) {
   const statBox = (label, val, sub, color) => (
     <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', flexShrink: 0 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 5 }}>{label}</div>
-      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 22, fontWeight: 600, color: color || C.white, lineHeight: 1 }}>{val}</div>
+      <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 22, fontWeight: 600, color: color || C.white, lineHeight: 1 }}>{val}</div>
       {sub && <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{sub}</div>}
     </div>
   );
@@ -640,7 +639,7 @@ function StatsPanel({ tickets }) {
               <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{ height: '100%', width: `${(n / distTotal) * 100}%`, background: col, borderRadius: 3, transition: 'width 600ms ease' }} />
               </div>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: col, width: 16, textAlign: 'right', flexShrink: 0 }}>{n}</div>
+              <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 11, color: col, width: 16, textAlign: 'right', flexShrink: 0 }}>{n}</div>
             </div>
           ))}
           <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>{s.times.length} pedidos registrados</div>
@@ -668,9 +667,9 @@ function StatsPanel({ tickets }) {
                   transition: 'height 400ms ease',
                   position: 'relative',
                 }}>
-                  {n > 0 && <div style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', fontSize: 9, color: isPeak ? '#F59E0B' : C.dim, fontFamily: "'JetBrains Mono',monospace", whiteSpace: 'nowrap' }}>{n}</div>}
+                  {n > 0 && <div style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', fontSize: 9, color: isPeak ? '#F59E0B' : C.dim, fontFamily: "'SF Mono',ui-monospace,monospace", whiteSpace: 'nowrap' }}>{n}</div>}
                 </div>
-                <div style={{ fontSize: 8, color: isCurrent ? C.mid : C.dim, fontFamily: "'JetBrains Mono',monospace", marginTop: 1 }}>{h}</div>
+                <div style={{ fontSize: 8, color: isCurrent ? C.mid : C.dim, fontFamily: "'SF Mono',ui-monospace,monospace", marginTop: 1 }}>{h}</div>
               </div>
             );
           })}
@@ -1102,14 +1101,14 @@ function App() {
       {/* Topbar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '0 20px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, position: 'sticky', top: 0, zIndex: 100, gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ fontFamily: "'DM Serif Display',serif", fontSize: 18, color: C.white }}>{restaurant?.name || 'Cocina'}</div>
+          <div style={{ fontFamily: "system-ui,sans-serif", fontWeight: 800, fontSize: 18, color: '#F5F5F7', letterSpacing: '-0.5px' }}>Mythos · Cocina</div>
           <div style={{ width: 1, height: 16, background: C.border }} />
-          <div style={{ fontSize: 11, fontWeight: 700, color: C.dim, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Cocina</div>
-          {!db && <div style={{ fontSize: 10, fontWeight: 600, color: '#555', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 5, padding: '2px 7px' }}>DEMO</div>}
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.dim, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{restaurant?.name || 'KDS'}</div>
+          {!db && <div style={{ fontSize: 10, fontWeight: 600, color: '#636366', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 5, padding: '2px 7px' }}>DEMO</div>}
           {db && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 6, height: 6, borderRadius: '50%', background: dbError ? '#EF4444' : '#22C55E', flexShrink: 0 }} />
-              <span style={{ fontSize: 10, color: dbError ? '#EF4444' : '#555', fontWeight: 600 }}>{dbError ? 'Sin conexión' : 'DB OK'}</span>
+              <span style={{ fontSize: 10, color: dbError ? '#EF4444' : '#636366', fontWeight: 600 }}>{dbError ? 'Sin conexión' : 'DB OK'}</span>
             </div>
           )}
           {urgentes > 0 && (
@@ -1123,7 +1122,7 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {loading && <div style={{ width: 14, height: 14, border: '2px solid #333', borderTopColor: '#888', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
           <div style={{ fontSize: 11, color: C.mid }}>
-            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, fontWeight: 700, color: C.white }}>{total}</span> activos
+            <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 14, fontWeight: 700, color: C.white }}>{total}</span> activos
           </div>
           <Clock />
           <div style={{ display: 'flex', gap: 5, marginLeft: 4 }}>
@@ -1139,8 +1138,8 @@ function App() {
               {document.documentElement.getAttribute('data-theme')==='dark'?'☀️':'🌙'}
             </button>
           </div>
-          {window._userProfile && <span style={{ fontSize: 10, color: '#555', fontWeight: 600 }}>{window._userProfile.display_name || window._userProfile.username}</span>}
-          {db && <button onClick={async () => { await db.auth.signOut(); window.location.replace('login.html'); }} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#555', fontSize: 10, padding: '4px 9px', cursor: 'pointer', fontFamily: 'inherit' }}>Salir</button>}
+          {window._userProfile && <span style={{ fontSize: 10, color: '#636366', fontWeight: 600 }}>{window._userProfile.display_name || window._userProfile.username}</span>}
+          {db && <button onClick={async () => { await db.auth.signOut(); window.location.replace('login.html'); }} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#636366', fontSize: 10, padding: '4px 9px', cursor: 'pointer', fontFamily: 'inherit' }}>Salir</button>}
         </div>
       </div>
 
@@ -1207,10 +1206,10 @@ function App() {
 
       {/* Diagnóstico (oculto por defecto — solo visible si hay error) */}
       {db && diag && diag.error && (
-        <div style={{ margin: '0 20px 20px', background: '#0D1117', border: '1px solid #1A1A1A', borderRadius: 10, padding: '10px 14px', fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>
-          <div style={{ color: '#555', marginBottom: 5, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Diagnóstico</div>
+        <div style={{ margin: '0 20px 20px', background: '#0D1117', border: '1px solid #1A1A1A', borderRadius: 10, padding: '10px 14px', fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 11 }}>
+          <div style={{ color: '#636366', marginBottom: 5, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Diagnóstico</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 14px' }}>
-            <span style={{ color: '#333' }}>URL:</span><span style={{ color: '#555' }}>{diag.url}…</span>
+            <span style={{ color: '#38383A' }}>URL:</span><span style={{ color: '#636366' }}>{diag.url}…</span>
             <span style={{ color: '#EF4444' }}>ERROR:</span><span style={{ color: '#F87171' }}>{diag.error}</span>
           </div>
         </div>
@@ -1245,7 +1244,7 @@ function Clock() {
   const [time, setTime] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
   return (
-    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, fontWeight: 500, color: C.mid, letterSpacing: '0.04em' }}>
+    <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 14, fontWeight: 500, color: C.mid, letterSpacing: '0.04em' }}>
       {time.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
     </div>
   );

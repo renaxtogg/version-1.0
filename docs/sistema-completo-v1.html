@@ -1,0 +1,1821 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mesa App v1.0 — Documentación Completa del Sistema</title>
+<style>
+  :root {
+    --ink: #1a1a2e;
+    --mid: #4a4a6a;
+    --dim: #8888a8;
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --border: #e0e0f0;
+    --accent: #6366f1;
+    --accent2: #0ea5e9;
+    --green: #16a34a;
+    --orange: #ea580c;
+    --red: #dc2626;
+    --yellow: #d97706;
+    --purple: #9333ea;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink);
+    background: var(--bg);
+  }
+
+  /* ── PRINT ───────────────────────────────────────────── */
+  @media print {
+    body { font-size: 11.5px; }
+    .no-print { display: none !important; }
+    .page-break { page-break-before: always; }
+    .avoid-break { page-break-inside: avoid; }
+    nav { display: none; }
+    .cover { page-break-after: always; }
+    h1.cover-title { font-size: 36px; }
+  }
+
+  /* ── LAYOUT ──────────────────────────────────────────── */
+  .container { max-width: 920px; margin: 0 auto; padding: 0 32px 80px; }
+
+  /* ── COVER ───────────────────────────────────────────── */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a3a 50%, #0f0f1a 100%);
+    color: #fff;
+    padding: 60px;
+  }
+  .cover-badge {
+    display: inline-block;
+    background: rgba(99,102,241,.2);
+    border: 1px solid rgba(99,102,241,.4);
+    color: #a5b4fc;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    padding: 6px 16px;
+    border-radius: 20px;
+    margin-bottom: 32px;
+  }
+  .cover-title {
+    font-size: 52px;
+    font-weight: 900;
+    letter-spacing: -1px;
+    line-height: 1.1;
+    margin-bottom: 16px;
+    background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .cover-sub {
+    font-size: 20px;
+    color: rgba(255,255,255,.6);
+    max-width: 560px;
+    margin-bottom: 48px;
+  }
+  .cover-meta {
+    display: flex;
+    gap: 40px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .cover-meta-item { text-align: center; }
+  .cover-meta-item .val {
+    display: block;
+    font-size: 28px;
+    font-weight: 800;
+    color: #6366f1;
+  }
+  .cover-meta-item .lbl {
+    font-size: 11px;
+    color: rgba(255,255,255,.4);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .cover-footer {
+    position: absolute;
+    bottom: 40px;
+    font-size: 12px;
+    color: rgba(255,255,255,.3);
+  }
+
+  /* ── TOC ─────────────────────────────────────────────── */
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    margin: 48px 0;
+  }
+  .toc h2 { font-size: 18px; margin-bottom: 20px; color: var(--accent); }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin-bottom: 6px; }
+  .toc a { color: var(--mid); text-decoration: none; font-size: 14px; }
+  .toc a:hover { color: var(--accent); }
+  .toc-sub { padding-left: 20px; list-style: circle; margin-top: 4px; }
+  .toc-sub li { margin-bottom: 3px; }
+  .toc-sub a { font-size: 13px; }
+
+  /* ── HEADINGS ────────────────────────────────────────── */
+  h1 { font-size: 32px; font-weight: 900; margin: 48px 0 8px; letter-spacing: -.5px; }
+  h2 { font-size: 22px; font-weight: 800; margin: 36px 0 12px; color: var(--accent); border-bottom: 2px solid var(--border); padding-bottom: 8px; }
+  h3 { font-size: 17px; font-weight: 700; margin: 24px 0 8px; color: var(--ink); }
+  h4 { font-size: 14px; font-weight: 700; margin: 16px 0 6px; color: var(--mid); text-transform: uppercase; letter-spacing: .5px; }
+
+  p { margin-bottom: 12px; color: var(--mid); }
+  strong { color: var(--ink); }
+
+  /* ── SECTION HEADER ──────────────────────────────────── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 0 10px 10px 0;
+    padding: 20px 24px;
+    margin: 40px 0 24px;
+  }
+  .section-icon { font-size: 28px; }
+  .section-header h1, .section-header h2 {
+    margin: 0;
+    border: none;
+    padding: 0;
+    font-size: 24px;
+  }
+  .section-header p { margin: 0; font-size: 13px; }
+
+  /* ── CARDS ───────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .card h3 { margin-top: 0; }
+
+  /* ── FEATURE LIST ────────────────────────────────────── */
+  .feature-list { list-style: none; padding: 0; }
+  .feature-list li {
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13.5px;
+  }
+  .feature-list li:last-child { border: none; }
+  .feature-list li::before { content: '✓'; color: var(--green); font-weight: 700; flex-shrink: 0; }
+
+  /* ── TABLE ───────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+  th { background: #f0f0f8; text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--mid); }
+  td { padding: 10px 14px; border-top: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: #fafafe; }
+
+  /* ── BADGES ──────────────────────────────────────────── */
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .badge-blue   { background: #eff6ff; color: #1d4ed8; }
+  .badge-green  { background: #f0fdf4; color: #15803d; }
+  .badge-orange { background: #fff7ed; color: #c2410c; }
+  .badge-red    { background: #fef2f2; color: #b91c1c; }
+  .badge-purple { background: #faf5ff; color: #7e22ce; }
+  .badge-gray   { background: #f1f5f9; color: #475569; }
+  .badge-yellow { background: #fefce8; color: #92400e; }
+
+  /* ── FLOW DIAGRAM ────────────────────────────────────── */
+  .flow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0;
+    margin: 16px 0;
+    font-size: 12.5px;
+  }
+  .flow-step {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .flow-arrow { color: var(--dim); padding: 0 6px; font-size: 16px; }
+
+  /* ── CALLOUT ─────────────────────────────────────────── */
+  .callout {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 13px;
+    border-left: 3px solid;
+  }
+  .callout-info    { background: #eff6ff; border-color: #3b82f6; color: #1e40af; }
+  .callout-warning { background: #fff7ed; border-color: #f97316; color: #9a3412; }
+  .callout-danger  { background: #fef2f2; border-color: #ef4444; color: #991b1b; }
+  .callout-tip     { background: #f0fdf4; border-color: #22c55e; color: #14532d; }
+  .callout strong  { color: inherit; }
+
+  /* ── STATS GRID ──────────────────────────────────────── */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+  .stat-card .num { font-size: 26px; font-weight: 800; color: var(--accent); }
+  .stat-card .lbl { font-size: 12px; color: var(--dim); margin-top: 2px; }
+
+  /* ── SCREEN MOCKUP ───────────────────────────────────── */
+  .screen-mockup {
+    background: #f8f8fc;
+    border: 1.5px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 12px 0;
+    font-size: 12.5px;
+    font-family: monospace;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--mid);
+    line-height: 1.5;
+  }
+
+  /* ── PHASE 2 IDEAS ───────────────────────────────────── */
+  .phase-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .phase-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+  }
+  .phase-card.priority-1::before { background: #ef4444; }
+  .phase-card.priority-2::before { background: #f97316; }
+  .phase-card.priority-3::before { background: #eab308; }
+  .phase-card.skip::before       { background: #94a3b8; }
+  .phase-card h3 { margin-top: 0; display: flex; align-items: center; gap: 10px; }
+  .priority-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+  }
+  .pri-1 { background: #fef2f2; color: #991b1b; }
+  .pri-2 { background: #fff7ed; color: #9a3412; }
+  .pri-3 { background: #fefce8; color: #78350f; }
+  .pri-skip { background: #f1f5f9; color: #475569; }
+
+  /* ── SEPARATION ──────────────────────────────────────── */
+  hr { border: none; border-top: 2px solid var(--border); margin: 40px 0; }
+  .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+  /* ── CODE ────────────────────────────────────────────── */
+  code {
+    font-family: 'Consolas', 'JetBrains Mono', monospace;
+    background: #f0f0f8;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12.5px;
+    color: #6366f1;
+  }
+
+  /* ── CONFIG STEP ─────────────────────────────────────── */
+  .config-steps { counter-reset: step; }
+  .config-step {
+    counter-increment: step;
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    align-items: flex-start;
+  }
+  .config-step::before {
+    content: counter(step);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .config-step-body h4 { margin: 0 0 4px; font-size: 14px; color: var(--ink); }
+  .config-step-body p { margin: 0; font-size: 13px; }
+
+  /* ── DB TABLE LIST ───────────────────────────────────── */
+  .db-table {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .db-table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: #f8f8fc;
+    border-bottom: 1px solid var(--border);
+  }
+  .db-table-name { font-weight: 700; font-family: monospace; color: var(--accent); font-size: 13px; }
+  .db-table-desc { font-size: 12px; color: var(--dim); }
+  .db-table-cols { padding: 10px 16px; font-size: 12px; color: var(--mid); }
+  .db-col { display: inline-block; margin: 2px 4px; background: #f0f0f8; padding: 1px 8px; border-radius: 4px; font-family: monospace; }
+  .db-col-pk { color: #d97706; }
+  .db-col-fk { color: #0ea5e9; }
+
+  /* ── PRINT HEADER ────────────────────────────────────── */
+  @media print {
+    .print-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 10px;
+      color: #aaa;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 6px;
+      margin-bottom: 20px;
+    }
+  }
+  @media screen { .print-header { display: none; } }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- COVER                                                   -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="cover" id="portada">
+  <div class="cover-badge">Documentación del Sistema</div>
+  <h1 class="cover-title">Mesa App v1.0</h1>
+  <p class="cover-sub">Guía completa de paneles, configuración, datos disponibles e ideas para la Fase 2</p>
+  <div class="cover-meta">
+    <div class="cover-meta-item"><span class="val">5</span><span class="lbl">Paneles</span></div>
+    <div class="cover-meta-item"><span class="val">20</span><span class="lbl">Tablas DB</span></div>
+    <div class="cover-meta-item"><span class="val">11</span><span class="lbl">Secciones Admin</span></div>
+    <div class="cover-meta-item"><span class="val">8</span><span class="lbl">Pantallas Cliente</span></div>
+  </div>
+  <div class="cover-footer">
+    Mesa App · La Huaca, Asunción Paraguay · Mayo 2026
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- MAIN CONTENT                                            -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="container">
+
+<!-- TABLA DE CONTENIDOS -->
+<div class="toc" id="toc">
+  <h2>Índice</h2>
+  <ol>
+    <li><a href="#arquitectura">Arquitectura General</a></li>
+    <li>
+      <a href="#cliente">Panel del Cliente — <code>index.html</code></a>
+      <ul class="toc-sub">
+        <li><a href="#cliente-pantallas">8 Pantallas del flujo</a></li>
+        <li><a href="#cliente-config">Configuración</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#cocina">Panel de Cocina / KDS — <code>cocina.html</code></a>
+      <ul class="toc-sub">
+        <li><a href="#cocina-kanban">Kanban y tickets</a></li>
+        <li><a href="#cocina-stats">Estadísticas en tiempo real</a></li>
+        <li><a href="#cocina-stock">Alertas de Stock</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#admin">Panel de Administración — <code>admin.html</code></a>
+      <ul class="toc-sub">
+        <li><a href="#admin-dashboard">Dashboard</a></li>
+        <li><a href="#admin-pedidos">Pedidos</a></li>
+        <li><a href="#admin-menu">Menú</a></li>
+        <li><a href="#admin-mesas">Mesas</a></li>
+        <li><a href="#admin-personal">Personal</a></li>
+        <li><a href="#admin-clientes">Clientes</a></li>
+        <li><a href="#admin-finanzas">Finanzas</a></li>
+        <li><a href="#admin-marketing">Marketing y Cupones</a></li>
+        <li><a href="#admin-ratings">Calificaciones</a></li>
+        <li><a href="#admin-stock">Stock e Inventario</a></li>
+        <li><a href="#admin-config">Configuración del Restaurante</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#superadmin">Panel SuperAdmin — <code>superadmin.html</code></a>
+    </li>
+    <li>
+      <a href="#login">Login — <code>login.html</code></a>
+    </li>
+    <li><a href="#database">Base de Datos — Todas las Tablas</a></li>
+    <li><a href="#estadisticas">Datos y Estadísticas Disponibles</a></li>
+    <li><a href="#configuracion-guia">Guía de Configuración Paso a Paso</a></li>
+    <li><a href="#fase2">Fase 2 — Nuevos Paneles e Ideas</a></li>
+    <li><a href="#recomendaciones">Recomendaciones y Prioridades</a></li>
+  </ol>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 1. ARQUITECTURA                                         -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="section-header" id="arquitectura">
+  <div class="section-icon">🏗️</div>
+  <div>
+    <h2 style="color:var(--ink)">Arquitectura General</h2>
+    <p>Cómo se conectan los paneles entre sí y con Supabase</p>
+  </div>
+</div>
+
+<div class="card">
+  <h4>Stack tecnológico</h4>
+  <table>
+    <tr><th>Capa</th><th>Tecnología</th><th>Notas</th></tr>
+    <tr><td><strong>Frontend</strong></td><td>HTML + React 18 (CDN) + Babel Standalone</td><td>Sin bundler. Todo en archivos .html únicos</td></tr>
+    <tr><td><strong>Base de datos</strong></td><td>Supabase — PostgreSQL 15</td><td>RLS habilitado en todas las tablas</td></tr>
+    <tr><td><strong>Realtime</strong></td><td>Supabase Realtime (WebSockets)</td><td>Cocina y cliente usan subscripciones en vivo</td></tr>
+    <tr><td><strong>Auth</strong></td><td>Supabase Auth (email/password)</td><td>Roles en tabla <code>profiles</code></td></tr>
+    <tr><td><strong>Storage</strong></td><td>Supabase Storage</td><td>Imágenes de menú y logo (WebP)</td></tr>
+    <tr><td><strong>Deploy</strong></td><td>Vercel (static)</td><td>outputDirectory: public/</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h4>Mapa de paneles y acceso</h4>
+  <table>
+    <tr><th>Archivo</th><th>URL</th><th>Rol requerido</th><th>Acceso</th></tr>
+    <tr><td><code>index.html</code></td><td><code>/</code></td><td>Ninguno (público)</td><td>Cliente final via QR</td></tr>
+    <tr><td><code>cocina.html</code></td><td><code>/cocina.html</code></td><td>cocina, admin, superadmin</td><td>Staff de cocina</td></tr>
+    <tr><td><code>admin.html</code></td><td><code>/admin.html</code></td><td>admin, superadmin</td><td>Administradores del local</td></tr>
+    <tr><td><code>superadmin.html</code></td><td><code>/superadmin.html</code></td><td>superadmin</td><td>Plataforma Mesa App</td></tr>
+    <tr><td><code>login.html</code></td><td><code>/login.html</code></td><td>—</td><td>Todos los empleados</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h4>Flujo del pedido de extremo a extremo</h4>
+  <div class="flow">
+    <div class="flow-step">🔲 QR Scan</div><div class="flow-arrow">→</div>
+    <div class="flow-step">📋 Menú</div><div class="flow-arrow">→</div>
+    <div class="flow-step">🛒 Carrito</div><div class="flow-arrow">→</div>
+    <div class="flow-step">💳 Pago</div><div class="flow-arrow">→</div>
+    <div class="flow-step" style="border-color:#6366f1">📡 Supabase INSERT</div><div class="flow-arrow">→</div>
+    <div class="flow-step">🍳 KDS Cocina</div><div class="flow-arrow">→</div>
+    <div class="flow-step">✅ Entregado</div><div class="flow-arrow">→</div>
+    <div class="flow-step">⭐ Rating</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 2. PANEL DEL CLIENTE                                    -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header" id="cliente">
+  <div class="section-icon">📱</div>
+  <div>
+    <h2 style="color:var(--ink)">Panel del Cliente — index.html</h2>
+    <p>App web para el cliente final. Se accede escaneando el QR de la mesa.</p>
+  </div>
+</div>
+
+<h3 id="cliente-pantallas">Pantallas del flujo (8 pantallas)</h3>
+
+<div class="card-grid">
+
+  <div class="card avoid-break">
+    <h3>1. 🔲 Pantalla QR / Entrada</h3>
+    <p>Punto de entrada. Muestra animación de escaneo y selecciona la mesa.</p>
+    <ul class="feature-list">
+      <li>Animación de scan con grilla</li>
+      <li>Mesa hardcodeada demo: Mesa 4</li>
+      <li>En producción: leer de URL param <code>?mesa=4&token=xxx</code></li>
+    </ul>
+  </div>
+
+  <div class="card avoid-break">
+    <h3>2. 🏠 Perfil del restaurante</h3>
+    <p>Info del local y preferencias del usuario.</p>
+    <ul class="feature-list">
+      <li>Logo, nombre, dirección, Instagram, teléfono</li>
+      <li>Horarios de atención por día</li>
+      <li>Toggle: Comer aquí / Para llevar</li>
+      <li>Selector de idioma (ES, EN, PT, DE)</li>
+      <li>Botón llamar al mozo</li>
+      <li>Botón reservar mesa</li>
+    </ul>
+  </div>
+
+  <div class="card avoid-break">
+    <h3>3. 🍽️ Menú</h3>
+    <p>Browsing de productos con categorías y búsqueda.</p>
+    <ul class="feature-list">
+      <li>Tabs de categorías (Entrantes, Hamburguesas, Lomito, Bebidas)</li>
+      <li>Búsqueda por nombre o descripción</li>
+      <li>Carrusel de promos del día</li>
+      <li>Item destacado ★ Chef del mes</li>
+      <li>Cards con imagen, precio (₲), tag promo</li>
+      <li>Contador del carrito flotante</li>
+    </ul>
+  </div>
+
+  <div class="card avoid-break">
+    <h3>4. 🔧 Modal de producto</h3>
+    <p>Personalización del ítem antes de agregar al carrito.</p>
+    <ul class="feature-list">
+      <li>Selector de cantidad (+/−)</li>
+      <li>Toggle de combo (papas + bebida)</li>
+      <li>Selección de extras con precio</li>
+      <li>Observaciones para cocina (textarea)</li>
+      <li>Cálculo de total del ítem en tiempo real</li>
+    </ul>
+  </div>
+
+  <div class="card avoid-break">
+    <h3>5. 🛒 Carrito</h3>
+    <p>Revisión y edición del pedido antes de pagar.</p>
+    <ul class="feature-list">
+      <li>Lista de ítems con cantidades y extras</li>
+      <li>Input de cupón con validación en DB</li>
+      <li>Descuento visual (MESA10 = 10%)</li>
+      <li>Subtotal / Descuento / Total</li>
+      <li>División de cuenta por comensal</li>
+      <li>Botón eliminar por ítem</li>
+    </ul>
+  </div>
+
+  <div class="card avoid-break">
+    <h3>6. 💳 Pago</h3>
+    <p>Confirmación del pedido y método de pago.</p>
+    <ul class="feature-list">
+      <li>Número de ticket (T-XXXXX)</li>
+      <li>Efectivo / Tarjeta / QR Wallet / POS en mesa</li>
+      <li>Datos de factura: nombre, RUC/CI, email</li>
+      <li>INSERT a Supabase: orders + items + extras + historial</li>
+    </ul>
+  </div>
+
+  <div class="card avoid-break">
+    <h3>7. 📡 Tracking del pedido</h3>
+    <p>Seguimiento en tiempo real con Supabase Realtime.</p>
+    <ul class="feature-list">
+      <li>Barra de progreso de 6 pasos</li>
+      <li>Actualización vía WebSocket</li>
+      <li>Pago → Recibido → Cocina → Cocinando → Listo → Entregado</li>
+      <li>Auto-avance en modo demo (2.8s)</li>
+    </ul>
+  </div>
+
+  <div class="card avoid-break">
+    <h3>8. ⭐ Calificación</h3>
+    <p>Feedback del cliente al finalizar.</p>
+    <ul class="feature-list">
+      <li>Selector interactivo de 1 a 5 estrellas</li>
+      <li>Campo de comentario/sugerencia</li>
+      <li>INSERT en tabla <code>ratings</code></li>
+    </ul>
+  </div>
+
+</div>
+
+<div class="card avoid-break">
+  <h3>Pantallas adicionales</h3>
+  <table>
+    <tr><th>Pantalla</th><th>Qué hace</th><th>Estado</th></tr>
+    <tr><td><strong>Reservas</strong></td><td>Nombre, teléfono, fecha, hora, cantidad de personas, notas especiales. Genera código R-XXXXX</td><td><span class="badge badge-orange">Solo localStorage (sin tabla DB aún)</span></td></tr>
+    <tr><td><strong>División de cuenta</strong></td><td>Asignar ítems a cada comensal, ver total por persona con color coding</td><td><span class="badge badge-green">Funcional</span></td></tr>
+    <tr><td><strong>Modo offline</strong></td><td>Banner de advertencia si no hay conexión. Fallback a datos estáticos para el menú</td><td><span class="badge badge-green">Funcional</span></td></tr>
+  </table>
+</div>
+
+<h3 id="cliente-config">Configuración del cliente</h3>
+<div class="callout callout-info">
+  <strong>Nota:</strong> La app del cliente no tiene panel de configuración propio. Todo el contenido que ve el cliente (menú, precios, logo, horarios) se configura desde el <a href="#admin">Panel Admin → Configuración</a>.
+</div>
+
+<table>
+  <tr><th>Parámetro</th><th>Dónde se configura</th><th>Valor actual</th></tr>
+  <tr><td>Mesa / número de mesa</td><td>Variable <code>TABLA_NUM</code> en index.html línea ~25</td><td>4 (hardcodeado)</td></tr>
+  <tr><td>Restaurant ID</td><td>Variable <code>RESTAURANT_ID</code></td><td><code>00000000-0000-0000-0000-000000000001</code></td></tr>
+  <tr><td>Idiomas disponibles</td><td>Objeto <code>STRINGS</code> en index.html</td><td>ES, EN, PT, DE</td></tr>
+  <tr><td>Combo por defecto</td><td>Constante en código (~línea 180)</td><td>Papas + Bebida 350ml = ₲16.000</td></tr>
+  <tr><td>Credenciales Supabase</td><td><code>public/config.js</code></td><td>Ver config.example.js</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 3. COCINA KDS                                           -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header" id="cocina">
+  <div class="section-icon">🍳</div>
+  <div>
+    <h2 style="color:var(--ink)">Panel de Cocina / KDS — cocina.html</h2>
+    <p>Kitchen Display System. Kanban en tiempo real para el equipo de cocina.</p>
+  </div>
+</div>
+
+<h3 id="cocina-kanban">Tablero Kanban — 4 columnas</h3>
+
+<table>
+  <tr><th>Columna</th><th>Color</th><th>Estado Supabase</th><th>Descripción</th></tr>
+  <tr>
+    <td><strong>NUEVO</strong></td>
+    <td><span class="badge badge-blue">Azul #60a5fa</span></td>
+    <td><code>paid</code>, <code>kitchen_received</code></td>
+    <td>Pedidos nuevos que aún no empezaron a prepararse</td>
+  </tr>
+  <tr>
+    <td><strong>PREPARANDO</strong></td>
+    <td><span class="badge badge-orange">Naranja #fb923c</span></td>
+    <td><code>cooking</code></td>
+    <td>En preparación activa</td>
+  </tr>
+  <tr>
+    <td><strong>LISTO</strong></td>
+    <td><span class="badge badge-green">Verde #4ade80</span></td>
+    <td><code>ready</code></td>
+    <td>Listos para entregar, esperando al mozo</td>
+  </tr>
+  <tr>
+    <td><strong>ENTREGADO</strong></td>
+    <td><span class="badge badge-gray">Gris</span></td>
+    <td><code>delivered</code></td>
+    <td>Últimos 8 pedidos entregados (historial reciente)</td>
+  </tr>
+</table>
+
+<div class="card avoid-break">
+  <h4>Información en cada ticket</h4>
+  <ul class="feature-list">
+    <li>ID del ticket (T-2847) y número de mesa</li>
+    <li>Badge <strong>LLEVAR</strong> amarillo si es pedido para llevar</li>
+    <li>⚠ ALERGIA (pulsante rojo) si las observaciones contienen palabras clave de alergia</li>
+    <li>Barra de urgencia por tiempo: naranja (12 min), rojo (20 min), crítico/vibración (30 min+)</li>
+    <li>Tiempo transcurrido en vivo (actualiza cada 30s)</li>
+    <li>Lista de ítems con cantidad, extras y observaciones de cocina</li>
+    <li>Botón de avance: "→ PREPARANDO" / "✓ LISTO" / "ENTREGADO ✓"</li>
+  </ul>
+</div>
+
+<div class="card avoid-break">
+  <h4>Palabras clave que activan alerta de alergia</h4>
+  <p>El sistema detecta estas palabras en el campo de observaciones:</p>
+  <code>alergi</code> · <code>celíac</code> · <code>gluten</code> · <code>lactosa</code> · <code>intoler</code> · <code>maní</code> · <code>nuez</code> · <code>marisco</code> · <code>camarón</code> · <code>soja</code> · <code>anafilax</code> · <code>sin gluten</code> · <code>sin lactosa</code>
+</div>
+
+<h3 id="cocina-stats">Estadísticas en tiempo real (Panel STATS)</h3>
+<p>Se activa con el botón <strong>STATS</strong> en la barra superior. Datos calculados desde el localStorage diario + Supabase.</p>
+
+<div class="stats-grid">
+  <div class="stat-card"><div class="num">⏱</div><div class="lbl">Tiempo promedio de preparación (minutos)</div></div>
+  <div class="stat-card"><div class="num">📦</div><div class="lbl">Pedidos entregados hoy (total acumulado)</div></div>
+  <div class="stat-card"><div class="num">🔥</div><div class="lbl">En proceso ahora (alerta si ≥8)</div></div>
+  <div class="stat-card"><div class="num">📊</div><div class="lbl">Distribución: &lt;10m / 10-20m / &gt;20m</div></div>
+  <div class="stat-card"><div class="num">📈</div><div class="lbl">Pedidos por hora (últimas 10 horas)</div></div>
+  <div class="stat-card"><div class="num">🚧</div><div class="lbl">Detección de cuello de botella</div></div>
+</div>
+
+<h3 id="cocina-stock">Alertas de Stock</h3>
+<table>
+  <tr><th>Tipo</th><th>Color</th><th>Descripción</th></tr>
+  <tr><td><code>low_stock</code></td><td><span class="badge badge-yellow">⚠ Amarillo</span></td><td>Stock bajo el umbral mínimo</td></tr>
+  <tr><td><code>critical_stock</code></td><td><span class="badge badge-red">🔴 Rojo</span></td><td>Stock crítico, riesgo de quedarse sin</td></tr>
+  <tr><td><code>expiring_soon</code></td><td><span class="badge badge-orange">📅 Naranja</span></td><td>Ingrediente próximo a vencer</td></tr>
+  <tr><td><code>expired</code></td><td><span class="badge badge-red">💀 Rojo</span></td><td>Ingrediente vencido</td></tr>
+</table>
+
+<div class="card avoid-break">
+  <h4>Barra de controles (topbar)</h4>
+  <ul class="feature-list">
+    <li>Nombre del restaurante (desde DB)</li>
+    <li>Contador de pedidos activos con badge rojo si hay urgentes</li>
+    <li>Reloj en vivo HH:MM:SS</li>
+    <li>Botón STATS (toggle panel de estadísticas)</li>
+    <li>Toggle de sonido 🔔/🔕 (beep en nuevo pedido: 880Hz + 1100Hz)</li>
+    <li>Botón de pantalla completa ⛶</li>
+    <li>Indicador de conexión DB (punto verde/rojo)</li>
+    <li>Botón Salir (logout)</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 4. ADMIN PANEL                                          -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header" id="admin">
+  <div class="section-icon">⚙️</div>
+  <div>
+    <h2 style="color:var(--ink)">Panel de Administración — admin.html</h2>
+    <p>Centro de control del restaurante. 11 secciones con gestión completa.</p>
+  </div>
+</div>
+
+<!-- 4.1 DASHBOARD -->
+<h3 id="admin-dashboard">4.1 · Dashboard</h3>
+<div class="card avoid-break">
+  <p>Vista general del estado del restaurante en tiempo real.</p>
+  <table>
+    <tr><th>KPI</th><th>Descripción</th></tr>
+    <tr><td>Total de pedidos (hoy)</td><td>Conteo de orders del día</td></tr>
+    <tr><td>Ingresos totales (₲)</td><td>Suma de <code>orders.total</code> donde status = delivered/paid</td></tr>
+    <tr><td>Ticket promedio</td><td>Promedio de <code>orders.total</code></td></tr>
+    <tr><td>Delivery vs en local</td><td>Distribución <code>order_type</code>: local vs llevar</td></tr>
+    <tr><td>Pedidos recientes</td><td>Últimos 50 pedidos con estado y badge de color</td></tr>
+    <tr><td>Gráfico 7 días</td><td>Tendencia de pedidos en la última semana</td></tr>
+    <tr><td>Ítems más pedidos</td><td>Ranking por frecuencia en <code>order_items</code></td></tr>
+    <tr><td>Horarios pico</td><td>Distribución de pedidos por hora del día</td></tr>
+  </table>
+</div>
+
+<!-- 4.2 PEDIDOS -->
+<h3 id="admin-pedidos">4.2 · Pedidos</h3>
+<div class="card avoid-break">
+  <p>Gestión completa de todos los pedidos con filtros y control de estado.</p>
+  <ul class="feature-list">
+    <li>Tabla con: número de ticket, estado, mesa, total, método de pago, cliente</li>
+    <li>Filtros por estado: Todos / Draft / Confirmed / Paid / Cooking / Ready / Delivered / Cancelled</li>
+    <li>Panel de detalle al hacer click: ítems, extras, historial de estados con timestamps, info del cliente</li>
+  </ul>
+  <h4>Acciones disponibles por estado</h4>
+  <table>
+    <tr><th>Estado actual</th><th>Acción disponible</th><th>Nuevo estado</th></tr>
+    <tr><td><code>paid</code></td><td>→ Iniciar preparación</td><td><code>cooking</code></td></tr>
+    <tr><td><code>cooking</code></td><td>✓ Marcar listo</td><td><code>ready</code></td></tr>
+    <tr><td><code>ready</code></td><td>✓ Entregar</td><td><code>delivered</code></td></tr>
+    <tr><td>Cualquiera</td><td>✕ Cancelar</td><td><code>cancelled</code></td></tr>
+  </table>
+</div>
+
+<!-- 4.3 MENÚ -->
+<h3 id="admin-menu">4.3 · Menú</h3>
+<div class="card avoid-break">
+  <p>Gestión completa del menú: categorías, ítems, extras, imágenes y disponibilidad.</p>
+  <div class="card-grid">
+    <div>
+      <h4>Gestión de categorías</h4>
+      <ul class="feature-list">
+        <li>Listar categorías activas</li>
+        <li>Agregar nueva categoría (nombre)</li>
+        <li>Orden de visualización</li>
+        <li>Activar/desactivar categoría</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Gestión de ítems</h4>
+      <ul class="feature-list">
+        <li>Grid/tabla de productos</li>
+        <li>Nombre, descripción, precio (₲)</li>
+        <li>Categoría, tag de promo (2×1, −10%, Chef ★)</li>
+        <li>Upload de imagen (WebP, Supabase Storage)</li>
+        <li>Toggle disponible / no disponible</li>
+        <li>Editar y eliminar</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Gestión de extras</h4>
+      <ul class="feature-list">
+        <li>Extras vinculados por ítem</li>
+        <li>Nombre del extra + precio adicional (₲)</li>
+        <li>Agregar y eliminar extras</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- 4.4 MESAS -->
+<h3 id="admin-mesas">4.4 · Mesas</h3>
+<div class="card avoid-break">
+  <p>Configuración de las mesas físicas y sus tokens QR.</p>
+  <ul class="feature-list">
+    <li>Cards por mesa: número, capacidad, zona, token QR</li>
+    <li>Indicador si la mesa tiene pedido activo</li>
+    <li>Filtro por zona (guardado en localStorage)</li>
+    <li>Gestión de zonas (etiquetas personalizadas)</li>
+    <li>Agregar mesa: número + capacidad (2-8) + nombre de zona</li>
+    <li>Editar y eliminar mesas</li>
+    <li>QR token único generado automáticamente por Supabase</li>
+  </ul>
+  <div class="callout callout-info">
+    <strong>Generación de QR:</strong> El QR token está en la tabla <code>tables.qr_token</code>. La URL del QR sería <code>https://tuapp.vercel.app/?mesa=4&token={qr_token}</code>. La generación visual del QR para imprimir es una funcionalidad pendiente de la Fase 2.
+  </div>
+</div>
+
+<!-- 4.5 PERSONAL -->
+<h3 id="admin-personal">4.5 · Personal</h3>
+<div class="card avoid-break">
+  <p>Gestión del equipo de trabajo y sus roles de acceso.</p>
+  <table>
+    <tr><th>Rol</th><th>Color</th><th>Acceso a</th></tr>
+    <tr><td><code>cocina</code></td><td><span class="badge badge-orange">Naranja</span></td><td>cocina.html</td></tr>
+    <tr><td><code>admin</code></td><td><span class="badge badge-blue">Azul</span></td><td>admin.html + cocina.html</td></tr>
+    <tr><td><code>superadmin</code></td><td><span class="badge badge-purple">Violeta</span></td><td>Todos los paneles</td></tr>
+    <tr><td><code>waiter</code></td><td><span class="badge badge-green">Verde</span></td><td>(Rol preparado, panel pendiente Fase 2)</td></tr>
+  </table>
+  <ul class="feature-list">
+    <li>Tabla con usuario, nombre, rol, fecha de creación</li>
+    <li>Dropdown para cambiar el rol por usuario</li>
+  </ul>
+</div>
+
+<!-- 4.6 CLIENTES -->
+<h3 id="admin-clientes">4.6 · Clientes</h3>
+<div class="card avoid-break">
+  <p>Análisis del comportamiento de los clientes basado en historial de pedidos.</p>
+  <ul class="feature-list">
+    <li>Clientes frecuentes (pedidos repetidos por teléfono/RUC)</li>
+    <li>Gasto total acumulado por cliente</li>
+    <li>Ítems favoritos por cliente</li>
+    <li>Contactos de teléfono de los pedidos</li>
+  </ul>
+</div>
+
+<!-- 4.7 FINANZAS -->
+<h3 id="admin-finanzas">4.7 · Finanzas</h3>
+<div class="card avoid-break">
+  <p>Reporte financiero con filtros de período.</p>
+  <table>
+    <tr><th>Dato</th><th>Fuente</th></tr>
+    <tr><td>Ingresos totales (₲)</td><td>Suma <code>orders.total</code> por período</td></tr>
+    <tr><td>Cantidad de pedidos</td><td>Count <code>orders</code> por período</td></tr>
+    <tr><td>Ticket promedio</td><td>Avg <code>orders.total</code></td></tr>
+    <tr><td>Desglose por método de pago</td><td>Count por <code>orders.payment_method</code>: efectivo / tarjeta / qr / pos</td></tr>
+    <tr><td>Ingresos delivery vs en local</td><td>Por <code>orders.order_type</code></td></tr>
+    <tr><td>Total descuentos aplicados</td><td>Suma <code>orders.discount_amount</code></td></tr>
+    <tr><td>Cupones usados</td><td>Análisis de <code>orders.coupon_code</code></td></tr>
+  </table>
+  <h4>Períodos disponibles</h4>
+  <ul class="feature-list">
+    <li>Últimos 7 días</li>
+    <li>Últimos 30 días</li>
+    <li>Rango personalizado (date picker)</li>
+  </ul>
+</div>
+
+<!-- 4.8 MARKETING -->
+<h3 id="admin-marketing">4.8 · Marketing y Cupones</h3>
+<div class="card avoid-break">
+  <p>Creación y gestión de cupones de descuento.</p>
+  <table>
+    <tr><th>Campo del cupón</th><th>Descripción</th></tr>
+    <tr><td>Código</td><td>Texto único (ej: MESA10)</td></tr>
+    <tr><td>Tipo de descuento</td><td><code>percentage</code> (%) o <code>fixed</code> (₲ fijo)</td></tr>
+    <tr><td>Valor del descuento</td><td>Número (% o monto en ₲)</td></tr>
+    <tr><td>Monto mínimo de pedido</td><td>Validado en el carrito del cliente</td></tr>
+    <tr><td>Máximo de usos</td><td>Límite total de veces que se puede usar</td></tr>
+    <tr><td>Fecha de vencimiento</td><td>Date picker</td></tr>
+    <tr><td>Estado</td><td>Toggle activo/inactivo</td></tr>
+  </table>
+  <ul class="feature-list">
+    <li>Lista de cupones con estadísticas de uso</li>
+    <li>Formulario para crear nuevo cupón</li>
+    <li>Toggle para activar/desactivar cada cupón</li>
+  </ul>
+</div>
+
+<!-- 4.9 RATINGS -->
+<h3 id="admin-ratings">4.9 · Calificaciones</h3>
+<div class="card avoid-break">
+  <ul class="feature-list">
+    <li>Tabla completa de todas las calificaciones recibidas</li>
+    <li>Estrellas (1-5) con código de color (verde ≥4, amarillo 3, rojo &lt;3)</li>
+    <li>Texto del comentario del cliente</li>
+    <li>Fecha y hora de la calificación</li>
+    <li>Pedido asociado (order_number)</li>
+    <li>Promedio general de estrellas</li>
+  </ul>
+</div>
+
+<!-- 4.10 STOCK -->
+<h3 id="admin-stock">4.10 · Stock e Inventario</h3>
+<div class="card avoid-break">
+  <p>Módulo completo de gestión de ingredientes. 4 sub-pestañas.</p>
+
+  <h4>Pestaña A: Inventario</h4>
+  <ul class="feature-list">
+    <li>Lista de ingredientes con nombre, categoría, unidad</li>
+    <li>Stock actual y umbral mínimo</li>
+    <li>Costo por unidad</li>
+    <li>Badge de nivel: <span class="badge badge-green">OK</span> <span class="badge badge-yellow">Bajo</span> <span class="badge badge-red">Crítico</span> <span class="badge badge-gray">Sin stock</span></li>
+    <li>Agregar nuevo ingrediente (nombre, unidad, stock inicial, mínimo, costo)</li>
+    <li>Editar y eliminar ingredientes</li>
+  </ul>
+
+  <h4>Pestaña B: Cargar Stock</h4>
+  <ul class="feature-list">
+    <li>Selector de ingrediente (con stock actual visible)</li>
+    <li>Cantidad a cargar + unidad</li>
+    <li>Fecha de vencimiento</li>
+    <li>Número de lote (batch ID)</li>
+    <li>Costo por unidad (para cálculo de costo de ventas)</li>
+    <li>Notas adicionales</li>
+  </ul>
+
+  <h4>Pestaña C: Recetas</h4>
+  <ul class="feature-list">
+    <li>Vincular ingredientes a ítems del menú</li>
+    <li>Cantidad requerida por ítem + unidad</li>
+    <li>Al confirmarse un pedido: descuento automático del stock</li>
+    <li>Tabla: ítem de menú → ingrediente → cantidad → unidad</li>
+  </ul>
+
+  <h4>Pestaña D: Movimientos</h4>
+  <ul class="feature-list">
+    <li>Historial de últimas 100 transacciones</li>
+    <li>Fecha, ingrediente, tipo (carga / uso)</li>
+    <li>Verde (+) para cargas, rojo (−) para usos</li>
+  </ul>
+
+  <h4>Sección: Alertas activas</h4>
+  <ul class="feature-list">
+    <li>Lista de alertas sin resolver</li>
+    <li>Botón "Marcar como resuelta" por alerta</li>
+  </ul>
+</div>
+
+<!-- 4.11 CONFIG -->
+<h3 id="admin-config">4.11 · Configuración del Restaurante</h3>
+<div class="card avoid-break">
+  <p>Toda la información pública del local y personalización visual.</p>
+  <table>
+    <tr><th>Campo</th><th>Descripción</th><th>Tabla DB</th></tr>
+    <tr><td>Nombre</td><td>Nombre del restaurante</td><td><code>restaurants.name</code></td></tr>
+    <tr><td>Dirección</td><td>Dirección física</td><td><code>restaurants.address</code></td></tr>
+    <tr><td>Teléfono</td><td>Número de contacto</td><td><code>restaurants.phone</code></td></tr>
+    <tr><td>Instagram</td><td>Handle de Instagram</td><td><code>restaurants.instagram</code></td></tr>
+    <tr><td>Website</td><td>URL del sitio web</td><td><code>restaurants.website</code></td></tr>
+    <tr><td>Logo (iniciales)</td><td>2 letras para el círculo del logo (ej: LH)</td><td><code>restaurants.logo_initials</code></td></tr>
+    <tr><td>Imagen de portada</td><td>Upload de foto (WebP, Supabase Storage)</td><td><code>restaurants.cover_image_url</code></td></tr>
+    <tr><td>Estilo de portada</td><td>Toggle: claro / oscuro</td><td><code>restaurants.cover_style</code></td></tr>
+    <tr><td>Zona horaria</td><td>Dropdown (default: America/Asuncion)</td><td><code>restaurants.timezone</code></td></tr>
+    <tr><td>Horarios de atención</td><td>Por día: apertura y cierre. Agregar/quitar días</td><td>JSON en <code>restaurants</code></td></tr>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 5. SUPERADMIN                                           -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header" id="superadmin">
+  <div class="section-icon">👑</div>
+  <div>
+    <h2 style="color:var(--ink)">Panel SuperAdmin — superadmin.html</h2>
+    <p>Gestión de la plataforma Mesa App multi-restaurante. Solo para el equipo de Mesa App.</p>
+  </div>
+</div>
+
+<div class="callout callout-warning">
+  <strong>Acceso restringido:</strong> Solo los usuarios con rol <code>superadmin</code> acceden a este panel. Es para administrar la plataforma completa, no un restaurante individual.
+</div>
+
+<div class="card-grid">
+  <div class="card avoid-break">
+    <h3>📊 Overview de plataforma</h3>
+    <ul class="feature-list">
+      <li>KPI: Restaurantes activos vs total</li>
+      <li>MRR (Monthly Recurring Revenue) en USD</li>
+      <li>Pedidos hoy en todos los locales</li>
+      <li>Alertas: suscripciones por vencer en ≤7 días</li>
+      <li>Tabla resumen: local / plan / estado / días restantes / pedidos 30d / rating</li>
+    </ul>
+  </div>
+  <div class="card avoid-break">
+    <h3>🏪 Restaurantes</h3>
+    <ul class="feature-list">
+      <li>Lista completa con info del dueño</li>
+      <li>Estado: Activo / Trial / Suspendido / Inactivo</li>
+      <li>Ciudad, país, email, teléfono</li>
+      <li>Fecha de onboarding y notas internas</li>
+      <li>Cambiar estado del restaurante</li>
+      <li>Agregar notas sobre el cliente</li>
+    </ul>
+  </div>
+  <div class="card avoid-break">
+    <h3>💳 Planes y Suscripciones</h3>
+    <ul class="feature-list">
+      <li>Planes: Starter ($29), Pro ($59), Enterprise ($119)</li>
+      <li>Estado: activo / trial / suspendido / vencido</li>
+      <li>Fecha de inicio y vencimiento</li>
+      <li>Auto-renovación (on/off)</li>
+      <li>Método de pago registrado</li>
+      <li>Días restantes con badge de color</li>
+    </ul>
+  </div>
+  <div class="card avoid-break">
+    <h3>📋 Historial de eventos</h3>
+    <ul class="feature-list">
+      <li>Log de: Alta, Renovación, Vencimiento, Cambio de estado, Nota, Cambio de plan</li>
+      <li>Filtrable por restaurante o tipo de evento</li>
+      <li>Fecha y descripción de cada evento</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 6. LOGIN                                                -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<h2 id="login">6. Login — login.html</h2>
+<div class="card avoid-break">
+  <p>Pantalla de acceso unificada para todo el personal del restaurante.</p>
+  <ul class="feature-list">
+    <li>Formulario: usuario + contraseña</li>
+    <li>Consulta RPC <code>get_user_email</code> para obtener el email interno por username</li>
+    <li>Autenticación con Supabase Auth (email/password)</li>
+    <li>Redirige automáticamente según el rol:<br>
+      <code>superadmin</code> → superadmin.html · <code>admin</code> → admin.html · <code>cocina/waiter</code> → cocina.html</li>
+    <li>Manejo de sesiones activas (si ya hay sesión, redirige sin login)</li>
+    <li>Mensajes de error descriptivos</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 7. BASE DE DATOS                                        -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header" id="database">
+  <div class="section-icon">🗄️</div>
+  <div>
+    <h2 style="color:var(--ink)">Base de Datos — Todas las Tablas</h2>
+    <p>20 tablas en Supabase PostgreSQL. RLS habilitado en todas.</p>
+  </div>
+</div>
+
+<h3>Tablas principales del sistema</h3>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">restaurants</span>
+    <span class="db-table-desc">Info del local</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col db-col-pk">id (UUID PK)</span>
+    <span class="db-col">name</span>
+    <span class="db-col">address</span>
+    <span class="db-col">phone</span>
+    <span class="db-col">instagram</span>
+    <span class="db-col">website</span>
+    <span class="db-col">logo_initials</span>
+    <span class="db-col">cover_image_url</span>
+    <span class="db-col">cover_style</span>
+    <span class="db-col">timezone</span>
+    <span class="db-col">is_active</span>
+    <span class="db-col">opening_hours (JSON)</span>
+  </div>
+</div>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">tables</span>
+    <span class="db-table-desc">Mesas físicas con QR único</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col db-col-pk">id (UUID PK)</span>
+    <span class="db-col db-col-fk">restaurant_id (FK)</span>
+    <span class="db-col">number (INT)</span>
+    <span class="db-col">qr_token (UNIQUE)</span>
+    <span class="db-col">capacity</span>
+    <span class="db-col">is_active</span>
+  </div>
+</div>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">orders</span>
+    <span class="db-table-desc">Pedido principal — tabla central del sistema</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col db-col-pk">id (UUID PK)</span>
+    <span class="db-col db-col-fk">restaurant_id (FK)</span>
+    <span class="db-col db-col-fk">table_id (FK)</span>
+    <span class="db-col">order_number (UNIQUE TEXT)</span>
+    <span class="db-col">order_type (local|llevar)</span>
+    <span class="db-col">status (draft→cancelled)</span>
+    <span class="db-col">subtotal</span>
+    <span class="db-col">discount_amount</span>
+    <span class="db-col">coupon_code</span>
+    <span class="db-col">total</span>
+    <span class="db-col">payment_method</span>
+    <span class="db-col">customer_name</span>
+    <span class="db-col">customer_ruc</span>
+    <span class="db-col">customer_email</span>
+    <span class="db-col">language</span>
+    <span class="db-col">notes</span>
+    <span class="db-col">created_at</span>
+    <span class="db-col">completed_at</span>
+  </div>
+</div>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">order_items</span>
+    <span class="db-table-desc">Ítems del pedido (snapshot de nombre y precio al momento del pedido)</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col db-col-pk">id (UUID PK)</span>
+    <span class="db-col db-col-fk">order_id (FK)</span>
+    <span class="db-col db-col-fk">item_id (FK)</span>
+    <span class="db-col">item_name</span>
+    <span class="db-col">quantity</span>
+    <span class="db-col">unit_price</span>
+    <span class="db-col">total_price</span>
+    <span class="db-col">observations</span>
+  </div>
+</div>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">order_item_extras</span>
+    <span class="db-table-desc">Extras seleccionados por ítem</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col db-col-pk">id (UUID PK)</span>
+    <span class="db-col db-col-fk">order_item_id (FK)</span>
+    <span class="db-col">extra_name</span>
+    <span class="db-col">extra_price</span>
+  </div>
+</div>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">order_status_history</span>
+    <span class="db-table-desc">Log inmutable de todos los cambios de estado de un pedido</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col db-col-pk">id (UUID PK)</span>
+    <span class="db-col db-col-fk">order_id (FK)</span>
+    <span class="db-col">status</span>
+    <span class="db-col">changed_at</span>
+    <span class="db-col">changed_by (customer|kitchen|system)</span>
+  </div>
+</div>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">menu_categories / menu_items / menu_item_extras</span>
+    <span class="db-table-desc">Estructura del menú</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col">categories: id, restaurant_id, name, sort_order, is_active</span><br/>
+    <span class="db-col">items: id, category_id, name, description, price_guarani, promo_tag, image_url, is_available, sort_order</span><br/>
+    <span class="db-col">extras: id, item_id, name, price_guarani</span>
+  </div>
+</div>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">coupons</span>
+    <span class="db-table-desc">Cupones de descuento</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col db-col-pk">id (UUID PK)</span>
+    <span class="db-col db-col-fk">restaurant_id (FK)</span>
+    <span class="db-col">code (UNIQUE)</span>
+    <span class="db-col">discount_type (percentage|fixed)</span>
+    <span class="db-col">discount_value</span>
+    <span class="db-col">min_order_amount</span>
+    <span class="db-col">is_active</span>
+    <span class="db-col">used_count</span>
+    <span class="db-col">max_uses</span>
+    <span class="db-col">valid_until</span>
+  </div>
+</div>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">ratings</span>
+    <span class="db-table-desc">Calificaciones de clientes</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col db-col-pk">id (UUID PK)</span>
+    <span class="db-col db-col-fk">order_id, restaurant_id, table_id (FKs)</span>
+    <span class="db-col">stars (1-5)</span>
+    <span class="db-col">comment</span>
+    <span class="db-col">created_at</span>
+  </div>
+</div>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">waiter_calls</span>
+    <span class="db-table-desc">Llamadas al mozo desde la app del cliente</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col db-col-pk">id (UUID PK)</span>
+    <span class="db-col db-col-fk">restaurant_id, table_id, order_id (FKs)</span>
+    <span class="db-col">status (pending|attended)</span>
+    <span class="db-col">created_at</span>
+    <span class="db-col">attended_at</span>
+  </div>
+</div>
+
+<div class="db-table avoid-break">
+  <div class="db-table-header">
+    <span class="db-table-name">profiles</span>
+    <span class="db-table-desc">Perfiles de empleados vinculados a Supabase Auth</span>
+  </div>
+  <div class="db-table-cols">
+    <span class="db-col db-col-pk">id (UUID PK)</span>
+    <span class="db-col db-col-fk">user_id (FK → auth.users)</span>
+    <span class="db-col">username</span>
+    <span class="db-col">display_name</span>
+    <span class="db-col">role (cocina|admin|superadmin|waiter)</span>
+    <span class="db-col">created_at</span>
+  </div>
+</div>
+
+<h3>Tablas de inventario</h3>
+<table>
+  <tr><th>Tabla</th><th>Descripción</th><th>Campos clave</th></tr>
+  <tr><td><code>ingredients</code></td><td>Ingredientes del stock</td><td>name, category, unit, stock_quantity, min_threshold, cost_per_unit</td></tr>
+  <tr><td><code>recipes</code></td><td>Relación ítem → ingredientes necesarios</td><td>menu_item_id, ingredient_id, quantity_required, unit</td></tr>
+  <tr><td><code>stock_movements</code></td><td>Log de cargas y usos de stock</td><td>ingredient_id, movement_type (load|use), quantity, batch_id</td></tr>
+  <tr><td><code>stock_alerts</code></td><td>Alertas generadas automáticamente</td><td>alert_type, current_value, resolved_at</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 8. ESTADÍSTICAS                                         -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header" id="estadisticas">
+  <div class="section-icon">📊</div>
+  <div>
+    <h2 style="color:var(--ink)">Datos y Estadísticas Disponibles</h2>
+    <p>Todo lo que el sistema puede calcular y mostrar en sus paneles actuales.</p>
+  </div>
+</div>
+
+<h3>Estadísticas de ventas (Admin → Dashboard + Finanzas)</h3>
+<table>
+  <tr><th>Métrica</th><th>Granularidad</th><th>Dónde se ve</th></tr>
+  <tr><td>Total de pedidos</td><td>Hoy / 7d / 30d / custom</td><td>Dashboard, Finanzas</td></tr>
+  <tr><td>Ingresos totales (₲)</td><td>Hoy / 7d / 30d / custom</td><td>Dashboard, Finanzas</td></tr>
+  <tr><td>Ticket promedio</td><td>Por período</td><td>Dashboard, Finanzas</td></tr>
+  <tr><td>Distribución delivery vs local</td><td>Por período</td><td>Dashboard, Finanzas</td></tr>
+  <tr><td>Desglose por método de pago</td><td>Por período</td><td>Finanzas</td></tr>
+  <tr><td>Descuentos aplicados</td><td>Por período</td><td>Finanzas</td></tr>
+  <tr><td>Pedidos cancelados</td><td>Por período</td><td>Pedidos</td></tr>
+  <tr><td>Top ítems más pedidos</td><td>Histórico</td><td>Dashboard</td></tr>
+  <tr><td>Pedidos por hora del día</td><td>Histórico</td><td>Dashboard</td></tr>
+  <tr><td>Tendencia 7 días</td><td>Diaria</td><td>Dashboard</td></tr>
+</table>
+
+<h3>Estadísticas de cocina (cocina.html → STATS)</h3>
+<table>
+  <tr><th>Métrica</th><th>Fuente</th><th>Persistencia</th></tr>
+  <tr><td>Tiempo promedio de preparación</td><td>Calculado entre paid y delivered</td><td>localStorage diario</td></tr>
+  <tr><td>Pedidos entregados hoy</td><td>Conteo en cocina</td><td>localStorage diario</td></tr>
+  <tr><td>Pedidos en proceso</td><td>Real-time Supabase</td><td>En vivo</td></tr>
+  <tr><td>Distribución de tiempos (&lt;10m / 10-20m / &gt;20m)</td><td>Historial diario</td><td>localStorage diario</td></tr>
+  <tr><td>Pedidos por hora (últimas 10h)</td><td>Historial diario</td><td>localStorage diario</td></tr>
+  <tr><td>Detección de cuello de botella</td><td>Análisis de columnas</td><td>Calculado en vivo</td></tr>
+</table>
+
+<div class="callout callout-warning">
+  <strong>Limitación actual:</strong> Las estadísticas de cocina se guardan en <code>localStorage</code> del navegador. Se pierden si se limpia el browser o se cambia de dispositivo. Para Fase 2, mover a la tabla <code>order_status_history</code> que ya tiene todos los timestamps necesarios.
+</div>
+
+<h3>Estadísticas de clientes (Admin → Clientes + Ratings)</h3>
+<table>
+  <tr><th>Dato</th><th>Fuente</th></tr>
+  <tr><td>Frecuencia de visitas</td><td>Agrupado por customer_name o customer_ruc</td></tr>
+  <tr><td>Gasto total acumulado</td><td>Suma de orders.total por cliente</td></tr>
+  <tr><td>Ítems favoritos</td><td>Más frecuentes en order_items por cliente</td></tr>
+  <tr><td>Rating promedio del local</td><td>Avg(ratings.stars)</td></tr>
+  <tr><td>Distribución de estrellas</td><td>Count por rating.stars</td></tr>
+  <tr><td>Comentarios recientes</td><td>ratings.comment ordenado por fecha</td></tr>
+</table>
+
+<h3>Estadísticas de stock (Admin → Stock)</h3>
+<table>
+  <tr><th>Dato</th><th>Descripción</th></tr>
+  <tr><td>Nivel de stock por ingrediente</td><td>Comparación stock_quantity vs min_threshold</td></tr>
+  <tr><td>Costo de ingredientes en stock</td><td>stock_quantity × cost_per_unit</td></tr>
+  <tr><td>Alertas activas</td><td>Count por tipo de alerta</td></tr>
+  <tr><td>Historial de movimientos</td><td>Últimas 100 transacciones con tipo y cantidad</td></tr>
+  <tr><td>Ingredientes próximos a vencer</td><td>Basado en expiry_date en stock_movements</td></tr>
+</table>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 9. GUIA DE CONFIGURACIÓN                                -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header" id="configuracion-guia">
+  <div class="section-icon">🔧</div>
+  <div>
+    <h2 style="color:var(--ink)">Guía de Configuración Paso a Paso</h2>
+    <p>Cómo configurar cada aspecto del sistema desde cero.</p>
+  </div>
+</div>
+
+<h3>Cómo cambiar la foto de portada</h3>
+<div class="config-steps">
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Ir a Admin → Configuración</h4>
+      <p>Login en <code>/login.html</code> con usuario admin, luego click en "Configuración" en el sidebar.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Sección "Imagen de portada"</h4>
+      <p>Hacer click en el área de upload. Seleccionar imagen en formato WebP, JPG o PNG. Se recomienda 1200×400px mínimo.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>La imagen se sube a Supabase Storage</h4>
+      <p>El sistema hace upsert en el bucket de storage y guarda la URL en <code>restaurants.cover_image_url</code>.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Elegir estilo de portada</h4>
+      <p>Toggle "claro/oscuro" controla el contraste del texto sobre la imagen. Guardar cambios.</p>
+    </div>
+  </div>
+</div>
+
+<h3>Cómo agregar un ítem al menú</h3>
+<div class="config-steps">
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Admin → Menú → Nuevo ítem</h4>
+      <p>Hacer click en el botón "+" para abrir el modal de creación.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Completar los campos</h4>
+      <p>Nombre, descripción, precio en guaraníes, categoría, tag de promo (opcional), imagen.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Agregar extras (opcional)</h4>
+      <p>Después de crear el ítem, editar y agregar extras: nombre del extra + precio adicional en ₲.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Verificar disponibilidad</h4>
+      <p>El toggle de disponibilidad controla si aparece en la app del cliente. Desactivarlo temporalmente si no hay stock.</p>
+    </div>
+  </div>
+</div>
+
+<h3>Cómo crear un cupón de descuento</h3>
+<div class="config-steps">
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Admin → Marketing → Nuevo cupón</h4>
+      <p>Completar: código único (ej: VERANO25), tipo (porcentaje o monto fijo), valor.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Configurar restricciones</h4>
+      <p>Pedido mínimo, máximo de usos totales, fecha de vencimiento (opcional).</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Activar el cupón</h4>
+      <p>El toggle de activo/inactivo permite activar o pausar el cupón en cualquier momento sin eliminarlo.</p>
+    </div>
+  </div>
+</div>
+
+<h3>Cómo crear un usuario para el personal</h3>
+<div class="config-steps">
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Crear el usuario en Supabase Dashboard</h4>
+      <p>Ir a Supabase → Authentication → Users → "Invite user". Ingresar el email del empleado.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Insertar el perfil en la tabla profiles</h4>
+      <p>En el SQL Editor de Supabase ejecutar:<br>
+      <code>INSERT INTO profiles (user_id, username, display_name, role) VALUES ('UUID_DEL_USUARIO', 'nombreusuario', 'Nombre Completo', 'cocina');</code></p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>El empleado setea su contraseña</h4>
+      <p>Recibirá un email de Supabase para completar el registro. Luego accede por <code>/login.html</code>.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Cambiar rol desde Admin → Personal</h4>
+      <p>Una vez creado, el admin puede cambiar el rol del usuario desde el dropdown en la sección Personal.</p>
+    </div>
+  </div>
+</div>
+
+<h3>Cómo configurar los horarios de atención</h3>
+<div class="config-steps">
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Admin → Configuración → Horarios</h4>
+      <p>Verás filas por día de la semana con campos de apertura y cierre.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Editar los horarios por día</h4>
+      <p>Cambiar las horas de apertura y cierre. Agregar o quitar días usando los botones + y −.</p>
+    </div>
+  </div>
+  <div class="config-step">
+    <div class="config-step-body">
+      <h4>Guardar</h4>
+      <p>Los horarios se guardan en <code>restaurants</code> como JSON y se muestran en la pantalla de Perfil del cliente.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 10. FASE 2                                              -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header" id="fase2">
+  <div class="section-icon">🚀</div>
+  <div>
+    <h2 style="color:var(--ink)">Fase 2 — Nuevos Paneles e Ideas</h2>
+    <p>Propuestas para la siguiente etapa del sistema, con análisis de valor y complejidad.</p>
+  </div>
+</div>
+
+<!-- CAJA -->
+<div class="phase-card priority-1 avoid-break">
+  <h3>💰 Panel de Caja <span class="priority-badge pri-1">Prioridad Alta</span></h3>
+  <p>El panel más urgente para el negocio. Gestiona el flujo de dinero durante el turno de trabajo.</p>
+
+  <h4>Funcionalidades propuestas</h4>
+  <ul class="feature-list">
+    <li><strong>Apertura de caja:</strong> Monto inicial en efectivo (fondo), nombre del cajero, hora de apertura</li>
+    <li><strong>Cobro de pedidos:</strong> Lista de pedidos con estado "paid" listos para cobrar; confirmar cobro por método de pago</li>
+    <li><strong>Registro de ingresos manuales:</strong> Cobros fuera del sistema (delivery externo, otros)</li>
+    <li><strong>Registro de egresos:</strong> Gastos durante el turno (compras de insumos, propinas al staff, etc.)</li>
+    <li><strong>Cierre de caja (Arqueo):</strong> Suma por método de pago, diferencia entre esperado y contado, firma digital</li>
+    <li><strong>Reporte de turno:</strong> PDF con resumen: ingresos, egresos, diferencia, pedidos procesados</li>
+    <li><strong>Historial de cierres:</strong> Ver arqueos anteriores por fecha</li>
+    <li><strong>Descuentos manuales:</strong> El cajero puede aplicar descuento a un pedido (con motivo registrado)</li>
+  </ul>
+
+  <h4>Tablas DB necesarias</h4>
+  <table>
+    <tr><th>Tabla nueva</th><th>Campos</th></tr>
+    <tr><td><code>cash_sessions</code></td><td>id, restaurant_id, opened_by, closed_by, opened_at, closed_at, initial_amount, final_amount_counted, status (open|closed)</td></tr>
+    <tr><td><code>cash_movements</code></td><td>id, session_id, type (income|expense), amount, payment_method, description, created_by, created_at</td></tr>
+  </table>
+</div>
+
+<!-- MOZO -->
+<div class="phase-card priority-1 avoid-break">
+  <h3>🧑‍🍽️ Panel del Mozo <span class="priority-badge pri-1">Prioridad Alta</span></h3>
+  <p>App para el mozo en el piso. Ve las mesas, toma pedidos y atiende llamadas.</p>
+
+  <h4>Funcionalidades propuestas</h4>
+  <ul class="feature-list">
+    <li><strong>Mapa de mesas:</strong> Vista visual de todas las mesas con estado (libre, ocupada, esperando, tiene pedido listo)</li>
+    <li><strong>Llamadas al mozo:</strong> Notificación en tiempo real cuando un cliente llama desde la app (tabla <code>waiter_calls</code> ya existe)</li>
+    <li><strong>Tomar pedido en mesa:</strong> Crear pedido directamente desde el panel (útil para clientes que no usan el QR)</li>
+    <li><strong>Ver pedidos activos por mesa:</strong> Click en mesa → ver ítems pendientes</li>
+    <li><strong>Marcar pedido como entregado</strong> desde el mapa de mesas</li>
+    <li><strong>Solicitar cobro:</strong> Enviar mesa a caja para que el cajero procese</li>
+    <li><strong>Notas de mesa:</strong> Registrar observaciones (cliente VIP, cumpleaños, etc.)</li>
+  </ul>
+
+  <h4>Rol existente</h4>
+  <div class="callout callout-tip">
+    El rol <code>waiter</code> ya existe en la tabla <code>profiles</code> y el login ya lo soporta. Solo falta crear el archivo <code>waiter.html</code>.
+  </div>
+</div>
+
+<!-- DELIVERY -->
+<div class="phase-card priority-2 avoid-break">
+  <h3>🛵 Panel de Delivery <span class="priority-badge pri-2">Prioridad Media</span></h3>
+  <p>Gestión de pedidos para llevar y delivery a domicilio.</p>
+
+  <h4>Funcionalidades propuestas</h4>
+  <ul class="feature-list">
+    <li><strong>Cola de pedidos "llevar":</strong> Vista separada de pedidos <code>order_type = 'llevar'</code></li>
+    <li><strong>Asignación de repartidor:</strong> Asignar pedido a un repartidor de la lista</li>
+    <li><strong>Tracking de delivery:</strong> Estado: preparando / en camino / entregado</li>
+    <li><strong>Tiempo estimado de entrega</strong> configurable por zona</li>
+    <li><strong>Dirección de entrega:</strong> Campo adicional en el pedido para domicilio</li>
+    <li><strong>Reporte de repartidores:</strong> Pedidos entregados por repartidor, tiempo promedio</li>
+  </ul>
+
+  <h4>Cambios en DB necesarios</h4>
+  <p>Agregar a <code>orders</code>: campo <code>delivery_address</code>, <code>delivery_fee</code>, <code>assigned_driver_id</code>. Nueva tabla <code>drivers</code>.</p>
+</div>
+
+<!-- DISPLAY CLIENTE -->
+<div class="phase-card priority-2 avoid-break">
+  <h3>📺 Display del Cliente (Customer Facing Display) <span class="priority-badge pri-2">Prioridad Media</span></h3>
+  <p>Pantalla visible al cliente desde el mostrador. Muestra el estado de su pedido.</p>
+
+  <h4>Funcionalidades propuestas</h4>
+  <ul class="feature-list">
+    <li>Pantalla dividida en dos columnas: "En preparación" y "Listos para retirar"</li>
+    <li>Cada ticket muestra solo su número (T-2847), sin detalles privados</li>
+    <li>Sonido/animación cuando un pedido pasa a "listo"</li>
+    <li>Modo vertical (pantalla de televisor) y horizontal</li>
+    <li>Logo y branding del restaurante siempre visible</li>
+    <li>Sin login requerido (pantalla dedicada, URL secreta)</li>
+  </ul>
+
+  <h4>Implementación</h4>
+  <p>Archivo <code>display.html</code> con suscripción Realtime a <code>orders</code>. Sin auth. Acceso por URL con token secreto <code>?token=XXXXXX</code>.</p>
+</div>
+
+<!-- RESERVAS -->
+<div class="phase-card priority-2 avoid-break">
+  <h3>📅 Módulo de Reservas completo <span class="priority-badge pri-2">Prioridad Media</span></h3>
+  <p>Las reservas del cliente se guardan hoy solo en localStorage. Completar la integración con DB.</p>
+
+  <h4>Funcionalidades propuestas</h4>
+  <ul class="feature-list">
+    <li><strong>Tabla <code>reservations</code> en DB:</strong> name, phone, date, time, guests, notes, status, confirmation_number, restaurant_id</li>
+    <li><strong>Admin → Reservas:</strong> Calendario de reservas del día, confirmar/cancelar reservas, notas internas</li>
+    <li><strong>Notificación al cliente:</strong> SMS o WhatsApp con el número de confirmación (via Twilio o similar)</li>
+    <li><strong>Bloqueo de mesas:</strong> Reserva pone mesa como "reservada" hasta la hora acordada</li>
+    <li><strong>Recordatorio automático:</strong> 2h antes de la reserva, mensaje al cliente</li>
+  </ul>
+</div>
+
+<!-- QR GENERATOR -->
+<div class="phase-card priority-2 avoid-break">
+  <h3>🔲 Generador de QR por Mesa <span class="priority-badge pri-2">Prioridad Media</span></h3>
+  <p>Generar e imprimir el código QR físico de cada mesa.</p>
+
+  <h4>Funcionalidades propuestas</h4>
+  <ul class="feature-list">
+    <li>Admin → Mesas → Botón "Generar QR" por mesa</li>
+    <li>URL del QR: <code>https://lahuaca.vercel.app/?mesa=4&token={qr_token}</code></li>
+    <li>Vista de impresión con logo del restaurante + número de mesa + QR</li>
+    <li>Descarga como PNG o PDF para imprimir</li>
+    <li>Opción de regenerar token (invalida QR anterior)</li>
+  </ul>
+
+  <h4>Implementación</h4>
+  <p>Librería <code>qrcode.js</code> desde CDN. Canvas para renderizar. Sin backend adicional.</p>
+</div>
+
+<!-- ANALYTICS AVANZADO -->
+<div class="phase-card priority-3 avoid-break">
+  <h3>📈 Analytics Avanzado <span class="priority-badge pri-3">Prioridad Baja</span></h3>
+  <p>Profundizar las estadísticas existentes con métricas de negocio más sofisticadas.</p>
+
+  <ul class="feature-list">
+    <li><strong>Cohort analysis:</strong> Retención de clientes semana a semana</li>
+    <li><strong>Análisis de menú:</strong> Matriz popularidad vs rentabilidad (estilo Boston Matrix)</li>
+    <li><strong>Predicción de demanda:</strong> Basada en historial (ítems que más se piden por día/hora)</li>
+    <li><strong>Costo de plato:</strong> Costo de ingredientes según recetas vs precio de venta → margen por plato</li>
+    <li><strong>Reporte de pérdidas de stock:</strong> Diferencia entre stock esperado (según ventas) y stock real</li>
+    <li><strong>Mapa de calor de mesas:</strong> Qué mesas generan más ingresos, cuáles tienen peores ratings</li>
+  </ul>
+</div>
+
+<!-- AUTH COCINA -->
+<div class="phase-card priority-1 avoid-break">
+  <h3>🔐 Seguridad: Auth obligatorio en Cocina y Admin <span class="priority-badge pri-1">Prioridad Alta</span></h3>
+  <p>Actualmente cualquiera que tenga la URL puede acceder a cocina.html y admin.html.</p>
+
+  <ul class="feature-list">
+    <li>Verificar sesión de Supabase al cargar cocina.html y admin.html</li>
+    <li>Redirigir a login.html si no hay sesión activa</li>
+    <li>Verificar que el rol del usuario coincida con el panel (cocina solo ve cocina.html)</li>
+    <li>Session timeout configurable (ej: 8 horas, un turno de trabajo)</li>
+    <li>Log de accesos: quién inició sesión, cuándo, desde qué dispositivo</li>
+  </ul>
+
+  <div class="callout callout-danger">
+    <strong>Importante:</strong> Esta es la brecha de seguridad más crítica del sistema actual. Antes de lanzar a producción con clientes reales, se debe implementar.
+  </div>
+</div>
+
+<!-- PAGOS REALES -->
+<div class="phase-card priority-3 avoid-break">
+  <h3>💳 Pagos Reales Integrados <span class="priority-badge pri-3">Prioridad Baja</span></h3>
+  <p>Integrar con gateways de pago paraguayos para cobros digitales en la app.</p>
+
+  <ul class="feature-list">
+    <li><strong>Bancard:</strong> Pago con tarjeta Visa/Mastercard/Cabal paraguaya</li>
+    <li><strong>Tigo Money API:</strong> Cobro via billetera Tigo Money</li>
+    <li><strong>Personal Pay:</strong> Billetera digital de Personal</li>
+    <li><strong>Webhook de confirmación:</strong> El gateway confirma pago → Supabase actualiza status a <code>paid</code></li>
+    <li><strong>Factura electrónica SIFEN:</strong> Integración con el sistema del SET Paraguay (requisito fiscal)</li>
+  </ul>
+
+  <div class="callout callout-info">
+    <strong>Recomendación:</strong> Empezar con Bancard ya que tiene la mayor adopción en Paraguay. La integración requiere contrato comercial con Bancard y un servidor con IP fija para el webhook.
+  </div>
+</div>
+
+<!-- NOTIFICACIONES -->
+<div class="phase-card priority-2 avoid-break">
+  <h3>🔔 Notificaciones Push <span class="priority-badge pri-2">Prioridad Media</span></h3>
+  <p>Alertas proactivas para el staff y los clientes.</p>
+
+  <ul class="feature-list">
+    <li><strong>Cliente:</strong> Push cuando su pedido está listo ("Tu pedido T-2847 está listo")</li>
+    <li><strong>Admin:</strong> Alerta si stock crítico, pedido con muchos minutos sin atender</li>
+    <li><strong>Mozo:</strong> Notificación de llamada al mozo desde la mesa</li>
+    <li>Via Web Push API (sin app nativa requerida) o WhatsApp Business API</li>
+  </ul>
+</div>
+
+<!-- NO HACER -->
+<div class="phase-card skip avoid-break">
+  <h3>🚫 Qué NO hacer en Fase 2 <span class="priority-badge pri-skip">Postponer o eliminar</span></h3>
+
+  <ul class="feature-list">
+    <li><strong>App nativa (iOS/Android):</strong> La PWA es suficiente para el cliente. El costo de mantenimiento de apps nativas no se justifica en esta etapa.</li>
+    <li><strong>Multi-idioma en admin/cocina:</strong> El staff habla español. El ROI es mínimo.</li>
+    <li><strong>Integración con redes sociales:</strong> Publicar menú en Instagram automáticamente, etc. Distracción del core.</li>
+    <li><strong>IA para predecir pedidos:</strong> No hay suficiente data histórica aún. Esperar al menos 6 meses de operación.</li>
+    <li><strong>Marketplace de restaurantes:</strong> Complejidad altísima. Mesa App es B2B, no Pedidos Ya. Mantener el foco.</li>
+    <li><strong>Loyalty program (puntos/millas):</strong> Requiere identificación de clientes que aún no tenemos bien implementada.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- 11. RECOMENDACIONES                                     -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-break"></div>
+<div class="section-header" id="recomendaciones">
+  <div class="section-icon">🎯</div>
+  <div>
+    <h2 style="color:var(--ink)">Recomendaciones y Prioridades</h2>
+    <p>Plan de acción ordenado por impacto para el negocio.</p>
+  </div>
+</div>
+
+<h3>Roadmap sugerido Fase 2</h3>
+
+<table>
+  <tr>
+    <th>#</th>
+    <th>Funcionalidad</th>
+    <th>Impacto</th>
+    <th>Complejidad</th>
+    <th>Tiempo estimado</th>
+  </tr>
+  <tr>
+    <td><strong>1</strong></td>
+    <td>🔐 Auth obligatorio en Cocina + Admin</td>
+    <td><span class="badge badge-red">Crítico para prod</span></td>
+    <td>Baja</td>
+    <td>1-2 días</td>
+  </tr>
+  <tr>
+    <td><strong>2</strong></td>
+    <td>🔲 Generador de QR por Mesa</td>
+    <td><span class="badge badge-red">Bloqueante para operación</span></td>
+    <td>Baja</td>
+    <td>1 día</td>
+  </tr>
+  <tr>
+    <td><strong>3</strong></td>
+    <td>🧑‍🍽️ Panel del Mozo</td>
+    <td><span class="badge badge-orange">Alto</span></td>
+    <td>Media</td>
+    <td>3-5 días</td>
+  </tr>
+  <tr>
+    <td><strong>4</strong></td>
+    <td>💰 Panel de Caja + Arqueos</td>
+    <td><span class="badge badge-orange">Alto</span></td>
+    <td>Media-Alta</td>
+    <td>5-7 días</td>
+  </tr>
+  <tr>
+    <td><strong>5</strong></td>
+    <td>📅 Reservas en DB (completar la feature)</td>
+    <td><span class="badge badge-yellow">Medio</span></td>
+    <td>Baja-Media</td>
+    <td>2-3 días</td>
+  </tr>
+  <tr>
+    <td><strong>6</strong></td>
+    <td>📺 Display Cliente (Customer Facing Display)</td>
+    <td><span class="badge badge-yellow">Medio</span></td>
+    <td>Baja</td>
+    <td>1-2 días</td>
+  </tr>
+  <tr>
+    <td><strong>7</strong></td>
+    <td>🛵 Panel de Delivery</td>
+    <td><span class="badge badge-yellow">Medio</span></td>
+    <td>Media</td>
+    <td>4-6 días</td>
+  </tr>
+  <tr>
+    <td><strong>8</strong></td>
+    <td>💳 Pagos reales (Bancard)</td>
+    <td><span class="badge badge-blue">Comercial</span></td>
+    <td>Alta</td>
+    <td>2-3 semanas + contrato</td>
+  </tr>
+</table>
+
+<div class="card avoid-break">
+  <h3>Dependencias críticas antes de producción</h3>
+  <ul class="feature-list">
+    <li>Leer <code>?mesa=X&token=Y</code> desde la URL del QR (actualmente hardcodeado en index.html)</li>
+    <li>Auth obligatorio en cocina.html y admin.html (actualmente acceso libre por URL)</li>
+    <li>Generación e impresión de QRs por mesa</li>
+    <li>Validar RLS de Supabase en producción (actualmente permisivo para demo)</li>
+  </ul>
+</div>
+
+<div class="card avoid-break">
+  <h3>Arquitectura recomendada para Fase 2</h3>
+  <ul class="feature-list">
+    <li>Mantener el stack actual (HTML + React CDN). No migrar a Vite/Next.js aún — el overhead no vale la pena para esta escala</li>
+    <li>Extraer componentes comunes (sidebar, auth check, header) en un archivo <code>components.js</code> compartido</li>
+    <li>Crear un archivo <code>auth.js</code> reutilizable con la lógica de login/logout/session check</li>
+    <li>Para el panel de caja y mozo, seguir el mismo patrón de cocina.html (Realtime subscription + polling cada 3s)</li>
+    <li>Considerar mover las stats de cocina de localStorage a una tabla en Supabase para analytics históricos reales</li>
+  </ul>
+</div>
+
+<div class="card avoid-break">
+  <h3>Convenciones a mantener</h3>
+  <ul class="feature-list">
+    <li>Un solo archivo HTML por panel (no dividir en múltiples archivos)</li>
+    <li>React CDN con Babel Standalone — sin import/export ni bundler</li>
+    <li>Todos los estados de pedido pasan por <code>order_status_history</code> (log inmutable)</li>
+    <li>Los precios siempre en guaraníes (₲) como enteros</li>
+    <li>Los IDs de restaurante siempre presentes en cada query (multi-tenant desde el inicio)</li>
+    <li>Modo DEMO funcional sin Supabase (fallback a datos hardcodeados)</li>
+  </ul>
+</div>
+
+<hr/>
+
+<div style="text-align:center; padding: 40px 0; color: var(--dim); font-size: 12px;">
+  Mesa App v1.0 · Documentación del Sistema · La Huaca, Asunción, Paraguay<br/>
+  Generado: Mayo 2026 · Próxima actualización: tras completar Fase 2
+</div>
+
+</div><!-- /container -->
+</body>
+</html>

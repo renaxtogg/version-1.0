@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Caja — La Huaca</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<title>Mythos · Caja</title>
 <link rel="stylesheet" href="design-system.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
@@ -13,19 +12,19 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{background:#0A0A0A;font-family:'Plus Jakarta Sans',sans-serif;min-height:100vh;color:#fff}
+  body{background:#F5F5F7;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:#1D1D1F;-webkit-font-smoothing:antialiased}
   ::-webkit-scrollbar{width:4px;height:4px}
-  ::-webkit-scrollbar-track{background:transparent}
-  ::-webkit-scrollbar-thumb{background:#222;border-radius:4px}
-  input,textarea,select{font-family:inherit;background:#111;border:1px solid #222;color:#fff;outline:none;border-radius:6px}
-  input:focus,textarea:focus,select:focus{border-color:#444}
+  ::-webkit-scrollbar-track{background:#F5F5F7}
+  ::-webkit-scrollbar-thumb{background:#D2D2D7;border-radius:4px}
+  input,textarea,select{font-family:inherit;background:#FFFFFF;border:1px solid #D2D2D7;color:#1D1D1F;outline:none;border-radius:8px}
+  input:focus,textarea:focus,select:focus{border-color:#000000}
   button{font-family:inherit;cursor:pointer}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
   @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
   .page{animation:fadeIn .15s ease}
-  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #222;border-top-color:#888;border-radius:50%;vertical-align:middle}
+  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #D2D2D7;border-top-color:#1D1D1F;border-radius:50%;vertical-align:middle}
   .pulse{animation:pulse 2s ease infinite}
 </style>
 </head>
@@ -97,22 +96,17 @@ const fmtDur = (from,to=new Date()) => {
   return h>0?`${h}h ${m}m`:`${m}m`;
 };
 const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',kitchen_received:'En cocina',cooking:'Preparando',ready:'Listo',delivered:'Entregado',cancelled:'Cancelado'};
-const SC = {paid:'#f59e0b',kitchen_received:'#3b82f6',cooking:'#f97316',ready:'#22c55e',delivered:'#888',cancelled:'#ef4444'};
+const SC = {paid:'#FF9500',kitchen_received:'#007AFF',cooking:'#FF9500',ready:'#34C759',delivered:'#86868B',cancelled:'#FF3B30'};
 
 /* ── PALETA ── */
-const C_DARK = {
-  bg:'#0A0A0A',sidebar:'#0D0D0D',surface:'#111',card:'#161616',
-  border:'#1a1a1a',bs:'#2a2a2a',
-  white:'#fff',ink:'#e8e8e8',mid:'#888',dim:'#444',
-  green:'#22c55e',orange:'#f97316',red:'#ef4444',yellow:'#f59e0b',blue:'#3b82f6',purple:'#a855f7',cyan:'#06b6d4',
-};
 const C_LIGHT = {
-  bg:'#f5f5f5',sidebar:'#ffffff',surface:'#ffffff',card:'#f0f0f0',
-  border:'#e0e0e0',bs:'#cccccc',
-  white:'#111111',ink:'#111111',mid:'#555555',dim:'#888888',
-  green:'#16a34a',orange:'#ea580c',red:'#dc2626',yellow:'#ca8a04',blue:'#2563eb',purple:'#9333ea',cyan:'#0891b2',
+  bg:'#F5F5F7',sidebar:'#FFFFFF',surface:'#FFFFFF',card:'#FFFFFF',
+  border:'#D2D2D7',bs:'#86868B',
+  white:'#FFFFFF',ink:'#1D1D1F',mid:'#6E6E73',dim:'#86868B',
+  green:'#34C759',orange:'#FF9500',red:'#FF3B30',yellow:'#FF9500',blue:'#007AFF',purple:'#000000',cyan:'#007AFF',
 };
-const C = {...((localStorage.getItem('mesa_theme')||'dark')==='light' ? C_LIGHT : C_DARK)};
+const C_DARK = C_LIGHT;
+const C = {...C_LIGHT};
 
 /* ── TOAST ── */
 const _toast = {fn:null};
@@ -126,7 +120,7 @@ function ToastContainer(){
   return(
     <div style={{position:'fixed',bottom:20,right:20,zIndex:9999,display:'flex',flexDirection:'column',gap:8,pointerEvents:'none'}}>
       {items.map(it=>(
-        <div key={it.id} style={{background:it.ok?'#0e1e0e':'#1e0e0e',border:`1px solid ${it.ok?'#1a4a1a':'#4a1a1a'}`,color:it.ok?'#4ade80':'#f87171',padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp 200ms ease',minWidth:220,maxWidth:340}}>
+        <div key={it.id} style={{background:it.ok?'#F0FAF3':'#FFF1F0',border:`1px solid ${it.ok?'#A3D9B1':'#FFB3AD'}`,color:it.ok?'#1A7E37':'#C0190F',padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp 200ms ease',minWidth:220,maxWidth:340}}>
           {it.ok?'✓ ':'✕ '}{it.msg}
         </div>
       ))}
@@ -139,10 +133,10 @@ function Modal({title,onClose,children,width=460}){
   useEffect(()=>{const fn=e=>e.key==='Escape'&&onClose();window.addEventListener('keydown',fn);return()=>window.removeEventListener('keydown',fn);},[onClose]);
   return(
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.88)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
-      <div style={{background:'#111',border:`1px solid ${C.bs}`,borderRadius:12,padding:28,width:'100%',maxWidth:width,maxHeight:'92vh',overflowY:'auto',animation:'slideUp 200ms ease'}}>
+      <div style={{background:'#F5F5F7',border:`1px solid ${C.bs}`,borderRadius:12,padding:28,width:'100%',maxWidth:width,maxHeight:'92vh',overflowY:'auto',animation:'slideUp 200ms ease'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
           <div style={{fontSize:16,fontWeight:700}}>{title}</div>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'#555',fontSize:24,lineHeight:1,padding:0}}>×</button>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#6E6E73',fontSize:24,lineHeight:1,padding:0}}>×</button>
         </div>
         {children}
       </div>
@@ -151,13 +145,13 @@ function Modal({title,onClose,children,width=460}){
 }
 
 /* ── SHARED COMPONENTS ── */
-function Lbl({children,required}){return<label style={{fontSize:10,color:'#555',display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}{required&&<span style={{color:C.red,marginLeft:3}}>*</span>}</label>;}
-function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}){return<input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'9px 11px',fontSize:14,fontFamily:mono?'JetBrains Mono':'inherit',borderRadius:6,...(rest.style||{})}}/>;}
+function Lbl({children,required}){return<label style={{fontSize:10,color:'#6E6E73',display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}{required&&<span style={{color:C.red,marginLeft:3}}>*</span>}</label>;}
+function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}){return<input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'9px 11px',fontSize:14,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',borderRadius:6,...(rest.style||{})}}/>;}
 function Sel({value,onChange,children,...rest}){return<select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,...(rest.style||{})}}>{children}</select>;}
 function Textarea({value,onChange,placeholder,rows=3}){return<textarea value={value} onChange={onChange} placeholder={placeholder} rows={rows} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,resize:'vertical'}}/>;}
 function Btn({children,onClick,variant='primary',disabled,small,full,style:sx}){
-  const bg=variant==='primary'?C.white:variant==='danger'?'rgba(239,68,68,0.1)':variant==='success'?'rgba(34,197,94,0.12)':variant==='ghost'?'transparent':'rgba(255,255,255,0.06)';
-  const color=variant==='primary'?'#000':variant==='danger'?C.red:variant==='success'?C.green:C.mid;
+  const bg=variant==='primary'?'#000000':variant==='danger'?'rgba(239,68,68,0.1)':variant==='success'?'rgba(34,197,94,0.12)':variant==='ghost'?'transparent':'#F5F5F7';
+  const color=variant==='primary'?'#FFFFFF':variant==='danger'?C.red:variant==='success'?C.green:C.mid;
   const border=variant==='primary'?'none':variant==='danger'?'1px solid rgba(239,68,68,0.3)':variant==='success'?'1px solid rgba(34,197,94,0.3)':`1px solid ${C.border}`;
   return<button onClick={onClick} disabled={disabled} style={{background:bg,border,color,padding:small?'6px 12px':'10px 20px',fontSize:small?12:14,fontWeight:700,borderRadius:6,opacity:disabled?.5:1,width:full?'100%':'auto',...sx}}>{children}</button>;
 }
@@ -165,13 +159,13 @@ function Divider(){return<div style={{height:1,background:C.border,margin:'8px 0
 function KpiMini({label,value,accent,sub}){
   return(
     <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px'}}>
-      <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:4}}>{label}</div>
-      <div style={{fontSize:22,fontWeight:800,fontFamily:'JetBrains Mono',color:accent||C.white,lineHeight:1}}>{value}</div>
-      {sub&&<div style={{fontSize:11,color:'#444',marginTop:4}}>{sub}</div>}
+      <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:4}}>{label}</div>
+      <div style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||C.ink,lineHeight:1}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:'#86868B',marginTop:4}}>{sub}</div>}
     </div>
   );
 }
-function Badge({txt,color='#888'}){
+function Badge({txt,color='#86868B'}){
   return<span style={{background:color+'22',color,border:`1px solid ${color}44`,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4,whiteSpace:'nowrap'}}>{txt}</span>;
 }
 function AlertBox({type='info',children}){
@@ -187,29 +181,29 @@ function DenomGrid({values,onChange,label=''}){
   const total=calcDenomTotal(values);
   return(
     <div>
-      {label&&<div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:10}}>{label}</div>}
+      {label&&<div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:10}}>{label}</div>}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
         {DENOMS.map(d=>(
           <div key={d.v} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px',display:'flex',alignItems:'center',gap:8}}>
             <div style={{flex:1}}>
-              <div style={{fontSize:10,color:'#555',fontWeight:700,marginBottom:2}}>{d.t==='moneda'?'🪙':'💵'} {d.lbl}</div>
+              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:2}}>{d.t==='moneda'?'🪙':'💵'} {d.lbl}</div>
               <input
                 type="number" min="0" step="1"
                 value={values[d.v]||''}
                 onChange={e=>onChange({...values,[d.v]:Math.max(0,parseInt(e.target.value)||0)})}
                 placeholder="0"
-                style={{width:'100%',background:'transparent',border:'none',color:C.white,fontSize:18,fontFamily:'JetBrains Mono',fontWeight:700,outline:'none',padding:0}}
+                style={{width:'100%',background:'transparent',border:'none',color:C.white,fontSize:18,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,outline:'none',padding:0}}
               />
             </div>
-            <div style={{fontSize:11,color:'#444',fontFamily:'JetBrains Mono',textAlign:'right',whiteSpace:'nowrap'}}>
+            <div style={{fontSize:11,color:'#86868B',fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'right',whiteSpace:'nowrap'}}>
               {(values[d.v]||0)>0?fmt((values[d.v]||0)*d.v):''}
             </div>
           </div>
         ))}
       </div>
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <div style={{fontSize:13,color:'#555',fontWeight:700}}>TOTAL CONTADO</div>
-        <div style={{fontSize:28,fontWeight:800,fontFamily:'JetBrains Mono',color:C.green}}>{fmt(total)}</div>
+        <div style={{fontSize:13,color:'#6E6E73',fontWeight:700}}>TOTAL CONTADO</div>
+        <div style={{fontSize:28,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(total)}</div>
       </div>
     </div>
   );
@@ -250,8 +244,8 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
       <div style={{width:'100%',maxWidth:600,animation:'fadeIn .2s ease'}}>
         <div style={{textAlign:'center',marginBottom:28}}>
           <div style={{fontFamily:'DM Serif Display',fontSize:28,marginBottom:6}}>Apertura de Turno</div>
-          <div style={{fontSize:13,color:'#555'}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
-          <div style={{fontSize:13,color:'#444',marginTop:4}}>Cajero: <span style={{color:C.white,fontWeight:700}}>{profile.display_name||profile.username}</span></div>
+          <div style={{fontSize:13,color:'#6E6E73'}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
+          <div style={{fontSize:13,color:'#86868B',marginTop:4}}>Cajero: <span style={{color:C.white,fontWeight:700}}>{profile.display_name||profile.username}</span></div>
         </div>
 
         {turnoAbierto&&(
@@ -322,38 +316,38 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
   return(
     <aside style={{width:220,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
       <div style={{padding:'16px 14px 12px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontFamily:'DM Serif Display',fontSize:15,color:C.white,marginBottom:2}}>Panel de Caja</div>
-        <div style={{fontSize:11,color:'#444'}}>{profile?.display_name||profile?.username}</div>
-        <div style={{fontSize:10,color:'#333',marginTop:2}}>Desde {fmtTime(turno.fecha_apertura)}</div>
+        <div style={{fontFamily:'inherit',fontWeight:800,fontSize:18,color:'#000000',letterSpacing:'-1px',marginBottom:2}}>Mythos</div>
+        <div style={{fontSize:11,fontWeight:500,color:'#6E6E73'}}>Caja · {profile?.display_name||profile?.username}</div>
+        <div style={{fontSize:10,color:'#86868B',marginTop:2}}>Desde {fmtTime(turno.fecha_apertura)}</div>
       </div>
 
       {/* Reloj y duración */}
       <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontFamily:'JetBrains Mono',fontSize:22,fontWeight:700,color:C.white}}>{hora.toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>
-        <div style={{fontSize:10,color:'#444',marginTop:2}}>Turno: {fmtDur(turno.fecha_apertura)}</div>
+        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:22,fontWeight:700,color:C.ink}}>{hora.toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>
+        <div style={{fontSize:10,color:'#86868B',marginTop:2}}>Turno: {fmtDur(turno.fecha_apertura)}</div>
       </div>
 
       {/* Saldo estimado */}
       <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontSize:9,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:6}}>EFECTIVO EN CAJA (est.)</div>
-        <div style={{fontFamily:'JetBrains Mono',fontSize:18,fontWeight:700,color:C.green}}>{fmt(saldoEstimado)}</div>
-        <div style={{fontSize:9,color:'#333',marginTop:4}}>
+        <div style={{fontSize:9,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>EFECTIVO EN CAJA (est.)</div>
+        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:18,fontWeight:700,color:C.green}}>{fmt(saldoEstimado)}</div>
+        <div style={{fontSize:9,color:'#86868B',marginTop:4}}>
           Fondo {fmt(fondoApertura)} + cobros {fmt(efectivoCobros)}
         </div>
       </div>
 
       {/* Stats del turno */}
       <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontSize:9,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:8}}>RESUMEN DEL TURNO</div>
+        <div style={{fontSize:9,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:8}}>RESUMEN DEL TURNO</div>
         <div style={{display:'flex',flexDirection:'column',gap:5}}>
           {[
             {lbl:'Pedidos cobrados',val:cobros.length,color:C.green},
-            {lbl:'Total cobrado',val:fmt(totalCobrado),color:C.white},
+            {lbl:'Total cobrado',val:fmt(totalCobrado),color:C.ink},
             {lbl:'Egresos',val:fmt(totalEgresos),color:C.red},
           ].map(({lbl,val,color})=>(
             <div key={lbl} style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <span style={{fontSize:10,color:'#444'}}>{lbl}</span>
-              <span style={{fontSize:11,fontFamily:'JetBrains Mono',fontWeight:700,color}}>{val}</span>
+              <span style={{fontSize:10,color:'#86868B'}}>{lbl}</span>
+              <span style={{fontSize:11,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color}}>{val}</span>
             </div>
           ))}
         </div>
@@ -365,8 +359,8 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
           <button key={n.id} onClick={()=>setPanel(n.id)} style={{
             display:'flex',alignItems:'center',gap:10,width:'100%',
             padding:'9px 10px',borderRadius:7,border:'none',textAlign:'left',cursor:'pointer',marginBottom:2,
-            background:panel===n.id?'rgba(255,255,255,0.07)':'transparent',
-            color:panel===n.id?C.white:'#444',fontWeight:panel===n.id?700:400,fontSize:13,
+            background:panel===n.id?'rgba(0,0,0,0.06)':'transparent',
+            color:panel===n.id?C.ink:'#86868B',fontWeight:panel===n.id?700:400,fontSize:13,
           }}>
             <span style={{width:18,textAlign:'center',fontSize:14}}>{n.icon}</span>
             <span>{n.lbl}</span>
@@ -375,7 +369,7 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
       </nav>
 
       <div style={{padding:'10px 8px',borderTop:`1px solid ${C.border}`}}>
-        <button onClick={()=>window.location.href='admin.html'} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'7px 10px',borderRadius:6,border:'none',background:'transparent',color:'#555',fontSize:11,cursor:'pointer'}}>
+        <button onClick={()=>window.location.href='admin.html'} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'7px 10px',borderRadius:6,border:'none',background:'transparent',color:'#6E6E73',fontSize:11,cursor:'pointer'}}>
           ← Admin
         </button>
         <button
@@ -383,12 +377,12 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
           title="Cambiar tema"
           style={{marginTop:4,width:'100%',borderRadius:6,padding:'6px 10px',background:C.card,border:`1px solid ${C.bs}`,color:C.mid,fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
         >
-          {document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Claro':'🌙 Oscuro'}
+          Tema
         </button>
         <button
           onClick={cerrarSesion}
           title="Cerrar sesión"
-          style={{marginTop:4,width:'100%',borderRadius:6,padding:'6px 10px',background:'rgba(239,68,68,0.07)',border:'1px solid rgba(239,68,68,0.2)',color:'#ef4444',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
+          style={{marginTop:4,width:'100%',borderRadius:6,padding:'6px 10px',background:'rgba(239,68,68,0.07)',border:'1px solid rgba(239,68,68,0.2)',color:'#FF3B30',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
         >
           ⏻ Cerrar sesión
         </button>
@@ -440,10 +434,10 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
 
       {loading&&<div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
       {!loading&&display.length===0&&(
-        <div style={{textAlign:'center',padding:'60px 0',color:'#333'}}>
+        <div style={{textAlign:'center',padding:'60px 0',color:'#D2D2D7'}}>
           <div style={{fontSize:36,marginBottom:12}}>✓</div>
-          <div style={{fontSize:14,fontWeight:700,color:'#555'}}>No hay pedidos activos</div>
-          <div style={{fontSize:12,color:'#444',marginTop:6}}>Aparecen aquí pedidos en cualquier estado activo (Nuevo, En cocina, Preparando, Listo)</div>
+          <div style={{fontSize:14,fontWeight:700,color:'#6E6E73'}}>No hay pedidos activos</div>
+          <div style={{fontSize:12,color:'#86868B',marginTop:6}}>Aparecen aquí pedidos en cualquier estado activo (Nuevo, En cocina, Preparando, Listo)</div>
         </div>
       )}
       {!loading&&display.length>0&&(
@@ -461,14 +455,14 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                 {yaCobrado&&<div style={{position:'absolute',top:10,right:10,background:C.green+'22',color:C.green,border:`1px solid ${C.green}44`,padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>Cobrado ✓</div>}
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
                   <div>
-                    <div style={{fontSize:13,fontWeight:800,fontFamily:'JetBrains Mono'}}>#{o.order_number}</div>
-                    <div style={{fontSize:12,color:'#666',marginTop:2}}>{mesa}</div>
+                    <div style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace"}}>#{o.order_number}</div>
+                    <div style={{fontSize:12,color:'#6E6E73',marginTop:2}}>{mesa}</div>
                   </div>
-                  <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#666'}/>
+                  <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
                 </div>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <div style={{fontSize:20,fontWeight:800,fontFamily:'JetBrains Mono',color:C.green}}>{fmt(o.total)}</div>
-                  <div style={{fontSize:11,color:espera>30?C.red:espera>15?C.orange:'#555'}}>⏱ {espera}m</div>
+                  <div style={{fontSize:20,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(o.total)}</div>
+                  <div style={{fontSize:11,color:espera>30?C.red:espera>15?C.orange:'#6E6E73'}}>⏱ {espera}m</div>
                 </div>
                 {!yaCobrado&&(
                   <Btn full small style={{marginTop:12}} variant={listo?'success':'secondary'} onClick={e=>{e.stopPropagation();selectOrder(o);}}>
@@ -542,22 +536,22 @@ function CobroModal({order,turno,profile,onClose,onSuccess}){
     <Modal title={`Cobrar pedido #${order.order_number}`} onClose={onClose} width={480}>
       <div style={{marginBottom:16}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
-          <span style={{fontSize:12,color:'#555'}}>{mesa}</span>
-          <Badge txt={SL[order.status]} color={SC[order.status]||'#666'}/>
+          <span style={{fontSize:12,color:'#6E6E73'}}>{mesa}</span>
+          <Badge txt={SL[order.status]} color={SC[order.status]||'#6E6E73'}/>
         </div>
         {items.length>0&&(
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:12}}>
             {items.map(it=>(
               <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}>
                 <span>{it.quantity}× {it.item_name}</span>
-                <span style={{fontFamily:'JetBrains Mono',color:'#555'}}>{fmt(it.unit_price*it.quantity)}</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#6E6E73'}}>{fmt(it.unit_price*it.quantity)}</span>
               </div>
             ))}
           </div>
         )}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderTop:`1px solid ${C.border}`}}>
           <span style={{fontSize:14,fontWeight:700}}>TOTAL</span>
-          <span style={{fontSize:24,fontWeight:800,fontFamily:'JetBrains Mono',color:C.green}}>{fmt(order.total)}</span>
+          <span style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(order.total)}</span>
         </div>
       </div>
 
@@ -566,9 +560,9 @@ function CobroModal({order,turno,profile,onClose,onSuccess}){
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
           {METODOS_PAGO.map(m=>(
             <button key={m.id} onClick={()=>setMetodo(m.id)} style={{
-              padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?C.white:C.border}`,
-              background:metodo===m.id?'rgba(255,255,255,0.1)':'transparent',
-              color:metodo===m.id?C.white:C.mid,fontSize:12,fontWeight:metodo===m.id?700:400,cursor:'pointer',
+              padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?'#000000':C.border}`,
+              background:metodo===m.id?'#000000':'transparent',
+              color:metodo===m.id?'#FFFFFF':C.mid,fontSize:12,fontWeight:metodo===m.id?700:400,cursor:'pointer',
             }}>{m.lbl}</button>
           ))}
         </div>
@@ -582,10 +576,10 @@ function CobroModal({order,turno,profile,onClose,onSuccess}){
             {BILLETES.map(v=>(
               <button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{
                 padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,
-                background:C.card,color:C.white,fontSize:12,fontFamily:'JetBrains Mono',fontWeight:700,cursor:'pointer',
+                background:C.card,color:C.white,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer',
                 transition:'border-color .1s',
               }}
-                onMouseEnter={e=>e.currentTarget.style.borderColor='#444'}
+                onMouseEnter={e=>e.currentTarget.style.borderColor='#86868B'}
                 onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}
               >{v>=1000?`${v/1000}k`:v}</button>
             ))}
@@ -599,7 +593,7 @@ function CobroModal({order,turno,profile,onClose,onSuccess}){
               <Lbl required>MONTO RECIBIDO (₲)</Lbl>
               <Inp type="number" mono value={montoPagado} onChange={e=>setMontoPagado(e.target.value)} placeholder={String(order.total)}/>
             </div>
-            <button onClick={()=>setMontoPagado('0')} title="Limpiar" style={{marginTop:18,padding:'9px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#444',fontSize:13,cursor:'pointer'}}>✕</button>
+            <button onClick={()=>setMontoPagado('0')} title="Limpiar" style={{marginTop:18,padding:'9px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#86868B',fontSize:13,cursor:'pointer'}}>✕</button>
           </div>
           {/* Vuelto */}
           {montoNum>0&&(
@@ -607,9 +601,9 @@ function CobroModal({order,turno,profile,onClose,onSuccess}){
               <div style={{padding:'14px 16px',background:'rgba(34,197,94,0.08)',border:`1px solid rgba(34,197,94,0.3)`,borderRadius:8}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <span style={{fontSize:13,color:'#86efac',fontWeight:700}}>Vuelto a devolver</span>
-                  <span style={{fontFamily:'JetBrains Mono',fontSize:26,fontWeight:800,color:cambio>0?C.green:'#555'}}>{cambio>0?fmt(cambio):'Sin vuelto'}</span>
+                  <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:26,fontWeight:800,color:cambio>0?C.green:'#6E6E73'}}>{cambio>0?fmt(cambio):'Sin vuelto'}</span>
                 </div>
-                {cambio>0&&<div style={{fontSize:11,color:'#555',marginTop:4}}>Recibido {fmt(montoNum)} − Total {fmt(order.total)}</div>}
+                {cambio>0&&<div style={{fontSize:11,color:'#6E6E73',marginTop:4}}>Recibido {fmt(montoNum)} − Total {fmt(order.total)}</div>}
               </div>
             ):(
               <div style={{padding:'10px 14px',background:'rgba(239,68,68,0.08)',border:`1px solid rgba(239,68,68,0.3)`,borderRadius:7}}>
@@ -686,24 +680,24 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
       <AlertBox type="warn">Las cancelaciones quedan registradas con usuario, motivo y timestamp. No se pueden borrar del historial.</AlertBox>
       <div style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:16}}>
         <div>
-          <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>SELECCIONAR PEDIDO A CANCELAR</div>
+          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>SELECCIONAR PEDIDO A CANCELAR</div>
           {loading&&<span className="spin"/>}
-          {!loading&&orders.length===0&&<div style={{color:'#333',fontSize:13,padding:20}}>No hay pedidos activos.</div>}
+          {!loading&&orders.length===0&&<div style={{color:'#D2D2D7',fontSize:13,padding:20}}>No hay pedidos activos.</div>}
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
             {orders.map(o=>{
               const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.customer_name||'Sin mesa';
               const enCocina=['kitchen_received','cooking','ready'].includes(o.status);
               return(
                 <div key={o.id} onClick={()=>setSelected(o)}
-                  style={{background:selected?.id===o.id?'rgba(255,255,255,0.06)':C.surface,border:`1px solid ${selected?.id===o.id?C.white:C.border}`,borderRadius:8,padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  style={{background:selected?.id===o.id?'#F5F5F7':C.surface,border:`1px solid ${selected?.id===o.id?'#000000':C.border}`,borderRadius:8,padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
-                    <div style={{fontSize:13,fontWeight:700,fontFamily:'JetBrains Mono'}}>#{o.order_number}</div>
-                    <div style={{fontSize:11,color:'#555',marginTop:2}}>{mesa}</div>
+                    <div style={{fontSize:13,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace"}}>#{o.order_number}</div>
+                    <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>{mesa}</div>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>
-                    <Badge txt={SL[o.status]} color={SC[o.status]||'#666'}/>
+                    <Badge txt={SL[o.status]} color={SC[o.status]||'#6E6E73'}/>
                     {enCocina&&<Badge txt="⚠ En cocina" color={C.orange}/>}
-                    <span style={{fontFamily:'JetBrains Mono',fontSize:14,fontWeight:700,color:C.red}}>{fmt(o.total)}</span>
+                    <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:14,fontWeight:700,color:C.red}}>{fmt(o.total)}</span>
                   </div>
                 </div>
               );
@@ -712,12 +706,12 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
         </div>
 
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,height:'fit-content'}}>
-          <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>MOTIVO DE CANCELACIÓN</div>
+          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>MOTIVO DE CANCELACIÓN</div>
           {selected?(
             <>
               <div style={{marginBottom:14,padding:'10px 14px',background:C.card,borderRadius:7,border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:12,fontWeight:700}}>#{selected.order_number}</div>
-                <div style={{fontSize:11,color:'#555',marginTop:2}}>{fmt(selected.total)}</div>
+                <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>{fmt(selected.total)}</div>
               </div>
               {['kitchen_received','cooking','ready'].includes(selected.status)&&(
                 <AlertBox type="error">⚠ Pedido ya enviado a cocina. Solo {['admin','superadmin'].includes(profile?.role)?'podés cancelar':'puede cancelarlo un supervisor'}.</AlertBox>
@@ -744,7 +738,7 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
               </Btn>
             </>
           ):(
-            <div style={{color:'#333',fontSize:12,padding:'20px 0',textAlign:'center'}}>← Seleccioná un pedido de la lista</div>
+            <div style={{color:'#D2D2D7',fontSize:12,padding:'20px 0',textAlign:'center'}}>← Seleccioná un pedido de la lista</div>
           )}
         </div>
       </div>
@@ -793,20 +787,20 @@ function IngresosEgresosPanel({turno,profile,movimientos,onMovimiento}){
         <div>
           <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
             {[['egreso','Egresos'],['ingreso_manual','Ingresos manuales']].map(([id,lbl])=>(
-              <button key={id} onClick={()=>setTipo(id)} style={{padding:'8px 14px',fontSize:12,fontWeight:tipo===id?700:400,color:tipo===id?C.white:'#444',background:'none',border:'none',borderBottom:tipo===id?'2px solid #fff':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+              <button key={id} onClick={()=>setTipo(id)} style={{padding:'8px 14px',fontSize:12,fontWeight:tipo===id?700:400,color:tipo===id?C.ink:'#86868B',background:'none',border:'none',borderBottom:tipo===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
             ))}
           </div>
           {historial.length===0?(
-            <div style={{color:'#333',fontSize:13,padding:20,textAlign:'center'}}>Sin registros en este turno</div>
+            <div style={{color:'#D2D2D7',fontSize:13,padding:20,textAlign:'center'}}>Sin registros en este turno</div>
           ):(
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
               {historial.map(m=>(
                 <div key={m.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:600}}>{m.descripcion}</div>
-                    <div style={{fontSize:11,color:'#444',marginTop:2}}>{m.categoria} · {fmtTime(m.created_at)}</div>
+                    <div style={{fontSize:11,color:'#86868B',marginTop:2}}>{m.categoria} · {fmtTime(m.created_at)}</div>
                   </div>
-                  <div style={{fontFamily:'JetBrains Mono',fontSize:15,fontWeight:700,color:tipo==='egreso'?C.red:C.green}}>{tipo==='egreso'?'- ':''}{fmt(m.monto)}</div>
+                  <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:700,color:tipo==='egreso'?C.red:C.green}}>{tipo==='egreso'?'- ':''}{fmt(m.monto)}</div>
                 </div>
               ))}
             </div>
@@ -815,7 +809,7 @@ function IngresosEgresosPanel({turno,profile,movimientos,onMovimiento}){
 
         {/* Formulario */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,height:'fit-content'}}>
-          <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>
+          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>
             {tipo==='egreso'?'REGISTRAR EGRESO':'REGISTRAR INGRESO MANUAL'}
           </div>
           <div style={{marginBottom:12}}>
@@ -977,17 +971,17 @@ function QuejasPanel({turno,profile}){
       )}
 
       {loading&&<span className="spin"/>}
-      {!loading&&quejas.length===0&&<div style={{color:'#333',fontSize:13,padding:20,textAlign:'center'}}>Sin registros en este turno</div>}
+      {!loading&&quejas.length===0&&<div style={{color:'#D2D2D7',fontSize:13,padding:20,textAlign:'center'}}>Sin registros en este turno</div>}
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
         {quejas.map(q=>(
-          <div key={q.id} style={{background:C.surface,border:`1px solid ${tipoColor[q.tipo]||'#333'}44`,borderRadius:8,padding:'12px 14px'}}>
+          <div key={q.id} style={{background:C.surface,border:`1px solid ${tipoColor[q.tipo]||'#D2D2D7'}44`,borderRadius:8,padding:'12px 14px'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                <Badge txt={`${tipoIcon[q.tipo]} ${q.tipo.replace('_',' ')}`} color={tipoColor[q.tipo]||'#666'}/>
-                {q.urgencia&&<Badge txt={q.urgencia} color={urgColor[q.urgencia]||'#666'}/>}
-                {q.categoria&&<Badge txt={q.categoria} color="#555"/>}
+                <Badge txt={`${tipoIcon[q.tipo]} ${q.tipo.replace('_',' ')}`} color={tipoColor[q.tipo]||'#6E6E73'}/>
+                {q.urgencia&&<Badge txt={q.urgencia} color={urgColor[q.urgencia]||'#6E6E73'}/>}
+                {q.categoria&&<Badge txt={q.categoria} color="#6E6E73"/>}
               </div>
-              <span style={{fontSize:11,color:'#333'}}>{fmtTime(q.created_at)}</span>
+              <span style={{fontSize:11,color:'#D2D2D7'}}>{fmtTime(q.created_at)}</span>
             </div>
             <div style={{fontSize:13,color:C.ink,marginBottom:q.compensacion_ofrecida?6:0}}>{q.descripcion}</div>
             {q.compensacion_ofrecida&&(
@@ -1057,29 +1051,29 @@ function RetiroPanel({turno,profile,movimientos,onMovimiento}){
       <div style={{display:'grid',gridTemplateColumns:'1fr 380px',gap:16,alignItems:'start'}}>
         {/* Historial de retiros del turno */}
         <div>
-          <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>RETIROS DE ESTE TURNO</div>
+          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>RETIROS DE ESTE TURNO</div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:14}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-              <span style={{fontSize:11,color:'#555'}}>Efectivo disponible (est.)</span>
-              <span style={{fontFamily:'JetBrains Mono',fontSize:16,fontWeight:700,color:C.green}}>{fmt(saldoEfectivo)}</span>
+              <span style={{fontSize:11,color:'#6E6E73'}}>Efectivo disponible (est.)</span>
+              <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:16,fontWeight:700,color:C.green}}>{fmt(saldoEfectivo)}</span>
             </div>
             <div style={{display:'flex',justifyContent:'space-between'}}>
-              <span style={{fontSize:11,color:'#555'}}>Total retirado hoy</span>
-              <span style={{fontFamily:'JetBrains Mono',fontSize:14,fontWeight:700,color:C.orange}}>{fmt(retirosYa)}</span>
+              <span style={{fontSize:11,color:'#6E6E73'}}>Total retirado hoy</span>
+              <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:14,fontWeight:700,color:C.orange}}>{fmt(retirosYa)}</span>
             </div>
           </div>
           {retirosMov.length===0?(
-            <div style={{color:'#333',fontSize:13,padding:20,textAlign:'center'}}>Sin retiros en este turno</div>
+            <div style={{color:'#D2D2D7',fontSize:13,padding:20,textAlign:'center'}}>Sin retiros en este turno</div>
           ):(
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
               {retirosMov.map(m=>(
                 <div key={m.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:600}}>{m.descripcion}</div>
-                    <div style={{fontSize:11,color:'#444',marginTop:2}}>{m.usuario_nombre} · {fmtTime(m.created_at)}</div>
-                    {m.motivo&&<div style={{fontSize:11,color:'#555',marginTop:1}}>📝 {m.motivo}</div>}
+                    <div style={{fontSize:11,color:'#86868B',marginTop:2}}>{m.usuario_nombre} · {fmtTime(m.created_at)}</div>
+                    {m.motivo&&<div style={{fontSize:11,color:'#6E6E73',marginTop:1}}>📝 {m.motivo}</div>}
                   </div>
-                  <div style={{fontFamily:'JetBrains Mono',fontSize:15,fontWeight:700,color:C.orange}}>- {fmt(m.monto)}</div>
+                  <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:700,color:C.orange}}>- {fmt(m.monto)}</div>
                 </div>
               ))}
             </div>
@@ -1088,7 +1082,7 @@ function RetiroPanel({turno,profile,movimientos,onMovimiento}){
 
         {/* Formulario */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,height:'fit-content'}}>
-          <div style={{fontSize:11,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:14}}>NUEVO RETIRO</div>
+          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>NUEVO RETIRO</div>
           <div style={{marginBottom:12}}>
             <Lbl required>MONTO A RETIRAR (₲)</Lbl>
             <Inp type="number" mono value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})} placeholder="0"/>
@@ -1129,15 +1123,15 @@ function ExtrasModal({item,extras,onClose,onConfirm}){
   const extrasTotal=selectedExtras.reduce((s,e)=>s+Number(e.price_guarani||0),0);
   return(
     <Modal title={item.name} onClose={onClose} width={420}>
-      <div style={{fontFamily:'JetBrains Mono',fontSize:22,fontWeight:800,color:C.green,marginBottom:16}}>{fmt(item.price_guarani)}</div>
+      <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:22,fontWeight:800,color:C.green,marginBottom:16}}>{fmt(item.price_guarani)}</div>
       <div style={{marginBottom:14}}>
-        <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>EXTRAS</div>
+        <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>EXTRAS</div>
         <div style={{display:'flex',flexDirection:'column',gap:6}}>
           {extras.map(ex=>(
             <label key={ex.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',background:sel.includes(ex.id)?'rgba(255,255,255,0.05)':C.card,border:`1px solid ${sel.includes(ex.id)?C.white:C.border}`,borderRadius:7,cursor:'pointer'}}>
               <input type="checkbox" checked={sel.includes(ex.id)} onChange={()=>toggle(ex.id)} style={{width:14,height:14}}/>
               <span style={{flex:1,fontSize:13}}>{ex.name}</span>
-              {Number(ex.price_guarani)>0&&<span style={{fontFamily:'JetBrains Mono',fontSize:12,color:C.green}}>+{fmt(ex.price_guarani)}</span>}
+              {Number(ex.price_guarani)>0&&<span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,color:C.green}}>+{fmt(ex.price_guarani)}</span>}
             </label>
           ))}
         </div>
@@ -1148,7 +1142,7 @@ function ExtrasModal({item,extras,onClose,onConfirm}){
       </div>
       <div style={{background:C.card,borderRadius:7,padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
         <span style={{fontSize:12,color:C.mid}}>Total con extras</span>
-        <span style={{fontFamily:'JetBrains Mono',fontSize:18,fontWeight:800,color:C.green}}>{fmt(Number(item.price_guarani)+extrasTotal)}</span>
+        <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:18,fontWeight:800,color:C.green}}>{fmt(Number(item.price_guarani)+extrasTotal)}</span>
       </div>
       <div style={{display:'flex',gap:8}}>
         <Btn full onClick={()=>onConfirm(selectedExtras,obs)} variant="success">+ Agregar al pedido</Btn>
@@ -1276,9 +1270,9 @@ function TomarPedidoPanel({turno,profile}){
             <button key={t} onClick={()=>{setOrderType(t);setTableId('');setCustomerName('');}} style={{
               padding:'6px 14px',fontSize:12,borderRadius:20,cursor:'pointer',
               fontWeight:orderType===t?700:400,
-              border:`1px solid ${orderType===t?C.white:C.border}`,
-              background:orderType===t?C.white:'transparent',
-              color:orderType===t?'#000':C.mid,
+              border:`1px solid ${orderType===t?'#000000':C.border}`,
+              background:orderType===t?'#000000':'transparent',
+              color:orderType===t?'#FFFFFF':C.mid,
             }}>{lbl}</button>
           ))}
         </div>
@@ -1296,16 +1290,16 @@ function TomarPedidoPanel({turno,profile}){
                 <button key={c.id} onClick={()=>setSelCat(c.id)} style={{
                   padding:'6px 14px',fontSize:12,borderRadius:20,cursor:'pointer',whiteSpace:'nowrap',
                   fontWeight:selCat===c.id?700:400,
-                  border:`1px solid ${selCat===c.id?C.white:C.border}`,
-                  background:selCat===c.id?C.white:'transparent',
-                  color:selCat===c.id?'#000':C.mid,
+                  border:`1px solid ${selCat===c.id?'#000000':C.border}`,
+                  background:selCat===c.id?'#000000':'transparent',
+                  color:selCat===c.id?'#FFFFFF':C.mid,
                 }}>{c.name}</button>
               ))}
             </div>
             {/* Grid de productos — estilo POS con imágenes */}
             <div style={{flex:1,overflowY:'auto',paddingRight:4}}>
               {displayItems.length===0?(
-                <div style={{color:'#555',fontSize:13,padding:20}}>Sin productos disponibles</div>
+                <div style={{color:'#6E6E73',fontSize:13,padding:20}}>Sin productos disponibles</div>
               ):(
                 <div className="ds-product-grid">
                   {displayItems.map(item=>{
@@ -1334,7 +1328,7 @@ function TomarPedidoPanel({turno,profile}){
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
             {/* Config del pedido */}
             <div style={{padding:'14px 16px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-              <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>PEDIDO ACTUAL</div>
+              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>PEDIDO ACTUAL</div>
               {orderType==='dine_in'?(
                 <>
                   <Lbl required>MESA</Lbl>
@@ -1354,7 +1348,7 @@ function TomarPedidoPanel({turno,profile}){
             {/* Ítems */}
             <div style={{flex:1,overflowY:'auto',padding:'10px 14px'}}>
               {cart.length===0?(
-                <div style={{textAlign:'center',padding:'28px 0',color:'#2a2a2a'}}>
+                <div style={{textAlign:'center',padding:'28px 0',color:'#F5F5F7'}}>
                   <div style={{fontSize:30,marginBottom:8}}>🛒</div>
                   <div style={{fontSize:11}}>Tocá un producto para agregarlo</div>
                 </div>
@@ -1365,16 +1359,16 @@ function TomarPedidoPanel({turno,profile}){
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:13,fontWeight:600,lineHeight:1.3}}>{c.item.name}</div>
-                          {c.extras.length>0&&<div style={{fontSize:10,color:'#555',marginTop:2}}>{c.extras.map(e=>e.name).join(', ')}</div>}
+                          {c.extras.length>0&&<div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{c.extras.map(e=>e.name).join(', ')}</div>}
                           {c.observations&&<div style={{fontSize:10,color:C.yellow,marginTop:2}}>📝 {c.observations}</div>}
                         </div>
-                        <div style={{fontFamily:'JetBrains Mono',fontSize:12,color:C.green,whiteSpace:'nowrap'}}>{fmt(c.linePrice*c.quantity)}</div>
+                        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,color:C.green,whiteSpace:'nowrap'}}>{fmt(c.linePrice*c.quantity)}</div>
                       </div>
                       <div style={{display:'flex',alignItems:'center',gap:6,marginTop:8}}>
                         <button onClick={()=>setQty(c.cartId,c.quantity-1)} style={{width:26,height:26,borderRadius:5,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:16,cursor:'pointer',lineHeight:1}}>−</button>
-                        <span style={{fontFamily:'JetBrains Mono',fontWeight:700,fontSize:14,minWidth:20,textAlign:'center'}}>{c.quantity}</span>
+                        <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,fontSize:14,minWidth:20,textAlign:'center'}}>{c.quantity}</span>
                         <button onClick={()=>setQty(c.cartId,c.quantity+1)} style={{width:26,height:26,borderRadius:5,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:16,cursor:'pointer',lineHeight:1}}>+</button>
-                        <button onClick={()=>removeFromCart(c.cartId)} style={{marginLeft:'auto',background:'none',border:'none',color:'#444',cursor:'pointer',fontSize:15,padding:0}}>✕</button>
+                        <button onClick={()=>removeFromCart(c.cartId)} style={{marginLeft:'auto',background:'none',border:'none',color:'#86868B',cursor:'pointer',fontSize:15,padding:0}}>✕</button>
                       </div>
                     </div>
                   ))}
@@ -1386,14 +1380,14 @@ function TomarPedidoPanel({turno,profile}){
             <div style={{padding:'14px 16px',borderTop:`1px solid ${C.border}`,flexShrink:0}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
                 <span style={{fontSize:11,color:C.mid,fontWeight:700}}>{cart.reduce((s,c)=>s+c.quantity,0)} ítem{cart.reduce((s,c)=>s+c.quantity,0)!==1?'s':''}</span>
-                <span style={{fontFamily:'JetBrains Mono',fontSize:22,fontWeight:800,color:C.green}}>{fmt(subtotal)}</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:22,fontWeight:800,color:C.green}}>{fmt(subtotal)}</span>
               </div>
               <div style={{display:'flex',gap:8}}>
                 <Btn full onClick={enviarACocina} disabled={busy||cart.length===0} variant="success">
                   {busy?<><span className="spin"/> Enviando…</>:'→ Enviar a cocina'}
                 </Btn>
                 {cart.length>0&&(
-                  <button onClick={()=>setCart([])} style={{background:'none',border:`1px solid ${C.border}`,color:'#444',borderRadius:6,padding:'0 10px',cursor:'pointer',fontSize:11,flexShrink:0}}>Limpiar</button>
+                  <button onClick={()=>setCart([])} style={{background:'none',border:`1px solid ${C.border}`,color:'#86868B',borderRadius:6,padding:'0 10px',cursor:'pointer',fontSize:11,flexShrink:0}}>Limpiar</button>
                 )}
               </div>
             </div>
@@ -1428,29 +1422,29 @@ function OrderDetailModal({order,onClose}){
   return(
     <Modal title={`Pedido #${order.order_number}`} onClose={onClose} width={440}>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
-        <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#666'}/>
+        <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#6E6E73'}/>
         {order.order_type&&<Badge txt={typeLabel[order.order_type]||order.order_type} color={C.blue}/>}
-        <span style={{fontSize:12,color:'#555'}}>{mesa}</span>
-        <span style={{fontSize:11,color:'#444'}}>⏱ {espera}m</span>
+        <span style={{fontSize:12,color:'#6E6E73'}}>{mesa}</span>
+        <span style={{fontSize:11,color:'#86868B'}}>⏱ {espera}m</span>
       </div>
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:12,minHeight:60}}>
-        {items.length===0&&<div style={{color:'#444',fontSize:12,textAlign:'center',padding:8}}>Cargando ítems…</div>}
+        {items.length===0&&<div style={{color:'#86868B',fontSize:12,textAlign:'center',padding:8}}>Cargando ítems…</div>}
         {items.map(it=>(
           <div key={it.id} style={{marginBottom:8}}>
             <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}>
               <span style={{fontWeight:600}}>{it.quantity}× {it.item_name}</span>
-              <span style={{fontFamily:'JetBrains Mono',color:'#777'}}>{fmt(it.unit_price*it.quantity)}</span>
+              <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#777'}}>{fmt(it.unit_price*it.quantity)}</span>
             </div>
             {it.observations&&<div style={{fontSize:11,color:C.yellow,marginLeft:12}}>📝 {it.observations}</div>}
             {(it.order_item_extras||[]).map(ex=>(
-              <div key={ex.extra_name} style={{fontSize:11,color:'#555',marginLeft:12}}>+ {ex.extra_name}{ex.extra_price>0?` (${fmt(ex.extra_price)})`:''}</div>
+              <div key={ex.extra_name} style={{fontSize:11,color:'#6E6E73',marginLeft:12}}>+ {ex.extra_name}{ex.extra_price>0?` (${fmt(ex.extra_price)})`:''}</div>
             ))}
           </div>
         ))}
       </div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderTop:`1px solid ${C.border}`,marginBottom:14}}>
         <span style={{fontSize:13,fontWeight:700,color:C.mid}}>TOTAL</span>
-        <span style={{fontSize:22,fontWeight:800,fontFamily:'JetBrains Mono',color:C.green}}>{fmt(order.total)}</span>
+        <span style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(order.total)}</span>
       </div>
       <Btn variant="ghost" full onClick={onClose}>Cerrar</Btn>
     </Modal>
@@ -1548,27 +1542,27 @@ function SalonPanel({profile}){
     const sesTotal=sessionTotals[table.id]||0;
     return(
       <div onClick={()=>occ&&loadTableSession(table)} style={{
-        background:occ?'rgba(255,255,255,0.04)':C.surface,
+        background:occ?'#000000':C.surface,
         border:`2px solid ${accent}`,borderRadius:10,padding:14,
         cursor:occ?'pointer':'default',minHeight:110,position:'relative',
         transition:'border-color .2s',
       }}>
         {/* Monto del servicio — visible arriba */}
         {sesTotal>0&&(
-          <div style={{fontSize:10,fontFamily:'JetBrains Mono',fontWeight:700,color:C.green,marginBottom:4,letterSpacing:'-0.3px'}}>
+          <div style={{fontSize:10,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color:C.green,marginBottom:4,letterSpacing:'-0.3px'}}>
             {fmtK(sesTotal)==='0'?'':fmt(sesTotal)}
           </div>
         )}
-        <div style={{fontSize:17,fontWeight:800,color:occ?C.white:'#333'}}>Mesa {table.number}</div>
+        <div style={{fontSize:17,fontWeight:800,color:occ?'#FFFFFF':'#AEAEB2'}}>Mesa {table.number}</div>
         {table.capacity&&<div style={{fontSize:10,color:'#3a3a3a',marginTop:1}}>{table.capacity} pax</div>}
         {occ?(
           <>
-            {order&&<div style={{marginTop:8}}><Badge txt={SL[order.status]} color={SC[order.status]||'#666'}/></div>}
+            {order&&<div style={{marginTop:8}}><Badge txt={SL[order.status]} color={SC[order.status]||'#6E6E73'}/></div>}
             {!order&&<div style={{marginTop:8}}><Badge txt="Servicio activo" color={C.green}/></div>}
-            {order&&<div style={{fontSize:10,color:'#555',marginTop:6}}>⏱ {espera}m · #{order.order_number}</div>}
+            {order&&<div style={{fontSize:10,color:'#6E6E73',marginTop:6}}>⏱ {espera}m · #{order.order_number}</div>}
           </>
         ):(
-          <div style={{color:'#2a2a2a',fontSize:11,marginTop:10,fontWeight:700,letterSpacing:1}}>LIBRE</div>
+          <div style={{color:'#F5F5F7',fontSize:11,marginTop:10,fontWeight:700,letterSpacing:1}}>LIBRE</div>
         )}
       </div>
     );
@@ -1581,32 +1575,32 @@ function SalonPanel({profile}){
     const tipo=typeLabel[order.order_type]||order.order_type||'';
     return(
       <div onClick={()=>setSelOrder(order)} style={{
-        background:C.surface,border:`1px solid ${(SC[order.status]||'#333')}44`,
+        background:C.surface,border:`1px solid ${(SC[order.status]||'#D2D2D7')}44`,
         borderRadius:8,padding:'10px 14px',cursor:'pointer',
         display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,
       }}>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:13,fontWeight:700,fontFamily:'JetBrains Mono',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+          <div style={{fontSize:13,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace",overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
             #{order.order_number}{name}
           </div>
           <div style={{display:'flex',gap:6,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
-            <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#666'}/>
+            <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#6E6E73'}/>
             {tipo&&<Badge txt={tipo} color={C.blue}/>}
-            <span style={{fontSize:10,color:'#555'}}>⏱ {espera}m</span>
+            <span style={{fontSize:10,color:'#6E6E73'}}>⏱ {espera}m</span>
           </div>
         </div>
-        <div style={{fontFamily:'JetBrains Mono',fontSize:15,fontWeight:800,color:C.green,whiteSpace:'nowrap'}}>{fmt(order.total)}</div>
+        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:800,color:C.green,whiteSpace:'nowrap'}}>{fmt(order.total)}</div>
       </div>
     );
   }
 
   const SideSection=({title,list,emptyMsg,accent})=>(
     <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
-      <div style={{fontSize:10,color:accent||'#555',fontWeight:700,letterSpacing:1,marginBottom:10}}>
-        {title} <span style={{color:'#333',fontWeight:400}}>({list.length})</span>
+      <div style={{fontSize:10,color:accent||'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>
+        {title} <span style={{color:'#D2D2D7',fontWeight:400}}>({list.length})</span>
       </div>
       {list.length===0?(
-        <div style={{color:'#2a2a2a',fontSize:12,padding:'8px 0'}}>{emptyMsg}</div>
+        <div style={{color:'#F5F5F7',fontSize:12,padding:'8px 0'}}>{emptyMsg}</div>
       ):(
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
           {list.map(o=><OrderRow key={o.id} order={o}/>)}
@@ -1638,9 +1632,9 @@ function SalonPanel({profile}){
         <div style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:20,alignItems:'start'}}>
           {/* Grid de mesas */}
           <div>
-            <div style={{fontSize:10,color:'#555',fontWeight:700,letterSpacing:1,marginBottom:12}}>MESAS DEL SALÓN</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:12}}>MESAS DEL SALÓN</div>
             {tables.length===0?(
-              <div style={{color:'#333',fontSize:13,padding:20}}>No hay mesas configuradas para este restaurante.</div>
+              <div style={{color:'#D2D2D7',fontSize:13,padding:20}}>No hay mesas configuradas para este restaurante.</div>
             ):(
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(145px,1fr))',gap:10}}>
                 {tables.map(t=><TableCard key={t.id} table={t}/>)}
@@ -1685,24 +1679,24 @@ function SalonPanel({profile}){
             <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:12}}>
               <Badge txt="Ocupada" color={C.green}/>
               {selTable.table.occupied_since&&(
-                <span style={{fontSize:12,color:'#555'}}>Desde {fmtTime(selTable.table.occupied_since)}</span>
+                <span style={{fontSize:12,color:'#6E6E73'}}>Desde {fmtTime(selTable.table.occupied_since)}</span>
               )}
             </div>
-            {selTable.orders.length===0&&<div style={{textAlign:'center',padding:20,color:'#444'}}>Sin órdenes registradas en esta sesión</div>}
+            {selTable.orders.length===0&&<div style={{textAlign:'center',padding:20,color:'#86868B'}}>Sin órdenes registradas en esta sesión</div>}
             {selTable.orders.map((ord,idx)=>(
               <div key={ord.id} style={{marginBottom:14}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
                   <div>
-                    <span style={{fontSize:12,fontWeight:700,fontFamily:'JetBrains Mono'}}>#{ord.order_number}</span>
-                    <Badge txt={SL[ord.status]||ord.status} color={SC[ord.status]||'#666'} />
-                    <span style={{fontSize:11,color:'#555',marginLeft:8}}>⏱ {fmtTime(ord.created_at)}</span>
+                    <span style={{fontSize:12,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace"}}>#{ord.order_number}</span>
+                    <Badge txt={SL[ord.status]||ord.status} color={SC[ord.status]||'#6E6E73'} />
+                    <span style={{fontSize:11,color:'#6E6E73',marginLeft:8}}>⏱ {fmtTime(ord.created_at)}</span>
                   </div>
-                  <span style={{fontFamily:'JetBrains Mono',fontSize:15,fontWeight:800,color:C.green}}>{fmt(ord.total)}</span>
+                  <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:800,color:C.green}}>{fmt(ord.total)}</span>
                 </div>
                 {(ord.order_items||[]).map(it=>(
                   <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,padding:'4px 8px',background:C.card,borderRadius:6,marginBottom:3}}>
-                    <span>{it.quantity}× {it.item_name}{it.observations?<span style={{color:'#555',fontSize:11}}> — {it.observations}</span>:null}</span>
-                    <span style={{fontFamily:'JetBrains Mono',color:'#555'}}>{fmt(it.unit_price*it.quantity)}</span>
+                    <span>{it.quantity}× {it.item_name}{it.observations?<span style={{color:'#6E6E73',fontSize:11}}> — {it.observations}</span>:null}</span>
+                    <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#6E6E73'}}>{fmt(it.unit_price*it.quantity)}</span>
                   </div>
                 ))}
                 {idx<selTable.orders.length-1&&<Divider/>}
@@ -1711,7 +1705,7 @@ function SalonPanel({profile}){
             {selTable.orders.length>0&&(
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderTop:`1px solid ${C.border}`,marginTop:8}}>
                 <span style={{fontSize:13,fontWeight:700,color:C.mid}}>TOTAL DEL SERVICIO</span>
-                <span style={{fontSize:24,fontWeight:800,fontFamily:'JetBrains Mono',color:C.green}}>
+                <span style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>
                   {fmt(selTable.orders.reduce((s,o)=>s+Number(o.total||0),0))}
                 </span>
               </div>
@@ -1781,7 +1775,7 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
       {/* Steps */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:20}}>
         {[['1','Resumen'],['2','Conteo'],['3','Confirmar']].map(([n,lbl])=>(
-          <button key={n} onClick={()=>setStep(parseInt(n))} style={{padding:'8px 16px',fontSize:12,fontWeight:step>=parseInt(n)?700:400,color:step>=parseInt(n)?C.white:'#333',background:'none',border:'none',borderBottom:step===parseInt(n)?'2px solid #fff':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>
+          <button key={n} onClick={()=>setStep(parseInt(n))} style={{padding:'8px 16px',fontSize:12,fontWeight:step>=parseInt(n)?700:400,color:step>=parseInt(n)?C.white:'#D2D2D7',background:'none',border:'none',borderBottom:step===parseInt(n)?'2px solid #fff':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>
             {n}. {lbl}
           </button>
         ))}
@@ -1800,20 +1794,20 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
               {lbl:'Retiros parciales',val:fmt(totalRetiros),color:C.orange},
               {lbl:'Ingresos manuales',val:fmt(totalIngresosMan),color:C.yellow},
               {lbl:'Fondo de apertura',val:fmt(fondoApertura),color:C.mid},
-              {lbl:'Efectivo esperado',val:fmt(esperado),color:C.white},
+              {lbl:'Efectivo esperado',val:fmt(esperado),color:C.ink},
             ].map(({lbl,val,color})=>(
               <KpiMini key={lbl} label={lbl} value={val} accent={color}/>
             ))}
           </div>
           <div style={{display:'flex',gap:8}}>
-            <div style={{marginRight:'auto',fontSize:12,color:'#555',alignSelf:'center'}}>
+            <div style={{marginRight:'auto',fontSize:12,color:'#6E6E73',alignSelf:'center'}}>
               Turno activo desde {fmtDT(turno.fecha_apertura)} · {fmtDur(turno.fecha_apertura)}
             </div>
             <div>
               <Lbl>TIPO DE REPORTE</Lbl>
               <div style={{display:'flex',gap:8}}>
                 {[['Z','Reporte Z (cierre definitivo)'],['X','Reporte X (corte sin cerrar)']].map(([t,lbl])=>(
-                  <button key={t} onClick={()=>setTipoReporte(t)} style={{padding:'8px 14px',fontSize:12,borderRadius:6,border:`1px solid ${tipoReporte===t?C.white:C.border}`,background:tipoReporte===t?'rgba(255,255,255,0.08)':'transparent',color:tipoReporte===t?C.white:C.mid,fontWeight:tipoReporte===t?700:400,cursor:'pointer'}}>{lbl}</button>
+                  <button key={t} onClick={()=>setTipoReporte(t)} style={{padding:'8px 14px',fontSize:12,borderRadius:6,border:`1px solid ${tipoReporte===t?'#000000':C.border}`,background:tipoReporte===t?'#000000':'transparent',color:tipoReporte===t?'#FFFFFF':C.mid,fontWeight:tipoReporte===t?700:400,cursor:'pointer'}}>{lbl}</button>
                 ))}
               </div>
             </div>
@@ -1837,7 +1831,7 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,marginBottom:16}}>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
               <KpiMini label="Efectivo esperado" value={fmt(esperado)} accent={C.mid}/>
-              <KpiMini label="Efectivo contado"  value={fmt(contado)}  accent={C.white}/>
+              <KpiMini label="Efectivo contado"  value={fmt(contado)}  accent={C.ink}/>
               <KpiMini label="Diferencia" value={`${diferencia>=0?'+':''}${fmt(diferencia)}`} accent={difAbs===0?C.green:difAbs<UMBRAL_DIFF?C.yellow:C.red}/>
             </div>
             {difAbs===0&&<AlertBox type="success" style={{marginTop:12}}>Sin diferencia. Arqueo correcto.</AlertBox>}
@@ -1926,7 +1920,7 @@ function CalculadoraFlotante(){
       <button onClick={()=>setOpen(o=>!o)} title="Calculadora" style={{
         position:'fixed',bottom:24,right:24,zIndex:1001,
         width:46,height:46,borderRadius:'50%',
-        background:open?C.white:'#1a1a1a',
+        background:open?C.white:'#FFFFFF',
         border:`1px solid ${open?'transparent':C.bs}`,
         color:open?'#000':C.mid,
         fontSize:20,cursor:'pointer',
@@ -1937,14 +1931,14 @@ function CalculadoraFlotante(){
       {open&&(
         <div style={{
           position:'fixed',bottom:80,right:24,zIndex:1001,
-          background:'#111',border:`1px solid ${C.bs}`,
+          background:'#F5F5F7',border:`1px solid ${C.bs}`,
           borderRadius:12,padding:12,width:238,
           boxShadow:'0 8px 32px rgba(0,0,0,0.7)',animation:'slideUp 150ms ease',
         }}>
           <div style={{textAlign:'right',marginBottom:8,padding:'8px 10px',background:C.card,borderRadius:8,minHeight:60}}>
-            {expr&&<div style={{fontSize:10,color:'#555',fontFamily:'JetBrains Mono',marginBottom:2}}>{expr}</div>}
-            <div style={{fontSize:24,fontWeight:800,fontFamily:'JetBrains Mono',color:C.white,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{display}</div>
-            {fmtCalc&&<div style={{fontSize:11,color:C.green,fontFamily:'JetBrains Mono'}}>{fmtCalc}</div>}
+            {expr&&<div style={{fontSize:10,color:'#6E6E73',fontFamily:"'SF Mono',ui-monospace,monospace",marginBottom:2}}>{expr}</div>}
+            <div style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{display}</div>
+            {fmtCalc&&<div style={{fontSize:11,color:C.green,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmtCalc}</div>}
           </div>
           <div style={{display:'flex',flexDirection:'column',gap:5}}>
             {KEYS.map((row,i)=>(
@@ -1956,10 +1950,10 @@ function CalculadoraFlotante(){
                   return(
                     <button key={k} onClick={()=>press(k)} style={{
                       padding:'13px 0',borderRadius:7,border:'none',
-                      background:isDel?'rgba(239,68,68,0.15)':isEq?'rgba(34,197,94,0.18)':isOp||k==='%'||k==='←'?'rgba(255,255,255,0.09)':C.card,
-                      color:isDel?C.red:isEq?C.green:isOp||k==='%'||k==='←'?C.white:C.ink,
+                      background:isDel?'rgba(239,68,68,0.15)':isEq?'rgba(34,197,94,0.18)':isOp||k==='%'||k==='←'?'#000000':C.card,
+                      color:isDel?C.red:isEq?C.green:isOp||k==='%'||k==='←'?'#FFFFFF':C.ink,
                       fontSize:15,fontWeight:isEq?800:600,cursor:'pointer',
-                      fontFamily:'JetBrains Mono',
+                      fontFamily:"'SF Mono',ui-monospace,monospace",
                     }}>{k}</button>
                   );
                 })}
@@ -2058,7 +2052,7 @@ function CajaApp({profile}){
   if(loading)return(
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:14}}>
       <span className="spin"/>
-      <div style={{fontSize:12,color:'#444'}}>Verificando turno activo…</div>
+      <div style={{fontSize:12,color:'#86868B'}}>Verificando turno activo…</div>
     </div>
   );
 
@@ -2066,7 +2060,7 @@ function CajaApp({profile}){
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16,padding:20}}>
       <div style={{fontSize:40}}>✓</div>
       <div style={{fontFamily:'DM Serif Display',fontSize:24}}>Turno cerrado</div>
-      <div style={{fontSize:13,color:'#555'}}>El arqueo quedó registrado correctamente.</div>
+      <div style={{fontSize:13,color:'#6E6E73'}}>El arqueo quedó registrado correctamente.</div>
       <div style={{display:'flex',gap:10}}>
         <Btn onClick={()=>{setCerrado(false);setTurno(null);checkTurno();}}>Abrir nuevo turno</Btn>
         <Btn variant="ghost" onClick={()=>window.location.href='admin.html'}>Ir al Admin</Btn>

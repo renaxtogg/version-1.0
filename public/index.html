@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mesa — Comanda</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<title>Mythos</title>
 <link rel="stylesheet" href="design-system.css">
 <!-- Supabase JS -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -16,7 +15,7 @@
 <script type="text/babel" src="tweaks-panel.jsx"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:'Plus Jakarta Sans',sans-serif}
+  body{background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
   .phone-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh}
   .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;box-shadow:0 40px 80px rgba(0,0,0,0.7),0 0 0 1px rgba(255,255,255,0.08);flex-shrink:0}
   .screen{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scroll-behavior:smooth}
@@ -184,24 +183,24 @@ const RestaurantCtx = createContext(null);
 function makeTheme(mood, tipo, carta) {
   const palettes = {
     negro: {
-      black: '#0A0A0A', ink: '#111', dark: '#2D2D2D', mid: '#555',
-      gray: '#888', silver: '#AAA', border: '#E2E2E2', light: '#F5F5F5',
+      black: '#FFFFFF', ink: '#F5F5F7', dark: '#2D2D2D', mid: '#6E6E73',
+      gray: '#86868B', silver: '#AAA', border: '#E2E2E2', light: '#F5F5F5',
       offwhite: '#FAFAFA', white: '#FFF',
-      hdrBg: '#0A0A0A', hdrText: '#FFF', hdrSub: '#444', hdrInputBg: 'rgba(255,255,255,0.06)', hdrInputBorder: 'rgba(255,255,255,0.1)', hdrInputText: '#FFF',
-      trackBg: '#0A0A0A', trackText: '#FFF', trackSub: '#555', trackLine: 'rgba(255,255,255,0.5)', trackLineDim: 'rgba(255,255,255,0.07)',
-      rateBg: '#0A0A0A', rateText: '#FFF', rateSub: '#555', rateInput: 'rgba(255,255,255,0.04)', rateInputBorder: 'rgba(255,255,255,0.08)', rateInputText: '#FFF',
-      qrBg: '#0A0A0A', qrText: '#FFF', qrSub: '#555', qrGrid: 'rgba(255,255,255,0.03)', qrCorner: '#FFF',
-      btnPrimary: '#0A0A0A', btnPrimaryText: '#FFF', phoneBg: '#FAFAFA'
+      hdrBg: '#FFFFFF', hdrText: '#FFF', hdrSub: '#86868B', hdrInputBg: 'rgba(255,255,255,0.06)', hdrInputBorder: 'rgba(255,255,255,0.1)', hdrInputText: '#FFF',
+      trackBg: '#FFFFFF', trackText: '#FFF', trackSub: '#6E6E73', trackLine: 'rgba(255,255,255,0.5)', trackLineDim: 'rgba(255,255,255,0.07)',
+      rateBg: '#FFFFFF', rateText: '#FFF', rateSub: '#6E6E73', rateInput: 'rgba(255,255,255,0.04)', rateInputBorder: 'rgba(255,255,255,0.08)', rateInputText: '#FFF',
+      qrBg: '#FFFFFF', qrText: '#FFF', qrSub: '#6E6E73', qrGrid: 'rgba(255,255,255,0.03)', qrCorner: '#FFF',
+      btnPrimary: '#FFFFFF', btnPrimaryText: '#FFF', phoneBg: '#FAFAFA'
     },
     blanco: {
-      black: '#0A0A0A', ink: '#111', dark: '#2D2D2D', mid: '#555',
-      gray: '#888', silver: '#BBB', border: '#E8E8E8', light: '#F0F0F0',
+      black: '#FFFFFF', ink: '#F5F5F7', dark: '#2D2D2D', mid: '#6E6E73',
+      gray: '#86868B', silver: '#BBB', border: '#E8E8E8', light: '#F0F0F0',
       offwhite: '#F8F8F8', white: '#FFF',
-      hdrBg: '#FFF', hdrText: '#0A0A0A', hdrSub: '#888', hdrInputBg: '#F5F5F5', hdrInputBorder: '#E2E2E2', hdrInputText: '#111',
-      trackBg: '#F8F8F8', trackText: '#0A0A0A', trackSub: '#888', trackLine: 'rgba(0,0,0,0.5)', trackLineDim: 'rgba(0,0,0,0.08)',
-      rateBg: '#F8F8F8', rateText: '#0A0A0A', rateSub: '#888', rateInput: 'rgba(0,0,0,0.03)', rateInputBorder: '#E8E8E8', rateInputText: '#111',
-      qrBg: '#FFF', qrText: '#0A0A0A', qrSub: '#888', qrGrid: 'rgba(0,0,0,0.03)', qrCorner: '#0A0A0A',
-      btnPrimary: '#0A0A0A', btnPrimaryText: '#FFF', phoneBg: '#F8F8F8'
+      hdrBg: '#FFF', hdrText: '#FFFFFF', hdrSub: '#86868B', hdrInputBg: '#F5F5F5', hdrInputBorder: '#E2E2E2', hdrInputText: '#F5F5F7',
+      trackBg: '#F8F8F8', trackText: '#FFFFFF', trackSub: '#86868B', trackLine: 'rgba(0,0,0,0.5)', trackLineDim: 'rgba(0,0,0,0.08)',
+      rateBg: '#F8F8F8', rateText: '#FFFFFF', rateSub: '#86868B', rateInput: 'rgba(0,0,0,0.03)', rateInputBorder: '#E8E8E8', rateInputText: '#F5F5F7',
+      qrBg: '#FFF', qrText: '#FFFFFF', qrSub: '#86868B', qrGrid: 'rgba(0,0,0,0.03)', qrCorner: '#FFFFFF',
+      btnPrimary: '#FFFFFF', btnPrimaryText: '#FFF', phoneBg: '#F8F8F8'
     },
     sepia: {
       black: '#2C1A10', ink: '#2C1A10', dark: '#3D2418', mid: '#7A5544',
@@ -215,9 +214,9 @@ function makeTheme(mood, tipo, carta) {
     }
   };
   const fonts = {
-    editorial: { h: "'DM Serif Display',serif", hW: 400, heroSz: 38, titleSz: 26, priceSz: 23, lCase: 'none', lSpacing: '-0.01em', menuTitleSz: 22 },
-    grotesca: { h: "'Plus Jakarta Sans',sans-serif", hW: 800, heroSz: 28, titleSz: 19, priceSz: 17, lCase: 'uppercase', lSpacing: '0.14em', menuTitleSz: 18 },
-    clasica: { h: "'DM Serif Display',serif", hW: 400, heroSz: 34, titleSz: 22, priceSz: 19, lCase: 'uppercase', lSpacing: '0.08em', menuTitleSz: 20 }
+    editorial: { h: "Georgia,'Times New Roman',serif", hW: 400, heroSz: 38, titleSz: 26, priceSz: 23, lCase: 'none', lSpacing: '-0.01em', menuTitleSz: 22 },
+    grotesca: { h: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", hW: 800, heroSz: 28, titleSz: 19, priceSz: 17, lCase: 'uppercase', lSpacing: '0.14em', menuTitleSz: 18 },
+    clasica: { h: "Georgia,'Times New Roman',serif", hW: 400, heroSz: 34, titleSz: 22, priceSz: 19, lCase: 'uppercase', lSpacing: '0.08em', menuTitleSz: 20 }
   };
   const cards = {
     clasica: { imgSz: 76, imgR: 10, pad: '14px 0', showImg: true },
@@ -286,7 +285,7 @@ const Icon = ({ name, size = 20, color = 'currentColor', sw = 1.5 }) => {
 };
 
 /* ── QR CODE SVG ─────────────────────────── */
-const QRSvg = ({ size = 200, fgColor = '#0A0A0A' }) => {
+const QRSvg = ({ size = 200, fgColor = '#FFFFFF' }) => {
   const rows = [[1,1,1,1,1,1,1,0,1,0,1,0,0,0,1,1,1,1,1,1,1],[1,0,0,0,0,0,1,0,0,1,0,1,1,0,1,0,0,0,0,0,1],[1,0,1,1,1,0,1,0,1,0,1,0,1,0,1,0,1,1,1,0,1],[1,0,1,1,1,0,1,0,0,1,0,1,0,0,1,0,1,1,1,0,1],[1,0,1,1,1,0,1,0,1,0,1,1,1,0,1,0,1,1,1,0,1],[1,0,0,0,0,0,1,0,0,1,0,0,1,0,1,0,0,0,0,0,1],[1,1,1,1,1,1,1,0,1,0,1,0,1,0,1,1,1,1,1,1,1],[0,0,0,0,0,0,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0],[1,0,1,1,0,1,1,1,0,0,1,0,1,1,1,0,1,0,1,1,0],[0,1,0,0,1,1,0,1,1,0,0,1,0,1,0,1,0,1,0,0,1],[1,1,0,1,0,0,1,0,0,1,0,0,1,0,1,0,0,1,1,0,1],[0,0,1,0,1,1,0,1,1,0,1,0,0,1,0,1,1,0,0,1,0],[1,0,0,1,0,0,1,0,1,0,0,1,1,0,0,1,0,0,1,0,1],[0,0,0,0,0,0,0,0,1,0,1,1,0,0,1,0,1,1,0,0,1],[1,1,1,1,1,1,1,0,0,1,0,0,1,0,1,0,0,1,0,1,0],[1,0,0,0,0,0,1,0,1,0,0,1,0,1,0,1,0,0,1,1,0],[1,0,1,1,1,0,1,0,0,1,1,0,1,0,1,1,0,1,0,0,1],[1,0,1,1,1,0,1,1,1,0,0,1,0,1,0,0,1,0,1,1,0],[1,0,1,1,1,0,1,0,0,1,0,0,1,1,0,1,0,1,0,0,1],[1,0,0,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,1,0,0],[1,1,1,1,1,1,1,0,0,1,0,1,1,0,0,1,1,0,0,1,0]];
   const c = size / 23;
   return (
@@ -344,7 +343,7 @@ function QRScreen({ onScan }) {
         </div>
         <div style={{ textAlign: 'center', marginTop: 10, fontSize: 11, color: T.qrSub, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Mesa {TABLE_NUM} · QR de prueba</div>
       </div>
-      <button onClick={go} disabled={scanning} style={{ zIndex: 1, width: '100%', height: 54, background: T.white, color: T.black, border: 'none', borderRadius: 12, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 15, fontWeight: 800, cursor: scanning ? 'default' : 'pointer', opacity: scanning ? .6 : 1, transition: 'opacity 200ms' }}>
+      <button onClick={go} disabled={scanning} style={{ zIndex: 1, width: '100%', height: 54, background: T.white, color: T.black, border: 'none', borderRadius: 12, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15, fontWeight: 800, cursor: scanning ? 'default' : 'pointer', opacity: scanning ? .6 : 1, transition: 'opacity 200ms' }}>
         {scanning ? 'Leyendo código…' : 'Simular escaneo'}
       </button>
       <div style={{ marginTop: 12, color: T.qrSub, zIndex: 1, fontSize: "15px" }}>O apuntá tu cámara al QR de arriba</div>
@@ -437,17 +436,17 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
           {/* Botones de acción rápida */}
           <div style={{ display: 'flex', gap: 7, marginTop: 14, flexWrap: 'wrap' }}>
             {restPhone && (
-              <a href={`tel:${restPhone.replace(/\s/g,'')}`} style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', background: T.light, border: `1px solid ${T.border}`, borderRadius: 9999, fontSize: 12, fontWeight: 700, color: T.ink, textDecoration: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif", flexShrink: 0 }}>
+              <a href={`tel:${restPhone.replace(/\s/g,'')}`} style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', background: T.light, border: `1px solid ${T.border}`, borderRadius: 9999, fontSize: 12, fontWeight: 700, color: T.ink, textDecoration: 'none', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", flexShrink: 0 }}>
                 <Icon name="phone" size={12} color={T.ink} />Llamar
               </a>
             )}
             {restIg && (
-              <a href={`https://www.instagram.com/${restIg.replace('@','')}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', background: T.light, border: `1px solid ${T.border}`, borderRadius: 9999, fontSize: 12, fontWeight: 700, color: T.ink, textDecoration: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif", flexShrink: 0 }}>
+              <a href={`https://www.instagram.com/${restIg.replace('@','')}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', background: T.light, border: `1px solid ${T.border}`, borderRadius: 9999, fontSize: 12, fontWeight: 700, color: T.ink, textDecoration: 'none', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", flexShrink: 0 }}>
                 <Icon name="instagram" size={12} color={T.ink} />{restIg}
               </a>
             )}
             {restAddr && (
-              <a href={`https://maps.google.com/?q=${encodeURIComponent(restAddr)}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', background: T.light, border: `1px solid ${T.border}`, borderRadius: 9999, fontSize: 12, fontWeight: 700, color: T.ink, textDecoration: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif", flexShrink: 0 }}>
+              <a href={`https://maps.google.com/?q=${encodeURIComponent(restAddr)}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 5, height: 34, padding: '0 12px', background: T.light, border: `1px solid ${T.border}`, borderRadius: 9999, fontSize: 12, fontWeight: 700, color: T.ink, textDecoration: 'none', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", flexShrink: 0 }}>
                 <Icon name="map" size={12} color={T.ink} />Cómo llegar
               </a>
             )}
@@ -455,7 +454,7 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
 
           {/* Horarios */}
           <div style={{ marginTop: 14 }}>
-            <button onClick={() => setShowHours(v => !v)} style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: T.dark, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+            <button onClick={() => setShowHours(v => !v)} style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: T.dark, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
               <Icon name="clock" size={13} color={T.dark} />{tx.hours}
               <span style={{ display: 'inline-block', transform: showHours ? 'rotate(180deg)' : 'none', transition: 'transform 200ms' }}><Icon name="chevdown" size={12} color={T.silver} /></span>
             </button>
@@ -468,18 +467,18 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
         {/* Modo de servicio + Idioma + Mozo */}
         <div style={{ padding: '0 20px 18px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', gap: 6 }}>
-            {['eat', 'take'].map(m => <button key={m} onClick={() => setOrderMode(m)} style={{ flex: 1, height: 40, border: `1.5px solid ${orderMode === m ? T.black : T.border}`, borderRadius: 10, background: orderMode === m ? T.black : 'transparent', color: orderMode === m ? T.white : T.mid, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 150ms' }}>{m === 'eat' ? tx.eat : tx.take}</button>)}
+            {['eat', 'take'].map(m => <button key={m} onClick={() => setOrderMode(m)} style={{ flex: 1, height: 40, border: `1.5px solid ${orderMode === m ? T.black : T.border}`, borderRadius: 10, background: orderMode === m ? T.black : 'transparent', color: orderMode === m ? T.white : T.mid, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 150ms' }}>{m === 'eat' ? tx.eat : tx.take}</button>)}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <div style={{ flex: 1, position: 'relative' }}>
-              <button onClick={() => setShowLang(v => !v)} style={{ width: '100%', height: 40, border: `1.5px solid ${T.border}`, borderRadius: 10, background: 'transparent', color: T.mid, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <button onClick={() => setShowLang(v => !v)} style={{ width: '100%', height: 40, border: `1.5px solid ${T.border}`, borderRadius: 10, background: 'transparent', color: T.mid, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                 <Icon name="globe" size={14} color={T.silver} />{LANGS.find(l => l.c === lang)?.l}<Icon name="chevdown" size={12} color={T.silver} />
               </button>
               {showLang && <div style={{ position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, right: 0, background: T.white, border: `1px solid ${T.border}`, borderRadius: 10, overflow: 'hidden', zIndex: 50, boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
                 {LANGS.map(l => <div key={l.c} onClick={() => { setLang(l.c); setShowLang(false); }} style={{ padding: '11px 14px', fontSize: 13, fontWeight: 600, color: lang === l.c ? T.black : T.mid, background: lang === l.c ? T.light : 'transparent', cursor: 'pointer' }}>{l.l}</div>)}
               </div>}
             </div>
-            <button onClick={onCallWaiter} style={{ flex: 1, height: 40, border: `1.5px solid ${T.border}`, borderRadius: 10, background: 'transparent', color: T.mid, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <button onClick={onCallWaiter} style={{ flex: 1, height: 40, border: `1.5px solid ${T.border}`, borderRadius: 10, background: 'transparent', color: T.mid, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <Icon name="bell" size={14} color={T.silver} />{tx.waiter}
             </button>
           </div>
@@ -488,10 +487,10 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
 
       {/* ── CTAs ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '14px 20px 36px', gap: 10 }}>
-        <button onClick={onReserve} style={{ width: '100%', height: 46, background: 'transparent', color: T.ink, border: `1.5px solid ${T.border}`, borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <button onClick={onReserve} style={{ width: '100%', height: 46, background: 'transparent', color: T.ink, border: `1.5px solid ${T.border}`, borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <Icon name="calendar" size={16} color={T.ink} />{tx.reserve}
         </button>
-        <button onClick={onEnter} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>{tx.menu}</button>
+        <button onClick={onEnter} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>{tx.menu}</button>
       </div>
     </div>
   );
@@ -530,19 +529,19 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWait
             <div style={{ fontSize: 11, color: T.hdrSub, letterSpacing: T.F.lSpacing, textTransform: T.F.lCase, marginBottom: 2 }}>Mesa {TABLE_NUM} · {orderMode === 'take' ? 'Para llevar' : 'En el local'}</div>
             <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.menuTitleSz, color: T.hdrText, lineHeight: 1.1 }}>{restName}</div>
           </div>
-          <button onClick={onCallWaiter} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.13)', borderRadius: 9999, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: T.hdrText, fontSize: 12, fontWeight: 700, fontFamily: "'Plus Jakarta Sans',sans-serif" }}>
+          <button onClick={onCallWaiter} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.13)', borderRadius: 9999, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: T.hdrText, fontSize: 12, fontWeight: 700, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
             <Icon name="bell" size={13} color={T.hdrText} />Mozo
           </button>
         </div>
         <div style={{ position: 'relative' }}>
           <div style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)' }}><Icon name="search" size={15} color={T.hdrSub} /></div>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar en el menú…" style={{ width: '100%', height: 40, background: T.hdrInputBg, border: `1px solid ${T.hdrInputBorder}`, borderRadius: 10, paddingLeft: 36, paddingRight: 32, color: T.hdrInputText, fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", outline: 'none' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar en el menú…" style={{ width: '100%', height: 40, background: T.hdrInputBg, border: `1px solid ${T.hdrInputBorder}`, borderRadius: 10, paddingLeft: 36, paddingRight: 32, color: T.hdrInputText, fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", outline: 'none' }} />
           {search && <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer' }}><Icon name="x" size={14} color={T.hdrSub} /></button>}
         </div>
       </div>
       <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, flexShrink: 0, overflowX: 'auto' }}>
         <div style={{ display: 'flex', minWidth: 'max-content' }}>
-          {CATS.map(cat => <button key={cat} onClick={() => goTo(cat)} style={{ flexShrink: 0, background: 'none', border: 'none', borderBottom: `2px solid ${activeCat === cat ? T.black : 'transparent'}`, cursor: 'pointer', padding: '11px 18px', fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 13, fontWeight: 700, color: activeCat === cat ? T.black : T.gray, whiteSpace: 'nowrap', transition: 'all 150ms' }}>{cat}</button>)}
+          {CATS.map(cat => <button key={cat} onClick={() => goTo(cat)} style={{ flexShrink: 0, background: 'none', border: 'none', borderBottom: `2px solid ${activeCat === cat ? T.black : 'transparent'}`, cursor: 'pointer', padding: '11px 18px', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 13, fontWeight: 700, color: activeCat === cat ? T.black : T.gray, whiteSpace: 'nowrap', transition: 'all 150ms' }}>{cat}</button>)}
         </div>
       </div>
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
@@ -615,7 +614,7 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWait
         <div style={{ height: 96 }} />
       </div>
       {cartCount > 0 && <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '12px 20px 28px', background: `linear-gradient(to top,${T.offwhite} 60%,transparent)` }}>
-        <button onClick={onViewCart} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 18px', boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}>
+        <button onClick={onViewCart} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 18px', boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}>
           <div style={{ minWidth: 26, height: 26, background: 'rgba(255,255,255,0.15)', borderRadius: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, padding: '0 8px' }}>{cartCount}</div>
           <span>Mi pedido</span>
           <span style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz - 2 }}>{fmt(cartTotal)}</span>
@@ -726,13 +725,13 @@ function ProductModal({ item, onClose, onAdd }) {
           </div>}
           <div style={{ marginBottom: 22 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>Observaciones para cocina</div>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Sin sal, sin cebolla, término de cocción, alergia a…" style={{ width: '100%', height: 76, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, resize: 'none', outline: 'none', background: T.offwhite }} />
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Sin sal, sin cebolla, término de cocción, alergia a…" style={{ width: '100%', height: 76, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, resize: 'none', outline: 'none', background: T.offwhite }} />
             <div style={{ marginTop: 8, background: '#FFF7ED', border: '1px solid #FDE68A', borderRadius: 8, padding: '8px 10px', display: 'flex', gap: 7, alignItems: 'flex-start' }}>
               <span style={{ fontSize: 14, flexShrink: 0 }}>⚠️</span>
               <span style={{ fontSize: 11, color: '#92400E', lineHeight: 1.5 }}>Si tenés alergias o intolerancias, indicalas arriba. El local tomará las precauciones necesarias.</span>
             </div>
           </div>
-          <button onClick={() => { onAdd(item, qty, allExtras, notes); onClose(); }} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
+          <button onClick={() => { onAdd(item, qty, allExtras, notes); onClose(); }} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
             <span>Agregar al pedido</span>
             <span style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz }}>{fmt(total)}</span>
           </button>
@@ -781,8 +780,8 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
             <div style={{ fontSize: 15, fontWeight: 700, color: T.ink, marginBottom: 6 }}>¿Eliminar este ítem?</div>
             <div style={{ fontSize: 13, color: T.gray, marginBottom: 20 }}>{items[pendingDelete]?.item?.name}</div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setPendingDelete(null)} style={{ flex: 1, height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, background: 'transparent', color: T.ink, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Cancelar</button>
-              <button onClick={doDelete} style={{ flex: 1, height: 44, border: 'none', borderRadius: 10, background: '#EF4444', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Eliminar</button>
+              <button onClick={() => setPendingDelete(null)} style={{ flex: 1, height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, background: 'transparent', color: T.ink, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>Cancelar</button>
+              <button onClick={doDelete} style={{ flex: 1, height: 44, border: 'none', borderRadius: 10, background: '#EF4444', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>Eliminar</button>
             </div>
           </div>
         </div>
@@ -791,7 +790,7 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
           <button onClick={onBack} style={{ width: 38, height: 38, background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="back" size={17} color={T.hdrText} /></button>
           <div style={{ flex: 1 }}><div style={{ fontSize: 11, color: T.hdrSub }}>Mesa {TABLE_NUM}</div><div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.titleSz, color: T.hdrText }}>Mi pedido</div></div>
-          {items.length > 0 && onSplit && <button onClick={onSplit} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.13)', borderRadius: 9999, padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: T.hdrText, fontSize: 11, fontWeight: 700, fontFamily: "'Plus Jakarta Sans',sans-serif", flexShrink: 0 }}>
+          {items.length > 0 && onSplit && <button onClick={onSplit} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.13)', borderRadius: 9999, padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: T.hdrText, fontSize: 11, fontWeight: 700, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", flexShrink: 0 }}>
             <Icon name="scissors" size={13} color={T.hdrText} />Dividir cuenta
           </button>}
         </div>
@@ -801,7 +800,7 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
           <div style={{ textAlign: 'center', padding: '60px 0' }}>
             <Icon name="utensils" size={40} color={T.border} />
             <div style={{ marginTop: 14, fontSize: 14, color: T.silver, marginBottom: 20 }}>Tu pedido está vacío</div>
-            <button onClick={onBack} style={{ height: 44, padding: '0 20px', background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 12, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Ver el menú</button>
+            <button onClick={onBack} style={{ height: 44, padding: '0 20px', background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 12, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Ver el menú</button>
           </div>
         )}
         {items.map((ci, i) =>
@@ -836,8 +835,8 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
               {appliedCode} aplicado — <strong>−{fmt(discAmount)}</strong>
             </div> :
             <div style={{ display: 'flex', gap: 8 }}>
-              <input value={coupon} onChange={e => setCoupon(e.target.value.toUpperCase())} placeholder="MESA10" style={{ flex: 1, height: 40, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "'JetBrains Mono',monospace", letterSpacing: '0.1em', color: T.ink, outline: 'none', background: T.offwhite }} />
-              <button onClick={applyCode} disabled={validating} style={{ height: 40, padding: '0 16px', background: T.black, color: T.white, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", opacity: validating ? 0.6 : 1 }}>{validating ? '…' : 'Aplicar'}</button>
+              <input value={coupon} onChange={e => setCoupon(e.target.value.toUpperCase())} placeholder="MESA10" style={{ flex: 1, height: 40, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "'SF Mono',ui-monospace,monospace,monospace", letterSpacing: '0.1em', color: T.ink, outline: 'none', background: T.offwhite }} />
+              <button onClick={applyCode} disabled={validating} style={{ height: 40, padding: '0 16px', background: T.black, color: T.white, border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", opacity: validating ? 0.6 : 1 }}>{validating ? '…' : 'Aplicar'}</button>
             </div>
           }
         </div>
@@ -853,11 +852,11 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
       </div>
       <div style={{ padding: '12px 20px 32px', background: T.offwhite, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {items.length > 0 && (
-          <button onClick={onBack} style={{ width: '100%', height: 44, background: 'transparent', color: T.ink, border: `1.5px solid ${T.border}`, borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <button onClick={onBack} style={{ width: '100%', height: 44, background: 'transparent', color: T.ink, border: `1.5px solid ${T.border}`, borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <Icon name="plus" size={15} color={T.ink} />Agregar más productos
           </button>
         )}
-        <button onClick={() => onPay(total, sub, discAmount, applied ? appliedCode : '')} disabled={items.length === 0} style={{ width: '100%', height: 54, background: items.length === 0 ? T.light : T.btnPrimary, color: items.length === 0 ? T.silver : T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: items.length === 0 ? 'default' : 'pointer', transition: 'all 200ms' }}>Pasar a pagar</button>
+        <button onClick={() => onPay(total, sub, discAmount, applied ? appliedCode : '')} disabled={items.length === 0} style={{ width: '100%', height: 54, background: items.length === 0 ? T.light : T.btnPrimary, color: items.length === 0 ? T.silver : T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: items.length === 0 ? 'default' : 'pointer', transition: 'all 200ms' }}>Pasar a pagar</button>
       </div>
     </div>
   );
@@ -931,7 +930,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
             <div>
               <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>N° de ticket</div>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 20, fontWeight: 500, color: T.btnPrimaryText }}>{ordNum || '#????'}</div>
+              <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace,monospace", fontSize: 20, fontWeight: 500, color: T.btnPrimaryText }}>{ordNum || '#????'}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>Mesa</div>
@@ -943,7 +942,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', fontWeight: 600 }}>{currentMethod?.label}{isPending ? ' — pendiente en mesa' : ''}</div>
           </div>
         </div>
-        <button onClick={() => onDone(ordNum, method)} style={{ width: '100%', height: 52, background: T.white, color: T.black, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', marginTop: 14 }}>Seguir mi pedido</button>
+        <button onClick={() => onDone(ordNum, method)} style={{ width: '100%', height: 52, background: T.white, color: T.black, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', marginTop: 14 }}>Seguir mi pedido</button>
       </div>
     );
   }
@@ -992,14 +991,14 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
         {needsInvoice && (
           <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10, animation: 'slideDown 200ms' }}>
             {[{ val: name, set: setName, ph: 'Nombre o razón social' }, { val: ruc, set: setRuc, ph: 'RUC / Cédula de identidad' }, { val: email, set: setEmail, ph: 'Email para factura electrónica', type: 'email' }].map((f, i) =>
-            <input key={i} value={f.val} onChange={e => f.set(e.target.value)} placeholder={f.ph} type={f.type || 'text'} style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, outline: 'none', background: T.offwhite }} />)}
+            <input key={i} value={f.val} onChange={e => f.set(e.target.value)} placeholder={f.ph} type={f.type || 'text'} style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, outline: 'none', background: T.offwhite }} />)}
           </div>
         )}
         <div style={{ height: 100 }} />
       </div>
       <div style={{ padding: '12px 20px 32px', background: T.offwhite }}>
         {submitError && <div style={{ background: '#FEE2E2', border: '1px solid #FECACA', borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>Error: {submitError}</div>}
-        <button onClick={handleConfirm} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
+        <button onClick={handleConfirm} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
           {method === 'efectivo' || method === 'pos' ? 'Confirmar pedido' : `Confirmar y pagar ${fmt(total)}`}
         </button>
       </div>
@@ -1103,12 +1102,12 @@ function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaite
       </div>
       <div style={{ padding: '12px 24px 40px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {onCallWaiter && active < STEPS.length - 1 && (
-          <button onClick={onCallWaiter} style={{ width: '100%', height: 46, background: 'transparent', color: T.trackText, border: `1.5px solid ${T.trackText}30`, borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <button onClick={onCallWaiter} style={{ width: '100%', height: 46, background: 'transparent', color: T.trackText, border: `1.5px solid ${T.trackText}30`, borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <Icon name="bell" size={15} color={T.trackText} />Llamar al mozo
           </button>
         )}
         {active === STEPS.length - 1 && (
-          <button onClick={onRate} style={{ width: '100%', height: 52, background: T.trackText, color: T.trackBg, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', animation: 'fadeIn 400ms' }}>
+          <button onClick={onRate} style={{ width: '100%', height: 52, background: T.trackText, color: T.trackBg, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', animation: 'fadeIn 400ms' }}>
             Calificar el servicio
           </button>
         )}
@@ -1151,11 +1150,11 @@ function RatingScreen({ onDone, orderId, tableId }) {
       <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: T.rateText, marginBottom: 12 }}>¡Gracias!</div>
       <div style={{ fontSize: 14, color: T.rateSub, lineHeight: 1.7, marginBottom: 32 }}>Tu opinión nos ayuda<br />a ser mejores cada día.</div>
       {rating >= 4 && restIg && (
-        <a href={`https://www.instagram.com/${restIg.replace('@','')}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, height: 44, padding: '0 20px', background: `${T.rateText}10`, border: `1px solid ${T.rateText}20`, borderRadius: 12, fontSize: 13, fontWeight: 700, color: T.rateText, textDecoration: 'none', fontFamily: "'Plus Jakarta Sans',sans-serif", marginBottom: 16 }}>
+        <a href={`https://www.instagram.com/${restIg.replace('@','')}`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, height: 44, padding: '0 20px', background: `${T.rateText}10`, border: `1px solid ${T.rateText}20`, borderRadius: 12, fontSize: 13, fontWeight: 700, color: T.rateText, textDecoration: 'none', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", marginBottom: 16 }}>
           <Icon name="instagram" size={15} color={T.rateText} />Seguinos en Instagram
         </a>
       )}
-      <button onClick={onDone} style={{ width: '100%', height: 52, background: T.rateText, color: T.rateBg, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>Volver al inicio</button>
+      <button onClick={onDone} style={{ width: '100%', height: 52, background: T.rateText, color: T.rateBg, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>Volver al inicio</button>
     </div>
   );
 
@@ -1187,7 +1186,7 @@ function RatingScreen({ onDone, orderId, tableId }) {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
             {REASONS.map(r => {
               const sel = reasons.includes(r);
-              return <button key={r} onClick={() => toggleReason(r)} style={{ height: 32, padding: '0 12px', borderRadius: 9999, border: `1.5px solid ${sel ? T.rateText : `${T.rateText}25`}`, background: sel ? T.rateText : 'transparent', color: sel ? T.rateBg : `${T.rateText}65`, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", transition: 'all 150ms' }}>{r}</button>;
+              return <button key={r} onClick={() => toggleReason(r)} style={{ height: 32, padding: '0 12px', borderRadius: 9999, border: `1.5px solid ${sel ? T.rateText : `${T.rateText}25`}`, background: sel ? T.rateText : 'transparent', color: sel ? T.rateBg : `${T.rateText}65`, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 150ms' }}>{r}</button>;
             })}
           </div>
         </div>
@@ -1196,8 +1195,8 @@ function RatingScreen({ onDone, orderId, tableId }) {
       <div style={{ fontSize: 11, fontWeight: 700, color: T.rateSub, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>
         {rating > 0 && rating <= 3 ? 'Contanos qué pasó' : 'Comentario o sugerencia'}
       </div>
-      <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder={rating > 0 && rating <= 3 ? '¿Qué salió mal? ¿Cómo podemos mejorar?' : '¿Qué fue lo mejor? ¿Algo para mejorar?'} style={{ flex: 1, minHeight: 90, border: `1px solid ${T.rateInputBorder}`, borderRadius: 12, padding: '12px', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.rateInputText, background: T.rateInput, resize: 'none', outline: 'none', marginBottom: 20 }} />
-      <button onClick={handleSubmit} disabled={!rating || submitting} style={{ width: '100%', height: 54, background: rating ? T.rateText : `${T.rateText}12`, color: rating ? T.rateBg : `${T.rateText}30`, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: rating ? 'pointer' : 'default', transition: 'all 250ms', opacity: submitting ? 0.7 : 1 }}>
+      <textarea value={comment} onChange={e => setComment(e.target.value)} placeholder={rating > 0 && rating <= 3 ? '¿Qué salió mal? ¿Cómo podemos mejorar?' : '¿Qué fue lo mejor? ¿Algo para mejorar?'} style={{ flex: 1, minHeight: 90, border: `1px solid ${T.rateInputBorder}`, borderRadius: 12, padding: '12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.rateInputText, background: T.rateInput, resize: 'none', outline: 'none', marginBottom: 20 }} />
+      <button onClick={handleSubmit} disabled={!rating || submitting} style={{ width: '100%', height: 54, background: rating ? T.rateText : `${T.rateText}12`, color: rating ? T.rateBg : `${T.rateText}30`, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: rating ? 'pointer' : 'default', transition: 'all 250ms', opacity: submitting ? 0.7 : 1 }}>
         {submitting ? 'Enviando…' : 'Enviar calificación'}
       </button>
     </div>
@@ -1228,18 +1227,18 @@ function ReservationScreen({ onBack, onDone }) {
     <div style={{ minHeight: '100%', background: T.black, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', textAlign: 'center' }}>
       <div style={{ width: 72, height: 72, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}><Icon name="check" size={32} color="#fff" sw={2} /></div>
       <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: '#fff', marginBottom: 10 }}>¡Reserva enviada!</div>
-      <div style={{ fontSize: 13, color: '#666', lineHeight: 1.7, marginBottom: 8 }}>Tu solicitud fue recibida.</div>
+      <div style={{ fontSize: 13, color: '#6E6E73', lineHeight: 1.7, marginBottom: 8 }}>Tu solicitud fue recibida.</div>
       <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '14px 24px', width: '100%', marginBottom: 16, textAlign: 'left' }}>
-        <div style={{ fontSize: 10, color: '#444', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>Nro. de confirmación</div>
-        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 20, fontWeight: 500, color: '#fff' }}>{done.confirmNum}</div>
+        <div style={{ fontSize: 10, color: '#86868B', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>Nro. de confirmación</div>
+        <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace,monospace", fontSize: 20, fontWeight: 500, color: '#fff' }}>{done.confirmNum}</div>
       </div>
       <div style={{ background: '#0D1F0D', border: '1px solid #1a3a1a', borderRadius: 10, padding: '12px 16px', width: '100%', marginBottom: 32, textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
+        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
         <div style={{ fontSize: 12, color: '#86efac', lineHeight: 1.6 }}>
           Te confirmaremos tu reserva por WhatsApp al número <strong>{done.phone}</strong> con anticipación.
         </div>
       </div>
-      <button onClick={onDone} style={{ width: '100%', height: 52, background: '#fff', color: '#000', border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>Volver al inicio</button>
+      <button onClick={onDone} style={{ width: '100%', height: 52, background: '#fff', color: '#000', border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>Volver al inicio</button>
     </div>
   );
 
@@ -1263,7 +1262,7 @@ function ReservationScreen({ onBack, onDone }) {
           <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 14 }}>¿Para cuántas personas?</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {[2,3,4,5,6,7,8].map(n => (
-              <button key={n} onClick={() => f('guests', n)} style={{ width: 44, height: 44, borderRadius: 10, border: `2px solid ${form.guests === n ? T.black : T.border}`, background: form.guests === n ? T.black : 'transparent', color: form.guests === n ? T.white : T.mid, fontSize: 15, fontWeight: 800, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", transition: 'all 150ms' }}>{n}</button>
+              <button key={n} onClick={() => f('guests', n)} style={{ width: 44, height: 44, borderRadius: 10, border: `2px solid ${form.guests === n ? T.black : T.border}`, background: form.guests === n ? T.black : 'transparent', color: form.guests === n ? T.white : T.mid, fontSize: 15, fontWeight: 800, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 150ms' }}>{n}</button>
             ))}
           </div>
         </div>
@@ -1274,11 +1273,11 @@ function ReservationScreen({ onBack, onDone }) {
           <div style={{ display: 'flex', gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: T.gray, display: 'block', marginBottom: 6 }}>Fecha</label>
-              <input type="date" value={form.date} min={todayStr} onChange={e => f('date', e.target.value)} style={{ width: '100%', height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 12px', fontSize: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, background: T.offwhite, outline: 'none' }} />
+              <input type="date" value={form.date} min={todayStr} onChange={e => f('date', e.target.value)} style={{ width: '100%', height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 12px', fontSize: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none' }} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: T.gray, display: 'block', marginBottom: 6 }}>Hora</label>
-              <input type="time" value={form.time} onChange={e => f('time', e.target.value)} style={{ width: '100%', height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 12px', fontSize: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, background: T.offwhite, outline: 'none' }} />
+              <input type="time" value={form.time} onChange={e => f('time', e.target.value)} style={{ width: '100%', height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 12px', fontSize: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none' }} />
             </div>
           </div>
         </div>
@@ -1287,23 +1286,23 @@ function ReservationScreen({ onBack, onDone }) {
         <div style={{ background: T.white, borderRadius: 14, padding: '18px 16px', marginBottom: 14, border: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 14 }}>Datos de contacto</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <input value={form.name} onChange={e => f('name', e.target.value)} placeholder="Nombre completo *" style={{ height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 14px', fontSize: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, background: T.offwhite, outline: 'none', width: '100%' }} />
+            <input value={form.name} onChange={e => f('name', e.target.value)} placeholder="Nombre completo *" style={{ height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 14px', fontSize: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none', width: '100%' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 0, border: `1.5px solid ${T.border}`, borderRadius: 10, overflow: 'hidden', background: T.offwhite }}>
               <div style={{ padding: '0 12px', height: 44, display: 'flex', alignItems: 'center', borderRight: `1px solid ${T.border}`, flexShrink: 0 }}>
                 <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={T.silver} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
               </div>
-              <input value={form.phone} onChange={e => f('phone', e.target.value)} placeholder="+595 9XX XXX XXX *" type="tel" style={{ flex: 1, height: 44, border: 'none', padding: '0 14px', fontSize: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, background: 'transparent', outline: 'none' }} />
+              <input value={form.phone} onChange={e => f('phone', e.target.value)} placeholder="+595 9XX XXX XXX *" type="tel" style={{ flex: 1, height: 44, border: 'none', padding: '0 14px', fontSize: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: 'transparent', outline: 'none' }} />
             </div>
-            <textarea value={form.notes} onChange={e => f('notes', e.target.value)} placeholder="Ocasión especial, preferencias, alergias…" rows={3} style={{ border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, fontFamily: "'Plus Jakarta Sans',sans-serif", color: T.ink, background: T.offwhite, outline: 'none', resize: 'none', width: '100%' }} />
+            <textarea value={form.notes} onChange={e => f('notes', e.target.value)} placeholder="Ocasión especial, preferencias, alergias…" rows={3} style={{ border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none', resize: 'none', width: '100%' }} />
           </div>
         </div>
 
         <div style={{ background: '#0D1F0D', border: '1px solid #1a3a1a', borderRadius: 10, padding: '12px 14px', marginBottom: 20, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
           <div style={{ fontSize: 11, color: '#86efac', lineHeight: 1.6 }}>Te confirmaremos tu reserva por WhatsApp con anticipación. No se requiere seña por el momento.</div>
         </div>
 
-        <button onClick={handleSubmit} disabled={!canSubmit || saving} style={{ width: '100%', height: 54, background: canSubmit ? T.btnPrimary : T.light, color: canSubmit ? T.btnPrimaryText : T.silver, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 16, fontWeight: 800, cursor: canSubmit ? 'pointer' : 'default', marginBottom: 32, transition: 'all 200ms', opacity: saving ? 0.7 : 1 }}>
+        <button onClick={handleSubmit} disabled={!canSubmit || saving} style={{ width: '100%', height: 54, background: canSubmit ? T.btnPrimary : T.light, color: canSubmit ? T.btnPrimaryText : T.silver, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: canSubmit ? 'pointer' : 'default', marginBottom: 32, transition: 'all 200ms', opacity: saving ? 0.7 : 1 }}>
           {saving ? 'Enviando…' : 'Confirmar reserva'}
         </button>
       </div>
@@ -1317,7 +1316,7 @@ function SplitBillModal({ items, total, onClose }) {
   const [people, setPeople] = useState(2);
   const [assignments, setAssignments] = useState({});
 
-  const personColors = ['#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#f97316'];
+  const personColors = ['#007AFF','#FF3B30','#34C759','#FF9500','#8b5cf6','#ec4899','#14b8a6','#FF9500'];
 
   const assign = (itemIdx, person) => {
     setAssignments(prev => ({ ...prev, [itemIdx]: person }));
@@ -1352,7 +1351,7 @@ function SplitBillModal({ items, total, onClose }) {
             <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>¿Cuántos comensales?</div>
             <div style={{ display: 'flex', gap: 8 }}>
               {[2,3,4,5,6,7,8].map(n => (
-                <button key={n} onClick={() => { setPeople(n); setAssignments({}); }} style={{ width: 38, height: 38, borderRadius: 9, border: `2px solid ${people === n ? T.black : T.border}`, background: people === n ? T.black : 'transparent', color: people === n ? T.white : T.mid, fontSize: 14, fontWeight: 800, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", transition: 'all 150ms' }}>{n}</button>
+                <button key={n} onClick={() => { setPeople(n); setAssignments({}); }} style={{ width: 38, height: 38, borderRadius: 9, border: `2px solid ${people === n ? T.black : T.border}`, background: people === n ? T.black : 'transparent', color: people === n ? T.white : T.mid, fontSize: 14, fontWeight: 800, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 150ms' }}>{n}</button>
               ))}
             </div>
           </div>
@@ -1364,12 +1363,12 @@ function SplitBillModal({ items, total, onClose }) {
               <div key={idx} style={{ background: T.light, borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>{ci.item.name}</span>
-                  <span style={{ fontSize: 13, color: T.gray, fontFamily: "'JetBrains Mono',monospace" }}>{fmt(ci.total)}</span>
+                  <span style={{ fontSize: 13, color: T.gray, fontFamily: "'SF Mono',ui-monospace,monospace,monospace" }}>{fmt(ci.total)}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  <button onClick={() => assign(idx, null)} style={{ height: 28, padding: '0 10px', borderRadius: 7, border: `1.5px solid ${!assignments[idx] ? T.black : T.border}`, background: !assignments[idx] ? T.black : 'transparent', color: !assignments[idx] ? T.white : T.mid, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif" }}>Dividir</button>
+                  <button onClick={() => assign(idx, null)} style={{ height: 28, padding: '0 10px', borderRadius: 7, border: `1.5px solid ${!assignments[idx] ? T.black : T.border}`, background: !assignments[idx] ? T.black : 'transparent', color: !assignments[idx] ? T.white : T.mid, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>Dividir</button>
                   {Array.from({ length: people }, (_, i) => i + 1).map(p => (
-                    <button key={p} onClick={() => assign(idx, p)} style={{ height: 28, minWidth: 28, padding: '0 10px', borderRadius: 7, border: `1.5px solid ${assignments[idx] === p ? personColors[p-1] : T.border}`, background: assignments[idx] === p ? personColors[p-1] : 'transparent', color: assignments[idx] === p ? '#fff' : T.mid, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "'Plus Jakarta Sans',sans-serif", transition: 'all 150ms' }}>P{p}</button>
+                    <button key={p} onClick={() => assign(idx, p)} style={{ height: 28, minWidth: 28, padding: '0 10px', borderRadius: 7, border: `1.5px solid ${assignments[idx] === p ? personColors[p-1] : T.border}`, background: assignments[idx] === p ? personColors[p-1] : 'transparent', color: assignments[idx] === p ? '#fff' : T.mid, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 150ms' }}>P{p}</button>
                   ))}
                 </div>
               </div>
@@ -1390,19 +1389,19 @@ function SplitBillModal({ items, total, onClose }) {
                       {perPersonUnassigned > 0 ? `Base + parte compartida` : `Ítems asignados`}
                     </span>
                   </div>
-                  <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 800, color: T.ink }}>{fmt(share)}</span>
+                  <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace,monospace", fontSize: 16, fontWeight: 800, color: T.ink }}>{fmt(share)}</span>
                 </div>
               );
             })}
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderTop: `1px solid ${T.border}`, marginTop: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>Total cuenta</span>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 800, color: T.ink }}>{fmt(total)}</span>
+              <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace,monospace", fontSize: 16, fontWeight: 800, color: T.ink }}>{fmt(total)}</span>
             </div>
           </div>
         </div>
 
         <div style={{ padding: '12px 20px 32px', borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
-          <button onClick={onClose} style={{ width: '100%', height: 50, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "'Plus Jakarta Sans',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>Listo</button>
+          <button onClick={onClose} style={{ width: '100%', height: 50, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>Listo</button>
         </div>
       </div>
     </div>
