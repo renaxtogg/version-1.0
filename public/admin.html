@@ -286,6 +286,8 @@ const NAV = [
   {id:'dashboard', label:'Dashboard',   icon:'◆'},
   {id:'pedidos',   label:'Pedidos',      icon:'≡'},
   null,
+  {id:'delivery',  label:'Delivery',     icon:'→', group:'DELIVERY'},
+  null,
   {id:'menu',      label:'Menú',         icon:'⊞', group:'GESTIÓN'},
   {id:'mesas',     label:'Mesas',        icon:'⊡'},
   {id:'personal',  label:'Personal',     icon:'◎'},
@@ -2150,6 +2152,560 @@ function ConfigPage({restaurant,onRefresh}) {
 }
 
 /* ══════════════════════════════════════════════
+   DELIVERY — status helpers
+══════════════════════════════════════════════ */
+const DLIV_LABEL = {pending:'Pendiente',confirmed:'Confirmado',picked_up:'Recogido',on_way:'En camino',delivered:'Entregado',cancelled:'Cancelado'};
+const DLIV_COLOR = {pending:'#86868B',confirmed:'#1D1D1F',picked_up:'#003F80',on_way:'#000000',delivered:'#34C759',cancelled:'#FF3B30'};
+
+function DelivBadge({status}) {
+  const col = DLIV_COLOR[status]||'#86868B';
+  return (
+    <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,background:col+'22',color:col,border:`1px solid ${col}44`,borderRadius:5}}>
+      <span style={{width:5,height:5,borderRadius:'50%',background:col}}/>{DLIV_LABEL[status]||status}
+    </span>
+  );
+}
+
+/* ── DelivDashboard ── */
+function DelivDashboard({deliveryOrders, channels}) {
+  const today = new Date().toDateString();
+  const active = deliveryOrders.filter(o=>['confirmed','picked_up','on_way'].includes(o.rider_status));
+  const deliveredToday = deliveryOrders.filter(o=>o.rider_status==='delivered'&&new Date(o.created_at).toDateString()===today);
+  const revenueToday = deliveredToday.reduce((s,o)=>s+(o.order_total||0),0);
+  const withTime = deliveredToday.filter(o=>o.delivered_at&&o.created_at);
+  const avgMin = withTime.length ? Math.round(withTime.reduce((s,o)=>s+(new Date(o.delivered_at)-new Date(o.created_at))/60000,0)/withTime.length) : 0;
+
+  const weekStart = new Date(); weekStart.setDate(weekStart.getDate()-6); weekStart.setHours(0,0,0,0);
+  const weekOrds = deliveryOrders.filter(o=>new Date(o.created_at)>=weekStart&&o.rider_status!=='cancelled');
+  const channelData = channels.map(ch=>{
+    const chOrds = weekOrds.filter(o=>(o.channel||'propio')===ch.id);
+    const monto = chOrds.reduce((s,o)=>s+(o.order_total||0),0);
+    const commission = Math.round(monto*ch.commission/100);
+    return {...ch,monto,count:chOrds.length,neto:monto-commission};
+  }).filter(ch=>ch.monto>0);
+  const maxMonto = Math.max(...channelData.map(c=>c.monto),1);
+  const activeOrds = deliveryOrders.filter(o=>!['delivered','cancelled'].includes(o.rider_status)).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:10,marginBottom:20,flexWrap:'wrap'}}>
+        <KpiCard label="Activos ahora" value={active.length} accent={active.length>0?C.orange:C.mid} sub="confirmados · recogidos · en camino"/>
+        <KpiCard label="Entregados hoy" value={deliveredToday.length} accent={C.green} sub={`de ${deliveryOrders.filter(o=>new Date(o.created_at).toDateString()===today).length} del día`}/>
+        <KpiCard label="Ingresos delivery hoy" value={fmt(revenueToday)} sub="órdenes entregadas"/>
+        <KpiCard label="Tiempo promedio" value={avgMin>0?`${avgMin} min`:'—'} sub="entregadas hoy"/>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:16}}>INGRESOS POR CANAL — ÚLTIMOS 7 DÍAS</div>
+          {channelData.length===0
+            ? <div style={{color:'#D2D2D7',fontSize:13,textAlign:'center',padding:'20px 0'}}>Sin datos de canal esta semana</div>
+            : channelData.map(ch=>(
+              <div key={ch.id} style={{marginBottom:14}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                    <span style={{width:8,height:8,borderRadius:'50%',background:ch.color,display:'inline-block',flexShrink:0}}/>
+                    <span style={{fontSize:13,fontWeight:600,color:'#1D1D1F'}}>{ch.name}</span>
+                  </div>
+                  <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,fontWeight:700}}>{fmt(ch.monto)}</span>
+                </div>
+                <div style={{height:4,background:'#F0F0F0',borderRadius:4,overflow:'hidden'}}>
+                  <div style={{height:'100%',background:ch.color,borderRadius:4,width:`${Math.round(ch.monto/maxMonto*100)}%`,transition:'width .3s'}}/>
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',marginTop:4}}>
+                  <span style={{fontSize:10,color:'#86868B'}}>{ch.count} pedidos · comisión {ch.commission}%</span>
+                  <span style={{fontSize:10,color:'#86868B'}}>Neto: {fmt(ch.neto)}</span>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+          <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:'#6E6E73',letterSpacing:1}}>PEDIDOS ACTIVOS EN CURSO</div>
+          {activeOrds.length===0
+            ? <div style={{padding:40,textAlign:'center',color:'#D2D2D7',fontSize:13}}>Sin pedidos activos</div>
+            : <div style={{overflowY:'auto',maxHeight:340}}>
+                {activeOrds.map(o=>{
+                  const addr = o.delivery_address?(o.delivery_address.length>32?o.delivery_address.slice(0,32)+'…':o.delivery_address):'—';
+                  return (
+                    <div key={o.id} style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
+                          <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#86868B'}}>#{o.order_number||o.id.slice(0,8)}</span>
+                          <DelivBadge status={o.rider_status||'pending'}/>
+                        </div>
+                        <div style={{fontSize:12,fontWeight:600,color:'#1D1D1F',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{o.customer_name||'—'}</div>
+                        <div style={{fontSize:11,color:'#86868B',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{addr}</div>
+                        <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Rider: {o.rider_name||<span style={{color:'#FF9500'}}>Sin asignar</span>}</div>
+                      </div>
+                      <div style={{fontSize:11,color:'#1D1D1F',fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,whiteSpace:'nowrap'}}>{fmt(o.order_total||0)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── DelivPedidos ── */
+function DelivPedidos({deliveryOrders, riders, channels, onRefresh}) {
+  const [filter,setFilter] = useState('all');
+  const [chanFilter,setChanFilter] = useState('all');
+  const [dateFilter,setDateFilter] = useState('today');
+  const [selected,setSelected] = useState(null);
+  const [items,setItems] = useState([]);
+  const [assigning,setAssigning] = useState(false);
+  const [selRider,setSelRider] = useState('');
+  const DFILTS = [{id:'all',label:'Todos'},{id:'active',label:'Activos'},{id:'delivered',label:'Entregados'},{id:'cancelled',label:'Cancelados'}];
+
+  const filtered = useMemo(()=>{
+    let res = [...deliveryOrders];
+    if(dateFilter==='today'){const t=new Date().toDateString();res=res.filter(o=>new Date(o.created_at).toDateString()===t);}
+    else if(dateFilter==='7d'){const s=new Date();s.setDate(s.getDate()-6);s.setHours(0,0,0,0);res=res.filter(o=>new Date(o.created_at)>=s);}
+    else if(dateFilter==='30d'){const s=new Date();s.setDate(s.getDate()-29);s.setHours(0,0,0,0);res=res.filter(o=>new Date(o.created_at)>=s);}
+    if(filter==='active') res=res.filter(o=>['pending','confirmed','picked_up','on_way'].includes(o.rider_status));
+    else if(filter==='delivered') res=res.filter(o=>o.rider_status==='delivered');
+    else if(filter==='cancelled') res=res.filter(o=>o.rider_status==='cancelled');
+    if(chanFilter!=='all') res=res.filter(o=>(o.channel||'propio')===chanFilter);
+    return res;
+  },[deliveryOrders,filter,chanFilter,dateFilter]);
+
+  async function openOrder(o) {
+    setSelected(o); setSelRider(o.rider_id||''); setItems([]);
+    if(!db||!o.order_id) return;
+    const{data}=await db.from('order_items').select('item_name,quantity,unit_price,total_price').eq('order_id',o.order_id);
+    setItems(data||[]);
+  }
+
+  async function assignRider() {
+    if(!db||!selected) return;
+    setAssigning(true);
+    const rider = riders.find(r=>r.id===selRider);
+    const{error}=await db.from('delivery_orders').update({rider_id:selRider||null,rider_name:rider?.name||null,rider_status:selRider?'confirmed':'pending'}).eq('id',selected.id);
+    if(error) toast('Error al asignar: '+error.message,false);
+    else{toast('Rider asignado');onRefresh();setSelected(null);}
+    setAssigning(false);
+  }
+
+  async function cancelOrder() {
+    if(!db||!selected||!confirm('¿Cancelar este pedido?')) return;
+    const{error}=await db.from('delivery_orders').update({rider_status:'cancelled'}).eq('id',selected.id);
+    if(error) toast('Error: '+error.message,false);
+    else{toast('Pedido cancelado');onRefresh();setSelected(null);}
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
+        <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:6,overflow:'hidden'}}>
+          {DFILTS.map((f,i)=>(
+            <button key={f.id} onClick={()=>setFilter(f.id)} style={{padding:'6px 14px',fontSize:12,fontWeight:filter===f.id?700:400,background:filter===f.id?'#000000':'#FFF',color:filter===f.id?'#FFF':'#1D1D1F',border:'none',cursor:'pointer',borderRight:i<DFILTS.length-1?`1px solid ${C.border}`:'none'}}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <select value={chanFilter} onChange={e=>setChanFilter(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,color:'#1D1D1F',background:'#FFF'}}>
+          <option value="all">Todos los canales</option>
+          {channels.map(ch=><option key={ch.id} value={ch.id}>{ch.name}</option>)}
+        </select>
+        <select value={dateFilter} onChange={e=>setDateFilter(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,color:'#1D1D1F',background:'#FFF'}}>
+          <option value="today">Hoy</option>
+          <option value="7d">Últimos 7 días</option>
+          <option value="30d">Últimos 30 días</option>
+          <option value="all">Todos</option>
+        </select>
+      </div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead>
+            <tr style={{borderBottom:`1px solid ${C.border}`,background:'#F9F9FA'}}>
+              <Th># Orden</Th><Th>Canal</Th><Th>Cliente</Th><Th>Dirección</Th><Th>Rider</Th><Th>Estado</Th><Th right>Monto</Th><Th right>Fee</Th><Th>Hora</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(o=>(
+              <tr key={o.id} onClick={()=>openOrder(o)} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='#F9F9FA'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <Td mono dim>#{o.order_number||o.id.slice(0,8)}</Td>
+                <Td>{o.channel||'Propio'}</Td>
+                <Td>{o.customer_name||'—'}</Td>
+                <Td dim>{o.delivery_address?o.delivery_address.slice(0,28)+'…':'—'}</Td>
+                <Td dim>{o.rider_name||'Sin asignar'}</Td>
+                <Td><DelivBadge status={o.rider_status||'pending'}/></Td>
+                <Td mono right>{fmt(o.order_total||0)}</Td>
+                <Td mono right dim>{fmt(o.delivery_fee||0)}</Td>
+                <Td mono dim>{fmtTime(o.created_at)}</Td>
+              </tr>
+            ))}
+            {filtered.length===0 && <EmptyRow cols={9} label="Sin pedidos en este filtro"/>}
+          </tbody>
+        </table>
+      </div>
+
+      {selected && (
+        <Modal title={`Pedido #${selected.order_number||selected.id.slice(0,8)}`} onClose={()=>setSelected(null)} width={560}>
+          <div style={{display:'flex',flexDirection:'column',gap:16}}>
+            <div style={{background:'#F5F5F7',borderRadius:8,padding:14}}>
+              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:8}}>CLIENTE</div>
+              <div style={{fontSize:14,fontWeight:700,color:'#000'}}>{selected.customer_name||'—'}</div>
+              {selected.customer_phone&&<div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{selected.customer_phone}</div>}
+              <div style={{fontSize:12,color:'#1D1D1F',marginTop:6}}>{selected.delivery_address||'—'}</div>
+              {selected.delivery_detail&&<div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>{selected.delivery_detail}</div>}
+              {selected.delivery_notes&&<div style={{fontSize:11,color:'#86868B',marginTop:2,fontStyle:'italic'}}>{selected.delivery_notes}</div>}
+            </div>
+            {items.length>0&&(
+              <div>
+                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:8}}>PRODUCTOS</div>
+                {items.map((it,i)=>(
+                  <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:`1px solid ${C.border}`,fontSize:13}}>
+                    <span>{it.quantity}× {it.item_name}</span>
+                    <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(it.total_price)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{background:'#F5F5F7',borderRadius:8,padding:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}><span style={{color:'#6E6E73'}}>Subtotal</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(selected.order_total||0)}</span></div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}><span style={{color:'#6E6E73'}}>Delivery fee</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(selected.delivery_fee||0)}</span></div>
+              {selected.channel&&selected.channel!=='propio'&&(
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}>
+                  <span style={{color:'#6E6E73'}}>Comisión canal ({selected.channel_commission||0}%)</span>
+                  <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.red}}>-{fmt(Math.round((selected.order_total||0)*((selected.channel_commission||0)/100)))}</span>
+                </div>
+              )}
+              <div style={{height:1,background:C.border,margin:'6px 0'}}/>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:14,fontWeight:800}}>
+                <span>Total cobrado</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt((selected.order_total||0)+(selected.delivery_fee||0))}</span>
+              </div>
+            </div>
+            <div>
+              <Lbl>ASIGNAR RIDER</Lbl>
+              <div style={{display:'flex',gap:8}}>
+                <Sel value={selRider} onChange={e=>setSelRider(e.target.value)}>
+                  <option value="">Sin asignar</option>
+                  {riders.filter(r=>r.active!==false).map(r=><option key={r.id} value={r.id}>{r.name} — {r.vehicle||'—'}</option>)}
+                </Sel>
+                <Btn onClick={assignRider} disabled={assigning}>{assigning?'…':'Guardar'}</Btn>
+              </div>
+            </div>
+            {selected.rider_status&&(
+              <div>
+                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>ESTADO ACTUAL</div>
+                <DelivBadge status={selected.rider_status}/>
+                {selected.delivered_at&&<div style={{fontSize:11,color:'#86868B',marginTop:6}}>Entregado: {fmtDT(selected.delivered_at)}</div>}
+              </div>
+            )}
+            {!['delivered','cancelled'].includes(selected.rider_status)&&(
+              <Btn variant="danger" onClick={cancelOrder}>Cancelar pedido</Btn>
+            )}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ── DelivRiders ── */
+function DelivRiders({riders, onRefresh}) {
+  const [modal,setModal] = useState(null);
+  const [form,setForm] = useState({name:'',phone:'',vehicle:'moto',commission_type:'pct',commission_value:0,active:true});
+  const [saving,setSaving] = useState(false);
+  const VEHICLE_LABELS = {moto:'Moto',bici:'Bici',auto:'Auto',pie:'A pie'};
+
+  function openNew() { setForm({name:'',phone:'',vehicle:'moto',commission_type:'pct',commission_value:0,active:true}); setModal('new'); }
+  function openEdit(r) { setForm({name:r.name||'',phone:r.phone||'',vehicle:r.vehicle||'moto',commission_type:r.commission_type||'pct',commission_value:r.commission_value||0,active:r.active!==false}); setModal(r); }
+
+  async function saveRider() {
+    if(!db||!form.name.trim()){toast('El nombre es obligatorio',false);return;}
+    setSaving(true);
+    const payload={restaurant_id:RID,name:form.name.trim(),phone:form.phone,vehicle:form.vehicle,commission_type:form.commission_type,commission_value:Number(form.commission_value),active:form.active!==false};
+    const{error}=modal==='new'
+      ? await db.from('delivery_riders').insert(payload)
+      : await db.from('delivery_riders').update(payload).eq('id',modal.id);
+    if(error) toast('Error: '+error.message,false);
+    else{toast(modal==='new'?'Rider creado':'Rider actualizado');onRefresh();setModal(null);}
+    setSaving(false);
+  }
+
+  async function toggleActive(r) {
+    if(!db) return;
+    const{error}=await db.from('delivery_riders').update({active:!r.active}).eq('id',r.id);
+    if(error) toast('Error: '+error.message,false);
+    else{toast(r.active?'Rider desactivado':'Rider activado');onRefresh();}
+  }
+
+  return (
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <div style={{fontSize:13,color:'#6E6E73'}}>{riders.length} riders registrados</div>
+        <Btn onClick={openNew}>+ Nuevo Rider</Btn>
+      </div>
+      {riders.length===0
+        ? <div style={{textAlign:'center',padding:60,color:'#D2D2D7',fontSize:14}}>No hay riders — creá el primero</div>
+        : <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}}>
+            {riders.map(r=>{
+              const offline = r.active===false;
+              const statusKey = offline?'offline':(r.current_status||'disponible');
+              const statusLabel = offline?'OFFLINE':statusKey==='en_ruta'?'EN RUTA':'DISPONIBLE';
+              const statusCol = offline?'#86868B':statusKey==='en_ruta'?'#000000':C.green;
+              const initials = r.name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+              return (
+                <div key={r.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20}}>
+                  <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                    {r.photo_url
+                      ? <img src={r.photo_url} alt="" style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',border:`1px solid ${C.border}`}}/>
+                      : <div style={{width:44,height:44,borderRadius:'50%',background:'#F0F0F0',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:800,color:'#6E6E73',flexShrink:0}}>{initials}</div>
+                    }
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{r.name}</div>
+                      <div style={{fontSize:11,color:'#86868B'}}>{VEHICLE_LABELS[r.vehicle]||r.vehicle||'—'}</div>
+                    </div>
+                  </div>
+                  <div style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:10,fontWeight:800,background:statusCol+'22',color:statusCol,border:`1px solid ${statusCol}44`,borderRadius:5,marginBottom:10}}>
+                    <span style={{width:5,height:5,borderRadius:'50%',background:statusCol}}/>{statusLabel}
+                  </div>
+                  <div style={{fontSize:11,color:'#86868B',marginBottom:14}}>
+                    Comisión: {r.commission_value||0}{r.commission_type==='pct'?'%':' ₲'}
+                  </div>
+                  <div style={{display:'flex',gap:6}}>
+                    <Btn small variant="secondary" onClick={()=>openEdit(r)}>Editar</Btn>
+                    <Btn small variant={r.active===false?'secondary':'danger'} onClick={()=>toggleActive(r)}>{r.active===false?'Activar':'Desactivar'}</Btn>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+      }
+      {modal&&(
+        <Modal title={modal==='new'?'Nuevo Rider':'Editar Rider'} onClose={()=>setModal(null)} width={420}>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <div><Lbl>NOMBRE *</Lbl><Inp value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="Juan Pérez"/></div>
+            <div><Lbl>TELÉFONO</Lbl><Inp value={form.phone||''} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="0981 000 000"/></div>
+            <div><Lbl>VEHÍCULO</Lbl>
+              <Sel value={form.vehicle} onChange={e=>setForm({...form,vehicle:e.target.value})}>
+                <option value="moto">Moto</option><option value="bici">Bici</option><option value="auto">Auto</option><option value="pie">A pie</option>
+              </Sel>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              <div><Lbl>TIPO COMISIÓN</Lbl>
+                <Sel value={form.commission_type} onChange={e=>setForm({...form,commission_type:e.target.value})}>
+                  <option value="pct">Porcentaje %</option><option value="fixed">Fija en ₲</option>
+                </Sel>
+              </div>
+              <div><Lbl>VALOR</Lbl><Inp type="number" value={form.commission_value} onChange={e=>setForm({...form,commission_value:e.target.value})} placeholder="0"/></div>
+            </div>
+            {modal!=='new'&&(
+              <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13}}>
+                <input type="checkbox" checked={form.active!==false} onChange={e=>setForm({...form,active:e.target.checked})}/> Rider activo
+              </label>
+            )}
+            <div style={{display:'flex',gap:8,marginTop:8}}>
+              <Btn onClick={saveRider} disabled={saving} style={{flex:1}}>{saving?'Guardando…':'Guardar'}</Btn>
+              <Btn variant="secondary" onClick={()=>setModal(null)}>Cancelar</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ── DelivConfig ── */
+function DelivConfig({zones, setZones, channels, setChannels}) {
+  const [zoneModal,setZoneModal] = useState(null);
+  const [chanModal,setChanModal] = useState(null);
+  const [zForm,setZForm] = useState({name:'',radius:'',price:0,time:30,active:true});
+  const [cForm,setCForm] = useState({name:'',commission:0,color:'#000000',active:true});
+
+  function saveZone() {
+    if(!zForm.name.trim()){toast('El nombre es obligatorio',false);return;}
+    const zone={id:zoneModal==='new'?Date.now().toString():zoneModal.id,...zForm,price:Number(zForm.price),time:Number(zForm.time),radius:zForm.radius?Number(zForm.radius):null};
+    if(zoneModal==='new') setZones([...zones,zone]);
+    else setZones(zones.map(z=>z.id===zoneModal.id?zone:z));
+    toast(zoneModal==='new'?'Zona creada':'Zona actualizada'); setZoneModal(null);
+  }
+
+  function deleteZone(id) { if(!confirm('¿Eliminar esta zona?'))return; setZones(zones.filter(z=>z.id!==id)); toast('Zona eliminada'); }
+
+  function saveChan() {
+    if(!cForm.name.trim()){toast('El nombre es obligatorio',false);return;}
+    if(chanModal==='new'){
+      const ch={id:cForm.name.toLowerCase().replace(/\s+/g,'_')+'_'+Date.now(),...cForm,commission:Number(cForm.commission)};
+      setChannels([...channels,ch]);
+    } else {
+      setChannels(channels.map(c=>c.id===chanModal.id?{...c,...cForm,commission:Number(cForm.commission)}:c));
+    }
+    toast(chanModal==='new'?'Canal creado':'Canal actualizado'); setChanModal(null);
+  }
+
+  function toggleChan(id) { setChannels(channels.map(c=>c.id===id?{...c,active:!c.active}:c)); }
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:20,maxWidth:820}}>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+        <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>ZONAS DE COBERTURA</div>
+          <Btn small onClick={()=>{setZForm({name:'',radius:'',price:0,time:30,active:true});setZoneModal('new');}}>+ Agregar zona</Btn>
+        </div>
+        {zones.length===0
+          ? <div style={{padding:32,textAlign:'center',color:'#D2D2D7',fontSize:13}}>Sin zonas configuradas</div>
+          : <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'#F9F9FA'}}><Th>Nombre</Th><Th>Radio</Th><Th right>Precio delivery</Th><Th right>Tiempo est.</Th><Th>Activa</Th><Th/></tr></thead>
+              <tbody>
+                {zones.map(z=>(
+                  <tr key={z.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                    <Td>{z.name}</Td>
+                    <Td dim>{z.radius?`${z.radius} km`:'Sin límite'}</Td>
+                    <Td mono right>{fmt(z.price)}</Td>
+                    <Td mono right dim>{z.time} min</Td>
+                    <Td><span style={{fontSize:10,fontWeight:700,color:z.active?C.green:'#86868B'}}>{z.active?'Activa':'Inactiva'}</span></Td>
+                    <Td>
+                      <div style={{display:'flex',gap:6}}>
+                        <Btn small variant="secondary" onClick={()=>{setZForm({...z,radius:z.radius||''});setZoneModal(z);}}>Editar</Btn>
+                        <Btn small variant="danger" onClick={()=>deleteZone(z.id)}>Eliminar</Btn>
+                      </div>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+        }
+      </div>
+
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+        <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>CANALES EXTERNOS</div>
+          <Btn small onClick={()=>{setCForm({name:'',commission:0,color:'#000000',active:true});setChanModal('new');}}>+ Canal</Btn>
+        </div>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'#F9F9FA'}}><Th>Canal</Th><Th right>Comisión %</Th><Th>Color</Th><Th>Estado</Th><Th/></tr></thead>
+          <tbody>
+            {channels.map(c=>(
+              <tr key={c.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                <Td><div style={{display:'flex',alignItems:'center',gap:8}}><span style={{width:10,height:10,borderRadius:'50%',background:c.color,display:'inline-block',flexShrink:0}}/>{c.name}</div></Td>
+                <Td mono right>{c.commission}%</Td>
+                <Td><code style={{fontSize:10,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#6E6E73'}}>{c.color}</code></Td>
+                <Td>
+                  <button onClick={()=>toggleChan(c.id)} style={{background:c.active?'rgba(52,199,89,0.1)':'rgba(142,142,147,0.1)',border:`1px solid ${c.active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,color:c.active?C.green:'#86868B',padding:'3px 10px',fontSize:11,fontWeight:700,borderRadius:5,cursor:'pointer'}}>
+                    {c.active?'Activo':'Inactivo'}
+                  </button>
+                </Td>
+                <Td><Btn small variant="secondary" onClick={()=>{setCForm({name:c.name,commission:c.commission,color:c.color,active:c.active});setChanModal(c);}}>Editar</Btn></Td>
+              </tr>
+            ))}
+            {channels.length===0&&<EmptyRow cols={5} label="Sin canales configurados"/>}
+          </tbody>
+        </table>
+      </div>
+
+      {zoneModal&&(
+        <Modal title={zoneModal==='new'?'Nueva zona':'Editar zona'} onClose={()=>setZoneModal(null)} width={420}>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <div><Lbl>NOMBRE *</Lbl><Inp value={zForm.name} onChange={e=>setZForm({...zForm,name:e.target.value})} placeholder="Centro, Barrio Sur…"/></div>
+            <div><Lbl>RADIO (km — vacío = sin límite)</Lbl><Inp type="number" value={zForm.radius||''} onChange={e=>setZForm({...zForm,radius:e.target.value})} placeholder="5"/></div>
+            <div><Lbl>PRECIO DELIVERY (₲)</Lbl><Inp type="number" value={zForm.price} onChange={e=>setZForm({...zForm,price:e.target.value})} placeholder="15000"/></div>
+            <div><Lbl>TIEMPO ESTIMADO (minutos)</Lbl><Inp type="number" value={zForm.time} onChange={e=>setZForm({...zForm,time:e.target.value})} placeholder="30"/></div>
+            <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13}}>
+              <input type="checkbox" checked={zForm.active} onChange={e=>setZForm({...zForm,active:e.target.checked})}/> Zona activa
+            </label>
+            <div style={{display:'flex',gap:8,marginTop:8}}>
+              <Btn onClick={saveZone} style={{flex:1}}>Guardar zona</Btn>
+              <Btn variant="secondary" onClick={()=>setZoneModal(null)}>Cancelar</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {chanModal&&(
+        <Modal title={chanModal==='new'?'Nuevo canal':'Editar canal'} onClose={()=>setChanModal(null)} width={420}>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <div><Lbl>NOMBRE *</Lbl><Inp value={cForm.name} onChange={e=>setCForm({...cForm,name:e.target.value})} placeholder="PedidosYa, Monchis…"/></div>
+            <div><Lbl>COMISIÓN %</Lbl><Inp type="number" value={cForm.commission} onChange={e=>setCForm({...cForm,commission:e.target.value})} placeholder="18"/></div>
+            <div>
+              <Lbl>COLOR</Lbl>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <input type="color" value={cForm.color} onChange={e=>setCForm({...cForm,color:e.target.value})} style={{width:36,height:32,border:`1px solid ${C.border}`,borderRadius:6,padding:2,cursor:'pointer',background:'none'}}/>
+                <Inp value={cForm.color} onChange={e=>setCForm({...cForm,color:e.target.value})} placeholder="#000000" style={{flex:1}}/>
+              </div>
+            </div>
+            <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13}}>
+              <input type="checkbox" checked={cForm.active} onChange={e=>setCForm({...cForm,active:e.target.checked})}/> Canal activo
+            </label>
+            <div style={{display:'flex',gap:8,marginTop:8}}>
+              <Btn onClick={saveChan} style={{flex:1}}>Guardar canal</Btn>
+              <Btn variant="secondary" onClick={()=>setChanModal(null)}>Cancelar</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ── DeliveryModule (root) ── */
+function DeliveryModule() {
+  const [tab,setTab] = useState('dashboard');
+  const [deliveryOrders,setDeliveryOrders] = useState([]);
+  const [riders,setRiders] = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [zones,setZonesState] = useState(()=>LS.get(`deliv_zones_${RID}`,[]) );
+  const [channels,setChannelsState] = useState(()=>LS.get(`deliv_channels_${RID}`,[
+    {id:'propio',    name:'Propio',     commission:0,  color:'#000000', active:true},
+    {id:'pedidosya', name:'PedidosYa',  commission:18, color:'#FF6000', active:true},
+    {id:'monchis',   name:'Monchis',    commission:15, color:'#00B04F', active:true},
+  ]));
+
+  function setZones(z)    { setZonesState(z);    LS.set(`deliv_zones_${RID}`,z); }
+  function setChannels(ch){ setChannelsState(ch); LS.set(`deliv_channels_${RID}`,ch); }
+
+  useEffect(()=>{ loadDelivery(); },[]);
+
+  async function loadDelivery() {
+    setLoading(true);
+    if(!db){ setLoading(false); return; }
+    const [doR,rR] = await Promise.all([
+      db.from('delivery_orders').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(300),
+      db.from('delivery_riders').select('*').eq('restaurant_id',RID).order('name'),
+    ]);
+    setDeliveryOrders(doR.data||[]);
+    setRiders(rR.data||[]);
+    setLoading(false);
+  }
+
+  const TABS = [{id:'dashboard',label:'Dashboard'},{id:'pedidos',label:'Pedidos'},{id:'riders',label:'Riders'},{id:'config',label:'Config'}];
+
+  function renderTab() {
+    if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:300,gap:12}}><span className="spin"/><span style={{fontSize:13,color:'#86868B'}}>Cargando…</span></div>;
+    switch(tab){
+      case 'dashboard': return <DelivDashboard deliveryOrders={deliveryOrders} channels={channels}/>;
+      case 'pedidos':   return <DelivPedidos deliveryOrders={deliveryOrders} riders={riders} channels={channels} onRefresh={loadDelivery}/>;
+      case 'riders':    return <DelivRiders riders={riders} onRefresh={loadDelivery}/>;
+      case 'config':    return <DelivConfig zones={zones} setZones={setZones} channels={channels} setChannels={setChannels}/>;
+      default: return null;
+    }
+  }
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Delivery</h1>
+        <Btn variant="secondary" onClick={loadDelivery}>↺ Actualizar</Btn>
+      </div>
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:24}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{background:'none',border:'none',borderBottom:tab===t.id?'2px solid #000000':'2px solid transparent',color:tab===t.id?'#000000':'#6E6E73',padding:'10px 20px',fontSize:13,fontWeight:tab===t.id?700:400,cursor:'pointer',transition:'color .15s',marginBottom:'-1px'}}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {renderTab()}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
    ROOT APP
 ══════════════════════════════════════════════ */
 function AdminApp() {
@@ -2231,6 +2787,7 @@ function AdminApp() {
       case 'marketing': return <MarketingPage coupons={coupons} orders={orders} onRefresh={loadAll}/>;
       case 'ratings':   return <RatingsPage ratings={ratings}/>;
       case 'stock':     return <StockPage/>;
+      case 'delivery':  return <DeliveryModule/>;
       case 'config':    return <ConfigPage restaurant={restaurant} onRefresh={loadAll}/>;
       default: return null;
     }
