@@ -128,11 +128,11 @@ function getStats() {
 /* ── ESTACIONES DE PRODUCCIÓN ─── */
 const STATIONS = [
   { key: 'todas',     label: 'Todas',     icon: '⊞', color: '#888' },
-  { key: 'cocina',    label: 'Cocina',    icon: '🍳', color: '#fb923c' },
-  { key: 'parrilla',  label: 'Parrilla',  icon: '🔥', color: '#f87171' },
-  { key: 'bar',       label: 'Bar',       icon: '🍺', color: '#60a5fa' },
-  { key: 'cafeteria', label: 'Cafetería', icon: '☕', color: '#c084fc' },
-  { key: 'postres',   label: 'Postres',   icon: '🍮', color: '#f9a8d4' },
+  { key: 'cocina',    label: 'Cocina',    icon: '',   color: '#fb923c' },
+  { key: 'parrilla',  label: 'Parrilla',  icon: '',   color: '#f87171' },
+  { key: 'bar',       label: 'Bar',       icon: '',   color: '#60a5fa' },
+  { key: 'cafeteria', label: 'Cafetería', icon: '',   color: '#c084fc' },
+  { key: 'postres',   label: 'Postres',   icon: '',   color: '#f9a8d4' },
 ];
 
 function filterTicketsForStation(tickets, station) {
@@ -445,7 +445,7 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
                       const st = STATIONS.find(s => s.key === item.station);
                       return st ? (
                         <span style={{ fontSize: 10, fontWeight: 700, color: st.color, background: `${st.color}18`, border: `1px solid ${st.color}35`, borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
-                          {st.icon} {st.label}
+                          {st.icon ? `${st.icon} ${st.label}` : st.label}
                         </span>
                       ) : null;
                     })()}
@@ -582,7 +582,7 @@ function StationTabs({ active, onChange, ticketsByStation }) {
             whiteSpace: 'nowrap',
             transition: 'all 150ms',
           }}>
-            <span>{st.icon}</span>
+            {st.icon && <span>{st.icon}</span>}
             <span>{st.label}</span>
             {count > 0 && (
               <span style={{ background: isActive ? st.color : C.dim, color: isActive ? '#000' : C.bg, borderRadius: 10, fontSize: 10, fontWeight: 800, padding: '0 5px', minWidth: 16, textAlign: 'center' }}>{count}</span>
@@ -749,7 +749,7 @@ function FelicitacionesPanel({ onClose }) {
       {/* Header */}
       <div style={{ padding: '14px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 800, color: C.white, letterSpacing: '0.04em' }}>⭐ Felicitaciones</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.white, letterSpacing: '0.04em' }}>Felicitaciones</div>
           <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>Calificaciones 4 y 5 estrellas</div>
         </div>
         <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.dim, fontSize: 16, padding: '4px 10px', cursor: 'pointer' }}>×</button>
@@ -1127,15 +1127,15 @@ function App() {
           <Clock />
           <div style={{ display: 'flex', gap: 5, marginLeft: 4 }}>
             <Btn active={showStats} onClick={() => setShowStats(v => !v)} title="Estadísticas">STATS</Btn>
-            <Btn active={showFelicitaciones} onClick={() => setShowFelicitaciones(v => !v)} title="Felicitaciones de clientes">⭐</Btn>
+            <Btn active={showFelicitaciones} onClick={() => setShowFelicitaciones(v => !v)} title="Felicitaciones de clientes">Felic.</Btn>
             <Btn onClick={() => { const on = !soundOn; setSoundOn(on); if (on) playBeep('new'); }} title={soundOn ? 'Silenciar' : 'Activar sonido'}>
-              {soundOn ? '🔔' : '🔕'}
+              {soundOn ? 'Son.' : 'Sil.'}
             </Btn>
             <Btn onClick={toggleFullscreen} title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}>
-              {isFullscreen ? '⊡' : '⛶'}
+              {isFullscreen ? '⊡' : '↻'}
             </Btn>
-            <button onClick={toggleThemeFn} title="Cambiar tema" style={{width:32,height:32,borderRadius:6,background:C.card,border:`1px solid ${C.borderStrong}`,color:C.mid,fontSize:15,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
-              {document.documentElement.getAttribute('data-theme')==='dark'?'☀️':'🌙'}
+            <button onClick={toggleThemeFn} title="Cambiar tema" style={{height:32,padding:'0 9px',borderRadius:6,background:C.card,border:`1px solid ${C.borderStrong}`,color:C.mid,fontSize:11,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'inherit',letterSpacing:'0.03em'}}>
+              {document.documentElement.getAttribute('data-theme')==='dark'?'Luz':'Noche'}
             </button>
           </div>
           {window._userProfile && <span style={{ fontSize: 10, color: '#636366', fontWeight: 600 }}>{window._userProfile.display_name || window._userProfile.username}</span>}
@@ -1160,11 +1160,9 @@ function App() {
             const isExpiring = al.alert_type === 'expiring_soon';
             const borderColor = isExpired ? '#EF4444' : '#F97316';
             const bgColor     = isExpired ? 'rgba(239,68,68,0.07)' : 'rgba(249,115,22,0.07)';
-            const icon  = isExpired ? '💀' : isExpiring ? '📅' : '🔴';
             const label = isExpired ? 'VENCIDO' : isExpiring ? 'POR VENCER' : 'STOCK CRÍTICO';
             return (
               <div key={al.id} style={{ background: bgColor, border: `1px solid ${borderColor}40`, borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 14 }}>{icon}</span>
                 <span style={{ fontSize: 11, fontWeight: 700, color: borderColor, flexShrink: 0 }}>{label}:</span>
                 <span style={{ fontSize: 12, color: '#e0e0e0', flex: 1 }}>{al.ingredients?.name || al.ingredient_id}</span>
                 {al.current_value != null && (
