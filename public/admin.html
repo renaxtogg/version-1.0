@@ -10,6 +10,7 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{background:#F5F5F7;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:#1D1D1F;-webkit-font-smoothing:antialiased}
@@ -283,7 +284,7 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
 
 /* ── SIDEBAR ── */
 const NAV = [
-  {id:'dashboard', label:'Dashboard',   icon:'◆'},
+  {id:'dashboard', label:'Dashboard',    icon:'◆'},
   {id:'pedidos',   label:'Pedidos',      icon:'≡'},
   null,
   {id:'delivery',  label:'Delivery',     icon:'→', group:'DELIVERY'},
@@ -294,6 +295,7 @@ const NAV = [
   {id:'stock',     label:'Stock',        icon:'📦'},
   null,
   {id:'clientes',  label:'Clientes',     icon:'♦', group:'ANÁLISIS'},
+  {id:'reportes',  label:'Reportes',     icon:'≈'},
   {id:'finanzas',  label:'Finanzas',     icon:'₲'},
   {id:'caja',      label:'Caja',         icon:'🖥'},
   null,
@@ -341,120 +343,159 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme}) {
 /* ══════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════ */
-function DashboardPage({orders,ratings,setPage}) {
-  const today = new Date().toDateString();
-  const thisWeekStart = new Date(); thisWeekStart.setDate(thisWeekStart.getDate()-6); thisWeekStart.setHours(0,0,0,0);
+function DashboardPage({orders, ratings, setPage}) {
+  const [todayItems, setTodayItems] = useState([]);
+  const now = new Date();
+  const todayStr = now.toDateString();
+  const ayer = new Date(now); ayer.setDate(ayer.getDate()-1);
+  const ayerStr = ayer.toDateString();
+  const nowHour = now.getHours();
+
   const valid = o => !['draft','cancelled'].includes(o.status);
-  const todayOrds  = orders.filter(o => new Date(o.created_at).toDateString()===today && valid(o));
-  const weekOrds   = orders.filter(o => new Date(o.created_at)>=thisWeekStart && valid(o));
-  const active     = orders.filter(o => ['paid','kitchen_received','cooking','ready'].includes(o.status));
-  const cancelled  = orders.filter(o => o.status==='cancelled');
-  const avgTicket  = weekOrds.length ? Math.round(weekOrds.reduce((s,o)=>s+(o.total||0),0)/weekOrds.length) : 0;
-  const avgRating  = ratings.length ? (ratings.reduce((s,r)=>s+r.stars,0)/ratings.length).toFixed(1) : '—';
-  const cancelRate = orders.length ? Math.round(cancelled.length/orders.length*100) : 0;
+  const todayOrds = orders.filter(o => new Date(o.created_at).toDateString()===todayStr && valid(o));
+  const ayerOrds  = orders.filter(o => new Date(o.created_at).toDateString()===ayerStr  && valid(o));
 
-  // Últimos 7 días
-  const last7 = Array.from({length:7},(_,i)=>{
-    const d = new Date(); d.setDate(d.getDate()-6+i);
-    const ds = d.toDateString();
-    const dayOrds = orders.filter(o=>new Date(o.created_at).toDateString()===ds && valid(o));
-    return {label:DAY[d.getDay()],rev:dayOrds.reduce((s,o)=>s+(o.total||0),0),cnt:dayOrds.length,isToday:i===6};
+  const ventasHoy  = todayOrds.reduce((s,o)=>s+(o.total||0),0);
+  const ventasAyer = ayerOrds.reduce((s,o)=>s+(o.total||0),0);
+  const pedidosHoy  = todayOrds.length;
+  const pedidosAyer = ayerOrds.length;
+  const ticketHoy   = pedidosHoy  ? Math.round(ventasHoy/pedidosHoy)   : 0;
+  const ticketAyer  = pedidosAyer ? Math.round(ventasAyer/pedidosAyer) : 0;
+
+  const mesaCount = {}; todayOrds.forEach(o=>{if(o.table_number)mesaCount[o.table_number]=(mesaCount[o.table_number]||0)+1;});
+  const mesaActiva = Object.entries(mesaCount).sort((a,b)=>b[1]-a[1])[0];
+  const mesaCountAyer = {}; ayerOrds.forEach(o=>{if(o.table_number)mesaCountAyer[o.table_number]=(mesaCountAyer[o.table_number]||0)+1;});
+  const mesaActivaAyer = Object.entries(mesaCountAyer).sort((a,b)=>b[1]-a[1])[0];
+
+  const pctDelta = (hoy,ayer) => (ayer>0 ? Math.round((hoy-ayer)/ayer*100) : null);
+  const Delta = ({val,ayer}) => {
+    const pct = pctDelta(val,ayer);
+    if(pct===null) return <span style={{fontSize:11,color:'#86868B'}}>sin datos ayer</span>;
+    const up = pct>=0;
+    return <span style={{fontSize:11,fontWeight:700,color:up?'#34C759':'#FF3B30'}}>{up?'↑':'↓'} {Math.abs(pct)}% vs ayer</span>;
+  };
+
+  // Gráfico por hora — de 6am a hora actual
+  const hourlyRev = Array(24).fill(0);
+  todayOrds.forEach(o=>{ hourlyRev[new Date(o.created_at).getHours()]+=(o.total||0); });
+  const startH = 6; const endH = Math.max(nowHour, startH);
+  const hourSlice = hourlyRev.slice(startH, endH+1);
+  const maxHourRev = Math.max(...hourSlice, 1);
+
+  // Top 5 productos
+  const prodTotals = {};
+  todayItems.forEach(it=>{
+    const k = it.item_name||'—';
+    if(!prodTotals[k]) prodTotals[k]={name:k,qty:0,total:0};
+    prodTotals[k].qty+=(it.quantity||1); prodTotals[k].total+=(it.total_price||0);
   });
-  const maxRev = Math.max(...last7.map(d=>d.rev),1);
+  const top5 = Object.values(prodTotals).sort((a,b)=>b.qty-a.qty).slice(0,5);
 
-  // Horas pico — un solo recorrido en lugar de 24 filter calls
-  const hourly = Array(24).fill(0);
-  orders.filter(valid).forEach(o => { hourly[new Date(o.created_at).getHours()]++; });
-  const maxHour = Math.max(...hourly,1);
+  useEffect(()=>{
+    if(!db||!todayOrds.length) return;
+    const ids = todayOrds.map(o=>o.id).slice(0,150);
+    db.from('order_items').select('order_id,item_name,quantity,total_price').in('order_id',ids)
+      .then(({data})=>setTodayItems(data||[]));
+  },[orders]);
 
-  // Top items from orders (approximate via items_count per order is not enough — use preloaded top if available)
-  const recent = orders.slice(0,10);
+  useEffect(()=>{
+    if(!db) return;
+    const ch = db.channel('dash-rt')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{})
+      .subscribe();
+    const poll = setInterval(()=>{}, 30000);
+    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+  },[]);
 
   return (
     <div className="page">
       <div style={{marginBottom:20}}>
         <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Dashboard</h1>
-        <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
+        <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{now.toLocaleDateString('es-PY',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
       </div>
 
-      {/* KPIs fila 1 */}
-      <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
-        <KpiCard label="Ventas hoy"     value={fmt(todayOrds.reduce((s,o)=>s+(o.total||0),0))} sub={`${todayOrds.length} pedidos`} accent={C.green} onClick={()=>setPage('pedidos')}/>
-        <KpiCard label="Ventas semana"  value={fmt(weekOrds.reduce((s,o)=>s+(o.total||0),0))} sub={`${weekOrds.length} pedidos`} onClick={()=>setPage('finanzas')}/>
-        <KpiCard label="Ticket promedio" value={fmt(avgTicket)} sub="últimos 7 días"/>
-        <KpiCard label="Activos ahora"  value={active.length} accent={active.length>0?C.orange:C.mid} sub="en cocina o listos" onClick={()=>setPage('pedidos')}/>
-        <KpiCard label="Cancelaciones"  value={`${cancelRate}%`} sub={`${cancelled.length} pedidos`} accent={cancelRate>10?C.red:C.mid} onClick={()=>setPage('pedidos')}/>
-        <KpiCard label="Rating"         value={avgRating} sub={`${ratings.length} reseñas`} accent={C.yellow} onClick={()=>setPage('ratings')}/>
-      </div>
-
-      {/* Charts row */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:14}}>
-        {/* Ingresos 7 días */}
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
-          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:16}}>INGRESOS — ÚLTIMOS 7 DÍAS</div>
-          <div style={{display:'flex',alignItems:'flex-end',gap:8,height:100}}>
-            {last7.map((d,i) => (
-              <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
-                <div style={{fontSize:9,color:'#86868B',fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'center',minHeight:12}}>{d.rev>0?fmtK(d.rev):''}</div>
-                <div style={{width:'100%',height:`${Math.max(d.rev>0?Math.round((d.rev/maxRev)*80):0,d.rev>0?3:0)}px`,background:d.rev===maxRev&&d.rev>0?'#000000':'#D2D2D7',borderRadius:'3px 3px 0 0',transition:'height .3s',minHeight:d.rev>0?3:0}}/>
-                <div style={{fontSize:10,color:'#6E6E73',fontWeight:400}}>{d.label}</div>
-              </div>
-            ))}
-          </div>
+      {/* 4 KPIs principales */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'18px 20px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
+          <div style={{fontSize:12,color:'#6E6E73',fontWeight:500,marginBottom:8}}>Ventas hoy</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#000000',lineHeight:1,letterSpacing:'-0.5px'}}>{fmt(ventasHoy)}</div>
+          <div style={{marginTop:6}}><Delta val={ventasHoy} ayer={ventasAyer}/></div>
         </div>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'18px 20px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
+          <div style={{fontSize:12,color:'#6E6E73',fontWeight:500,marginBottom:8}}>Pedidos hoy</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#000000',lineHeight:1,letterSpacing:'-0.5px'}}>{pedidosHoy}</div>
+          <div style={{marginTop:6}}><Delta val={pedidosHoy} ayer={pedidosAyer}/></div>
+        </div>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'18px 20px'}}>
+          <div style={{fontSize:12,color:'#6E6E73',fontWeight:500,marginBottom:8}}>Ticket promedio</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#000000',lineHeight:1,letterSpacing:'-0.5px'}}>{pedidosHoy>0?fmt(ticketHoy):'—'}</div>
+          <div style={{marginTop:6}}>{ticketAyer>0?<Delta val={ticketHoy} ayer={ticketAyer}/>:<span style={{fontSize:11,color:'#86868B'}}>sin datos ayer</span>}</div>
+        </div>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'18px 20px'}}>
+          <div style={{fontSize:12,color:'#6E6E73',fontWeight:500,marginBottom:8}}>Mesa más activa</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#000000',lineHeight:1,letterSpacing:'-0.5px'}}>{mesaActiva?`Mesa ${mesaActiva[0]}`:'—'}</div>
+          <div style={{marginTop:6,fontSize:11,color:'#86868B'}}>{mesaActiva?`${mesaActiva[1]} pedidos hoy`:mesaActivaAyer?`ayer: Mesa ${mesaActivaAyer[0]}`:''}</div>
+        </div>
+      </div>
 
-        {/* Horas pico */}
+      {/* Gráfico barras por hora + Top 5 */}
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:14,marginBottom:20}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
-          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:16}}>HORAS PICO</div>
-          <div style={{display:'flex',alignItems:'flex-end',gap:2,height:80}}>
-            {hourly.map((n,h) => {
-              const isNow = new Date().getHours()===h;
-              const isPeak = n === maxHour && n > 0;
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:16}}>VENTAS POR HORA — HOY ({startH}hs al momento)</div>
+          <div style={{display:'flex',alignItems:'flex-end',gap:3,height:100}}>
+            {hourSlice.map((rev,i)=>{
+              const h = startH+i;
+              const isNow = h===nowHour;
+              const barH = rev>0?Math.max(Math.round((rev/maxHourRev)*88),4):0;
               return (
-                <div key={h} title={`${h}:00 — ${n} pedidos`} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
-                  <div style={{width:'100%',height:`${Math.max(n>0?Math.round((n/maxHour)*68):0,n>0?2:0)}px`,background:isPeak?'#000000':isNow?'#6E6E73':'#D2D2D7',borderRadius:'2px 2px 0 0',transition:'height .3s'}}/>
-                  {h%4===0 && <div style={{fontSize:8,color:'#6E6E73',fontFamily:"'SF Mono',ui-monospace,monospace"}}>{h}</div>}
+                <div key={h} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+                  {rev>0?<div style={{fontSize:8,color:'#86868B',fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'center',whiteSpace:'nowrap'}}>{fmtK(rev)}</div>
+                        :<div style={{height:12}}/>}
+                  <div style={{width:'100%',height:`${barH}px`,background:isNow?'#000000':'#D2D2D7',borderRadius:'3px 3px 0 0',transition:'height .3s'}}/>
+                  <div style={{fontSize:8,color:isNow?'#000':'#6E6E73',fontWeight:isNow?700:400,whiteSpace:'nowrap'}}>{h}hs</div>
                 </div>
               );
             })}
           </div>
-          <div style={{fontSize:10,color:'#1D1D1F',marginTop:8}}>
-            {maxHour>0 ? `Pico: ${hourly.indexOf(maxHour)}:00 (${maxHour} pedidos)` : 'Sin datos suficientes'}
-          </div>
+        </div>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>TOP 5 PRODUCTOS — HOY</div>
+          {top5.length===0
+            ?<div style={{color:'#D2D2D7',fontSize:12,textAlign:'center',paddingTop:20}}>Sin ventas hoy</div>
+            :top5.map((p,i)=>(
+              <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:'#1D1D1F',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
+                  <div style={{fontSize:10,color:'#86868B'}}>{fmt(p.total)}</div>
+                </div>
+                <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:18,fontWeight:800,color:'#000',marginLeft:12}}>{p.qty}</div>
+              </div>
+            ))
+          }
         </div>
       </div>
 
-      {/* Métodos de pago + Pedidos recientes */}
-      <div style={{display:'grid',gridTemplateColumns:'220px 1fr',gap:14}}>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18}}>
-          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>MÉTODOS DE PAGO</div>
-          {Object.entries(orders.filter(o=>valid(o)&&o.payment_method).reduce((acc,o)=>{acc[o.payment_method]=(acc[o.payment_method]||0)+1;return acc;},{})).sort((a,b)=>b[1]-a[1]).map(([m,n])=>(
-            <div key={m} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:9}}>
-              <span style={{fontSize:12,color:'#1D1D1F'}}>{PL[m]||m}</span>
-              <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:13,fontWeight:700}}>{n}</span>
-            </div>
-          ))}
-          {orders.filter(o=>valid(o)&&o.payment_method).length===0 && <div style={{color:'#D2D2D7',fontSize:12}}>Sin datos</div>}
+      {/* Pedidos recientes */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+        <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:'#6E6E73',letterSpacing:1,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          PEDIDOS RECIENTES
+          <button onClick={()=>setPage('pedidos')} style={{background:'none',border:'none',color:'#86868B',fontSize:11,cursor:'pointer'}}>Ver todos →</button>
         </div>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-          <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:'#6E6E73',letterSpacing:1}}>PEDIDOS RECIENTES</div>
-          <table style={{width:'100%',borderCollapse:'collapse'}}>
-            <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>#</Th><Th>Mesa</Th><Th>Estado</Th><Th right>Total</Th><Th>Pago</Th><Th>Hora</Th></tr></thead>
-            <tbody>
-              {recent.map(o=>(
-                <tr key={o.id} style={{borderBottom:`1px solid #0d0d0d`}}>
-                  <Td mono dim>{o.order_number}</Td>
-                  <Td>{mesaLabel(o)}</Td>
-                  <Td><Badge status={o.status}/></Td>
-                  <Td mono right>{fmt(o.total)}</Td>
-                  <Td dim>{PL[o.payment_method]||'—'}</Td>
-                  <Td mono dim>{fmtTime(o.created_at)}</Td>
-                </tr>
-              ))}
-              {recent.length===0 && <EmptyRow cols={6} label="No hay pedidos"/>}
-            </tbody>
-          </table>
-        </div>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>#</Th><Th>Mesa</Th><Th>Estado</Th><Th right>Total</Th><Th>Hora</Th></tr></thead>
+          <tbody>
+            {orders.slice(0,8).map(o=>(
+              <tr key={o.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                <Td mono dim>{o.order_number}</Td>
+                <Td>{mesaLabel(o)}</Td>
+                <Td><Badge status={o.status}/></Td>
+                <Td mono right>{fmt(o.total)}</Td>
+                <Td mono dim>{fmtTime(o.created_at)}</Td>
+              </tr>
+            ))}
+            {orders.length===0&&<EmptyRow cols={5} label="No hay pedidos"/>}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -463,55 +504,150 @@ function DashboardPage({orders,ratings,setPage}) {
 /* ══════════════════════════════════════════════
    PEDIDOS
 ══════════════════════════════════════════════ */
-function PedidosPage({orders,onRefresh}) {
-  const [filter,setFilter] = useState('all');
+function PedidosPage({orders, tables, onRefresh}) {
+  const [filter,setFilter]     = useState('all');
+  const [mesaF,setMesaF]       = useState('all');
+  const [period,setPeriod]     = useState('hoy');
+  const [dateFrom,setDateFrom] = useState('');
+  const [dateTo,setDateTo]     = useState('');
+  const [search,setSearch]     = useState('');
   const [selected,setSelected] = useState(null);
-  const [items,setItems] = useState([]);
+  const [items,setItems]       = useState([]);
   const [loadingItems,setLoadingItems] = useState(false);
-  const [upd,setUpd] = useState(false);
-  const FILTERS = [{id:'all',label:'Todos'},{id:'active',label:'Activos'},{id:'paid',label:'Nuevos'},{id:'cooking',label:'Preparando'},{id:'delivered',label:'Entregados'},{id:'cancelled',label:'Cancelados'}];
+  const [upd,setUpd]           = useState(false);
+  const [newBadge,setNewBadge] = useState(0);
+
+  const FILTERS = [
+    {id:'all',label:'Todos'},
+    {id:'pending',label:'Pendientes'},
+    {id:'kitchen',label:'En cocina'},
+    {id:'ready',label:'Listos'},
+    {id:'paid_done',label:'Cobrados'},
+    {id:'cancelled',label:'Cancelados'},
+  ];
+
   const filtered = useMemo(()=>{
-    if(filter==='all') return orders;
-    if(filter==='active') return orders.filter(o=>['paid','kitchen_received','cooking','ready'].includes(o.status));
-    if(filter==='paid') return orders.filter(o=>['paid','kitchen_received'].includes(o.status));
-    return orders.filter(o=>o.status===filter);
-  },[orders,filter]);
+    let res = [...orders];
+    // período
+    const now = new Date();
+    if(period==='hoy'){const d=now.toDateString();res=res.filter(o=>new Date(o.created_at).toDateString()===d);}
+    else if(period==='7d'){const s=new Date();s.setDate(s.getDate()-6);s.setHours(0,0,0,0);res=res.filter(o=>new Date(o.created_at)>=s);}
+    else if(period==='30d'){const s=new Date();s.setDate(s.getDate()-29);s.setHours(0,0,0,0);res=res.filter(o=>new Date(o.created_at)>=s);}
+    else if(period==='custom'&&dateFrom){
+      const s=new Date(dateFrom); const e=dateTo?new Date(dateTo+'T23:59:59'):new Date();
+      res=res.filter(o=>{const d=new Date(o.created_at);return d>=s&&d<=e;});
+    }
+    // filtro estado
+    if(filter==='pending') res=res.filter(o=>['draft','confirmed'].includes(o.status));
+    else if(filter==='kitchen') res=res.filter(o=>['paid','kitchen_received','cooking'].includes(o.status));
+    else if(filter==='ready') res=res.filter(o=>o.status==='ready');
+    else if(filter==='paid_done') res=res.filter(o=>o.status==='delivered');
+    else if(filter==='cancelled') res=res.filter(o=>o.status==='cancelled');
+    // filtro mesa
+    if(mesaF!=='all') res=res.filter(o=>String(o.table_number)===mesaF);
+    // búsqueda
+    if(search.trim()) res=res.filter(o=>(o.order_number||'').toLowerCase().includes(search.toLowerCase()));
+    return res;
+  },[orders,filter,mesaF,period,dateFrom,dateTo,search]);
+
+  // Realtime
+  useEffect(()=>{
+    if(!db) return;
+    const ch = db.channel('pedidos-rt')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ setNewBadge(n=>n+1); onRefresh(); })
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ onRefresh(); })
+      .subscribe();
+    const poll = setInterval(onRefresh, 30000);
+    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+  },[]);
+
+  function exportExcel() {
+    const rows = filtered.map(o=>({
+      'N° orden': o.order_number||'',
+      'Mesa': mesaLabel(o),
+      'Estado': SL[o.status]||o.status,
+      'Productos': o.items_count||0,
+      'Total (₲)': o.total||0,
+      'Método pago': PL[o.payment_method]||o.payment_method||'',
+      'Fecha': fmtDT(o.created_at),
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Pedidos');
+    XLSX.writeFile(wb, `pedidos_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }
 
   async function selectOrder(o) {
-    setSelected(o);setItems([]);
-    if(!db)return;
+    setSelected(o); setItems([]);
+    if(!db) return;
     setLoadingItems(true);
     const{data}=await db.from('order_items').select('item_name,quantity,unit_price,total_price,observations').eq('order_id',o.id);
-    setItems(data||[]);setLoadingItems(false);
+    setItems(data||[]); setLoadingItems(false);
   }
   async function updateStatus(orderId,newStatus) {
-    if(!db)return;setUpd(true);
+    if(!db) return; setUpd(true);
     const{data,error}=await db.from('orders').update({status:newStatus,...(newStatus==='delivered'?{completed_at:new Date().toISOString()}:{})}).eq('id',orderId).select('id');
     if(error){toast('Error: '+error.message,false);}
     else if(!data||data.length===0){toast('No se pudo actualizar el estado — verificá RLS en Supabase',false);}
     else{toast('Estado actualizado');setSelected(s=>s?.id===orderId?{...s,status:newStatus}:s);onRefresh();}
     setUpd(false);
   }
+
+  const tablaNums = [...new Set(orders.map(o=>o.table_number).filter(Boolean))].sort((a,b)=>a-b);
+
   return (
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Pedidos</h1>
-        <Btn onClick={onRefresh} variant="secondary">↺ Actualizar</Btn>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Pedidos</h1>
+          {newBadge>0&&<span style={{background:'#FF3B30',color:'#fff',fontSize:10,fontWeight:800,padding:'2px 7px',borderRadius:10}}>{newBadge} nuevos</span>}
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <Btn onClick={exportExcel} variant="secondary" small>Exportar Excel</Btn>
+          <Btn onClick={()=>{onRefresh();setNewBadge(0);}} variant="secondary">↺ Actualizar</Btn>
+        </div>
       </div>
-      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:0}}>
+
+      {/* Filtros de estado */}
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:0,flexWrap:'wrap'}}>
         {FILTERS.map(f=>(
           <button key={f.id} onClick={()=>setFilter(f.id)} style={{background:'none',border:'none',color:filter===f.id?C.ink:'#86868B',padding:'8px 13px',fontSize:12,fontWeight:filter===f.id?700:400,borderBottom:filter===f.id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>
-            {f.label} {f.id!=='all'&&<span style={{color:'#6E6E73',fontSize:10}}>({filtered.length})</span>}
+            {f.label}
           </button>
         ))}
       </div>
-      <div style={{display:'flex',gap:12,paddingTop:12,minHeight:400}}>
+
+      {/* Barra filtros secundaria */}
+      <div style={{display:'flex',gap:8,padding:'10px 0',flexWrap:'wrap',alignItems:'center'}}>
+        <select value={mesaF} onChange={e=>setMesaF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#fff',color:'#1D1D1F'}}>
+          <option value="all">Todas las mesas</option>
+          {tablaNums.map(n=><option key={n} value={String(n)}>Mesa {n}</option>)}
+        </select>
+        <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:6,overflow:'hidden'}}>
+          {['hoy','7d','30d','custom'].map((p,i,a)=>(
+            <button key={p} onClick={()=>setPeriod(p)} style={{padding:'5px 10px',fontSize:11,fontWeight:period===p?700:400,background:period===p?'#000':'#fff',color:period===p?'#fff':'#6E6E73',border:'none',cursor:'pointer',borderRight:i<a.length-1?`1px solid ${C.border}`:'none'}}>
+              {p==='hoy'?'Hoy':p==='7d'?'7 días':p==='30d'?'30 días':'Custom'}
+            </button>
+          ))}
+        </div>
+        {period==='custom'&&(
+          <div style={{display:'flex',gap:4,alignItems:'center'}}>
+            <input type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)} style={{padding:'4px 8px',fontSize:11,borderRadius:5,border:`1px solid ${C.border}`}}/>
+            <span style={{fontSize:11,color:'#86868B'}}>–</span>
+            <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={{padding:'4px 8px',fontSize:11,borderRadius:5,border:`1px solid ${C.border}`}}/>
+          </div>
+        )}
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar N° orden…" style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:160}}/>
+        <span style={{fontSize:11,color:'#86868B',marginLeft:'auto'}}>{filtered.length} pedido{filtered.length!==1?'s':''}</span>
+      </div>
+
+      <div style={{display:'flex',gap:12,minHeight:400}}>
         <div style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}>
             <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>#</Th><Th>Mesa</Th><Th>Estado</Th><Th>Items</Th><Th right>Total</Th><Th>Pago</Th><Th>Fecha</Th></tr></thead>
             <tbody>
               {filtered.map(o=>(
-                <tr key={o.id} onClick={()=>selectOrder(o)} style={{borderBottom:`1px solid #0d0d0d`,cursor:'pointer',background:selected?.id===o.id?'#FFFFFF':'transparent'}}>
+                <tr key={o.id} onClick={()=>{selectOrder(o);setNewBadge(0);}} style={{borderBottom:`1px solid #F0F0F0`,cursor:'pointer',background:selected?.id===o.id?'#F5F5F7':'transparent'}}>
                   <Td mono dim>{o.order_number}</Td>
                   <Td>{mesaLabel(o)}</Td>
                   <Td><Badge status={o.status}/></Td>
@@ -571,9 +707,34 @@ function MenuPage({categories,menuItems,onRefresh}) {
   const [editVals,setEditVals] = useState({});
   const [saving,setSaving] = useState(false);
   const [newCat,setNewCat] = useState('');
-  const [form,setForm] = useState({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:''});
+  const [previewItem,setPreviewItem] = useState(null);
+  const [dragOver,setDragOver] = useState(null);
+  const dragItem = useRef(null);
+  const [form,setForm] = useState({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:'',stock_min:'0'});
   const visible = catFilter==='all'?menuItems:menuItems.filter(i=>i.category_id===catFilter);
   const catName = id => categories.find(c=>c.id===id)?.name||'—';
+
+  // Realtime menú
+  useEffect(()=>{
+    if(!db) return;
+    const ch = db.channel('menu-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'menu_items',filter:`restaurant_id=eq.${RID}`},()=>onRefresh())
+      .subscribe();
+    const poll = setInterval(onRefresh, 30000);
+    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+  },[]);
+
+  // Drag-and-drop para reordenar
+  function onDragStart(item) { dragItem.current = item; }
+  async function onDrop(targetItem) {
+    if(!dragItem.current||!db||dragItem.current.id===targetItem.id) return;
+    const from = dragItem.current; const to = targetItem;
+    await Promise.all([
+      db.from('menu_items').update({sort_order:to.sort_order}).eq('id',from.id),
+      db.from('menu_items').update({sort_order:from.sort_order}).eq('id',to.id),
+    ]);
+    setDragOver(null); dragItem.current=null; onRefresh();
+  }
 
   async function addCategory() {
     if(!db||!newCat.trim())return;
@@ -587,10 +748,10 @@ function MenuPage({categories,menuItems,onRefresh}) {
     setSaving(true);
     const{data:maxData}=await db.from('menu_items').select('id').order('id',{ascending:false}).limit(1);
     const nextId=(maxData&&maxData.length>0?maxData[0].id:0)+1;
-    const{data,error}=await db.from('menu_items').insert({id:nextId,name:form.name,description:form.description||null,price_guarani:parseInt(form.price_guarani),category_id:form.category_id,restaurant_id:RID,is_available:form.is_available,promo_tag:form.promo_tag||null,image_url:form.image_url||null}).select('id');
+    const{data,error}=await db.from('menu_items').insert({id:nextId,name:form.name,description:form.description||null,price_guarani:parseInt(form.price_guarani),category_id:form.category_id,restaurant_id:RID,is_available:form.is_available,promo_tag:form.promo_tag||null,image_url:form.image_url||null,stock_min:parseInt(form.stock_min)||0}).select('id');
     if(error){toast('Error al guardar: '+error.message,false);}
     else if(!data||data.length===0){toast('No se pudo crear el item — verificá RLS en Supabase',false);}
-    else{toast('Item creado — ya visible en la app');setShowForm(false);setForm({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:''});onRefresh();}
+    else{toast('Item creado — ya visible en la app');setShowForm(false);setForm({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:'',stock_min:'0'});onRefresh();}
     setSaving(false);
   }
   async function toggleAvail(item) {
@@ -609,6 +770,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
     if(v.price!==undefined&&parseInt(v.price)!==item.price_guarani)upd.price_guarani=parseInt(v.price);
     if(v.promo!==undefined&&v.promo!==(item.promo_tag||''))upd.promo_tag=v.promo||null;
     if(v.img!==undefined&&v.img!==(item.image_url||''))upd.image_url=v.img||null;
+    if(v.stock_min!==undefined&&parseInt(v.stock_min)!==(item.stock_min||0))upd.stock_min=parseInt(v.stock_min)||0;
     if(!Object.keys(upd).length){setEditId(null);return;}
     const{data,error}=await db.from('menu_items').update(upd).eq('id',item.id).select('id');
     if(error){toast('Error: '+error.message,false);}
@@ -627,7 +789,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
     else if(!data||data.length===0){toast('No se pudo eliminar — ejecutá la migración 010 en Supabase',false);}
     else{toast('Item eliminado');onRefresh();}
   }
-  function startEdit(item){setEditId(item.id);setEditVals(v=>({...v,[item.id]:{name:item.name,desc:item.description||'',price:item.price_guarani,promo:item.promo_tag||'',img:item.image_url||''}}));}
+  function startEdit(item){setEditId(item.id);setEditVals(v=>({...v,[item.id]:{name:item.name,desc:item.description||'',price:item.price_guarani,promo:item.promo_tag||'',img:item.image_url||'',stock_min:item.stock_min||0}}));}
   function upd(id,k,v){setEditVals(ev=>({...ev,[id]:{...ev[id],[k]:v}}));}
 
   return (
@@ -642,13 +804,35 @@ function MenuPage({categories,menuItems,onRefresh}) {
       <div style={{background:'rgba(34,197,94,0.06)',border:'1px solid rgba(34,197,94,0.2)',borderRadius:8,padding:'9px 14px',marginBottom:14,fontSize:12,color:'#86868B'}}>
         Los cambios se guardan en Supabase. La app del cliente los ve al refrescar. Si crear o eliminar items falla, ejecutá las migraciones <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#AEAEB2',fontSize:11}}>010</code> y <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#AEAEB2',fontSize:11}}>012</code> en Supabase. Para subir fotos ejecutá también la <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#AEAEB2',fontSize:11}}>011</code>.
       </div>
+      {/* Modal vista previa de producto */}
+      {previewItem&&(
+        <Modal title="Vista previa del producto" onClose={()=>setPreviewItem(null)} width={380}>
+          <div style={{background:'#F5F5F7',borderRadius:12,overflow:'hidden'}}>
+            {previewItem.image_url
+              ?<img src={previewItem.image_url} alt="" style={{width:'100%',height:200,objectFit:'cover'}} onError={e=>{e.target.style.display='none';}}/>
+              :<div style={{height:140,background:'#E8E8ED',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40}}>🍽</div>
+            }
+            <div style={{padding:20}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+                <div style={{fontSize:18,fontWeight:700,color:'#1D1D1F',flex:1}}>{previewItem.name}</div>
+                {previewItem.promo_tag&&<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 8px',fontSize:11,borderRadius:4,marginLeft:8,flexShrink:0}}>{previewItem.promo_tag}</span>}
+              </div>
+              {previewItem.description&&<div style={{fontSize:13,color:'#6E6E73',marginBottom:12,lineHeight:1.4}}>{previewItem.description}</div>}
+              <div style={{fontSize:22,fontWeight:800,color:'#000',marginBottom:12}}>{fmt(previewItem.price_guarani)}</div>
+              <div style={{background:'#000',color:'#fff',padding:'11px',textAlign:'center',borderRadius:8,fontSize:14,fontWeight:600}}>Agregar al pedido</div>
+            </div>
+          </div>
+          <div style={{marginTop:12,fontSize:11,color:'#86868B',textAlign:'center'}}>Solo lectura — sin funcionalidad de carrito</div>
+        </Modal>
+      )}
+
       <div style={{display:'flex',gap:14}}>
         <div style={{width:165,flexShrink:0}}>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,marginBottom:10,overflow:'hidden'}}>
             <div style={{padding:'8px 12px',fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,borderBottom:`1px solid ${C.border}`}}>CATEGORÍAS</div>
             {[{id:'all',name:'Todas',cnt:menuItems.length},...categories.map(c=>({id:c.id,name:c.name,cnt:menuItems.filter(i=>i.category_id===c.id).length}))].map(c=>{
               const active=catFilter===c.id;
-              return <button key={c.id} onClick={()=>setCatFilter(c.id)} style={{display:'flex',justifyContent:'space-between',width:'100%',textAlign:'left',padding:'8px 12px',background:active?'rgba(255,255,255,0.08)':'none',border:'none',color:active?C.white:C.mid,fontSize:13,cursor:'pointer',borderBottom:`1px solid #0d0d0d`,borderLeft:active?`2px solid ${C.white}`:'2px solid transparent'}}>
+              return <button key={c.id} onClick={()=>setCatFilter(c.id)} style={{display:'flex',justifyContent:'space-between',width:'100%',textAlign:'left',padding:'8px 12px',background:active?'#F0F0F0':'none',border:'none',color:active?'#000':'#6E6E73',fontSize:13,cursor:'pointer',borderBottom:`1px solid #F0F0F0`,borderLeft:active?'2px solid #000':'2px solid transparent'}}>
                 <span>{c.name}</span><span style={{color:'#D2D2D7',fontSize:11}}>{c.cnt}</span>
               </button>;
             })}
@@ -668,8 +852,14 @@ function MenuPage({categories,menuItems,onRefresh}) {
                 <div><Lbl>PRECIO (₲) *</Lbl><Inp type="number" mono value={form.price_guarani} onChange={e=>setForm({...form,price_guarani:e.target.value})} placeholder="75000"/></div>
                 <div><Lbl>CATEGORÍA *</Lbl><Sel value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})}><option value="">Seleccionar…</option>{categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Sel></div>
                 <div><Lbl>PROMO TAG</Lbl><Inp value={form.promo_tag} onChange={e=>setForm({...form,promo_tag:e.target.value})} placeholder="2×1, Nuevo, Chef ★"/></div>
+                <div><Lbl>STOCK MÍNIMO</Lbl><Inp type="number" mono value={form.stock_min} onChange={e=>setForm({...form,stock_min:e.target.value})} placeholder="0"/></div>
+                <div style={{display:'flex',alignItems:'flex-end'}}>
+                  <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13,marginBottom:0}}>
+                    <input type="checkbox" checked={form.is_available} onChange={e=>setForm({...form,is_available:e.target.checked})}/> Disponible al crear
+                  </label>
+                </div>
                 <div style={{gridColumn:'1/-1'}}><Lbl>IMAGEN DEL PRODUCTO</Lbl><ImageUploader value={form.image_url} onChange={url=>setForm({...form,image_url:url})}/></div>
-                <div style={{gridColumn:'1/-1'}}><Lbl>DESCRIPCIÓN</Lbl><textarea value={form.description||''} onChange={e=>setForm({...form,description:e.target.value})} rows={2} style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:'#F5F5F7',border:'1px solid #222',color:'#fff',borderRadius:6}}/></div>
+                <div style={{gridColumn:'1/-1'}}><Lbl>DESCRIPCIÓN</Lbl><textarea value={form.description||''} onChange={e=>setForm({...form,description:e.target.value})} rows={2} style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:'#fff',border:'1px solid #D2D2D7',color:'#1D1D1F',borderRadius:6}}/></div>
               </div>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
                 <Btn onClick={addItem} disabled={saving}>{saving?'Guardando…':'Guardar item'}</Btn>
@@ -679,24 +869,36 @@ function MenuPage({categories,menuItems,onRefresh}) {
           )}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Foto</Th><Th>Nombre</Th><Th>Cat.</Th><Th right>Precio</Th><Th>Promo</Th><Th>Estado</Th><Th>Acc.</Th></tr></thead>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th></Th><Th>Foto</Th><Th>Nombre</Th><Th>Cat.</Th><Th right>Precio</Th><Th>Promo</Th><Th>Stock</Th><Th>Estado</Th><Th>Acc.</Th></tr></thead>
               <tbody>
                 {visible.map(item=>{
                   const ed=editId===item.id;const ev=editVals[item.id]||{};
+                  const stockBajo = (item.stock_min>0) && (item.stock!=null) && (item.stock<=item.stock_min);
+                  const isDragTarget = dragOver===item.id;
                   return (
-                    <tr key={item.id} style={{borderBottom:`1px solid #0d0d0d`}}>
+                    <tr key={item.id}
+                      draggable
+                      onDragStart={()=>onDragStart(item)}
+                      onDragOver={e=>{e.preventDefault();setDragOver(item.id);}}
+                      onDragLeave={()=>setDragOver(null)}
+                      onDrop={()=>onDrop(item)}
+                      style={{borderBottom:`1px solid #F0F0F0`,opacity:isDragTarget?0.5:1,background:isDragTarget?'#F0F0F0':'transparent',cursor:'grab'}}>
+                      <Td><span style={{color:'#D2D2D7',fontSize:14,cursor:'grab'}}>⋮⋮</span></Td>
                       <Td>
                         {ed
                           ?<ImageUploader compact value={ev.img||''} onChange={url=>upd(item.id,'img',url)}/>
                           :item.image_url?<img src={item.image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
-                          :<div style={{width:36,height:36,background:'#FFFFFF',borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14}}>🍽</div>}
+                          :<div style={{width:36,height:36,background:'#F5F5F7',borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,color:'#D2D2D7'}}>🍽</div>}
                       </Td>
                       <Td>
                         {ed?<div style={{display:'flex',flexDirection:'column',gap:4}}>
-                            <Inp value={ev.name||''} onChange={e=>upd(item.id,'name',e.target.value)} placeholder="Nombre" style={{fontSize:13}}/>
-                            <Inp value={ev.desc||''} onChange={e=>upd(item.id,'desc',e.target.value)} placeholder="Descripción" style={{fontSize:11,color:'#777'}}/>
+                            <Inp value={ev.name||''} onChange={e=>upd(item.id,'name',e.target.value)} placeholder="Nombre"/>
+                            <Inp value={ev.desc||''} onChange={e=>upd(item.id,'desc',e.target.value)} placeholder="Descripción" style={{fontSize:11}}/>
                           </div>
-                          :<div><div style={{color:item.is_available?C.ink:'#86868B'}}>{item.name}</div>{item.description&&<div style={{fontSize:11,color:'#86868B',marginTop:2,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>}</div>}
+                          :<div>
+                            <div style={{color:item.is_available?'#1D1D1F':'#86868B'}}>{item.name}</div>
+                            {item.description&&<div style={{fontSize:11,color:'#86868B',marginTop:2,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>}
+                          </div>}
                       </Td>
                       <Td dim>{catName(item.category_id)}</Td>
                       <Td mono right>
@@ -707,7 +909,14 @@ function MenuPage({categories,menuItems,onRefresh}) {
                           :item.promo_tag&&<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 6px',fontSize:11,borderRadius:4}}>{item.promo_tag}</span>}
                       </Td>
                       <Td>
-                        <button onClick={()=>toggleAvail(item)} style={{background:item.is_available?'rgba(34,197,94,0.1)':'rgba(255,255,255,0.04)',border:`1px solid ${item.is_available?'rgba(34,197,94,0.3)':C.border}`,color:item.is_available?C.green:'#86868B',padding:'3px 9px',fontSize:11,fontWeight:600,borderRadius:5}}>
+                        {ed?<Inp type="number" mono value={ev.stock_min??''} onChange={e=>upd(item.id,'stock_min',e.target.value)} placeholder="0" style={{width:60}}/>
+                          :stockBajo
+                            ?<span style={{background:'#FFEDEC',border:'1px solid #FFB3AD',color:'#C0190F',padding:'2px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>STOCK BAJO</span>
+                            :(item.stock_min>0?<span style={{fontSize:10,color:'#86868B'}}>min {item.stock_min}</span>:null)
+                        }
+                      </Td>
+                      <Td>
+                        <button onClick={()=>toggleAvail(item)} style={{background:item.is_available?'rgba(52,199,89,0.1)':'rgba(142,142,147,0.1)',border:`1px solid ${item.is_available?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,color:item.is_available?'#34C759':'#86868B',padding:'3px 9px',fontSize:11,fontWeight:600,borderRadius:5}}>
                           {item.is_available?'Activo':'Inactivo'}
                         </button>
                       </Td>
@@ -716,7 +925,8 @@ function MenuPage({categories,menuItems,onRefresh}) {
                             <Btn small onClick={()=>saveEdit(item)}>✓</Btn>
                             <Btn small variant="ghost" onClick={()=>setEditId(null)}>✕</Btn>
                           </div>
-                          :<div style={{display:'flex',gap:5}}>
+                          :<div style={{display:'flex',gap:4}}>
+                            <Btn small variant="secondary" onClick={()=>setPreviewItem(item)}>Ver</Btn>
                             <Btn small variant="secondary" onClick={()=>startEdit(item)}>Editar</Btn>
                             <Btn small variant="danger" onClick={()=>deleteItem(item)}>✕</Btn>
                           </div>}
@@ -724,7 +934,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                     </tr>
                   );
                 })}
-                {visible.length===0&&<EmptyRow cols={7} label="Sin items"/>}
+                {visible.length===0&&<EmptyRow cols={9} label="Sin items"/>}
               </tbody>
             </table>
           </div>
@@ -735,61 +945,98 @@ function MenuPage({categories,menuItems,onRefresh}) {
 }
 
 /* ══════════════════════════════════════════════
-   MESAS — CRUD COMPLETO + ZONAS
+   MESAS — canvas drag-and-drop + fix is_occupied
 ══════════════════════════════════════════════ */
-function MesasPage({tables,orders,onRefresh}) {
-  const [zones,setZones] = useState(()=>LS.get(ZONES_KEY,{}));
-  const [modal,setModal] = useState(null); // null | {mode:'add'} | {mode:'edit', table}
-  const [form,setForm] = useState({number:'',capacity:'4',zone:''});
-  const [saving,setSaving] = useState(false);
-  const [activeZone,setActiveZone] = useState('todas');
+function MesasPage({tables: tablesProp, orders, onRefresh}) {
+  const [tables, setTables]   = useState(tablesProp);
+  const [editMode, setEditMode]= useState(false);
+  const [modal, setModal]      = useState(null);
+  const [formModal, setFormModal]=useState(null);
+  const [form, setForm]        = useState({number:'',capacity:'4'});
+  const [saving, setSaving]    = useState(false);
+  const [dragging, setDragging]= useState(null);
+  const [dragOff, setDragOff]  = useState({x:0,y:0});
+  const canvasRef = useRef(null);
+  const CELL = 80; const GAP = 16;
+
+  // Sincronizar con prop externa y Realtime — FIX is_occupied
+  useEffect(()=>{ setTables(tablesProp); },[tablesProp]);
+
+  useEffect(()=>{
+    if(!db) return;
+    const ch = db.channel('mesas-rt')
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, payload=>{
+        setTables(prev => prev.map(t=> t.id===payload.new.id ? {...t,...payload.new} : t));
+      })
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, ()=>onRefresh())
+      .on('postgres_changes',{event:'DELETE',schema:'public',table:'tables'}, ()=>onRefresh())
+      .subscribe();
+    const poll = setInterval(onRefresh, 30000);
+    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+  },[]);
 
   const activeOrders = orders.filter(o=>['paid','kitchen_received','cooking','ready'].includes(o.status));
-  const allZones = [...new Set(Object.values(zones).filter(Boolean))].sort();
 
-  function saveZone(tableId,zone) {
-    const z={...zones};
-    if(zone.trim())z[tableId]=zone.trim();else delete z[tableId];
-    setZones(z);LS.set(ZONES_KEY,z);
+  // Posición inicial si no tiene pos_x/pos_y
+  function getPos(t, idx) {
+    const cols = Math.max(Math.floor((window.innerWidth-300) / (CELL+GAP)), 4);
+    return { x: t.pos_x || (idx%cols)*(CELL+GAP)+GAP, y: t.pos_y || Math.floor(idx/cols)*(CELL+GAP)+GAP };
   }
 
-  function openAdd() { setForm({number:'',capacity:'4',zone:''});setModal({mode:'add'}); }
-  function openEdit(t) { setForm({number:String(t.number),capacity:String(t.capacity||4),zone:zones[t.id]||''});setModal({mode:'edit',table:t}); }
+  // Drag en canvas
+  function onMouseDown(e, t) {
+    if(!editMode) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDragOff({x: e.clientX-rect.left, y: e.clientY-rect.top});
+    setDragging(t.id);
+  }
+  function onMouseMove(e) {
+    if(!dragging||!canvasRef.current) return;
+    const cr = canvasRef.current.getBoundingClientRect();
+    const nx = Math.max(0, e.clientX-cr.left-dragOff.x);
+    const ny = Math.max(0, e.clientY-cr.top-dragOff.y);
+    setTables(prev=>prev.map(t=>t.id===dragging?{...t,pos_x:nx,pos_y:ny}:t));
+  }
+  async function onMouseUp() {
+    if(!dragging||!db) { setDragging(null); return; }
+    const t = tables.find(x=>x.id===dragging);
+    if(t) await db.from('tables').update({pos_x:Math.round(t.pos_x),pos_y:Math.round(t.pos_y)}).eq('id',t.id);
+    setDragging(null);
+  }
 
   async function saveTable() {
     if(!db||!form.number){toast('Número de mesa requerido',false);return;}
     const num=parseInt(form.number);
     if(isNaN(num)||num<1){toast('Número inválido',false);return;}
     setSaving(true);
-    if(modal.mode==='add') {
+    if(formModal.mode==='add') {
       const token=(crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)).replace(/-/g,'').slice(0,16);
-      const{data,error}=await db.from('tables').insert({restaurant_id:RID,number:num,capacity:parseInt(form.capacity)||4,qr_token:token}).select().single();
+      const idx = tables.length;
+      const cols = Math.max(Math.floor((window.innerWidth-300)/(CELL+GAP)),4);
+      const px=(idx%cols)*(CELL+GAP)+GAP; const py=Math.floor(idx/cols)*(CELL+GAP)+GAP;
+      const{error}=await db.from('tables').insert({restaurant_id:RID,number:num,capacity:parseInt(form.capacity)||4,qr_token:token,pos_x:px,pos_y:py}).select().single();
       if(error){toast('Error: '+error.message,false);}
-      else{saveZone(data.id,form.zone);toast('Mesa '+num+' creada');onRefresh();setModal(null);}
+      else{toast('Mesa '+num+' creada');onRefresh();setFormModal(null);}
     } else {
-      const{data,error}=await db.from('tables').update({number:num,capacity:parseInt(form.capacity)||4}).eq('id',modal.table.id).select('id');
+      const{data,error}=await db.from('tables').update({number:num,capacity:parseInt(form.capacity)||4}).eq('id',formModal.table.id).select('id');
       if(error){toast('Error: '+error.message,false);}
       else if(!data||data.length===0){toast('No se pudo actualizar la mesa — verificá RLS en Supabase',false);}
-      else{saveZone(modal.table.id,form.zone);toast('Mesa actualizada');onRefresh();setModal(null);}
+      else{toast('Mesa actualizada');onRefresh();setFormModal(null);}
     }
     setSaving(false);
   }
 
   async function deleteTable(t) {
-    if(!db)return;
     const hasActive=activeOrders.some(o=>o.table_id===t.id);
     if(hasActive){toast('Mesa con pedido activo, no se puede eliminar',false);return;}
-    if(!confirm(`¿Eliminar Mesa ${t.number}? Esta acción no se puede deshacer.`))return;
+    if(!confirm(`¿Eliminar Mesa ${t.number}?`))return;
     const{data,error}=await db.from('tables').delete().eq('id',t.id).select('id');
     if(error){toast('Error: '+error.message,false);}
-    else if(!data||data.length===0){toast('No se pudo eliminar — falta política DELETE en Supabase RLS',false);}
-    else{const z={...zones};delete z[t.id];setZones(z);LS.set(ZONES_KEY,z);toast('Mesa eliminada');onRefresh();}
+    else if(!data||data.length===0){toast('No se pudo eliminar — verificá RLS DELETE en Supabase',false);}
+    else{toast('Mesa eliminada');onRefresh();}
   }
 
-  const filtered = activeZone==='todas' ? tables : activeZone==='sin zona' ? tables.filter(t=>!zones[t.id]) : tables.filter(t=>zones[t.id]===activeZone);
-  const grouped = activeZone!=='todas' ? [{zone:activeZone,items:filtered}] :
-    [...allZones.map(z=>({zone:z,items:tables.filter(t=>zones[t.id]===z)})),
-     {zone:'Sin zona',items:tables.filter(t=>!zones[t.id])}].filter(g=>g.items.length>0);
+  const canvasH = tables.length ? Math.max(...tables.map((t,i)=>{ const p=getPos(t,i); return p.y+CELL+GAP; }), 300) : 300;
 
   return (
     <div className="page">
@@ -798,74 +1045,95 @@ function MesasPage({tables,orders,onRefresh}) {
           <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Mesas</h1>
           <div style={{fontSize:12,color:'#6E6E73',marginTop:2}}>{activeOrders.length} con pedidos activos · {tables.length} mesas</div>
         </div>
-        <Btn onClick={openAdd}>+ Nueva mesa</Btn>
-      </div>
-
-      {/* Filtro zonas */}
-      <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
-        {['todas',...allZones,'sin zona'].map(z=>(
-          <button key={z} onClick={()=>setActiveZone(z)} style={{background:activeZone===z?'#000000':'transparent',border:`1px solid ${activeZone===z?C.bs:C.border}`,color:activeZone===z?C.white:C.mid,padding:'5px 12px',fontSize:12,fontWeight:activeZone===z?700:400,borderRadius:20,cursor:'pointer',textTransform:'capitalize'}}>
-            {z}
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={()=>setEditMode(e=>!e)} style={{padding:'8px 16px',border:`1px solid ${C.border}`,borderRadius:6,background:editMode?'#000':'transparent',color:editMode?'#fff':'#6E6E73',fontSize:12,fontWeight:600,cursor:'pointer'}}>
+            {editMode?'Modo vista':'Modo edición'}
           </button>
-        ))}
+          <Btn onClick={()=>{setForm({number:'',capacity:'4'});setFormModal({mode:'add'});}}>+ Nueva mesa</Btn>
+        </div>
       </div>
 
-      {/* Grupos por zona */}
-      {grouped.map(({zone,items})=>(
-        <div key={zone} style={{marginBottom:24}}>
-          {grouped.length>1&&<div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:'0.14em',textTransform:'uppercase',marginBottom:10,display:'flex',alignItems:'center',gap:8}}>{zone}<div style={{flex:1,height:1,background:C.border}}/></div>}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(175px,1fr))',gap:10}}>
-            {items.map(t=>{
-              const order=activeOrders.find(o=>o.table_id===t.id);
-              const busy=!!order;
-              return (
-                <div key={t.id} style={{background:busy?'#000000':'#F5F5F7',border:`1px solid ${busy?'#000000':C.border}`,borderRadius:10,padding:16,position:'relative'}}>
-                  {busy&&<div style={{position:'absolute',top:10,right:10}}><Badge status={order.status}/></div>}
-                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-                    <div style={{width:36,height:36,borderRadius:'50%',background:'#FFFFFF',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:15,color:busy?'#000000':'#D2D2D7',flexShrink:0}}>{t.number}</div>
-                    <div>
-                      <div style={{fontSize:11,color:'#6E6E73'}}>Cap. {t.capacity||4}p</div>
-                      {zones[t.id]&&<div style={{fontSize:10,color:'#86868B',marginTop:1}}>{zones[t.id]}</div>}
-                    </div>
-                  </div>
-                  {order
-                    ?<div><div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#86868B',marginBottom:2}}>{order.order_number}</div><div style={{fontSize:14,fontWeight:700}}>{fmt(order.total)}</div><div style={{fontSize:10,color:'#6E6E73',marginTop:1}}>{fmtTime(order.created_at)}</div></div>
-                    :<div style={{fontSize:12,color:'#6E6E73'}}>Libre</div>}
-                  <div style={{display:'flex',gap:6,marginTop:12}}>
-                    <button onClick={()=>openEdit(t)} style={{flex:1,background:'transparent',border:`1px solid ${C.border}`,color:C.dim,padding:'4px',fontSize:11,borderRadius:5,cursor:'pointer'}}>Editar</button>
-                    <button onClick={()=>deleteTable(t)} style={{background:'transparent',border:'1px solid rgba(239,68,68,0.2)',color:'rgba(239,68,68,0.6)',padding:'4px 8px',fontSize:11,borderRadius:5,cursor:'pointer'}}>✕</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-      {tables.length===0&&<div style={{color:'#D2D2D7',padding:40,textAlign:'center',fontSize:13}}>No hay mesas. Creá la primera con "+ Nueva mesa"</div>}
+      {editMode&&<div style={{fontSize:11,color:'#86868B',marginBottom:12,padding:'8px 14px',background:'#F5F5F7',borderRadius:6}}>Arrastrá las mesas para posicionarlas. En modo vista, click en una mesa ocupada muestra sus pedidos.</div>}
 
-      {/* Modal add/edit */}
-      {modal&&(
-        <Modal title={modal.mode==='add'?'Nueva mesa':'Editar mesa'} onClose={()=>setModal(null)} width={360}>
+      {/* Canvas drag-and-drop */}
+      <div ref={canvasRef} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+        style={{position:'relative',width:'100%',minHeight:canvasH,background:'#FAFAFA',border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden',marginBottom:16}}>
+        {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#D2D2D7',fontSize:13}}>No hay mesas. Creá la primera.</div>}
+        {tables.map((t,idx)=>{
+          const pos = getPos(t,idx);
+          const order = activeOrders.find(o=>o.table_id===t.id);
+          const busy = t.is_occupied || !!order;
+          const isDrag = dragging===t.id;
+          return (
+            <div key={t.id}
+              onMouseDown={e=>onMouseDown(e,t)}
+              onClick={()=>{ if(!editMode&&busy) setModal({table:t,order}); }}
+              style={{
+                position:'absolute', left:pos.x, top:pos.y,
+                width:CELL, height:CELL,
+                background:busy?'#F5F5F7':'#FFFFFF',
+                border:`2px solid ${busy?'#000000':'#D2D2D7'}`,
+                borderRadius:10,
+                display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+                cursor: editMode?'grab': (busy?'pointer':'default'),
+                userSelect:'none', transition:isDrag?'none':'box-shadow .15s',
+                boxShadow: isDrag?'0 8px 20px rgba(0,0,0,0.18)':'none',
+                zIndex: isDrag?10:1,
+              }}>
+              <div style={{fontSize:18,fontWeight:800,color:'#000',lineHeight:1}}>
+                {t.number}
+              </div>
+              {busy
+                ?<div style={{fontSize:8,color:'#6E6E73',textAlign:'center',marginTop:3,lineHeight:1.3}}>
+                    {order?fmt(order.total):t.is_occupied?'Ocupada':''}
+                  </div>
+                :<div style={{fontSize:8,color:'#D2D2D7',marginTop:2}}>Libre</div>}
+              {busy&&<div style={{width:6,height:6,borderRadius:'50%',background:'#000',marginTop:4}}/>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Modal: pedidos activos de mesa (modo vista) */}
+      {modal&&!editMode&&(
+        <Modal title={`Mesa ${modal.table.number}`} onClose={()=>setModal(null)} width={420}>
+          {modal.order?(
+            <div>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:16}}>
+                <div>
+                  <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:13,color:'#86868B'}}>{modal.order.order_number}</div>
+                  <div style={{fontSize:11,color:'#86868B'}}>{fmtTime(modal.order.created_at)}</div>
+                </div>
+                <Badge status={modal.order.status}/>
+              </div>
+              <div style={{fontSize:20,fontWeight:800,color:'#000',marginBottom:20}}>{fmt(modal.order.total)}</div>
+              <div style={{display:'flex',gap:8}}>
+                <Btn style={{flex:1}} onClick={()=>{setModal(null);}}>Cerrar</Btn>
+                {!editMode&&<button onClick={()=>{setFormModal({mode:'edit',table:modal.table});setForm({number:String(modal.table.number),capacity:String(modal.table.capacity||4)});setModal(null);}} style={{padding:'8px 14px',border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,cursor:'pointer',background:'transparent',color:'#6E6E73'}}>Editar mesa</button>}
+              </div>
+            </div>
+          ):<div style={{color:'#6E6E73',fontSize:13}}>Sin pedido activo en esta mesa.</div>}
+        </Modal>
+      )}
+
+      {/* Modal form add/edit */}
+      {formModal&&(
+        <Modal title={formModal.mode==='add'?'Nueva mesa':'Editar mesa'} onClose={()=>setFormModal(null)} width={340}>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
               <div><Lbl>NÚMERO *</Lbl><Inp type="number" mono value={form.number} onChange={e=>setForm({...form,number:e.target.value})} placeholder="1"/></div>
               <div><Lbl>CAPACIDAD</Lbl><Inp type="number" mono value={form.capacity} onChange={e=>setForm({...form,capacity:e.target.value})} placeholder="4"/></div>
             </div>
-            <div>
-              <Lbl>ZONA</Lbl>
-              <input list="zonas-list" value={form.zone} onChange={e=>setForm({...form,zone:e.target.value})} placeholder="Salón, Terraza, Barra…" style={{width:'100%',padding:'8px 10px',fontSize:13,borderRadius:6,background:'#FFFFFF',border:'1px solid #D2D2D7',color:'#1D1D1F'}}/>
-              <datalist id="zonas-list">{allZones.map(z=><option key={z} value={z}/>)}</datalist>
-              <div style={{fontSize:10,color:'#86868B',marginTop:4}}>Las zonas se guardan en este navegador (no en DB)</div>
-            </div>
-            {modal.mode==='edit'&&modal.table.qr_token&&(
-              <div style={{background:'#0a0a0a',border:`1px solid ${C.border}`,borderRadius:6,padding:10}}>
+            {formModal.mode==='edit'&&formModal.table.qr_token&&(
+              <div style={{background:'#F5F5F7',border:`1px solid ${C.border}`,borderRadius:6,padding:10}}>
                 <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:4}}>TOKEN QR</div>
-                <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#86868B',wordBreak:'break-all'}}>{modal.table.qr_token}</div>
+                <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#86868B',wordBreak:'break-all'}}>{formModal.table.qr_token}</div>
               </div>
             )}
             <div style={{display:'flex',gap:8,marginTop:4}}>
-              <Btn onClick={saveTable} disabled={saving}>{saving?'Guardando…':modal.mode==='add'?'Crear mesa':'Guardar cambios'}</Btn>
-              <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+              <Btn onClick={saveTable} disabled={saving}>{saving?'Guardando…':formModal.mode==='add'?'Crear':'Guardar'}</Btn>
+              <Btn variant="ghost" onClick={()=>setFormModal(null)}>Cancelar</Btn>
+              {formModal.mode==='edit'&&<Btn variant="danger" small onClick={()=>{deleteTable(formModal.table);setFormModal(null);}}>Eliminar</Btn>}
             </div>
           </div>
         </Modal>
@@ -878,56 +1146,91 @@ function MesasPage({tables,orders,onRefresh}) {
    PERSONAL
 ══════════════════════════════════════════════ */
 function PersonalPage() {
+  const [tab,setTab]           = useState('empleados');
   const [profiles,setProfiles] = useState([]);
-  const [loading,setLoading] = useState(true);
-  const [error,setError] = useState(null);
-  const [editId,setEditId] = useState(null);
+  const [loading,setLoading]   = useState(true);
+  const [error,setError]       = useState(null);
+  const [editId,setEditId]     = useState(null);
   const [editRole,setEditRole] = useState('');
   const [editActive,setEditActive] = useState(true);
 
+  // Turnos
+  const [shifts,setShifts]         = useState([]);
+  const [loadingShifts,setLS]      = useState(false);
+  const [shiftDate,setShiftDate]   = useState(new Date().toISOString().slice(0,10));
+  const [shiftModal,setShiftModal] = useState(false);
+  const [shiftEmp,setShiftEmp]     = useState('');
+
   async function loadProfiles() {
     if(!db){setLoading(false);return;}
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     const {data:rpcData,error:rpcErr} = await db.rpc('admin_list_restaurant_users',{p_restaurant_id:RID});
-    if(!rpcErr) {
-      setProfiles(rpcData||[]);setLoading(false);return;
-    }
-    console.warn('[Personal] RPC falló:',rpcErr?.message);
-    // Fallback: query directa (funciona para superadmin con superadmin_manage_roles)
-    const{data,error:e}=await db.from('user_roles')
-      .select('id,user_id,username,display_name,role,email,is_active,created_at')
-      .eq('restaurant_id',RID)
-      .order('created_at',{ascending:false});
-    if(!e) {
-      setProfiles(data||[]);setLoading(false);return;
-    }
-    console.warn('[Personal] Query directa falló:',e?.message);
-    // Último recurso: al menos mostrar el propio usuario
+    if(!rpcErr){setProfiles(rpcData||[]);setLoading(false);return;}
+    const{data,error:e}=await db.from('user_roles').select('id,user_id,username,display_name,role,email,is_active,created_at').eq('restaurant_id',RID).order('created_at',{ascending:false});
+    if(!e){setProfiles(data||[]);setLoading(false);return;}
     const uid=(await db.auth.getUser()).data?.user?.id||'';
-    const{data:me,error:meErr}=await db.from('user_roles')
-      .select('id,user_id,username,display_name,role,email,is_active,created_at')
-      .eq('user_id',uid)
-      .limit(1);
-    if(!meErr && me?.length) { setProfiles(me);setLoading(false);return; }
-    console.warn('[Personal] Query propia falló:',meErr?.message,'uid:',uid);
-    setError(`Error al cargar personal: ${rpcErr?.message||e?.message||'Sin acceso a user_roles'}. Revisá la consola del navegador.`);
+    const{data:me,error:meErr}=await db.from('user_roles').select('id,user_id,username,display_name,role,email,is_active,created_at').eq('user_id',uid).limit(1);
+    if(!meErr&&me?.length){setProfiles(me);setLoading(false);return;}
+    setError(`Error al cargar personal: ${rpcErr?.message||e?.message||'Sin acceso a user_roles'}`);
     setLoading(false);
   }
 
+  async function loadShifts() {
+    if(!db) return;
+    setLS(true);
+    const s = new Date(shiftDate); s.setHours(0,0,0,0);
+    const e = new Date(shiftDate); e.setHours(23,59,59,999);
+    const{data}=await db.from('employee_shifts').select('*').eq('restaurant_id',RID).gte('clock_in',s.toISOString()).lte('clock_in',e.toISOString()).order('clock_in',{ascending:false});
+    setShifts(data||[]);
+    setLS(false);
+  }
+
   useEffect(()=>{ loadProfiles(); },[]);
+  useEffect(()=>{ if(tab==='turnos') loadShifts(); },[tab,shiftDate]);
+
+  useEffect(()=>{
+    if(!db) return;
+    const ch = db.channel('personal-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'user_roles',filter:`restaurant_id=eq.${RID}`},loadProfiles)
+      .on('postgres_changes',{event:'*',schema:'public',table:'employee_shifts',filter:`restaurant_id=eq.${RID}`},loadShifts)
+      .subscribe();
+    const poll = setInterval(()=>{ loadProfiles(); if(tab==='turnos') loadShifts(); }, 30000);
+    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+  },[tab]);
 
   async function saveRole(id) {
     if(!db)return;
-    // Intentar con RPC primero, luego direct update
     const{error:rpcErr}=await db.rpc('admin_update_user_role',{p_user_role_id:id,p_role:editRole,p_is_active:editActive});
-    if(rpcErr) {
-      const{error:e}=await db.from('user_roles').update({role:editRole,is_active:editActive}).eq('id',id);
-      if(e){toast('Error: '+e.message,false);return;}
-    }
+    if(rpcErr){const{error:e}=await db.from('user_roles').update({role:editRole,is_active:editActive}).eq('id',id);if(e){toast('Error: '+e.message,false);return;}}
     toast('Usuario actualizado');
     setProfiles(p=>p.map(x=>x.id===id?{...x,role:editRole,is_active:editActive}:x));
     setEditId(null);
+  }
+
+  async function clockIn() {
+    if(!db||!shiftEmp){toast('Seleccioná un empleado',false);return;}
+    const emp = profiles.find(p=>p.id===shiftEmp);
+    const{error}=await db.from('employee_shifts').insert({restaurant_id:RID,employee_id:emp.user_id||emp.id,employee_name:emp.display_name||emp.username||'—',role:emp.role,clock_in:new Date().toISOString()});
+    if(error){toast('Error: '+error.message,false);return;}
+    toast('Entrada registrada'); setShiftModal(false); setShiftEmp(''); loadShifts();
+  }
+
+  async function clockOut(shift) {
+    if(!db)return;
+    const{error}=await db.from('employee_shifts').update({clock_out:new Date().toISOString()}).eq('id',shift.id);
+    if(error){toast('Error: '+error.message,false);return;}
+    toast('Salida registrada'); loadShifts();
+  }
+
+  function duracion(s) {
+    if(!s.clock_out) return '—';
+    const min = Math.round((new Date(s.clock_out)-new Date(s.clock_in))/60000);
+    return `${Math.floor(min/60)}h ${min%60}m`;
+  }
+  function horasTrabajadas(empName) {
+    return shifts.filter(s=>s.employee_name===empName&&s.clock_out).reduce((acc,s)=>{
+      return acc+Math.round((new Date(s.clock_out)-new Date(s.clock_in))/60000);
+    },0);
   }
 
   const roleColor={cocina:C.orange,admin:C.blue,superadmin:C.purple,waiter:C.green,cajero:C.yellow,delivery:'#06b6d4'};
@@ -936,67 +1239,121 @@ function PersonalPage() {
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
         <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Personal</h1>
-        <Btn small variant="secondary" onClick={loadProfiles}>↺ Actualizar</Btn>
+        <Btn small variant="secondary" onClick={()=>{ loadProfiles(); if(tab==='turnos') loadShifts(); }}>↺ Actualizar</Btn>
       </div>
-      <div style={{fontSize:12,color:'#6E6E73',marginBottom:16}}>Usuarios con acceso al sistema · restaurante {RID.slice(0,8)}…</div>
-      {loading&&<div style={{display:'flex',gap:10,alignItems:'center',color:'#6E6E73',fontSize:13}}><span className="spin"/>Cargando personal…</div>}
-      {error&&(
-        <div style={{color:C.orange,fontSize:13,padding:16,background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.2)',borderRadius:8,marginBottom:14}}>
-          <div style={{fontWeight:700,marginBottom:4}}>Atención</div>
-          {error}
-          <div style={{marginTop:8,fontSize:11,color:'#86868B'}}>Si acabás de ejecutar la migración 023, recargá la página y volvé a intentar.</div>
+
+      {/* Sub-tabs */}
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
+        {[['empleados','Empleados'],['turnos','Turnos']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+        ))}
+      </div>
+
+      {/* Tab Empleados */}
+      {tab==='empleados'&&(<>
+        <div style={{fontSize:12,color:'#6E6E73',marginBottom:12}}>Usuarios con acceso al sistema · restaurante {RID.slice(0,8)}…</div>
+        {loading&&<div style={{display:'flex',gap:10,alignItems:'center',color:'#6E6E73',fontSize:13}}><span className="spin"/>Cargando personal…</div>}
+        {error&&<div style={{color:C.orange,fontSize:13,padding:16,background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.2)',borderRadius:8,marginBottom:14}}><div style={{fontWeight:700,marginBottom:4}}>Atención</div>{error}</div>}
+        {!loading&&(
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Usuario</Th><Th>Nombre</Th><Th>Email</Th><Th>Rol</Th><Th>Estado</Th><Th>Desde</Th><Th>Acc.</Th></tr></thead>
+              <tbody>
+                {profiles.map(p=>(
+                  <tr key={p.id} style={{borderBottom:`1px solid #F0F0F0`,opacity:p.is_active===false?0.5:1}}>
+                    <Td mono>{p.username||'—'}</Td>
+                    <Td>{p.display_name||'—'}</Td>
+                    <Td dim style={{fontSize:11}}>{p.email||'—'}</Td>
+                    <Td>
+                      {editId===p.id
+                        ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:120}}>{ROLES.map(r=><option key={r} value={r}>{r}</option>)}</Sel>
+                        :<span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{p.role}</span>}
+                    </Td>
+                    <Td>
+                      {editId===p.id
+                        ?<Sel value={String(editActive)} onChange={e=>setEditActive(e.target.value==='true')} style={{width:100}}><option value="true">Activo</option><option value="false">Inactivo</option></Sel>
+                        :<span style={{fontSize:11,color:p.is_active!==false?'#34C759':'#FF3B30'}}>{p.is_active!==false?'Activo':'Inactivo'}</span>}
+                    </Td>
+                    <Td mono dim>{fmtDate(p.created_at)}</Td>
+                    <Td>
+                      {editId===p.id
+                        ?<div style={{display:'flex',gap:5}}><Btn small onClick={()=>saveRole(p.id)}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)}>✕</Btn></div>
+                        :<Btn small variant="secondary" onClick={()=>{setEditId(p.id);setEditRole(p.role);setEditActive(p.is_active!==false);}}>Editar</Btn>}
+                    </Td>
+                  </tr>
+                ))}
+                {profiles.length===0&&!error&&<EmptyRow cols={7} label="Sin usuarios. Creá usuarios desde el panel SuperAdmin."/>}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {profiles.length>0&&<div style={{marginTop:10,fontSize:11,color:'#86868B'}}>{profiles.filter(p=>p.is_active!==false).length} activos · {profiles.filter(p=>p.is_active===false).length} inactivos · Para crear usuarios usá el panel SuperAdmin.</div>}
+        {/* Crear usuarios — sin service_role */}
+        <div style={{marginTop:16,padding:'10px 14px',background:'#F5F5F7',border:`1px solid ${C.border}`,borderRadius:8,fontSize:12,color:'#86868B'}}>
+          Para crear nuevos usuarios con contraseña usá el panel <a href="superadmin.html" style={{color:'#000',fontWeight:600}}>SuperAdmin</a>.
+          {/* TODO: Edge Function — no usar service_role en frontend */}
         </div>
-      )}
-      {!loading&&(
+      </>)}
+
+      {/* Tab Turnos */}
+      {tab==='turnos'&&(<>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <label style={{fontSize:12,color:'#6E6E73'}}>Fecha:</label>
+            <input type="date" value={shiftDate} onChange={e=>setShiftDate(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}/>
+          </div>
+          <Btn small onClick={()=>setShiftModal(true)}>+ Registrar entrada</Btn>
+        </div>
+        {loadingShifts&&<div style={{display:'flex',gap:10,alignItems:'center',color:'#6E6E73',fontSize:13}}><span className="spin"/>Cargando turnos…</div>}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}>
-            <thead>
-              <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                <Th>Usuario</Th><Th>Nombre</Th><Th>Email</Th><Th>Rol</Th><Th>Estado</Th><Th>Desde</Th><Th>Acc.</Th>
-              </tr>
-            </thead>
+            <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Empleado</Th><Th>Rol</Th><Th>Entrada</Th><Th>Salida</Th><Th>Duración</Th><Th>Estado</Th><Th></Th></tr></thead>
             <tbody>
-              {profiles.map(p=>(
-                <tr key={p.id} style={{borderBottom:`1px solid #0d0d0d`,opacity:p.is_active===false?0.5:1}}>
-                  <Td mono>{p.username||'—'}</Td>
-                  <Td>{p.display_name||'—'}</Td>
-                  <Td dim style={{fontSize:11}}>{p.email||'—'}</Td>
-                  <Td>
-                    {editId===p.id
-                      ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:120}}>
-                          {ROLES.map(r=><option key={r} value={r}>{r}</option>)}
-                        </Sel>
-                      :<span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{p.role}</span>}
-                  </Td>
-                  <Td>
-                    {editId===p.id
-                      ?<Sel value={String(editActive)} onChange={e=>setEditActive(e.target.value==='true')} style={{width:100}}>
-                          <option value="true">Activo</option>
-                          <option value="false">Inactivo</option>
-                        </Sel>
-                      :<span style={{fontSize:11,color:p.is_active!==false?C.green:C.red}}>{p.is_active!==false?'Activo':'Inactivo'}</span>}
-                  </Td>
-                  <Td mono dim>{fmtDate(p.created_at)}</Td>
-                  <Td>
-                    {editId===p.id
-                      ?<div style={{display:'flex',gap:5}}>
-                          <Btn small onClick={()=>saveRole(p.id)}>✓</Btn>
-                          <Btn small variant="ghost" onClick={()=>setEditId(null)}>✕</Btn>
-                        </div>
-                      :<Btn small variant="secondary" onClick={()=>{setEditId(p.id);setEditRole(p.role);setEditActive(p.is_active!==false);}}>Editar</Btn>}
-                  </Td>
-                </tr>
-              ))}
-              {profiles.length===0&&!error&&<EmptyRow cols={7} label="Sin usuarios registrados. Creá usuarios desde el panel SuperAdmin."/>}
+              {shifts.map(s=>{
+                const activo=!s.clock_out;
+                return (
+                  <tr key={s.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                    <Td>{s.employee_name||'—'}</Td>
+                    <Td dim>{s.role||'—'}</Td>
+                    <Td mono dim>{fmtTime(s.clock_in)}</Td>
+                    <Td mono dim>{s.clock_out?fmtTime(s.clock_out):'—'}</Td>
+                    <Td mono dim>{duracion(s)}</Td>
+                    <Td><span style={{padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4,background:activo?'#E8F9ED':'#F0F0F0',color:activo?'#1A7E37':'#86868B'}}>{activo?'ACTIVO':'CERRADO'}</span></Td>
+                    <Td>{activo&&<Btn small variant="secondary" onClick={()=>clockOut(s)}>Registrar salida</Btn>}</Td>
+                  </tr>
+                );
+              })}
+              {shifts.length===0&&!loadingShifts&&<EmptyRow cols={7} label={`Sin turnos el ${shiftDate}`}/>}
             </tbody>
           </table>
         </div>
-      )}
-      {profiles.length>0&&(
-        <div style={{marginTop:10,fontSize:11,color:'#86868B'}}>
-          {profiles.filter(p=>p.is_active!==false).length} activos · {profiles.filter(p=>p.is_active===false).length} inactivos · Para crear usuarios usá el panel SuperAdmin.
-        </div>
-      )}
+        {shifts.length>0&&(
+          <div style={{marginTop:12,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:10}}>TOTAL HORAS — {shiftDate}</div>
+            {[...new Set(shifts.map(s=>s.employee_name))].map(name=>{
+              const min=horasTrabajadas(name);
+              return <div key={name} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
+                <span>{name}</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{Math.floor(min/60)}h {min%60}m</span>
+              </div>;
+            })}
+          </div>
+        )}
+        {shiftModal&&(
+          <Modal title="Registrar entrada" onClose={()=>setShiftModal(false)} width={340}>
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              <div><Lbl>EMPLEADO *</Lbl>
+                <Sel value={shiftEmp} onChange={e=>setShiftEmp(e.target.value)}>
+                  <option value="">Seleccionar…</option>
+                  {profiles.filter(p=>p.is_active!==false).map(p=><option key={p.id} value={p.id}>{p.display_name||p.username} ({p.role})</option>)}
+                </Sel>
+              </div>
+              <div style={{fontSize:12,color:'#6E6E73'}}>Hora de entrada: {new Date().toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>
+              <div style={{display:'flex',gap:8}}><Btn onClick={clockIn}>Registrar entrada</Btn><Btn variant="ghost" onClick={()=>setShiftModal(false)}>Cancelar</Btn></div>
+            </div>
+          </Modal>
+        )}
+      </>)}
     </div>
   );
 }
@@ -1715,8 +2072,10 @@ function StockPage() {
     const ch = db.channel('stock-admin-rt')
       .on('postgres_changes',{event:'*',schema:'public',table:'ingredients',filter:`restaurant_id=eq.${RID}`}, loadData)
       .on('postgres_changes',{event:'*',schema:'public',table:'stock_alerts',filter:`restaurant_id=eq.${RID}`}, loadData)
+      .on('postgres_changes',{event:'*',schema:'public',table:'stock_movements',filter:`restaurant_id=eq.${RID}`}, loadData)
       .subscribe();
-    return ()=>db.removeChannel(ch);
+    const poll = setInterval(loadData, 30000);
+    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
   }, [loadData]);
 
   const createIngredient = async () => {
@@ -2014,6 +2373,187 @@ function StockPage() {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   REPORTES
+══════════════════════════════════════════════ */
+function ReportesPage({orders}) {
+  const [period,setPeriod]     = useState('7d');
+  const [dateFrom,setFrom]     = useState('');
+  const [dateTo,setTo]         = useState('');
+  const [ingredients,setIng]   = useState([]);
+  const [recipes,setRec]       = useState([]);
+  const [loadingCost,setLC]    = useState(false);
+  const [orderItems,setOI]     = useState([]);
+
+  const valid = o=>!['draft','cancelled'].includes(o.status);
+
+  function getRange(p,from,to) {
+    const now=new Date(); let s,e=new Date();
+    if(p==='hoy'){ s=new Date(now); s.setHours(0,0,0,0); }
+    else if(p==='7d'){ s=new Date(now); s.setDate(s.getDate()-6); s.setHours(0,0,0,0); }
+    else if(p==='30d'){ s=new Date(now); s.setDate(s.getDate()-29); s.setHours(0,0,0,0); }
+    else { s=from?new Date(from):new Date(now); e=to?new Date(to+'T23:59:59'):new Date(); }
+    return {s,e};
+  }
+
+  const {s,e} = getRange(period,dateFrom,dateTo);
+  const rangeOrds  = orders.filter(o=>valid(o)&&new Date(o.created_at)>=s&&new Date(o.created_at)<=e);
+
+  // Período anterior (mismo delta)
+  const delta = e-s;
+  const prevE = new Date(s); const prevS = new Date(s.getTime()-delta);
+  const prevOrds = orders.filter(o=>valid(o)&&new Date(o.created_at)>=prevS&&new Date(o.created_at)<=prevE);
+
+  const ingresos  = rangeOrds.reduce((a,o)=>a+(o.total||0),0);
+  const prevIng   = prevOrds.reduce((a,o)=>a+(o.total||0),0);
+  const pedidos   = rangeOrds.length;
+  const prevPed   = prevOrds.length;
+  const ticket    = pedidos?Math.round(ingresos/pedidos):0;
+  const prevTick  = prevPed?Math.round(prevIng/prevPed):0;
+
+  const pct=(h,a)=>a>0?Math.round((h-a)/a*100):null;
+  const Delta=({v,p})=>{
+    const d=pct(v,p);
+    if(d===null)return null;
+    const up=d>=0;
+    return <span style={{fontSize:11,fontWeight:700,color:up?'#34C759':'#FF3B30',marginLeft:8}}>{up?'↑':'↓'}{Math.abs(d)}%</span>;
+  };
+
+  // Ventas por producto
+  useEffect(()=>{
+    if(!db||!rangeOrds.length)return;
+    const ids=rangeOrds.map(o=>o.id).slice(0,200);
+    db.from('order_items').select('item_name,quantity,total_price').in('order_id',ids).then(({data})=>setOI(data||[]));
+  },[orders,period,dateFrom,dateTo]);
+
+  const prodRows = Object.values(orderItems.reduce((acc,it)=>{
+    const k=it.item_name||'—';
+    if(!acc[k])acc[k]={name:k,qty:0,ingreso:0};
+    acc[k].qty+=(it.quantity||1); acc[k].ingreso+=(it.total_price||0);
+    return acc;
+  },{})).sort((a,b)=>b.ingreso-a.ingreso);
+
+  // Costos desde stock_movements (tipo 'deduct') en el período
+  useEffect(()=>{
+    if(!db) return;
+    setLC(true);
+    Promise.all([
+      db.from('ingredients').select('id,name,unit_cost').eq('restaurant_id',RID),
+      db.from('recipes').select('*'),
+    ]).then(([iR,rR])=>{
+      setIng(iR.data||[]); setRec(rR.data||[]); setLC(false);
+    });
+  },[]);
+
+  function costoProducto(itemId) {
+    const recs=recipes.filter(r=>r.menu_item_id===itemId);
+    return recs.reduce((a,r)=>{
+      const ing=ingredients.find(i=>i.id===r.ingredient_id);
+      return a+(ing?.unit_cost||0)*(r.quantity_required||1);
+    },0);
+  }
+
+  const rentabilidadRows = prodRows.map(p=>{
+    const miId=orderItems.find(i=>i.item_name===p.name)?.menu_item_id;
+    const costo=miId?costoProducto(miId)*p.qty:0;
+    const margen=p.ingreso-costo;
+    return {...p,costo,margen};
+  });
+  const costoTotal=rentabilidadRows.reduce((a,r)=>a+r.costo,0);
+  const margenBruto=ingresos-costoTotal;
+
+  function exportar() {
+    const wb=XLSX.utils.book_new();
+    const resumen=[
+      ['Métrica','Período actual','Período anterior','Var %'],
+      ['Ventas',ingresos,prevIng,pct(ingresos,prevIng)||0],
+      ['Pedidos',pedidos,prevPed,pct(pedidos,prevPed)||0],
+      ['Ticket promedio',ticket,prevTick,pct(ticket,prevTick)||0],
+    ];
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(resumen),'Resumen');
+    const ventas=[['Producto','Unidades','Ingreso (₲)','Costo (₲)','Margen (₲)'],...rentabilidadRows.map(r=>[r.name,r.qty,r.ingreso,r.costo,r.margen])];
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(ventas),'Ventas por producto');
+    XLSX.writeFile(wb,`reporte_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }
+
+  const PERIODS=[['hoy','Hoy'],['7d','7 días'],['30d','30 días'],['custom','Custom']];
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Reportes</h1>
+        <div style={{display:'flex',gap:8}}>
+          <Btn onClick={exportar} variant="secondary" small>Exportar Excel</Btn>
+        </div>
+      </div>
+
+      {/* Selector período */}
+      <div style={{display:'flex',gap:8,marginBottom:20,alignItems:'center',flexWrap:'wrap'}}>
+        <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:6,overflow:'hidden'}}>
+          {PERIODS.map(([id,lbl],i,a)=>(
+            <button key={id} onClick={()=>setPeriod(id)} style={{padding:'6px 14px',fontSize:12,fontWeight:period===id?700:400,background:period===id?'#000':'#fff',color:period===id?'#fff':'#6E6E73',border:'none',cursor:'pointer',borderRight:i<a.length-1?`1px solid ${C.border}`:'none'}}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+        {period==='custom'&&(
+          <div style={{display:'flex',gap:6,alignItems:'center'}}>
+            <input type="date" value={dateFrom} onChange={e=>setFrom(e.target.value)} style={{padding:'5px 9px',fontSize:11,borderRadius:6,border:`1px solid ${C.border}`}}/>
+            <span style={{fontSize:11,color:'#86868B'}}>–</span>
+            <input type="date" value={dateTo} onChange={e=>setTo(e.target.value)} style={{padding:'5px 9px',fontSize:11,borderRadius:6,border:`1px solid ${C.border}`}}/>
+          </div>
+        )}
+      </div>
+
+      {/* KPIs con comparativa */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
+        {[
+          {label:'Ventas',val:fmt(ingresos),prev:prevIng,curr:ingresos,sub:`${pedidos} pedidos`},
+          {label:'Pedidos',val:pedidos,prev:prevPed,curr:pedidos,sub:'en el período'},
+          {label:'Ticket promedio',val:pedidos>0?fmt(ticket):'—',prev:prevTick,curr:ticket,sub:'por pedido'},
+        ].map(k=>(
+          <div key={k.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'18px 20px'}}>
+            <div style={{fontSize:12,color:'#6E6E73',fontWeight:500,marginBottom:8}}>{k.label}</div>
+            <div style={{fontSize:28,fontWeight:800,color:'#000',lineHeight:1,letterSpacing:'-0.5px'}}>{k.val}</div>
+            <div style={{marginTop:6,fontSize:11,color:'#86868B'}}>{k.sub}<Delta v={k.curr} p={k.prev}/></div>
+          </div>
+        ))}
+      </div>
+
+      {/* Rentabilidad */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18,marginBottom:20}}>
+        <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:12}}>RENTABILIDAD DEL PERÍODO</div>
+        <div style={{display:'flex',gap:24,marginBottom:16,flexWrap:'wrap'}}>
+          <div><div style={{fontSize:11,color:'#6E6E73'}}>Ingresos</div><div style={{fontSize:20,fontWeight:800,color:'#34C759'}}>{fmt(ingresos)}</div></div>
+          <div><div style={{fontSize:11,color:'#6E6E73'}}>Costo insumos</div><div style={{fontSize:20,fontWeight:800,color:'#FF3B30'}}>{fmt(costoTotal)}</div></div>
+          <div><div style={{fontSize:11,color:'#6E6E73'}}>Margen bruto</div><div style={{fontSize:20,fontWeight:800,color:margenBruto>=0?'#34C759':'#FF3B30'}}>{fmt(margenBruto)}</div></div>
+          {!loadingCost&&costoTotal===0&&<div style={{fontSize:11,color:'#86868B',alignSelf:'flex-end',marginBottom:4}}>Configurá recetas con costo para ver margen real</div>}
+        </div>
+      </div>
+
+      {/* Ventas por producto */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+        <div style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:'#6E6E73',letterSpacing:1}}>VENTAS POR PRODUCTO</div>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Producto</Th><Th right>Unidades</Th><Th right>Ingreso</Th><Th right>Costo insumos</Th><Th right>Margen</Th></tr></thead>
+          <tbody>
+            {rentabilidadRows.slice(0,30).map((r,i)=>(
+              <tr key={i} style={{borderBottom:`1px solid #F0F0F0`}}>
+                <Td>{r.name}</Td>
+                <Td mono right>{r.qty}</Td>
+                <Td mono right style={{color:'#34C759'}}>{fmt(r.ingreso)}</Td>
+                <Td mono right style={{color:'#FF3B30'}}>{r.costo>0?fmt(r.costo):'—'}</Td>
+                <Td mono right style={{color:r.costo>0?(r.margen>=0?'#34C759':'#FF3B30'):'#86868B'}}>{r.costo>0?fmt(r.margen):'—'}</Td>
+              </tr>
+            ))}
+            {rentabilidadRows.length===0&&<EmptyRow cols={5} label="Sin datos en el período"/>}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -2397,6 +2937,19 @@ function DelivPedidos({deliveryOrders, riders, channels, onRefresh}) {
                 {selected.delivered_at&&<div style={{fontSize:11,color:'#86868B',marginTop:6}}>Entregado: {fmtDT(selected.delivered_at)}</div>}
               </div>
             )}
+            {/* WhatsApp directo */}
+            {selected.customer_phone&&(()=>{
+              const phone = selected.customer_phone.replace(/[\s\-\+]/g,'').replace(/^0/,'').replace(/^595/,'');
+              const estado = DLIV_LABEL[selected.rider_status]||selected.rider_status||'en proceso';
+              const num = selected.order_number||selected.id.slice(0,8);
+              const msg = encodeURIComponent(`Hola, tu pedido #${num} está ${estado}`);
+              return (
+                <a href={`https://wa.me/595${phone}?text=${msg}`} target="_blank" rel="noopener noreferrer"
+                  style={{display:'block',padding:'10px',textAlign:'center',background:'#25D366',color:'#fff',borderRadius:8,fontSize:13,fontWeight:700,textDecoration:'none'}}>
+                  WhatsApp al cliente
+                </a>
+              );
+            })()}
             {!['delivered','cancelled'].includes(selected.rider_status)&&(
               <Btn variant="danger" onClick={cancelOrder}>Cancelar pedido</Btn>
             )}
@@ -2674,6 +3227,36 @@ function DeliveryModule() {
     setLoading(false);
   }
 
+  // Auto-asignación de rider
+  async function autoAssignRider(order) {
+    if(!db) return;
+    const available = riders.filter(r=>r.active!==false&&r.current_status==='disponible');
+    if(!available.length) return;
+    const activos = deliveryOrders.filter(o=>!['delivered','cancelled'].includes(o.rider_status)&&o.rider_id);
+    const countMap={};
+    activos.forEach(o=>{ if(o.rider_id) countMap[o.rider_id]=(countMap[o.rider_id]||0)+1; });
+    const rider = available.sort((a,b)=>(countMap[a.id]||0)-(countMap[b.id]||0))[0];
+    if(!rider) return;
+    await db.from('delivery_orders').update({rider_id:rider.id,rider_name:rider.name,rider_status:'confirmed'}).eq('id',order.id);
+    toast(`Rider asignado automáticamente: ${rider.name}`);
+    loadDelivery();
+  }
+
+  // Realtime delivery
+  useEffect(()=>{
+    if(!db) return;
+    const ch = db.channel('delivery-rt')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'delivery_orders',filter:`restaurant_id=eq.${RID}`}, payload=>{
+        setDeliveryOrders(prev=>[payload.new,...prev]);
+        if(!payload.new.rider_id) autoAssignRider(payload.new);
+      })
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'delivery_orders',filter:`restaurant_id=eq.${RID}`}, ()=>loadDelivery())
+      .on('postgres_changes',{event:'*',schema:'public',table:'delivery_riders',filter:`restaurant_id=eq.${RID}`}, ()=>loadDelivery())
+      .subscribe();
+    const poll = setInterval(loadDelivery, 30000);
+    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+  },[riders]);
+
   const TABS = [{id:'dashboard',label:'Dashboard'},{id:'pedidos',label:'Pedidos'},{id:'riders',label:'Riders'},{id:'config',label:'Config'}];
 
   function renderTab() {
@@ -2729,6 +3312,19 @@ function AdminApp() {
 
   useEffect(()=>{ loadAll(); },[]);
 
+  // Realtime global + polling 30s
+  useEffect(()=>{
+    if(!db) return;
+    const ch = db.channel('admin-global-rt')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>loadAll())
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>loadAll())
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`},()=>loadAll())
+      .on('postgres_changes',{event:'*',schema:'public',table:'menu_items',filter:`restaurant_id=eq.${RID}`},()=>loadAll())
+      .subscribe();
+    const poll = setInterval(loadAll, 30000);
+    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+  },[]);
+
   async function loadAll() {
     setLoading(true);
     if(!db){setLoading(false);return;}
@@ -2777,12 +3373,13 @@ function AdminApp() {
     );
     switch(page){
       case 'dashboard': return <DashboardPage orders={orders} ratings={ratings} setPage={setPage}/>;
-      case 'pedidos':   return <PedidosPage orders={orders} onRefresh={loadAll}/>;
+      case 'pedidos':   return <PedidosPage orders={orders} tables={tables} onRefresh={loadAll}/>;
       case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
       case 'mesas':     return <MesasPage tables={tables} orders={orders} onRefresh={loadAll}/>;
       case 'personal':  return <PersonalPage/>;
       case 'clientes':  return <ClientesPage orders={orders}/>;
       case 'caja':      return <CajaAdminPage/>;
+      case 'reportes':  return <ReportesPage orders={orders}/>;
       case 'finanzas':  return <FinanzasPage orders={orders}/>;
       case 'marketing': return <MarketingPage coupons={coupons} orders={orders} onRefresh={loadAll}/>;
       case 'ratings':   return <RatingsPage ratings={ratings}/>;
