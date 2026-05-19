@@ -20,7 +20,6 @@
   --green: #34C759; --green-soft: #E8F9ED;
   --orange: #FF9500; --orange-soft: #FFF4E0;
   --red: #FF3B30; --red-soft: #FFEDEC;
-  --yellow: #FF9500; --yellow-soft: #FFF4E0;
   --blue: #007AFF; --blue-soft: #E5F1FF;
   --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
   --shadow-lg: 0 8px 32px rgba(0,0,0,0.10);
@@ -62,6 +61,12 @@ body {
   background: var(--red); color: white;
   font-size: 9px; font-weight: 700; min-width: 16px; height: 16px;
   border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 4px;
+}
+.ready-count-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #000; color: #fff; font-size: 11px; font-weight: 700;
+  min-width: 22px; height: 22px; border-radius: 11px; padding: 0 5px;
+  cursor: default;
 }
 
 /* MAIN */
@@ -109,6 +114,8 @@ body {
 }
 .mesa-card:active { transform: scale(0.95); }
 .mesa-num { font-size: 18px; font-weight: 800; color: var(--text); }
+.mesa-time { font-size: 9px; color: #6E6E73; font-weight: 500; margin-top: 1px; }
+.mesa-time.overtime { color: #FF9500; }
 .mesa-label { font-size: 9px; color: var(--text3); font-weight: 500; margin-top: 2px; }
 .mesa-badge {
   position: absolute; top: -5px; right: -5px;
@@ -116,13 +123,22 @@ body {
   min-width: 18px; height: 18px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center; padding: 0 4px;
 }
+.cobrar-badge {
+  position: absolute; top: -5px; left: -5px;
+  background: #000; color: #fff; font-size: 8px; font-weight: 800;
+  padding: 2px 5px; border-radius: 4px; letter-spacing: 0.5px;
+}
 .mesa-card.libre { background: var(--surface); border-color: var(--border); }
 .mesa-card.ocupada { background: #000000; border-color: #000000; }
 .mesa-card.ocupada .mesa-num { color: #FFFFFF; }
 .mesa-card.ocupada .mesa-label { color: #86868B; }
+.mesa-card.ocupada .mesa-time { color: #86868B; }
+.mesa-card.ocupada .mesa-time.overtime { color: #FF9500; }
 .mesa-card.cocina { background: #86868B; border-color: #86868B; }
 .mesa-card.cocina .mesa-num { color: #FFFFFF; }
 .mesa-card.cocina .mesa-label { color: #D2D2D7; }
+.mesa-card.cocina .mesa-time { color: #D2D2D7; }
+.mesa-card.cocina .mesa-time.overtime { color: #FF9500; }
 .mesa-card.lista { background: #FFFFFF; border: 1.5px solid #000000; }
 .mesa-card.lista .mesa-num { color: #000000; }
 .mesa-card.lista .mesa-label { color: #6E6E73; font-weight: 700; }
@@ -137,9 +153,7 @@ body {
 .legend-dot { width: 10px; height: 10px; border-radius: 3px; }
 
 /* ORDER HEADER */
-.order-header {
-  background: var(--text); color: white; padding: 12px 16px 10px;
-}
+.order-header { background: var(--text); color: white; padding: 12px 16px 10px; }
 .order-header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .order-title { font-size: 13px; font-weight: 600; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px; }
 .order-actions { display: flex; gap: 6px; }
@@ -178,33 +192,34 @@ body {
 .item-top { display: flex; align-items: center; justify-content: space-between; }
 .item-name { font-size: 14px; font-weight: 600; color: var(--text); flex: 1; }
 .item-price { font-size: 14px; font-weight: 700; color: var(--text); margin: 0 12px; }
-.item-del { font-size: 16px; color: var(--text3); cursor: pointer; padding: 4px; }
+.item-del { font-size: 14px; color: var(--text3); cursor: pointer; padding: 4px; font-weight: 700; }
 .item-del:active { color: var(--red); }
 .item-note { font-size: 11px; color: var(--text2); margin-top: 6px; font-style: italic; background: var(--bg2); padding: 4px 8px; border-radius: 6px; }
-.item-progress { margin-top: 10px; display: flex; align-items: center; gap: 8px; }
-.progress-icon { font-size: 14px; }
-.progress-bar { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; }
-.progress-fill { height: 100%; border-radius: 2px; transition: width 0.5s; background: var(--orange); width: 40%; }
-.progress-fill.listo { background: var(--green); width: 85%; }
-.progress-fill.ready { background: var(--green); width: 85%; }
-.progress-fill.cooking { background: var(--orange); width: 40%; }
-.progress-fill.paid { background: var(--orange); width: 20%; }
-.progress-fill.kitchen_received { background: var(--orange); width: 20%; }
-.item-status-text { font-size: 11px; font-weight: 600; color: var(--orange); }
-.item-status-text.lista { color: var(--green); }
-.item-status-text.ready { color: var(--green); }
+.item-status-row { margin-top: 8px; }
+.item-badge {
+  display: inline-flex; align-items: center;
+  font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
+  text-transform: uppercase; letter-spacing: 0.3px;
+}
+.item-badge-prep { background: var(--bg3); color: var(--text2); }
+.item-badge-cooking { background: var(--orange-soft); color: var(--orange); }
+.item-badge-listo { background: #000; color: #fff; }
+.item-badge-entregado { background: var(--green-soft); color: #1A7E37; }
 
 .items-empty { text-align: center; padding: 40px 20px; color: var(--text3); }
 .items-empty .empty-icon { font-size: 40px; margin-bottom: 10px; }
 
 /* TOTAL BAR */
 .total-bar {
-  margin: 0 16px 16px; background: var(--bg2); border: 1px solid var(--border);
+  margin: 0 16px 12px; background: var(--bg2); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 14px 16px;
   display: flex; align-items: center; justify-content: space-between;
 }
 .total-label { font-size: 13px; color: var(--text2); }
 .total-amount { font-size: 22px; font-weight: 800; color: var(--text); }
+
+/* ACTIONS BAR (Pedir más / Llamar caja) */
+.actions-bar { display: flex; gap: 10px; padding: 0 16px 16px; }
 
 /* ALERTS */
 .alerts-list { padding: 8px 16px; }
@@ -214,7 +229,7 @@ body {
   display: flex; gap: 12px; align-items: flex-start;
 }
 .alert-card.urgente { border-color: var(--red); background: var(--red-soft); }
-.alert-icon { font-size: 24px; flex-shrink: 0; }
+.alert-icon { font-size: 20px; font-weight: 800; flex-shrink: 0; color: var(--red); }
 .alert-body { flex: 1; }
 .alert-title { font-size: 14px; font-weight: 700; color: var(--text); }
 .alert-card.urgente .alert-title { color: var(--red); }
@@ -291,6 +306,20 @@ body {
 .qty-btn:active { background: var(--bg3); }
 .qty-num { font-size: 15px; font-weight: 700; min-width: 20px; text-align: center; color: var(--text); }
 
+/* PRODUCT EXTRAS / NOTES */
+.product-extras { padding: 6px 0 8px 56px; }
+.product-note-field {
+  width: 100%; padding: 7px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--bg2); color: var(--text);
+  font-size: 13px; font-family: inherit; resize: none; outline: none;
+}
+.product-note-field:focus { border-color: var(--indigo); }
+.extra-check-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text2); cursor: pointer; margin-top: 5px;
+}
+.extra-check-label input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #000; }
+
 /* PAYMENT */
 .pay-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .pay-item:last-child { border-bottom: none; }
@@ -318,7 +347,6 @@ body {
 .pay-summary { margin-top: 16px; background: var(--bg2); border-radius: var(--radius-sm); padding: 14px; }
 .pay-row { display: flex; justify-content: space-between; font-size: 14px; color: var(--text2); margin-bottom: 6px; }
 .pay-row.total { font-size: 18px; font-weight: 800; color: var(--text); margin-bottom: 0; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
-.pay-row.total span:last-child { color: var(--indigo); }
 
 /* BUTTONS */
 .btn {
@@ -358,7 +386,6 @@ body {
 
 /* NO ORDER */
 .no-order-state { padding: 60px 20px; text-align: center; }
-.no-order-state .big-icon { font-size: 64px; margin-bottom: 16px; }
 .no-order-state h3 { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
 .no-order-state p { font-size: 14px; color: var(--text2); margin-bottom: 24px; }
 
@@ -381,7 +408,7 @@ body {
   animation: spin 0.8s linear infinite;
 }
 
-/* ALERT POPUP (llamada al mozo en tiempo real) */
+/* ALERT POPUP */
 @keyframes slideDown { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 .alert-popup {
   position: fixed; top: 70px; left: 16px; right: 16px; max-width: 448px;
@@ -390,7 +417,6 @@ body {
   z-index: 350; animation: slideDown 0.3s ease; box-shadow: var(--shadow-lg);
   display: flex; align-items: center; gap: 12px;
 }
-.alert-popup-icon { font-size: 26px; flex-shrink: 0; }
 .alert-popup-body { flex: 1; }
 .alert-popup-title { font-size: 15px; font-weight: 700; }
 .alert-popup-sub { font-size: 13px; opacity: 0.85; margin-top: 2px; }
@@ -398,6 +424,18 @@ body {
   background: white; color: var(--red); border: none; border-radius: 8px;
   padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; flex-shrink: 0;
 }
+
+/* TURNO */
+.turno-stat {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 18px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.turno-stat-label { font-size: 13px; color: var(--text2); font-weight: 500; }
+.turno-stat-value { font-size: 20px; font-weight: 800; color: var(--text); }
+.turno-stat.highlight { background: #000; border-color: #000; }
+.turno-stat.highlight .turno-stat-label { color: rgba(255,255,255,0.65); }
+.turno-stat.highlight .turno-stat-value { color: #fff; }
 </style>
 </head>
 <body>
@@ -440,14 +478,13 @@ function getMesaStatus(tableId, ordersMap, callsMap, tablesById) {
   if (callsMap[tableId]) return 'alerta';
   const order = ordersMap[tableId];
   const tbl = tablesById && tablesById[tableId];
-  // Mesa ocupada si: flag en DB ó hay orden activa en ordersMap
   const occupied = (tbl ? tbl.is_occupied : false) || !!order;
   if (!occupied) return 'libre';
   if (!order) return 'ocupada';
   if (order.status === 'ready') return 'lista';
   if (order.status === 'cooking' || order.status === 'kitchen_received') return 'cocina';
   if (order.status === 'pending_payment') return 'cuenta';
-  return 'ocupada'; // draft, confirmed, paid → ocupada
+  return 'ocupada';
 }
 
 const fGsK = n => '₲ ' + (n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? Math.round(n/1000)+'k' : String(Math.round(n||0)));
@@ -468,25 +505,30 @@ function orderStatusClass(status) {
   return '';
 }
 
-function progressClass(status) {
-  return { cooking: 'cooking', ready: 'ready', paid: 'paid', kitchen_received: 'kitchen_received' }[status] || 'paid';
+/* ── AUDIO — init on first user tap, reuse context ── */
+let _audioCtx = null;
+function initAudio() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+  } else if (_audioCtx.state === 'suspended') {
+    _audioCtx.resume().catch(() => {});
+  }
 }
-
-/* ── SONIDO ── */
-function playBeep() {
+function playAlertSound() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    [880, 1100, 880].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.connect(g); g.connect(ctx.destination);
-      osc.frequency.value = freq; osc.type = 'sine';
-      g.gain.setValueAtTime(0.4, ctx.currentTime + i * 0.22);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.22 + 0.25);
-      osc.start(ctx.currentTime + i * 0.22);
-      osc.stop(ctx.currentTime + i * 0.22 + 0.3);
-    });
+    const ctx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
   } catch(e) {}
+}
+function vibrateDevice() {
+  if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
 }
 
 /* ── APP ── */
@@ -497,19 +539,28 @@ function App() {
   const [callsMap, setCallsMap] = useState({});
   const [menu, setMenu] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [extrasMap, setExtrasMap] = useState({});
 
-  // Persistir vista y mesa activa en localStorage
   const [currentView, setCurrentView] = useState(() => localStorage.getItem('mozo_view') || 'mesas');
   const [activeTableId, setActiveTableId] = useState(() => localStorage.getItem('mozo_tableId') || null);
 
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
   const [dark, setDark] = useState(() => (localStorage.getItem('mesa_theme') || 'dark') === 'dark');
-  const [alertPopup, setAlertPopup] = useState(null); // {tableNum, callId}
-  const [sessionTotals, setSessionTotals] = useState({}); // tableId -> total acumulado
+  const [alertPopup, setAlertPopup] = useState(null);
+  const [sessionTotals, setSessionTotals] = useState({});
   const [historialModal, setHistorialModal] = useState(false);
   const [historialOrders, setHistorialOrders] = useState([]);
   const [loadingHistorial, setLoadingHistorial] = useState(false);
+
+  // Turno: start from localStorage or midnight today
+  const turnoInicio = useMemo(() => {
+    const saved = localStorage.getItem('turno_inicio');
+    if (saved) return saved;
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString();
+  }, []);
+  const [turnoOrders, setTurnoOrders] = useState([]);
+  const [loadingTurno, setLoadingTurno] = useState(false);
 
   // Modals
   const [productModal, setProductModal] = useState(false);
@@ -521,7 +572,8 @@ function App() {
   const [selectedProducts, setSelectedProducts] = useState({});
   const [productSearch, setProductSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('Todos');
-  const [orderNote, setOrderNote] = useState('');
+  const [itemNotes, setItemNotes] = useState({});
+  const [itemExtras, setItemExtras] = useState({});
 
   // Payment
   const [tipPct, setTipPct] = useState(0);
@@ -529,47 +581,69 @@ function App() {
 
   const toastTimer = useRef(null);
   const alertTimer = useRef(null);
-  // Ref para que el handler de realtime siempre llame la versión más reciente de loadData
   const loadDataRef = useRef(null);
-  // IDs de waiter_calls conocidos para detectar nuevos
   const knownCallIds = useRef(new Set());
+  const knownReadyIds = useRef(new Set());
+  const pollingRef = useRef(null);
+  const channelRef = useRef(null);
 
-  // Persistir vista activa
   useEffect(() => { localStorage.setItem('mozo_view', currentView); }, [currentView]);
-  // Persistir mesa activa
   useEffect(() => {
     if (activeTableId) localStorage.setItem('mozo_tableId', activeTableId);
     else localStorage.removeItem('mozo_tableId');
   }, [activeTableId]);
 
-  useEffect(() => {
-    loadDataRef.current = loadData;
-  });
+  useEffect(() => { loadDataRef.current = loadData; });
 
   useEffect(() => {
+    // Unlock AudioContext on first user interaction
+    document.addEventListener('click', initAudio, { once: true });
+    document.addEventListener('touchstart', initAudio, { once: true });
+
     loadData();
-    if (db) setupRealtime();
+    if (db) {
+      initRealtimeSubscriptions();
+      pollingRef.current = setInterval(() => loadDataRef.current?.(), 20000);
+    }
+
+    // Reconnect all channels when app returns from background (mobile fix)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && db) {
+        initRealtimeSubscriptions();
+        loadDataRef.current?.();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(pollingRef.current);
+      if (channelRef.current && db) db.removeChannel(channelRef.current);
+    };
   }, []);
 
-  // Prioridad de status: más alto = más "activo" (se prefiere en ordersMap)
+  useEffect(() => {
+    if (currentView === 'turno') loadTurnoData();
+  }, [currentView]);
+
   const STATUS_PRIORITY = ['draft', 'confirmed', 'paid', 'pending_payment', 'kitchen_received', 'cooking', 'ready'];
 
   async function loadData() {
     if (!db) { setLoading(false); return; }
     try {
-      const [tablesRes, ordersRes, callsRes, menuRes] = await Promise.all([
+      const [tablesRes, ordersRes, callsRes, menuRes, extrasRes] = await Promise.all([
         db.from('tables').select('*').eq('restaurant_id', RID).eq('is_active', true).order('number'),
         db.from('orders').select('*, order_items(*)').eq('restaurant_id', RID)
           .in('status', ['draft', 'confirmed', 'paid', 'pending_payment', 'kitchen_received', 'cooking', 'ready'])
           .order('created_at'),
         db.from('waiter_calls').select('*').eq('restaurant_id', RID).eq('status', 'pending').order('created_at'),
         db.from('menu_categories').select('*, menu_items(*)').eq('restaurant_id', RID).eq('is_active', true).order('sort_order'),
+        db.from('menu_item_extras').select('*'),
       ]);
 
       const allTables = tablesRes.data || [];
       setTables(allTables);
 
-      // Para cada mesa, quedarse con la orden de mayor prioridad (más avanzada en el flujo)
       const om = {};
       (ordersRes.data || []).forEach(o => {
         if (!o.table_id) return;
@@ -582,7 +656,21 @@ function App() {
       });
       setOrdersMap(om);
 
-      // Totales de sesión para mesas ocupadas (por flag o por ordersMap activo)
+      // Detect newly ready orders → alert
+      const readyOrders = (ordersRes.data || []).filter(o => o.status === 'ready');
+      const newReady = readyOrders.filter(o => !knownReadyIds.current.has(o.id));
+      if (newReady.length > 0 && knownReadyIds.current.size > 0) {
+        const tblNumById = {};
+        allTables.forEach(t => { tblNumById[t.id] = t.number; });
+        newReady.forEach(o => {
+          const mesaNum = o.table_id ? (tblNumById[o.table_id] || '?') : '?';
+          playAlertSound();
+          vibrateDevice();
+          showToast(`Mesa ${mesaNum} — pedido listo`);
+        });
+      }
+      knownReadyIds.current = new Set(readyOrders.map(o => o.id));
+
       const activeTableIds = new Set([
         ...allTables.filter(t => t.is_occupied).map(t => t.id),
         ...Object.keys(om),
@@ -604,7 +692,6 @@ function App() {
       }
 
       const newCalls = callsRes.data || [];
-      // Enriquecer llamadas con número de mesa desde allTables (evita depender del join de RLS)
       const tableNumById = {};
       allTables.forEach(t => { tableNumById[t.id] = t.number; });
       const enrichedCalls = newCalls.map(c => ({
@@ -616,11 +703,12 @@ function App() {
       setCallsMap(cm);
       setWaiterCalls(enrichedCalls);
 
-      // Detectar llamadas nuevas (no vistas antes) y mostrar popup + sonido
+      // Detect new waiter calls
       const incoming = enrichedCalls.filter(c => !knownCallIds.current.has(c.id));
       if (incoming.length > 0 && knownCallIds.current.size > 0) {
         const last = incoming[incoming.length - 1];
-        playBeep();
+        playAlertSound();
+        vibrateDevice();
         setAlertPopup({ tableNum: last._tableNum, callId: last.id });
         clearTimeout(alertTimer.current);
         alertTimer.current = setTimeout(() => setAlertPopup(null), 8000);
@@ -638,6 +726,15 @@ function App() {
       });
       setCategories(cats);
       setMenu(items);
+
+      // Build extras map keyed by item_id
+      const em = {};
+      (extrasRes.data || []).forEach(e => {
+        if (!em[e.item_id]) em[e.item_id] = [];
+        em[e.item_id].push(e);
+      });
+      setExtrasMap(em);
+
       setLoading(false);
     } catch(e) {
       console.error('loadData error:', e);
@@ -645,12 +742,30 @@ function App() {
     }
   }
 
-  function setupRealtime() {
-    db.channel('mozo-live')
+  // Centralizes all RT subscriptions — called on mount and on visibilitychange
+  function initRealtimeSubscriptions() {
+    if (channelRef.current && db) {
+      db.removeChannel(channelRef.current);
+    }
+    channelRef.current = db.channel('mozo-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RID}` }, () => loadDataRef.current?.())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'waiter_calls', filter: `restaurant_id=eq.${RID}` }, () => loadDataRef.current?.())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tables', filter: `restaurant_id=eq.${RID}` }, () => loadDataRef.current?.())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => loadDataRef.current?.())
       .subscribe();
+  }
+
+  async function loadTurnoData() {
+    if (!db) return;
+    setLoadingTurno(true);
+    const { data } = await db.from('orders')
+      .select('id, order_number, status, total, table_id, created_at, order_items(id, item_name, quantity)')
+      .eq('restaurant_id', RID)
+      .gte('created_at', turnoInicio)
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false });
+    setTurnoOrders(data || []);
+    setLoadingTurno(false);
   }
 
   function showToast(msg) {
@@ -683,7 +798,7 @@ function App() {
       });
     } else if (status === 'alerta') {
       setMesaDialog({
-        title: `🙋 Mesa ${mesa.number} — Asistencia`,
+        title: `Mesa ${mesa.number} — Asistencia`,
         body: 'El cliente ha solicitado asistencia. ¿Fue atendida?',
         actions: [
           { label: 'Sí, ya la atendí', primary: true, action: () => attendCall(tableId) },
@@ -706,6 +821,7 @@ function App() {
   async function createOrder(tableId, tableNum) {
     setMesaDialog(null);
     if (!db) { showToast('Sin conexión'); return; }
+    if (!tableId) { showToast('Seleccioná una mesa antes de continuar'); return; }
     const orderNum = 'W-' + tableNum + '-' + Date.now().toString().slice(-4);
     const { data: order, error } = await db.from('orders').insert({
       restaurant_id: RID,
@@ -719,12 +835,11 @@ function App() {
     }).select().single();
     if (error) { showToast('Error al crear orden'); console.error(error); return; }
     await db.from('order_status_history').insert({ order_id: order.id, status: 'confirmed', changed_by: 'mozo' });
-    // El trigger fn_occupy_table_on_order ya marca la mesa como ocupada en Supabase.
-    // Hacemos update directo también por si el trigger tardó.
+    // Fix is_occupied: trigger may be slow, update directly
     await db.from('tables').update({ is_occupied: true, occupied_since: order.created_at }).eq('id', tableId);
     await loadData();
     openOrderView(tableId);
-    showToast('✅ Orden creada — Mesa ' + tableNum);
+    showToast('Orden creada — Mesa ' + tableNum);
   }
 
   async function attendCall(tableId) {
@@ -733,7 +848,7 @@ function App() {
     if (!call || !db) return;
     await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).eq('id', call.id);
     await loadData();
-    showToast('✅ Asistencia registrada');
+    showToast('Asistencia registrada');
   }
 
   function liberarMesa(tableId) {
@@ -743,12 +858,11 @@ function App() {
     setConfirmDialog({
       title: `Liberar Mesa ${mesa?.number}`,
       body: hasPending
-        ? `⚠️ Hay una orden con ${fGs(order.total)} sin cobrar. ¿Liberar igualmente?`
+        ? `Hay una orden con ${fGs(order.total)} sin cobrar. ¿Liberar igualmente?`
         : '¿Confirmar que el servicio concluyó y la mesa quedó libre?',
       danger: hasPending,
       onOk: async () => {
         if (!db) return;
-        // Cancelar órdenes activas si quedan sin cobrar
         if (order && !['delivered', 'cancelled'].includes(order.status)) {
           await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', order.id);
         }
@@ -784,12 +898,14 @@ function App() {
     setSelectedProducts({});
     setProductSearch('');
     setActiveCategory('Todos');
-    setOrderNote('');
+    setItemNotes({});
+    setItemExtras({});
     setProductModal(true);
   }
 
   async function confirmAddProducts() {
     if (!db) { showToast('Sin conexión'); return; }
+    if (!activeTableId) { showToast('Seleccioná una mesa antes de confirmar'); return; }
     const order = ordersMap[activeTableId];
     if (!order) { showToast('Sin orden activa'); return; }
 
@@ -804,22 +920,41 @@ function App() {
           quantity: qty,
           unit_price: p.price_guarani,
           total_price: p.price_guarani * qty,
-          observations: orderNote || null,
+          observations: itemNotes[id] || null,
         };
       });
 
     if (items.length === 0) { showToast('Seleccioná al menos un ítem'); return; }
 
-    const { error } = await db.from('order_items').insert(items);
+    const { data: insertedItems, error } = await db.from('order_items').insert(items).select();
     if (error) { showToast('Error al agregar'); console.error(error); return; }
 
+    // Insert selected extras per item
+    const extrasToInsert = [];
+    (insertedItems || []).forEach(inserted => {
+      const productId = String(inserted.item_id);
+      const selectedEx = itemExtras[productId] || {};
+      const availExtras = extrasMap[inserted.item_id] || [];
+      Object.entries(selectedEx).forEach(([extraId, checked]) => {
+        if (!checked) return;
+        const extra = availExtras.find(e => e.id === parseInt(extraId));
+        if (extra) extrasToInsert.push({ order_item_id: inserted.id, extra_name: extra.name, extra_price: extra.price_guarani });
+      });
+    });
+    if (extrasToInsert.length > 0) {
+      await db.from('order_item_extras').insert(extrasToInsert);
+    }
+
     const addedTotal = items.reduce((s, i) => s + i.total_price, 0);
-    const newTotal = (order.subtotal || 0) + addedTotal;
+    const extrasTotal = extrasToInsert.reduce((s, e) => s + e.extra_price, 0);
+    const newTotal = (order.subtotal || 0) + addedTotal + extrasTotal;
     await db.from('orders').update({ subtotal: newTotal, total: newTotal }).eq('id', order.id);
 
     await loadData();
     setProductModal(false);
-    showToast(`✅ ${items.length} ítem(s) agregado(s)`);
+    setItemNotes({});
+    setItemExtras({});
+    showToast(`${items.length} ítem(s) agregado(s)`);
   }
 
   /* ── REMOVE ITEM ── */
@@ -848,7 +983,20 @@ function App() {
     await db.from('orders').update({ status: 'kitchen_received' }).eq('id', order.id);
     await db.from('order_status_history').insert({ order_id: order.id, status: 'kitchen_received', changed_by: 'mozo' });
     await loadData();
-    showToast('✅ Orden enviada a cocina');
+    showToast('Orden enviada a cocina');
+  }
+
+  /* ── LLAMAR A CAJA ── */
+  async function callCaja() {
+    if (!db || !activeTableId) return;
+    const { error } = await db.from('waiter_calls').insert({
+      restaurant_id: RID,
+      table_id: activeTableId,
+      type: 'payment_request',
+      status: 'pending',
+    });
+    if (error) { showToast('Error al notificar a caja'); console.error(error); return; }
+    showToast('Caja notificada');
   }
 
   /* ── COBRO ── */
@@ -877,7 +1025,7 @@ function App() {
 
     await loadData();
     setCobroModal(false);
-    showToast('✅ Cobro registrado — ' + fGs(total));
+    showToast('Cobro registrado — ' + fGs(total));
   }
 
   /* ── FINALIZAR ── */
@@ -885,9 +1033,9 @@ function App() {
     const order = ordersMap[activeTableId];
     const hasTotal = order && (order.total || 0) > 0;
     setConfirmDialog({
-      title: hasTotal ? '⚠️ Marcar como entregada SIN cobrar' : 'Finalizar orden',
+      title: hasTotal ? 'Marcar como entregada SIN cobrar' : 'Finalizar orden',
       body: hasTotal
-        ? `Esta orden tiene un total de ${fGs(order.total)}. ¿Confirmar que se entregó sin registrar cobro? Esta acción queda registrada.`
+        ? `Esta orden tiene un total de ${fGs(order.total)}. ¿Confirmar que se entregó sin registrar cobro?`
         : '¿Finalizar la orden? Se marcará como entregada.',
       danger: hasTotal,
       onOk: async () => {
@@ -905,7 +1053,7 @@ function App() {
     if (!db) return;
     await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).eq('id', callId);
     await loadData();
-    showToast('✅ Asistencia registrada');
+    showToast('Asistencia registrada');
   }
 
   function clearAlerts() {
@@ -917,7 +1065,7 @@ function App() {
         const ids = waiterCalls.map(c => c.id);
         await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).in('id', ids);
         await loadData();
-        showToast('✅ Alertas limpiadas');
+        showToast('Alertas limpiadas');
       },
     });
   }
@@ -937,6 +1085,8 @@ function App() {
   const activeTable = activeTableId ? tables.find(t => t.id === activeTableId) : null;
   const activeTableOccupied = activeTableId ? (tablesById[activeTableId]?.is_occupied ?? false) : false;
   const pendingAlerts = waiterCalls.length;
+  // Badge count: orders in 'ready' status (listos para entregar)
+  const readyCount = Object.values(ordersMap).filter(o => o.status === 'ready').length;
 
   const filteredMenu = useMemo(() => menu.filter(p =>
     (activeCategory === 'Todos' || p.cat === activeCategory) &&
@@ -946,12 +1096,32 @@ function App() {
   const selectedCount = Object.values(selectedProducts).reduce((s, q) => s + q, 0);
   const selectedTotal = Object.entries(selectedProducts).reduce((s, [id, q]) => {
     const p = menu.find(m => m.id === parseInt(id));
-    return s + (p ? p.price_guarani * q : 0);
+    const extrasSum = Object.entries(itemExtras[id] || {}).reduce((es, [eid, checked]) => {
+      if (!checked) return es;
+      const ex = (extrasMap[parseInt(id)] || []).find(e => e.id === parseInt(eid));
+      return es + (ex ? ex.price_guarani * q : 0);
+    }, 0);
+    return s + (p ? p.price_guarani * q : 0) + extrasSum;
   }, 0);
 
   const orderBase = activeOrder ? (activeOrder.total || 0) : 0;
   const tipAmt = Math.round(orderBase * tipPct / 100);
   const payTotal = orderBase + tipAmt;
+
+  // Turno stats
+  const turnoStats = useMemo(() => ({
+    pedidos: turnoOrders.length,
+    mesas: new Set(turnoOrders.map(o => o.table_id).filter(Boolean)).size,
+    total: turnoOrders.reduce((s, o) => s + Number(o.total || 0), 0),
+  }), [turnoOrders]);
+
+  /* ── ITEM STATUS BADGE ── */
+  function itemStatusBadge(orderStatus) {
+    if (orderStatus === 'ready') return <span className="item-badge item-badge-listo">Listo</span>;
+    if (orderStatus === 'delivered') return <span className="item-badge item-badge-entregado">Entregado</span>;
+    if (orderStatus === 'cooking') return <span className="item-badge item-badge-cooking">Preparando</span>;
+    return <span className="item-badge item-badge-prep">En cocina</span>;
+  }
 
   /* ── LOADING ── */
   if (loading) {
@@ -970,12 +1140,15 @@ function App() {
       <header className="app-header">
         <div className="brand">Mythos</div>
         <div className="header-actions">
-          <div className="icon-btn" onClick={toggleDark} title="Cambiar tema">{dark ? '☀️' : '🌙'}</div>
+          {readyCount > 0 && (
+            <span className="ready-count-badge" title={`${readyCount} pedido(s) listo(s) para entregar`}>{readyCount}</span>
+          )}
+          <div className="icon-btn" onClick={toggleDark} title="Cambiar tema">{dark ? '○' : '●'}</div>
           <div className="icon-btn" onClick={() => setCurrentView('alertas')}>
-            🔔
+            &#9650;
             {pendingAlerts > 0 && <span className="notif-badge">{pendingAlerts}</span>}
           </div>
-          <div className="icon-btn" onClick={loadData} title="Actualizar">↺</div>
+          <div className="icon-btn" onClick={loadData} title="Actualizar">&#8635;</div>
         </div>
       </header>
 
@@ -997,7 +1170,6 @@ function App() {
                 <div className="ds-monto-label">Monto en uso</div>
                 <div className="ds-monto-value">{fGs(totalActivo)}</div>
               </div>
-              
             </div>
 
             {!db && (
@@ -1014,15 +1186,27 @@ function App() {
                 const order = ordersMap[mesa.id];
                 const itemCount = order?.order_items?.length || 0;
                 const sesTotal = sessionTotals[mesa.id] || 0;
+                const tbl = tablesById[mesa.id];
+                const occupiedMins = tbl?.occupied_since
+                  ? Math.floor((Date.now() - new Date(tbl.occupied_since)) / 60000)
+                  : null;
+                // Show COBRAR badge when order is ready and not yet delivered
+                const showCobrar = order?.status === 'ready' && status !== 'libre';
                 return (
                   <div key={mesa.id} className={`mesa-card ${status}`} onClick={() => handleMesaClick(mesa.id)}>
                     {itemCount > 0 && <div className="mesa-badge">{itemCount}</div>}
+                    {showCobrar && <div className="cobrar-badge">COBRAR</div>}
                     {sesTotal > 0 && (
-                      <div style={{ fontSize: 9, fontWeight: 700, color: status === 'cuenta' ? 'var(--blue)' : 'var(--green)', marginBottom: 1, letterSpacing: '-0.3px' }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: (status === 'ocupada' || status === 'cocina' || status === 'lista') ? 'rgba(255,255,255,0.75)' : 'var(--green)', marginBottom: 1, letterSpacing: '-0.3px' }}>
                         {fGsK(sesTotal)}
                       </div>
                     )}
                     <div className="mesa-num">{mesa.number}</div>
+                    {occupiedMins !== null && status !== 'libre' && (
+                      <div className={`mesa-time${occupiedMins >= 90 ? ' overtime' : ''}`}>
+                        {occupiedMins} min
+                      </div>
+                    )}
                     <div className="mesa-label">{statusLabel(status)}</div>
                   </div>
                 );
@@ -1034,7 +1218,6 @@ function App() {
               <div className="legend-item"><div className="legend-dot" style={{ background: '#000000', border: '1px solid #000000' }}></div>Ocupada</div>
               <div className="legend-item"><div className="legend-dot" style={{ background: '#86868B', border: '1px solid #86868B' }}></div>En cocina</div>
               <div className="legend-item"><div className="legend-dot" style={{ background: '#FFFFFF', border: '1.5px solid #000000' }}></div>Lista</div>
-              <div className="legend-item"><div className="legend-dot" style={{ background: '#86868B', border: '1px solid #86868B' }}></div>Cuenta</div>
               <div className="legend-item"><div className="legend-dot" style={{ background: '#FF3B30', border: '1px solid #FF3B30' }}></div>Alerta</div>
             </div>
           </div>
@@ -1045,14 +1228,12 @@ function App() {
           <div>
             {!activeTableId ? (
               <div className="no-order-state">
-                <div className="big-icon">🍽</div>
                 <h3>Sin orden activa</h3>
                 <p>Seleccioná una mesa con orden para gestionarla.</p>
                 <button className="btn btn-primary" onClick={() => setCurrentView('mesas')}>← Ver mesas</button>
               </div>
             ) : !activeOrder && !activeTableOccupied ? (
               <div className="no-order-state">
-                <div className="big-icon">🍽</div>
                 <h3>Sin orden activa</h3>
                 <p>Seleccioná una mesa con orden para gestionarla.</p>
                 <button className="btn btn-primary" onClick={() => setCurrentView('mesas')}>← Ver mesas</button>
@@ -1065,11 +1246,11 @@ function App() {
                     <div className="order-actions">
                       <button className="order-action-btn" onClick={() => activeOrder ? openProductModal() : createOrder(activeTableId, activeTable?.number)} title={activeOrder ? 'Agregar ítems' : 'Nueva orden'}>＋</button>
                       {activeOrder && ['confirmed', 'draft'].includes(activeOrder.status) && (
-                        <button className="order-action-btn" onClick={enviarACocina} title="Enviar a cocina">🧑‍🍳</button>
+                        <button className="order-action-btn" onClick={enviarACocina} title="Enviar a cocina">&#9201;</button>
                       )}
-                      {activeOrder && <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">💳</button>}
-                      {activeOrder && <button className="order-action-btn" onClick={finalizarOrden} title="Marcar entregada sin cobrar">✅</button>}
-                      <button className="order-action-btn" onClick={() => loadHistorial(activeTableId)} title="Historial">📋</button>
+                      {activeOrder && <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">$</button>}
+                      {activeOrder && <button className="order-action-btn" onClick={finalizarOrden} title="Marcar entregada sin cobrar">&#10003;</button>}
+                      <button className="order-action-btn" onClick={() => loadHistorial(activeTableId)} title="Historial">&#9776;</button>
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1081,20 +1262,20 @@ function App() {
                     )}
                     {sessionTotals[activeTableId] > 0 && (
                       <div style={{ marginLeft: activeOrder ? 0 : 'auto', fontSize: 12, color: 'rgba(100,255,150,0.9)', fontWeight: 700 }}>
-                        Total sesión: {fGs(sessionTotals[activeTableId])}
+                        Sesión: {fGs(sessionTotals[activeTableId])}
                       </div>
                     )}
                     <button
-                      style={{ marginLeft: 'auto', background: 'rgba(34,197,94,0.2)', border: '1px solid rgba(34,197,94,0.5)', color: '#34C759', borderRadius: 8, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                      style={{ marginLeft: 'auto', background: 'rgba(52,199,89,0.2)', border: '1px solid rgba(52,199,89,0.5)', color: '#34C759', borderRadius: 8, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
                       onClick={() => liberarMesa(activeTableId)}
-                    >🟢 Liberar mesa</button>
+                    >Liberar mesa</button>
                   </div>
                 </div>
 
                 {activeOrder ? (
                   <>
                     <div className="order-info">
-                      <div className="order-info-item">🕐 {timeStr(activeOrder.created_at)}</div>
+                      <div className="order-info-item">&#9200; {timeStr(activeOrder.created_at)}</div>
                       <div className="order-info-item" style={{ fontSize: 12 }}>{activeOrder.order_number}</div>
                       <div className={`order-status-badge ${orderStatusClass(activeOrder.status)}`}>
                         {orderStatusText(activeOrder.status).toUpperCase()}
@@ -1104,7 +1285,7 @@ function App() {
                     <div className="items-list">
                       {(!activeOrder.order_items || activeOrder.order_items.length === 0) ? (
                         <div className="items-empty">
-                          <div className="empty-icon">🍽</div>
+                          <div className="empty-icon">○</div>
                           <p>Sin productos en esta orden</p>
                           <button className="btn btn-indigo btn-sm" style={{ margin: '12px auto 0', display: 'inline-flex' }} onClick={openProductModal}>＋ Agregar productos</button>
                         </div>
@@ -1114,20 +1295,13 @@ function App() {
                             <div className="item-top">
                               <div style={{ flex: 1 }}>
                                 <div className="item-name">{item.quantity}× {item.item_name}</div>
-                                {item.observations && <div className="item-note">📝 {item.observations}</div>}
+                                {item.observations && <div className="item-note">{item.observations}</div>}
                               </div>
                               <div className="item-price">{fGs(item.total_price)}</div>
-                              <div className="item-del" onClick={() => removeItem(item.id)}>🗑</div>
+                              <div className="item-del" onClick={() => removeItem(item.id)}>✕</div>
                             </div>
-                            <div className="item-progress">
-                              <span className="progress-icon">🧑‍🍳</span>
-                              <div className="progress-bar">
-                                <div className={`progress-fill ${progressClass(activeOrder.status)}`}></div>
-                              </div>
-                              <span className={`item-status-text ${orderStatusClass(activeOrder.status)}`}>
-                                {orderStatusText(activeOrder.status)}
-                              </span>
-                              <span className="progress-icon">🍴</span>
+                            <div className="item-status-row">
+                              {itemStatusBadge(activeOrder.status)}
                             </div>
                           </div>
                         ))
@@ -1138,12 +1312,22 @@ function App() {
                       <div className="total-label">Total de la orden</div>
                       <div className="total-amount">{fGs(activeOrder.total)}</div>
                     </div>
+
+                    {/* Pedir más + Llamar a caja */}
+                    <div className="actions-bar">
+                      <button className="btn btn-primary" style={{ flex: 1 }} onClick={openProductModal}>
+                        Pedir más
+                      </button>
+                      <button className="btn btn-secondary" style={{ flex: 1 }} onClick={callCaja}>
+                        Llamar a caja
+                      </button>
+                    </div>
                   </>
                 ) : (
-                  /* Mesa ocupada pero sin orden activa — pedidos entregados */
+                  /* Mesa ocupada pero sin orden activa */
                   <div style={{ padding: '24px 16px' }}>
                     <div style={{ background: 'var(--green-soft)', border: '1px solid var(--green)', borderRadius: 'var(--radius)', padding: '16px', marginBottom: 16, textAlign: 'center' }}>
-                      <div style={{ fontSize: 28, marginBottom: 8 }}>✅</div>
+                      <div style={{ fontSize: 22, marginBottom: 8, fontWeight: 800, color: 'var(--green)' }}>✓</div>
                       <div style={{ fontWeight: 700, color: 'var(--green)' }}>Todos los pedidos entregados</div>
                       <div style={{ fontSize: 13, color: 'var(--text2)', marginTop: 4 }}>
                         {sessionTotals[activeTableId] > 0 ? `Total consumido: ${fGs(sessionTotals[activeTableId])}` : 'Sin consumo registrado'}
@@ -1155,8 +1339,8 @@ function App() {
                         className="btn btn-full"
                         style={{ background: 'var(--green)', color: 'white' }}
                         onClick={() => liberarMesa(activeTableId)}
-                      >🟢 Liberar mesa</button>
-                      <button className="btn btn-secondary btn-full" onClick={() => loadHistorial(activeTableId)}>📋 Ver historial del servicio</button>
+                      >Liberar mesa</button>
+                      <button className="btn btn-secondary btn-full" onClick={() => loadHistorial(activeTableId)}>Ver historial del servicio</button>
                     </div>
                   </div>
                 )}
@@ -1177,15 +1361,17 @@ function App() {
             <div className="alerts-list">
               {waiterCalls.length === 0 ? (
                 <div className="alerts-empty">
-                  <div className="empty-icon">✨</div>
-                  <p>Todo bajo control 👌</p>
+                  <div className="empty-icon">○</div>
+                  <p>Todo bajo control</p>
                 </div>
               ) : (
                 waiterCalls.map(call => (
                   <div key={call.id} className="alert-card urgente">
-                    <div className="alert-icon">🙋</div>
+                    <div className="alert-icon">!</div>
                     <div className="alert-body">
-                      <div className="alert-title">Asistencia solicitada</div>
+                      <div className="alert-title">
+                        {call.type === 'payment_request' ? 'Solicitud de cuenta' : 'Asistencia solicitada'}
+                      </div>
                       <div className="alert-sub">
                         {call._tableNum != null ? `Mesa ${call._tableNum}` : 'Mesa desconocida'}
                       </div>
@@ -1194,6 +1380,59 @@ function App() {
                         <button className="alert-action" onClick={() => handleAlertAction(call.id)}>Ya voy</button>
                         <button className="alert-action" style={{ background: 'var(--text2)' }} onClick={() => handleAlertAction(call.id)}>Atendida</button>
                       </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ─── TURNO ─── */}
+        {currentView === 'turno' && (
+          <div>
+            <div className="section-header">
+              <div>
+                <div className="section-title">Mi turno</div>
+                <div className="section-sub">Desde {new Date(turnoInicio).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}</div>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={loadTurnoData}>Actualizar</button>
+            </div>
+
+            <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div className="turno-stat">
+                <div className="turno-stat-label">Pedidos atendidos</div>
+                <div className="turno-stat-value">{turnoStats.pedidos}</div>
+              </div>
+              <div className="turno-stat">
+                <div className="turno-stat-label">Mesas atendidas</div>
+                <div className="turno-stat-value">{turnoStats.mesas}</div>
+              </div>
+              <div className="turno-stat highlight">
+                <div className="turno-stat-label">Total facturado</div>
+                <div className="turno-stat-value">{fGs(turnoStats.total)}</div>
+              </div>
+            </div>
+
+            <div style={{ padding: '0 16px 8px' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>Órdenes del turno</div>
+              {loadingTurno ? (
+                <div style={{ textAlign: 'center', padding: 30 }}><div className="spinner" style={{ margin: '0 auto' }}></div></div>
+              ) : turnoOrders.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text3)' }}>Sin órdenes en este turno</div>
+              ) : (
+                turnoOrders.map(ord => (
+                  <div key={ord.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <div>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{ord.order_number}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>{timeStr(ord.created_at)}</span>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 800 }}>{fGs(ord.total)}</div>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                      {(ord.order_items || []).slice(0, 3).map(i => `${i.quantity}× ${i.item_name}`).join(', ')}
+                      {(ord.order_items || []).length > 3 ? ` +${(ord.order_items || []).length - 3} más` : ''}
                     </div>
                   </div>
                 ))
@@ -1222,6 +1461,10 @@ function App() {
           Alertas
           {pendingAlerts > 0 && <span className="nav-badge show">{pendingAlerts}</span>}
         </div>
+        <div className={`nav-item ${currentView === 'turno' ? 'active' : ''}`} onClick={() => setCurrentView('turno')}>
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Turno
+        </div>
       </nav>
 
       {/* ─── MODAL: HISTORIAL DE SERVICIO ─── */}
@@ -1243,7 +1486,7 @@ function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <div>
                       <span style={{ fontSize: 12, fontWeight: 700 }}>#{ord.order_number}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>🕐 {timeStr(ord.created_at)}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>&#9200; {timeStr(ord.created_at)}</span>
                     </div>
                     <div style={{ fontSize: 13, fontWeight: 800, color: ord.status === 'delivered' ? 'var(--green)' : 'var(--orange)' }}>
                       {fGs(ord.total)}
@@ -1285,7 +1528,7 @@ function App() {
             </div>
             <div className="modal-body">
               <div className="search-box">
-                <span>🔍</span>
+                <span style={{ color: 'var(--text3)', fontSize: 14 }}>&#128269;</span>
                 <input
                   type="text"
                   placeholder="Buscar producto..."
@@ -1302,26 +1545,60 @@ function App() {
               <div>
                 {filteredMenu.map(p => {
                   const qty = selectedProducts[p.id] || 0;
+                  const hasExtras = (extrasMap[p.id] || []).length > 0;
                   return (
-                    <div key={p.id} className="product-item">
-                      <div className="product-img">
-                        {p.image_url ? <img src={p.image_url} alt={p.name} /> : '🍽'}
+                    <div key={p.id}>
+                      <div className="product-item">
+                        <div className="product-img">
+                          {p.image_url ? <img src={p.image_url} alt={p.name} /> : <span style={{ fontSize: 18, color: 'var(--text3)' }}>○</span>}
+                        </div>
+                        <div className="product-info">
+                          <div className="product-name">{p.name}</div>
+                          <div className="product-price">{fGs(p.price_guarani)}</div>
+                        </div>
+                        {qty === 0 ? (
+                          <div className="product-add-btn" onClick={() => setSelectedProducts(prev => ({ ...prev, [p.id]: 1 }))}>+</div>
+                        ) : (
+                          <div className="product-qty-ctrl">
+                            <div className="qty-btn" onClick={() => setSelectedProducts(prev => {
+                              const next = { ...prev };
+                              if (next[p.id] > 1) next[p.id]--; else delete next[p.id];
+                              return next;
+                            })}>−</div>
+                            <div className="qty-num">{qty}</div>
+                            <div className="qty-btn" onClick={() => setSelectedProducts(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }))}>+</div>
+                          </div>
+                        )}
                       </div>
-                      <div className="product-info">
-                        <div className="product-name">{p.name}</div>
-                        <div className="product-price">{fGs(p.price_guarani)}</div>
-                      </div>
-                      {qty === 0 ? (
-                        <div className="product-add-btn" onClick={() => setSelectedProducts(prev => ({ ...prev, [p.id]: 1 }))}>+</div>
-                      ) : (
-                        <div className="product-qty-ctrl">
-                          <div className="qty-btn" onClick={() => setSelectedProducts(prev => {
-                            const next = { ...prev };
-                            if (next[p.id] > 1) next[p.id]--; else delete next[p.id];
-                            return next;
-                          })}>−</div>
-                          <div className="qty-num">{qty}</div>
-                          <div className="qty-btn" onClick={() => setSelectedProducts(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }))}>+</div>
+                      {qty > 0 && (
+                        <div className="product-extras">
+                          <textarea
+                            className="product-note-field"
+                            rows={1}
+                            placeholder="Notas: sin sal, bien cocido..."
+                            value={itemNotes[p.id] || ''}
+                            onChange={e => setItemNotes(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          />
+                          {hasExtras && (
+                            <div>
+                              {(extrasMap[p.id] || []).map(extra => (
+                                <label key={extra.id} className="extra-check-label">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!(itemExtras[p.id]?.[extra.id])}
+                                    onChange={e => setItemExtras(prev => ({
+                                      ...prev,
+                                      [p.id]: { ...(prev[p.id] || {}), [extra.id]: e.target.checked }
+                                    }))}
+                                  />
+                                  {extra.name}
+                                  {extra.price_guarani > 0 && (
+                                    <span style={{ color: 'var(--text3)', marginLeft: 2 }}>+{fGs(extra.price_guarani)}</span>
+                                  )}
+                                </label>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1331,14 +1608,6 @@ function App() {
                   <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text3)' }}>Sin resultados</div>
                 )}
               </div>
-              <div className="section-label" style={{ marginTop: 16 }}>Nota para cocina</div>
-              <textarea
-                className="note-field"
-                rows={2}
-                placeholder="Ej: sin cebolla, punto medio..."
-                value={orderNote}
-                onChange={e => setOrderNote(e.target.value)}
-              />
             </div>
             <div className="modal-footer">
               <button
@@ -1384,10 +1653,10 @@ function App() {
                 <div className="section-label">Método de pago</div>
                 <div className="payment-methods">
                   {[
-                    { key: 'efectivo', icon: '💵', label: 'Efectivo' },
-                    { key: 'pos', icon: '💳', label: 'Tarjeta POS' },
-                    { key: 'qr', icon: '📱', label: 'QR Mesa' },
-                    { key: 'tarjeta', icon: '📲', label: 'Transferencia' },
+                    { key: 'efectivo', icon: '$', label: 'Efectivo' },
+                    { key: 'pos', icon: '▣', label: 'Tarjeta POS' },
+                    { key: 'qr', icon: '▦', label: 'QR Mesa' },
+                    { key: 'tarjeta', icon: '↔', label: 'Transferencia' },
                   ].map(m => (
                     <div key={m.key} className={`pay-method ${payMethod === m.key ? 'active' : ''}`} onClick={() => setPayMethod(m.key)}>
                       <div className="pay-icon">{m.icon}</div>
@@ -1445,12 +1714,11 @@ function App() {
         </div>
       )}
 
-      {/* ALERT POPUP — nueva llamada al mozo en tiempo real */}
+      {/* ALERT POPUP — nueva llamada en tiempo real */}
       {alertPopup && (
         <div className="alert-popup">
-          <div className="alert-popup-icon">🙋</div>
           <div className="alert-popup-body">
-            <div className="alert-popup-title">¡Asistencia solicitada!</div>
+            <div className="alert-popup-title">Asistencia solicitada</div>
             <div className="alert-popup-sub">{alertPopup.tableNum != null ? `Mesa ${alertPopup.tableNum}` : 'Mesa desconocida'}</div>
           </div>
           <button className="alert-popup-btn" onClick={async () => {
@@ -1458,7 +1726,7 @@ function App() {
             if (db) {
               await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).eq('id', alertPopup.callId);
               await loadData();
-              showToast('✅ Asistencia registrada');
+              showToast('Asistencia registrada');
             }
           }}>Ya voy</button>
         </div>
