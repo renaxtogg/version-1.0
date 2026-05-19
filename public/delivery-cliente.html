@@ -176,7 +176,7 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
     table_id: null,
     order_number: orderNum,
     order_type: 'llevar',
-    status: 'confirmed',
+    status: 'paid',
     subtotal,
     discount_amount: 0,
     total,
@@ -201,7 +201,7 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
     }
   }
 
-  await db.from('order_status_history').insert({ order_id: order.id, status: 'confirmed', changed_by: 'customer' });
+  await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
 
   // Intentar insertar en delivery_orders (tabla pendiente de migración)
   try {
@@ -1119,8 +1119,8 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
   const STEPS = isDelivery ? DELIVERY_STEPS : PICKUP_STEPS;
 
   // Status map de orders → step
-  const STATUS_MAP_DELIVERY = { confirmed: 0, kitchen_received: 1, cooking: 1, ready: 2, delivered: 3 };
-  const STATUS_MAP_PICKUP   = { confirmed: 0, kitchen_received: 1, cooking: 1, ready: 2, delivered: 2 };
+  const STATUS_MAP_DELIVERY = { paid: 0, confirmed: 0, kitchen_received: 1, cooking: 1, ready: 2, delivered: 3 };
+  const STATUS_MAP_PICKUP   = { paid: 0, confirmed: 0, kitchen_received: 1, cooking: 1, ready: 2, delivered: 2 };
   const STATUS_MAP = isDelivery ? STATUS_MAP_DELIVERY : STATUS_MAP_PICKUP;
 
   const [active, setActive] = useState(0);
