@@ -21,30 +21,19 @@
   button{font-family:inherit;cursor:pointer}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  @keyframes blink{0%,100%{border-color:#FF3B30;box-shadow:0 0 0 0 rgba(255,59,48,0)}50%{border-color:#FF3B30;box-shadow:0 0 0 4px rgba(255,59,48,0.18)}}
   @keyframes ring{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
   @keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
   @keyframes slideRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes spin{to{transform:rotate(360deg)}}
-  @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-3px)}40%,80%{transform:translateX(3px)}}
-  @keyframes starPop{0%{transform:scale(0.6);opacity:0}60%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
+  @keyframes greenFlash{0%{background:rgba(52,199,89,0.0)}30%{background:rgba(52,199,89,0.18)}100%{background:transparent}}
   .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #38383A;border-top-color:#F5F5F7;border-radius:50%;vertical-align:middle}
+  .card-critical{animation:blink 1s ease infinite}
 </style>
 </head>
 <body data-theme="dark">
 <div id="root"></div>
-<script>
-function initTheme() {
-  const saved = localStorage.getItem('mesa_theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', saved);
-}
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  const next = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('mesa_theme', next);
-}
-initTheme();
-</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback, useReducer } = React;
 
@@ -60,31 +49,44 @@ const _initDB = () => {
 const db = _initDB();
 const RESTAURANT_ID = ((window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
 
-/* ── STATUS MAPPING ─── */
-const toKitchenStatus = s => s === 'cooking' ? 'preparando' : s === 'ready' ? 'listo' : 'nuevo';
-const nextKitchenStatus = s => s === 'nuevo' ? 'preparando' : 'listo';
-const nextSupabaseStatus = s => s === 'nuevo' ? 'cooking' : 'ready';
+/* ── CONFIG GLOBAL (localStorage) ─── */
+let MAX_PREP_MINUTES = parseInt(localStorage.getItem('kitchen_max_minutes') || '20');
+let SOUND_NEW    = localStorage.getItem('kitchen_sound_new')    !== 'false';
+let SOUND_URGENT = localStorage.getItem('kitchen_sound_urgent') !== 'false';
+let kitchenAudioCtx = null;
+
+function ensureAudioCtx() {
+  if (!kitchenAudioCtx) {
+    try { kitchenAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+  }
+  return kitchenAudioCtx;
+}
 
 /* ── SONIDO ─── */
-function playBeep(type = 'new') {
+function playKitchenAlert(urgent = false) {
+  const ctx = ensureAudioCtx();
+  if (!ctx) return;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const notes = type === 'new' ? [880, 1100] : [660];
-    notes.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.connect(g); g.connect(ctx.destination);
-      osc.frequency.value = freq;
-      osc.type = 'sine';
-      g.gain.setValueAtTime(0.35, ctx.currentTime + i * 0.28);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.28 + 0.35);
-      osc.start(ctx.currentTime + i * 0.28);
-      osc.stop(ctx.currentTime + i * 0.28 + 0.4);
-    });
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = urgent ? 1200 : 880;
+    const dur = urgent ? 0.6 : 0.3;
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + dur);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + dur);
+    if (navigator.vibrate) navigator.vibrate(urgent ? [300, 100, 300, 100, 300] : [200]);
   } catch(e) {}
 }
 
-/* ── ALERGIAS ─── */
+/* ── STATUS MAPPING ─── */
+const toKitchenStatus  = s => s === 'cooking' ? 'preparando' : s === 'ready' ? 'listo' : 'nuevo';
+const nextKitchenStatus = s => s === 'nuevo' ? 'preparando' : 'listo';
+const nextSupabaseStatus = s => s === 'nuevo' ? 'cooking' : 'ready';
+
+/* ── ALERGIAS (detección por texto de observaciones) ─── */
 const ALLERGY_KW = ['alergi','celíac','celiac','gluten','lactosa','intoler','maní','nuez','marisco','camarón','creveta','soja','anafilax','sin gluten','sin lactosa'];
 function hasAllergyAlert(text) {
   if (!text) return false;
@@ -95,27 +97,73 @@ function hasAllergyAlert(text) {
 /* ── URGENCIA ─── */
 function urgencyLevel(min, status) {
   if (status === 'listo' || status === 'entregado') return 0;
-  if (min >= 30) return 3;
-  if (min >= 20) return 2;
-  if (min >= 12) return 1;
+  if (min >= MAX_PREP_MINUTES + 10) return 3;
+  if (min >= MAX_PREP_MINUTES)      return 2;
+  if (min >= MAX_PREP_MINUTES - 8)  return 1;
   return 0;
 }
-const URGENCY_COLOR = [null, '#F59E0B', '#F97316', '#EF4444'];
-const URGENCY_LABEL = [null, 'DEMORADO', 'URGENTE', 'CRÍTICO'];
+const URGENCY_BORDER = ['#38383A','#FF9500','#FF3B30','#FF3B30'];
+const URGENCY_HEADER = ['#1C1C1E','rgba(255,149,0,0.12)','rgba(255,59,48,0.16)','rgba(255,59,48,0.22)'];
+const URGENCY_LABEL  = [null,'DEMORADO','URGENTE','CRITICO'];
+
+/* ── TIMER COLOR ─── */
+function timerColor(min, status) {
+  if (status === 'listo' || status === 'entregado') return '#636366';
+  if (min > MAX_PREP_MINUTES)      return '#FF3B30';
+  if (min > MAX_PREP_MINUTES - 9)  return '#FF9500';
+  return '#A1A1A6';
+}
+
+/* ── TIPO DE ORDEN — identificador de mesa/origen ─── */
+function orderTypeInfo(order) {
+  const t = (order.order_type || '').toLowerCase();
+  if (t === 'delivery')        return { tipo: 'delivery',   label: 'DELIVERY',   color: '#FF9500', bg: 'rgba(255,149,0,0.14)', border: 'rgba(255,149,0,0.35)' };
+  if (t === 'pickup')          return { tipo: 'pickup',     label: 'PICKUP',     color: '#007AFF', bg: 'rgba(0,122,255,0.14)', border: 'rgba(0,122,255,0.35)' };
+  if (t === 'llevar')          return { tipo: 'llevar',     label: 'PARA LLEVAR',color: '#FF9500', bg: 'rgba(255,149,0,0.14)', border: 'rgba(255,149,0,0.35)' };
+  if (t === 'mostrador')       return { tipo: 'mostrador',  label: 'MOSTRADOR',  color: '#5856D6', bg: 'rgba(88,86,214,0.14)', border: 'rgba(88,86,214,0.35)' };
+  return null; // mesa local — no badge
+}
+
+function mesaDisplayLabel(ticket) {
+  if (ticket.mesa != null) return `Mesa ${ticket.mesa}`;
+  if (ticket.tipo === 'delivery')  return 'Delivery';
+  if (ticket.tipo === 'pickup')    return 'Pickup';
+  if (ticket.tipo === 'llevar')    return 'Para llevar';
+  if (ticket.tipo === 'mostrador') return 'Mostrador';
+  return 'Mostrador'; // NUNCA mostrar '?' o null
+}
 
 /* ── STATS (localStorage por día) ─── */
 function todayKey() { return `cocina_stats_${new Date().toDateString()}`; }
+function productKey() { return `cocina_products_${new Date().toDateString()}`; }
+
 function loadStats() {
   try { return JSON.parse(localStorage.getItem(todayKey()) || '{"times":[],"hourly":{}}'); }
   catch { return { times: [], hourly: {} }; }
 }
-function recordDone(minElapsed) {
+function loadProductStats() {
+  try { return JSON.parse(localStorage.getItem(productKey()) || '{}'); }
+  catch { return {}; }
+}
+function recordDone(minElapsed, items) {
   try {
     const s = loadStats();
     s.times.push(minElapsed);
     const h = new Date().getHours();
     s.hourly[h] = (s.hourly[h] || 0) + 1;
     localStorage.setItem(todayKey(), JSON.stringify(s));
+
+    // por producto
+    if (items && items.length > 0) {
+      const p = loadProductStats();
+      items.forEach(item => {
+        const k = item.nombre;
+        if (!p[k]) p[k] = { count: 0, totalMin: 0 };
+        p[k].count++;
+        p[k].totalMin += minElapsed;
+      });
+      localStorage.setItem(productKey(), JSON.stringify(p));
+    }
   } catch {}
 }
 function getStats() {
@@ -124,37 +172,72 @@ function getStats() {
   const peak = Object.entries(s.hourly).sort((a, b) => b[1] - a[1])[0] || null;
   return { avg, total: s.times.length, peak: peak ? { h: parseInt(peak[0]), n: peak[1] } : null };
 }
+function getProductStats() {
+  const p = loadProductStats();
+  return Object.entries(p).map(([name, d]) => ({
+    name,
+    count: d.count,
+    avg: Math.round(d.totalMin / d.count),
+  })).sort((a, b) => b.avg - a.avg);
+}
 
-/* ── ESTACIONES DE PRODUCCIÓN ─── */
+/* ── ESTACIONES DE PRODUCCION ─── */
 const STATIONS = [
-  { key: 'todas',     label: 'Todas',     icon: '⊞', color: '#888' },
-  { key: 'cocina',    label: 'Cocina',    icon: '',   color: '#fb923c' },
-  { key: 'parrilla',  label: 'Parrilla',  icon: '',   color: '#f87171' },
-  { key: 'bar',       label: 'Bar',       icon: '',   color: '#60a5fa' },
-  { key: 'cafeteria', label: 'Cafetería', icon: '',   color: '#c084fc' },
-  { key: 'postres',   label: 'Postres',   icon: '',   color: '#f9a8d4' },
+  { key: 'todas',     label: 'Todas',    color: '#888' },
+  { key: 'cocina',    label: 'Cocina',   color: '#fb923c' },
+  { key: 'parrilla',  label: 'Parrilla', color: '#f87171' },
+  { key: 'bar',       label: 'Bar',      color: '#60a5fa' },
+  { key: 'cafeteria', label: 'Cafet.',   color: '#c084fc' },
+  { key: 'postres',   label: 'Postres',  color: '#f9a8d4' },
 ];
+
+/* Estaciones caliente vs fría para split view */
+const HOT_STATIONS  = new Set(['cocina', 'parrilla', 'postres']);
+const COLD_STATIONS = new Set(['bar', 'cafeteria']);
 
 function filterTicketsForStation(tickets, station) {
   if (station === 'todas') return tickets;
   return tickets.reduce((acc, ticket) => {
-    const filtered = ticket.items.filter(i =>
-      i.station === station || (!i.station && station === 'cocina')
-    );
+    const filtered = ticket.items.filter(i => i.station === station || (!i.station && station === 'cocina'));
     if (filtered.length > 0) acc.push({ ...ticket, items: filtered });
     return acc;
   }, []);
+}
+
+function filterTicketsForHalf(tickets, half) {
+  return tickets.reduce((acc, ticket) => {
+    const filtered = ticket.items.filter(i => {
+      const st = i.station || 'cocina';
+      return half === 'hot' ? HOT_STATIONS.has(st) : COLD_STATIONS.has(st);
+    });
+    if (filtered.length > 0) acc.push({ ...ticket, items: filtered });
+    return acc;
+  }, []);
+}
+
+/* ── TIPO DE ORDEN FILTER ─── */
+const ORDER_TYPE_FILTERS = [
+  { key: 'todos',     label: 'Todos' },
+  { key: 'mesa',      label: 'Mesa' },
+  { key: 'delivery',  label: 'Delivery' },
+  { key: 'pickup',    label: 'Pickup' },
+  { key: 'llevar',    label: 'Para llevar' },
+  { key: 'mostrador', label: 'Mostrador' },
+];
+function filterByOrderType(tickets, typeFilter) {
+  if (typeFilter === 'todos') return tickets;
+  if (typeFilter === 'mesa') return tickets.filter(t => t.mesa != null && (t.tipo === 'local' || !t.tipo));
+  return tickets.filter(t => t.tipo === typeFilter);
 }
 
 /* ── SUPABASE HELPERS ─── */
 function orderToTicket(order) {
   const created = new Date(order.created_at);
   const elapsed = Math.floor((Date.now() - created.getTime()) / 60000);
-
-  // Mesa: llevar orders no tienen mesa; local sin table_id = sin mesa asignada
+  const typeInfo = orderTypeInfo(order);
+  const isNonLocal = typeInfo !== null;
   let mesa = null;
-  const isLlevar = order.order_type === 'llevar';
-  if (!isLlevar && order.tables && order.tables.number != null) {
+  if (!isNonLocal && order.tables && order.tables.number != null) {
     mesa = order.tables.number;
   }
 
@@ -162,23 +245,25 @@ function orderToTicket(order) {
     id: order.order_number,
     _supabaseId: order.id,
     mesa,
-    tipo: isLlevar ? 'llevar' : 'local',
+    tipo: typeInfo ? typeInfo.tipo : 'local',
+    typeInfo,
     hora: created.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
     elapsed,
     status: toKitchenStatus(order.status),
+    deliveryInfo: order.delivery_info || null,
     items: (order.order_items || []).map((oi, i) => ({
       id: oi.id || i + 1,
       nombre: oi.item_name,
       cant: oi.quantity,
       extras: (oi.order_item_extras || []).map(e => e.extra_name),
       obs: oi.observations || '',
+      allergens: oi.allergens || '',
       station: oi.production_station || null,
       kitchenStatus: oi.kitchen_status || 'pending',
     }))
   };
 }
 
-// Hace queries planas y combina en cliente (evita permisos nested PostgREST con anon)
 async function dbLoadTickets() {
   if (!db) return { tickets: null, error: null };
   const { data: orders, error } = await db.from('orders')
@@ -187,7 +272,7 @@ async function dbLoadTickets() {
     .in('status', ['paid','kitchen_received','cooking','ready'])
     .order('created_at', { ascending: true });
   if (error) {
-    console.error('dbLoadTickets orders error:', error);
+    console.error('dbLoadTickets error:', error);
     return { tickets: null, error: error.message || 'Error al cargar pedidos' };
   }
   if (!orders || orders.length === 0) return { tickets: [], error: null };
@@ -256,49 +341,46 @@ async function dbLoadRatings() {
   return data || [];
 }
 
-/* ── PALETTE ─── */
-const C_DARK = {
+/* ── COLORES ─── */
+const C = {
   bg:'#000000', surface:'#1C1C1E', card:'#2C2C2E',
   border:'#38383A', borderStrong:'#636366',
   white:'#F5F5F7', ink:'#F5F5F7', mid:'#AEAEB2', dim:'#636366',
 };
-const C_LIGHT = C_DARK;
-const C = {...C_DARK};
 
 const COL_COLOR = {
-  nuevo:      '#60a5fa',
-  preparando: '#fb923c',
-  listo:      '#4ade80',
-  entregado:  '#6b7280',
+  nuevo:     '#60a5fa',
+  preparando:'#fb923c',
+  listo:     '#4ade80',
+  entregado: '#6b7280',
 };
 
-let URGENCY_BORDER = [C.borderStrong, '#F59E0B', '#F97316', '#EF4444'];
-let URGENCY_HEADER = [C.surface, 'rgba(245,158,11,0.12)', 'rgba(249,115,22,0.18)', 'rgba(239,68,68,0.22)'];
-
-/* ── DEMO ─── */
+/* ── DEMO TICKETS ─── */
 const DEMO_TICKETS = [
-  { id:'T-2841', _supabaseId:null, mesa:2, tipo:'local', hora:'19:04', elapsed:22, status:'preparando',
+  { id:'T-2841', _supabaseId:null, mesa:2, tipo:'local', typeInfo:null, hora:'19:04', elapsed:22, status:'preparando',
     items:[
-      {id:1,nombre:'Lomito completo',cant:2,extras:['Extra carne','Huevo frito'],obs:'Sin mayo en una',station:'cocina',kitchenStatus:'cooking'},
-      {id:2,nombre:'Provoleta parrilla',cant:1,extras:[],obs:'',station:'parrilla',kitchenStatus:'cooking'},
-      {id:3,nombre:'Sopa paraguaya',cant:2,extras:[],obs:'Bien caliente',station:'cocina',kitchenStatus:'cooking'},
+      {id:1,nombre:'Lomito completo',cant:2,extras:['Extra carne','Huevo frito'],obs:'Sin mayo en una',allergens:'',station:'cocina',kitchenStatus:'cooking'},
+      {id:2,nombre:'Provoleta parrilla',cant:1,extras:[],obs:'',allergens:'',station:'parrilla',kitchenStatus:'cooking'},
     ]},
-  { id:'T-2842', _supabaseId:null, mesa:7, tipo:'local', hora:'19:08', elapsed:14, status:'nuevo',
+  { id:'T-2842', _supabaseId:null, mesa:7, tipo:'local', typeInfo:null, hora:'19:08', elapsed:14, status:'nuevo',
     items:[
-      {id:4,nombre:'Clásica Comanda',cant:3,extras:['Panceta','Extra queso'],obs:'Una sin cebolla — cliente tiene ALERGIA a nuez',station:'cocina',kitchenStatus:'pending'},
-      {id:5,nombre:'BBQ Smokey',cant:1,extras:['Jalapeños'],obs:'',station:'cocina',kitchenStatus:'pending'},
-      {id:6,nombre:'Coca-Cola',cant:3,extras:[],obs:'',station:'bar',kitchenStatus:'pending'},
+      {id:4,nombre:'Clasica Comanda',cant:3,extras:['Panceta','Extra queso'],obs:'Una sin cebolla - ALERGIA a nuez',allergens:'frutos secos',station:'cocina',kitchenStatus:'pending'},
+      {id:5,nombre:'Coca-Cola',cant:3,extras:[],obs:'',allergens:'',station:'bar',kitchenStatus:'pending'},
     ]},
-  { id:'T-2843', _supabaseId:null, mesa:null, tipo:'llevar', hora:'19:11', elapsed:11, status:'nuevo',
+  { id:'T-2843', _supabaseId:null, mesa:null, tipo:'delivery', typeInfo:{ tipo:'delivery', label:'DELIVERY', color:'#FF9500', bg:'rgba(255,149,0,0.14)', border:'rgba(255,149,0,0.35)' }, hora:'19:11', elapsed:11, status:'nuevo',
+    deliveryInfo:{ cliente:'Juan Pérez', direccion:'Av. Mariscal 1234' },
     items:[
-      {id:7,nombre:'Doble Black',cant:2,extras:['Panceta'],obs:'Bien cocida',station:'cocina',kitchenStatus:'pending'},
-      {id:8,nombre:'Cerveza Pilsen',cant:2,extras:[],obs:'Bien fría',station:'bar',kitchenStatus:'pending'},
-      {id:9,nombre:'Veggie',cant:1,extras:[],obs:'Sin pepino — intolerante al gluten',station:'cocina',kitchenStatus:'pending'},
+      {id:7,nombre:'Doble Black',cant:2,extras:['Panceta'],obs:'Bien cocida',allergens:'',station:'cocina',kitchenStatus:'pending'},
+      {id:8,nombre:'Cerveza Pilsen',cant:2,extras:[],obs:'',allergens:'',station:'bar',kitchenStatus:'pending'},
     ]},
-  { id:'T-2840', _supabaseId:null, mesa:3, tipo:'local', hora:'18:58', elapsed:28, status:'listo',
+  { id:'T-2844', _supabaseId:null, mesa:null, tipo:'pickup', typeInfo:{ tipo:'pickup', label:'PICKUP', color:'#007AFF', bg:'rgba(0,122,255,0.14)', border:'rgba(0,122,255,0.35)' }, hora:'19:14', elapsed:5, status:'nuevo',
     items:[
-      {id:10,nombre:'Lomito americano',cant:2,extras:[],obs:'',station:'cocina',kitchenStatus:'ready'},
-      {id:11,nombre:'Agua mineral',cant:2,extras:[],obs:'',station:'bar',kitchenStatus:'ready'},
+      {id:9,nombre:'Veggie',cant:1,extras:[],obs:'Sin pepino - intolerante al gluten',allergens:'gluten',station:'cocina',kitchenStatus:'pending'},
+    ]},
+  { id:'T-2840', _supabaseId:null, mesa:3, tipo:'local', typeInfo:null, hora:'18:58', elapsed:28, status:'listo',
+    items:[
+      {id:10,nombre:'Lomito americano',cant:2,extras:[],obs:'',allergens:'',station:'cocina',kitchenStatus:'ready'},
+      {id:11,nombre:'Agua mineral',cant:2,extras:[],obs:'',allergens:'',station:'bar',kitchenStatus:'ready'},
     ]},
 ];
 
@@ -310,214 +392,220 @@ function sortByUrgency(tickets) {
     const ua = urgencyLevel(a.elapsed, a.status);
     const ub = urgencyLevel(b.elapsed, b.status);
     if (ua !== ub) return ub - ua;
-    if (a.tipo === 'llevar' && b.tipo !== 'llevar') return -1;
-    if (b.tipo === 'llevar' && a.tipo !== 'llevar') return 1;
+    if (a.tipo === 'delivery' && b.tipo !== 'delivery') return -1;
+    if (b.tipo === 'delivery' && a.tipo !== 'delivery') return 1;
     return b.elapsed - a.elapsed;
   });
 }
 
-function mesaLabel(ticket) {
-  if (ticket.tipo === 'llevar') return 'Para llevar';
-  if (ticket.mesa != null) return `Mesa ${ticket.mesa}`;
-  return 'Sin mesa asignada';
-}
+/* ── SVG ICONS ─── */
+const IconGear = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3"/>
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+  </svg>
+);
+
+const IconSplit = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <rect x="3" y="3" width="8" height="18" rx="1"/>
+    <rect x="13" y="3" width="8" height="18" rx="1"/>
+  </svg>
+);
 
 /* ── TICKET CARD ─── */
-function TicketCard({ ticket, onAdvance, onDismiss }) {
+function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
   const [time, setTime] = useState(ticket.elapsed);
+  const [flash, setFlash] = useState(false);
   useEffect(() => { const t = setInterval(() => setTime(v => v + 1), 60000); return () => clearInterval(t); }, []);
 
-  const urgency = urgencyLevel(time, ticket.status);
-  const urgColor = URGENCY_COLOR[urgency];
-  const isDone = ticket.status === 'listo' || ticket.status === 'entregado';
+  const urgency    = urgencyLevel(time, ticket.status);
+  const tColor     = timerColor(time, ticket.status);
+  const isDone     = ticket.status === 'listo' || ticket.status === 'entregado';
   const isEntregado = ticket.status === 'entregado';
+  const isCritical = urgency >= 2 && !isDone;
   const nextStatus = { nuevo: 'preparando', preparando: 'listo' }[ticket.status];
-  const hasAnyAllergy = ticket.items.some(i => hasAllergyAlert(i.obs));
-  const isLlevar = ticket.tipo === 'llevar';
-  const hasNoMesa = !isLlevar && ticket.mesa == null;
+  const hasAnyAllergy = ticket.items.some(i => hasAllergyAlert(i.obs) || i.allergens);
 
-  const borderColor = isDone ? C.border : URGENCY_BORDER[urgency];
-  const headerBg    = isEntregado ? '#181818' : URGENCY_HEADER[urgency];
+  const borderColor = isEntregado ? C.border : URGENCY_BORDER[urgency];
 
   return (
-    <div style={{
-      background: C.card,
-      border: `2px solid ${borderColor}`,
-      borderRadius: 14,
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column',
-      animation: 'fadeIn 300ms ease',
-      transition: 'border-color 300ms',
-      opacity: isEntregado ? 0.45 : 1,
-    }}>
-      {/* Barra de urgencia */}
+    <div
+      className={isCritical ? 'card-critical' : ''}
+      style={{
+        background: flash ? 'rgba(52,199,89,0.06)' : C.card,
+        border: `2px solid ${borderColor}`,
+        borderRadius: 14,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        animation: 'fadeIn 300ms ease',
+        opacity: isEntregado ? 0.45 : 1,
+        transition: 'background 300ms',
+      }}>
+      {/* Barra superior urgencia */}
       {!isDone && (
-        <div style={{ height: urgency >= 1 ? 4 : 2, background: urgency >= 1 ? urgColor : 'rgba(255,255,255,0.06)', animation: urgency >= 2 ? 'pulse 1s ease infinite' : 'none' }} />
+        <div style={{ height: urgency >= 1 ? 3 : 2, background: urgency >= 1 ? URGENCY_BORDER[urgency] : 'rgba(255,255,255,0.05)', animation: urgency >= 2 ? 'pulse 1s ease infinite' : 'none' }} />
       )}
 
       {/* Header */}
       <div style={{
-        background: headerBg,
-        padding: '11px 13px',
+        background: isEntregado ? '#111' : URGENCY_HEADER[urgency],
+        padding: '10px 12px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         borderBottom: `1px solid ${C.border}`,
         gap: 6,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, flex: 1, overflow: 'hidden', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, overflow: 'hidden', flexWrap: 'wrap' }}>
           {/* Ticket number */}
-          <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 10, fontWeight: 600, color: C.dim, letterSpacing: '0.08em', flexShrink: 0 }}>{ticket.id}</div>
-          <div style={{ width: 1, height: 12, background: C.border, flexShrink: 0 }} />
-          {/* Mesa display — fix: no more "Mesa ?" */}
-          {isLlevar ? (
-            <div style={{ fontFamily: "'DM Serif Display',serif", fontSize: 16, color: '#FBB724', flexShrink: 0 }}>Para llevar</div>
-          ) : ticket.mesa != null ? (
-            <div style={{ fontFamily: "'DM Serif Display',serif", fontSize: 17, color: C.white, flexShrink: 0 }}>Mesa {ticket.mesa}</div>
-          ) : (
-            <div style={{ fontSize: 12, fontWeight: 600, color: C.mid, flexShrink: 0 }}>Sin mesa asignada</div>
+          <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 9, fontWeight: 600, color: C.dim, letterSpacing: '0.08em' }}>{ticket.id}</span>
+          <div style={{ width: 1, height: 11, background: C.border }} />
+
+          {/* Mesa / tipo label */}
+          <span style={{ fontFamily: 'system-ui,sans-serif', fontSize: 15, fontWeight: 700, color: C.white, flexShrink: 0 }}>
+            {mesaDisplayLabel(ticket)}
+          </span>
+
+          {/* Tipo badge (delivery / pickup / mostrador / llevar) */}
+          {ticket.typeInfo && (
+            <span style={{
+              fontSize: 9, fontWeight: 800,
+              background: ticket.typeInfo.bg,
+              border: `1px solid ${ticket.typeInfo.border}`,
+              borderRadius: 4,
+              padding: '2px 5px',
+              color: ticket.typeInfo.color,
+              letterSpacing: '0.06em',
+              flexShrink: 0,
+            }}>{ticket.typeInfo.label}</span>
           )}
-          {/* Badges */}
-          {isLlevar && (
-            <div style={{ fontSize: 10, fontWeight: 800, background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 5, padding: '2px 6px', color: '#FBB724', letterSpacing: '0.06em', flexShrink: 0 }}>LLEVAR</div>
-          )}
+
+          {/* Alergia badge */}
           {hasAnyAllergy && (
-            <div style={{ fontSize: 10, fontWeight: 800, background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 5, padding: '2px 6px', color: '#EF4444', letterSpacing: '0.05em', animation: 'pulse 1s ease infinite', flexShrink: 0 }}>⚠ ALERGIA</div>
+            <span style={{ fontSize: 9, fontWeight: 800, background: 'rgba(255,59,48,0.14)', border: '1px solid rgba(255,59,48,0.4)', borderRadius: 4, padding: '2px 5px', color: '#FF3B30', letterSpacing: '0.05em', animation: 'pulse 1s ease infinite', flexShrink: 0 }}>
+              ⚠ ALERGIA
+            </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
+
+        {/* Timer + urgencia */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {urgency >= 1 && !isDone && (
-            <div style={{ fontSize: 10, fontWeight: 800, color: urgColor, animation: urgency >= 2 ? 'pulse 1s ease infinite' : 'none', letterSpacing: '0.06em' }}>{URGENCY_LABEL[urgency]}</div>
+            <span style={{ fontSize: 9, fontWeight: 800, color: URGENCY_BORDER[urgency], animation: urgency >= 2 ? 'pulse 1s ease infinite' : 'none', letterSpacing: '0.07em' }}>{URGENCY_LABEL[urgency]}</span>
           )}
-          <div style={{
-            fontFamily: "'SF Mono',ui-monospace,monospace",
-            fontSize: 14,
-            fontWeight: 700,
-            color: isDone ? C.dim : urgColor || C.mid,
-            animation: urgency >= 2 && !isDone ? 'pulse 1.2s ease infinite' : 'none',
-          }}>{fmtTime(time)}</div>
-          <div style={{ fontSize: 10, color: C.dim }}>{ticket.hora}</div>
+          <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 13, fontWeight: 700, color: tColor, animation: isCritical ? 'pulse 1.2s ease infinite' : 'none' }}>{fmtTime(time)}</span>
+          <span style={{ fontSize: 9, color: C.dim }}>{ticket.hora}</span>
         </div>
       </div>
 
-      {/* Alerta de alergia global */}
+      {/* Alerta alergia global */}
       {hasAnyAllergy && !isDone && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', borderBottom: `1px solid rgba(239,68,68,0.25)`, padding: '7px 13px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 14 }}>⚠</span>
-          <span style={{ fontSize: 12, fontWeight: 800, color: '#EF4444', letterSpacing: '0.04em' }}>ALERGIA / ATENCIÓN — Verificar ítems marcados</span>
+        <div style={{ background: 'rgba(255,59,48,0.08)', borderBottom: `1px solid rgba(255,59,48,0.22)`, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12 }}>⚠</span>
+          <span style={{ fontSize: 11, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.04em' }}>ALERGIA / ATENCION — Verificar items marcados</span>
+        </div>
+      )}
+
+      {/* Info delivery (cliente + dirección) */}
+      {ticket.deliveryInfo && !isEntregado && (
+        <div style={{ background: 'rgba(255,149,0,0.06)', borderBottom: `1px solid rgba(255,149,0,0.18)`, padding: '5px 12px' }}>
+          {ticket.deliveryInfo.cliente && <div style={{ fontSize: 11, color: '#FF9500', fontWeight: 600 }}>{ticket.deliveryInfo.cliente}</div>}
+          {ticket.deliveryInfo.direccion && <div style={{ fontSize: 10, color: C.mid }}>{ticket.deliveryInfo.direccion}</div>}
         </div>
       )}
 
       {/* Items */}
-      <div style={{ padding: '5px 0', flex: 1 }}>
-        {ticket.items.map((item, i) => {
-          const allergyItem = hasAllergyAlert(item.obs);
-          return (
-            <div key={item.id} style={{
-              padding: '9px 13px',
-              borderBottom: i < ticket.items.length - 1 ? `1px solid ${C.border}` : 'none',
-              background: allergyItem ? 'rgba(239,68,68,0.04)' : 'transparent',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                {/* Cantidad grande */}
-                <div style={{
-                  fontFamily: "'SF Mono',ui-monospace,monospace",
-                  fontSize: 20,
-                  fontWeight: 700,
-                  color: isDone ? C.dim : C.white,
-                  minWidth: 30,
-                  flexShrink: 0,
-                  lineHeight: 1.1,
-                  marginTop: 1,
-                }}>×{item.cant}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <div style={{
-                      fontSize: 15,
-                      fontWeight: 700,
-                      color: isDone ? C.mid : C.ink,
-                      textDecoration: isDone ? 'line-through' : 'none',
-                      lineHeight: 1.25,
-                    }}>{item.nombre}</div>
-                    {/* Estación badge */}
-                    {item.station && (() => {
-                      const st = STATIONS.find(s => s.key === item.station);
-                      return st ? (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: st.color, background: `${st.color}18`, border: `1px solid ${st.color}35`, borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
-                          {st.icon ? `${st.icon} ${st.label}` : st.label}
-                        </span>
-                      ) : null;
-                    })()}
+      {!compact && (
+        <div style={{ padding: '4px 0', flex: 1 }}>
+          {ticket.items.map((item, i) => {
+            const allergyItem = hasAllergyAlert(item.obs) || !!item.allergens;
+            return (
+              <div key={item.id} style={{
+                padding: '8px 12px',
+                borderBottom: i < ticket.items.length - 1 ? `1px solid ${C.border}` : 'none',
+                background: allergyItem ? 'rgba(255,59,48,0.04)' : 'transparent',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
+                  <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 19, fontWeight: 700, color: isDone ? C.dim : C.white, minWidth: 28, flexShrink: 0, lineHeight: 1.1, marginTop: 1 }}>x{item.cant}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: isDone ? C.mid : C.ink, textDecoration: isDone ? 'line-through' : 'none', lineHeight: 1.25 }}>{item.nombre}</span>
+                      {item.station && (() => {
+                        const st = STATIONS.find(s => s.key === item.station);
+                        return st ? <span style={{ fontSize: 9, fontWeight: 700, color: st.color, background: `${st.color}18`, border: `1px solid ${st.color}30`, borderRadius: 4, padding: '1px 4px' }}>{st.label}</span> : null;
+                      })()}
+                    </div>
+                    {/* Alérgenos del item */}
+                    {item.allergens && (
+                      <div style={{ marginTop: 3, fontSize: 10, color: '#FF9500', fontWeight: 600 }}>
+                        ⚠ Alergenos: {item.allergens}
+                      </div>
+                    )}
+                    {item.extras.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
+                        {item.extras.map(e => (
+                          <span key={e} style={{ fontSize: 10, fontWeight: 600, color: '#AAA', background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.borderStrong}`, borderRadius: 4, padding: '1px 5px' }}>+ {e}</span>
+                        ))}
+                      </div>
+                    )}
+                    {item.obs && (
+                      <div style={{
+                        marginTop: allergyItem ? 5 : 4,
+                        fontSize: allergyItem ? 12 : 11,
+                        fontWeight: allergyItem ? 700 : 400,
+                        color: allergyItem ? '#FCA5A5' : '#A1A1A6',
+                        fontStyle: 'italic',
+                        lineHeight: 1.4,
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 5,
+                        background: allergyItem ? 'rgba(255,59,48,0.1)' : 'rgba(255,255,255,0.02)',
+                        borderLeft: allergyItem ? '2px solid rgba(255,59,48,0.5)' : `2px solid ${C.border}`,
+                        borderRadius: '0 5px 5px 0',
+                        padding: '4px 7px',
+                      }}>
+                        <span style={{ fontSize: 10, color: allergyItem ? '#FF3B30' : C.dim, flexShrink: 0, marginTop: 1 }}>{allergyItem ? '⚠' : 'o'}</span>
+                        {item.obs}
+                      </div>
+                    )}
                   </div>
-                  {item.extras.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
-                      {item.extras.map(e => (
-                        <span key={e} style={{
-                          fontSize: 11, fontWeight: 600, color: '#AAA',
-                          background: 'rgba(255,255,255,0.06)',
-                          border: `1px solid ${C.borderStrong}`,
-                          borderRadius: 4, padding: '2px 6px',
-                        }}>+ {e}</span>
-                      ))}
-                    </div>
-                  )}
-                  {item.obs && (
-                    <div style={{
-                      marginTop: allergyItem ? 6 : 5,
-                      fontSize: allergyItem ? 13 : 12,
-                      fontWeight: allergyItem ? 700 : 500,
-                      color: allergyItem ? '#FCA5A5' : '#BBB',
-                      fontStyle: 'italic',
-                      lineHeight: 1.45,
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 6,
-                      background: allergyItem ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.02)',
-                      borderLeft: allergyItem ? '2px solid rgba(239,68,68,0.5)' : `2px solid ${C.border}`,
-                      borderRadius: '0 5px 5px 0',
-                      padding: '5px 8px',
-                    }}>
-                      <span style={{ fontSize: 11, color: allergyItem ? '#EF4444' : C.dim, flexShrink: 0, marginTop: 1 }}>{allergyItem ? '⚠' : '○'}</span>
-                      {item.obs}
-                    </div>
-                  )}
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
-      {/* Acción — botones grandes para pantalla táctil */}
+      {/* Accion */}
       {!isEntregado && (
-        <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.border}` }}>
+        <div style={{ padding: '9px 11px', borderTop: `1px solid ${C.border}` }}>
           {ticket.status === 'listo' ? (
             <button onClick={() => onDismiss(ticket)} style={{
-              width: '100%', height: 44,
+              width: '100%', height: 40,
               background: 'transparent',
               border: `1.5px solid ${C.borderStrong}`,
-              borderRadius: 10,
-              color: C.mid,
-              fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-              fontSize: 13, fontWeight: 800,
+              borderRadius: 9, color: C.mid,
+              fontFamily: 'inherit', fontSize: 12, fontWeight: 800,
               cursor: 'pointer', letterSpacing: '0.06em',
-            }}>✓ ENTREGADO</button>
+            }}>ENTREGADO</button>
           ) : (
-            <button onClick={() => onAdvance(ticket)} style={{
-              width: '100%', height: 50,
-              background: nextStatus === 'listo'
-                ? C.white
-                : urgency >= 2 ? `${urgColor}22` : 'rgba(255,255,255,0.07)',
-              border: `2px solid ${nextStatus === 'listo' ? C.white : urgency >= 2 ? urgColor : C.borderStrong}`,
-              borderRadius: 10,
-              color: nextStatus === 'listo' ? '#000000' : urgency >= 2 ? urgColor : C.white,
-              fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-              fontSize: 15, fontWeight: 800,
+            <button onClick={() => {
+              setFlash(true);
+              setTimeout(() => setFlash(false), 300);
+              onAdvance(ticket);
+            }} style={{
+              width: '100%', height: 46,
+              background: nextStatus === 'listo' ? C.white : 'rgba(255,255,255,0.07)',
+              border: `2px solid ${nextStatus === 'listo' ? C.white : isCritical ? URGENCY_BORDER[urgency] : C.borderStrong}`,
+              borderRadius: 9,
+              color: nextStatus === 'listo' ? '#000' : isCritical ? URGENCY_BORDER[urgency] : C.white,
+              fontFamily: 'inherit', fontSize: 14, fontWeight: 800,
               cursor: 'pointer', letterSpacing: '0.05em', textTransform: 'uppercase',
               transition: 'all 150ms',
             }}>
-              {nextStatus === 'preparando' ? '→ PREPARANDO' : '✓ LISTO'}
+              {nextStatus === 'preparando' ? 'PREPARANDO' : 'LISTO'}
             </button>
           )}
         </div>
@@ -527,35 +615,28 @@ function TicketCard({ ticket, onAdvance, onDismiss }) {
 }
 
 /* ── COLUMN ─── */
-function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg }) {
+function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg, compact }) {
   const col = accent || C.mid;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0 }}>
       <div style={{
-        background: `${col}14`,
-        border: `1px solid ${col}30`,
-        borderRadius: 10,
-        padding: '10px 14px',
-        marginBottom: 12,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
+        background: `${col}14`, border: `1px solid ${col}30`, borderRadius: 10,
+        padding: '9px 13px', marginBottom: 10,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: col, flexShrink: 0 }} />
-          <div style={{ fontSize: 12, fontWeight: 800, color: col, letterSpacing: '0.14em', textTransform: 'uppercase' }}>{title}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: col }} />
+          <span style={{ fontSize: 11, fontWeight: 800, color: col, letterSpacing: '0.14em', textTransform: 'uppercase' }}>{title}</span>
         </div>
-        <div style={{ minWidth: 24, height: 22, borderRadius: 11, background: count > 0 ? col : 'transparent', border: count > 0 ? 'none' : `1px solid ${col}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: count > 0 ? '#000' : col, padding: '0 6px' }}>
+        <div style={{ minWidth: 22, height: 20, borderRadius: 11, background: count > 0 ? col : 'transparent', border: count > 0 ? 'none' : `1px solid ${col}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: count > 0 ? '#000' : col, padding: '0 5px' }}>
           {count > 0 ? count : '—'}
         </div>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 9, flex: 1 }}>
         {tickets.length === 0 && (
-          <div style={{ border: `1px dashed ${col}25`, borderRadius: 14, padding: '28px 12px', textAlign: 'center', color: col, opacity: 0.35, fontSize: 12 }}>{emptyMsg || 'Sin tickets'}</div>
+          <div style={{ border: `1px dashed ${col}22`, borderRadius: 14, padding: '22px 12px', textAlign: 'center', color: col, opacity: 0.3, fontSize: 11 }}>{emptyMsg || 'Sin tickets'}</div>
         )}
-        {tickets.map(t => (
-          <TicketCard key={t.id} ticket={t} onAdvance={onAdvance} onDismiss={onDismiss} />
-        ))}
+        {tickets.map(t => <TicketCard key={t.id} ticket={t} onAdvance={onAdvance} onDismiss={onDismiss} compact={compact} />)}
       </div>
     </div>
   );
@@ -564,28 +645,61 @@ function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg 
 /* ── STATION TABS ─── */
 function StationTabs({ active, onChange, ticketsByStation }) {
   return (
-    <div style={{ padding: '0 20px 10px', display: 'flex', gap: 6, overflowX: 'auto', flexShrink: 0 }}>
+    <div style={{ display: 'flex', gap: 5, overflowX: 'auto', flexShrink: 0 }}>
       {STATIONS.map(st => {
         const count = ticketsByStation[st.key] || 0;
         const isActive = active === st.key;
         return (
           <button key={st.key} onClick={() => onChange(st.key)} style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '6px 14px',
+            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '5px 12px',
             background: isActive ? `${st.color}22` : 'transparent',
             border: `1.5px solid ${isActive ? st.color : C.border}`,
-            borderRadius: 20,
-            color: isActive ? st.color : C.mid,
-            fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
-            fontSize: 12, fontWeight: 700,
-            cursor: 'pointer',
-            whiteSpace: 'nowrap',
-            transition: 'all 150ms',
+            borderRadius: 20, color: isActive ? st.color : C.mid,
+            fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 150ms',
           }}>
-            {st.icon && <span>{st.icon}</span>}
-            <span>{st.label}</span>
+            {st.label}
             {count > 0 && (
-              <span style={{ background: isActive ? st.color : C.dim, color: isActive ? '#000' : C.bg, borderRadius: 10, fontSize: 10, fontWeight: 800, padding: '0 5px', minWidth: 16, textAlign: 'center' }}>{count}</span>
+              <span style={{ background: isActive ? st.color : C.dim, color: isActive ? '#000' : C.bg, borderRadius: 10, fontSize: 9, fontWeight: 800, padding: '0 4px', minWidth: 14, textAlign: 'center' }}>{count}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── ORDER TYPE FILTER TABS ─── */
+function OrderTypeFilterTabs({ active, onChange, tickets }) {
+  const counts = ORDER_TYPE_FILTERS.reduce((acc, f) => {
+    acc[f.key] = f.key === 'todos'
+      ? tickets.filter(t => t.status !== 'entregado').length
+      : f.key === 'mesa'
+        ? tickets.filter(t => t.mesa != null && (t.tipo === 'local' || !t.tipo) && t.status !== 'entregado').length
+        : tickets.filter(t => t.tipo === f.key && t.status !== 'entregado').length;
+    return acc;
+  }, {});
+
+  return (
+    <div style={{ display: 'flex', gap: 5, overflowX: 'auto', flexShrink: 0 }}>
+      {ORDER_TYPE_FILTERS.map(f => {
+        const isActive = active === f.key;
+        const cnt = counts[f.key] || 0;
+        if (f.key !== 'todos' && cnt === 0) return null;
+        return (
+          <button key={f.key} onClick={() => onChange(f.key)} style={{
+            padding: '4px 11px',
+            background: isActive ? 'rgba(255,255,255,0.12)' : 'transparent',
+            border: `1.5px solid ${isActive ? C.white : C.border}`,
+            borderRadius: 20, color: isActive ? C.white : C.mid,
+            fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 150ms',
+            display: 'flex', alignItems: 'center', gap: 5,
+          }}>
+            {f.label}
+            {cnt > 0 && (
+              <span style={{ background: isActive ? C.white : C.border, color: isActive ? '#000' : C.mid, borderRadius: 10, fontSize: 9, fontWeight: 800, padding: '0 4px', minWidth: 14, textAlign: 'center' }}>{cnt}</span>
             )}
           </button>
         );
@@ -597,8 +711,14 @@ function StationTabs({ active, onChange, ticketsByStation }) {
 /* ── STATS PANEL ─── */
 function StatsPanel({ tickets }) {
   const [stats, setStats] = useState(getStats());
+  const [productStats, setProductStats] = useState(getProductStats());
+  const [showProducts, setShowProducts] = useState(false);
+
   useEffect(() => {
-    const t = setInterval(() => setStats(getStats()), 30000);
+    const t = setInterval(() => {
+      setStats(getStats());
+      setProductStats(getProductStats());
+    }, 30000);
     return () => clearInterval(t);
   }, []);
 
@@ -617,74 +737,165 @@ function StatsPanel({ tickets }) {
   const maxHourly = Math.max(...hours.map(h => s.hourly[h] || 0), 1);
 
   const statBox = (label, val, sub, color) => (
-    <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', flexShrink: 0 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 5 }}>{label}</div>
-      <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 22, fontWeight: 600, color: color || C.white, lineHeight: 1 }}>{val}</div>
-      {sub && <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{sub}</div>}
+    <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', flexShrink: 0 }}>
+      <div style={{ fontSize: 9, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 21, fontWeight: 600, color: color || C.white, lineHeight: 1 }}>{val}</div>
+      {sub && <div style={{ fontSize: 10, color: C.dim, marginTop: 3 }}>{sub}</div>}
     </div>
   );
 
   return (
-    <div style={{ margin: '0 20px 14px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'stretch' }}>
-      {statBox('Tiempo promedio', stats.avg ? `${stats.avg}m` : '—', 'por pedido hoy', !stats.avg ? C.dim : stats.avg >= 25 ? '#EF4444' : stats.avg >= 15 ? '#F59E0B' : '#22C55E')}
-      {statBox('Entregados hoy', stats.total || 0, 'pedidos completados', C.white)}
-      {statBox('En proceso', enProceso, 'nuevo + preparando', enProceso >= 8 ? '#EF4444' : enProceso >= 5 ? '#F97316' : C.white)}
+    <div style={{ margin: '0 20px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'stretch' }}>
+        {statBox('Tiempo promedio', stats.avg ? `${stats.avg}m` : '—', 'por pedido hoy', !stats.avg ? C.dim : stats.avg >= MAX_PREP_MINUTES + 5 ? '#FF3B30' : stats.avg >= MAX_PREP_MINUTES - 5 ? '#FF9500' : '#22C55E')}
+        {statBox('Completados hoy', stats.total || 0, 'pedidos entregados', C.white)}
+        {statBox('En proceso', enProceso, 'nuevo + preparando', enProceso >= 8 ? '#FF3B30' : enProceso >= 5 ? '#FF9500' : C.white)}
 
-      {s.times.length > 0 && (
-        <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', flexShrink: 0, minWidth: 160 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Distribución tiempos</div>
-          {[['Rápido', '< 10m', dist.rapido, '#22C55E'], ['Normal', '10–20m', dist.normal, '#F59E0B'], ['Lento', '> 20m', dist.lento, '#EF4444']].map(([lbl, rng, n, col]) => (
-            <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
-              <div style={{ fontSize: 10, color: C.dim, width: 42, flexShrink: 0 }}>{lbl}</div>
-              <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${(n / distTotal) * 100}%`, background: col, borderRadius: 3, transition: 'width 600ms ease' }} />
-              </div>
-              <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 11, color: col, width: 16, textAlign: 'right', flexShrink: 0 }}>{n}</div>
-            </div>
-          ))}
-          <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>{s.times.length} pedidos registrados</div>
-        </div>
-      )}
-
-      <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '11px 15px', flex: 1, minWidth: 200 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
-          Pedidos por hora
-          {stats.peak && <span style={{ marginLeft: 8, color: '#F59E0B', fontWeight: 600 }}>pico: {stats.peak.h}:00 ({stats.peak.n})</span>}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 36 }}>
-          {hours.map(h => {
-            const n = s.hourly[h] || 0;
-            const pct = n / maxHourly;
-            const isCurrent = h === nowH;
-            const isPeak = stats.peak && h === stats.peak.h;
-            return (
-              <div key={h} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                <div style={{
-                  width: '100%',
-                  height: `${Math.max(pct * 32, n > 0 ? 4 : 0)}px`,
-                  background: isPeak ? '#F59E0B' : isCurrent ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.15)',
-                  borderRadius: '2px 2px 0 0',
-                  transition: 'height 400ms ease',
-                  position: 'relative',
-                }}>
-                  {n > 0 && <div style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', fontSize: 9, color: isPeak ? '#F59E0B' : C.dim, fontFamily: "'SF Mono',ui-monospace,monospace", whiteSpace: 'nowrap' }}>{n}</div>}
+        {s.times.length > 0 && (
+          <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', flexShrink: 0, minWidth: 150 }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 7 }}>Distribucion tiempos</div>
+            {[['Rapido', '< 10m', dist.rapido, '#22C55E'], ['Normal', '10–20m', dist.normal, '#FF9500'], ['Lento', '> 20m', dist.lento, '#FF3B30']].map(([lbl, rng, n, col]) => (
+              <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <div style={{ fontSize: 9, color: C.dim, width: 38, flexShrink: 0 }}>{lbl}</div>
+                <div style={{ flex: 1, height: 5, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${(n / distTotal) * 100}%`, background: col, borderRadius: 3, transition: 'width 600ms ease' }} />
                 </div>
-                <div style={{ fontSize: 8, color: isCurrent ? C.mid : C.dim, fontFamily: "'SF Mono',ui-monospace,monospace", marginTop: 1 }}>{h}</div>
+                <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 10, color: col, width: 14, textAlign: 'right', flexShrink: 0 }}>{n}</div>
               </div>
-            );
-          })}
-        </div>
-      </div>
+            ))}
+          </div>
+        )}
 
-      {bottleneck && (
-        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '11px 15px', display: 'flex', alignItems: 'center', gap: 10, animation: 'ring 2s ease infinite', flexShrink: 0 }}>
-          <div style={{ fontSize: 22 }}>⚠</div>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 800, color: '#EF4444', letterSpacing: '0.06em' }}>CUELLO DE BOTELLA</div>
-            <div style={{ fontSize: 12, color: '#FCA5A5', marginTop: 3 }}>Acumulado en {bottleneck}</div>
+        <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', flex: 1, minWidth: 190 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 7 }}>
+            Pedidos por hora
+            {stats.peak && <span style={{ marginLeft: 7, color: '#FF9500', fontWeight: 600 }}>pico: {stats.peak.h}:00 ({stats.peak.n})</span>}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 34 }}>
+            {hours.map(h => {
+              const n = s.hourly[h] || 0;
+              const pct = n / maxHourly;
+              const isCurrent = h === nowH;
+              const isPeak = stats.peak && h === stats.peak.h;
+              return (
+                <div key={h} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                  <div style={{ width: '100%', height: `${Math.max(pct * 30, n > 0 ? 3 : 0)}px`, background: isPeak ? '#FF9500' : isCurrent ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.14)', borderRadius: '2px 2px 0 0', transition: 'height 400ms ease', position: 'relative' }}>
+                    {n > 0 && <div style={{ position: 'absolute', top: -13, left: '50%', transform: 'translateX(-50%)', fontSize: 8, color: isPeak ? '#FF9500' : C.dim, fontFamily: "'SF Mono',ui-monospace,monospace", whiteSpace: 'nowrap' }}>{n}</div>}
+                  </div>
+                  <div style={{ fontSize: 7, color: isCurrent ? C.mid : C.dim, fontFamily: "'SF Mono',ui-monospace,monospace", marginTop: 1 }}>{h}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
+
+        {bottleneck && (
+          <div style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, animation: 'ring 2s ease infinite', flexShrink: 0 }}>
+            <span style={{ fontSize: 20 }}>!</span>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.06em' }}>CUELLO DE BOTELLA</div>
+              <div style={{ fontSize: 11, color: '#FCA5A5', marginTop: 3 }}>Acumulado en {bottleneck}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Métricas por producto */}
+      {productStats.length > 0 && (
+        <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+          <button onClick={() => setShowProducts(v => !v)} style={{
+            width: '100%', padding: '10px 14px', background: 'transparent', border: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            cursor: 'pointer', color: C.mid,
+          }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Tiempo promedio por producto ({productStats.length})</span>
+            <span style={{ fontSize: 11, color: C.dim }}>{showProducts ? '▲' : '▼'}</span>
+          </button>
+          {showProducts && (
+            <div style={{ borderTop: `1px solid ${C.border}` }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', fontSize: 9, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '7px 14px', borderBottom: `1px solid ${C.border}` }}>
+                <span>Producto</span><span style={{ textAlign: 'right', paddingRight: 20 }}>Pedidos</span><span style={{ textAlign: 'right' }}>Prom.</span>
+              </div>
+              {productStats.slice(0, 12).map(ps => (
+                <div key={ps.name} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', padding: '6px 14px', borderBottom: `1px solid rgba(255,255,255,0.04)`, alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: C.ink }}>{ps.name}</span>
+                  <span style={{ fontSize: 11, color: C.dim, textAlign: 'right', paddingRight: 20 }}>{ps.count}</span>
+                  <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 12, fontWeight: 700, color: ps.avg >= MAX_PREP_MINUTES ? '#FF3B30' : ps.avg >= MAX_PREP_MINUTES - 5 ? '#FF9500' : '#22C55E', textAlign: 'right' }}>{ps.avg}m</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
+    </div>
+  );
+}
+
+/* ── CONFIG DRAWER ─── */
+function ConfigDrawer({ onClose }) {
+  const [maxMin, setMaxMin]       = useState(MAX_PREP_MINUTES);
+  const [sndNew, setSndNew]       = useState(SOUND_NEW);
+  const [sndUrgent, setSndUrgent] = useState(SOUND_URGENT);
+
+  function save() {
+    MAX_PREP_MINUTES = maxMin;
+    SOUND_NEW    = sndNew;
+    SOUND_URGENT = sndUrgent;
+    localStorage.setItem('kitchen_max_minutes', maxMin);
+    localStorage.setItem('kitchen_sound_new',    sndNew ? 'true' : 'false');
+    localStorage.setItem('kitchen_sound_urgent', sndUrgent ? 'true' : 'false');
+    onClose();
+  }
+
+  const row = (label, children) => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 0', borderBottom: `1px solid ${C.border}` }}>
+      <span style={{ fontSize: 13, color: C.ink }}>{label}</span>
+      {children}
+    </div>
+  );
+
+  const Toggle = ({ value, onChange }) => (
+    <button onClick={() => onChange(!value)} style={{
+      width: 44, height: 26, borderRadius: 13,
+      background: value ? '#22C55E' : C.border,
+      border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 200ms',
+    }}>
+      <div style={{ position: 'absolute', top: 3, left: value ? 21 : 3, width: 20, height: 20, borderRadius: '50%', background: '#fff', transition: 'left 200ms' }} />
+    </button>
+  );
+
+  return (
+    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 320, background: C.surface, borderLeft: `1px solid ${C.border}`, zIndex: 300, display: 'flex', flexDirection: 'column', animation: 'slideRight 220ms ease', boxShadow: '-8px 0 32px rgba(0,0,0,0.5)' }}>
+      <div style={{ padding: '14px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 14, fontWeight: 800, color: C.white }}>Configuracion KDS</span>
+        <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.dim, fontSize: 16, padding: '4px 10px', cursor: 'pointer' }}>×</button>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px' }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '12px 0 4px' }}>Timers</div>
+        {row('Tiempo maximo de preparacion', (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="number" min="5" max="120" value={maxMin}
+              onChange={e => setMaxMin(parseInt(e.target.value) || 20)}
+              style={{ width: 60, padding: '5px 8px', borderRadius: 7, textAlign: 'center', fontSize: 14, fontWeight: 700 }}
+            />
+            <span style={{ fontSize: 12, color: C.dim }}>min</span>
+          </div>
+        ))}
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '14px 0 4px' }}>Sonido</div>
+        {row('Sonido al llegar pedido', <Toggle value={sndNew} onChange={setSndNew} />)}
+        {row('Alerta sonora por demora', <Toggle value={sndUrgent} onChange={setSndUrgent} />)}
+
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '14px 0 4px' }}>Umbrales actuales</div>
+        <div style={{ background: C.card, borderRadius: 10, padding: '10px 12px', fontSize: 11, color: C.dim, lineHeight: 1.8 }}>
+          <div>• <span style={{ color: '#A1A1A6' }}>Normal:</span> 0 – {maxMin - 9} min</div>
+          <div>• <span style={{ color: '#FF9500' }}>Demorado:</span> {maxMin - 8} – {maxMin} min</div>
+          <div>• <span style={{ color: '#FF3B30' }}>Critico:</span> +{maxMin} min (borde pulsante)</div>
+        </div>
+      </div>
+      <div style={{ padding: 16, borderTop: `1px solid ${C.border}` }}>
+        <button onClick={save} style={{ width: '100%', height: 44, background: C.white, border: 'none', borderRadius: 10, color: '#000', fontFamily: 'inherit', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>Guardar</button>
+      </div>
     </div>
   );
 }
@@ -696,35 +907,23 @@ function FelicitacionesPanel({ onClose }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Demo ratings si no hay DB
     if (!db) {
       setRatings([
-        { id: 1, stars: 5, comment: '¡Excelente atención y la comida estaba deliciosa! Volveremos pronto.', created_at: new Date(Date.now() - 3600000).toISOString(), table_id: null },
-        { id: 2, stars: 5, comment: 'El lomito americano espectacular. Recomendadísimo.', created_at: new Date(Date.now() - 7200000).toISOString(), table_id: null },
-        { id: 3, stars: 4, comment: 'Muy rico, buen precio. La provoleta estaba perfecta.', created_at: new Date(Date.now() - 1800000).toISOString(), table_id: null },
+        { id: 1, stars: 5, comment: 'Excelente atención y la comida estaba deliciosa.', created_at: new Date(Date.now() - 3600000).toISOString() },
+        { id: 2, stars: 5, comment: 'El lomito americano espectacular.', created_at: new Date(Date.now() - 7200000).toISOString() },
       ]);
       setLoading(false);
       return;
     }
-    dbLoadRatings().then(data => {
-      setRatings(data);
-      setLoading(false);
-    });
-
-    // Suscripción realtime para nuevas calificaciones
-    if (!db) return;
+    dbLoadRatings().then(data => { setRatings(data); setLoading(false); });
     const ch = db.channel('ratings-feliz')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ratings', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, (payload) => {
         const r = payload.new;
-        if (r.stars >= 4) {
-          setRatings(prev => [r, ...prev].slice(0, 30));
-        }
-      })
-      .subscribe();
+        if (r.stars >= 4) setRatings(prev => [r, ...prev].slice(0, 30));
+      }).subscribe();
     return () => db.removeChannel(ch);
   }, []);
 
-  // Auto-rotar cada 5 segundos
   useEffect(() => {
     if (ratings.length <= 1) return;
     const t = setInterval(() => setCurrent(v => (v + 1) % ratings.length), 5000);
@@ -732,114 +931,47 @@ function FelicitacionesPanel({ onClose }) {
   }, [ratings.length]);
 
   const rating = ratings[current];
-
-  const stars = (n) => '★'.repeat(n) + '☆'.repeat(5 - n);
+  const stars = n => '★'.repeat(n) + '☆'.repeat(5 - n);
 
   return (
-    <div style={{
-      position: 'fixed', top: 0, right: 0, bottom: 0,
-      width: 360,
-      background: C.surface,
-      borderLeft: `1px solid ${C.border}`,
-      zIndex: 200,
-      display: 'flex', flexDirection: 'column',
-      animation: 'slideRight 250ms ease',
-      boxShadow: '-8px 0 32px rgba(0,0,0,0.4)',
-    }}>
-      {/* Header */}
+    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 340, background: C.surface, borderLeft: `1px solid ${C.border}`, zIndex: 200, display: 'flex', flexDirection: 'column', animation: 'slideRight 250ms ease', boxShadow: '-8px 0 32px rgba(0,0,0,0.4)' }}>
       <div style={{ padding: '14px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 800, color: C.white, letterSpacing: '0.04em' }}>Felicitaciones</div>
-          <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>Calificaciones 4 y 5 estrellas</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.white }}>Felicitaciones</div>
+          <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>Calificaciones 4 y 5 estrellas</div>
         </div>
         <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.dim, fontSize: 16, padding: '4px 10px', cursor: 'pointer' }}>×</button>
       </div>
-
-      {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-            <div style={{ width: 24, height: 24, border: '2px solid #333', borderTopColor: '#888', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <div style={{ width: 22, height: 22, border: '2px solid #333', borderTopColor: '#888', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
           </div>
         ) : ratings.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px 20px', color: C.dim }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>☆</div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Aún no hay felicitaciones recientes.</div>
-            <div style={{ fontSize: 11, marginTop: 8, opacity: 0.6 }}>Las calificaciones de 4 y 5 estrellas aparecerán aquí.</div>
+          <div style={{ textAlign: 'center', padding: '36px 20px', color: C.dim }}>
+            <div style={{ fontSize: 28, marginBottom: 10 }}>☆</div>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>Sin felicitaciones recientes.</div>
           </div>
         ) : (
           <>
-            {/* Featured (current) */}
             {rating && (
-              <div style={{
-                background: C.card,
-                border: `2px solid rgba(250,204,21,0.3)`,
-                borderRadius: 14,
-                padding: 18,
-                marginBottom: 16,
-                animation: 'fadeIn 400ms ease',
-              }} key={rating.id}>
-                <div style={{ fontSize: 22, color: '#FBBF24', letterSpacing: 2, animation: 'starPop 400ms ease', marginBottom: 10 }}>
-                  {stars(rating.stars)}
-                </div>
+              <div key={rating.id} style={{ background: C.card, border: '2px solid rgba(250,204,21,0.28)', borderRadius: 14, padding: 16, marginBottom: 14, animation: 'fadeIn 400ms ease' }}>
+                <div style={{ fontSize: 20, color: '#FBBF24', letterSpacing: 2, marginBottom: 9 }}>{stars(rating.stars)}</div>
                 {rating.comment ? (
-                  <div style={{ fontSize: 15, color: C.ink, fontStyle: 'italic', lineHeight: 1.55, marginBottom: 12 }}>
-                    "{rating.comment}"
-                  </div>
+                  <div style={{ fontSize: 14, color: C.ink, fontStyle: 'italic', lineHeight: 1.5, marginBottom: 10 }}>"{rating.comment}"</div>
                 ) : (
-                  <div style={{ fontSize: 13, color: C.mid, fontStyle: 'italic', marginBottom: 12 }}>
-                    {rating.stars === 5 ? '5 estrellas sin comentario' : '4 estrellas sin comentario'}
-                  </div>
+                  <div style={{ fontSize: 12, color: C.mid, fontStyle: 'italic', marginBottom: 10 }}>{rating.stars} estrellas</div>
                 )}
-                <div style={{ fontSize: 11, color: C.dim }}>
-                  {new Date(rating.created_at).toLocaleString('es-PY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                </div>
+                <div style={{ fontSize: 10, color: C.dim }}>{new Date(rating.created_at).toLocaleString('es-PY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
               </div>
             )}
-
-            {/* Dots de navegación */}
             {ratings.length > 1 && (
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 5, marginBottom: 14 }}>
                 {ratings.map((_, i) => (
-                  <button key={i} onClick={() => setCurrent(i)} style={{
-                    width: i === current ? 20 : 6, height: 6,
-                    borderRadius: 3,
-                    background: i === current ? '#FBBF24' : C.dim,
-                    border: 'none', cursor: 'pointer',
-                    transition: 'all 300ms',
-                    padding: 0,
-                  }} />
+                  <button key={i} onClick={() => setCurrent(i)} style={{ width: i === current ? 18 : 5, height: 5, borderRadius: 3, background: i === current ? '#FBBF24' : C.dim, border: 'none', cursor: 'pointer', transition: 'all 300ms', padding: 0 }} />
                 ))}
               </div>
             )}
-
-            {/* Lista de todas */}
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
-              Todas las recientes ({ratings.length})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {ratings.map((r, i) => (
-                <button key={r.id} onClick={() => setCurrent(i)} style={{
-                  background: i === current ? `rgba(250,204,21,0.08)` : 'transparent',
-                  border: `1px solid ${i === current ? 'rgba(250,204,21,0.25)' : C.border}`,
-                  borderRadius: 8,
-                  padding: '8px 12px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  display: 'flex', flexDirection: 'column', gap: 3,
-                }}>
-                  <div style={{ fontSize: 13, color: '#FBBF24', letterSpacing: 1 }}>{'★'.repeat(r.stars)}</div>
-                  {r.comment && (
-                    <div style={{ fontSize: 11, color: C.mid, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', maxWidth: '100%' }}>
-                      {r.comment}
-                    </div>
-                  )}
-                  <div style={{ fontSize: 10, color: C.dim }}>
-                    {new Date(r.created_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </button>
-              ))}
-            </div>
           </>
         )}
       </div>
@@ -849,39 +981,32 @@ function FelicitacionesPanel({ onClose }) {
 
 /* ── APP ─── */
 function App() {
-  const [tickets, setTickets] = useState(db ? [] : DEMO_TICKETS);
-  const [delivered, setDelivered] = useState([]);
-  const [loading, setLoading] = useState(!!db);
-  const [newAlert, setNewAlert] = useState(null);
-  const [dbError, setDbError] = useState(null);
-  const [soundOn, setSoundOn] = useState(true);
-  const [showStats, setShowStats] = useState(false);
+  const [tickets, setTickets]               = useState(db ? [] : DEMO_TICKETS);
+  const [delivered, setDelivered]           = useState([]);
+  const [loading, setLoading]               = useState(!!db);
+  const [newAlert, setNewAlert]             = useState(null);
+  const [dbError, setDbError]               = useState(null);
+  const [soundOn, setSoundOn]               = useState(SOUND_NEW);
+  const [showStats, setShowStats]           = useState(false);
   const [showFelicitaciones, setShowFelicitaciones] = useState(false);
-  const [activeStation, setActiveStation] = useState('todas');
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [diag, setDiag] = useState(null);
-  const [restaurant, setRestaurant] = useState(null);
-  const [stockAlerts, setStockAlerts] = useState([]);
-  const [,forceRender] = useReducer(x=>x+1,0);
-  const soundRef = useRef(soundOn);
-  soundRef.current = soundOn;
+  const [showConfig, setShowConfig]         = useState(false);
+  const [splitView, setSplitView]           = useState(false);
+  const [activeStation, setActiveStation]   = useState('todas');
+  const [orderTypeFilter, setOrderTypeFilter] = useState('todos');
+  const [isFullscreen, setIsFullscreen]     = useState(false);
+  const [restaurant, setRestaurant]         = useState(null);
+  const [stockAlerts, setStockAlerts]       = useState([]);
+  const [,forceRender]                      = useReducer(x => x + 1, 0);
 
-  function toggleThemeFn(){
-    const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
-    Object.assign(C,next==='dark'?C_DARK:C_LIGHT);
-    URGENCY_BORDER[0]=C.borderStrong;
-    URGENCY_HEADER[0]=C.surface;
-    document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('mesa_theme',next);
-    forceRender();
-  }
+  const soundRef       = useRef(soundOn);
+  soundRef.current     = soundOn;
+  const channelRef     = useRef(null);
+  const ticketsRef     = useRef(tickets);
+  ticketsRef.current   = tickets;
 
   const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
-    } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
-    }
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    else document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
   };
 
   useEffect(() => {
@@ -890,98 +1015,54 @@ function App() {
     return () => document.removeEventListener('fullscreenchange', onFs);
   }, []);
 
+  /* Inicializar AudioContext en primer click */
   useEffect(() => {
-    if (!db) {
-      const t = setTimeout(() => {
-        const incoming = {
-          id: 'T-2845', _supabaseId: null, mesa: 9, tipo: 'local',
-          hora: new Date().toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
-          elapsed: 0, status: 'nuevo',
-          items: [
-            { id: 20, nombre: 'Clásica Comanda', cant: 2, extras: ['Panceta'], obs: '', station: 'cocina', kitchenStatus: 'pending' },
-            { id: 21, nombre: 'Lomito simple', cant: 1, extras: ['Huevo frito'], obs: 'Bien tostado el pan', station: 'cocina', kitchenStatus: 'pending' },
-            { id: 22, nombre: 'Coca-Cola', cant: 2, extras: [], obs: '', station: 'bar', kitchenStatus: 'pending' },
-          ]
-        };
-        setTickets(prev => [incoming, ...prev]);
-        setNewAlert(incoming.id);
-        if (soundRef.current) playBeep('new');
-        setTimeout(() => setNewAlert(null), 5000);
-      }, 8000);
-      return () => clearTimeout(t);
-    }
+    const handler = () => { ensureAudioCtx(); document.removeEventListener('click', handler); };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
 
-    db.from('restaurants').select('id,name,logo_initials').eq('id', RESTAURANT_ID).maybeSingle()
-      .then(({ data }) => { if (data) { setRestaurant(data); document.title = `Cocina — ${data.name}`; } });
+  /* Demo: pedido entrante */
+  useEffect(() => {
+    if (db) return;
+    const t = setTimeout(() => {
+      const incoming = {
+        id: 'T-2845', _supabaseId: null, mesa: 9, tipo: 'local', typeInfo: null,
+        hora: new Date().toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
+        elapsed: 0, status: 'nuevo',
+        items: [
+          { id: 20, nombre: 'Clasica Comanda', cant: 2, extras: ['Panceta'], obs: '', allergens: '', station: 'cocina', kitchenStatus: 'pending' },
+          { id: 21, nombre: 'Coca-Cola', cant: 2, extras: [], obs: '', allergens: '', station: 'bar', kitchenStatus: 'pending' },
+        ]
+      };
+      setTickets(prev => [incoming, ...prev]);
+      setNewAlert(incoming.id);
+      if (soundRef.current) playKitchenAlert(false);
+      setTimeout(() => setNewAlert(null), 5000);
+    }, 8000);
+    return () => clearTimeout(t);
+  }, []);
+
+  /* ── DB LOAD & REALTIME ─── */
+  const subscribeChannels = useCallback(() => {
+    if (!db) return;
+    if (channelRef.current) { db.removeChannel(channelRef.current); channelRef.current = null; }
 
     const loadStockAlerts = () => {
       db.from('stock_alerts')
         .select('id,alert_type,ingredient_id,current_value,created_at,ingredients(name,unit)')
-        .eq('restaurant_id', RESTAURANT_ID)
-        .is('resolved_at', null)
+        .eq('restaurant_id', RESTAURANT_ID).is('resolved_at', null)
         .in('alert_type', ['critical_stock','expiring_soon','expired'])
-        .order('created_at', {ascending:false})
-        .limit(10)
-        .then(({data}) => { if (data) setStockAlerts(data); });
+        .order('created_at', { ascending: false }).limit(10)
+        .then(({ data }) => { if (data) setStockAlerts(data); });
     };
-    loadStockAlerts();
-
-    const runDiag = async () => {
-      const cfg = window.SUPABASE_CONFIG || {};
-      const info = { url: (cfg.url || '').slice(0, 40) || '(vacío)', restaurantId: RESTAURANT_ID };
-      const { data: allOrders, error: e1 } = await db.from('orders').select('id,status').eq('restaurant_id', RESTAURANT_ID);
-      if (e1) { info.error = e1.message; }
-      else { info.allOrders = (allOrders || []).length; info.statusBreakdown = (allOrders || []).reduce((acc, o) => { acc[o.status] = (acc[o.status] || 0) + 1; return acc; }, {}); }
-      setDiag(info);
-    };
-    runDiag();
-
-    dbLoadTickets().then(({ tickets: data, error }) => {
-      if (error) setDbError(error);
-      else { setDbError(null); if (data) setTickets(data); }
-      setLoading(false);
-    });
-
-    // Cargar entregas recientes (últimas 2 horas)
-    const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    db.from('orders')
-      .select('id,order_number,order_type,status,created_at,table_id,completed_at')
-      .eq('restaurant_id', RESTAURANT_ID)
-      .eq('status', 'delivered')
-      .gte('completed_at', since)
-      .order('completed_at', { ascending: false })
-      .limit(10)
-      .then(({ data: dOrds }) => {
-        if (!dOrds || dOrds.length === 0) return;
-        const tableIds = [...new Set(dOrds.map(o => o.table_id).filter(Boolean))];
-        const tableMap = {};
-        const fetchTables = tableIds.length > 0
-          ? db.from('tables').select('id,number').in('id', tableIds).then(({ data: t }) => { (t||[]).forEach(x => { tableMap[x.id] = x.number; }); })
-          : Promise.resolve();
-        fetchTables.then(() => {
-          const dTickets = dOrds.map(o => {
-            const isLlevar = o.order_type === 'llevar';
-            return {
-              id: o.order_number,
-              _supabaseId: o.id,
-              mesa: isLlevar ? null : (o.table_id ? (tableMap[o.table_id] ?? null) : null),
-              tipo: isLlevar ? 'llevar' : 'local',
-              hora: new Date(o.completed_at || o.created_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
-              elapsed: Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000),
-              status: 'entregado',
-              items: [],
-            };
-          });
-          setDelivered(dTickets);
-        });
-      });
 
     const fetchAndAddTicket = async (orderId) => {
       try {
         const { data: ord } = await db.from('orders')
           .select('id,order_number,order_type,status,created_at,table_id')
           .eq('id', orderId).eq('restaurant_id', RESTAURANT_ID).maybeSingle();
-        if (!ord || !['paid', 'kitchen_received', 'cooking', 'ready'].includes(ord.status)) return;
+        if (!ord || !['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
         const tableMap = {};
         if (ord.table_id) {
           const { data: tbl } = await db.from('tables').select('id,number').eq('id', ord.table_id).maybeSingle();
@@ -1009,17 +1090,17 @@ function App() {
           return [ticket, ...prev];
         });
         setNewAlert(ticket.id);
-        if (soundRef.current) playBeep('new');
+        if (soundRef.current && SOUND_NEW) playKitchenAlert(false);
         setTimeout(() => setNewAlert(null), 5000);
-      } catch(e) { console.error('fetchAndAddTicket error:', e); }
+      } catch(e) { console.error('fetchAndAddTicket:', e); }
     };
 
     const seenOrders = new Set();
-    const channel = db.channel('cocina-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_alerts', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, loadStockAlerts)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, (payload) => {
+    const ch = db.channel('cocina-realtime-v2')
+      .on('postgres_changes', { event: '*',      schema: 'public', table: 'stock_alerts', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, loadStockAlerts)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders',       filter: `restaurant_id=eq.${RESTAURANT_ID}` }, (payload) => {
         const ord = payload.new;
-        if (!['paid', 'kitchen_received', 'cooking', 'ready'].includes(ord.status)) return;
+        if (!['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
         if (seenOrders.has(ord.id)) return;
         seenOrders.add(ord.id);
         setTimeout(() => fetchAndAddTicket(ord.id), 800);
@@ -1036,12 +1117,62 @@ function App() {
         if (upd.restaurant_id !== RESTAURANT_ID) return;
         if (upd.status === 'delivered' || upd.status === 'cancelled') {
           setTickets(prev => prev.filter(t => t._supabaseId !== upd.id));
-        } else if (['paid', 'kitchen_received', 'cooking', 'ready'].includes(upd.status)) {
+        } else if (['paid','kitchen_received','cooking','ready'].includes(upd.status)) {
           setTickets(prev => prev.map(t => t._supabaseId === upd.id ? { ...t, status: toKitchenStatus(upd.status) } : t));
         }
       })
       .subscribe();
+    channelRef.current = ch;
+    loadStockAlerts();
+    return ch;
+  }, []);
 
+  useEffect(() => {
+    if (!db) return;
+
+    db.from('restaurants').select('id,name').eq('id', RESTAURANT_ID).maybeSingle()
+      .then(({ data }) => { if (data) { setRestaurant(data); document.title = `Cocina — ${data.name}`; } });
+
+    dbLoadTickets().then(({ tickets: data, error }) => {
+      if (error) setDbError(error);
+      else { setDbError(null); if (data) setTickets(data); }
+      setLoading(false);
+    });
+
+    // Entregas recientes (2h)
+    const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    db.from('orders')
+      .select('id,order_number,order_type,status,created_at,table_id,completed_at')
+      .eq('restaurant_id', RESTAURANT_ID).eq('status', 'delivered')
+      .gte('completed_at', since).order('completed_at', { ascending: false }).limit(12)
+      .then(({ data: dOrds }) => {
+        if (!dOrds || dOrds.length === 0) return;
+        const tids = [...new Set(dOrds.map(o => o.table_id).filter(Boolean))];
+        const tmap = {};
+        const p = tids.length > 0
+          ? db.from('tables').select('id,number').in('id', tids).then(({ data: t }) => { (t||[]).forEach(x => { tmap[x.id] = x.number; }); })
+          : Promise.resolve();
+        p.then(() => {
+          const dTickets = dOrds.map(o => {
+            const typeInfo = orderTypeInfo(o);
+            const isNonLocal = typeInfo !== null;
+            return {
+              id: o.order_number, _supabaseId: o.id,
+              mesa: isNonLocal ? null : (o.table_id ? (tmap[o.table_id] ?? null) : null),
+              tipo: typeInfo ? typeInfo.tipo : 'local',
+              typeInfo,
+              hora: new Date(o.completed_at || o.created_at).toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
+              elapsed: Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000),
+              status: 'entregado', items: [],
+            };
+          });
+          setDelivered(dTickets);
+        });
+      });
+
+    subscribeChannels();
+
+    /* Polling fallback 15s */
     const refreshInterval = setInterval(() => {
       dbLoadTickets().then(({ tickets: data, error }) => {
         if (error) { setDbError(error); return; }
@@ -1052,11 +1183,29 @@ function App() {
           return unchanged ? prev : data;
         });
       });
-    }, 3000);
+    }, 15000);
+
+    /* Timer check: pedidos urgentes */
+    const urgentCheck = setInterval(() => {
+      const now = ticketsRef.current;
+      const hasUrgent = now.some(t => urgencyLevel(t.elapsed + 1, t.status) >= 2);
+      if (hasUrgent && SOUND_URGENT) playKitchenAlert(true);
+    }, 60000);
+
+    /* Reconexión al volver al tab */
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        subscribeChannels();
+        dbLoadTickets().then(({ tickets: data }) => { if (data) setTickets(data); });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
-      db.removeChannel(channel);
+      if (channelRef.current) db.removeChannel(channelRef.current);
       clearInterval(refreshInterval);
+      clearInterval(urgentCheck);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 
@@ -1067,107 +1216,105 @@ function App() {
   };
 
   const dismiss = async (ticket) => {
-    recordDone(ticket.elapsed);
-    setDelivered(prev => [{ ...ticket, status: 'entregado' }, ...prev].slice(0, 8));
+    recordDone(ticket.elapsed, ticket.items);
+    setDelivered(prev => [{ ...ticket, status: 'entregado' }, ...prev].slice(0, 10));
     setTickets(prev => prev.filter(t => t.id !== ticket.id));
     await dbDismissTicket(ticket._supabaseId);
   };
 
-  // Filtrar por estación activa
-  const filtered = filterTicketsForStation(tickets, activeStation);
+  /* Filtros */
+  const byType     = filterByOrderType(tickets, orderTypeFilter);
+  const filtered   = filterTicketsForStation(byType, activeStation);
   const nuevos     = sortByUrgency(filtered.filter(t => t.status === 'nuevo'));
   const preparando = sortByUrgency(filtered.filter(t => t.status === 'preparando'));
   const listos     = filtered.filter(t => t.status === 'listo');
 
+  /* Split view */
+  const hotTickets  = filterTicketsForHalf(filtered, 'hot');
+  const coldTickets = filterTicketsForHalf(filtered, 'cold');
+  const hotNuevos   = sortByUrgency(hotTickets.filter(t => t.status === 'nuevo'));
+  const hotPrep     = sortByUrgency(hotTickets.filter(t => t.status === 'preparando'));
+  const hotListos   = hotTickets.filter(t => t.status === 'listo');
+  const coldNuevos  = sortByUrgency(coldTickets.filter(t => t.status === 'nuevo'));
+  const coldPrep    = sortByUrgency(coldTickets.filter(t => t.status === 'preparando'));
+  const coldListos  = coldTickets.filter(t => t.status === 'listo');
+
   const urgentes = tickets.filter(t => urgencyLevel(t.elapsed, t.status) >= 2 && t.status !== 'listo').length;
   const total    = tickets.filter(t => t.status !== 'listo').length;
 
-  // Conteos por estación (para los tabs)
   const ticketsByStation = STATIONS.reduce((acc, st) => {
-    if (st.key === 'todas') {
-      acc['todas'] = tickets.filter(t => t.status !== 'listo' && t.status !== 'entregado').length;
-    } else {
-      acc[st.key] = tickets.filter(t =>
-        t.status !== 'listo' && t.status !== 'entregado' &&
-        t.items.some(i => i.station === st.key || (!i.station && st.key === 'cocina'))
-      ).length;
-    }
+    if (st.key === 'todas') acc['todas'] = byType.filter(t => t.status !== 'listo' && t.status !== 'entregado').length;
+    else acc[st.key] = byType.filter(t => t.status !== 'listo' && t.status !== 'entregado' && t.items.some(i => i.station === st.key || (!i.station && st.key === 'cocina'))).length;
     return acc;
   }, {});
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', flexDirection: 'column' }} onClick={() => ensureAudioCtx()}>
 
-      {/* Topbar */}
+      {/* TOPBAR */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '0 20px', height: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, position: 'sticky', top: 0, zIndex: 100, gap: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ fontFamily: "system-ui,sans-serif", fontWeight: 800, fontSize: 18, color: '#F5F5F7', letterSpacing: '-0.5px' }}>Mythos · Cocina</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontWeight: 800, fontSize: 18, color: C.white, letterSpacing: '-0.5px' }}>Mythos · Cocina</span>
           <div style={{ width: 1, height: 16, background: C.border }} />
-          <div style={{ fontSize: 11, fontWeight: 600, color: C.dim, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{restaurant?.name || 'KDS'}</div>
-          {!db && <div style={{ fontSize: 10, fontWeight: 600, color: '#636366', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 5, padding: '2px 7px' }}>DEMO</div>}
+          <span style={{ fontSize: 10, fontWeight: 600, color: C.dim, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{restaurant?.name || 'KDS'}</span>
+          {!db && <span style={{ fontSize: 10, fontWeight: 600, color: '#636366', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 5, padding: '2px 7px' }}>DEMO</span>}
           {db && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: dbError ? '#EF4444' : '#22C55E', flexShrink: 0 }} />
-              <span style={{ fontSize: 10, color: dbError ? '#EF4444' : '#636366', fontWeight: 600 }}>{dbError ? 'Sin conexión' : 'DB OK'}</span>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: dbError ? '#FF3B30' : '#22C55E' }} />
+              <span style={{ fontSize: 10, color: dbError ? '#FF3B30' : C.dim, fontWeight: 600 }}>{dbError ? 'Sin conexion' : 'DB OK'}</span>
             </div>
           )}
           {urgentes > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 20, padding: '3px 10px', animation: 'ring 2s ease infinite' }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#EF4444', animation: 'pulse 1s ease infinite' }} />
-              <span style={{ fontSize: 10, fontWeight: 800, color: '#EF4444', letterSpacing: '0.06em' }}>{urgentes} URGENTE{urgentes > 1 ? 'S' : ''}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.4)', borderRadius: 20, padding: '3px 9px', animation: 'ring 2s ease infinite' }}>
+              <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#FF3B30', animation: 'pulse 1s ease infinite' }} />
+              <span style={{ fontSize: 10, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.06em' }}>{urgentes} URGENTE{urgentes > 1 ? 'S' : ''}</span>
             </div>
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {loading && <div style={{ width: 14, height: 14, border: '2px solid #333', borderTopColor: '#888', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
-          <div style={{ fontSize: 11, color: C.mid }}>
-            <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 14, fontWeight: 700, color: C.white }}>{total}</span> activos
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          {loading && <div style={{ width: 13, height: 13, border: '2px solid #333', borderTopColor: '#888', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
+          <span style={{ fontSize: 11, color: C.mid }}><span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 14, fontWeight: 700, color: C.white }}>{total}</span> activos</span>
           <Clock />
-          <div style={{ display: 'flex', gap: 5, marginLeft: 4 }}>
-            <Btn active={showStats} onClick={() => setShowStats(v => !v)} title="Estadísticas">STATS</Btn>
-            <Btn active={showFelicitaciones} onClick={() => setShowFelicitaciones(v => !v)} title="Felicitaciones de clientes">Felic.</Btn>
-            <Btn onClick={() => { const on = !soundOn; setSoundOn(on); if (on) playBeep('new'); }} title={soundOn ? 'Silenciar' : 'Activar sonido'}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Btn active={showStats}  onClick={() => setShowStats(v => !v)}  title="Estadisticas del dia">STATS</Btn>
+            <Btn active={showFelicitaciones} onClick={() => setShowFelicitaciones(v => !v)} title="Felicitaciones">Felic.</Btn>
+            <Btn onClick={() => { const on = !soundOn; setSoundOn(on); if (on) playKitchenAlert(false); }} title={soundOn ? 'Silenciar' : 'Activar sonido'}>
               {soundOn ? 'Son.' : 'Sil.'}
             </Btn>
-            <Btn onClick={toggleFullscreen} title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'}>
-              {isFullscreen ? '⊡' : '↻'}
+            <Btn active={splitView} onClick={() => setSplitView(v => !v)} title="Pantalla dividida caliente/fria">
+              <IconSplit />
             </Btn>
-            <button onClick={toggleThemeFn} title="Cambiar tema" style={{height:32,padding:'0 9px',borderRadius:6,background:C.card,border:`1px solid ${C.borderStrong}`,color:C.mid,fontSize:11,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'inherit',letterSpacing:'0.03em'}}>
-              {document.documentElement.getAttribute('data-theme')==='dark'?'Luz':'Noche'}
-            </button>
+            <Btn onClick={toggleFullscreen} title={isFullscreen ? 'Salir pantalla completa' : 'Pantalla completa'}>{isFullscreen ? '⊡' : '⛶'}</Btn>
+            <Btn active={showConfig} onClick={() => setShowConfig(v => !v)} title="Configuracion KDS">
+              <IconGear />
+            </Btn>
           </div>
-          {window._userProfile && <span style={{ fontSize: 10, color: '#636366', fontWeight: 600 }}>{window._userProfile.display_name || window._userProfile.username}</span>}
+          {window._userProfile && <span style={{ fontSize: 10, color: C.dim, fontWeight: 600 }}>{window._userProfile.display_name || window._userProfile.username}</span>}
           {db && <button onClick={async () => { await db.auth.signOut(); window.location.replace('login.html'); }} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#636366', fontSize: 10, padding: '4px 9px', cursor: 'pointer', fontFamily: 'inherit' }}>Salir</button>}
         </div>
       </div>
 
       {/* Error banner */}
       {dbError && (
-        <div style={{ margin: '10px 20px 0', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#EF4444' }}>Error DB:</span>
+        <div style={{ margin: '10px 20px 0', background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#FF3B30' }}>Error DB:</span>
           <span style={{ fontSize: 11, color: '#F87171', flex: 1 }}>{dbError}</span>
-          <span style={{ fontSize: 10, color: '#888' }}>Verificá SUPABASE_URL y SUPABASE_ANON_KEY en Vercel</span>
         </div>
       )}
 
       {/* Stock alerts */}
       {stockAlerts.length > 0 && (
-        <div style={{ margin: '10px 20px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ margin: '10px 20px 0', display: 'flex', flexDirection: 'column', gap: 5 }}>
           {stockAlerts.map(al => {
             const isExpired  = al.alert_type === 'expired';
-            const isExpiring = al.alert_type === 'expiring_soon';
-            const borderColor = isExpired ? '#EF4444' : '#F97316';
-            const bgColor     = isExpired ? 'rgba(239,68,68,0.07)' : 'rgba(249,115,22,0.07)';
-            const label = isExpired ? 'VENCIDO' : isExpiring ? 'POR VENCER' : 'STOCK CRÍTICO';
+            const borderCol  = isExpired ? '#FF3B30' : '#FF9500';
+            const label      = isExpired ? 'VENCIDO' : al.alert_type === 'expiring_soon' ? 'POR VENCER' : 'STOCK CRITICO';
             return (
-              <div key={al.id} style={{ background: bgColor, border: `1px solid ${borderColor}40`, borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: borderColor, flexShrink: 0 }}>{label}:</span>
-                <span style={{ fontSize: 12, color: '#e0e0e0', flex: 1 }}>{al.ingredients?.name || al.ingredient_id}</span>
-                {al.current_value != null && (
-                  <span style={{ fontSize: 10, color: '#888', fontFamily: 'monospace' }}>{al.current_value} {al.ingredients?.unit || ''}</span>
-                )}
+              <div key={al.id} style={{ background: `${borderCol}0D`, border: `1px solid ${borderCol}40`, borderRadius: 8, padding: '7px 13px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: borderCol, flexShrink: 0 }}>{label}:</span>
+                <span style={{ fontSize: 11, color: '#e0e0e0', flex: 1 }}>{al.ingredients?.name || al.ingredient_id}</span>
+                {al.current_value != null && <span style={{ fontSize: 10, color: '#888', fontFamily: 'monospace' }}>{al.current_value} {al.ingredients?.unit || ''}</span>}
               </div>
             );
           })}
@@ -1178,43 +1325,62 @@ function App() {
       {newAlert && (() => {
         const t = tickets.find(t => t.id === newAlert);
         return (
-          <div style={{ margin: '10px 20px 0', background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, animation: 'slideIn 300ms ease' }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.white, animation: 'pulse 0.8s ease infinite', flexShrink: 0 }} />
+          <div style={{ margin: '10px 20px 0', background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 10, animation: 'slideIn 300ms ease' }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.white, animation: 'pulse 0.8s ease infinite' }} />
             <span style={{ fontSize: 13, fontWeight: 700, color: C.white }}>Nuevo pedido</span>
-            {t && <span style={{ fontSize: 12, color: C.mid }}>— {mesaLabel(t)} · {t.items.length} ítems</span>}
+            {t && <span style={{ fontSize: 11, color: C.mid }}>— {mesaDisplayLabel(t)} · {t.items.length} items</span>}
           </div>
         );
       })()}
 
       {/* Stats */}
-      {showStats && <div style={{ paddingTop: 14 }}><StatsPanel tickets={tickets} /></div>}
+      {showStats && <div style={{ paddingTop: 12 }}><StatsPanel tickets={tickets} /></div>}
 
-      {/* Station filter tabs */}
-      <div style={{ paddingTop: 12 }}>
+      {/* Filtros */}
+      <div style={{ padding: '10px 20px 0', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <OrderTypeFilterTabs active={orderTypeFilter} onChange={setOrderTypeFilter} tickets={tickets} />
         <StationTabs active={activeStation} onChange={setActiveStation} ticketsByStation={ticketsByStation} />
       </div>
 
-      {/* Board 4 columnas */}
-      <div style={{ flex: 1, padding: '0 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, alignItems: 'start', overflowY: 'auto' }}>
-        <Column title="Nuevo"      tickets={nuevos}     count={nuevos.length}     onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.nuevo}      emptyMsg="Sin pedidos nuevos" />
-        <Column title="Preparando" tickets={preparando}  count={preparando.length} onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.preparando}  emptyMsg="Cocina libre" />
-        <Column title="Listo"      tickets={listos}      count={listos.length}     onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.listo}       emptyMsg="Nada listo aún" />
-        <Column title="Entregado"  tickets={delivered}   count={delivered.length}  onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.entregado}   emptyMsg="Entregas de hoy" />
-      </div>
-
-      {/* Diagnóstico (oculto por defecto — solo visible si hay error) */}
-      {db && diag && diag.error && (
-        <div style={{ margin: '0 20px 20px', background: '#0D1117', border: '1px solid #1A1A1A', borderRadius: 10, padding: '10px 14px', fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 11 }}>
-          <div style={{ color: '#636366', marginBottom: 5, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Diagnóstico</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 14px' }}>
-            <span style={{ color: '#38383A' }}>URL:</span><span style={{ color: '#636366' }}>{diag.url}…</span>
-            <span style={{ color: '#EF4444' }}>ERROR:</span><span style={{ color: '#F87171' }}>{diag.error}</span>
+      {/* BOARD */}
+      {!splitView ? (
+        <div style={{ flex: 1, padding: '10px 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, alignItems: 'start', overflowY: 'auto' }}>
+          <Column title="Nuevo"      tickets={nuevos}    count={nuevos.length}     onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.nuevo}      emptyMsg="Sin pedidos nuevos" />
+          <Column title="Preparando" tickets={preparando} count={preparando.length} onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.preparando}  emptyMsg="Cocina libre" />
+          <Column title="Listo"      tickets={listos}    count={listos.length}     onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.listo}       emptyMsg="Nada listo aun" />
+          <Column title="Entregado"  tickets={delivered} count={delivered.length}  onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.entregado}   emptyMsg="Entregas de hoy" />
+        </div>
+      ) : (
+        /* SPLIT VIEW */
+        <div style={{ flex: 1, padding: '10px 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, overflowY: 'auto' }}>
+          {/* Cocina caliente */}
+          <div style={{ borderRight: `1px solid ${C.border}`, paddingRight: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#fb923c', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${C.border}` }}>
+              Cocina caliente — parrilla · cocina
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <Column title="Nuevo"      tickets={hotNuevos}  count={hotNuevos.length}  onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.nuevo}      emptyMsg="—" compact />
+              <Column title="Preparando" tickets={hotPrep}    count={hotPrep.length}    onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.preparando}  emptyMsg="—" compact />
+              <Column title="Listo"      tickets={hotListos}  count={hotListos.length}  onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.listo}       emptyMsg="—" compact />
+            </div>
+          </div>
+          {/* Cocina fría */}
+          <div style={{ paddingLeft: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#60a5fa', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${C.border}` }}>
+              Cocina fria — bar · cafeteria
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <Column title="Nuevo"      tickets={coldNuevos} count={coldNuevos.length} onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.nuevo}      emptyMsg="—" compact />
+              <Column title="Preparando" tickets={coldPrep}   count={coldPrep.length}   onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.preparando}  emptyMsg="—" compact />
+              <Column title="Listo"      tickets={coldListos} count={coldListos.length} onAdvance={advance} onDismiss={dismiss} accent={COL_COLOR.listo}       emptyMsg="—" compact />
+            </div>
           </div>
         </div>
       )}
 
-      {/* Panel de felicitaciones */}
+      {/* Paneles laterales */}
       {showFelicitaciones && <FelicitacionesPanel onClose={() => setShowFelicitaciones(false)} />}
+      {showConfig         && <ConfigDrawer       onClose={() => { setShowConfig(false); forceRender(); }} />}
     </div>
   );
 }
@@ -1225,15 +1391,10 @@ function Btn({ children, onClick, title, active }) {
     <button onClick={onClick} title={title} style={{
       background: active ? 'rgba(255,255,255,0.1)' : 'transparent',
       border: `1px solid ${active ? C.borderStrong : C.border}`,
-      borderRadius: 7,
-      color: active ? C.white : C.dim,
-      padding: '5px 9px',
-      fontSize: 12,
-      fontWeight: 700,
-      cursor: 'pointer',
-      fontFamily: 'inherit',
-      letterSpacing: '0.04em',
-      transition: 'all 120ms',
+      borderRadius: 7, color: active ? C.white : C.dim,
+      padding: '5px 9px', fontSize: 12, fontWeight: 700,
+      cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.04em',
+      transition: 'all 120ms', display: 'flex', alignItems: 'center', gap: 5,
     }}>{children}</button>
   );
 }
@@ -1242,7 +1403,7 @@ function Clock() {
   const [time, setTime] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 1000); return () => clearInterval(t); }, []);
   return (
-    <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 14, fontWeight: 500, color: C.mid, letterSpacing: '0.04em' }}>
+    <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 13, fontWeight: 500, color: C.mid, letterSpacing: '0.04em' }}>
       {time.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
     </div>
   );
