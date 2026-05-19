@@ -175,7 +175,7 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
     restaurant_id: RESTAURANT_ID,
     table_id: null,
     order_number: orderNum,
-    order_type: orderType,
+    order_type: orderType === 'delivery' ? 'delivery' : 'llevar',
     status: 'confirmed',
     subtotal,
     discount_amount: 0,
