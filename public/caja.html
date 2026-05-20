@@ -298,6 +298,7 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
     {id:'salon',   icon:'',  lbl:'Vista del salón'},
     {id:'pedido',  icon:'',  lbl:'Tomar pedido'},
     {id:'cobros',  icon:'',  lbl:'Cobrar pedidos'},
+    {id:'historial',icon:'≡', lbl:'Historial'},
     {id:'reservas',icon:'◷', lbl:'Reservas'},
     {id:'retiro',  icon:'',  lbl:'Retiro de efectivo'},
     {id:'cancelaciones', icon:'✕', lbl:'Cancelaciones'},
@@ -397,7 +398,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
     const{data,error}=await db.from('orders')
       .select('id,order_number,status,total,payment_method,order_type,customer_name,created_at,table_id,tables(number)')
       .eq('restaurant_id',RID)
-      .in('status',['paid','kitchen_received','cooking','ready'])
+      .in('status',['confirmed','paid','kitchen_received','cooking','ready'])
       .order('created_at',{ascending:true});
     if(!error)setOrders(data||[]);
     setLoading(false);
@@ -414,7 +415,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
   return(
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,gap:10,flexWrap:'wrap'}}>
-        <h1 style={{fontSize:20,fontWeight:800}}>Pedidos listos para cobrar</h1>
+        <h1 style={{fontSize:20,fontWeight:800}}>Cobrar pedidos — todos los canales</h1>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Buscar pedido, mesa…" style={{padding:'7px 11px',fontSize:13,borderRadius:6,width:200}}/>
           <Btn small variant="secondary" onClick={loadOrders}>↻ Actualizar</Btn>
@@ -423,29 +424,33 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
 
       {loading&&<div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
       {!loading&&display.length===0&&(
-        <div style={{textAlign:'center',padding:'60px 0',color:'#D2D2D7'}}>
+        <div style={{textAlign:'center',padding:'60px 0',color:'#6E6E73'}}>
           <div style={{fontSize:36,marginBottom:12}}>✓</div>
-          <div style={{fontSize:14,fontWeight:700,color:'#6E6E73'}}>No hay pedidos activos</div>
-          <div style={{fontSize:12,color:'#86868B',marginTop:6}}>Aparecen aquí pedidos en cualquier estado activo (Nuevo, En cocina, Preparando, Listo)</div>
+          <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F'}}>No hay pedidos pendientes de cobro</div>
+          <div style={{fontSize:12,color:'#6E6E73',marginTop:6}}>Aparecen aquí pedidos de todos los canales: QR mesa, caja, delivery, para llevar</div>
         </div>
       )}
       {!loading&&display.length>0&&(
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12}}>
           {display.map(o=>{
-            const typeLabel={local:'En mesa',llevar:'Para llevar',delivery:'Delivery',dine_in:'En mesa',takeaway:'Para llevar'};
-            const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.order_type==='llevar'||o.order_type==='takeaway'?'Para llevar':o.order_type==='delivery'?'Delivery':o.customer_name||'Sin mesa';
+            const ORIGEN={local:'Caja — salón',llevar:'Caja — llevar',delivery:'Delivery',dine_in:'QR / Salón',takeaway:'Para llevar',confirmed:'QR mesa'};
+            const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.order_type==='llevar'||o.order_type==='takeaway'?'Para llevar':o.order_type==='delivery'?'Delivery':o.customer_name||'Mostrador';
+            const origen=ORIGEN[o.order_type]||o.order_type||'Caja';
             const espera=Math.floor((Date.now()-new Date(o.created_at))/60000);
             const yaCobrado=movimientos.some(m=>m.pedido_id===o.id&&m.tipo==='cobro');
+            const sinCobrar=o.status==='confirmed';
             const enCocina=['kitchen_received','cooking'].includes(o.status);
             const listo=o.status==='ready';
-            const borderColor=yaCobrado?C.green:listo?C.green:enCocina?C.orange:C.border;
+            const borderColor=yaCobrado?C.green:sinCobrar?C.red:listo?C.green:enCocina?C.orange:C.border;
             return(
-              <div key={o.id} style={{background:C.surface,border:`1px solid ${borderColor}`,borderRadius:10,padding:16,cursor:yaCobrado?'default':'pointer',opacity:yaCobrado?.6:1,position:'relative'}} onClick={()=>!yaCobrado&&selectOrder(o)}>
+              <div key={o.id} style={{background:C.surface,border:`2px solid ${borderColor}`,borderRadius:10,padding:16,cursor:yaCobrado?'default':'pointer',opacity:yaCobrado?.6:1,position:'relative'}} onClick={()=>!yaCobrado&&selectOrder(o)}>
                 {yaCobrado&&<div style={{position:'absolute',top:10,right:10,background:C.green+'22',color:C.green,border:`1px solid ${C.green}44`,padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>Cobrado ✓</div>}
+                {sinCobrar&&!yaCobrado&&<div style={{position:'absolute',top:10,right:10,background:'rgba(255,59,48,0.1)',color:C.red,border:`1px solid rgba(255,59,48,0.3)`,padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>Sin cobrar</div>}
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace"}}>#{o.order_number}</div>
-                    <div style={{fontSize:12,color:'#6E6E73',marginTop:2}}>{mesa}</div>
+                    <div style={{fontSize:12,color:'#1D1D1F',marginTop:2,fontWeight:600}}>{mesa}</div>
+                    <div style={{fontSize:10,color:'#6E6E73',marginTop:1}}>{origen}</div>
                   </div>
                   <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
                 </div>
@@ -454,8 +459,8 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                   <div style={{fontSize:11,color:espera>30?C.red:espera>15?C.orange:'#6E6E73'}}>⏱ {espera}m</div>
                 </div>
                 {!yaCobrado&&(
-                  <Btn full small style={{marginTop:12}} variant={listo?'success':'secondary'} onClick={e=>{e.stopPropagation();selectOrder(o);}}>
-                    {listo?'✓ Cobrar':'Cobrar →'}
+                  <Btn full small style={{marginTop:12}} variant={sinCobrar?'danger':listo?'success':'secondary'} onClick={e=>{e.stopPropagation();selectOrder(o);}}>
+                    {sinCobrar?'⚠ Cobrar ahora':listo?'✓ Cobrar':'Cobrar →'}
                   </Btn>
                 )}
               </div>
@@ -671,17 +676,17 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
         <div>
           <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>SELECCIONAR PEDIDO A CANCELAR</div>
           {loading&&<span className="spin"/>}
-          {!loading&&orders.length===0&&<div style={{color:'#D2D2D7',fontSize:13,padding:20}}>No hay pedidos activos.</div>}
+          {!loading&&orders.length===0&&<div style={{color:'#6E6E73',fontSize:13,padding:20,fontWeight:500}}>No hay pedidos activos para cancelar.</div>}
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
             {orders.map(o=>{
               const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.customer_name||'Sin mesa';
               const enCocina=['kitchen_received','cooking','ready'].includes(o.status);
               return(
                 <div key={o.id} onClick={()=>setSelected(o)}
-                  style={{background:selected?.id===o.id?'#F5F5F7':C.surface,border:`1px solid ${selected?.id===o.id?'#000000':C.border}`,borderRadius:8,padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  style={{background:selected?.id===o.id?'#EBEBEB':C.surface,border:`2px solid ${selected?.id===o.id?'#000000':C.border}`,borderRadius:8,padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
-                    <div style={{fontSize:13,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace"}}>#{o.order_number}</div>
-                    <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>{mesa}</div>
+                    <div style={{fontSize:14,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F'}}>#{o.order_number}</div>
+                    <div style={{fontSize:12,color:'#1D1D1F',marginTop:2,fontWeight:600}}>{mesa}</div>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>
                     <Badge txt={SL[o.status]} color={SC[o.status]||'#6E6E73'}/>
@@ -698,9 +703,9 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
           <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>MOTIVO DE CANCELACIÓN</div>
           {selected?(
             <>
-              <div style={{marginBottom:14,padding:'10px 14px',background:C.card,borderRadius:7,border:`1px solid ${C.border}`}}>
-                <div style={{fontSize:12,fontWeight:700}}>#{selected.order_number}</div>
-                <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>{fmt(selected.total)}</div>
+              <div style={{marginBottom:14,padding:'10px 14px',background:'#F0F0F0',borderRadius:7,border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:14,fontWeight:800,color:'#1D1D1F'}}>#{selected.order_number}</div>
+                <div style={{fontSize:13,color:'#1D1D1F',marginTop:2,fontWeight:600}}>{fmt(selected.total)}</div>
               </div>
               {['kitchen_received','cooking','ready'].includes(selected.status)&&(
                 <AlertBox type="error">⚠ Pedido ya enviado a cocina. Solo {['admin','superadmin'].includes(profile?.role)?'podés cancelar':'puede cancelarlo un supervisor'}.</AlertBox>
@@ -727,7 +732,7 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
               </Btn>
             </>
           ):(
-            <div style={{color:'#D2D2D7',fontSize:12,padding:'20px 0',textAlign:'center'}}>← Seleccioná un pedido de la lista</div>
+            <div style={{color:'#6E6E73',fontSize:13,padding:'20px 0',textAlign:'center',fontWeight:500}}>← Seleccioná un pedido de la lista</div>
           )}
         </div>
       </div>
@@ -780,16 +785,16 @@ function IngresosEgresosPanel({turno,profile,movimientos,onMovimiento}){
             ))}
           </div>
           {historial.length===0?(
-            <div style={{color:'#D2D2D7',fontSize:13,padding:20,textAlign:'center'}}>Sin registros en este turno</div>
+            <div style={{color:'#6E6E73',fontSize:13,padding:20,textAlign:'center',fontWeight:500}}>Sin registros en este turno</div>
           ):(
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
               {historial.map(m=>(
                 <div key={m.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
-                    <div style={{fontSize:13,fontWeight:600}}>{m.descripcion}</div>
-                    <div style={{fontSize:11,color:'#86868B',marginTop:2}}>{m.categoria} · {fmtTime(m.created_at)}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:'#1D1D1F'}}>{m.descripcion}</div>
+                    <div style={{fontSize:12,color:'#6E6E73',marginTop:2,fontWeight:500}}>{m.categoria} · {fmtTime(m.created_at)}</div>
                   </div>
-                  <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:700,color:tipo==='egreso'?C.red:C.green}}>{tipo==='egreso'?'- ':''}{fmt(m.monto)}</div>
+                  <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:16,fontWeight:800,color:tipo==='egreso'?C.red:C.green}}>{tipo==='egreso'?'− ':''}{fmt(m.monto)}</div>
                 </div>
               ))}
             </div>
@@ -960,7 +965,7 @@ function QuejasPanel({turno,profile}){
       )}
 
       {loading&&<span className="spin"/>}
-      {!loading&&quejas.length===0&&<div style={{color:'#D2D2D7',fontSize:13,padding:20,textAlign:'center'}}>Sin registros en este turno</div>}
+      {!loading&&quejas.length===0&&<div style={{color:'#6E6E73',fontSize:13,padding:20,textAlign:'center',fontWeight:500}}>Sin registros en este turno</div>}
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
         {quejas.map(q=>(
           <div key={q.id} style={{background:C.surface,border:`1px solid ${tipoColor[q.tipo]||'#D2D2D7'}44`,borderRadius:8,padding:'12px 14px'}}>
@@ -970,7 +975,7 @@ function QuejasPanel({turno,profile}){
                 {q.urgencia&&<Badge txt={q.urgencia} color={urgColor[q.urgencia]||'#6E6E73'}/>}
                 {q.categoria&&<Badge txt={q.categoria} color="#6E6E73"/>}
               </div>
-              <span style={{fontSize:11,color:'#D2D2D7'}}>{fmtTime(q.created_at)}</span>
+              <span style={{fontSize:11,color:'#6E6E73',fontWeight:500}}>{fmtTime(q.created_at)}</span>
             </div>
             <div style={{fontSize:13,color:C.ink,marginBottom:q.compensacion_ofrecida?6:0}}>{q.descripcion}</div>
             {q.compensacion_ofrecida&&(
@@ -1052,7 +1057,7 @@ function RetiroPanel({turno,profile,movimientos,onMovimiento}){
             </div>
           </div>
           {retirosMov.length===0?(
-            <div style={{color:'#D2D2D7',fontSize:13,padding:20,textAlign:'center'}}>Sin retiros en este turno</div>
+            <div style={{color:'#6E6E73',fontSize:13,padding:20,textAlign:'center',fontWeight:500}}>Sin retiros en este turno</div>
           ):(
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
               {retirosMov.map(m=>(
@@ -1142,9 +1147,152 @@ function ExtrasModal({item,extras,onClose,onConfirm}){
 }
 
 /* ═══════════════════════════════════════════
+   MODAL: COBRO INMEDIATO (antes de enviar a cocina)
+═══════════════════════════════════════════ */
+function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,turno,profile,onClose,onConfirmed}){
+  const [metodo,setMetodo]=useState('efectivo');
+  const [montoPagado,setMontoPagado]=useState('0');
+  const [busy,setBusy]=useState(false);
+
+  const subtotal=cart.reduce((s,c)=>s+c.linePrice*c.quantity,0);
+  const montoNum=parseInt(montoPagado)||0;
+  const cambio=metodo==='efectivo'?montoNum-subtotal:0;
+  const BILLETES=[1000,2000,5000,10000,20000,50000,100000];
+  const mesa=tables.find(t=>t.id===tableId);
+  const origen=orderType==='dine_in'?`Mesa ${mesa?.number||'?'}`:orderType==='delivery'?'Delivery':'Para llevar';
+
+  async function confirmar(){
+    if(metodo==='efectivo'&&montoNum<subtotal){toast('El monto recibido es menor al total',false);return;}
+    setBusy(true);
+    try{
+      /* 1. crear order */
+      const dbOrderType=orderType==='dine_in'?'local':orderType==='delivery'?'delivery':'llevar';
+      const orderNum='C-'+String(Math.floor(Date.now()%90000)+10000);
+      const{data:order,error:e1}=await db.from('orders').insert({
+        restaurant_id:RID,
+        table_id:orderType==='dine_in'&&tableId?tableId:null,
+        order_number:orderNum,order_type:dbOrderType,
+        status:'paid',
+        customer_name:customerName||null,
+        subtotal,discount_amount:0,total:subtotal,
+        payment_method:metodo,
+      }).select().single();
+      if(e1)throw e1;
+
+      /* 2. order_items */
+      const itemsPayload=cart.map(c=>({
+        order_id:order.id,item_id:c.item.id,item_name:c.item.name,
+        quantity:c.quantity,unit_price:c.item.price_guarani,
+        total_price:c.linePrice*c.quantity,observations:c.observations||null,
+      }));
+      const{data:createdItems,error:e2}=await db.from('order_items').insert(itemsPayload).select();
+      if(e2)throw e2;
+
+      /* 3. extras */
+      const xPayload=[];
+      cart.forEach((c,idx)=>{
+        const oi=(createdItems||[])[idx];
+        if(oi&&c.extras.length>0){c.extras.forEach(ex=>xPayload.push({order_item_id:oi.id,extra_name:ex.name,extra_price:ex.price_guarani||0}));}
+      });
+      if(xPayload.length>0){const{error:e3}=await db.from('order_item_extras').insert(xPayload);if(e3)throw e3;}
+
+      /* 4. historial */
+      await db.from('order_status_history').insert({order_id:order.id,status:'paid',notes:'Pedido tomado y cobrado en caja'});
+
+      /* 5. movimiento_caja */
+      const mov={
+        turno_id:turno.id,restaurant_id:RID,tipo:'cobro',
+        monto:subtotal,metodo_pago:metodo,pedido_id:order.id,
+        descripcion:`Cobro pedido #${orderNum} — ${origen}`,
+        usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
+        metadata:{orden_numero:orderNum,mesa:origen,monto_pagado:montoNum||subtotal,cambio:Math.max(0,cambio)},
+      };
+      const{data:movData,error:e4}=await db.from('movimientos_caja').insert(mov).select().single();
+      if(e4)throw e4;
+
+      onConfirmed(movData,order);
+    }catch(e){toast('Error: '+e.message,false);}
+    setBusy(false);
+  }
+
+  return(
+    <Modal title="Cobrar antes de enviar a cocina" onClose={onClose} width={500}>
+      <div style={{marginBottom:16}}>
+        <div style={{background:'#F5F5F7',borderRadius:8,padding:'10px 14px',marginBottom:14}}>
+          <div style={{fontSize:12,color:'#6E6E73',marginBottom:4}}>{origen} {customerName?`— ${customerName}`:''}</div>
+          <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
+            {cart.map(c=>(
+              <div key={c.cartId} style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#1D1D1F'}}>
+                <span style={{fontWeight:500}}>{c.quantity}× {c.item.name}</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{fmt(c.linePrice*c.quantity)}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',borderTop:'1px solid #D2D2D7',paddingTop:10}}>
+            <span style={{fontSize:14,fontWeight:800,color:'#1D1D1F'}}>TOTAL A COBRAR</span>
+            <span style={{fontSize:26,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(subtotal)}</span>
+          </div>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <Lbl required>MÉTODO DE PAGO</Lbl>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            {METODOS_PAGO.map(m=>(
+              <button key={m.id} onClick={()=>setMetodo(m.id)} style={{
+                padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?'#000000':C.border}`,
+                background:metodo===m.id?'#000000':'transparent',
+                color:metodo===m.id?'#FFFFFF':'#6E6E73',fontSize:12,fontWeight:metodo===m.id?700:400,cursor:'pointer',
+              }}>{m.lbl}</button>
+            ))}
+          </div>
+        </div>
+
+        {metodo==='efectivo'&&(
+          <div style={{marginBottom:14}}>
+            <Lbl>BILLETES RECIBIDOS</Lbl>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:5,marginBottom:8}}>
+              {BILLETES.map(v=>(
+                <button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{
+                  padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,
+                  background:'#F5F5F7',color:'#1D1D1F',fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer',
+                }}>{v>=1000?`${v/1000}k`:v}</button>
+              ))}
+              <button onClick={()=>setMontoPagado(String(subtotal))} style={{
+                padding:'9px 4px',borderRadius:6,border:`1px solid ${C.blue}55`,
+                background:'rgba(59,130,246,0.1)',color:C.blue,fontSize:11,fontWeight:700,cursor:'pointer',
+              }}>Exacto</button>
+            </div>
+            <Lbl required>MONTO RECIBIDO (₲)</Lbl>
+            <Inp type="number" mono value={montoPagado} onChange={e=>setMontoPagado(e.target.value)} placeholder={String(subtotal)}/>
+            {montoNum>0&&(
+              cambio>=0?(
+                <div style={{marginTop:8,padding:'12px 14px',background:'rgba(34,197,94,0.1)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:8,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <span style={{fontSize:13,color:'#1A7E37',fontWeight:700}}>Vuelto a entregar</span>
+                  <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:24,fontWeight:800,color:cambio>0?C.green:'#6E6E73'}}>{cambio>0?fmt(cambio):'Sin vuelto'}</span>
+                </div>
+              ):(
+                <div style={{marginTop:8,padding:'10px 12px',background:'rgba(255,59,48,0.08)',border:'1px solid rgba(255,59,48,0.3)',borderRadius:7}}>
+                  <span style={{fontSize:13,color:C.red,fontWeight:700}}>⚠ Faltan {fmt(subtotal-montoNum)}</span>
+                </div>
+              )
+            )}
+          </div>
+        )}
+      </div>
+      <div style={{display:'flex',gap:10}}>
+        <Btn full onClick={confirmar} disabled={busy} variant="success">
+          {busy?<><span className="spin"/> Procesando…</>:'✓ Cobrar y enviar a cocina'}
+        </Btn>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ═══════════════════════════════════════════
    PANEL: TOMAR PEDIDO (POS)
 ═══════════════════════════════════════════ */
-function TomarPedidoPanel({turno,profile}){
+function TomarPedidoPanel({turno,profile,onMovimiento}){
   const [cats,setCats]=useState([]);
   const [items,setItems]=useState([]);
   const [tables,setTables]=useState([]);
@@ -1155,6 +1303,7 @@ function TomarPedidoPanel({turno,profile}){
   const [tableId,setTableId]=useState(()=>localStorage.getItem('caja_table_id')||'');
   const [customerName,setCustomerName]=useState(()=>localStorage.getItem('caja_customer_name')||'');
   const [extrasModal,setExtrasModal]=useState(null);
+  const [pagoModal,setPagoModal]=useState(false);
   const [busy,setBusy]=useState(false);
 
   useEffect(()=>{load();},[]);
@@ -1194,56 +1343,18 @@ function TomarPedidoPanel({turno,profile}){
 
   const subtotal=cart.reduce((s,c)=>s+c.linePrice*c.quantity,0);
 
-  async function enviarACocina(){
+  function abrirPago(){
     if(cart.length===0){toast('El carrito está vacío',false);return;}
     if(orderType==='dine_in'&&!tableId){toast('Seleccioná una mesa',false);return;}
-    setBusy(true);
-    try{
-      /* 1. crear order */
-      const dbOrderType=orderType==='dine_in'?'local':'llevar';
-      const orderNum='C-'+String(Math.floor(Date.now()%90000)+10000);
-      const{data:order,error:e1}=await db.from('orders').insert({
-        restaurant_id:RID,
-        table_id:orderType==='dine_in'&&tableId?tableId:null,
-        order_number:orderNum,
-        order_type:dbOrderType,
-        status:'paid',
-        customer_name:customerName||null,
-        subtotal,discount_amount:0,total:subtotal,
-      }).select().single();
-      if(e1)throw e1;
+    setPagoModal(true);
+  }
 
-      /* 2. order_items */
-      const itemsPayload=cart.map(c=>({
-        order_id:order.id,
-        item_id:c.item.id,
-        item_name:c.item.name,
-        quantity:c.quantity,
-        unit_price:c.item.price_guarani,
-        total_price:c.linePrice*c.quantity,
-        observations:c.observations||null,
-      }));
-      const{data:createdItems,error:e2}=await db.from('order_items').insert(itemsPayload).select();
-      if(e2)throw e2;
-
-      /* 3. extras */
-      const xPayload=[];
-      cart.forEach((c,idx)=>{
-        const oi=(createdItems||[])[idx];
-        if(oi&&c.extras.length>0){
-          c.extras.forEach(ex=>xPayload.push({order_item_id:oi.id,extra_name:ex.name,extra_price:ex.price_guarani||0}));
-        }
-      });
-      if(xPayload.length>0){const{error:e3}=await db.from('order_item_extras').insert(xPayload);if(e3)throw e3;}
-
-      /* 4. historial */
-      await db.from('order_status_history').insert({order_id:order.id,status:'paid',notes:'Pedido tomado en caja'});
-
-      toast(`Pedido ${order.order_number?'#'+order.order_number:''} enviado a cocina ✓`);
-      setCart([]);setCustomerName('');setTableId('');
-      localStorage.removeItem('caja_cart');localStorage.removeItem('caja_customer_name');localStorage.removeItem('caja_table_id');
-    }catch(e){toast('Error: '+e.message,false);}
-    setBusy(false);
+  function onPagoConfirmado(movData,order){
+    setPagoModal(false);
+    if(movData&&onMovimiento)onMovimiento(movData);
+    toast(`Pedido #${order?.order_number||''} cobrado y enviado a cocina ✓`);
+    setCart([]);setCustomerName('');setTableId('');
+    localStorage.removeItem('caja_cart');localStorage.removeItem('caja_customer_name');localStorage.removeItem('caja_table_id');
   }
 
   /* ── render ── */
@@ -1337,9 +1448,9 @@ function TomarPedidoPanel({turno,profile}){
             {/* Ítems */}
             <div style={{flex:1,overflowY:'auto',padding:'10px 14px'}}>
               {cart.length===0?(
-                <div style={{textAlign:'center',padding:'28px 0',color:'#F5F5F7'}}>
+                <div style={{textAlign:'center',padding:'28px 0',color:'#6E6E73'}}>
                   <div style={{fontSize:30,marginBottom:8}}>🛒</div>
-                  <div style={{fontSize:11}}>Tocá un producto para agregarlo</div>
+                  <div style={{fontSize:11,fontWeight:500}}>Tocá un producto para agregarlo</div>
                 </div>
               ):(
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
@@ -1372,8 +1483,8 @@ function TomarPedidoPanel({turno,profile}){
                 <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:22,fontWeight:800,color:C.green}}>{fmt(subtotal)}</span>
               </div>
               <div style={{display:'flex',gap:8}}>
-                <Btn full onClick={enviarACocina} disabled={busy||cart.length===0} variant="success">
-                  {busy?<><span className="spin"/> Enviando…</>:'→ Enviar a cocina'}
+                <Btn full onClick={abrirPago} disabled={cart.length===0} variant="success">
+                  {'💳 Cobrar y enviar →'}
                 </Btn>
                 {cart.length>0&&(
                   <button onClick={()=>setCart([])} style={{background:'none',border:`1px solid ${C.border}`,color:'#86868B',borderRadius:6,padding:'0 10px',cursor:'pointer',fontSize:11,flexShrink:0}}>Limpiar</button>
@@ -1382,6 +1493,20 @@ function TomarPedidoPanel({turno,profile}){
             </div>
           </div>
         </div>
+      )}
+
+      {pagoModal&&(
+        <PagarAntesDeEnviarModal
+          cart={cart}
+          orderType={orderType}
+          tableId={tableId}
+          customerName={customerName}
+          tables={tables}
+          turno={turno}
+          profile={profile}
+          onClose={()=>setPagoModal(false)}
+          onConfirmed={onPagoConfirmado}
+        />
       )}
 
       {extrasModal&&(
@@ -1498,7 +1623,7 @@ function SalonPanel({profile}){
   async function loadTableSession(table){
     if(!db)return;
     let q=db.from('orders')
-      .select('id,order_number,status,total,created_at,order_items(id,item_name,quantity,unit_price,observations,order_item_extras(extra_name,extra_price))')
+      .select('id,order_number,status,total,created_at,waiter_name,order_items(id,item_name,quantity,unit_price,observations,order_item_extras(extra_name,extra_price))')
       .eq('restaurant_id',RID).eq('table_id',table.id).neq('status','cancelled')
       .order('created_at',{ascending:false});
     if(table.occupied_since) q=q.gte('created_at',table.occupied_since);
@@ -1526,32 +1651,36 @@ function SalonPanel({profile}){
   function TableCard({table}){
     const order=ordersByTable[table.id];
     const occ=table.is_occupied??!!order;
-    const accent=occ?(order?statusAccent(order.status):C.green):C.border;
+    const accent=occ?(order?statusAccent(order.status):C.green):'#C8C8CC';
     const espera=order?Math.floor((Date.now()-new Date(order.created_at))/60000):0;
     const sesTotal=sessionTotals[table.id]||0;
     return(
       <div onClick={()=>occ&&loadTableSession(table)} style={{
-        background:occ?'#000000':C.surface,
-        border:`2px solid ${accent}`,borderRadius:10,padding:14,
-        cursor:occ?'pointer':'default',minHeight:110,position:'relative',
-        transition:'border-color .2s',
-      }}>
+        background:occ?'#1D1D1F':C.surface,
+        border:`2px solid ${accent}`,borderRadius:12,padding:18,
+        cursor:occ?'pointer':'default',minHeight:140,position:'relative',
+        transition:'border-color .2s, transform .1s',
+        boxShadow:occ?'0 2px 12px rgba(0,0,0,0.15)':'none',
+      }}
+        onMouseEnter={e=>{if(occ)e.currentTarget.style.transform='translateY(-2px)';}}
+        onMouseLeave={e=>{e.currentTarget.style.transform='';}}
+      >
         {/* Monto del servicio — visible arriba */}
         {sesTotal>0&&(
-          <div style={{fontSize:10,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color:C.green,marginBottom:4,letterSpacing:'-0.3px'}}>
-            {fmtK(sesTotal)==='0'?'':fmt(sesTotal)}
+          <div style={{fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,color:'#34C759',marginBottom:6}}>
+            {fmt(sesTotal)}
           </div>
         )}
-        <div style={{fontSize:17,fontWeight:occ?800:600,color:occ?'#FFFFFF':'#000000'}}>Mesa {table.number}</div>
-        {table.capacity&&<div style={{fontSize:10,color:'#6E6E73',marginTop:1}}>{table.capacity} pax</div>}
+        <div style={{fontSize:22,fontWeight:800,color:occ?'#FFFFFF':'#1D1D1F',letterSpacing:'-0.5px'}}>Mesa {table.number}</div>
+        {table.capacity&&<div style={{fontSize:12,color:occ?'#AAAAAA':'#6E6E73',marginTop:2}}>{table.capacity} pax</div>}
         {occ?(
           <>
-            {order&&<div style={{marginTop:8}}><Badge txt={SL[order.status]} color={SC[order.status]||'#6E6E73'}/></div>}
-            {!order&&<div style={{marginTop:8}}><Badge txt="Servicio activo" color={C.green}/></div>}
-            {order&&<div style={{fontSize:10,color:'#6E6E73',marginTop:6}}>⏱ {espera}m · #{order.order_number}</div>}
+            {order&&<div style={{marginTop:10}}><Badge txt={SL[order.status]} color={SC[order.status]||'#6E6E73'}/></div>}
+            {!order&&<div style={{marginTop:10}}><Badge txt="Servicio activo" color={C.green}/></div>}
+            {order&&<div style={{fontSize:11,color:'#AAAAAA',marginTop:8}}>⏱ {espera}m · #{order.order_number}</div>}
           </>
         ):(
-          <div style={{color:'#F5F5F7',fontSize:11,marginTop:10,fontWeight:700,letterSpacing:1}}>LIBRE</div>
+          <div style={{color:'#6E6E73',fontSize:13,marginTop:12,fontWeight:700,letterSpacing:'0.05em'}}>LIBRE</div>
         )}
       </div>
     );
@@ -1583,13 +1712,16 @@ function SalonPanel({profile}){
     );
   }
 
-  const SideSection=({title,list,emptyMsg,accent})=>(
+  const SideSection=({title,list,emptyMsg,accent,desc})=>(
     <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
-      <div style={{fontSize:10,color:accent||'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>
-        {title} <span style={{color:'#D2D2D7',fontWeight:400}}>({list.length})</span>
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:11,color:accent||'#1D1D1F',fontWeight:800,letterSpacing:'0.05em'}}>
+          {title} <span style={{background:accent+'22',color:accent,border:`1px solid ${accent}44`,padding:'1px 7px',fontSize:10,borderRadius:10,fontWeight:700,marginLeft:4}}>{list.length}</span>
+        </div>
+        {desc&&<div style={{fontSize:11,color:'#6E6E73',marginTop:3}}>{desc}</div>}
       </div>
       {list.length===0?(
-        <div style={{color:'#F5F5F7',fontSize:12,padding:'8px 0'}}>{emptyMsg}</div>
+        <div style={{color:'#6E6E73',fontSize:12,padding:'8px 0',fontWeight:500}}>{emptyMsg}</div>
       ):(
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
           {list.map(o=><OrderRow key={o.id} order={o}/>)}
@@ -1623,9 +1755,9 @@ function SalonPanel({profile}){
           <div>
             <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:12}}>MESAS DEL SALÓN</div>
             {tables.length===0?(
-              <div style={{color:'#D2D2D7',fontSize:13,padding:20}}>No hay mesas configuradas para este restaurante.</div>
+              <div style={{color:'#6E6E73',fontSize:13,padding:20,fontWeight:500}}>No hay mesas configuradas para este restaurante.</div>
             ):(
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(145px,1fr))',gap:10}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:14}}>
                 {tables.map(t=><TableCard key={t.id} table={t}/>)}
               </div>
             )}
@@ -1645,14 +1777,16 @@ function SalonPanel({profile}){
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             <SideSection
               title="PARA LLEVAR / MOSTRADOR"
+              desc="Pedidos caja sin mesa asignada"
               list={[...takeawayOrders,...otherOrders]}
-              emptyMsg="Sin pedidos para llevar"
+              emptyMsg="Sin pedidos para llevar en este momento"
               accent={C.blue}
             />
             <SideSection
-              title="DELIVERY"
+              title="DELIVERY A DOMICILIO"
+              desc="Pedidos de delivery pendientes"
               list={deliveryOrders}
-              emptyMsg="Sin pedidos delivery"
+              emptyMsg="Sin pedidos delivery activos"
               accent={C.purple}
             />
           </div>
@@ -1663,46 +1797,78 @@ function SalonPanel({profile}){
 
       {/* Modal de sesión de mesa — historial + liberar */}
       {selTable&&(
-        <Modal title={`Mesa ${selTable.table.number} — Servicio activo`} onClose={()=>setSelTable(null)} width={500}>
+        <Modal title={`Mesa ${selTable.table.number} — Servicio activo`} onClose={()=>setSelTable(null)} width={540}>
           <div style={{marginBottom:16}}>
-            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:12}}>
+            {/* Info de mesa */}
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:14,padding:'10px 14px',background:'#F5F5F7',borderRadius:8}}>
               <Badge txt="Ocupada" color={C.green}/>
+              {selTable.table.capacity&&<span style={{fontSize:12,color:'#1D1D1F',fontWeight:600}}>{selTable.table.capacity} pax</span>}
               {selTable.table.occupied_since&&(
                 <span style={{fontSize:12,color:'#6E6E73'}}>Desde {fmtTime(selTable.table.occupied_since)}</span>
               )}
+              {selTable.orders[0]?.waiter_name?(
+                <span style={{fontSize:12,color:'#1D1D1F',fontWeight:600}}>👤 Mozo: {selTable.orders[0].waiter_name}</span>
+              ):(
+                <span style={{fontSize:12,color:'#6E6E73'}}>👤 Sin mozo asignado</span>
+              )}
             </div>
-            {selTable.orders.length===0&&<div style={{textAlign:'center',padding:20,color:'#86868B'}}>Sin órdenes registradas en esta sesión</div>}
-            {selTable.orders.map((ord,idx)=>(
-              <div key={ord.id} style={{marginBottom:14}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-                  <div>
-                    <span style={{fontSize:12,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace"}}>#{ord.order_number}</span>
-                    <Badge txt={SL[ord.status]||ord.status} color={SC[ord.status]||'#6E6E73'} />
-                    <span style={{fontSize:11,color:'#6E6E73',marginLeft:8}}>⏱ {fmtTime(ord.created_at)}</span>
+
+            {/* Resumen rápido */}
+            {selTable.orders.length>0&&(()=>{
+              const pagados=selTable.orders.filter(o=>['paid','kitchen_received','cooking','ready','delivered'].includes(o.status));
+              const sinCobrar=selTable.orders.filter(o=>['confirmed','draft'].includes(o.status));
+              const totalPagado=pagados.reduce((s,o)=>s+Number(o.total||0),0);
+              const totalSinCobrar=sinCobrar.reduce((s,o)=>s+Number(o.total||0),0);
+              return(
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:14}}>
+                  <div style={{background:'rgba(52,199,89,0.1)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
+                    <div style={{fontSize:10,color:'#1A7E37',fontWeight:700,marginBottom:4}}>PAGADO</div>
+                    <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1A7E37'}}>{fmt(totalPagado)}</div>
+                    <div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{pagados.length} pedido{pagados.length!==1?'s':''}</div>
                   </div>
-                  <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:800,color:C.green}}>{fmt(ord.total)}</span>
+                  <div style={{background:totalSinCobrar>0?'rgba(255,59,48,0.1)':'rgba(52,199,89,0.05)',border:`1px solid ${totalSinCobrar>0?'rgba(255,59,48,0.3)':'rgba(52,199,89,0.2)'}`,borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
+                    <div style={{fontSize:10,color:totalSinCobrar>0?'#C0190F':'#6E6E73',fontWeight:700,marginBottom:4}}>SIN COBRAR</div>
+                    <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:totalSinCobrar>0?C.red:'#6E6E73'}}>{fmt(totalSinCobrar)}</div>
+                    <div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{sinCobrar.length} pedido{sinCobrar.length!==1?'s':''}</div>
+                  </div>
+                  <div style={{background:'rgba(0,0,0,0.05)',border:'1px solid rgba(0,0,0,0.1)',borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
+                    <div style={{fontSize:10,color:'#1D1D1F',fontWeight:700,marginBottom:4}}>TOTAL SERVICIO</div>
+                    <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F'}}>{fmt(selTable.orders.reduce((s,o)=>s+Number(o.total||0),0))}</div>
+                    <div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{selTable.orders.length} pedido{selTable.orders.length!==1?'s':''}</div>
+                  </div>
                 </div>
-                {(ord.order_items||[]).map(it=>(
-                  <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,padding:'4px 8px',background:C.card,borderRadius:6,marginBottom:3}}>
-                    <span>{it.quantity}× {it.item_name}{it.observations?<span style={{color:'#6E6E73',fontSize:11}}> — {it.observations}</span>:null}</span>
-                    <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#000000',fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
+              );
+            })()}
+
+            {selTable.orders.length===0&&<div style={{textAlign:'center',padding:20,color:'#6E6E73',fontWeight:500}}>Sin órdenes registradas en esta sesión</div>}
+            {selTable.orders.map((ord,idx)=>{
+              const esPagado=['paid','kitchen_received','cooking','ready','delivered'].includes(ord.status);
+              return(
+                <div key={ord.id} style={{marginBottom:14,border:`1px solid ${esPagado?'rgba(52,199,89,0.3)':'rgba(255,59,48,0.3)'}`,borderRadius:8,padding:12,background:esPagado?'rgba(52,199,89,0.04)':'rgba(255,59,48,0.04)'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                    <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                      <span style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F'}}>#{ord.order_number}</span>
+                      <Badge txt={SL[ord.status]||ord.status} color={SC[ord.status]||'#6E6E73'} />
+                      {esPagado?<span style={{fontSize:10,color:C.green,fontWeight:700}}>✓ Cobrado</span>:<span style={{fontSize:10,color:C.red,fontWeight:700}}>⚠ Sin cobrar</span>}
+                    </div>
+                    <div style={{textAlign:'right'}}>
+                      <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:16,fontWeight:800,color:esPagado?C.green:C.red}}>{fmt(ord.total)}</div>
+                      <div style={{fontSize:10,color:'#6E6E73'}}>{fmtTime(ord.created_at)}</div>
+                    </div>
                   </div>
-                ))}
-                {idx<selTable.orders.length-1&&<Divider/>}
-              </div>
-            ))}
-            {selTable.orders.length>0&&(
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderTop:`1px solid ${C.border}`,marginTop:8}}>
-                <span style={{fontSize:13,fontWeight:700,color:C.mid}}>TOTAL DEL SERVICIO</span>
-                <span style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>
-                  {fmt(selTable.orders.reduce((s,o)=>s+Number(o.total||0),0))}
-                </span>
-              </div>
-            )}
+                  {(ord.order_items||[]).map(it=>(
+                    <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:12,padding:'3px 8px',background:'rgba(0,0,0,0.04)',borderRadius:5,marginBottom:2,color:'#1D1D1F'}}>
+                      <span style={{fontWeight:500}}>{it.quantity}× {it.item_name}{it.observations?<span style={{color:'#6E6E73',fontSize:11}}> — {it.observations}</span>:null}</span>
+                      <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F',fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
           <div style={{display:'flex',gap:10}}>
             <Btn full variant="success" onClick={()=>liberarMesa(selTable.table.id,selTable.table.number)}>
-              🟢 Liberar mesa
+              Liberar mesa
             </Btn>
             <Btn variant="ghost" onClick={()=>setSelTable(null)}>Cerrar</Btn>
           </div>
@@ -1762,9 +1928,9 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
       <h1 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Cierre de Caja — Arqueo</h1>
 
       {/* Steps */}
-      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:20}}>
+      <div style={{display:'flex',gap:0,borderBottom:`2px solid ${C.border}`,marginBottom:20}}>
         {[['1','Resumen'],['2','Conteo'],['3','Confirmar']].map(([n,lbl])=>(
-          <button key={n} onClick={()=>setStep(parseInt(n))} style={{padding:'8px 16px',fontSize:12,fontWeight:step>=parseInt(n)?700:400,color:step>=parseInt(n)?C.white:'#D2D2D7',background:'none',border:'none',borderBottom:step===parseInt(n)?'2px solid #fff':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>
+          <button key={n} onClick={()=>setStep(parseInt(n))} style={{padding:'10px 18px',fontSize:13,fontWeight:step>=parseInt(n)?800:500,color:step===parseInt(n)?'#000000':step>parseInt(n)?'#1D1D1F':'#6E6E73',background:step===parseInt(n)?'#F0F0F0':'none',border:'none',borderBottom:step===parseInt(n)?'2px solid #000000':'2px solid transparent',cursor:'pointer',marginBottom:-2,borderRadius:'6px 6px 0 0'}}>
             {n}. {lbl}
           </button>
         ))}
@@ -2255,6 +2421,162 @@ function ReservasPanel(){
 }
 
 /* ═══════════════════════════════════════════
+   PANEL: HISTORIAL DE PEDIDOS
+═══════════════════════════════════════════ */
+function HistorialPanel(){
+  const [orders,setOrders]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [rango,setRango]=useState('hoy');
+  const [statusFlt,setStatusFlt]=useState('todos');
+  const [tipoFlt,setTipoFlt]=useState('todos');
+  const [searchQ,setSearchQ]=useState('');
+
+  useEffect(()=>{load();},[rango]);
+
+  async function load(){
+    setLoading(true);
+    let from=new Date();
+    if(rango==='hoy'){from.setHours(0,0,0,0);}
+    else if(rango==='7d'){from=new Date(Date.now()-7*86400000);}
+    else if(rango==='30d'){from=new Date(Date.now()-30*86400000);}
+    else{from=new Date(0);}
+
+    const{data,error}=await db.from('orders')
+      .select('id,order_number,status,total,order_type,customer_name,created_at,table_id,payment_method,tables(number)')
+      .eq('restaurant_id',RID)
+      .gte('created_at',from.toISOString())
+      .order('created_at',{ascending:false})
+      .limit(300);
+    if(!error)setOrders(data||[]);
+    setLoading(false);
+  }
+
+  const STATUS_OPTIONS=[
+    {id:'todos',lbl:'Todos'},
+    {id:'confirmed',lbl:'Sin cobrar'},
+    {id:'paid',lbl:'Cobrado'},
+    {id:'kitchen_received',lbl:'En cocina'},
+    {id:'cooking',lbl:'Preparando'},
+    {id:'ready',lbl:'Listo'},
+    {id:'delivered',lbl:'Entregado'},
+    {id:'cancelled',lbl:'Cancelado'},
+  ];
+  const TIPO_OPTIONS=[
+    {id:'todos',lbl:'Todos'},
+    {id:'local',lbl:'Salón'},
+    {id:'dine_in',lbl:'QR mesa'},
+    {id:'llevar',lbl:'Para llevar'},
+    {id:'takeaway',lbl:'Para llevar'},
+    {id:'delivery',lbl:'Delivery'},
+  ];
+
+  const display=orders.filter(o=>{
+    if(statusFlt!=='todos'&&o.status!==statusFlt)return false;
+    if(tipoFlt!=='todos'&&o.order_type!==tipoFlt)return false;
+    if(searchQ){
+      const q=searchQ.toLowerCase();
+      if(!(o.order_number||'').toLowerCase().includes(q)&&!(o.customer_name||'').toLowerCase().includes(q)&&!String(o.tables?.number||'').includes(q))return false;
+    }
+    return true;
+  });
+
+  const totalCobrado=display.filter(o=>!['cancelled','confirmed','draft'].includes(o.status)).reduce((s,o)=>s+Number(o.total||0),0);
+  const totalSinCobrar=display.filter(o=>o.status==='confirmed').reduce((s,o)=>s+Number(o.total||0),0);
+  const totalCancelado=display.filter(o=>o.status==='cancelled').reduce((s,o)=>s+Number(o.total||0),0);
+
+  const TIPO_LBL={local:'Caja/Salón',llevar:'Para llevar',delivery:'Delivery',dine_in:'QR mesa',takeaway:'Para llevar'};
+  const MET_LBL={efectivo:'Efectivo',tarjeta_credito:'Tarjeta Cred.',tarjeta_debito:'Tarjeta Déb.',qr:'QR/Transfer.',mixto:'Mixto'};
+
+  return(
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,gap:10,flexWrap:'wrap'}}>
+        <h1 style={{fontSize:20,fontWeight:800}}>Historial de pedidos</h1>
+        <Btn small variant="secondary" onClick={load}>↻ Actualizar</Btn>
+      </div>
+
+      {/* Filtros */}
+      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
+        {/* Rango */}
+        <div style={{display:'flex',gap:0,background:'#F0F0F0',borderRadius:8,padding:3}}>
+          {[['hoy','Hoy'],['7d','7 días'],['30d','30 días'],['todo','Todo']].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setRango(id)} style={{
+              padding:'5px 12px',borderRadius:6,border:'none',fontSize:12,fontWeight:rango===id?700:500,
+              background:rango===id?'#FFFFFF':'transparent',color:rango===id?'#000000':'#6E6E73',
+              cursor:'pointer',boxShadow:rango===id?'0 1px 4px rgba(0,0,0,0.15)':'none',
+            }}>{lbl}</button>
+          ))}
+        </div>
+
+        {/* Status filter */}
+        <select value={statusFlt} onChange={e=>setStatusFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#FFF',color:'#1D1D1F',fontWeight:600}}>
+          {STATUS_OPTIONS.map(s=><option key={s.id} value={s.id}>{s.lbl}</option>)}
+        </select>
+
+        {/* Tipo filter */}
+        <select value={tipoFlt} onChange={e=>setTipoFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#FFF',color:'#1D1D1F',fontWeight:600}}>
+          {TIPO_OPTIONS.map(t=><option key={t.id} value={t.id}>{t.lbl}</option>)}
+        </select>
+
+        {/* Búsqueda */}
+        <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Buscar #nro, mesa, cliente…"
+          style={{padding:'6px 11px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:200,color:'#1D1D1F'}}/>
+      </div>
+
+      {/* KPIs */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:10,marginBottom:20}}>
+        <KpiMini label="Total pedidos" value={display.length} accent={C.blue}/>
+        <KpiMini label="Facturado" value={fmt(totalCobrado)} accent={C.green}/>
+        <KpiMini label="Sin cobrar" value={fmt(totalSinCobrar)} accent={totalSinCobrar>0?C.red:C.mid}/>
+        <KpiMini label="Cancelado" value={fmt(totalCancelado)} accent={totalCancelado>0?C.orange:C.mid}/>
+      </div>
+
+      {loading&&<div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
+
+      {!loading&&display.length===0&&(
+        <div style={{textAlign:'center',padding:'60px 0',color:'#6E6E73'}}>
+          <div style={{fontSize:32,marginBottom:10}}>≡</div>
+          <div style={{fontSize:14,fontWeight:600,color:'#1D1D1F'}}>Sin pedidos en este período</div>
+        </div>
+      )}
+
+      {!loading&&display.length>0&&(
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {display.map(o=>{
+            const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.customer_name||'Mostrador';
+            const tipo=TIPO_LBL[o.order_type]||o.order_type||'—';
+            const metodo=MET_LBL[o.payment_method]||'—';
+            const esCobrado=!['cancelled','confirmed','draft'].includes(o.status);
+            const esCancelado=o.status==='cancelled';
+            const esSinCobrar=o.status==='confirmed';
+            const borderColor=esCancelado?'rgba(255,59,48,0.3)':esSinCobrar?'rgba(255,149,0,0.4)':esCobrado?'rgba(52,199,89,0.3)':C.border;
+            return(
+              <div key={o.id} style={{background:C.surface,border:`1px solid ${borderColor}`,borderRadius:8,padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                    <span style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F'}}>#{o.order_number}</span>
+                    <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
+                    <span style={{fontSize:11,color:'#6E6E73',fontWeight:500}}>{tipo}</span>
+                    <span style={{fontSize:11,color:'#6E6E73'}}>{mesa}</span>
+                  </div>
+                  <div style={{fontSize:11,color:'#6E6E73',marginTop:4,display:'flex',gap:12}}>
+                    <span>{fmtDT(o.created_at)}</span>
+                    {o.payment_method&&<span>💳 {metodo}</span>}
+                  </div>
+                </div>
+                <div style={{textAlign:'right',flexShrink:0}}>
+                  <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:esCancelado?C.red:esSinCobrar?C.orange:C.green}}>{fmt(o.total)}</div>
+                  {esSinCobrar&&<div style={{fontSize:10,color:C.orange,fontWeight:700,marginTop:2}}>⚠ PENDIENTE</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
    DASHBOARD PRINCIPAL DEL TURNO
 ═══════════════════════════════════════════ */
 function DashboardCaja({turno,profile,onCierre}){
@@ -2287,8 +2609,9 @@ function DashboardCaja({turno,profile,onCierre}){
   const renderPanel=()=>{
     switch(panel){
       case 'salon':            return <SalonPanel         profile={profile}/>;
-      case 'pedido':           return <TomarPedidoPanel   turno={turno} profile={profile}/>;
+      case 'pedido':           return <TomarPedidoPanel   turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
       case 'cobros':           return <CobrosPanel       turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
+      case 'historial':        return <HistorialPanel/>;
       case 'cancelaciones':    return <CancelacionesPanel turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
       case 'ingresos_egresos': return <IngresosEgresosPanel turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
       case 'reservas':          return <ReservasPanel/>;
