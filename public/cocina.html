@@ -330,6 +330,26 @@ async function dbDismissTicket(supabaseId) {
   } catch(e) { console.warn('Dismiss error:', e); }
 }
 
+async function dbLoadKitchenMessages() {
+  if (!db) return { messages: [], frequency: 10 };
+  try {
+    const { data: msgs } = await db.from('kitchen_messages')
+      .select('id,message')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('active', true);
+    let frequency = 10;
+    try {
+      const { data: setting } = await db.from('restaurant_settings')
+        .select('value').eq('restaurant_id', RESTAURANT_ID)
+        .eq('key', 'kitchen_message_frequency').maybeSingle();
+      if (setting?.value) frequency = parseInt(setting.value) || 10;
+    } catch {}
+    return { messages: msgs || [], frequency };
+  } catch {
+    return { messages: [], frequency: 10 };
+  }
+}
+
 async function dbLoadRatings() {
   if (!db) return [];
   const { data } = await db.from('ratings')
@@ -442,6 +462,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
         animation: 'fadeIn 300ms ease',
         opacity: isEntregado ? 0.45 : 1,
         transition: 'background 300ms',
+        minWidth: '260px',
       }}>
       {/* Barra superior urgencia */}
       {!isDone && (
@@ -451,7 +472,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
       {/* Header */}
       <div style={{
         background: isEntregado ? '#111' : URGENCY_HEADER[urgency],
-        padding: '10px 12px',
+        padding: '10px 16px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -464,7 +485,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
           <div style={{ width: 1, height: 11, background: C.border }} />
 
           {/* Mesa / tipo label */}
-          <span style={{ fontFamily: 'system-ui,sans-serif', fontSize: 15, fontWeight: 700, color: C.white, flexShrink: 0 }}>
+          <span style={{ fontFamily: 'system-ui,sans-serif', fontSize: 18, fontWeight: 800, color: C.white, flexShrink: 0 }}>
             {mesaDisplayLabel(ticket)}
           </span>
 
@@ -502,7 +523,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
 
       {/* Alerta alergia global */}
       {hasAnyAllergy && !isDone && (
-        <div style={{ background: 'rgba(255,59,48,0.08)', borderBottom: `1px solid rgba(255,59,48,0.22)`, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ background: 'rgba(255,59,48,0.08)', borderBottom: `1px solid rgba(255,59,48,0.22)`, padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 12 }}>⚠</span>
           <span style={{ fontSize: 11, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.04em' }}>ALERGIA / ATENCION — Verificar items marcados</span>
         </div>
@@ -510,7 +531,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
 
       {/* Info delivery (cliente + dirección) */}
       {ticket.deliveryInfo && !isEntregado && (
-        <div style={{ background: 'rgba(255,149,0,0.06)', borderBottom: `1px solid rgba(255,149,0,0.18)`, padding: '5px 12px' }}>
+        <div style={{ background: 'rgba(255,149,0,0.06)', borderBottom: `1px solid rgba(255,149,0,0.18)`, padding: '5px 16px' }}>
           {ticket.deliveryInfo.cliente && <div style={{ fontSize: 11, color: '#FF9500', fontWeight: 600 }}>{ticket.deliveryInfo.cliente}</div>}
           {ticket.deliveryInfo.direccion && <div style={{ fontSize: 10, color: C.mid }}>{ticket.deliveryInfo.direccion}</div>}
         </div>
@@ -523,15 +544,15 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
             const allergyItem = hasAllergyAlert(item.obs) || !!item.allergens;
             return (
               <div key={item.id} style={{
-                padding: '8px 12px',
-                borderBottom: i < ticket.items.length - 1 ? `1px solid ${C.border}` : 'none',
+                padding: '8px 16px',
+                borderBottom: '1px solid rgba(255,255,255,0.1)',
                 background: allergyItem ? 'rgba(255,59,48,0.04)' : 'transparent',
               }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
-                  <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 19, fontWeight: 700, color: isDone ? C.dim : C.white, minWidth: 28, flexShrink: 0, lineHeight: 1.1, marginTop: 1 }}>x{item.cant}</span>
+                  <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 15, fontWeight: 700, color: isDone ? C.dim : '#FFFFFF', minWidth: 28, flexShrink: 0, lineHeight: 1.1, marginTop: 1 }}>x{item.cant}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: isDone ? C.mid : C.ink, textDecoration: isDone ? 'line-through' : 'none', lineHeight: 1.25 }}>{item.nombre}</span>
+                      <span style={{ fontSize: 15, fontWeight: 600, color: isDone ? C.mid : C.ink, textDecoration: isDone ? 'line-through' : 'none', lineHeight: 1.25 }}>{item.nombre}</span>
                       {item.station && (() => {
                         const st = STATIONS.find(s => s.key === item.station);
                         return st ? <span style={{ fontSize: 9, fontWeight: 700, color: st.color, background: `${st.color}18`, border: `1px solid ${st.color}30`, borderRadius: 4, padding: '1px 4px' }}>{st.label}</span> : null;
@@ -553,7 +574,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
                     {item.obs && (
                       <div style={{
                         marginTop: allergyItem ? 5 : 4,
-                        fontSize: allergyItem ? 12 : 11,
+                        fontSize: 13,
                         fontWeight: allergyItem ? 700 : 400,
                         color: allergyItem ? '#FCA5A5' : '#A1A1A6',
                         fontStyle: 'italic',
@@ -580,7 +601,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
 
       {/* Accion */}
       {!isEntregado && (
-        <div style={{ padding: '9px 11px', borderTop: `1px solid ${C.border}` }}>
+        <div style={{ padding: '9px 16px', borderTop: `1px solid ${C.border}` }}>
           {ticket.status === 'listo' ? (
             <button onClick={() => onDismiss(ticket)} style={{
               width: '100%', height: 40,
@@ -979,6 +1000,34 @@ function FelicitacionesPanel({ onClose }) {
   );
 }
 
+/* ── KITCHEN MESSAGE BANNER ─── */
+function KitchenMessageBanner({ message, onClose }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 4000);
+    return () => clearTimeout(t);
+  }, []);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0,
+        background: 'rgba(0,0,0,0.82)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 500, cursor: 'pointer',
+        animation: 'fadeIn 300ms ease',
+      }}
+    >
+      <div style={{ maxWidth: 640, padding: '48px 56px', textAlign: 'center' }}>
+        <div style={{ fontSize: 28, fontWeight: 700, color: '#FFFFFF', textAlign: 'center', lineHeight: 1.45 }}>
+          {message}
+        </div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 24, letterSpacing: '0.06em' }}>TOCA PARA CONTINUAR</div>
+      </div>
+    </div>
+  );
+}
+
 /* ── APP ─── */
 function App() {
   const [tickets, setTickets]               = useState(db ? [] : DEMO_TICKETS);
@@ -997,12 +1046,21 @@ function App() {
   const [restaurant, setRestaurant]         = useState(null);
   const [stockAlerts, setStockAlerts]       = useState([]);
   const [,forceRender]                      = useReducer(x => x + 1, 0);
+  const [kitchenMsgs, setKitchenMsgs]       = useState([]);
+  const [msgFrequency, setMsgFrequency]     = useState(10);
+  const [completedCount, setCompletedCount] = useState(0);
+  const [shownMessage, setShownMessage]     = useState(null);
 
-  const soundRef       = useRef(soundOn);
-  soundRef.current     = soundOn;
-  const channelRef     = useRef(null);
-  const ticketsRef     = useRef(tickets);
-  ticketsRef.current   = tickets;
+  const soundRef          = useRef(soundOn);
+  soundRef.current        = soundOn;
+  const channelRef        = useRef(null);
+  const ticketsRef        = useRef(tickets);
+  ticketsRef.current      = tickets;
+  const kitchenMsgsRef    = useRef(kitchenMsgs);
+  kitchenMsgsRef.current  = kitchenMsgs;
+  const msgFrequencyRef   = useRef(msgFrequency);
+  msgFrequencyRef.current = msgFrequency;
+  const completedCountRef = useRef(completedCount);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
@@ -1133,6 +1191,17 @@ function App() {
     db.from('restaurants').select('id,name').eq('id', RESTAURANT_ID).maybeSingle()
       .then(({ data }) => { if (data) { setRestaurant(data); document.title = `Cocina — ${data.name}`; } });
 
+    dbLoadKitchenMessages().then(({ messages, frequency }) => {
+      setKitchenMsgs(messages);
+      setMsgFrequency(frequency);
+      kitchenMsgsRef.current  = messages;
+      msgFrequencyRef.current = frequency;
+      if (messages.length > 0) {
+        const msg = messages[Math.floor(Math.random() * messages.length)];
+        setShownMessage(msg.message);
+      }
+    });
+
     dbLoadTickets().then(({ tickets: data, error }) => {
       if (error) setDbError(error);
       else { setDbError(null); if (data) setTickets(data); }
@@ -1219,6 +1288,19 @@ function App() {
     recordDone(ticket.elapsed, ticket.items);
     setDelivered(prev => [{ ...ticket, status: 'entregado' }, ...prev].slice(0, 10));
     setTickets(prev => prev.filter(t => t.id !== ticket.id));
+
+    const newCount = completedCountRef.current + 1;
+    completedCountRef.current = newCount;
+    setCompletedCount(newCount);
+    if (kitchenMsgsRef.current.length > 0 && newCount % msgFrequencyRef.current === 0) {
+      const remaining = ticketsRef.current.filter(t => t.id !== ticket.id);
+      const hasUrgent = remaining.some(t => urgencyLevel(t.elapsed, t.status) >= 2 && t.status !== 'listo');
+      if (!hasUrgent) {
+        const msgs = kitchenMsgsRef.current;
+        setShownMessage(msgs[Math.floor(Math.random() * msgs.length)].message);
+      }
+    }
+
     await dbDismissTicket(ticket._supabaseId);
   };
 
@@ -1381,6 +1463,9 @@ function App() {
       {/* Paneles laterales */}
       {showFelicitaciones && <FelicitacionesPanel onClose={() => setShowFelicitaciones(false)} />}
       {showConfig         && <ConfigDrawer       onClose={() => { setShowConfig(false); forceRender(); }} />}
+
+      {/* Mensaje de turno */}
+      {shownMessage && <KitchenMessageBanner message={shownMessage} onClose={() => setShownMessage(null)} />}
     </div>
   );
 }
