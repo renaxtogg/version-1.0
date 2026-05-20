@@ -154,14 +154,14 @@ function KpiCard({label,value,sub,accent,icon,onClick}) {
   return (
     <div onClick={onClick} style={{background:C.surface,border:`1px solid ${C.border}`,padding:'18px 20px',flex:1,minWidth:140,borderRadius:8,cursor:onClick?'pointer':'default',transition:'border-color .15s'}} onMouseEnter={e=>{if(onClick)e.currentTarget.style.borderColor=C.bs;}} onMouseLeave={e=>{if(onClick)e.currentTarget.style.borderColor=C.border;}}>
       {icon && <div style={{fontSize:20,marginBottom:8}}>{icon}</div>}
-      <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>{label}{onClick&&<span style={{color:'#D2D2D7',marginLeft:4}}>→</span>}</div>
+      <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>{label}{onClick&&<span style={{color:'#6E6E73',marginLeft:4}}>→</span>}</div>
       <div style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||'#000000',lineHeight:1}}>{value}</div>
       {sub && <div style={{fontSize:11,color:'#86868B',marginTop:5}}>{sub}</div>}
     </div>
   );
 }
 function Stars({n}) { return <span style={{color:C.yellow,letterSpacing:2,fontSize:14}}>{'★'.repeat(n)}{'☆'.repeat(5-n)}</span>; }
-function Th({children,right}) { return <th style={{padding:'9px 14px',textAlign:right?'right':'left',fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,whiteSpace:'nowrap',textTransform:'uppercase'}}>{children}</th>; }
+function Th({children,right}) { return <th style={{padding:'9px 14px',textAlign:right?'right':'left',fontSize:10,color:'#1D1D1F',fontWeight:700,letterSpacing:1,whiteSpace:'nowrap',textTransform:'uppercase'}}>{children}</th>; }
 function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?'#6E6E73':'#000000',textAlign:right?'right':'left',...sx}}>{children}</td>; }
 function EmptyRow({cols,label}) { return <tr><td colSpan={cols} style={{padding:40,textAlign:'center',color:'#D2D2D7',fontSize:13}}>{label||'Sin datos'}</td></tr>; }
 function Lbl({children}) { return <label style={{fontSize:10,color:'#6E6E73',display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}</label>; }
@@ -560,10 +560,10 @@ function PedidosPage({orders, tables, onRefresh}) {
   useEffect(()=>{
     if(!db) return;
     const ch = db.channel('pedidos-rt')
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ setNewBadge(n=>n+1); onRefresh(); })
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ onRefresh(); })
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ setNewBadge(n=>n+1); if(!_modalOpen) onRefresh(); })
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_modalOpen) onRefresh(); })
       .subscribe();
-    const poll = setInterval(onRefresh, 30000);
+    const poll = setInterval(()=>{ if(_modalOpen) return; onRefresh(); }, 30000);
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };
   },[]);
 
@@ -779,9 +779,9 @@ function MenuPage({categories,menuItems,onRefresh}) {
   useEffect(()=>{
     if(!db) return;
     const ch = db.channel('menu-rt')
-      .on('postgres_changes',{event:'*',schema:'public',table:'menu_items',filter:`restaurant_id=eq.${RID}`},()=>onRefresh())
+      .on('postgres_changes',{event:'*',schema:'public',table:'menu_items',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_modalOpen) onRefresh(); })
       .subscribe();
-    const poll = setInterval(onRefresh, 30000);
+    const poll = setInterval(()=>{ if(_modalOpen) return; onRefresh(); }, 30000);
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };
   },[]);
 
@@ -1117,10 +1117,10 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, payload=>{
         setTables(prev => prev.map(t=> t.id===payload.new.id ? {...t,...payload.new} : t));
       })
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, ()=>onRefresh())
-      .on('postgres_changes',{event:'DELETE',schema:'public',table:'tables'}, ()=>onRefresh())
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_modalOpen) onRefresh(); })
+      .on('postgres_changes',{event:'DELETE',schema:'public',table:'tables'}, ()=>{ if(!_modalOpen) onRefresh(); })
       .subscribe();
-    const poll = setInterval(onRefresh, 30000);
+    const poll = setInterval(()=>{ if(_modalOpen) return; onRefresh(); }, 30000);
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };
   },[]);
 
@@ -1340,10 +1340,10 @@ function PersonalPage() {
   useEffect(()=>{
     if(!db) return;
     const ch = db.channel('personal-rt')
-      .on('postgres_changes',{event:'*',schema:'public',table:'user_roles',filter:`restaurant_id=eq.${RID}`},loadProfiles)
-      .on('postgres_changes',{event:'*',schema:'public',table:'employee_shifts',filter:`restaurant_id=eq.${RID}`},loadShifts)
+      .on('postgres_changes',{event:'*',schema:'public',table:'user_roles',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_modalOpen) loadProfiles(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'employee_shifts',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_modalOpen) loadShifts(); })
       .subscribe();
-    const poll = setInterval(()=>{ loadProfiles(); if(tab==='turnos') loadShifts(); }, 30000);
+    const poll = setInterval(()=>{ if(_modalOpen) return; loadProfiles(); if(tab==='turnos') loadShifts(); }, 30000);
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };
   },[tab]);
 
@@ -2717,11 +2717,11 @@ function StockPage() {
   React.useEffect(()=>{
     if (!db) return;
     const ch = db.channel('stock-admin-rt')
-      .on('postgres_changes',{event:'*',schema:'public',table:'ingredients',filter:`restaurant_id=eq.${RID}`}, loadData)
-      .on('postgres_changes',{event:'*',schema:'public',table:'stock_alerts',filter:`restaurant_id=eq.${RID}`}, loadData)
-      .on('postgres_changes',{event:'*',schema:'public',table:'stock_movements',filter:`restaurant_id=eq.${RID}`}, loadData)
+      .on('postgres_changes',{event:'*',schema:'public',table:'ingredients',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_modalOpen) loadData(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'stock_alerts',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_modalOpen) loadData(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'stock_movements',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_modalOpen) loadData(); })
       .subscribe();
-    const poll = setInterval(loadData, 30000);
+    const poll = setInterval(()=>{ if(_modalOpen) return; loadData(); }, 30000);
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };
   }, [loadData]);
 
@@ -3941,10 +3941,10 @@ function DeliveryModule() {
         setDeliveryOrders(prev=>[payload.new,...prev]);
         if(!payload.new.rider_id) autoAssignRider(payload.new);
       })
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'delivery_orders',filter:`restaurant_id=eq.${RID}`}, ()=>loadDelivery())
-      .on('postgres_changes',{event:'*',schema:'public',table:'delivery_riders',filter:`restaurant_id=eq.${RID}`}, ()=>loadDelivery())
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'delivery_orders',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_modalOpen) loadDelivery(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'delivery_riders',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_modalOpen) loadDelivery(); })
       .subscribe();
-    const poll = setInterval(loadDelivery, 30000);
+    const poll = setInterval(()=>{ if(_modalOpen) return; loadDelivery(); }, 30000);
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };
   },[riders]);
 
