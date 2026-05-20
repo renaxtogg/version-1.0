@@ -100,6 +100,13 @@ function calcDeliveryFee(userLat, userLng, zones, restLat, restLng) {
   return match ? { zone: match, price: match.price_guarani || 0, minutes: match.estimated_minutes || 30, distKm: dist } : null;
 }
 
+/* ── FALLBACK ZONES (si DB no carga a tiempo) ── */
+const FALLBACK_ZONES = [
+  { id: 'f1', name: 'Zona Centro',   radius_km: 3,  price_guarani: 5000,  estimated_minutes: 25, is_active: true, color: 'green'  },
+  { id: 'f2', name: 'Zona Cercana',  radius_km: 6,  price_guarani: 10000, estimated_minutes: 35, is_active: true, color: 'yellow' },
+  { id: 'f3', name: 'Zona Lejana',   radius_km: 12, price_guarani: 18000, estimated_minutes: 50, is_active: true, color: 'orange' },
+];
+
 /* ── ZONE COLORS ────────────────────────── */
 const ZONE_COLOR_MAP = {
   red:    { bg: '#FEF2F2', border: '#FECACA', dot: '#EF4444', text: '#B91C1C', label: 'Roja',    emoji: '🔴' },
