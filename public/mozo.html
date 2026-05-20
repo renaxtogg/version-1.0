@@ -146,6 +146,30 @@ body {
 .mesa-card.cuenta .mesa-num { color: #000000; }
 .mesa-card.alerta { background: var(--red-soft); border-color: var(--red); animation: pulse-ring 1.5s infinite; }
 .mesa-card.alerta .mesa-num { color: var(--red); }
+.mesa-card.pendiente_pago { background: var(--orange-soft); border-color: var(--orange); animation: pulse-ring 1.5s infinite; }
+.mesa-card.pendiente_pago .mesa-num { color: var(--orange); }
+.mesa-card.pendiente_pago .mesa-label { color: var(--orange); font-weight: 700; }
+.mesa-card.pendiente_pago .mesa-time { color: var(--orange); }
+
+/* COBROS PENDIENTES SECTION */
+.cobros-section {
+  margin: 0 16px 12px; background: var(--orange-soft); border: 1.5px solid var(--orange);
+  border-radius: var(--radius); padding: 12px 14px;
+}
+.cobros-section-title { font-size: 11px; font-weight: 700; color: var(--orange); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.cobro-pending-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 0; border-bottom: 1px solid rgba(255,149,0,0.2);
+}
+.cobro-pending-row:last-child { border-bottom: none; }
+
+/* ITEM NOTE EDIT */
+.item-note-edit {
+  width: 100%; padding: 6px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--orange); background: var(--bg2); color: var(--text);
+  font-size: 12px; font-family: inherit; resize: none; outline: none; margin-top: 6px;
+}
+.item-note-edit:focus { border-color: var(--indigo); }
 
 /* LEYENDA */
 .legend { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 16px; }
@@ -473,14 +497,14 @@ function getMesaStatus(tableId, ordersMap, callsMap, tablesById) {
   if (!order) return 'ocupada';
   if (order.status === 'ready') return 'lista';
   if (order.status === 'cooking' || order.status === 'kitchen_received') return 'cocina';
-  if (order.status === 'pending_payment') return 'cuenta';
+  if (order.status === 'pending_payment') return 'pendiente_pago';
   return 'ocupada';
 }
 
 const fGsK = n => '₲ ' + (n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? Math.round(n/1000)+'k' : String(Math.round(n||0)));
 
 function statusLabel(s) {
-  return { libre: 'Libre', ocupada: 'Ocupada', cocina: 'En cocina', lista: 'Lista', cuenta: 'Cuenta', alerta: 'Alerta' }[s] || s;
+  return { libre: 'Libre', ocupada: 'Ocupada', cocina: 'En cocina', lista: 'Lista', cuenta: 'Cuenta', alerta: 'Alerta', pendiente_pago: 'Cobro pte.' }[s] || s;
 }
 
 function orderStatusText(status) {
@@ -588,6 +612,9 @@ function App() {
   const activeTableIdRef = useRef(activeTableId);
   const knownCallIds = useRef(new Set());
   const knownReadyIds = useRef(new Set());
+  const knownPendPayIds = useRef(new Set());
+  const [itemEditId, setItemEditId] = useState(null);
+  const [itemEditNote, setItemEditNote] = useState('');
   const pollingRef = useRef(null);
   const channelRef = useRef(null);
 
@@ -686,12 +713,13 @@ function App() {
       });
       setOrdersMap(om);
 
+      const tblNumById = {};
+      allTables.forEach(t => { tblNumById[t.id] = t.number; });
+
       // Detect newly ready orders → alert
       const readyOrders = (ordersRes.data || []).filter(o => o.status === 'ready');
       const newReady = readyOrders.filter(o => !knownReadyIds.current.has(o.id));
       if (newReady.length > 0 && knownReadyIds.current.size > 0) {
-        const tblNumById = {};
-        allTables.forEach(t => { tblNumById[t.id] = t.number; });
         newReady.forEach(o => {
           const mesaNum = o.table_id ? (tblNumById[o.table_id] || '?') : '?';
           playAlertSound();
@@ -700,6 +728,23 @@ function App() {
         });
       }
       knownReadyIds.current = new Set(readyOrders.map(o => o.id));
+
+      // Detect newly pending_payment orders → alert (cliente pide la cuenta)
+      const pendPayOrders = (ordersRes.data || []).filter(o => o.status === 'pending_payment');
+      const newPendPay = pendPayOrders.filter(o => !knownPendPayIds.current.has(o.id));
+      if (newPendPay.length > 0 && knownPendPayIds.current.size > 0) {
+        newPendPay.forEach(o => {
+          const mesaNum = o.table_id ? (tblNumById[o.table_id] || '?') : '?';
+          const pm = o.payment_method;
+          const pmLabel = pm === 'efectivo' ? 'Efectivo' : pm === 'pos' || pm === 'tarjeta' ? 'POS/Tarjeta' : pm === 'qr' ? 'QR' : pm === 'pos_mesa' ? 'POS Mesa' : 'Cuenta';
+          playAlertSound();
+          vibrateDevice();
+          setAlertPopup({ tableNum: mesaNum, callId: null, isPay: true, pmLabel });
+          clearTimeout(alertTimer.current);
+          alertTimer.current = setTimeout(() => setAlertPopup(null), 10000);
+        });
+      }
+      knownPendPayIds.current = new Set(pendPayOrders.map(o => o.id));
 
       const activeTableIds = new Set([
         ...allTables.filter(t => t.is_occupied).map(t => t.id),
@@ -722,8 +767,7 @@ function App() {
       }
 
       const newCalls = callsRes.data || [];
-      const tableNumById = {};
-      allTables.forEach(t => { tableNumById[t.id] = t.number; });
+      const tableNumById = tblNumById;
       const enrichedCalls = newCalls.map(c => ({
         ...c,
         _tableNum: c.table_id ? (tableNumById[c.table_id] || '?') : null,
@@ -781,10 +825,13 @@ function App() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RID}` }, (payload) => {
         const newStatus = payload?.new?.status;
         const tblId = payload?.new?.table_id;
-        // Sync con caja: cuando una mesa se cobra, notificar al mozo
-        if (newStatus === 'delivered' && tblId && activeTableIdRef.current === tblId) {
-          setCobroModal(false);
-          showToast('Mesa cobrada en caja');
+        const payMethod = payload?.new?.payment_method;
+        // Sync con caja: cuando una mesa se cobra desde caja, notificar al mozo
+        if (newStatus === 'delivered' && payMethod && tblId) {
+          if (activeTableIdRef.current === tblId) {
+            setCobroModal(false);
+            showToast('Mesa cobrada en caja');
+          }
           loadTableOrdersRef.current?.(tblId);
         }
         loadDataRef.current?.();
@@ -940,19 +987,29 @@ function App() {
     setTableOrders(data || []);
   }
 
-  // FIX #5 — carga items para el modal de cobro (solo no pagadas/entregadas)
+  // Carga items para el modal de cobro: incluye TODOS los items de la sesión sin pagar
   async function loadCobroItems(tableId) {
     if (!db || !tableId) return;
     const { data: orders } = await db.from('orders')
-      .select('id, status, order_items(id, item_name, quantity, unit_price, total_price)')
+      .select('id, status, payment_method, order_items(id, item_name, quantity, unit_price, total_price, observations)')
       .eq('restaurant_id', RID)
       .eq('table_id', tableId)
-      .not('status', 'in', '("cancelled","delivered")')
+      .not('status', 'in', '("cancelled")')
       .order('created_at');
     const items = [];
-    (orders || []).forEach(o => { (o.order_items || []).forEach(i => items.push(i)); });
+    let total = 0;
+    (orders || []).forEach(o => {
+      // Si está delivered Y tiene payment_method → ya fue cobrado, no lo incluimos
+      const yaCobrado = o.status === 'delivered' && o.payment_method;
+      if (yaCobrado) return;
+      (o.order_items || []).forEach(i => {
+        const lineTotal = Number(i.total_price) || Number((i.unit_price || 0)) * Number(i.quantity || 0);
+        items.push({ ...i, _lineTotal: lineTotal });
+        total += lineTotal;
+      });
+    });
     setCobroItems(items);
-    setCobroRealTotal(items.reduce((s, i) => s + Number((i.unit_price || 0) * (i.quantity || 0)), 0));
+    setCobroRealTotal(total);
   }
 
   async function loadHistorial(tableId) {
@@ -1037,6 +1094,16 @@ function App() {
     showToast(`${items.length} ítem(s) agregado(s)`);
   }
 
+  /* ── SAVE ITEM NOTE ── */
+  async function saveItemNote(itemId, note) {
+    if (!db) return;
+    await db.from('order_items').update({ observations: note || null }).eq('id', itemId);
+    setItemEditId(null);
+    setItemEditNote('');
+    if (activeTableId) loadTableOrders(activeTableId);
+    showToast('Nota actualizada');
+  }
+
   /* ── REMOVE ITEM ── */
   async function removeItem(itemId) {
     if (!db) return;
@@ -1094,24 +1161,27 @@ function App() {
   async function processPay() {
     if (!db) { showToast('Sin conexión'); return; }
     const base = cobroBase;
+    if (base === 0) { showToast('Total en ₲0 — verificá los productos'); return; }
     const total = Math.round(base * (1 + tipPct / 100));
     const pm = payMethod || 'efectivo';
 
-    // Marcar todas las órdenes activas de la mesa como entregadas
+    // Marcar todas las órdenes activas de la mesa como entregadas y cobradas
     const { data: pendingOrders } = await db.from('orders')
       .select('id')
       .eq('restaurant_id', RID)
       .eq('table_id', activeTableId)
       .not('status', 'in', '("cancelled","delivered")');
 
-    const toMark = pendingOrders?.length > 0 ? pendingOrders : (activeOrder ? [{ id: activeOrder.id }] : []);
-
-    for (const ord of toMark) {
-      await db.from('orders').update({
-        status: 'delivered',
-        payment_method: pm,
-        completed_at: new Date().toISOString(),
-      }).eq('id', ord.id);
+    if (pendingOrders && pendingOrders.length > 0) {
+      for (const ord of pendingOrders) {
+        await db.from('orders').update({
+          status: 'delivered',
+          payment_method: pm,
+          total: total,
+          completed_at: new Date().toISOString(),
+        }).eq('id', ord.id);
+        await db.from('order_status_history').insert({ order_id: ord.id, status: 'delivered', changed_by: 'mozo_cobro' });
+      }
     }
 
     // Liberar mesa
@@ -1180,9 +1250,20 @@ function App() {
     Object.values(ordersMap).reduce((sum, o) => sum + Number(o.total || 0), 0)
   , [ordersMap]);
 
-  // FIX #2 — mesas/monto a cobrar
   const mesasACobrar = Object.keys(ordersMap).length;
   const montoACobrar = Object.values(sessionTotals).reduce((s, v) => s + v, 0);
+
+  // Mesas con cobro pendiente (pending_payment o payment_method seteado sin cobrar)
+  const pendingPaymentTables = useMemo(() => {
+    return Object.entries(ordersMap)
+      .filter(([, o]) => o.status === 'pending_payment' || (o.payment_method && o.status !== 'delivered' && o.status !== 'cancelled'))
+      .map(([tableId, o]) => {
+        const tbl = tablesById[tableId];
+        const pm = o.payment_method;
+        const pmLabel = pm === 'efectivo' ? 'Efectivo' : pm === 'pos' || pm === 'tarjeta' ? 'POS/Tarjeta' : pm === 'qr' ? 'QR Mesa' : pm === 'pos_mesa' ? 'POS Mesa' : 'Solicita cuenta';
+        return { tableId, tableNum: tbl?.number || '?', pmLabel, total: sessionTotals[tableId] || 0, orderId: o.id };
+      });
+  }, [ordersMap, tablesById, sessionTotals]);
 
   const activeOrder = activeTableId ? ordersMap[activeTableId] : null;
   const activeTable = activeTableId ? tables.find(t => t.id === activeTableId) : null;
@@ -1211,10 +1292,13 @@ function App() {
   const tipAmt = Math.round(orderBase * tipPct / 100);
   const payTotal = orderBase + tipAmt;
 
-  // FIX #4 — suma de todos los items de la mesa activa
+  // Suma de todos los items de la mesa activa (usa total_price si está disponible)
   const tableTotal = useMemo(() =>
     tableOrders.reduce((sum, ord) =>
-      sum + (ord.order_items || []).reduce((s, i) => s + Number((i.unit_price || 0) * (i.quantity || 0)), 0), 0
+      sum + (ord.order_items || []).reduce((s, i) => {
+        const lineTotal = Number(i.total_price) || Number((i.unit_price || 0)) * Number(i.quantity || 0);
+        return s + lineTotal;
+      }, 0), 0
     ), [tableOrders]);
 
   // FIX #5 — base para cobro usando total calculado de items reales
@@ -1307,6 +1391,21 @@ function App() {
               </div>
             </div>
 
+            {pendingPaymentTables.length > 0 && (
+              <div className="cobros-section">
+                <div className="cobros-section-title">Cobros pendientes — {pendingPaymentTables.length} mesa(s)</div>
+                {pendingPaymentTables.map(p => (
+                  <div key={p.tableId} className="cobro-pending-row" onClick={() => openOrderView(p.tableId)} style={{ cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--orange)' }}>Mesa {p.tableNum}</div>
+                      <span style={{ fontSize: 11, background: 'var(--orange)', color: '#fff', borderRadius: 4, padding: '2px 7px', fontWeight: 700 }}>{p.pmLabel}</span>
+                    </div>
+                    <div style={{ fontWeight: 800, fontSize: 14 }}>{fGs(p.total)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {!db && (
               <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text3)' }}>
                 <div style={{ fontSize: 36, marginBottom: 12, color: '#86868B' }}>○</div>
@@ -1359,6 +1458,7 @@ function App() {
               <div className="legend-item"><div className="legend-dot" style={{ background: '#000000', border: '1px solid #000000' }}></div>Ocupada</div>
               <div className="legend-item"><div className="legend-dot" style={{ background: '#86868B', border: '1px solid #86868B' }}></div>En cocina</div>
               <div className="legend-item"><div className="legend-dot" style={{ background: '#FFFFFF', border: '1.5px solid #000000' }}></div>Lista</div>
+              <div className="legend-item"><div className="legend-dot" style={{ background: 'var(--orange-soft)', border: '1px solid var(--orange)' }}></div>Cobro pte.</div>
               <div className="legend-item"><div className="legend-dot" style={{ background: '#FF3B30', border: '1px solid #FF3B30' }}></div>Alerta</div>
             </div>
           </div>
@@ -1389,7 +1489,9 @@ function App() {
                       {activeOrder && ['confirmed', 'draft'].includes(activeOrder.status) && (
                         <button className="order-action-btn" onClick={enviarACocina} title="Enviar a cocina">&#9201;</button>
                       )}
-                      {activeOrder && <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">$</button>}
+                      {(activeOrder || tableOrders.some(o => (o.order_items||[]).length > 0)) && (
+                        <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">$</button>
+                      )}
                       {activeOrder && <button className="order-action-btn" onClick={finalizarOrden} title="Marcar entregada sin cobrar">&#10003;</button>}
                       <button className="order-action-btn" onClick={() => loadHistorial(activeTableId)} title="Historial">&#9776;</button>
                     </div>
@@ -1436,19 +1538,46 @@ function App() {
                             ...item,
                             _orderStatus: ord.status,
                             _canRemove: ['confirmed', 'draft'].includes(ord.status),
+                            _lineTotal: Number(item.total_price) || Number((item.unit_price || 0)) * Number(item.quantity || 0),
                           }))
                         ).map(item => {
-                          const isDelivered = ['delivered', 'ready'].includes(item._orderStatus);
+                          const isDelivered = ['delivered'].includes(item._orderStatus);
+                          const isEditing = itemEditId === item.id;
                           return (
                             <div key={item.id} className="item-card">
                               <div className="item-top">
                                 <div style={{ flex: 1 }}>
-                                  <div className="item-name" style={{ color: isDelivered ? 'var(--text)' : 'var(--text2)' }}>
+                                  <div className="item-name" style={{ color: isDelivered ? 'var(--text3)' : 'var(--text)', textDecoration: isDelivered ? 'none' : 'none' }}>
                                     {item.quantity}× {item.item_name}
                                   </div>
-                                  {item.observations && <div className="item-note">{item.observations}</div>}
+                                  {!isEditing && item.observations && (
+                                    <div className="item-note" onClick={() => { setItemEditId(item.id); setItemEditNote(item.observations || ''); }} style={{ cursor: 'pointer' }}>
+                                      {item.observations} <span style={{ fontSize: 9, color: 'var(--text3)' }}>✎</span>
+                                    </div>
+                                  )}
+                                  {!isEditing && !item.observations && (
+                                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3, cursor: 'pointer' }} onClick={() => { setItemEditId(item.id); setItemEditNote(''); }}>
+                                      + nota para cocina
+                                    </div>
+                                  )}
+                                  {isEditing && (
+                                    <div>
+                                      <textarea
+                                        className="item-note-edit"
+                                        rows={2}
+                                        autoFocus
+                                        value={itemEditNote}
+                                        onChange={e => setItemEditNote(e.target.value)}
+                                        placeholder="Ej: sin cebolla, bien cocido, mitad pollo..."
+                                      />
+                                      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                                        <button onClick={() => saveItemNote(item.id, itemEditNote)} style={{ background: '#000', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Guardar</button>
+                                        <button onClick={() => setItemEditId(null)} style={{ background: 'var(--bg2)', color: 'var(--text2)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
-                                <div className="item-price">{fGs(item.total_price)}</div>
+                                <div className="item-price">{fGs(item._lineTotal)}</div>
                                 {item._canRemove && <div className="item-del" onClick={() => removeItem(item.id)}>✕</div>}
                               </div>
                               <div className="item-status-row">
@@ -1789,7 +1918,7 @@ function App() {
       )}
 
       {/* ─── MODAL: COBRO ─── */}
-      {cobroModal && activeOrder && (
+      {cobroModal && (
         <div className="modal-overlay open" onClick={e => { if (e.target.classList.contains('modal-overlay')) setCobroModal(false); }}>
           <div className="modal">
             <div className="modal-handle"></div>
@@ -1798,18 +1927,23 @@ function App() {
               <div className="modal-close" onClick={() => setCobroModal(false)}>✕</div>
             </div>
             <div className="modal-body">
-              <div className="section-label">Ítems</div>
+              <div className="section-label">Consumo de la mesa</div>
               {cobroItems.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text3)', fontSize: 13 }}>Cargando...</div>
+                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text3)', fontSize: 13 }}>
+                  <div style={{ fontSize: 24, marginBottom: 8 }}>○</div>
+                  Sin ítems pendientes de pago
+                </div>
               ) : cobroItems.map(item => {
                 const partes = fraccionStates[item.id];
-                const itemTotal = (item.unit_price || 0) * (item.quantity || 0);
+                const itemTotal = item._lineTotal || (Number(item.total_price) || Number((item.unit_price || 0)) * Number(item.quantity || 0));
                 return (
                   <div key={item.id}>
                     <div className="pay-item">
                       <div style={{ fontSize: 11, color: 'var(--text3)', width: 24, flexShrink: 0 }}>{item.quantity}×</div>
-                      <div className="pay-item-name">{item.item_name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)', marginRight: 6 }}>{fGs(item.unit_price || 0)}</div>
+                      <div className="pay-item-name">
+                        {item.item_name}
+                        {item.observations && <div style={{ fontSize: 10, color: 'var(--text3)', fontStyle: 'italic', marginTop: 1 }}>{item.observations}</div>}
+                      </div>
                       <div className="pay-item-price">{fGs(itemTotal)}</div>
                       <button
                         onClick={() => setFraccionStates(prev => ({ ...prev, [item.id]: prev[item.id] ? null : 2 }))}
@@ -1926,21 +2060,21 @@ function App() {
         </div>
       )}
 
-      {/* ALERT POPUP — nueva llamada en tiempo real */}
+      {/* ALERT POPUP — nueva llamada o cobro en tiempo real */}
       {alertPopup && (
-        <div className="alert-popup">
+        <div className="alert-popup" style={alertPopup.isPay ? { background: 'var(--orange)' } : {}}>
           <div className="alert-popup-body">
-            <div className="alert-popup-title">Asistencia solicitada</div>
+            <div className="alert-popup-title">{alertPopup.isPay ? `Cobro pendiente — ${alertPopup.pmLabel || ''}` : 'Asistencia solicitada'}</div>
             <div className="alert-popup-sub">{alertPopup.tableNum != null ? `Mesa ${alertPopup.tableNum}` : 'Mesa desconocida'}</div>
           </div>
-          <button className="alert-popup-btn" onClick={async () => {
+          <button className="alert-popup-btn" style={alertPopup.isPay ? { color: 'var(--orange)' } : {}} onClick={async () => {
             setAlertPopup(null);
-            if (db) {
+            if (!alertPopup.isPay && db && alertPopup.callId) {
               await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).eq('id', alertPopup.callId);
               await loadData();
               showToast('Asistencia registrada');
             }
-          }}>Ya voy</button>
+          }}>OK</button>
         </div>
       )}
 
