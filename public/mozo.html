@@ -441,17 +441,7 @@ body {
 <body>
 <div id="root"></div>
 <script>
-function initTheme() {
-  const saved = localStorage.getItem('mesa_theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', saved);
-}
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  const next = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('mesa_theme', next);
-}
-initTheme();
+document.documentElement.setAttribute('data-theme', 'light');
 </script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
@@ -531,6 +521,79 @@ function vibrateDevice() {
   if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
 }
 
+/* ── LOGIN SCREEN ── */
+function LoginScreen({ onLogin }) {
+  const [name, setName] = React.useState('');
+  const [pin, setPin] = React.useState('');
+  const [error, setError] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!name.trim() || pin.length !== 4) { setError('Ingresá nombre y PIN de 4 dígitos'); return; }
+    setLoading(true); setError('');
+
+    if (!db) {
+      // Demo: sin DB, cualquier PIN de 4 dígitos funciona
+      onLogin({ mozo_id: null, mozo_name: name.trim(), turno_inicio: new Date().toISOString() });
+      return;
+    }
+
+    try {
+      const { data, error: dbErr } = await db.from('user_profiles')
+        .select('id, full_name, pin')
+        .eq('pin', pin)
+        .ilike('full_name', name.trim())
+        .maybeSingle();
+      setLoading(false);
+      if (dbErr || !data) { setError('Nombre o PIN incorrecto'); return; }
+      onLogin({ mozo_id: data.id, mozo_name: data.full_name, turno_inicio: new Date().toISOString() });
+    } catch(e) {
+      setLoading(false);
+      // Si la tabla no existe aún, modo demo
+      onLogin({ mozo_id: null, mozo_name: name.trim(), turno_inicio: new Date().toISOString() });
+    }
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#F5F5F7', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+      <div style={{ background: '#fff', border: '1px solid #D2D2D7', borderRadius: 20, padding: '40px 32px', width: '100%', maxWidth: 360, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#000', letterSpacing: '-1px' }}>Mythos</div>
+          <div style={{ fontSize: 13, color: '#6E6E73', marginTop: 4 }}>Panel Mozo — Iniciar turno</div>
+        </div>
+        {error && (
+          <div style={{ background: '#FFEDEC', border: '1px solid #FFCDD0', color: '#C0190F', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 16 }}>{error}</div>
+        )}
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6E6E73', marginBottom: 6 }}>Tu nombre</label>
+            <input
+              type="text" value={name} onChange={e => setName(e.target.value)}
+              placeholder="Nombre del mozo" autoFocus required
+              style={{ width: '100%', padding: '11px 14px', border: '1px solid #D2D2D7', borderRadius: 10, fontSize: 15, outline: 'none', fontFamily: 'inherit', color: '#1D1D1F', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6E6E73', marginBottom: 6 }}>PIN (4 dígitos)</label>
+            <input
+              type="password" inputMode="numeric" maxLength={4}
+              value={pin} onChange={e => setPin(e.target.value.replace(/\D/g,'').slice(0,4))}
+              placeholder="••••" required
+              style={{ width: '100%', padding: '11px 14px', border: '1px solid #D2D2D7', borderRadius: 10, fontSize: 22, outline: 'none', fontFamily: 'monospace', textAlign: 'center', letterSpacing: 8, color: '#1D1D1F', boxSizing: 'border-box' }}
+            />
+          </div>
+          <button type="submit" disabled={loading}
+            style={{ width: '100%', background: '#000', color: '#fff', border: 'none', borderRadius: 10, padding: 13, fontSize: 15, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, fontFamily: 'inherit' }}>
+            {loading ? 'Verificando...' : 'Iniciar turno'}
+          </button>
+        </form>
+        <div style={{ fontSize: 12, color: '#AEAEB2', textAlign: 'center', marginTop: 20 }}>Mythos · Sistema gastronómico</div>
+      </div>
+    </div>
+  );
+}
+
 /* ── APP ── */
 function App() {
   const [tables, setTables] = useState([]);
@@ -579,9 +642,27 @@ function App() {
   const [tipPct, setTipPct] = useState(0);
   const [payMethod, setPayMethod] = useState('efectivo');
 
+  // All orders for active table (FIX #4) + cobro items (FIX #5)
+  const [tableOrders, setTableOrders] = useState([]);
+  const [cobroItems, setCobroItems] = useState([]);
+  const [cobroRealTotal, setCobroRealTotal] = useState(0);
+  const [dividirPersonas, setDividirPersonas] = useState(2);
+  const [fraccionStates, setFraccionStates] = useState({});
+
+  // Mozo session (login turno)
+  const [mozoSession, setMozoSession] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('mozo_session') || 'null'); } catch(e) { return null; }
+  });
+  const [loginName, setLoginName] = useState('');
+  const [loginPin, setLoginPin] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+
   const toastTimer = useRef(null);
   const alertTimer = useRef(null);
   const loadDataRef = useRef(null);
+  const loadTableOrdersRef = useRef(null);
+  const activeTableIdRef = useRef(activeTableId);
   const knownCallIds = useRef(new Set());
   const knownReadyIds = useRef(new Set());
   const pollingRef = useRef(null);
@@ -591,9 +672,11 @@ function App() {
   useEffect(() => {
     if (activeTableId) localStorage.setItem('mozo_tableId', activeTableId);
     else localStorage.removeItem('mozo_tableId');
+    activeTableIdRef.current = activeTableId;
   }, [activeTableId]);
 
   useEffect(() => { loadDataRef.current = loadData; });
+  useEffect(() => { loadTableOrdersRef.current = loadTableOrders; });
 
   useEffect(() => {
     // Unlock AudioContext on first user interaction
@@ -748,10 +831,24 @@ function App() {
       db.removeChannel(channelRef.current);
     }
     channelRef.current = db.channel('mozo-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RID}` }, () => loadDataRef.current?.())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RID}` }, (payload) => {
+        const newStatus = payload?.new?.status;
+        const tblId = payload?.new?.table_id;
+        // Sync con caja: cuando una mesa se cobra, notificar al mozo
+        if (newStatus === 'delivered' && tblId && activeTableIdRef.current === tblId) {
+          setCobroModal(false);
+          showToast('Mesa cobrada en caja');
+          loadTableOrdersRef.current?.(tblId);
+        }
+        loadDataRef.current?.();
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RID}` }, () => loadDataRef.current?.())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'waiter_calls', filter: `restaurant_id=eq.${RID}` }, () => loadDataRef.current?.())
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tables', filter: `restaurant_id=eq.${RID}` }, () => loadDataRef.current?.())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => loadDataRef.current?.())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
+        loadDataRef.current?.();
+        if (activeTableIdRef.current) loadTableOrdersRef.current?.(activeTableIdRef.current);
+      })
       .subscribe();
   }
 
@@ -816,6 +913,7 @@ function App() {
     setCurrentView('orden');
     setMesaDialog(null);
     setAlertPopup(null);
+    loadTableOrders(tableId);
   }
 
   async function createOrder(tableId, tableNum) {
@@ -832,6 +930,7 @@ function App() {
       subtotal: 0,
       discount_amount: 0,
       total: 0,
+      ...(mozoSession?.mozo_id ? { waiter_id: mozoSession.mozo_id } : {}),
     }).select().single();
     if (error) { showToast('Error al crear orden'); console.error(error); return; }
     await db.from('order_status_history').insert({ order_id: order.id, status: 'confirmed', changed_by: 'mozo' });
@@ -851,28 +950,62 @@ function App() {
     showToast('Asistencia registrada');
   }
 
-  function liberarMesa(tableId) {
+  async function liberarMesa(tableId) {
+    if (!db) return;
     const mesa = tables.find(t => t.id === tableId);
-    const order = ordersMap[tableId];
-    const hasPending = order && (order.total || 0) > 0;
+
+    // Hard check: no liberar si hay órdenes sin pagar
+    const { data: deudas } = await db.from('orders')
+      .select('id')
+      .eq('table_id', tableId)
+      .not('status', 'in', '("delivered","cancelled")');
+
+    if (deudas && deudas.length > 0) {
+      showToast('No se puede liberar — hay pedidos sin pagar');
+      return;
+    }
+
     setConfirmDialog({
       title: `Liberar Mesa ${mesa?.number}`,
-      body: hasPending
-        ? `Hay una orden con ${fGs(order.total)} sin cobrar. ¿Liberar igualmente?`
-        : '¿Confirmar que el servicio concluyó y la mesa quedó libre?',
-      danger: hasPending,
+      body: '¿Confirmar que el servicio concluyó y la mesa quedó libre?',
+      danger: false,
       onOk: async () => {
-        if (!db) return;
-        if (order && !['delivered', 'cancelled'].includes(order.status)) {
-          await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', order.id);
-        }
         await db.from('tables').update({ is_occupied: false, occupied_since: null }).eq('id', tableId);
         await loadData();
+        setTableOrders([]);
         setActiveTableId(null);
         setCurrentView('mesas');
         showToast('Mesa ' + (mesa?.number || '') + ' liberada');
       },
     });
+  }
+
+  // FIX #4 — carga TODAS las órdenes + items de la mesa activa
+  async function loadTableOrders(tableId) {
+    if (!db || !tableId) return;
+    const { data } = await db.from('orders')
+      .select('id, order_number, status, total, created_at, payment_method, order_items(id, item_name, quantity, unit_price, total_price, observations)')
+      .eq('restaurant_id', RID)
+      .eq('table_id', tableId)
+      .not('status', 'in', '("cancelled")')
+      .order('created_at');
+    // Mostrar órdenes no canceladas; incluir entregadas para ver el historial activo
+    setTableOrders(data || []);
+  }
+
+  // FIX #5 — carga items para el modal de cobro (solo no pagadas/entregadas)
+  async function loadCobroItems(tableId) {
+    if (!db || !tableId) return;
+    const { data: orders } = await db.from('orders')
+      .select('id, status, order_items(id, item_name, quantity, unit_price, total_price)')
+      .eq('restaurant_id', RID)
+      .eq('table_id', tableId)
+      .not('status', 'in', '("cancelled","delivered")')
+      .order('created_at');
+    const items = [];
+    (orders || []).forEach(o => { (o.order_items || []).forEach(i => items.push(i)); });
+    setCobroItems(items);
+    setCobroRealTotal(items.reduce((s, i) => s + Number((i.unit_price || 0) * (i.quantity || 0)), 0));
   }
 
   async function loadHistorial(tableId) {
@@ -1003,28 +1136,47 @@ function App() {
   function openCobroModal() {
     setTipPct(0);
     setPayMethod('efectivo');
+    setCobroItems([]);
+    setCobroRealTotal(0);
+    setDividirPersonas(2);
+    setFraccionStates({});
     setCobroModal(true);
+    loadCobroItems(activeTableId);
   }
 
   async function processPay() {
     if (!db) { showToast('Sin conexión'); return; }
-    const order = ordersMap[activeTableId];
-    if (!order) return;
-    const base = order.total || 0;
+    const base = cobroBase;
     const total = Math.round(base * (1 + tipPct / 100));
-    const pmMap = { efectivo: 'efectivo', pos: 'pos', qr: 'qr', tarjeta: 'tarjeta' };
-    const pm = pmMap[payMethod] || 'efectivo';
+    const pm = payMethod || 'efectivo';
 
-    await db.from('orders').update({
-      status: 'delivered',
-      payment_method: pm,
-      total: total,
-      completed_at: new Date().toISOString(),
-    }).eq('id', order.id);
-    await db.from('order_status_history').insert({ order_id: order.id, status: 'delivered', changed_by: 'mozo' });
+    // Marcar todas las órdenes activas de la mesa como entregadas
+    const { data: pendingOrders } = await db.from('orders')
+      .select('id')
+      .eq('restaurant_id', RID)
+      .eq('table_id', activeTableId)
+      .not('status', 'in', '("cancelled","delivered")');
+
+    const toMark = pendingOrders?.length > 0 ? pendingOrders : (activeOrder ? [{ id: activeOrder.id }] : []);
+
+    for (const ord of toMark) {
+      await db.from('orders').update({
+        status: 'delivered',
+        payment_method: pm,
+        completed_at: new Date().toISOString(),
+      }).eq('id', ord.id);
+    }
+
+    // Liberar mesa
+    if (activeTableId) {
+      await db.from('tables').update({ is_occupied: false, occupied_since: null }).eq('id', activeTableId);
+    }
 
     await loadData();
     setCobroModal(false);
+    setTableOrders([]);
+    setActiveTableId(null);
+    setCurrentView('mesas');
     showToast('Cobro registrado — ' + fGs(total));
   }
 
@@ -1081,6 +1233,10 @@ function App() {
     Object.values(ordersMap).reduce((sum, o) => sum + Number(o.total || 0), 0)
   , [ordersMap]);
 
+  // FIX #2 — mesas/monto a cobrar
+  const mesasACobrar = Object.keys(ordersMap).length;
+  const montoACobrar = Object.values(sessionTotals).reduce((s, v) => s + v, 0);
+
   const activeOrder = activeTableId ? ordersMap[activeTableId] : null;
   const activeTable = activeTableId ? tables.find(t => t.id === activeTableId) : null;
   const activeTableOccupied = activeTableId ? (tablesById[activeTableId]?.is_occupied ?? false) : false;
@@ -1108,6 +1264,15 @@ function App() {
   const tipAmt = Math.round(orderBase * tipPct / 100);
   const payTotal = orderBase + tipAmt;
 
+  // FIX #4 — suma de todos los items de la mesa activa
+  const tableTotal = useMemo(() =>
+    tableOrders.reduce((sum, ord) =>
+      sum + (ord.order_items || []).reduce((s, i) => s + Number((i.unit_price || 0) * (i.quantity || 0)), 0), 0
+    ), [tableOrders]);
+
+  // FIX #5 — base para cobro usando total calculado de items reales
+  const cobroBase = cobroRealTotal > 0 ? cobroRealTotal : (activeOrder?.total || 0);
+
   // Turno stats
   const turnoStats = useMemo(() => ({
     pedidos: turnoOrders.length,
@@ -1121,6 +1286,17 @@ function App() {
     if (orderStatus === 'delivered') return <span className="item-badge item-badge-entregado">Entregado</span>;
     if (orderStatus === 'cooking') return <span className="item-badge item-badge-cooking">Preparando</span>;
     return <span className="item-badge item-badge-prep">En cocina</span>;
+  }
+
+  /* ── SESSION GUARD ── */
+  if (!mozoSession) {
+    return (
+      <LoginScreen onLogin={(session) => {
+        localStorage.setItem('mozo_session', JSON.stringify(session));
+        localStorage.setItem('turno_inicio', session.turno_inicio);
+        setMozoSession(session);
+      }} />
+    );
   }
 
   /* ── LOADING ── */
@@ -1138,14 +1314,23 @@ function App() {
     <>
       {/* HEADER */}
       <header className="app-header">
-        <div className="brand">Mythos</div>
+        <div>
+          <div className="brand">Mythos</div>
+          {mozoSession && (
+            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>
+              {mozoSession.mozo_name} · desde {new Date(mozoSession.turno_inicio).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
+        </div>
         <div className="header-actions">
           {readyCount > 0 && (
             <span className="ready-count-badge" title={`${readyCount} pedido(s) listo(s) para entregar`}>{readyCount}</span>
           )}
-          <div className="icon-btn" onClick={toggleDark} title="Cambiar tema">{dark ? '○' : '●'}</div>
-          <div className="icon-btn" onClick={() => setCurrentView('alertas')}>
-            &#9650;
+          <div className="icon-btn" onClick={() => setCurrentView('alertas')} title="Alertas">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
             {pendingAlerts > 0 && <span className="notif-badge">{pendingAlerts}</span>}
           </div>
           <div className="icon-btn" onClick={loadData} title="Actualizar">&#8635;</div>
@@ -1165,10 +1350,14 @@ function App() {
               </div>
             </div>
 
-            <div className="ds-monto-card">
-              <div>
-                <div className="ds-monto-label">Monto en uso</div>
-                <div className="ds-monto-value">{fGs(totalActivo)}</div>
+            <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px' }}>
+              <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
+                <div style={{ fontSize: 11, color: '#6E6E73', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600, marginBottom: 6 }}>Mesas a cobrar</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: '#000000', letterSpacing: '-0.5px' }}>{mesasACobrar}</div>
+              </div>
+              <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
+                <div style={{ fontSize: 11, color: '#6E6E73', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600, marginBottom: 6 }}>Monto a cobrar</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: '#000000', letterSpacing: '-0.5px' }}>{fGsK(montoACobrar)}</div>
               </div>
             </div>
 
@@ -1190,14 +1379,17 @@ function App() {
                 const occupiedMins = tbl?.occupied_since
                   ? Math.floor((Date.now() - new Date(tbl.occupied_since)) / 60000)
                   : null;
-                // Show COBRAR badge when order is ready and not yet delivered
                 const showCobrar = order?.status === 'ready' && status !== 'libre';
+                // FIX #3 — método de pago badge
+                const pm = order?.payment_method;
+                const pmLabel = pm === 'efectivo' ? 'EFECTIVO' : (pm === 'pos' || pm === 'tarjeta') ? 'POS' : pm === 'qr' ? 'QR' : pm === 'pos_mesa' ? 'POS MESA' : null;
+                const isOccupiedCard = ['ocupada','cocina','lista'].includes(status);
                 return (
                   <div key={mesa.id} className={`mesa-card ${status}`} onClick={() => handleMesaClick(mesa.id)}>
                     {itemCount > 0 && <div className="mesa-badge">{itemCount}</div>}
                     {showCobrar && <div className="cobrar-badge">COBRAR</div>}
                     {sesTotal > 0 && (
-                      <div style={{ fontSize: 9, fontWeight: 700, color: (status === 'ocupada' || status === 'cocina' || status === 'lista') ? 'rgba(255,255,255,0.75)' : 'var(--green)', marginBottom: 1, letterSpacing: '-0.3px' }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: isOccupiedCard ? 'rgba(255,255,255,0.75)' : 'var(--green)', marginBottom: 1, letterSpacing: '-0.3px' }}>
                         {fGsK(sesTotal)}
                       </div>
                     )}
@@ -1208,6 +1400,9 @@ function App() {
                       </div>
                     )}
                     <div className="mesa-label">{statusLabel(status)}</div>
+                    {pmLabel && (
+                      <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: '0.3px', color: isOccupiedCard ? 'rgba(255,255,255,0.75)' : '#6E6E73', marginTop: 1 }}>{pmLabel}</div>
+                    )}
                   </div>
                 );
               })}
@@ -1283,34 +1478,45 @@ function App() {
                     </div>
 
                     <div className="items-list">
-                      {(!activeOrder.order_items || activeOrder.order_items.length === 0) ? (
+                      {tableOrders.length === 0 || tableOrders.every(o => (o.order_items||[]).length === 0) ? (
                         <div className="items-empty">
                           <div className="empty-icon">○</div>
                           <p>Sin productos en esta orden</p>
                           <button className="btn btn-indigo btn-sm" style={{ margin: '12px auto 0', display: 'inline-flex' }} onClick={openProductModal}>＋ Agregar productos</button>
                         </div>
                       ) : (
-                        activeOrder.order_items.map(item => (
-                          <div key={item.id} className="item-card">
-                            <div className="item-top">
-                              <div style={{ flex: 1 }}>
-                                <div className="item-name">{item.quantity}× {item.item_name}</div>
-                                {item.observations && <div className="item-note">{item.observations}</div>}
+                        tableOrders.flatMap(ord =>
+                          (ord.order_items || []).map(item => ({
+                            ...item,
+                            _orderStatus: ord.status,
+                            _canRemove: ['confirmed', 'draft'].includes(ord.status),
+                          }))
+                        ).map(item => {
+                          const isDelivered = ['delivered', 'ready'].includes(item._orderStatus);
+                          return (
+                            <div key={item.id} className="item-card">
+                              <div className="item-top">
+                                <div style={{ flex: 1 }}>
+                                  <div className="item-name" style={{ color: isDelivered ? 'var(--text)' : 'var(--text2)' }}>
+                                    {item.quantity}× {item.item_name}
+                                  </div>
+                                  {item.observations && <div className="item-note">{item.observations}</div>}
+                                </div>
+                                <div className="item-price">{fGs(item.total_price)}</div>
+                                {item._canRemove && <div className="item-del" onClick={() => removeItem(item.id)}>✕</div>}
                               </div>
-                              <div className="item-price">{fGs(item.total_price)}</div>
-                              <div className="item-del" onClick={() => removeItem(item.id)}>✕</div>
+                              <div className="item-status-row">
+                                {itemStatusBadge(item._orderStatus)}
+                              </div>
                             </div>
-                            <div className="item-status-row">
-                              {itemStatusBadge(activeOrder.status)}
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
 
                     <div className="total-bar">
-                      <div className="total-label">Total de la orden</div>
-                      <div className="total-amount">{fGs(activeOrder.total)}</div>
+                      <div className="total-label">Total de la mesa</div>
+                      <div className="total-amount">{fGs(tableTotal > 0 ? tableTotal : (activeOrder?.total || 0))}</div>
                     </div>
 
                     {/* Pedir más + Llamar a caja */}
@@ -1394,9 +1600,24 @@ function App() {
             <div className="section-header">
               <div>
                 <div className="section-title">Mi turno</div>
-                <div className="section-sub">Desde {new Date(turnoInicio).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}</div>
+                <div className="section-sub">
+                  {mozoSession?.mozo_name} · desde {new Date(mozoSession?.turno_inicio || turnoInicio).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+                </div>
               </div>
-              <button className="btn btn-secondary btn-sm" onClick={loadTurnoData}>Actualizar</button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-secondary btn-sm" onClick={loadTurnoData}>Actualizar</button>
+                <button
+                  className="btn btn-sm"
+                  style={{ background: 'var(--text)', color: 'white', border: 'none' }}
+                  onClick={() => {
+                    localStorage.removeItem('mozo_session');
+                    localStorage.removeItem('turno_inicio');
+                    setMozoSession(null);
+                    setLoginName('');
+                    setLoginPin('');
+                  }}
+                >Terminar turno</button>
+              </div>
             </div>
 
             <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1633,12 +1854,58 @@ function App() {
             </div>
             <div className="modal-body">
               <div className="section-label">Ítems</div>
-              {(activeOrder.order_items || []).map(item => (
-                <div key={item.id} className="pay-item">
-                  <div className="pay-item-name">{item.quantity}× {item.item_name}</div>
-                  <div className="pay-item-price">{fGs(item.total_price)}</div>
+              {cobroItems.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text3)', fontSize: 13 }}>Cargando...</div>
+              ) : cobroItems.map(item => {
+                const partes = fraccionStates[item.id];
+                const itemTotal = (item.unit_price || 0) * (item.quantity || 0);
+                return (
+                  <div key={item.id}>
+                    <div className="pay-item">
+                      <div style={{ fontSize: 11, color: 'var(--text3)', width: 24, flexShrink: 0 }}>{item.quantity}×</div>
+                      <div className="pay-item-name">{item.item_name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginRight: 6 }}>{fGs(item.unit_price || 0)}</div>
+                      <div className="pay-item-price">{fGs(itemTotal)}</div>
+                      <button
+                        onClick={() => setFraccionStates(prev => ({ ...prev, [item.id]: prev[item.id] ? null : 2 }))}
+                        style={{ marginLeft: 6, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 7px', fontSize: 12, cursor: 'pointer', color: 'var(--text2)', flexShrink: 0 }}
+                        title="Fraccionar"
+                      >÷</button>
+                    </div>
+                    {partes && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 8px 24px', fontSize: 13, color: 'var(--text2)' }}>
+                        <span>Dividir en</span>
+                        <input
+                          type="number" min={2} max={20}
+                          value={partes}
+                          onChange={e => setFraccionStates(prev => ({ ...prev, [item.id]: Math.max(2, Math.min(20, parseInt(e.target.value)||2)) }))}
+                          style={{ width: 48, padding: '4px 6px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 13, textAlign: 'center', fontFamily: 'inherit' }}
+                        />
+                        <span>partes →</span>
+                        <span style={{ fontWeight: 700, color: 'var(--text)' }}>{fGs(Math.round(itemTotal / partes))} c/parte</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Dividir cuenta por personas */}
+              <div className="tip-section">
+                <div className="section-label">Dividir cuenta</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button onClick={() => setDividirPersonas(p => Math.max(1, p-1))} style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg2)', cursor: 'pointer', fontSize: 16, fontWeight: 700, fontFamily: 'inherit' }}>−</button>
+                    <span style={{ fontSize: 18, fontWeight: 700, minWidth: 28, textAlign: 'center' }}>{dividirPersonas}</span>
+                    <button onClick={() => setDividirPersonas(p => Math.min(20, p+1))} style={{ width: 32, height: 32, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg2)', cursor: 'pointer', fontSize: 16, fontWeight: 700, fontFamily: 'inherit' }}>+</button>
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text2)' }}>personas</div>
                 </div>
-              ))}
+                {dividirPersonas > 1 && (
+                  <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '10px 12px', fontSize: 14 }}>
+                    Cada persona paga: <span style={{ fontWeight: 800, color: '#000', fontSize: 16 }}>{fGs(Math.round(cobroBase / dividirPersonas))}</span>
+                  </div>
+                )}
+              </div>
 
               <div className="tip-section">
                 <div className="section-label">Propina</div>
@@ -1667,14 +1934,14 @@ function App() {
               </div>
 
               <div className="pay-summary">
-                <div className="pay-row"><span>Subtotal</span><span>{fGs(orderBase)}</span></div>
-                <div className="pay-row"><span>Propina ({tipPct}%)</span><span>{fGs(tipAmt)}</span></div>
-                <div className="pay-row total"><span>Total a pagar</span><span>{fGs(payTotal)}</span></div>
+                <div className="pay-row"><span>Subtotal</span><span>{fGs(cobroBase)}</span></div>
+                <div className="pay-row"><span>Propina ({tipPct}%)</span><span>{fGs(Math.round(cobroBase * tipPct / 100))}</span></div>
+                <div className="pay-row total"><span>Total a pagar</span><span style={{ fontSize: 24, fontWeight: 800, color: '#000000' }}>{fGs(Math.round(cobroBase * (1 + tipPct/100)))}</span></div>
               </div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-indigo btn-full" onClick={processPay}>
-                Cobrar {fGs(payTotal)} →
+                Cobrar {fGs(Math.round(cobroBase * (1 + tipPct/100)))} →
               </button>
             </div>
           </div>
