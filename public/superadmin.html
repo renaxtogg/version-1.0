@@ -884,7 +884,15 @@ function PageUsuarios({restaurants, setFlash}) {
     if (!db) { setLoading(false); return; }
     setLoading(true);
     const { data, error } = await db.rpc('admin_list_users');
-    if (!error && data) setUsers(data);
+    if (!error && data) {
+      setUsers(data);
+    } else if (error) {
+      // Fallback: query directa a user_roles (funciona si las policies lo permiten)
+      const { data: d2, error: e2 } = await db.from('user_roles')
+        .select('id,user_id,email,username,display_name,role,restaurant_id,is_active,created_at')
+        .order('created_at', { ascending: false });
+      if (!e2 && d2) setUsers(d2);
+    }
     setLoading(false);
   }, []);
 
@@ -1205,158 +1213,378 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
 // ══════════════════════════════════════════════════════════════
 // MÓDULO 6 — REPORTES GLOBALES
 // ══════════════════════════════════════════════════════════════
-function PageReportes({enriched, orders, ratings}) {
-  const [range,    setRange]    = useState('30d');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate,   setToDate]   = useState(new Date().toISOString().slice(0,10));
-  const [fRest,    setFRest]    = useState('all');
-  const [sortField,setSortField]= useState('revenue');
-  const [sortDir,  setSortDir]  = useState('desc');
+function PageReportes({enriched, orders, ratings, subscriptions, plans, events}) {
+  const [rType,   setRType]   = useState('');
+  const [fromStr, setFromStr] = useState('');
+  const [toStr,   setToStr]   = useState('');
+  const [rows,    setRows]    = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [repTitle,setRepTitle]= useState('');
 
-  const now = new Date();
+  useEffect(()=>{
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const pad = n => String(n).padStart(2,'0');
+    setFromStr(`${pad(first.getDate())}/${pad(first.getMonth()+1)}/${first.getFullYear()}`);
+    setToStr(`${pad(now.getDate())}/${pad(now.getMonth()+1)}/${now.getFullYear()}`);
+  },[]);
 
-  const getPeriod = (r, fFrom, fTo) => {
-    if (r==='today')  return {start:new Date(now.toISOString().slice(0,10)),end:now};
-    if (r==='7d')     return {start:new Date(now-7*86400000),end:now};
-    if (r==='30d')    return {start:new Date(now-30*86400000),end:now};
-    if (r==='custom') return {start:fFrom?new Date(fFrom):new Date(now-30*86400000),end:fTo?new Date(fTo):now};
-    return {start:new Date(now-30*86400000),end:now};
-  };
+  function parseDMY(str) {
+    if(!str) return null;
+    const p = str.split('/');
+    if(p.length!==3) return null;
+    const d = new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function dmyToISO(str) {
+    if(!str) return '';
+    const p = str.split('/');
+    if(p.length!==3) return '';
+    return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+  }
 
-  const {start,end} = getPeriod(range,fromDate,toDate);
-  const duration = end-start;
-  const prevEnd   = new Date(start);
-  const prevStart = new Date(start-duration);
+  const REPORT_DEFS = [
+    {id:'ventas_periodo',    label:'Ventas por período',         cat:'ventas',    desc:'Ingresos, pedidos y ticket promedio de toda la plataforma'},
+    {id:'ranking_rest',      label:'Ranking de restaurantes',    cat:'ventas',    desc:'Restaurantes ordenados por ventas en el período'},
+    {id:'suscripciones',     label:'Estado de suscripciones',    cat:'subs',      desc:'Restaurantes, planes activos, vencimientos y MRR'},
+    {id:'mrr_plan',          label:'MRR por plan',               cat:'subs',      desc:'Revenue mensual recurrente desglosado por plan'},
+    {id:'restaurantes_estado',label:'Restaurantes por estado',   cat:'plataforma',desc:'Distribución activo / trial / suspendido / inactivo'},
+    {id:'calificaciones',    label:'Calificaciones por restaurante', cat:'clientes', desc:'Rating promedio y cantidad de reseñas por restaurante'},
+    {id:'actividad',         label:'Actividad de plataforma',    cat:'plataforma',desc:'Eventos registrados (altas, renovaciones, cambios de plan)'},
+  ];
 
-  const inPeriod = (o,s,e) => {
-    const t = new Date(o.created_at||0);
-    return t>=s && t<=e;
-  };
+  const CATS = [
+    {id:'ventas',     label:'Ventas y facturación', color:'#007AFF'},
+    {id:'subs',       label:'Suscripciones',        color:'#34C759'},
+    {id:'clientes',   label:'Calificaciones',       color:'#FFD60A'},
+    {id:'plataforma', label:'Plataforma',            color:'#AF52DE'},
+  ];
 
-  const filteredOrders  = orders.filter(o=>(fRest==='all'||o.restaurant_id===fRest)&&inPeriod(o,start,end));
-  const prevOrders      = orders.filter(o=>(fRest==='all'||o.restaurant_id===fRest)&&inPeriod(o,prevStart,prevEnd));
+  async function generate() {
+    const from = parseDMY(fromStr);
+    const to   = parseDMY(toStr);
+    if(!rType){ alert('Seleccioná un tipo de reporte'); return; }
+    if(!from||!to){ alert('Fechas inválidas — usá formato dd/mm/aaaa'); return; }
+    to.setHours(23,59,59,999);
+    setLoading(true); setRows(null); setSummary(null);
+    const def = REPORT_DEFS.find(r=>r.id===rType);
+    setRepTitle(def?.label||'Reporte');
+    try { await _run(rType, from, to); }
+    catch(e){ alert('Error: '+e.message); }
+    setLoading(false);
+  }
 
-  const totalRevenue  = filteredOrders.reduce((s,o)=>s+(Number(o.total)||0),0);
-  const totalOrders2  = filteredOrders.length;
-  const avgTicket     = totalOrders2>0 ? Math.round(totalRevenue/totalOrders2) : 0;
+  async function _run(type, from, to) {
+    const fromISO = from.toISOString().slice(0,10);
+    const toISO   = to.toISOString().slice(0,10);
 
-  const prevRevenue   = prevOrders.reduce((s,o)=>s+(Number(o.total)||0),0);
-  const prevOrders2   = prevOrders.length;
-  const prevAvgTicket = prevOrders2>0 ? Math.round(prevRevenue/prevOrders2) : 0;
+    if(type==='ventas_periodo') {
+      let data = orders.filter(o=>['delivered','paid','ready','cooking','kitchen_received'].includes(o.status));
+      if(db) {
+        const {data:d} = await db.from('orders').select('id,restaurant_id,total,created_at,status').gte('created_at',from.toISOString()).lte('created_at',to.toISOString()).not('status','in','(draft,cancelled)');
+        if(d&&d.length>0) data = d;
+      }
+      data = data.filter(o=>new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const total = data.reduce((s,o)=>s+(Number(o.total)||0),0);
+      const count = data.length;
+      const avgT  = count>0?Math.round(total/count):0;
+      const restMap = {};
+      data.forEach(o=>{ const k=o.restaurant_id; restMap[k]=(restMap[k]||0)+(Number(o.total)||0); });
+      setSummary([
+        {label:'Ventas totales',  value:fmtGuarani(total), color:'#34C759'},
+        {label:'Pedidos',         value:count,             color:'#007AFF'},
+        {label:'Ticket promedio', value:fmtGuarani(avgT),  color:'#FF9500'},
+        {label:'Restaurantes',    value:Object.keys(restMap).length, color:'#AF52DE'},
+      ]);
+      const byRest = Object.entries(restMap).map(([rid,rev])=>{
+        const r = enriched.find(x=>x.id===rid);
+        return {name:r?.name||rid, rev, cnt:data.filter(o=>o.restaurant_id===rid).length};
+      }).sort((a,b)=>b.rev-a.rev);
+      setRows({
+        cols:['Restaurante','Pedidos','Ingresos','% del total'],
+        data:byRest.map(r=>[r.name, r.cnt, fmtGuarani(r.rev), total>0?`${Math.round(r.rev/total*100)}%`:'—']),
+      });
+    }
 
-  const tableData = enriched.map(r=>{
-    const rOrds = filteredOrders.filter(o=>o.restaurant_id===r.id);
-    const pOrds = prevOrders.filter(o=>o.restaurant_id===r.id);
-    const rev   = rOrds.reduce((s,o)=>s+(Number(o.total)||0),0);
-    const prevRev = pOrds.reduce((s,o)=>s+(Number(o.total)||0),0);
-    return {id:r.id,name:r.name,city:r.city,revenue:rev,orderCount:rOrds.length,avgTicket:rOrds.length>0?Math.round(rev/rOrds.length):0,prevRevenue:prevRev,prevOrderCount:pOrds.length};
-  });
+    else if(type==='ranking_rest') {
+      let data = orders.filter(o=>['delivered','paid','ready','cooking','kitchen_received'].includes(o.status));
+      if(db) {
+        const {data:d} = await db.from('orders').select('id,restaurant_id,total,created_at,status').gte('created_at',from.toISOString()).lte('created_at',to.toISOString()).not('status','in','(draft,cancelled)');
+        if(d&&d.length>0) data = d;
+      }
+      data = data.filter(o=>new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const ranked = enriched.map(r=>{
+        const rOrds = data.filter(o=>o.restaurant_id===r.id);
+        const rev   = rOrds.reduce((s,o)=>s+(Number(o.total)||0),0);
+        return {name:r.name, city:r.city||'—', cnt:rOrds.length, rev, avg:rOrds.length>0?Math.round(rev/rOrds.length):0, status:r.status};
+      }).sort((a,b)=>b.rev-a.rev);
+      const totRev = ranked.reduce((s,r)=>s+r.rev,0);
+      setSummary([
+        {label:'Ventas totales', value:fmtGuarani(totRev),             color:'#34C759'},
+        {label:'Pedidos totales',value:ranked.reduce((s,r)=>s+r.cnt,0),color:'#007AFF'},
+        {label:'Restaurantes',   value:ranked.length,                   color:'#AF52DE'},
+      ]);
+      setRows({
+        cols:['#','Restaurante','Ciudad','Estado','Pedidos','Ventas','Ticket prom.','% ventas'],
+        data:ranked.map((r,i)=>[i+1, r.name, r.city, statusMeta[r.status]?.label||r.status, r.cnt, fmtGuarani(r.rev), fmtGuarani(r.avg), totRev>0?`${Math.round(r.rev/totRev*100)}%`:'—']),
+      });
+    }
 
-  const handleSort = field => {
-    if (sortField===field) setSortDir(d=>d==='asc'?'desc':'asc');
-    else { setSortField(field); setSortDir('desc'); }
-  };
+    else if(type==='suscripciones') {
+      const data = subscriptions.map(s=>{
+        const r   = enriched.find(x=>x.id===s.restaurant_id);
+        const pl  = s.plan || plans.find(p=>p.id===s.plan_id);
+        const days = daysUntil(s.end_date);
+        return {rest:r?.name||'—', plan:pl?.name||'—', status:s.status||'—', start:s.start_date||'—', end:s.end_date||'—', mrr:Number(s.monthly_amount||pl?.price_usd||0), days, renew:s.auto_renew?'Sí':'No'};
+      });
+      const activos  = data.filter(s=>s.status==='active').length;
+      const trials   = data.filter(s=>s.status==='trial').length;
+      const mrr      = data.filter(s=>s.status==='active').reduce((s,x)=>s+x.mrr,0);
+      setSummary([
+        {label:'Activas',  value:activos,          color:'#34C759'},
+        {label:'Trial',    value:trials,            color:'#007AFF'},
+        {label:'MRR (USD)',value:`$${mrr.toFixed(0)}`,color:'#FF9500'},
+        {label:'Total',    value:data.length,       color:'#AF52DE'},
+      ]);
+      setRows({
+        cols:['Restaurante','Plan','Estado','Inicio','Vencimiento','Días rest.','Auto-renov.','MRR (USD)'],
+        data:data.map(s=>[s.rest, s.plan, statusMeta[s.status]?.label||s.status,
+          s.start!=='—'?s.start.slice(0,10).split('-').reverse().join('/'):'—',
+          s.end  !=='—'?s.end.slice(0,10).split('-').reverse().join('/'):'—',
+          s.days!==null?(s.days>=0?`${s.days}d`:'Vencido'):'—', s.renew, `$${s.mrr.toFixed(0)}`]),
+      });
+    }
 
-  const sorted = [...tableData].sort((a,b)=>{
-    const mult = sortDir==='asc'?1:-1;
-    return ((a[sortField]||0)-(b[sortField]||0))*mult;
-  });
+    else if(type==='mrr_plan') {
+      const planMap = {};
+      subscriptions.filter(s=>s.status==='active').forEach(s=>{
+        const pl   = s.plan || plans.find(p=>p.id===s.plan_id);
+        const name = pl?.name||'Sin plan';
+        const mrr  = Number(s.monthly_amount||pl?.price_usd||0);
+        if(!planMap[name]) planMap[name]={plan:name,cnt:0,mrr:0};
+        planMap[name].cnt++;
+        planMap[name].mrr+=mrr;
+      });
+      const rows2  = Object.values(planMap).sort((a,b)=>b.mrr-a.mrr);
+      const totMRR = rows2.reduce((s,p)=>s+p.mrr,0);
+      setSummary([
+        {label:'MRR total (USD)', value:`$${totMRR.toFixed(0)}`,  color:'#34C759'},
+        {label:'Suscripciones',   value:rows2.reduce((s,p)=>s+p.cnt,0), color:'#007AFF'},
+        {label:'Planes activos',  value:rows2.length,             color:'#AF52DE'},
+      ]);
+      setRows({
+        cols:['Plan','Suscripciones','MRR (USD)','% del MRR'],
+        data:rows2.map(p=>[p.plan, p.cnt, `$${p.mrr.toFixed(0)}`, totMRR>0?`${Math.round(p.mrr/totMRR*100)}%`:'—']),
+      });
+    }
 
-  const sortArrow = field => sortField===field?(sortDir==='asc'?' ↑':' ↓'):'';
+    else if(type==='restaurantes_estado') {
+      const statuses = ['active','trial','suspended','inactive'];
+      const counts   = Object.fromEntries(statuses.map(s=>[s,0]));
+      enriched.forEach(r=>{ if(counts[r.status]!==undefined) counts[r.status]++; else counts['inactive']=(counts['inactive']||0)+1; });
+      const total = enriched.length;
+      setSummary([
+        {label:'Total restaurantes', value:total,              color:'#AF52DE'},
+        {label:'Activos',            value:counts.active,      color:'#34C759'},
+        {label:'Trial',              value:counts.trial,       color:'#007AFF'},
+        {label:'Suspendidos',        value:counts.suspended,   color:'#FF3B30'},
+      ]);
+      const detail = enriched.map(r=>({
+        name:r.name, city:r.city||'—', status:r.status||'—',
+        plan:r.plan?.name||'—', onboarding:r.onboarding_date||'—', mrr:Number(r.subscription?.monthly_amount||0),
+      })).sort((a,b)=>a.name.localeCompare(b.name));
+      setRows({
+        cols:['Restaurante','Ciudad','Estado','Plan','Alta','MRR (USD)'],
+        data:detail.map(r=>[r.name, r.city, statusMeta[r.status]?.label||r.status, r.plan,
+          r.onboarding!=='—'?r.onboarding.slice(0,10).split('-').reverse().join('/'):'—',
+          r.mrr>0?`$${r.mrr.toFixed(0)}`:'—']),
+      });
+    }
 
-  const exportExcel = () => {
-    if (!window.XLSX) { alert('SheetJS no disponible'); return; }
-    const wb = window.XLSX.utils.book_new();
+    else if(type==='calificaciones') {
+      let data = ratings;
+      if(db) {
+        const {data:d} = await db.from('ratings').select('restaurant_id,stars,created_at').gte('created_at',from.toISOString()).lte('created_at',to.toISOString());
+        if(d&&d.length>0) data = d;
+      }
+      data = data.filter(r=>new Date(r.created_at)>=from&&new Date(r.created_at)<=to);
+      const restMap = {};
+      data.forEach(r=>{ const k=r.restaurant_id; if(!restMap[k])restMap[k]={id:k,total:0,count:0,pos:0}; restMap[k].total+=(r.stars||0); restMap[k].count++; if((r.stars||0)>=4)restMap[k].pos++; });
+      const rows2 = Object.entries(restMap).map(([id,v])=>{
+        const rest = enriched.find(r=>r.id===id);
+        return {name:rest?.name||id, avg:(v.total/v.count).toFixed(1), count:v.count, pos:v.pos, pct:Math.round(v.pos/v.count*100)};
+      }).sort((a,b)=>b.avg-a.avg);
+      const globalAvg = data.length>0?(data.reduce((s,r)=>s+(r.stars||0),0)/data.length).toFixed(1):'—';
+      setSummary([
+        {label:'Calificaciones',  value:data.length,       color:'#007AFF'},
+        {label:'Promedio global', value:`${globalAvg} ★`,  color:'#FFD60A'},
+        {label:'Positivas (≥4★)', value:data.filter(r=>(r.stars||0)>=4).length, color:'#34C759'},
+      ]);
+      setRows({
+        cols:['Restaurante','Promedio','Reseñas','Positivas','% positivas'],
+        data:rows2.map(r=>[r.name, `${r.avg} ★`, r.count, r.pos, `${r.pct}%`]),
+      });
+    }
 
-    const resumen = [
-      ['Período','Ventas totales','Pedidos totales','Ticket promedio'],
-      [range==='custom'?`${fromDate} → ${toDate}`:range, totalRevenue, totalOrders2, avgTicket],
-    ];
-    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(resumen), 'Resumen');
+    else if(type==='actividad') {
+      let data = events.filter(e=>new Date(e.created_at)>=from&&new Date(e.created_at)<=to);
+      if(db&&data.length===0) {
+        const {data:d} = await db.from('platform_events').select('*,restaurant:restaurants(name)').gte('created_at',from.toISOString()).lte('created_at',to.toISOString()).order('created_at',{ascending:false}).limit(300);
+        if(d) data = d;
+      }
+      const typeCounts = {};
+      data.forEach(e=>{ const k=eventMeta[e.event_type]?.label||e.event_type||'—'; typeCounts[k]=(typeCounts[k]||0)+1; });
+      setSummary([
+        {label:'Eventos',    value:data.length,              color:'#007AFF'},
+        {label:'Tipos',      value:Object.keys(typeCounts).length, color:'#AF52DE'},
+        {label:'Restaurantes',value:new Set(data.map(e=>e.restaurant_id).filter(Boolean)).size, color:'#FF9500'},
+      ]);
+      setRows({
+        cols:['Fecha','Restaurante','Tipo','Descripción'],
+        data:data.map(e=>[
+          e.created_at?new Date(e.created_at).toLocaleDateString('es-PY',{day:'2-digit',month:'short',year:'numeric'}):'—',
+          e.restaurant?.name||e.restaurant_id||'Plataforma',
+          eventMeta[e.event_type]?.label||e.event_type||'—',
+          e.description||'—',
+        ]),
+      });
+    }
+  }
 
-    const porRest = [['Restaurante','Ciudad','Ventas (₲)','Pedidos','Ticket promedio (₲)','vs período anterior']];
-    sorted.forEach(r=>{
-      const pct = r.prevRevenue>0?((r.revenue-r.prevRevenue)/r.prevRevenue*100).toFixed(1)+'%':'—';
-      porRest.push([r.name,r.city||'',r.revenue,r.orderCount,r.avgTicket,pct]);
-    });
-    window.XLSX.utils.book_append_sheet(wb, window.XLSX.utils.aoa_to_sheet(porRest), 'Por restaurante');
+  function exportCSV() {
+    if(!rows) return;
+    const lines=[rows.cols.join(','),...rows.data.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(','))];
+    const blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url; a.download=`mythos_reporte_${rType}_${dmyToISO(fromStr)}.csv`; a.click(); URL.revokeObjectURL(url);
+  }
 
-    const filename = `mythos-reporte-${new Date().toISOString().slice(0,10)}.xlsx`;
-    window.XLSX.writeFile(wb, filename);
-  };
+  function exportXLS() {
+    if(!rows||!window.XLSX){ alert('SheetJS no disponible'); return; }
+    const ws=window.XLSX.utils.aoa_to_sheet([rows.cols,...rows.data]);
+    const wb=window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb,ws,(REPORT_DEFS.find(r=>r.id===rType)?.label||'Reporte').slice(0,31));
+    window.XLSX.writeFile(wb,`mythos_reporte_${rType}_${dmyToISO(fromStr)}.xlsx`);
+  }
 
-  const rangeLabels = {today:'Hoy','7d':'7 días','30d':'30 días',custom:'Personalizado'};
+  function exportPDF() {
+    if(!rows) return;
+    const def=REPORT_DEFS.find(r=>r.id===rType);
+    const w=window.open('','_blank');
+    const sumHtml=summary?summary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${s.label}</div><div style="font-size:20px;font-weight:800;color:${s.color}">${s.value}</div></div>`).join(''):'';
+    const tHead=`<tr>${rows.cols.map(c=>`<th style="background:#1D1D1F;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${c}</th>`).join('')}</tr>`;
+    const tBody=rows.data.map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">${r.map(v=>`<td style="padding:7px 12px;font-size:11px;border-bottom:1px solid #eee">${v}</td>`).join('')}</tr>`).join('');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${def?.label||'Reporte'}</title><style>body{font-family:system-ui,sans-serif;margin:32px;color:#222}@media print{button{display:none!important}}</style></head><body>
+      <div style="font-size:22px;font-weight:800;color:#1D1D1F;margin-bottom:4px">Mythos — Superadmin</div>
+      <div style="font-size:16px;font-weight:700;color:#000;margin-bottom:4px">${def?.label||'Reporte'}</div>
+      <div style="font-size:11px;color:#888;margin-bottom:18px">Generado: ${new Date().toLocaleDateString('es-PY')} · Período: ${fromStr} al ${toStr}</div>
+      <div style="margin-bottom:20px;padding:14px 0;border-top:2px solid #1D1D1F;border-bottom:1px solid #eee">${sumHtml}</div>
+      <table style="width:100%;border-collapse:collapse;margin-top:4px"><thead>${tHead}</thead><tbody>${tBody}</tbody></table>
+      <div style="margin-top:24px;font-size:9px;color:#bbb;text-align:right">Página 1 de 1 · Mythos Platform</div>
+      <script>window.onload=function(){window.print();}<\/script>
+    </body></html>`);
+    w.document.close();
+  }
+
+  function limpiar() { setRType(''); setRows(null); setSummary(null); setRepTitle(''); }
+
+  const selDef = REPORT_DEFS.find(r=>r.id===rType);
 
   return (
     <div className="animate-in">
-      {/* Filtros */}
-      <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap',alignItems:'center'}}>
-        {Object.entries(rangeLabels).map(([v,l])=>(
-          <FilterBtn key={v} active={range===v} onClick={()=>setRange(v)}>{l}</FilterBtn>
-        ))}
-        {range==='custom'&&(
-          <>
-            <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} style={{width:150,flex:'none'}}/>
-            <span style={{color:C.mid,fontSize:12}}>→</span>
-            <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} style={{width:150,flex:'none'}}/>
-          </>
+      {/* Panel de configuración */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:20}}>
+        <div style={{fontSize:15,fontWeight:700,marginBottom:16}}>Reportes personalizados</div>
+
+        {/* Tipo de reporte */}
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:600,color:C.mid,marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Tipo de reporte</div>
+          <select value={rType} onChange={e=>{setRType(e.target.value);setRows(null);setSummary(null);}} style={{width:'100%',maxWidth:440,padding:'9px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,background:'#fff',color:C.ink}}>
+            <option value="">— Seleccioná un tipo —</option>
+            {CATS.map(cat=>(
+              <optgroup key={cat.id} label={cat.label}>
+                {REPORT_DEFS.filter(r=>r.cat===cat.id).map(r=><option key={r.id} value={r.id}>{r.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          {selDef&&<div style={{fontSize:11,color:C.dim,marginTop:4}}>{selDef.desc}</div>}
+        </div>
+
+        {/* Fechas */}
+        <div style={{display:'flex',gap:14,alignItems:'flex-end',flexWrap:'wrap',marginBottom:16}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,color:C.mid,marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Fecha desde</div>
+            <input type="text" value={fromStr} onChange={e=>setFromStr(e.target.value)} placeholder="dd/mm/aaaa" style={{padding:'8px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,width:145}}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,color:C.mid,marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Fecha hasta</div>
+            <input type="text" value={toStr} onChange={e=>setToStr(e.target.value)} placeholder="dd/mm/aaaa" style={{padding:'8px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,width:145}}/>
+          </div>
+        </div>
+
+        {/* Botones */}
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+          <button onClick={generate} disabled={loading} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 18px',background:'#1D1D1F',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',opacity:loading?.7:1}}>
+            {loading&&<span className="spin" style={{borderTopColor:'#fff',borderColor:'rgba(255,255,255,.3)'}}/>}{loading?'Generando…':'≡ Generar reporte'}
+          </button>
+          {rows&&<>
+            <button onClick={exportPDF} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#FF3B30',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ PDF</button>
+            <button onClick={exportXLS} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#34C759',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Excel</button>
+            <button onClick={exportCSV} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#6E6E73',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ CSV</button>
+            <button onClick={limpiar} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 14px',background:'transparent',color:C.mid,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:'pointer'}}>✕ Limpiar</button>
+          </>}
+        </div>
+
+        {/* KPIs */}
+        {summary&&(
+          <div style={{marginTop:20,display:'flex',gap:12,flexWrap:'wrap'}}>
+            {summary.map((s,i)=>(
+              <div key={i} style={{flex:'1 1 160px',background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',borderLeft:`3px solid ${s.color}`}}>
+                <div style={{fontSize:11,color:C.mid,marginBottom:4,textTransform:'uppercase',letterSpacing:.5,fontWeight:600}}>{s.label}</div>
+                <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.value}</div>
+              </div>
+            ))}
+          </div>
         )}
-        <select value={fRest} onChange={e=>setFRest(e.target.value)} style={{width:'auto',minWidth:160}}>
-          <option value="all">Todos los restaurantes</option>
-          {enriched.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
-        <div style={{marginLeft:'auto'}}>
-          <Btn variant="ghost" onClick={exportExcel}>Exportar Excel</Btn>
-        </div>
+
+        {/* Tabla */}
+        {rows&&(
+          <div style={{marginTop:16,overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <thead>
+                <tr>{rows.cols.map((c,i)=><th key={i} style={{background:'#1D1D1F',color:'#fff',padding:'8px 12px',textAlign:'left',fontWeight:700,fontSize:11,whiteSpace:'nowrap'}}>{c}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.data.map((r,ri)=>(
+                  <tr key={ri} style={{background:ri%2===0?'#fff':'#F9F9F9',borderBottom:`1px solid ${C.border}`}}>
+                    {r.map((v,vi)=><td key={vi} style={{padding:'8px 12px',color:C.ink}}>{v}</td>)}
+                  </tr>
+                ))}
+                {rows.data.length===0&&<tr><td colSpan={rows.cols.length} style={{textAlign:'center',padding:28,color:C.dim,fontSize:13}}>Sin datos en el período seleccionado</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* Métricas */}
-      <div style={{display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'}}>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'20px 22px',flex:'1 1 180px',minWidth:160}}>
-          <div style={{fontSize:12,color:'#6E6E73',fontWeight:500,marginBottom:6,textTransform:'uppercase',letterSpacing:.4}}>Ventas totales</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#000000',lineHeight:1}}>{fmtGuarani(totalRevenue)}</div>
-          <div style={{marginTop:6}}><DeltaBadge current={totalRevenue} prev={prevRevenue}/></div>
-        </div>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'20px 22px',flex:'1 1 180px',minWidth:160}}>
-          <div style={{fontSize:12,color:'#6E6E73',fontWeight:500,marginBottom:6,textTransform:'uppercase',letterSpacing:.4}}>Pedidos totales</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#000000',lineHeight:1}}>{totalOrders2.toLocaleString('es-PY')}</div>
-          <div style={{marginTop:6}}><DeltaBadge current={totalOrders2} prev={prevOrders2}/></div>
-        </div>
-        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'20px 22px',flex:'1 1 180px',minWidth:160}}>
-          <div style={{fontSize:12,color:'#6E6E73',fontWeight:500,marginBottom:6,textTransform:'uppercase',letterSpacing:.4}}>Ticket promedio</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#000000',lineHeight:1}}>{fmtGuarani(avgTicket)}</div>
-          <div style={{marginTop:6}}><DeltaBadge current={avgTicket} prev={prevAvgTicket}/></div>
-        </div>
-      </div>
-
-      {/* Tabla sortable */}
-      <SectionCard title="Ventas por restaurante">
-        <div className="tbl-wrap">
-          <table style={{width:'100%',borderCollapse:'collapse',minWidth:680}}>
-            <thead><tr>
-              <Th>Restaurante</Th>
-              <Th onClick={()=>handleSort('revenue')} style={{cursor:'pointer'}}>Ventas{sortArrow('revenue')}</Th>
-              <Th onClick={()=>handleSort('orderCount')} style={{cursor:'pointer'}}>Pedidos{sortArrow('orderCount')}</Th>
-              <Th onClick={()=>handleSort('avgTicket')} style={{cursor:'pointer'}}>Ticket prom.{sortArrow('avgTicket')}</Th>
-              <Th>vs período anterior</Th>
-            </tr></thead>
-            <tbody>
-              {sorted.map(r=>(
-                <tr key={r.id} onMouseEnter={e=>e.currentTarget.style.background=C.bg} onMouseLeave={e=>e.currentTarget.style.background=''} style={{transition:'background .1s'}}>
-                  <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
-                  <Td style={{fontWeight:600}}>{fmtGuarani(r.revenue)}</Td>
-                  <Td style={{fontWeight:600}}>{r.orderCount}</Td>
-                  <Td>{fmtGuarani(r.avgTicket)}</Td>
-                  <Td><DeltaBadge current={r.revenue} prev={r.prevRevenue}/></Td>
-                </tr>
+      {/* Catálogo de reportes */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16}}>
+        {CATS.map(cat=>{
+          const catReps = REPORT_DEFS.filter(r=>r.cat===cat.id);
+          return (
+            <div key={cat.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:10,color:cat.color,textTransform:'uppercase',letterSpacing:.5}}>{cat.label}</div>
+              {catReps.map(r=>(
+                <button key={r.id} onClick={()=>{setRType(r.id);setRows(null);setSummary(null);window.scrollTo({top:0,behavior:'smooth'});}} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',marginBottom:4,background:'transparent',border:`1px solid transparent`,borderRadius:7,cursor:'pointer'}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.ink}}>{r.label}</div>
+                  <div style={{fontSize:11,color:C.dim,marginTop:1}}>{r.desc}</div>
+                </button>
               ))}
-              {sorted.every(r=>r.orderCount===0)&&(
-                <tr><td colSpan={5} style={{textAlign:'center',padding:40,color:C.dim,fontSize:13}}>Sin pedidos en el período seleccionado</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </SectionCard>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1599,7 +1827,7 @@ function App() {
               {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} setFlash={setFlash} reload={loadAll}/>}
               {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} setFlash={setFlash} reload={loadAll}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
-              {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings}/>}
+              {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={loadAll}/>}
               {page==='configuracion' && <PageConfiguracion restaurants={restaurants} platformConfig={platformConfig} setFlash={setFlash} reload={loadAll}/>}
             </>
