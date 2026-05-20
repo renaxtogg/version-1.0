@@ -56,6 +56,9 @@ const _initDB = () => {
 const db = _initDB();
 const RID = ((window.SUPABASE_CONFIG?.restaurantId)||'00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
 
+/* bandera global — pausa el polling cuando hay un modal abierto */
+let _modalOpen = false;
+
 /* ── LOCALSTORAGE HELPERS ── */
 const LS = {
   get: (k, def) => { try { return JSON.parse(localStorage.getItem(k)) ?? def; } catch { return def; } },
@@ -85,6 +88,8 @@ function mesaLabel(o) {
   return 'Sin mesa';
 }
 const ROLES = ['cocina','admin','superadmin','waiter','cajero'];
+/* Roles que el Admin puede asignar (no puede crear admins ni superadmins) */
+const ADMIN_ALLOWED_ROLES = ['cajero','mozo','cocina','rider','supervisor_local'];
 
 /* ── PALETTE ── */
 const C_LIGHT = {
@@ -122,9 +127,10 @@ function ToastContainer() {
 /* ── MODAL ── */
 function Modal({ title, onClose, children, width=420 }) {
   useEffect(() => {
+    _modalOpen = true;
     const fn = e => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', fn);
-    return () => window.removeEventListener('keydown', fn);
+    return () => { _modalOpen = false; window.removeEventListener('keydown', fn); };
   }, [onClose]);
   return (
     <div onClick={e => e.target===e.currentTarget && onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
@@ -292,7 +298,7 @@ const NAV = [
   {id:'menu',      label:'Menú',         icon:'⊞', group:'GESTIÓN'},
   {id:'mesas',     label:'Mesas',        icon:'⊡'},
   {id:'personal',  label:'Personal',     icon:'◎'},
-  {id:'stock',     label:'Stock',        icon:'📦'},
+  {id:'stock',     label:'Stock',        icon:'▤'},
   null,
   {id:'clientes',  label:'Clientes',     icon:'♦', group:'ANÁLISIS'},
   {id:'reportes',  label:'Reportes',     icon:'≈'},
@@ -701,6 +707,7 @@ function PedidosPage({orders, tables, onRefresh}) {
    MENÚ
 ══════════════════════════════════════════════ */
 function MenuPage({categories,menuItems,onRefresh}) {
+  const [menuTab,setMenuTab]   = useState('productos'); // 'productos' | 'extras'
   const [catFilter,setCatFilter] = useState('all');
   const [showForm,setShowForm] = useState(false);
   const [editId,setEditId] = useState(null);
@@ -711,8 +718,62 @@ function MenuPage({categories,menuItems,onRefresh}) {
   const [dragOver,setDragOver] = useState(null);
   const dragItem = useRef(null);
   const [form,setForm] = useState({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:'',stock_min:'0'});
+  const [newItemExtras,setNewItemExtras] = useState([]);
+  const [extrasModal,setExtrasModal]   = useState(null); // item para editar sus extras
+  const [itemExtras,setItemExtras]     = useState([]);   // extras del item en modal
+  const [allExtras,setAllExtras]       = useState([]);   // para tab Extras
+  const [extrasLoading,setExtrasLoading] = useState(false);
+  const [savingExt,setSavingExt]       = useState(false);
+
   const visible = catFilter==='all'?menuItems:menuItems.filter(i=>i.category_id===catFilter);
   const catName = id => categories.find(c=>c.id===id)?.name||'—';
+  const itemName = id => menuItems.find(i=>i.id===id)?.name||'—';
+
+  /* cargar todos los extras (tab Extras) */
+  async function loadAllExtras() {
+    if(!db||!menuItems.length) return;
+    setExtrasLoading(true);
+    const ids = menuItems.map(i=>i.id);
+    const {data} = await db.from('menu_item_extras').select('*').in('item_id',ids).order('item_id').order('id');
+    setAllExtras(data||[]);
+    setExtrasLoading(false);
+  }
+  useEffect(()=>{ if(menuTab==='extras') loadAllExtras(); },[menuTab,menuItems]);
+
+  /* cargar extras de un item específico (modal) */
+  async function openExtrasModal(item) {
+    setExtrasModal(item);
+    if(!db){setItemExtras([]);return;}
+    const {data} = await db.from('menu_item_extras').select('*').eq('item_id',item.id).order('id');
+    setItemExtras(data||[]);
+  }
+  async function saveItemExtra(ext) {
+    if(!db) return;
+    setSavingExt(true);
+    const {error} = await db.from('menu_item_extras').update({name:ext.name,price_guarani:parseInt(ext.price_guarani)||0,is_active:ext.is_active}).eq('id',ext.id);
+    if(error) toast('Error: '+error.message,false);
+    setSavingExt(false);
+  }
+  async function deleteItemExtra(id) {
+    if(!db) return;
+    await db.from('menu_item_extras').delete().eq('id',id);
+    setItemExtras(p=>p.filter(e=>e.id!==id));
+    loadAllExtras();
+  }
+  async function addExtraToItem(item) {
+    if(!db) return;
+    const {data,error} = await db.from('menu_item_extras').insert({item_id:item.id,name:'Nuevo extra',price_guarani:0,is_active:true}).select();
+    if(error){toast('Error: '+error.message,false);return;}
+    setItemExtras(p=>[...p,...(data||[])]);
+    loadAllExtras();
+  }
+  async function toggleExtraActive(ext) {
+    if(!db) return;
+    const {error} = await db.from('menu_item_extras').update({is_active:!ext.is_active}).eq('id',ext.id);
+    if(error){toast('Error: '+error.message,false);return;}
+    setItemExtras(p=>p.map(e=>e.id===ext.id?{...e,is_active:!e.is_active}:e));
+    setAllExtras(p=>p.map(e=>e.id===ext.id?{...e,is_active:!e.is_active}:e));
+  }
 
   // Realtime menú
   useEffect(()=>{
@@ -751,7 +812,18 @@ function MenuPage({categories,menuItems,onRefresh}) {
     const{data,error}=await db.from('menu_items').insert({id:nextId,name:form.name,description:form.description||null,price_guarani:parseInt(form.price_guarani),category_id:form.category_id,restaurant_id:RID,is_available:form.is_available,promo_tag:form.promo_tag||null,image_url:form.image_url||null,stock_min:parseInt(form.stock_min)||0}).select('id');
     if(error){toast('Error al guardar: '+error.message,false);}
     else if(!data||data.length===0){toast('No se pudo crear el item — verificá RLS en Supabase',false);}
-    else{toast('Item creado — ya visible en la app');setShowForm(false);setForm({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:'',stock_min:'0'});onRefresh();}
+    else{
+      const newId = data[0].id;
+      const validExtras = newItemExtras.filter(e=>e.name.trim());
+      if(validExtras.length>0&&db){
+        await db.from('menu_item_extras').insert(validExtras.map(e=>({item_id:newId,name:e.name.trim(),price_guarani:parseInt(e.price)||0,is_active:true})));
+      }
+      toast('Item creado — ya visible en la app');
+      setShowForm(false);
+      setNewItemExtras([]);
+      setForm({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:'',stock_min:'0'});
+      onRefresh();
+    }
     setSaving(false);
   }
   async function toggleAvail(item) {
@@ -794,16 +866,76 @@ function MenuPage({categories,menuItems,onRefresh}) {
 
   return (
     <div className="page">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
         <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Menú</h1>
         <div style={{display:'flex',gap:8}}>
           <a href="index.html" target="_blank" style={{fontSize:12,color:'#6E6E73',padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:6,textDecoration:'none'}}>Ver app →</a>
-          <Btn onClick={()=>setShowForm(!showForm)}>+ Nuevo item</Btn>
+          {menuTab==='productos'&&<Btn onClick={()=>{setShowForm(!showForm);setNewItemExtras([]);}}>+ Nuevo item</Btn>}
         </div>
       </div>
-      <div style={{background:'rgba(34,197,94,0.06)',border:'1px solid rgba(34,197,94,0.2)',borderRadius:8,padding:'9px 14px',marginBottom:14,fontSize:12,color:'#86868B'}}>
-        Los cambios se guardan en Supabase. La app del cliente los ve al refrescar. Si crear o eliminar items falla, ejecutá las migraciones <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#AEAEB2',fontSize:11}}>010</code> y <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#AEAEB2',fontSize:11}}>012</code> en Supabase. Para subir fotos ejecutá también la <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#AEAEB2',fontSize:11}}>011</code>.
+
+      {/* Sub-tabs: Productos | Extras */}
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
+        {[['productos','Productos'],['extras','Extras / Modificadores']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>{setMenuTab(id);setShowForm(false);}} style={{background:'none',border:'none',color:menuTab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:menuTab===id?700:400,borderBottom:menuTab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+        ))}
       </div>
+
+      {/* ── TAB EXTRAS ── */}
+      {menuTab==='extras'&&(
+        <div>
+          <div style={{fontSize:12,color:'#6E6E73',marginBottom:14}}>Todos los extras y modificadores del restaurante. Hacé clic en "Editar extras" desde la tabla de productos para añadir/quitar.</div>
+          {extrasLoading&&<div style={{display:'flex',gap:8,alignItems:'center',color:'#6E6E73',fontSize:13,padding:20}}><span className="spin"/>Cargando…</div>}
+          {!extrasLoading&&(
+            <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Nombre del extra</Th><Th>Producto</Th><Th right>Precio</Th><Th>Estado</Th></tr></thead>
+                <tbody>
+                  {allExtras.map(e=>(
+                    <tr key={e.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                      <Td>{e.name}</Td>
+                      <Td dim style={{fontSize:11}}>{itemName(e.item_id)}</Td>
+                      <Td mono right>{e.price_guarani>0?`₲ ${e.price_guarani.toLocaleString('es-PY')}`:'Gratis'}</Td>
+                      <Td>
+                        <button onClick={()=>toggleExtraActive(e)} style={{background:e.is_active?'rgba(52,199,89,0.1)':'rgba(142,142,147,0.1)',border:`1px solid ${e.is_active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,color:e.is_active?'#34C759':'#86868B',padding:'2px 9px',fontSize:11,fontWeight:600,borderRadius:5,cursor:'pointer'}}>
+                          {e.is_active?'Activo':'Inactivo'}
+                        </button>
+                      </Td>
+                    </tr>
+                  ))}
+                  {allExtras.length===0&&<EmptyRow cols={4} label="Sin extras configurados — agregalos desde cada producto"/>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB PRODUCTOS ── */}
+      {menuTab==='productos'&&(<>
+
+      {/* Modal extras de un item */}
+      {extrasModal&&(
+        <Modal title={`Extras: ${extrasModal.name}`} onClose={()=>{setExtrasModal(null);loadAllExtras();}} width={540}>
+          <div style={{marginBottom:12,fontSize:12,color:'#6E6E73'}}>Editá los extras y modificadores de este producto. Los extras con precio 0 son opciones informativas.</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:12}}>
+            {itemExtras.map((e,i)=>(
+              <div key={e.id} style={{display:'grid',gridTemplateColumns:'1fr 120px 80px 32px',gap:8,alignItems:'center'}}>
+                <input value={e.name} onChange={ev=>setItemExtras(p=>p.map((x,j)=>j===i?{...x,name:ev.target.value}:x))} onBlur={()=>saveItemExtra(e)} style={{padding:'6px 9px',fontSize:13,border:`1px solid ${C.border}`,borderRadius:6}}/>
+                <div style={{display:'flex',alignItems:'center',gap:4}}>
+                  <span style={{fontSize:11,color:'#6E6E73'}}>₲</span>
+                  <input type="number" value={e.price_guarani} onChange={ev=>setItemExtras(p=>p.map((x,j)=>j===i?{...x,price_guarani:ev.target.value}:x))} onBlur={()=>saveItemExtra(e)} style={{width:'100%',padding:'6px 9px',fontSize:13,border:`1px solid ${C.border}`,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
+                </div>
+                <button onClick={()=>toggleExtraActive(e)} style={{padding:'5px 8px',fontSize:11,fontWeight:600,borderRadius:5,border:`1px solid ${e.is_active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,background:e.is_active?'rgba(52,199,89,0.1)':'transparent',color:e.is_active?'#34C759':'#86868B',cursor:'pointer'}}>{e.is_active?'Activo':'Inact.'}</button>
+                <button onClick={()=>deleteItemExtra(e.id)} style={{background:'none',border:'none',color:'#FF3B30',fontSize:18,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+              </div>
+            ))}
+            {itemExtras.length===0&&<div style={{color:'#D2D2D7',fontSize:12,padding:8}}>Sin extras — agregá el primero</div>}
+          </div>
+          <Btn variant="secondary" onClick={()=>addExtraToItem(extrasModal)} disabled={savingExt} small>+ Agregar extra</Btn>
+        </Modal>
+      )}
+
       {/* Modal vista previa de producto */}
       {previewItem&&(
         <Modal title="Vista previa del producto" onClose={()=>setPreviewItem(null)} width={380}>
@@ -861,9 +993,24 @@ function MenuPage({categories,menuItems,onRefresh}) {
                 <div style={{gridColumn:'1/-1'}}><Lbl>IMAGEN DEL PRODUCTO</Lbl><ImageUploader value={form.image_url} onChange={url=>setForm({...form,image_url:url})}/></div>
                 <div style={{gridColumn:'1/-1'}}><Lbl>DESCRIPCIÓN</Lbl><textarea value={form.description||''} onChange={e=>setForm({...form,description:e.target.value})} rows={2} style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:'#fff',border:'1px solid #D2D2D7',color:'#1D1D1F',borderRadius:6}}/></div>
               </div>
-              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              {/* Sección Extras */}
+              <div style={{borderTop:`1px solid ${C.border}`,marginTop:14,paddingTop:14}}>
+                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>EXTRAS Y MODIFICADORES</div>
+                {newItemExtras.map((e,i)=>(
+                  <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 120px 32px',gap:8,alignItems:'center',marginBottom:7}}>
+                    <input value={e.name} onChange={ev=>setNewItemExtras(p=>p.map((x,j)=>j===i?{...x,name:ev.target.value}:x))} placeholder="Nombre del extra (ej: Sin cebolla)" style={{padding:'7px 9px',fontSize:13,border:`1px solid ${C.border}`,borderRadius:6}}/>
+                    <div style={{display:'flex',alignItems:'center',gap:4}}>
+                      <span style={{fontSize:11,color:'#6E6E73',flexShrink:0}}>₲</span>
+                      <input type="number" value={e.price} onChange={ev=>setNewItemExtras(p=>p.map((x,j)=>j===i?{...x,price:ev.target.value}:x))} placeholder="0" style={{width:'100%',padding:'7px 9px',fontSize:13,border:`1px solid ${C.border}`,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
+                    </div>
+                    <button onClick={()=>setNewItemExtras(p=>p.filter((_,j)=>j!==i))} style={{background:'none',border:'none',color:'#FF3B30',fontSize:20,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+                  </div>
+                ))}
+                <Btn variant="secondary" small onClick={()=>setNewItemExtras(p=>[...p,{name:'',price:'0'}])}>+ Agregar extra</Btn>
+              </div>
+              <div style={{display:'flex',gap:8,alignItems:'center',marginTop:14}}>
                 <Btn onClick={addItem} disabled={saving}>{saving?'Guardando…':'Guardar item'}</Btn>
-                <Btn variant="ghost" onClick={()=>setShowForm(false)}>Cancelar</Btn>
+                <Btn variant="ghost" onClick={()=>{setShowForm(false);setNewItemExtras([]);}}>Cancelar</Btn>
               </div>
             </div>
           )}
@@ -928,6 +1075,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                           :<div style={{display:'flex',gap:4}}>
                             <Btn small variant="secondary" onClick={()=>setPreviewItem(item)}>Ver</Btn>
                             <Btn small variant="secondary" onClick={()=>startEdit(item)}>Editar</Btn>
+                            <Btn small variant="secondary" onClick={()=>openExtrasModal(item)}>Extras</Btn>
                             <Btn small variant="danger" onClick={()=>deleteItem(item)}>✕</Btn>
                           </div>}
                       </Td>
@@ -940,6 +1088,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
           </div>
         </div>
       </div>
+      </>)}
     </div>
   );
 }
@@ -1200,6 +1349,7 @@ function PersonalPage() {
 
   async function saveRole(id) {
     if(!db)return;
+    if(!ADMIN_ALLOWED_ROLES.includes(editRole)){toast('No podés asignar ese rol desde el panel admin',false);return;}
     const{error:rpcErr}=await db.rpc('admin_update_user_role',{p_user_role_id:id,p_role:editRole,p_is_active:editActive});
     if(rpcErr){const{error:e}=await db.from('user_roles').update({role:editRole,is_active:editActive}).eq('id',id);if(e){toast('Error: '+e.message,false);return;}}
     toast('Usuario actualizado');
@@ -1266,7 +1416,7 @@ function PersonalPage() {
                     <Td dim style={{fontSize:11}}>{p.email||'—'}</Td>
                     <Td>
                       {editId===p.id
-                        ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:120}}>{ROLES.map(r=><option key={r} value={r}>{r}</option>)}</Sel>
+                        ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:140}}>{ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{r}</option>)}</Sel>
                         :<span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{p.role}</span>}
                     </Td>
                     <Td>
@@ -1359,67 +1509,227 @@ function PersonalPage() {
 }
 
 /* ══════════════════════════════════════════════
-   CLIENTES
+   CLIENTES — Vista mejorada con ranking y export
 ══════════════════════════════════════════════ */
 function ClientesPage({orders}) {
-  const [view,setView] = useState('todos');
-  const { clientMap, inactivos, frecuentes } = useMemo(()=>{
+  const [view,setView]       = useState('todos');
+  const [canalF,setCanalF]   = useState('todos');
+  const [periodF,setPeriodF] = useState('todos');
+  const [search,setSearch]   = useState('');
+  const [detalle,setDetalle] = useState(null); // cliente seleccionado
+  const now = Date.now();
+  const VIP_THRESHOLD = 500000; // ₲ 500.000
+
+  const ORDER_TYPES = {
+    'mesa':'QR Mesa','llevar':'Para Llevar','delivery':'Delivery','counter':'Mostrador','external':'Plataforma'
+  };
+
+  const periodStart = p => {
+    if(p==='semana'){const d=new Date();d.setDate(d.getDate()-6);d.setHours(0,0,0,0);return d.toISOString();}
+    if(p==='mes'){const d=new Date();d.setDate(1);d.setHours(0,0,0,0);return d.toISOString();}
+    if(p==='anio'){const d=new Date();d.setMonth(0,1);d.setHours(0,0,0,0);return d.toISOString();}
+    return '';
+  };
+
+  const { clientMap, frecuentes, inactivos, vip } = useMemo(()=>{
     const m={};
-    orders.filter(o=>!['draft','cancelled'].includes(o.status)&&o.customer_name).forEach(o=>{
-      const k=o.customer_name;
-      if(!m[k])m[k]={name:k,phone:o.customer_phone||null,orders:0,total:0,lastDate:o.created_at};
+    const validOrders = orders.filter(o=>!['draft','cancelled'].includes(o.status));
+    // filtrar por período
+    const ps = periodStart(periodF);
+    const periodOrds = ps ? validOrders.filter(o=>o.created_at>=ps) : validOrders;
+
+    periodOrds.forEach(o=>{
+      const k = o.customer_name||`Anónimo #${o.id.slice(0,6)}`;
+      if(!m[k]) m[k]={name:k,phone:o.customer_phone||null,email:o.customer_email||null,registered:!!o.customer_name,orders:0,total:0,firstDate:o.created_at,lastDate:o.created_at,canales:[],pideFactura:false};
       m[k].orders++;
       m[k].total+=(o.total||0);
-      // ISO strings son comparables lexicográficamente — no se necesita new Date()
-      if(o.created_at>m[k].lastDate)m[k].lastDate=o.created_at;
+      if(o.created_at<m[k].firstDate) m[k].firstDate=o.created_at;
+      if(o.created_at>m[k].lastDate) m[k].lastDate=o.created_at;
+      if(o.order_type) m[k].canales.push(o.order_type);
+      if(o.requires_invoice) m[k].pideFactura=true;
     });
-    const all=Object.values(m).sort((a,b)=>b.orders-a.orders);
-    const cutoff=new Date(Date.now()-30*864e5).toISOString();
+
+    const all = Object.values(m).map(c=>{
+      const canalCount={};
+      c.canales.forEach(t=>{canalCount[t]=(canalCount[t]||0)+1;});
+      const preferred = Object.entries(canalCount).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+      return {...c, preferred, isVip: c.total>=VIP_THRESHOLD};
+    }).sort((a,b)=>b.total-a.total);
+
+    const cutoff = new Date(Date.now()-30*864e5).toISOString();
     return {
       clientMap: all,
-      inactivos: all.filter(c=>c.lastDate<cutoff),
       frecuentes: all.filter(c=>c.orders>=3),
+      inactivos: all.filter(c=>c.lastDate<cutoff),
+      vip: all.filter(c=>c.isVip),
     };
-  },[orders]);
+  },[orders,periodF]);
 
-  const now=Date.now();
-  const INACTIVE_DAYS=30;
-  const displayed = view==='frecuentes'?frecuentes:view==='inactivos'?inactivos:clientMap;
+  // Ranking top consumidores
+  const hoy = new Date().toDateString();
+  const semanaStart = new Date(Date.now()-6*864e5).toISOString();
+  const mesStart = new Date(new Date().setDate(1)).toISOString();
+  function topConsumidor(filter) {
+    const m={};
+    orders.filter(o=>!['draft','cancelled'].includes(o.status)&&o.customer_name&&filter(o)).forEach(o=>{
+      const k=o.customer_name;
+      if(!m[k])m[k]={name:k,total:0};
+      m[k].total+=(o.total||0);
+    });
+    return Object.values(m).sort((a,b)=>b.total-a.total)[0]||null;
+  }
+  const topDia = topConsumidor(o=>new Date(o.created_at).toDateString()===hoy);
+  const topSemana = topConsumidor(o=>o.created_at>=semanaStart);
+  const topMes = topConsumidor(o=>o.created_at>=mesStart);
+
+  // Aplicar filtros
+  const displayed = useMemo(()=>{
+    let res = view==='frecuentes'?frecuentes:view==='inactivos'?inactivos:view==='vip'?vip:view==='factura'?clientMap.filter(c=>c.pideFactura):clientMap;
+    if(canalF!=='todos') res=res.filter(c=>c.preferred===canalF);
+    if(search.trim()) res=res.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())||(c.phone||'').includes(search));
+    return res;
+  },[clientMap,frecuentes,inactivos,vip,view,canalF,search]);
+
+  function exportExcel() {
+    if(!window.XLSX){toast('SheetJS no cargado',false);return;}
+    const rows = displayed.map(c=>({
+      'Nombre': c.name,
+      'Teléfono': c.phone||'',
+      'Email': c.email||'',
+      'Tipo': c.isVip?'VIP':c.registered?'Registrado':'Anónimo',
+      'Pedidos totales': c.orders,
+      'Total gastado (₲)': c.total,
+      'Canal preferido': ORDER_TYPES[c.preferred]||c.preferred||'—',
+      'Primer pedido': c.firstDate?fmtDate(c.firstDate):'',
+      'Último pedido': c.lastDate?fmtDate(c.lastDate):'',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Clientes');
+    XLSX.writeFile(wb,`clientes_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }
+
+  function exportCSV() {
+    const headers = ['Nombre','Telefono','Email','Tipo','Pedidos','Total Gs','Canal preferido','Primer pedido','Ultimo pedido'];
+    const rows = displayed.map(c=>[c.name,c.phone||'',c.email||'',c.isVip?'VIP':c.registered?'Registrado':'Anonimo',c.orders,c.total,c.preferred||'',c.firstDate?fmtDate(c.firstDate):'',c.lastDate?fmtDate(c.lastDate):'']);
+    const csv = [headers,...rows].map(r=>r.join(',')).join('\n');
+    const a=document.createElement('a');
+    a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+    a.download=`clientes_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+  }
+
+  const TypeBadge = ({c}) => {
+    if(c.isVip) return <span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>VIP</span>;
+    if(c.registered) return <span style={{background:'#000',color:'#fff',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>REGISTRADO</span>;
+    return <span style={{background:'#F5F5F7',border:'1px solid #D2D2D7',color:'#86868B',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>ANONIMO</span>;
+  };
 
   return (
     <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:16}}>Clientes</h1>
-      <div style={{display:'flex',gap:10,marginBottom:16,flexWrap:'wrap'}}>
-        <KpiCard label="Clientes únicos"  value={clientMap.length} sub="con nombre registrado"/>
-        <KpiCard label="Frecuentes"       value={frecuentes.length} sub="3+ pedidos" accent={C.green}/>
-        <KpiCard label="Inactivos"        value={inactivos.length} sub={`+${INACTIVE_DAYS} días sin pedir`} accent={inactivos.length>5?C.orange:C.mid}/>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Clientes</h1>
+        <div style={{display:'flex',gap:8}}>
+          <Btn variant="secondary" small onClick={exportCSV}>Exportar CSV</Btn>
+          <Btn variant="secondary" small onClick={exportExcel}>Exportar Excel</Btn>
+        </div>
       </div>
-      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:0}}>
-        {[['todos','Todos'],['frecuentes','Frecuentes'],['inactivos',`Inactivos +${INACTIVE_DAYS}d`]].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?C.ink:'#86868B',padding:'8px 14px',fontSize:12,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+
+      {/* KPIs */}
+      <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+        <KpiCard label="Clientes únicos"  value={clientMap.length} sub="en el período"/>
+        <KpiCard label="Frecuentes"       value={frecuentes.length} sub="3+ pedidos" accent={C.green}/>
+        <KpiCard label="VIP"              value={vip.length} sub={`+₲ ${(VIP_THRESHOLD/1000).toFixed(0)}k gastados`} accent={C.orange}/>
+        <KpiCard label="Inactivos"        value={inactivos.length} sub="+30 días sin pedir" accent={inactivos.length>5?C.red:C.mid}/>
+      </div>
+
+      {/* Ranking top consumidores */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:14}}>
+        {[['Mayor consumidor del dia',topDia],['Mayor consumidor de la semana',topSemana],['Mayor consumidor del mes',topMes]].map(([lbl,top])=>(
+          <div key={lbl} style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px'}}>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>{lbl.toUpperCase()}</div>
+            {top
+              ?<><div style={{fontSize:14,fontWeight:700,color:'#000',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{top.name}</div><div style={{fontSize:12,color:'#6E6E73',marginTop:2,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(top.total)}</div></>
+              :<div style={{fontSize:12,color:'#D2D2D7'}}>Sin datos</div>
+            }
+          </div>
         ))}
       </div>
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginTop:0}}>
+
+      {/* Filtros */}
+      <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+        <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`}}>
+          {[['todos','Todos'],['frecuentes','Frecuentes'],['vip','VIP'],['inactivos','Inactivos'],['factura','Piden factura']].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?'#000':'#86868B',padding:'7px 12px',fontSize:12,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+          ))}
+        </div>
+        <select value={canalF} onChange={e=>setCanalF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
+          <option value="todos">Todos los canales</option>
+          {Object.entries(ORDER_TYPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+        </select>
+        <select value={periodF} onChange={e=>setPeriodF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
+          <option value="todos">Todo el tiempo</option>
+          <option value="semana">Esta semana</option>
+          <option value="mes">Este mes</option>
+          <option value="anio">Este año</option>
+        </select>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar nombre o teléfono…" style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:180}}/>
+        <span style={{fontSize:11,color:'#86868B',marginLeft:'auto'}}>{displayed.length} cliente{displayed.length!==1?'s':''}</span>
+      </div>
+
+      {/* Tabla */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Nombre</Th><Th>Teléfono</Th><Th right>Pedidos</Th><Th right>Total gastado</Th><Th>Último pedido</Th></tr></thead>
+          <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Nombre</Th><Th>Teléfono</Th><Th>Tipo</Th><Th right>Pedidos</Th><Th right>Total gastado</Th><Th>Último pedido</Th><Th>Canal</Th></tr></thead>
           <tbody>
             {displayed.map((c,i)=>{
               const diasInactivo=Math.floor((now-new Date(c.lastDate).getTime())/864e5);
               return (
-                <tr key={i} style={{borderBottom:`1px solid #0d0d0d`}}>
-                  <Td>{c.name}</Td>
+                <tr key={i} onClick={()=>setDetalle(c)} style={{borderBottom:`1px solid #F0F0F0`,cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='#F9F9FA'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <Td>
+                    <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
+                    {c.pideFactura&&<span style={{fontSize:9,fontWeight:700,color:'#007AFF',marginTop:2,display:'block',letterSpacing:0.5}}>FACTURA</span>}
+                  </Td>
                   <Td dim>{c.phone||'—'}</Td>
+                  <Td><TypeBadge c={c}/></Td>
                   <Td right><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color:c.orders>=3?C.green:C.ink}}>{c.orders}</span></Td>
                   <Td mono right>{fmt(c.total)}</Td>
-                  <Td><span style={{color:diasInactivo>30?C.orange:C.mid}}>{fmtDate(c.lastDate)} <span style={{fontSize:10,color:'#6E6E73'}}>{diasInactivo>0?`hace ${diasInactivo}d`:''}</span></span></Td>
+                  <Td><span style={{color:diasInactivo>30?C.orange:C.mid,fontSize:12}}>{fmtDate(c.lastDate)}{diasInactivo>0&&<span style={{color:'#D2D2D7',fontSize:10,marginLeft:4}}>({diasInactivo}d)</span>}</span></Td>
+                  <Td dim style={{fontSize:11}}>{ORDER_TYPES[c.preferred]||c.preferred||'—'}</Td>
                 </tr>
               );
             })}
-            {displayed.length===0&&<EmptyRow cols={5} label="Sin clientes en este filtro"/>}
+            {displayed.length===0&&<EmptyRow cols={7} label="Sin clientes en este filtro"/>}
           </tbody>
         </table>
       </div>
-      {clientMap.length===0&&<div style={{marginTop:12,fontSize:12,color:'#86868B',padding:'10px 14px',background:'rgba(255,255,255,0.02)',borderRadius:8}}>Los pedidos deben incluir nombre del cliente para aparecer aquí.</div>}
+      {clientMap.length===0&&<div style={{marginTop:12,fontSize:12,color:'#86868B',padding:'10px 14px',background:'#F5F5F7',borderRadius:8}}>Los pedidos deben incluir nombre del cliente para aparecer aquí.</div>}
+
+      {/* Modal detalle cliente */}
+      {detalle&&(
+        <Modal title={detalle.name} onClose={()=>setDetalle(null)} width={500}>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div style={{background:'#F5F5F7',borderRadius:8,padding:12}}>
+                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:8,letterSpacing:1}}>DATOS</div>
+                <div style={{fontSize:13,marginBottom:4}}>{detalle.phone?`Tel: ${detalle.phone}`:'Sin teléfono'}</div>
+                <div style={{fontSize:12,color:'#6E6E73'}}>{detalle.email||'Sin email'}</div>
+              </div>
+              <div style={{background:'#F5F5F7',borderRadius:8,padding:12}}>
+                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:8,letterSpacing:1}}>ESTADISTICAS</div>
+                <div style={{fontSize:13,marginBottom:4}}>Total: <b>{fmt(detalle.total)}</b></div>
+                <div style={{fontSize:12,color:'#6E6E73'}}>{detalle.orders} pedidos · Canal: {ORDER_TYPES[detalle.preferred]||detalle.preferred||'—'}</div>
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:6,letterSpacing:1}}>ACTIVIDAD</div>
+              <div style={{fontSize:12,color:'#6E6E73'}}>Primer pedido: {fmtDate(detalle.firstDate)}</div>
+              <div style={{fontSize:12,color:'#6E6E73'}}>Último pedido: {fmtDate(detalle.lastDate)} ({Math.floor((now-new Date(detalle.lastDate).getTime())/864e5)}d atrás)</div>
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end'}}><Btn variant="secondary" onClick={()=>setDetalle(null)}>Cerrar</Btn></div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1638,9 +1948,10 @@ function AlertBoxAdmin({type='info',children}){
 }
 
 /* ══════════════════════════════════════════════
-   FINANZAS
+   FINANZAS — Tabs: resumen, movimientos, alertas, exportar
 ══════════════════════════════════════════════ */
 function FinanzasPage({orders}) {
+  const [finTab,setFinTab] = useState('resumen');
   const [period,setPeriod] = useState('semana');
   const [egresos,setEgresos] = useState([]);
   const [loadingEg,setLoadingEg] = useState(false);
@@ -1648,6 +1959,11 @@ function FinanzasPage({orders}) {
   const [showEgForm,setShowEgForm] = useState(false);
   const [savingEg,setSavingEg] = useState(false);
   const [egForm,setEgForm] = useState({date:new Date().toISOString().slice(0,10),desc:'',amount:'',category:'Insumos'});
+  const [movFilter,setMovFilter] = useState('todos');
+  const [movSearch,setMovSearch] = useState('');
+  const [alertas,setAlertas] = useState({ordesSinMonto:[],turnosSinCierre:[],diferencias:[]});
+  const [loadingAlertas,setLoadingAlertas] = useState(false);
+  const [exportMes,setExportMes] = useState(new Date().toISOString().slice(0,7));
 
   async function loadEgresos() {
     if(!db){setEgresos(LS.get(EGRESOS_KEY,[]));return;}
@@ -1663,6 +1979,23 @@ function FinanzasPage({orders}) {
   }
 
   useEffect(()=>{ loadEgresos(); },[]);
+
+  async function loadAlertas() {
+    if(!db) return;
+    setLoadingAlertas(true);
+    const [oR,tR] = await Promise.all([
+      db.from('orders').select('id,order_number,total,status,created_at').eq('restaurant_id',RID).eq('status','paid').or('total.is.null,total.eq.0'),
+      db.from('turnos_caja').select('id,cajero_nombre,fecha_apertura,diferencia,estado').eq('restaurant_id',RID).eq('estado','abierto').lt('fecha_apertura',new Date(Date.now()-12*3600000).toISOString()),
+    ]);
+    const diffs = await db.from('turnos_caja').select('id,cajero_nombre,fecha_apertura,diferencia').eq('restaurant_id',RID).eq('estado','cerrado').not('diferencia','is',null).gt('diferencia',50000);
+    setAlertas({
+      ordenesSinMonto: oR.data||[],
+      turnosSinCierre: tR.data||[],
+      diferencias: diffs.data||[],
+    });
+    setLoadingAlertas(false);
+  }
+  React.useEffect(()=>{ if(finTab==='alertas') loadAlertas(); },[finTab]);
 
   const valid = o => !['draft','cancelled'].includes(o.status);
   function periodStart(p, asString=false) {
@@ -1725,92 +2058,238 @@ function FinanzasPage({orders}) {
   const egByCat=EG_CATS.map(cat=>({cat,total:egPeriod.filter(e=>e.category===cat).reduce((s,e)=>s+e.amount,0)})).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
   const maxCat=egByCat[0]?.total||1;
 
+  // Exportar resumen mensual a Excel
+  function exportContador() {
+    if(!window.XLSX){toast('SheetJS no cargado',false);return;}
+    const [yr,mo]=exportMes.split('-').map(Number);
+    const start=new Date(yr,mo-1,1);const end=new Date(yr,mo,0,23,59,59);
+    const mesOrds=orders.filter(o=>!['draft','cancelled'].includes(o.status)&&new Date(o.created_at)>=start&&new Date(o.created_at)<=end);
+    const mesEgs=egresos.filter(e=>(e.date||'').startsWith(exportMes));
+    const wb=XLSX.utils.book_new();
+    // Hoja Ingresos
+    const ingRows=[['Orden','Fecha','Tipo','Monto','Método'],...mesOrds.map(o=>[o.order_number||'',fmtDate(o.created_at),o.order_type||'',o.total||0,o.payment_method||''])];
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(ingRows),'Ingresos');
+    // Hoja Egresos
+    const egRows=[['Fecha','Descripción','Categoría','Monto'],...mesEgs.map(e=>[e.date,e.desc||e.description||'',e.category||'',e.amount||0])];
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(egRows),'Egresos');
+    // Hoja Resumen
+    const totIng=mesOrds.reduce((s,o)=>s+(o.total||0),0);
+    const totEg=mesEgs.reduce((s,e)=>s+(e.amount||0),0);
+    const res=[['Métrica','Valor'],['Total ingresos',totIng],['Total egresos',totEg],['Neto estimado',totIng-totEg],['Pedidos',mesOrds.length]];
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(res),'Resumen');
+    XLSX.writeFile(wb,`finanzas_${exportMes}.xlsx`);
+    toast('Excel generado');
+  }
+
+  function exportPDF() {
+    window.print();
+  }
+
+  // Movimientos (todos los egresos + sintesis de orders)
+  const allMovs = useMemo(()=>{
+    const egs = egresos.map(e=>({date:e.date,tipo:'egreso',concepto:e.desc||e.description||'',monto:e.amount||0,cat:e.category||''}));
+    return egs.sort((a,b)=>b.date.localeCompare(a.date));
+  },[egresos]);
+
+  const filteredMovs = useMemo(()=>{
+    let res=[...allMovs];
+    if(movFilter==='ingresos') res=[];
+    if(movFilter==='egresos') res=allMovs;
+    if(movSearch.trim()) res=res.filter(m=>m.concepto.toLowerCase().includes(movSearch.toLowerCase()));
+    return res;
+  },[allMovs,movFilter,movSearch]);
+
   return (
     <div className="page">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
         <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Finanzas</h1>
-        <div style={{display:'flex',gap:6}}>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:18}}>
+        {[['resumen','Resumen del mes'],['movimientos','Movimientos'],['alertas','Alertas contables'],['exportar','Exportar para contador']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setFinTab(id)} style={{background:'none',border:'none',color:finTab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:finTab===id?700:400,borderBottom:finTab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+        ))}
+      </div>
+
+      {/* ── TAB RESUMEN ── */}
+      {finTab==='resumen'&&(<>
+        <div style={{display:'flex',gap:6,marginBottom:14}}>
           {['hoy','semana','mes'].map(p=>(
-            <button key={p} onClick={()=>setPeriod(p)} style={{background:period===p?'rgba(255,255,255,0.1)':'transparent',border:`1px solid ${period===p?C.bs:C.border}`,color:period===p?C.white:C.mid,padding:'6px 14px',fontSize:12,fontWeight:period===p?700:400,borderRadius:6,cursor:'pointer',textTransform:'capitalize'}}>{p}</button>
+            <button key={p} onClick={()=>setPeriod(p)} style={{background:period===p?'#000':'transparent',border:`1px solid ${period===p?'#000':C.border}`,color:period===p?'#fff':C.mid,padding:'6px 14px',fontSize:12,fontWeight:period===p?700:400,borderRadius:6,cursor:'pointer',textTransform:'capitalize'}}>{p}</button>
           ))}
         </div>
-      </div>
+        <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+          <KpiCard label={`Ingresos (${period})`} value={fmt(ingresos)} sub={`${periodOrders.length} pedidos`} accent={C.green}/>
+          <KpiCard label={`Egresos (${period})`}  value={fmt(egresoTotal)} sub={`${egPeriod.length} registros`} accent={C.red}/>
+          <KpiCard label="Margen estimado"         value={fmt(margen)} sub={`${margenPct}% del ingreso`} accent={margenPct>=30?C.green:margenPct>=10?C.yellow:C.red}/>
+          <KpiCard label="Ventas delivery"         value={fmt(llevarTotal)} sub={`${llevarOrders.length} pedidos llevar`}/>
+          <KpiCard label="Comision delivery"       value={fmt(comision)} sub={`${delivPct}% del delivery`} accent={C.orange}/>
+        </div>
 
-      {/* KPIs financieros */}
-      <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
-        <KpiCard label={`Ingresos (${period})`} value={fmt(ingresos)} sub={`${periodOrders.length} pedidos`} accent={C.green}/>
-        <KpiCard label={`Egresos (${period})`}  value={fmt(egresoTotal)} sub={`${egPeriod.length} registros`} accent={C.red}/>
-        <KpiCard label="Margen estimado"         value={fmt(margen)} sub={`${margenPct}% del ingreso`} accent={margenPct>=30?C.green:margenPct>=10?C.yellow:C.red}/>
-        <KpiCard label="Ventas delivery"         value={fmt(llevarTotal)} sub={`${llevarOrders.length} pedidos llevar`}/>
-        <KpiCard label="Comisión delivery"       value={fmt(comision)} sub={`${delivPct}% del delivery`} accent={C.orange}/>
-      </div>
+        {/* Config comisión delivery */}
+        <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:14}}>
+          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>COMISION DELIVERY %</div>
+          <input type="number" value={delivPct} onChange={e=>{const v=parseInt(e.target.value)||0;setDelivPct(v);LS.set(DELIV_KEY,v);}} min={0} max={50} style={{width:70,padding:'6px 9px',fontSize:14,fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'right',border:`1px solid ${C.border}`,borderRadius:6}}/>
+          <span style={{fontSize:12,color:'#6E6E73'}}>% sobre total pedidos para llevar</span>
+        </div>
 
-      {/* Config comisión delivery */}
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:14,display:'flex',alignItems:'center',gap:14}}>
-        <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>COMISIÓN DELIVERY %</div>
-        <input type="number" value={delivPct} onChange={e=>{const v=parseInt(e.target.value)||0;setDelivPct(v);LS.set(DELIV_KEY,v);}} min={0} max={50} style={{width:70,padding:'6px 9px',fontSize:14,fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'right',background:'#F5F5F7',border:'1px solid #333',color:'#fff',borderRadius:6}}/>
-        <span style={{fontSize:12,color:'#6E6E73'}}>% sobre total pedidos para llevar</span>
-      </div>
-
-      <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:14}}>
-        {/* Egresos list */}
-        <div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-            <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>EGRESOS REGISTRADOS</div>
-            <Btn small onClick={()=>setShowEgForm(!showEgForm)}>+ Agregar</Btn>
-          </div>
-          {showEgForm&&(
-            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:10}}>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
-                <div><Lbl>FECHA</Lbl><Inp type="date" value={egForm.date} onChange={e=>setEgForm({...egForm,date:e.target.value})}/></div>
-                <div><Lbl>MONTO (₲) *</Lbl><Inp type="number" mono value={egForm.amount} onChange={e=>setEgForm({...egForm,amount:e.target.value})} placeholder="50000"/></div>
-                <div><Lbl>CATEGORÍA</Lbl><Sel value={egForm.category} onChange={e=>setEgForm({...egForm,category:e.target.value})}>{EG_CATS.map(c=><option key={c}>{c}</option>)}</Sel></div>
-                <div><Lbl>DESCRIPCIÓN *</Lbl><Inp value={egForm.desc} onChange={e=>setEgForm({...egForm,desc:e.target.value})} placeholder="Descripción…"/></div>
-              </div>
-              <div style={{display:'flex',gap:8}}><Btn small onClick={addEgreso} disabled={savingEg}>{savingEg?'Guardando…':'Guardar egreso'}</Btn><Btn small variant="ghost" onClick={()=>setShowEgForm(false)}>Cancelar</Btn></div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:14}}>
+          {/* Egresos */}
+          <div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+              <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>EGRESOS REGISTRADOS</div>
+              <Btn small onClick={()=>setShowEgForm(!showEgForm)}>+ Agregar</Btn>
             </div>
-          )}
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+            {showEgForm&&(
+              <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:10}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+                  <div><Lbl>FECHA</Lbl><Inp type="date" value={egForm.date} onChange={e=>setEgForm({...egForm,date:e.target.value})}/></div>
+                  <div><Lbl>MONTO (₲) *</Lbl><Inp type="number" mono value={egForm.amount} onChange={e=>setEgForm({...egForm,amount:e.target.value})} placeholder="50000"/></div>
+                  <div><Lbl>CATEGORIA</Lbl><Sel value={egForm.category} onChange={e=>setEgForm({...egForm,category:e.target.value})}>{EG_CATS.map(c=><option key={c}>{c}</option>)}</Sel></div>
+                  <div><Lbl>DESCRIPCION *</Lbl><Inp value={egForm.desc} onChange={e=>setEgForm({...egForm,desc:e.target.value})} placeholder="Descripcion…"/></div>
+                </div>
+                <div style={{display:'flex',gap:8}}><Btn small onClick={addEgreso} disabled={savingEg}>{savingEg?'Guardando…':'Guardar egreso'}</Btn><Btn small variant="ghost" onClick={()=>setShowEgForm(false)}>Cancelar</Btn></div>
+              </div>
+            )}
+            <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Fecha</Th><Th>Descripcion</Th><Th>Cat.</Th><Th right>Monto</Th><Th/></tr></thead>
+                <tbody>
+                  {egPeriod.map(e=>(
+                    <tr key={e.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                      <Td mono dim>{e.date}</Td>
+                      <Td>{e.desc||e.description}</Td>
+                      <Td dim>{e.category}</Td>
+                      <Td mono right style={{color:C.red}}>{fmt(e.amount)}</Td>
+                      <Td><button onClick={()=>delEgreso(e)} style={{background:'none',border:'none',color:'#86868B',cursor:'pointer',fontSize:14}}>✕</button></Td>
+                    </tr>
+                  ))}
+                  {egPeriod.length===0&&<EmptyRow cols={5} label="Sin egresos este periodo"/>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {/* Distribución por categoría */}
+          <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:18}}>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>EGRESOS POR CATEGORIA</div>
+            {egByCat.length===0&&<div style={{color:'#D2D2D7',fontSize:12}}>Sin egresos este periodo</div>}
+            {egByCat.map(({cat,total})=>(
+              <div key={cat} style={{marginBottom:12}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4}}>
+                  <span style={{color:C.mid}}>{cat}</span>
+                  <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.red}}>{fmt(total)}</span>
+                </div>
+                <div style={{height:4,background:'#EEEEEE',borderRadius:2,overflow:'hidden'}}>
+                  <div style={{width:`${(total/maxCat)*100}%`,height:'100%',background:C.red,borderRadius:2}}/>
+                </div>
+              </div>
+            ))}
+            {egByCat.length>0&&(
+              <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12,marginTop:4,display:'flex',justifyContent:'space-between',fontSize:13,fontWeight:700}}>
+                <span>Total</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.red}}>{fmt(egresoTotal)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </>)}
+
+      {/* ── TAB MOVIMIENTOS ── */}
+      {finTab==='movimientos'&&(
+        <div>
+          <div style={{fontSize:12,color:'#6E6E73',marginBottom:12}}>Historial de egresos registrados. Los ingresos se ven en el módulo de Pedidos con detalle de órdenes.</div>
+          <div style={{display:'flex',gap:8,marginBottom:14,alignItems:'center'}}>
+            <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:6,overflow:'hidden'}}>
+              {[['todos','Todos'],['egresos','Egresos']].map(([id,lbl])=>(
+                <button key={id} onClick={()=>setMovFilter(id)} style={{padding:'5px 12px',fontSize:12,fontWeight:movFilter===id?700:400,background:movFilter===id?'#000':'#fff',color:movFilter===id?'#fff':'#6E6E73',border:'none',cursor:'pointer'}}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+            <input value={movSearch} onChange={e=>setMovSearch(e.target.value)} placeholder="Buscar concepto…" style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:180}}/>
+          </div>
+          <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Fecha</Th><Th>Descripción</Th><Th>Cat.</Th><Th right>Monto</Th><Th/></tr></thead>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Fecha</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Categoria</Th><Th right>Monto</Th></tr></thead>
               <tbody>
-                {egPeriod.map(e=>(
-                  <tr key={e.id} style={{borderBottom:`1px solid #0d0d0d`}}>
-                    <Td mono dim>{e.date}</Td>
-                    <Td>{e.desc}</Td>
-                    <Td dim>{e.category}</Td>
-                    <Td mono right style={{color:C.red}}>{fmt(e.amount)}</Td>
-                    <Td><button onClick={()=>delEgreso(e)} style={{background:'none',border:'none',color:'#86868B',cursor:'pointer',fontSize:14}}>✕</button></Td>
+                {filteredMovs.map((m,i)=>(
+                  <tr key={i} style={{borderBottom:`1px solid #F0F0F0`}}>
+                    <Td mono dim>{m.date}</Td>
+                    <Td><span style={{background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.2)',color:'#C0190F',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>EGRESO</span></Td>
+                    <Td>{m.concepto}</Td>
+                    <Td dim>{m.cat}</Td>
+                    <Td mono right style={{color:C.red}}>{fmt(m.monto)}</Td>
                   </tr>
                 ))}
-                {egPeriod.length===0&&<EmptyRow cols={5} label="Sin egresos este período"/>}
+                {filteredMovs.length===0&&<EmptyRow cols={5} label="Sin movimientos"/>}
               </tbody>
             </table>
           </div>
         </div>
+      )}
 
-        {/* Distribución por categoría */}
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18}}>
-          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>EGRESOS POR CATEGORÍA</div>
-          {egByCat.length===0&&<div style={{color:'#D2D2D7',fontSize:12}}>Sin egresos este período</div>}
-          {egByCat.map(({cat,total})=>(
-            <div key={cat} style={{marginBottom:12}}>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4}}>
-                <span style={{color:C.mid}}>{cat}</span>
-                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.red}}>{fmt(total)}</span>
+      {/* ── TAB ALERTAS CONTABLES ── */}
+      {finTab==='alertas'&&(
+        <div>
+          <div style={{fontSize:12,color:'#6E6E73',marginBottom:14}}>Verificaciones automáticas del sistema. Revisalas antes de cerrar el mes.</div>
+          {loadingAlertas&&<div style={{color:'#86868B',padding:20}}><span className="spin"/> Verificando…</div>}
+          {!loadingAlertas&&(
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              {/* Órdenes sin monto */}
+              <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                <div style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div style={{fontSize:13,fontWeight:700}}>Ordenes sin monto registrado</div>
+                  <span style={{background:alertas.ordenesSinMonto?.length>0?'#FFEDEC':'#E8F9ED',color:alertas.ordenesSinMonto?.length>0?'#C0190F':'#1A7E37',padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{alertas.ordenesSinMonto?.length||0}</span>
+                </div>
+                {alertas.ordenesSinMonto?.length>0
+                  ?<table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <thead><tr><Th>#Orden</Th><Th>Fecha</Th><Th right>Total</Th></tr></thead>
+                    <tbody>{alertas.ordenesSinMonto.map(o=><tr key={o.id} style={{borderBottom:`1px solid #F0F0F0`}}><Td mono dim>{o.order_number}</Td><Td dim>{fmtDate(o.created_at)}</Td><Td mono right style={{color:C.red}}>{fmt(o.total)}</Td></tr>)}</tbody>
+                  </table>
+                  :<div style={{padding:'12px 16px',fontSize:12,color:'#86868B'}}>Sin alertas</div>}
               </div>
-              <div style={{height:4,background:'#FFFFFF',borderRadius:2,overflow:'hidden'}}>
-                <div style={{width:`${(total/maxCat)*100}%`,height:'100%',background:C.red,borderRadius:2}}/>
+              {/* Turnos sin cierre */}
+              <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                <div style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div style={{fontSize:13,fontWeight:700}}>Turnos de caja sin cierre (+12h)</div>
+                  <span style={{background:alertas.turnosSinCierre?.length>0?'#FFEDEC':'#E8F9ED',color:alertas.turnosSinCierre?.length>0?'#C0190F':'#1A7E37',padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{alertas.turnosSinCierre?.length||0}</span>
+                </div>
+                {alertas.turnosSinCierre?.length>0
+                  ?<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr><Th>Cajero</Th><Th>Apertura</Th></tr></thead><tbody>{alertas.turnosSinCierre.map(t=><tr key={t.id} style={{borderBottom:`1px solid #F0F0F0`}}><Td>{t.cajero_nombre||'—'}</Td><Td mono dim>{fmtDT(t.fecha_apertura)}</Td></tr>)}</tbody></table>
+                  :<div style={{padding:'12px 16px',fontSize:12,color:'#86868B'}}>Sin alertas</div>}
               </div>
-            </div>
-          ))}
-          {egByCat.length>0&&(
-            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12,marginTop:4,display:'flex',justifyContent:'space-between',fontSize:13,fontWeight:700}}>
-              <span>Total</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.red}}>{fmt(egresoTotal)}</span>
+              {/* Diferencias de caja */}
+              <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                <div style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div style={{fontSize:13,fontWeight:700}}>Diferencias de caja &gt; ₲ 50.000</div>
+                  <span style={{background:alertas.diferencias?.length>0?'#FFF4E0':'#E8F9ED',color:alertas.diferencias?.length>0?'#8A4B00':'#1A7E37',padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{alertas.diferencias?.length||0}</span>
+                </div>
+                {alertas.diferencias?.length>0
+                  ?<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr><Th>Cajero</Th><Th>Apertura</Th><Th right>Diferencia</Th></tr></thead><tbody>{alertas.diferencias.map(t=><tr key={t.id} style={{borderBottom:`1px solid #F0F0F0`}}><Td>{t.cajero_nombre||'—'}</Td><Td mono dim>{fmtDate(t.fecha_apertura)}</Td><Td mono right style={{color:C.orange}}>{fmt(t.diferencia)}</Td></tr>)}</tbody></table>
+                  :<div style={{padding:'12px 16px',fontSize:12,color:'#86868B'}}>Sin alertas</div>}
+              </div>
             </div>
           )}
         </div>
-      </div>
+      )}
+
+      {/* ── TAB EXPORTAR ── */}
+      {finTab==='exportar'&&(
+        <div style={{maxWidth:600}}>
+          <div style={{fontSize:12,color:'#6E6E73',marginBottom:20}}>Generá archivos para enviar a tu contador. Seleccioná el mes y elegí el formato.</div>
+          <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:24,display:'flex',flexDirection:'column',gap:20}}>
+            <div style={{display:'flex',alignItems:'center',gap:12}}>
+              <Lbl>MES A EXPORTAR</Lbl>
+              <input type="month" value={exportMes} onChange={e=>setExportMes(e.target.value)} style={{padding:'7px 10px',fontSize:13,border:`1px solid ${C.border}`,borderRadius:6}}/>
+            </div>
+            <div style={{display:'flex',gap:10}}>
+              <Btn onClick={exportContador} style={{flex:1}}>Generar Excel completo</Btn>
+              <Btn variant="secondary" onClick={exportPDF} style={{flex:1}}>Generar PDF (imprimir)</Btn>
+            </div>
+            <div style={{fontSize:11,color:'#86868B',lineHeight:1.5}}>El Excel incluye hojas: Ingresos, Egresos, Resumen. El PDF usa la impresión del navegador — usá "Guardar como PDF" en el diálogo de impresión.</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1962,49 +2441,196 @@ function MarketingPage({coupons,orders,onRefresh}) {
 }
 
 /* ══════════════════════════════════════════════
-   CALIFICACIONES
+   CALIFICACIONES — filtros por canal + mensajes de cocina
 ══════════════════════════════════════════════ */
 function RatingsPage({ratings}) {
-  const avg = ratings.length ? (ratings.reduce((s,r)=>s+r.stars,0)/ratings.length).toFixed(1) : '0.0';
-  const dist = [5,4,3,2,1].map(s=>({s,n:ratings.filter(r=>r.stars===s).length}));
+  const [tab,setTab]           = useState('ratings');  // 'ratings' | 'mensajes'
+  const [originF,setOriginF]   = useState('all');
+  const [messages,setMessages] = useState([]);
+  const [loadingMsg,setLoadingMsg] = useState(false);
+  const [newMsg,setNewMsg]     = useState('');
+  const [savingMsg,setSavingMsg] = useState(false);
+  const [frequency,setFreq]    = useState(10);
+
+  const ORIGINS = {
+    all:'Todos',
+    qr_mesa:'QR Mesa',
+    delivery:'Delivery',
+    pickup:'Para Llevar',
+    counter:'Mostrador',
+    unknown:'Sin origen',
+  };
+
+  const filtered = originF==='all' ? ratings : ratings.filter(r=>(r.origin||'unknown')===originF);
+  const avg = filtered.length ? (filtered.reduce((s,r)=>s+r.stars,0)/filtered.length).toFixed(1) : '0.0';
+  const dist = [5,4,3,2,1].map(s=>({s,n:filtered.filter(r=>r.stars===s).length}));
+
+  // KPIs por canal
+  const kpiByChannel = Object.entries(ORIGINS).filter(([k])=>k!=='all').map(([k,label])=>{
+    const rts = ratings.filter(r=>(r.origin||'unknown')===k);
+    return {k,label,count:rts.length,avg:rts.length?(rts.reduce((s,r)=>s+r.stars,0)/rts.length).toFixed(1):'—'};
+  }).filter(x=>x.count>0);
+
+  async function loadMessages() {
+    if(!db) return;
+    setLoadingMsg(true);
+    const {data} = await db.from('kitchen_messages').select('*').eq('restaurant_id',RID).order('created_at');
+    setMessages(data||[]);
+    const {data:settings} = await db.from('restaurant_settings').select('kitchen_message_frequency').eq('restaurant_id',RID).single();
+    if(settings?.kitchen_message_frequency) setFreq(settings.kitchen_message_frequency);
+    setLoadingMsg(false);
+  }
+
+  React.useEffect(()=>{ if(tab==='mensajes') loadMessages(); },[tab]);
+
+  async function saveMessage() {
+    if(!newMsg.trim()||!db){toast('Escribí un mensaje',false);return;}
+    if(newMsg.length>80){toast('Máximo 80 caracteres',false);return;}
+    setSavingMsg(true);
+    const {error} = await db.from('kitchen_messages').insert({restaurant_id:RID,message:newMsg.trim(),active:true});
+    if(error){toast('Error: '+error.message,false);}
+    else{toast('Mensaje guardado');setNewMsg('');loadMessages();}
+    setSavingMsg(false);
+  }
+
+  async function toggleMessage(msg) {
+    if(!db) return;
+    await db.from('kitchen_messages').update({active:!msg.active}).eq('id',msg.id);
+    setMessages(p=>p.map(m=>m.id===msg.id?{...m,active:!m.active}:m));
+  }
+
+  async function deleteMessage(id) {
+    if(!db||!confirm('¿Eliminar este mensaje?')) return;
+    await db.from('kitchen_messages').delete().eq('id',id);
+    setMessages(p=>p.filter(m=>m.id!==id));
+    toast('Mensaje eliminado');
+  }
+
+  async function saveFrequency(val) {
+    setFreq(val);
+    if(db) await db.from('restaurant_settings').upsert({restaurant_id:RID,kitchen_message_frequency:val},{onConflict:'restaurant_id'});
+  }
+
   return (
     <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:20}}>Calificaciones</h1>
-      <div style={{display:'flex',gap:12,marginBottom:16}}>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'20px 26px',minWidth:160}}>
-          <div style={{fontSize:42,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.yellow,lineHeight:1}}>{avg}</div>
-          <div style={{fontSize:16,color:C.yellow,margin:'8px 0 4px'}}>{'★'.repeat(Math.round(Number(avg)))}</div>
-          <div style={{fontSize:12,color:'#6E6E73'}}>{ratings.length} calificaciones</div>
-        </div>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'16px 20px',flex:1}}>
-          {dist.map(({s,n})=>{
-            const pct=ratings.length?Math.round(n/ratings.length*100):0;
-            return (
-              <div key={s} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-                <span style={{color:C.yellow,fontSize:12,width:10}}>{s}</span>
-                <span style={{color:C.yellow,fontSize:10}}>★</span>
-                <div style={{flex:1,height:6,background:'#FFFFFF',borderRadius:3,overflow:'hidden'}}><div style={{width:`${pct}%`,height:'100%',background:C.yellow,borderRadius:3}}/></div>
-                <span style={{fontSize:11,color:'#6E6E73',width:24,textAlign:'right'}}>{n}</span>
+      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:14}}>Calificaciones</h1>
+
+      {/* Sub-tabs */}
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
+        {[['ratings','Calificaciones'],['mensajes','Mensajes de cocina']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+        ))}
+      </div>
+
+      {/* ── TAB RATINGS ── */}
+      {tab==='ratings'&&(<>
+        {/* KPIs por canal */}
+        {kpiByChannel.length>0&&(
+          <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+            {kpiByChannel.map(ch=>(
+              <div key={ch.k} style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',minWidth:120}}>
+                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:4}}>{ch.label.toUpperCase()}</div>
+                <div style={{fontSize:20,fontWeight:800,color:C.yellow}}>{ch.avg} ★</div>
+                <div style={{fontSize:11,color:'#86868B'}}>{ch.count} reseñas</div>
               </div>
-            );
-          })}
-        </div>
-      </div>
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Rating</Th><Th>Comentario</Th><Th>Fecha</Th></tr></thead>
-          <tbody>
-            {ratings.map(r=>(
-              <tr key={r.id} style={{borderBottom:`1px solid #0d0d0d`}}>
-                <Td><Stars n={r.stars}/></Td>
-                <Td style={{color:r.comment?C.ink:'#D2D2D7',fontStyle:r.comment?'normal':'italic'}}>{r.comment||'Sin comentario'}</Td>
-                <Td mono dim>{fmtDate(r.created_at)}</Td>
-              </tr>
             ))}
-            {ratings.length===0&&<EmptyRow cols={3} label="Sin calificaciones aún"/>}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        )}
+
+        {/* Filtro por canal */}
+        <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
+          {Object.entries(ORIGINS).map(([k,lbl])=>(
+            <button key={k} onClick={()=>setOriginF(k)} style={{background:'none',border:'none',color:originF===k?'#000':'#86868B',padding:'6px 12px',fontSize:12,fontWeight:originF===k?700:400,borderBottom:originF===k?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+          ))}
+        </div>
+
+        <div style={{display:'flex',gap:12,marginBottom:16}}>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'20px 26px',minWidth:160}}>
+            <div style={{fontSize:42,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.yellow,lineHeight:1}}>{avg}</div>
+            <div style={{fontSize:16,color:C.yellow,margin:'8px 0 4px'}}>{'★'.repeat(Math.round(Number(avg)))}</div>
+            <div style={{fontSize:12,color:'#6E6E73'}}>{filtered.length} calificaciones</div>
+          </div>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'16px 20px',flex:1}}>
+            {dist.map(({s,n})=>{
+              const pct=filtered.length?Math.round(n/filtered.length*100):0;
+              return (
+                <div key={s} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                  <span style={{color:C.yellow,fontSize:12,width:10}}>{s}</span>
+                  <span style={{color:C.yellow,fontSize:10}}>★</span>
+                  <div style={{flex:1,height:6,background:'#EEEEEE',borderRadius:3,overflow:'hidden'}}><div style={{width:`${pct}%`,height:'100%',background:C.yellow,borderRadius:3}}/></div>
+                  <span style={{fontSize:11,color:'#6E6E73',width:24,textAlign:'right'}}>{n}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Rating</Th><Th>Comentario</Th><Th>Canal</Th><Th>Fecha</Th></tr></thead>
+            <tbody>
+              {filtered.map(r=>(
+                <tr key={r.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                  <Td><Stars n={r.stars}/></Td>
+                  <Td style={{color:r.comment?C.ink:'#D2D2D7',fontStyle:r.comment?'normal':'italic'}}>{r.comment||'Sin comentario'}</Td>
+                  <Td dim style={{fontSize:11}}>{ORIGINS[r.origin||'unknown']||r.origin||'—'}</Td>
+                  <Td mono dim>{fmtDate(r.created_at)}</Td>
+                </tr>
+              ))}
+              {filtered.length===0&&<EmptyRow cols={4} label="Sin calificaciones en este filtro"/>}
+            </tbody>
+          </table>
+        </div>
+      </>)}
+
+      {/* ── TAB MENSAJES DE COCINA ── */}
+      {tab==='mensajes'&&(
+        <div>
+          <div style={{fontSize:12,color:'#6E6E73',marginBottom:14}}>Los mensajes configurados aquí aparecen en el KDS de cocina según la frecuencia elegida. Máximo 80 caracteres por mensaje.</div>
+
+          {/* Frecuencia */}
+          <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:12}}>
+            <span style={{fontSize:13,color:'#000',fontWeight:600}}>Mostrar cada</span>
+            <select value={frequency} onChange={e=>saveFrequency(parseInt(e.target.value))} style={{padding:'5px 9px',fontSize:13,borderRadius:6,border:`1px solid ${C.border}`}}>
+              {[1,5,10,15,20,30,50].map(n=><option key={n} value={n}>cada {n} pedidos</option>)}
+            </select>
+            <span style={{fontSize:12,color:'#6E6E73'}}>pedidos completados</span>
+          </div>
+
+          {/* Nuevo mensaje */}
+          <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px',marginBottom:14}}>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>NUEVO MENSAJE</div>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <input value={newMsg} onChange={e=>setNewMsg(e.target.value.slice(0,80))} placeholder="Ej: Gracias al equipo por su esfuerzo!" maxLength={80} style={{flex:1,padding:'8px 10px',fontSize:13,border:`1px solid ${C.border}`,borderRadius:6}}/>
+              <span style={{fontSize:11,color:'#86868B',flexShrink:0}}>{newMsg.length}/80</span>
+              <Btn small onClick={saveMessage} disabled={savingMsg||!newMsg.trim()}>Guardar</Btn>
+            </div>
+          </div>
+
+          {/* Lista de mensajes */}
+          {loadingMsg&&<div style={{color:'#86868B',padding:20}}><span className="spin"/> Cargando…</div>}
+          {!loadingMsg&&(
+            <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Mensaje</Th><Th>Estado</Th><Th/></tr></thead>
+                <tbody>
+                  {messages.map(m=>(
+                    <tr key={m.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                      <Td style={{color:m.active?'#1D1D1F':'#86868B'}}>{m.message}</Td>
+                      <Td>
+                        <button onClick={()=>toggleMessage(m)} style={{background:m.active?'rgba(52,199,89,0.1)':'transparent',border:`1px solid ${m.active?'rgba(52,199,89,0.3)':C.border}`,color:m.active?'#34C759':'#86868B',padding:'2px 9px',fontSize:11,fontWeight:600,borderRadius:5,cursor:'pointer'}}>
+                          {m.active?'Activo':'Inactivo'}
+                        </button>
+                      </Td>
+                      <Td><button onClick={()=>deleteMessage(m.id)} style={{background:'none',border:'none',color:'#FF3B30',fontSize:16,cursor:'pointer'}}>✕</button></Td>
+                    </tr>
+                  ))}
+                  {messages.length===0&&<EmptyRow cols={3} label="Sin mensajes configurados — agregá el primero"/>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2022,6 +2648,27 @@ function StockPage() {
   const [loading, setLoading]     = useState(false);
   const [modal, setModal]         = useState(null);
   const [saving, setSaving]       = useState(false);
+  const [autoDiscount, setAutoDiscount] = useState(false);
+  const [savingToggle, setSavingToggle] = useState(false);
+
+  /* Cargar y guardar toggle auto_stock_discount */
+  React.useEffect(()=>{
+    if(!db) return;
+    db.from('restaurant_settings').select('auto_stock_discount').eq('restaurant_id',RID).single()
+      .then(({data})=>{ if(data) setAutoDiscount(!!data.auto_stock_discount); });
+  },[]);
+
+  async function toggleAutoDiscount() {
+    setSavingToggle(true);
+    const next = !autoDiscount;
+    if(db){
+      const{error}=await db.from('restaurant_settings').upsert({restaurant_id:RID,auto_stock_discount:next},{onConflict:'restaurant_id'});
+      if(error){toast('Error al guardar: '+error.message,false);setSavingToggle(false);return;}
+    }
+    setAutoDiscount(next);
+    toast(next?'Descuento automático activado':'Descuento automático desactivado');
+    setSavingToggle(false);
+  }
 
   const emptyIng  = {name:'',category:'',unit:'unit',min_threshold:'0',cost_per_unit:'',stock_quantity:'0'};
   const emptyLoad = {ingredient_id:'',quantity:'',unit:'unit',expiry_date:'',batch_id:'',cost_per_unit:'',notes:''};
@@ -2157,9 +2804,29 @@ function StockPage() {
     </div>
   );
 
+  /* Alertas de vencimiento: ítems que vencen en los próximos 7 días */
+  const now = new Date();
+  const in7d = new Date(now.getTime() + 7*86400000);
+  const expiringAlerts = ingredients.filter(ing => {
+    if(!ing.expiry_date) return false;
+    const exp = new Date(ing.expiry_date);
+    return exp <= in7d;
+  }).sort((a,b)=>new Date(a.expiry_date)-new Date(b.expiry_date));
+
   return (
     <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:16}}>Stock e Inventario</h1>
+      <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:12}}>Stock e Inventario</h1>
+
+      {/* Toggle descuento automático — prominente */}
+      <div style={{background:'#fff',border:`2px solid ${autoDiscount?'#34C759':'#D2D2D7'}`,borderRadius:10,padding:'14px 18px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:16}}>
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:'#000',marginBottom:3}}>Descuento automático de stock al confirmar pedidos</div>
+          <div style={{fontSize:11,color:'#6E6E73'}}>Requiere tener recetas configuradas por producto. Si está OFF, el stock no se descuenta al recibir pedidos.</div>
+        </div>
+        <button onClick={toggleAutoDiscount} disabled={savingToggle} style={{flexShrink:0,width:52,height:28,borderRadius:14,border:'none',background:autoDiscount?'#34C759':'#D2D2D7',cursor:savingToggle?'wait':'pointer',position:'relative',transition:'background .2s'}}>
+          <span style={{position:'absolute',top:3,left:autoDiscount?26:3,width:22,height:22,borderRadius:11,background:'#fff',transition:'left .2s',display:'block',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
+        </button>
+      </div>
 
       {/* Tabs + refresh */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
@@ -2172,7 +2839,31 @@ function StockPage() {
         <button onClick={loadData} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺ Actualizar</button>
       </div>
 
-      {/* Alertas activas */}
+      {/* Alertas de vencimiento */}
+      {expiringAlerts.length>0&&(
+        <div style={{marginBottom:12,background:'#FFF9F0',border:'1px solid #FFD580',borderRadius:8,overflow:'hidden'}}>
+          <div style={{padding:'8px 14px',borderBottom:'1px solid #FFD580',fontSize:10,fontWeight:700,color:'#8A4B00',letterSpacing:1}}>VENCIMIENTOS PROXIMOS</div>
+          {expiringAlerts.map(ing=>{
+            const exp = new Date(ing.expiry_date);
+            const vencido = exp < now;
+            const diffDays = Math.ceil((exp-now)/86400000);
+            return (
+              <div key={ing.id} style={{padding:'8px 14px',borderBottom:'1px solid #FFD58040',display:'flex',justifyContent:'space-between',alignItems:'center',background:vencido?'#FFF0F0':'transparent'}}>
+                <div style={{fontSize:13,fontWeight:600,color:'#000'}}>{ing.name}</div>
+                <div style={{display:'flex',alignItems:'center',gap:10}}>
+                  <span style={{fontSize:11,color:'#86868B'}}>{fmtDate(ing.expiry_date)}</span>
+                  {vencido
+                    ?<span style={{background:'#FFEDEC',border:'1px solid #FFB3AD',color:'#C0190F',padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>VENCIDO</span>
+                    :<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>VENCE en {diffDays}d</span>
+                  }
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Alertas activas de stock */}
       {alerts.length>0&&(
         <div style={{marginBottom:14,display:'flex',flexDirection:'column',gap:6}}>
           {alerts.map(al=>(
@@ -3313,21 +4004,23 @@ function AdminApp() {
   useEffect(()=>{ loadAll(); },[]);
 
   // Realtime global + polling 30s
+  // Los handlers usan loadAll(true) para no desmontar modales abiertos
   useEffect(()=>{
     if(!db) return;
     const ch = db.channel('admin-global-rt')
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>loadAll())
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>loadAll())
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`},()=>loadAll())
-      .on('postgres_changes',{event:'*',schema:'public',table:'menu_items',filter:`restaurant_id=eq.${RID}`},()=>loadAll())
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>loadAll(true))
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>loadAll(true))
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`},()=>loadAll(true))
+      .on('postgres_changes',{event:'*',schema:'public',table:'menu_items',filter:`restaurant_id=eq.${RID}`},()=>loadAll(true))
       .subscribe();
-    const poll = setInterval(loadAll, 30000);
+    const poll = setInterval(()=>{ if(!_modalOpen) loadAll(true); }, 30000);
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };
   },[]);
 
-  async function loadAll() {
-    setLoading(true);
-    if(!db){setLoading(false);return;}
+  // silent=true → refresca datos sin setLoading(true) (no desmonta modales)
+  async function loadAll(silent=false) {
+    if(!silent) setLoading(true);
+    if(!db){if(!silent) setLoading(false);return;}
     const [rR,tR,oR,cR,iR,cpR,raR] = await Promise.all([
       db.from('restaurants').select('*').eq('id',RID).single(),
       db.from('tables').select('*').eq('restaurant_id',RID).order('number'),
@@ -3358,7 +4051,7 @@ function AdminApp() {
     setMenuItems(iR.data||[]);
     setCoupons(cpR.data||[]);
     setRatings(raR.data||[]);
-    setLoading(false);
+    if(!silent) setLoading(false);
   }
 
   function renderPage() {
