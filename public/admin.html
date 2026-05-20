@@ -708,30 +708,239 @@ function PedidosPage({orders, tables, onRefresh}) {
 /* ══════════════════════════════════════════════
    MENÚ
 ══════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════
+   ITEM MODAL — crear / editar producto del menú
+══════════════════════════════════════════════ */
+const PROMO_TYPES = [
+  {value:'',            label:'Sin tipo de promo'},
+  {value:'pizza_corrida',    label:'Pizza corrida'},
+  {value:'hamburgesa_corrida',label:'Hamburguesa corrida'},
+  {value:'tenedor_libre',    label:'Tenedor libre'},
+  {value:'sushi_libre',      label:'Sushi libre'},
+  {value:'bebida_libre',     label:'Bebida libre'},
+  {value:'other',            label:'Otra promo especial'},
+];
+const PROMO_LABEL = Object.fromEntries(PROMO_TYPES.map(p=>[p.value,p.label]));
+
+function ItemModal({item, categories, onClose, onSaved}) {
+  const isNew = !item;
+  const [form, setForm] = useState({
+    name:          item?.name          ?? '',
+    description:   item?.description   ?? '',
+    price_guarani: item?.price_guarani  ?? '',
+    discount_pct:  item?.discount_pct   ?? 0,
+    category_id:   item?.category_id   ?? '',
+    is_available:  item?.is_available   ?? true,
+    promo_type:    item?.promo_type     ?? '',
+    promo_tag:     item?.promo_tag      ?? '',
+    dine_in_only:  item?.dine_in_only   ?? false,
+    image_url:     item?.image_url      ?? '',
+    stock_min:     item?.stock_min      ?? 0,
+  });
+  const [extras, setExtras]         = useState([]);
+  const [extrasReady, setExtrasReady] = useState(isNew);
+  const [saving, setSaving]         = useState(false);
+
+  const f = (k,v) => setForm(p=>({...p,[k]:v}));
+
+  useEffect(()=>{
+    if(!isNew && db){
+      db.from('menu_item_extras').select('*').eq('item_id',item.id).order('id')
+        .then(({data})=>{ setExtras(data||[]); setExtrasReady(true); });
+    }
+  },[]);
+
+  const addExtra    = () => setExtras(p=>[...p,{id:null,name:'',price_guarani:0,is_active:true}]);
+  const removeExtra = i  => setExtras(p=>p.filter((_,j)=>j!==i));
+  const updExtra    = (i,k,v) => setExtras(p=>p.map((e,j)=>j===i?{...e,[k]:v}:e));
+
+  const finalPrice = () => {
+    const p = parseInt(form.price_guarani)||0;
+    const d = parseInt(form.discount_pct)||0;
+    return d>0 ? Math.round(p*(100-d)/100) : p;
+  };
+
+  async function save() {
+    if(!form.name.trim()||!form.price_guarani||!form.category_id){
+      toast('Completá nombre, precio y categoría',false); return;
+    }
+    setSaving(true);
+    const payload = {
+      name:          form.name.trim(),
+      description:   form.description||null,
+      price_guarani: parseInt(form.price_guarani),
+      discount_pct:  parseInt(form.discount_pct)||0,
+      category_id:   form.category_id,
+      restaurant_id: RID,
+      is_available:  form.is_available,
+      promo_type:    form.promo_type||null,
+      promo_tag:     form.promo_tag||null,
+      dine_in_only:  form.dine_in_only,
+      image_url:     form.image_url||null,
+      stock_min:     parseInt(form.stock_min)||0,
+    };
+    let itemId = item?.id;
+    if(isNew){
+      const{data:mx}=await db.from('menu_items').select('id').order('id',{ascending:false}).limit(1);
+      const nextId=(mx&&mx.length>0?mx[0].id:0)+1;
+      const{data,error}=await db.from('menu_items').insert({id:nextId,...payload}).select('id');
+      if(error||!data?.length){toast('Error: '+(error?.message||'verificá RLS'),false);setSaving(false);return;}
+      itemId=data[0].id;
+    } else {
+      const{data,error}=await db.from('menu_items').update(payload).eq('id',item.id).select('id');
+      if(error||!data?.length){toast('Error: '+(error?.message||'verificá RLS'),false);setSaving(false);return;}
+      await db.from('menu_item_extras').delete().eq('item_id',item.id);
+    }
+    const validExtras = extras.filter(e=>e.name.trim());
+    if(validExtras.length>0){
+      await db.from('menu_item_extras').insert(
+        validExtras.map(e=>({item_id:itemId,name:e.name.trim(),price_guarani:parseInt(e.price_guarani)||0,is_active:e.is_active!==false}))
+      );
+    }
+    toast(isNew?'Producto creado — ya visible en la app':'Cambios guardados');
+    setSaving(false);
+    onSaved();
+    onClose();
+  }
+
+  const disc = parseInt(form.discount_pct)||0;
+  const baseP = parseInt(form.price_guarani)||0;
+
+  return (
+    <Modal title={isNew?'Nuevo producto':`Editar: ${item.name}`} onClose={onClose} width={650}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+
+        {/* Imagen */}
+        <div style={{gridColumn:'1/-1'}}>
+          <Lbl>IMAGEN DEL PRODUCTO</Lbl>
+          <ImageUploader value={form.image_url} onChange={url=>f('image_url',url)}/>
+        </div>
+
+        {/* Nombre */}
+        <div>
+          <Lbl>NOMBRE *</Lbl>
+          <Inp value={form.name} onChange={e=>f('name',e.target.value)} placeholder="Lomito completo"/>
+        </div>
+
+        {/* Categoría */}
+        <div>
+          <Lbl>CATEGORÍA *</Lbl>
+          <Sel value={form.category_id} onChange={e=>f('category_id',e.target.value)}>
+            <option value="">Seleccionar…</option>
+            {categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+          </Sel>
+        </div>
+
+        {/* Precio */}
+        <div>
+          <Lbl>PRECIO (₲) *</Lbl>
+          <Inp type="number" mono value={form.price_guarani} onChange={e=>f('price_guarani',e.target.value)} placeholder="75000"/>
+        </div>
+
+        {/* Descuento */}
+        <div>
+          <Lbl>DESCUENTO (%)</Lbl>
+          <Inp type="number" mono value={form.discount_pct} onChange={e=>f('discount_pct',e.target.value)} placeholder="0" min="0" max="100"/>
+          {disc>0&&baseP>0&&(
+            <div style={{fontSize:11,marginTop:4,display:'flex',gap:8,alignItems:'center'}}>
+              <span style={{color:'#86868B',textDecoration:'line-through'}}>{fmt(baseP)}</span>
+              <span style={{color:'#34C759',fontWeight:700}}>{fmt(finalPrice())}</span>
+              <span style={{color:'#34C759'}}>−{disc}%</span>
+            </div>
+          )}
+        </div>
+
+        {/* Tipo de promo */}
+        <div>
+          <Lbl>TIPO DE PROMO</Lbl>
+          <Sel value={form.promo_type} onChange={e=>f('promo_type',e.target.value)}>
+            {PROMO_TYPES.map(p=><option key={p.value} value={p.value}>{p.label}</option>)}
+          </Sel>
+          {form.promo_type&&<div style={{fontSize:11,color:'#8A4B00',marginTop:4,background:'#FFF4E0',padding:'3px 8px',borderRadius:4,display:'inline-block'}}>{PROMO_LABEL[form.promo_type]}</div>}
+        </div>
+
+        {/* Badge / etiqueta libre */}
+        <div>
+          <Lbl>BADGE / ETIQUETA</Lbl>
+          <Inp value={form.promo_tag} onChange={e=>f('promo_tag',e.target.value)} placeholder="2×1, Chef ★, Nuevo…"/>
+        </div>
+
+        {/* Stock mínimo */}
+        <div>
+          <Lbl>STOCK MÍNIMO</Lbl>
+          <Inp type="number" mono value={form.stock_min} onChange={e=>f('stock_min',e.target.value)} placeholder="0"/>
+        </div>
+
+        {/* Checkboxes */}
+        <div style={{display:'flex',flexDirection:'column',gap:10,justifyContent:'flex-end',paddingBottom:2}}>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer'}}>
+            <input type="checkbox" checked={form.is_available} onChange={e=>f('is_available',e.target.checked)}/>
+            Disponible en carta
+          </label>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer'}}>
+            <input type="checkbox" checked={form.dine_in_only} onChange={e=>f('dine_in_only',e.target.checked)}/>
+            Solo consumo en local
+          </label>
+        </div>
+
+        {/* Descripción */}
+        <div style={{gridColumn:'1/-1'}}>
+          <Lbl>DESCRIPCIÓN</Lbl>
+          <textarea value={form.description||''} onChange={e=>f('description',e.target.value)} rows={2}
+            style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:'#fff',border:'1px solid #D2D2D7',color:'#1D1D1F',borderRadius:6,boxSizing:'border-box'}}/>
+        </div>
+
+        {/* Extras */}
+        <div style={{gridColumn:'1/-1',borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+          <Lbl>EXTRAS E INGREDIENTES ADICIONALES</Lbl>
+          {!extrasReady&&<div style={{color:'#86868B',fontSize:12,padding:'4px 0 10px'}}>Cargando extras…</div>}
+          {extrasReady&&(<>
+            {extras.map((e,i)=>(
+              <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 140px 76px 32px',gap:8,alignItems:'center',marginBottom:7}}>
+                <Inp value={e.name} onChange={ev=>updExtra(i,'name',ev.target.value)} placeholder="Ej: Queso extra, Picante, Sin cebolla"/>
+                <div style={{display:'flex',alignItems:'center',gap:4}}>
+                  <span style={{fontSize:11,color:'#6E6E73',flexShrink:0}}>₲</span>
+                  <Inp type="number" mono value={e.price_guarani} onChange={ev=>updExtra(i,'price_guarani',ev.target.value)} placeholder="0"/>
+                </div>
+                <button onClick={()=>updExtra(i,'is_active',!e.is_active)}
+                  style={{padding:'5px 6px',fontSize:11,fontWeight:600,borderRadius:5,cursor:'pointer',border:`1px solid ${e.is_active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,background:e.is_active?'rgba(52,199,89,0.1)':'transparent',color:e.is_active?'#34C759':'#86868B'}}>
+                  {e.is_active?'Activo':'Inact.'}
+                </button>
+                <button onClick={()=>removeExtra(i)} style={{background:'none',border:'none',color:'#FF3B30',fontSize:20,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+              </div>
+            ))}
+            {extras.length===0&&<div style={{color:'#D2D2D7',fontSize:12,padding:'4px 0 10px'}}>Sin extras — agregá el primero abajo</div>}
+            <Btn variant="secondary" small onClick={addExtra}>+ Agregar extra</Btn>
+          </>)}
+        </div>
+
+      </div>
+      <div style={{display:'flex',gap:8,marginTop:20}}>
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':(isNew?'Crear producto':'Guardar cambios')}</Btn>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   MENU PAGE
+══════════════════════════════════════════════ */
 function MenuPage({categories,menuItems,onRefresh}) {
-  const [menuTab,setMenuTab]   = useState('productos'); // 'productos' | 'extras'
+  const [menuTab,setMenuTab]     = useState('productos');
   const [catFilter,setCatFilter] = useState('all');
-  const [showForm,setShowForm] = useState(false);
-  const [editId,setEditId] = useState(null);
-  const [editVals,setEditVals] = useState({});
-  const [saving,setSaving] = useState(false);
-  const [newCat,setNewCat] = useState('');
+  const [itemModal,setItemModal] = useState(null); // null | {item: null|object}
   const [previewItem,setPreviewItem] = useState(null);
-  const [dragOver,setDragOver] = useState(null);
+  const [newCat,setNewCat]       = useState('');
+  const [dragOver,setDragOver]   = useState(null);
   const dragItem = useRef(null);
-  const [form,setForm] = useState({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:'',stock_min:'0'});
-  const [newItemExtras,setNewItemExtras] = useState([]);
-  const [extrasModal,setExtrasModal]   = useState(null); // item para editar sus extras
-  const [itemExtras,setItemExtras]     = useState([]);   // extras del item en modal
-  const [allExtras,setAllExtras]       = useState([]);   // para tab Extras
+  const [allExtras,setAllExtras]       = useState([]);
   const [extrasLoading,setExtrasLoading] = useState(false);
-  const [savingExt,setSavingExt]       = useState(false);
 
   const visible = catFilter==='all'?menuItems:menuItems.filter(i=>i.category_id===catFilter);
   const catName = id => categories.find(c=>c.id===id)?.name||'—';
   const itemName = id => menuItems.find(i=>i.id===id)?.name||'—';
 
-  /* cargar todos los extras (tab Extras) */
   async function loadAllExtras() {
     if(!db||!menuItems.length) return;
     setExtrasLoading(true);
@@ -742,42 +951,13 @@ function MenuPage({categories,menuItems,onRefresh}) {
   }
   useEffect(()=>{ if(menuTab==='extras') loadAllExtras(); },[menuTab,menuItems]);
 
-  /* cargar extras de un item específico (modal) */
-  async function openExtrasModal(item) {
-    setExtrasModal(item);
-    if(!db){setItemExtras([]);return;}
-    const {data} = await db.from('menu_item_extras').select('*').eq('item_id',item.id).order('id');
-    setItemExtras(data||[]);
-  }
-  async function saveItemExtra(ext) {
-    if(!db) return;
-    setSavingExt(true);
-    const {error} = await db.from('menu_item_extras').update({name:ext.name,price_guarani:parseInt(ext.price_guarani)||0,is_active:ext.is_active}).eq('id',ext.id);
-    if(error) toast('Error: '+error.message,false);
-    setSavingExt(false);
-  }
-  async function deleteItemExtra(id) {
-    if(!db) return;
-    await db.from('menu_item_extras').delete().eq('id',id);
-    setItemExtras(p=>p.filter(e=>e.id!==id));
-    loadAllExtras();
-  }
-  async function addExtraToItem(item) {
-    if(!db) return;
-    const {data,error} = await db.from('menu_item_extras').insert({item_id:item.id,name:'Nuevo extra',price_guarani:0,is_active:true}).select();
-    if(error){toast('Error: '+error.message,false);return;}
-    setItemExtras(p=>[...p,...(data||[])]);
-    loadAllExtras();
-  }
   async function toggleExtraActive(ext) {
     if(!db) return;
     const {error} = await db.from('menu_item_extras').update({is_active:!ext.is_active}).eq('id',ext.id);
     if(error){toast('Error: '+error.message,false);return;}
-    setItemExtras(p=>p.map(e=>e.id===ext.id?{...e,is_active:!e.is_active}:e));
     setAllExtras(p=>p.map(e=>e.id===ext.id?{...e,is_active:!e.is_active}:e));
   }
 
-  // Realtime menú
   useEffect(()=>{
     if(!db) return;
     const ch = db.channel('menu-rt')
@@ -787,7 +967,6 @@ function MenuPage({categories,menuItems,onRefresh}) {
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };
   },[]);
 
-  // Drag-and-drop para reordenar
   function onDragStart(item) { dragItem.current = item; }
   async function onDrop(targetItem) {
     if(!dragItem.current||!db||dragItem.current.id===targetItem.id) return;
@@ -800,62 +979,26 @@ function MenuPage({categories,menuItems,onRefresh}) {
   }
 
   async function addCategory() {
-    if(!db||!newCat.trim())return;
+    if(!db||!newCat.trim()) return;
     const{data,error}=await db.from('menu_categories').insert({restaurant_id:RID,name:newCat.trim(),sort_order:categories.length+1}).select('id');
     if(error){toast('Error: '+error.message,false);}
     else if(!data||data.length===0){toast('No se pudo crear la categoría — verificá RLS en Supabase',false);}
     else{toast('Categoría agregada');setNewCat('');onRefresh();}
   }
-  async function addItem() {
-    if(!db||!form.name||!form.price_guarani||!form.category_id){toast('Completá nombre, precio y categoría',false);return;}
-    setSaving(true);
-    const{data:maxData}=await db.from('menu_items').select('id').order('id',{ascending:false}).limit(1);
-    const nextId=(maxData&&maxData.length>0?maxData[0].id:0)+1;
-    const{data,error}=await db.from('menu_items').insert({id:nextId,name:form.name,description:form.description||null,price_guarani:parseInt(form.price_guarani),category_id:form.category_id,restaurant_id:RID,is_available:form.is_available,promo_tag:form.promo_tag||null,image_url:form.image_url||null,stock_min:parseInt(form.stock_min)||0}).select('id');
-    if(error){toast('Error al guardar: '+error.message,false);}
-    else if(!data||data.length===0){toast('No se pudo crear el item — verificá RLS en Supabase',false);}
-    else{
-      const newId = data[0].id;
-      const validExtras = newItemExtras.filter(e=>e.name.trim());
-      if(validExtras.length>0&&db){
-        await db.from('menu_item_extras').insert(validExtras.map(e=>({item_id:newId,name:e.name.trim(),price_guarani:parseInt(e.price)||0,is_active:true})));
-      }
-      toast('Item creado — ya visible en la app');
-      setShowForm(false);
-      setNewItemExtras([]);
-      setForm({name:'',description:'',price_guarani:'',category_id:'',is_available:true,promo_tag:'',image_url:'',stock_min:'0'});
-      onRefresh();
-    }
-    setSaving(false);
-  }
+
   async function toggleAvail(item) {
-    if(!db)return;
+    if(!db) return;
     const{data,error}=await db.from('menu_items').update({is_available:!item.is_available}).eq('id',item.id).select('id');
     if(error){toast('Error: '+error.message,false);}
     else if(!data||data.length===0){toast('No se pudo actualizar — verificá permisos RLS en Supabase',false);}
     else{toast(item.is_available?'Desactivado — no aparece en carta':'Activado — visible en carta');onRefresh();}
   }
-  async function saveEdit(item) {
-    if(!db)return;
-    const v=editVals[item.id]||{};
-    const upd={};
-    if(v.name!==undefined&&v.name!==item.name)upd.name=v.name;
-    if(v.desc!==undefined&&v.desc!==(item.description||''))upd.description=v.desc||null;
-    if(v.price!==undefined&&parseInt(v.price)!==item.price_guarani)upd.price_guarani=parseInt(v.price);
-    if(v.promo!==undefined&&v.promo!==(item.promo_tag||''))upd.promo_tag=v.promo||null;
-    if(v.img!==undefined&&v.img!==(item.image_url||''))upd.image_url=v.img||null;
-    if(v.stock_min!==undefined&&parseInt(v.stock_min)!==(item.stock_min||0))upd.stock_min=parseInt(v.stock_min)||0;
-    if(!Object.keys(upd).length){setEditId(null);return;}
-    const{data,error}=await db.from('menu_items').update(upd).eq('id',item.id).select('id');
-    if(error){toast('Error: '+error.message,false);}
-    else if(!data||data.length===0){toast('No se pudo guardar — verificá permisos RLS en Supabase',false);}
-    else{toast('Guardado — reflejado en la app');setEditId(null);onRefresh();}
-  }
+
   async function deleteItem(item) {
-    if(!db||!confirm(`¿Eliminar "${item.name}"?`))return;
+    if(!db||!confirm(`¿Eliminar "${item.name}"?`)) return;
     const{data,error}=await db.from('menu_items').delete().eq('id',item.id).select('id');
     if(error){
-      const msg = error.message.includes('foreign key') || error.message.includes('order_items')
+      const msg = error.message.includes('foreign key')||error.message.includes('order_items')
         ? 'Este item tiene pedidos históricos. Ejecutá la migración 012 en Supabase para habilitarlo.'
         : 'Error: '+error.message;
       toast(msg,false);
@@ -863,8 +1006,6 @@ function MenuPage({categories,menuItems,onRefresh}) {
     else if(!data||data.length===0){toast('No se pudo eliminar — ejecutá la migración 010 en Supabase',false);}
     else{toast('Item eliminado');onRefresh();}
   }
-  function startEdit(item){setEditId(item.id);setEditVals(v=>({...v,[item.id]:{name:item.name,desc:item.description||'',price:item.price_guarani,promo:item.promo_tag||'',img:item.image_url||'',stock_min:item.stock_min||0}}));}
-  function upd(id,k,v){setEditVals(ev=>({...ev,[id]:{...ev[id],[k]:v}}));}
 
   return (
     <div className="page">
@@ -872,21 +1013,64 @@ function MenuPage({categories,menuItems,onRefresh}) {
         <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Menú</h1>
         <div style={{display:'flex',gap:8}}>
           <a href="index.html" target="_blank" style={{fontSize:12,color:'#6E6E73',padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:6,textDecoration:'none'}}>Ver app →</a>
-          {menuTab==='productos'&&<Btn onClick={()=>{setShowForm(!showForm);setNewItemExtras([]);}}>+ Nuevo item</Btn>}
+          {menuTab==='productos'&&<Btn onClick={()=>setItemModal({item:null})}>+ Nuevo producto</Btn>}
         </div>
       </div>
 
-      {/* Sub-tabs: Productos | Extras */}
+      {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
         {[['productos','Productos'],['extras','Extras / Modificadores']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>{setMenuTab(id);setShowForm(false);}} style={{background:'none',border:'none',color:menuTab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:menuTab===id?700:400,borderBottom:menuTab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+          <button key={id} onClick={()=>setMenuTab(id)} style={{background:'none',border:'none',color:menuTab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:menuTab===id?700:400,borderBottom:menuTab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
+
+      {/* Modal crear / editar */}
+      {itemModal&&(
+        <ItemModal
+          item={itemModal.item}
+          categories={categories}
+          onClose={()=>setItemModal(null)}
+          onSaved={()=>{ onRefresh(); if(menuTab==='extras') loadAllExtras(); }}
+        />
+      )}
+
+      {/* Modal vista previa */}
+      {previewItem&&(
+        <Modal title="Vista previa del producto" onClose={()=>setPreviewItem(null)} width={380}>
+          <div style={{background:'#F5F5F7',borderRadius:12,overflow:'hidden'}}>
+            {previewItem.image_url
+              ?<img src={previewItem.image_url} alt="" style={{width:'100%',height:200,objectFit:'cover'}} onError={e=>{e.target.style.display='none';}}/>
+              :<div style={{height:140,background:'#E8E8ED',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40}}>🍽</div>
+            }
+            <div style={{padding:20}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8,gap:8}}>
+                <div style={{fontSize:18,fontWeight:700,color:'#1D1D1F',flex:1}}>{previewItem.name}</div>
+                <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end',flexShrink:0}}>
+                  {previewItem.promo_tag&&<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 8px',fontSize:11,borderRadius:4}}>{previewItem.promo_tag}</span>}
+                  {previewItem.promo_type&&<span style={{background:'#EFF6FF',border:'1px solid #BFDBFE',color:'#1D4ED8',padding:'2px 8px',fontSize:11,borderRadius:4}}>{PROMO_LABEL[previewItem.promo_type]}</span>}
+                  {previewItem.dine_in_only&&<span style={{background:'#F0FDF4',border:'1px solid #BBF7D0',color:'#166534',padding:'2px 8px',fontSize:11,borderRadius:4}}>Solo en local</span>}
+                </div>
+              </div>
+              {previewItem.description&&<div style={{fontSize:13,color:'#6E6E73',marginBottom:12,lineHeight:1.4}}>{previewItem.description}</div>}
+              {(previewItem.discount_pct>0)
+                ?<div style={{marginBottom:12}}>
+                  <span style={{fontSize:14,color:'#86868B',textDecoration:'line-through',marginRight:8}}>{fmt(previewItem.price_guarani)}</span>
+                  <span style={{fontSize:22,fontWeight:800,color:'#000'}}>{fmt(Math.round(previewItem.price_guarani*(100-previewItem.discount_pct)/100))}</span>
+                  <span style={{fontSize:12,color:'#34C759',marginLeft:6,fontWeight:700}}>−{previewItem.discount_pct}%</span>
+                </div>
+                :<div style={{fontSize:22,fontWeight:800,color:'#000',marginBottom:12}}>{fmt(previewItem.price_guarani)}</div>
+              }
+              <div style={{background:'#000',color:'#fff',padding:'11px',textAlign:'center',borderRadius:8,fontSize:14,fontWeight:600}}>Agregar al pedido</div>
+            </div>
+          </div>
+          <div style={{marginTop:12,fontSize:11,color:'#86868B',textAlign:'center'}}>Solo lectura — sin funcionalidad de carrito</div>
+        </Modal>
+      )}
 
       {/* ── TAB EXTRAS ── */}
       {menuTab==='extras'&&(
         <div>
-          <div style={{fontSize:12,color:'#6E6E73',marginBottom:14}}>Todos los extras y modificadores del restaurante. Hacé clic en "Editar extras" desde la tabla de productos para añadir/quitar.</div>
+          <div style={{fontSize:12,color:'#6E6E73',marginBottom:14}}>Todos los extras configurados. Para añadir o editar extras abrí el producto con "Editar".</div>
           {extrasLoading&&<div style={{display:'flex',gap:8,alignItems:'center',color:'#6E6E73',fontSize:13,padding:20}}><span className="spin"/>Cargando…</div>}
           {!extrasLoading&&(
             <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
@@ -905,7 +1089,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                       </Td>
                     </tr>
                   ))}
-                  {allExtras.length===0&&<EmptyRow cols={4} label="Sin extras configurados — agregalos desde cada producto"/>}
+                  {allExtras.length===0&&<EmptyRow cols={4} label="Sin extras configurados — agregalos editando un producto"/>}
                 </tbody>
               </table>
             </div>
@@ -914,53 +1098,9 @@ function MenuPage({categories,menuItems,onRefresh}) {
       )}
 
       {/* ── TAB PRODUCTOS ── */}
-      {menuTab==='productos'&&(<>
-
-      {/* Modal extras de un item */}
-      {extrasModal&&(
-        <Modal title={`Extras: ${extrasModal.name}`} onClose={()=>{setExtrasModal(null);loadAllExtras();}} width={540}>
-          <div style={{marginBottom:12,fontSize:12,color:'#6E6E73'}}>Editá los extras y modificadores de este producto. Los extras con precio 0 son opciones informativas.</div>
-          <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:12}}>
-            {itemExtras.map((e,i)=>(
-              <div key={e.id} style={{display:'grid',gridTemplateColumns:'1fr 120px 80px 32px',gap:8,alignItems:'center'}}>
-                <input value={e.name} onChange={ev=>setItemExtras(p=>p.map((x,j)=>j===i?{...x,name:ev.target.value}:x))} onBlur={()=>saveItemExtra(e)} style={{padding:'6px 9px',fontSize:13,border:`1px solid ${C.border}`,borderRadius:6}}/>
-                <div style={{display:'flex',alignItems:'center',gap:4}}>
-                  <span style={{fontSize:11,color:'#6E6E73'}}>₲</span>
-                  <input type="number" value={e.price_guarani} onChange={ev=>setItemExtras(p=>p.map((x,j)=>j===i?{...x,price_guarani:ev.target.value}:x))} onBlur={()=>saveItemExtra(e)} style={{width:'100%',padding:'6px 9px',fontSize:13,border:`1px solid ${C.border}`,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
-                </div>
-                <button onClick={()=>toggleExtraActive(e)} style={{padding:'5px 8px',fontSize:11,fontWeight:600,borderRadius:5,border:`1px solid ${e.is_active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,background:e.is_active?'rgba(52,199,89,0.1)':'transparent',color:e.is_active?'#34C759':'#86868B',cursor:'pointer'}}>{e.is_active?'Activo':'Inact.'}</button>
-                <button onClick={()=>deleteItemExtra(e.id)} style={{background:'none',border:'none',color:'#FF3B30',fontSize:18,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
-              </div>
-            ))}
-            {itemExtras.length===0&&<div style={{color:'#D2D2D7',fontSize:12,padding:8}}>Sin extras — agregá el primero</div>}
-          </div>
-          <Btn variant="secondary" onClick={()=>addExtraToItem(extrasModal)} disabled={savingExt} small>+ Agregar extra</Btn>
-        </Modal>
-      )}
-
-      {/* Modal vista previa de producto */}
-      {previewItem&&(
-        <Modal title="Vista previa del producto" onClose={()=>setPreviewItem(null)} width={380}>
-          <div style={{background:'#F5F5F7',borderRadius:12,overflow:'hidden'}}>
-            {previewItem.image_url
-              ?<img src={previewItem.image_url} alt="" style={{width:'100%',height:200,objectFit:'cover'}} onError={e=>{e.target.style.display='none';}}/>
-              :<div style={{height:140,background:'#E8E8ED',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40}}>🍽</div>
-            }
-            <div style={{padding:20}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
-                <div style={{fontSize:18,fontWeight:700,color:'#1D1D1F',flex:1}}>{previewItem.name}</div>
-                {previewItem.promo_tag&&<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 8px',fontSize:11,borderRadius:4,marginLeft:8,flexShrink:0}}>{previewItem.promo_tag}</span>}
-              </div>
-              {previewItem.description&&<div style={{fontSize:13,color:'#6E6E73',marginBottom:12,lineHeight:1.4}}>{previewItem.description}</div>}
-              <div style={{fontSize:22,fontWeight:800,color:'#000',marginBottom:12}}>{fmt(previewItem.price_guarani)}</div>
-              <div style={{background:'#000',color:'#fff',padding:'11px',textAlign:'center',borderRadius:8,fontSize:14,fontWeight:600}}>Agregar al pedido</div>
-            </div>
-          </div>
-          <div style={{marginTop:12,fontSize:11,color:'#86868B',textAlign:'center'}}>Solo lectura — sin funcionalidad de carrito</div>
-        </Modal>
-      )}
-
+      {menuTab==='productos'&&(
       <div style={{display:'flex',gap:14}}>
+        {/* Sidebar categorías */}
         <div style={{width:165,flexShrink:0}}>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,marginBottom:10,overflow:'hidden'}}>
             <div style={{padding:'8px 12px',fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,borderBottom:`1px solid ${C.border}`}}>CATEGORÍAS</div>
@@ -977,53 +1117,17 @@ function MenuPage({categories,menuItems,onRefresh}) {
             <Btn variant="secondary" onClick={addCategory} style={{marginTop:7,width:'100%'}} small disabled={!newCat.trim()}>Agregar</Btn>
           </div>
         </div>
+
+        {/* Tabla de productos */}
         <div style={{flex:1}}>
-          {showForm&&(
-            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20,marginBottom:12}}>
-              <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,marginBottom:14,letterSpacing:1}}>NUEVO ITEM</div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
-                <div><Lbl>NOMBRE *</Lbl><Inp value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="Lomito completo"/></div>
-                <div><Lbl>PRECIO (₲) *</Lbl><Inp type="number" mono value={form.price_guarani} onChange={e=>setForm({...form,price_guarani:e.target.value})} placeholder="75000"/></div>
-                <div><Lbl>CATEGORÍA *</Lbl><Sel value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})}><option value="">Seleccionar…</option>{categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</Sel></div>
-                <div><Lbl>PROMO TAG</Lbl><Inp value={form.promo_tag} onChange={e=>setForm({...form,promo_tag:e.target.value})} placeholder="2×1, Nuevo, Chef ★"/></div>
-                <div><Lbl>STOCK MÍNIMO</Lbl><Inp type="number" mono value={form.stock_min} onChange={e=>setForm({...form,stock_min:e.target.value})} placeholder="0"/></div>
-                <div style={{display:'flex',alignItems:'flex-end'}}>
-                  <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13,marginBottom:0}}>
-                    <input type="checkbox" checked={form.is_available} onChange={e=>setForm({...form,is_available:e.target.checked})}/> Disponible al crear
-                  </label>
-                </div>
-                <div style={{gridColumn:'1/-1'}}><Lbl>IMAGEN DEL PRODUCTO</Lbl><ImageUploader value={form.image_url} onChange={url=>setForm({...form,image_url:url})}/></div>
-                <div style={{gridColumn:'1/-1'}}><Lbl>DESCRIPCIÓN</Lbl><textarea value={form.description||''} onChange={e=>setForm({...form,description:e.target.value})} rows={2} style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:'#fff',border:'1px solid #D2D2D7',color:'#1D1D1F',borderRadius:6}}/></div>
-              </div>
-              {/* Sección Extras */}
-              <div style={{borderTop:`1px solid ${C.border}`,marginTop:14,paddingTop:14}}>
-                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>EXTRAS Y MODIFICADORES</div>
-                {newItemExtras.map((e,i)=>(
-                  <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 120px 32px',gap:8,alignItems:'center',marginBottom:7}}>
-                    <input value={e.name} onChange={ev=>setNewItemExtras(p=>p.map((x,j)=>j===i?{...x,name:ev.target.value}:x))} placeholder="Nombre del extra (ej: Sin cebolla)" style={{padding:'7px 9px',fontSize:13,border:`1px solid ${C.border}`,borderRadius:6}}/>
-                    <div style={{display:'flex',alignItems:'center',gap:4}}>
-                      <span style={{fontSize:11,color:'#6E6E73',flexShrink:0}}>₲</span>
-                      <input type="number" value={e.price} onChange={ev=>setNewItemExtras(p=>p.map((x,j)=>j===i?{...x,price:ev.target.value}:x))} placeholder="0" style={{width:'100%',padding:'7px 9px',fontSize:13,border:`1px solid ${C.border}`,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
-                    </div>
-                    <button onClick={()=>setNewItemExtras(p=>p.filter((_,j)=>j!==i))} style={{background:'none',border:'none',color:'#FF3B30',fontSize:20,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
-                  </div>
-                ))}
-                <Btn variant="secondary" small onClick={()=>setNewItemExtras(p=>[...p,{name:'',price:'0'}])}>+ Agregar extra</Btn>
-              </div>
-              <div style={{display:'flex',gap:8,alignItems:'center',marginTop:14}}>
-                <Btn onClick={addItem} disabled={saving}>{saving?'Guardando…':'Guardar item'}</Btn>
-                <Btn variant="ghost" onClick={()=>{setShowForm(false);setNewItemExtras([]);}}>Cancelar</Btn>
-              </div>
-            </div>
-          )}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th></Th><Th>Foto</Th><Th>Nombre</Th><Th>Cat.</Th><Th right>Precio</Th><Th>Promo</Th><Th>Stock</Th><Th>Estado</Th><Th>Acc.</Th></tr></thead>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th></Th><Th>Foto</Th><Th>Nombre</Th><Th>Cat.</Th><Th right>Precio</Th><Th>Promo / Tipo</Th><Th>Estado</Th><Th>Acc.</Th></tr></thead>
               <tbody>
                 {visible.map(item=>{
-                  const ed=editId===item.id;const ev=editVals[item.id]||{};
-                  const stockBajo = (item.stock_min>0) && (item.stock!=null) && (item.stock<=item.stock_min);
-                  const isDragTarget = dragOver===item.id;
+                  const stockBajo=(item.stock_min>0)&&(item.stock!=null)&&(item.stock<=item.stock_min);
+                  const isDragTarget=dragOver===item.id;
+                  const discountedPrice = item.discount_pct>0 ? Math.round(item.price_guarani*(100-item.discount_pct)/100) : null;
                   return (
                     <tr key={item.id}
                       draggable
@@ -1034,63 +1138,54 @@ function MenuPage({categories,menuItems,onRefresh}) {
                       style={{borderBottom:`1px solid #F0F0F0`,opacity:isDragTarget?0.5:1,background:isDragTarget?'#F0F0F0':'transparent',cursor:'grab'}}>
                       <Td><span style={{color:'#D2D2D7',fontSize:14,cursor:'grab'}}>⋮⋮</span></Td>
                       <Td>
-                        {ed
-                          ?<ImageUploader compact value={ev.img||''} onChange={url=>upd(item.id,'img',url)}/>
-                          :item.image_url?<img src={item.image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
+                        {item.image_url
+                          ?<img src={item.image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
                           :<div style={{width:36,height:36,background:'#F5F5F7',borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,color:'#D2D2D7'}}>🍽</div>}
                       </Td>
                       <Td>
-                        {ed?<div style={{display:'flex',flexDirection:'column',gap:4}}>
-                            <Inp value={ev.name||''} onChange={e=>upd(item.id,'name',e.target.value)} placeholder="Nombre"/>
-                            <Inp value={ev.desc||''} onChange={e=>upd(item.id,'desc',e.target.value)} placeholder="Descripción" style={{fontSize:11}}/>
-                          </div>
-                          :<div>
-                            <div style={{color:item.is_available?'#1D1D1F':'#86868B'}}>{item.name}</div>
-                            {item.description&&<div style={{fontSize:11,color:'#86868B',marginTop:2,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>}
-                          </div>}
+                        <div style={{color:item.is_available?'#1D1D1F':'#86868B',fontWeight:500}}>{item.name}</div>
+                        {item.description&&<div style={{fontSize:11,color:'#86868B',marginTop:1,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>}
+                        {item.dine_in_only&&<span style={{fontSize:9,color:'#166534',background:'#F0FDF4',border:'1px solid #BBF7D0',padding:'1px 5px',borderRadius:3,marginTop:2,display:'inline-block'}}>Solo local</span>}
                       </Td>
                       <Td dim>{catName(item.category_id)}</Td>
                       <Td mono right>
-                        {ed?<Inp type="number" mono value={ev.price||''} onChange={e=>upd(item.id,'price',e.target.value)} style={{width:100,textAlign:'right'}}/>:fmt(item.price_guarani)}
-                      </Td>
-                      <Td>
-                        {ed?<Inp value={ev.promo||''} onChange={e=>upd(item.id,'promo',e.target.value)} placeholder="promo…" style={{width:80,fontSize:11}}/>
-                          :item.promo_tag&&<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 6px',fontSize:11,borderRadius:4}}>{item.promo_tag}</span>}
-                      </Td>
-                      <Td>
-                        {ed?<Inp type="number" mono value={ev.stock_min??''} onChange={e=>upd(item.id,'stock_min',e.target.value)} placeholder="0" style={{width:60}}/>
-                          :stockBajo
-                            ?<span style={{background:'#FFEDEC',border:'1px solid #FFB3AD',color:'#C0190F',padding:'2px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>STOCK BAJO</span>
-                            :(item.stock_min>0?<span style={{fontSize:10,color:'#86868B'}}>min {item.stock_min}</span>:null)
+                        {discountedPrice
+                          ?<div>
+                            <span style={{textDecoration:'line-through',color:'#86868B',fontSize:11}}>{fmt(item.price_guarani)}</span>
+                            <div style={{color:'#34C759',fontWeight:700}}>{fmt(discountedPrice)}</div>
+                          </div>
+                          :fmt(item.price_guarani)
                         }
+                        {stockBajo&&<div style={{fontSize:9,color:'#C0190F',fontWeight:700,marginTop:2}}>STOCK BAJO</div>}
                       </Td>
                       <Td>
-                        <button onClick={()=>toggleAvail(item)} style={{background:item.is_available?'rgba(52,199,89,0.1)':'rgba(142,142,147,0.1)',border:`1px solid ${item.is_available?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,color:item.is_available?'#34C759':'#86868B',padding:'3px 9px',fontSize:11,fontWeight:600,borderRadius:5}}>
+                        <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                          {item.promo_tag&&<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 6px',fontSize:11,borderRadius:4,display:'inline-block'}}>{item.promo_tag}</span>}
+                          {item.promo_type&&<span style={{background:'#EFF6FF',border:'1px solid #BFDBFE',color:'#1D4ED8',padding:'2px 6px',fontSize:10,borderRadius:4,display:'inline-block'}}>{PROMO_LABEL[item.promo_type]}</span>}
+                        </div>
+                      </Td>
+                      <Td>
+                        <button onClick={()=>toggleAvail(item)} style={{background:item.is_available?'rgba(52,199,89,0.1)':'rgba(142,142,147,0.1)',border:`1px solid ${item.is_available?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,color:item.is_available?'#34C759':'#86868B',padding:'3px 9px',fontSize:11,fontWeight:600,borderRadius:5,cursor:'pointer'}}>
                           {item.is_available?'Activo':'Inactivo'}
                         </button>
                       </Td>
                       <Td>
-                        {ed?<div style={{display:'flex',gap:5}}>
-                            <Btn small onClick={()=>saveEdit(item)}>✓</Btn>
-                            <Btn small variant="ghost" onClick={()=>setEditId(null)}>✕</Btn>
-                          </div>
-                          :<div style={{display:'flex',gap:4}}>
-                            <Btn small variant="secondary" onClick={()=>setPreviewItem(item)}>Ver</Btn>
-                            <Btn small variant="secondary" onClick={()=>startEdit(item)}>Editar</Btn>
-                            <Btn small variant="secondary" onClick={()=>openExtrasModal(item)}>Extras</Btn>
-                            <Btn small variant="danger" onClick={()=>deleteItem(item)}>✕</Btn>
-                          </div>}
+                        <div style={{display:'flex',gap:4}}>
+                          <Btn small variant="secondary" onClick={()=>setPreviewItem(item)}>Ver</Btn>
+                          <Btn small variant="secondary" onClick={()=>setItemModal({item})}>Editar</Btn>
+                          <Btn small variant="danger" onClick={()=>deleteItem(item)}>✕</Btn>
+                        </div>
                       </Td>
                     </tr>
                   );
                 })}
-                {visible.length===0&&<EmptyRow cols={9} label="Sin items"/>}
+                {visible.length===0&&<EmptyRow cols={8} label="Sin items en esta categoría"/>}
               </tbody>
             </table>
           </div>
         </div>
       </div>
-      </>)}
+      )}
     </div>
   );
 }

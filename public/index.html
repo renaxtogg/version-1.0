@@ -66,14 +66,17 @@ async function dbLoadMenu() {
   if (!db) return null;
   try {
     const { data: cats } = await db.from('menu_categories').select('id,name,sort_order').eq('restaurant_id', RESTAURANT_ID).order('sort_order');
-    const { data: items } = await db.from('menu_items').select('id,category_id,name,description,price_guarani,promo_tag,image_url,menu_item_extras(id,name,price_guarani)').eq('restaurant_id', RESTAURANT_ID).eq('is_available', true).order('sort_order');
+    const { data: items } = await db.from('menu_items').select('id,category_id,name,description,price_guarani,discount_pct,promo_tag,promo_type,dine_in_only,image_url,menu_item_extras(id,name,price_guarani,is_active)').eq('restaurant_id', RESTAURANT_ID).eq('is_available', true).order('sort_order');
     if (!cats || !items) return null;
     const menu = {};
     for (const cat of cats) {
       menu[cat.name] = items.filter(i => i.category_id === cat.id).map(i => ({
         id: i.id, name: i.name, desc: i.description, price: i.price_guarani,
+        discount_pct: i.discount_pct || 0,
         promo: i.promo_tag ? { tag: i.promo_tag } : null,
-        extras: (i.menu_item_extras || []).map(e => ({ n: e.name, p: e.price_guarani })),
+        promo_type: i.promo_type || null,
+        dine_in_only: i.dine_in_only || false,
+        extras: (i.menu_item_extras || []).filter(e => e.is_active !== false).map(e => ({ n: e.name, p: e.price_guarani })),
         image_url: i.image_url || null,
         category: cat.name
       }));
@@ -536,8 +539,8 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWait
   const scrollRef = useRef();
   const restName = restaurant?.name || 'La Huaca';
 
-  // Items con promo para banner superior
-  const promoItems = ALL_ITEMS.filter(i => i.promo);
+  // Items con promo para banner superior (promo_tag, promo_type o descuento)
+  const promoItems = ALL_ITEMS.filter(i => i.promo || i.promo_type || i.discount_pct > 0);
   // Item destacado (Chef ★ o primero con promo)
   const featured = ALL_ITEMS.find(i => i.promo?.tag?.includes('★')) || promoItems[0] || null;
 
@@ -586,20 +589,31 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWait
                   <span style={{ fontSize: 11, fontWeight: 800, color: T.ink, letterSpacing: '0.14em', textTransform: 'uppercase' }}>Promos de hoy</span>
                 </div>
                 <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6 }}>
-                  {promoItems.map(item => (
-                    <div key={item.id} onClick={() => onItemSelect(item)} style={{ flexShrink: 0, width: 155, background: T.white, borderRadius: 14, border: `1px solid ${T.border}`, cursor: 'pointer', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
-                      <div style={{ height: 88, background: item.image_url ? 'transparent' : `linear-gradient(135deg,${T.dark},${T.black})`, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {item.image_url
-                          ? <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          : <Icon name="utensils" size={28} color="rgba(255,255,255,0.12)" />}
-                        <div style={{ position: 'absolute', top: 7, right: 7, background: T.white, color: T.black, borderRadius: 5, padding: '2px 7px', fontSize: 10, fontWeight: 800 }}>{item.promo.tag}</div>
+                  {promoItems.map(item => {
+                    const discP = item.discount_pct > 0 ? Math.round(item.price * (100 - item.discount_pct) / 100) : null;
+                    const badge = item.promo?.tag || (item.discount_pct > 0 ? `−${item.discount_pct}%` : null) || (item.promo_type ? PROMO_TYPE_LABEL[item.promo_type] : null);
+                    return (
+                      <div key={item.id} onClick={() => onItemSelect(item)} style={{ flexShrink: 0, width: 155, background: T.white, borderRadius: 14, border: `1px solid ${T.border}`, cursor: 'pointer', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.07)' }}>
+                        <div style={{ height: 88, background: item.image_url ? 'transparent' : `linear-gradient(135deg,${T.dark},${T.black})`, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {item.image_url
+                            ? <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            : <Icon name="utensils" size={28} color="rgba(255,255,255,0.12)" />}
+                          {badge && <div style={{ position: 'absolute', top: 7, right: 7, background: item.discount_pct > 0 ? '#22C55E' : T.white, color: item.discount_pct > 0 ? '#fff' : T.black, borderRadius: 5, padding: '2px 7px', fontSize: 10, fontWeight: 800, maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{badge}</div>}
+                          {item.dine_in_only && <div style={{ position: 'absolute', bottom: 5, left: 5, background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: 4, padding: '1px 5px', fontSize: 9, fontWeight: 700 }}>Solo local</div>}
+                        </div>
+                        <div style={{ padding: '9px 10px' }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, lineHeight: 1.3, marginBottom: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.name}</div>
+                          {discP
+                            ? <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <span style={{ textDecoration: 'line-through', color: T.silver, fontSize: 11 }}>{fmt(item.price)}</span>
+                                <span style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: 14, color: '#16A34A' }}>{fmt(discP)}</span>
+                              </div>
+                            : <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: 14, color: T.ink }}>{fmt(item.price)}</div>
+                          }
+                        </div>
                       </div>
-                      <div style={{ padding: '9px 10px' }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, lineHeight: 1.3, marginBottom: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.name}</div>
-                        <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: 14, color: T.ink }}>{fmt(item.price)}</div>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -653,21 +667,32 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWait
 
 function ProdCard({ item, onSelect }) {
   const T = useContext(ThemeCtx);
+  const discP = item.discount_pct > 0 ? Math.round(item.price * (100 - item.discount_pct) / 100) : null;
   return (
     <div onClick={() => onSelect(item)} style={{ display: 'flex', gap: T.K.showImg ? 14 : 0, padding: T.K.pad, borderBottom: `1px solid ${T.border}`, cursor: 'pointer', alignItems: 'center' }}>
       <div style={{ flex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{item.name}</div>
           {item.promo && <div style={{ fontSize: 10, fontWeight: 800, background: T.black, color: T.white, borderRadius: 4, padding: '2px 7px', letterSpacing: '0.04em', flexShrink: 0 }}>{item.promo.tag}</div>}
+          {item.discount_pct > 0 && <div style={{ fontSize: 10, fontWeight: 800, background: '#DCFCE7', color: '#15803D', borderRadius: 4, padding: '2px 7px', flexShrink: 0 }}>−{item.discount_pct}%</div>}
+          {item.promo_type && <div style={{ fontSize: 10, fontWeight: 700, background: '#EFF6FF', color: '#1D4ED8', borderRadius: 4, padding: '2px 7px', flexShrink: 0 }}>{PROMO_TYPE_LABEL[item.promo_type]||item.promo_type}</div>}
+          {item.dine_in_only && <div style={{ fontSize: 9, fontWeight: 700, background: '#F0FDF4', color: '#166534', borderRadius: 4, padding: '2px 6px', flexShrink: 0, border: '1px solid #BBF7D0' }}>Solo local</div>}
         </div>
         <div style={{ fontSize: 12, color: T.gray, lineHeight: 1.45, marginBottom: 6 }}>{item.desc}</div>
-        <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz, color: T.ink }}>{fmt(item.price)}</div>
+        {discP
+          ? <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <span style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz, color: '#16A34A' }}>{fmt(discP)}</span>
+              <span style={{ fontSize: 12, color: T.silver, textDecoration: 'line-through' }}>{fmt(item.price)}</span>
+            </div>
+          : <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz, color: T.ink }}>{fmt(item.price)}</div>
+        }
       </div>
       {T.K.showImg && (
-        <div style={{ width: T.K.imgSz, height: T.K.imgSz, borderRadius: T.K.imgR, background: `linear-gradient(135deg,${T.dark},${T.black})`, flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid rgba(0,0,0,0.04)` }}>
+        <div style={{ width: T.K.imgSz, height: T.K.imgSz, borderRadius: T.K.imgR, background: `linear-gradient(135deg,${T.dark},${T.black})`, flexShrink: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid rgba(0,0,0,0.04)`, position: 'relative' }}>
           {item.image_url
             ? <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.target.style.display = 'none'; }} />
             : <Icon name="utensils" size={T.K.imgSz * 0.28} color="rgba(255,255,255,0.15)" />}
+          {item.discount_pct > 0 && <div style={{ position: 'absolute', bottom: 0, right: 0, background: '#16A34A', color: '#fff', fontSize: 9, fontWeight: 800, padding: '2px 5px', borderRadius: '4px 0 0 0' }}>−{item.discount_pct}%</div>}
         </div>
       )}
     </div>
@@ -676,6 +701,7 @@ function ProdCard({ item, onSelect }) {
 
 /* ══ MODAL: PRODUCTO ════════════════════ */
 const COMBO_EXTRAS = [{ n: 'Papas fritas', p: 8000 }, { n: 'Bebida 350ml', p: 8000 }];
+const PROMO_TYPE_LABEL = {pizza_corrida:'Pizza corrida',hamburgesa_corrida:'Hamburguesa corrida',tenedor_libre:'Tenedor libre',sushi_libre:'Sushi libre',bebida_libre:'Bebida libre',other:'Promo especial'};
 const COMBO_PRICE  = COMBO_EXTRAS.reduce((s, e) => s + e.p, 0);
 const BURGER_CATS  = ['hamburguesas', 'burger'];
 
@@ -690,7 +716,8 @@ function ProductModal({ item, onClose, onAdd }) {
   const toggleEx  = (e) => setSelEx(p => p.find(x => x.n === e.n) ? p.filter(x => x.n !== e.n) : [...p, e]);
   const allExtras = isCombo ? [...selEx, ...COMBO_EXTRAS] : selEx;
   const exTotal   = allExtras.reduce((s, e) => s + e.p, 0);
-  const total     = (item.price + exTotal) * qty;
+  const basePrice = item.discount_pct > 0 ? Math.round(item.price * (100 - item.discount_pct) / 100) : item.price;
+  const total     = (basePrice + exTotal) * qty;
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'flex-end' }}>
@@ -701,6 +728,9 @@ function ProductModal({ item, onClose, onAdd }) {
             ? <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             : <Icon name="utensils" size={52} color="rgba(255,255,255,0.1)" />}
           {item.promo && <div style={{ position: 'absolute', top: 16, left: 16, background: T.white, color: T.black, borderRadius: 6, padding: '4px 11px', fontSize: 11, fontWeight: 800, letterSpacing: '0.06em' }}>{item.promo.tag}</div>}
+          {item.discount_pct > 0 && !item.promo && <div style={{ position: 'absolute', top: 16, left: 16, background: '#16A34A', color: '#fff', borderRadius: 6, padding: '4px 11px', fontSize: 11, fontWeight: 800 }}>−{item.discount_pct}%</div>}
+          {item.promo_type && <div style={{ position: 'absolute', top: 16, left: item.promo || item.discount_pct > 0 ? 100 : 16, background: '#1D4ED8', color: '#fff', borderRadius: 6, padding: '4px 11px', fontSize: 10, fontWeight: 800 }}>{PROMO_TYPE_LABEL[item.promo_type]||item.promo_type}</div>}
+          {item.dine_in_only && <div style={{ position: 'absolute', bottom: 12, left: 16, background: 'rgba(0,0,0,0.6)', color: '#fff', borderRadius: 5, padding: '3px 9px', fontSize: 10, fontWeight: 700 }}>Solo consumo en local</div>}
           <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, width: 34, height: 34, borderRadius: '50%', background: 'rgba(0,0,0,0.35)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="x" size={16} color="#fff" /></button>
           <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.4)' }} />
         </div>
@@ -708,7 +738,15 @@ function ProductModal({ item, onClose, onAdd }) {
           <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.titleSz, color: T.ink, marginBottom: 4 }}>{item.name}</div>
           <div style={{ fontSize: 13, color: T.gray, lineHeight: 1.55, marginBottom: 18 }}>{item.desc}</div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, background: T.light, borderRadius: 12, padding: '12px 16px' }}>
-            <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz + 2, color: T.ink }}>{fmt(item.price)}</div>
+            <div>
+              {item.discount_pct > 0
+                ? <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz + 2, color: '#16A34A' }}>{fmt(basePrice)}</span>
+                    <span style={{ fontSize: 13, color: T.silver, textDecoration: 'line-through' }}>{fmt(item.price)}</span>
+                  </div>
+                : <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz + 2, color: T.ink }}>{fmt(item.price)}</div>
+              }
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <button onClick={() => setQty(q => Math.max(1, q - 1))} style={{ width: 34, height: 34, borderRadius: 8, border: `1.5px solid ${T.border}`, background: T.white, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="minus" size={14} color={T.ink} /></button>
               <span style={{ fontWeight: 800, fontSize: 17, minWidth: 26, textAlign: 'center', color: T.ink }}>{qty}</span>
