@@ -235,6 +235,11 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
   return order;
 }
 
+async function dbSubmitRating(orderId, stars, comment) {
+  if (!db) return;
+  try { await db.from('ratings').insert({ restaurant_id: RESTAURANT_ID, order_id: orderId || null, table_id: null, stars, comment: comment || null }); } catch(e) {}
+}
+
 /* ── ICON ────────────────────────────────── */
 const Icon = ({ name, size = 20, color = 'currentColor', sw = 1.5 }) => {
   const paths = {
@@ -1179,8 +1184,9 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
 }
 
 /* ══ PANTALLA 7 — CONFIRMACIÓN / TRACKING ══ */
-function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliveryFee }) {
+function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliveryFee, onNewOrder }) {
   const T = useContext(ThemeCtx);
+  const restaurant = useContext(RestaurantCtx);
   const isDelivery = orderType === 'delivery';
   const orderNum   = order?.order_number || 'D-?????';
 
@@ -1203,6 +1209,28 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
   const STATUS_MAP = isDelivery ? STATUS_MAP_DELIVERY : STATUS_MAP_PICKUP;
 
   const [active, setActive] = useState(0);
+
+  // Rating state
+  const [ratingStars, setRatingStars]   = useState(0);
+  const [ratingHover, setRatingHover]   = useState(0);
+  const [ratingComment, setRatingComment] = useState('');
+  const [ratingReasons, setRatingReasons] = useState([]);
+  const [ratingSent, setRatingSent]     = useState(false);
+  const [ratingSubmitting, setRatingSubmitting] = useState(false);
+
+  const RATING_REASONS = ['Comida', 'Delivery', 'Tiempo de entrega', 'Precio', 'Atención'];
+  const toggleReason = (r) => setRatingReasons(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r]);
+
+  const isDelivered = active === STEPS.length - 1;
+
+  const handleRatingSubmit = async () => {
+    if (!ratingStars) return;
+    setRatingSubmitting(true);
+    const fullComment = [ratingReasons.length ? `[${ratingReasons.join(', ')}]` : '', ratingComment].filter(Boolean).join(' — ');
+    await dbSubmitRating(order?.id || null, ratingStars, fullComment || null);
+    setRatingSent(true);
+    setRatingSubmitting(false);
+  };
 
   useEffect(() => {
     if (!db || !order?.order_number) {
@@ -1326,12 +1354,89 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
         })}
       </div>
 
-      {/* Footer */}
-      <div style={{ padding: '12px 24px 40px', borderTop: `1px solid ${T.border}`, background: T.white }}>
-        <div style={{ fontSize: 12, color: T.gray, textAlign: 'center', lineHeight: 1.6 }}>
-          {isDelivery ? 'El repartidor te contactará si hay algún inconveniente.' : `Pasá a buscar tu pedido cuando recibas el aviso.`}
+      {/* Footer / Rating */}
+      {!isDelivered && (
+        <div style={{ padding: '12px 24px 40px', borderTop: `1px solid ${T.border}`, background: T.white }}>
+          <div style={{ fontSize: 12, color: T.gray, textAlign: 'center', lineHeight: 1.6 }}>
+            {isDelivery ? 'El repartidor te contactará si hay algún inconveniente.' : 'Pasá a buscar tu pedido cuando recibas el aviso.'}
+          </div>
         </div>
-      </div>
+      )}
+
+      {isDelivered && !ratingSent && (
+        <div style={{ padding: '24px 24px 40px', borderTop: `2px solid ${T.border}`, background: T.white }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: T.ink, marginBottom: 4 }}>¿Cómo estuvo tu pedido?</div>
+          <div style={{ fontSize: 13, color: T.gray, marginBottom: 20 }}>{restaurant?.name || 'La Huaca'} · {isDelivery ? 'Delivery' : 'Retiro en local'}</div>
+
+          {/* Estrellas */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
+            {[1,2,3,4,5].map(s => (
+              <button key={s}
+                onMouseEnter={() => setRatingHover(s)} onMouseLeave={() => setRatingHover(0)}
+                onClick={() => setRatingStars(s)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, transition: 'transform 150ms', transform: (ratingHover || ratingStars) >= s ? 'scale(1.12)' : 'scale(1)' }}>
+                <svg width="38" height="38" viewBox="0 0 24 24"
+                  fill={(ratingHover || ratingStars) >= s ? '#FBBF24' : 'transparent'}
+                  stroke={(ratingHover || ratingStars) >= s ? '#FBBF24' : '#D1D5DB'}
+                  strokeWidth="1.5">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+              </button>
+            ))}
+          </div>
+
+          {ratingStars > 0 && ratingStars <= 3 && (
+            <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#B91C1C', lineHeight: 1.5 }}>
+              Lamentamos que no haya sido lo esperado. Contanos qué mejorar.
+            </div>
+          )}
+          {ratingStars >= 4 && (
+            <div style={{ background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.2)', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: '#15803D', fontWeight: 600, lineHeight: 1.5 }}>
+              ¡Nos alegra que hayas disfrutado!
+            </div>
+          )}
+
+          {/* Chips de razones */}
+          {ratingStars > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>¿Qué querés calificar?</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {RATING_REASONS.map(r => {
+                  const sel = ratingReasons.includes(r);
+                  return (
+                    <button key={r} onClick={() => toggleReason(r)}
+                      style={{ height: 30, padding: '0 12px', borderRadius: 9999, border: `1.5px solid ${sel ? T.ink : T.border}`, background: sel ? T.ink : 'transparent', color: sel ? T.white : T.gray, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 150ms' }}>
+                      {r}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Comentario */}
+          <textarea value={ratingComment} onChange={e => setRatingComment(e.target.value)}
+            placeholder={ratingStars > 0 && ratingStars <= 3 ? '¿Qué salió mal? ¿Cómo podemos mejorar?' : '¿Qué fue lo mejor? ¿Algo para mejorar?'}
+            style={{ width: '100%', minHeight: 80, border: `1px solid ${T.border}`, borderRadius: 12, padding: '10px 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: '#F9FAFB', resize: 'none', outline: 'none', marginBottom: 14, boxSizing: 'border-box' }} />
+
+          <button onClick={handleRatingSubmit} disabled={!ratingStars || ratingSubmitting}
+            style={{ width: '100%', height: 52, background: ratingStars ? T.black : 'rgba(0,0,0,0.08)', color: ratingStars ? T.white : 'rgba(0,0,0,0.25)', border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: ratingStars ? 'pointer' : 'default', transition: 'all 250ms', opacity: ratingSubmitting ? 0.7 : 1 }}>
+            {ratingSubmitting ? 'Enviando…' : 'Enviar calificación'}
+          </button>
+        </div>
+      )}
+
+      {isDelivered && ratingSent && (
+        <div style={{ padding: '32px 24px 48px', borderTop: `2px solid ${T.border}`, background: T.white, textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: T.ink, marginBottom: 8 }}>¡Gracias por tu opinión!</div>
+          <div style={{ fontSize: 13, color: T.gray, lineHeight: 1.7, marginBottom: 28 }}>Tu calificación nos ayuda<br />a mejorar cada día.</div>
+          <button onClick={onNewOrder}
+            style={{ width: '100%', height: 52, background: T.black, color: T.white, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>
+            Hacer otro pedido
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1398,6 +1503,14 @@ function App() {
     setScreen('confirm');
   };
 
+  const handleNewOrder = () => {
+    setConfirmedOrder(null);
+    setCustomerData(null);
+    setDeliveryResult(null);
+    setOrderType('delivery');
+    setScreen('welcome');
+  };
+
   return (
     <ThemeCtx.Provider value={theme}>
       <MenuCtx.Provider value={liveMenu || MENU_STATIC}>
@@ -1427,7 +1540,7 @@ function App() {
                   <PayScreen orderType={orderType} subtotal={payData.subtotal} deliveryFee={payData.fee} total={payData.total} customerData={customerData} deliveryResult={deliveryResult} cartItems={cartItems} onBack={() => setScreen('cart')} onConfirmed={handleConfirmed} />
                 )}
                 {screen === 'confirm' && (
-                  <ConfirmScreen order={confirmedOrder} orderType={orderType} customerData={customerData} deliveryResult={deliveryResult} deliveryFee={deliveryFee} />
+                  <ConfirmScreen order={confirmedOrder} orderType={orderType} customerData={customerData} deliveryResult={deliveryResult} deliveryFee={deliveryFee} onNewOrder={handleNewOrder} />
                 )}
               </div>
             </div>
