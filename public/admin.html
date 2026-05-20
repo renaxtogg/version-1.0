@@ -1253,26 +1253,130 @@ function MenuPage({categories,menuItems,onRefresh}) {
 /* ══════════════════════════════════════════════
    MESAS — canvas drag-and-drop + fix is_occupied
 ══════════════════════════════════════════════ */
-function MesasPage({tables: tablesProp, orders, onRefresh}) {
-  const [tables, setTables]   = useState(tablesProp);
-  const [editMode, setEditMode]= useState(false);
-  const [modal, setModal]      = useState(null);
-  const [formModal, setFormModal]=useState(null);
-  const [form, setForm]        = useState({number:'',capacity:'4',zona:'salon',shape:'square'});
-  const [saving, setSaving]    = useState(false);
-  const [dragging, setDragging]= useState(null);
-  const [dragOff, setDragOff]  = useState({x:0,y:0});
-  const canvasRef = useRef(null);
-  const CELL = 80; const GAP = 16;
+const ZONAS_DEF = [
+  {value:'salon',    label:'Salón',    bg:'#F0F7FF', border:'#BFDBFE', dot:'#3B82F6'},
+  {value:'terraza',  label:'Terraza',  bg:'#F0FFF4', border:'#BBF7D0', dot:'#22C55E'},
+  {value:'bar',      label:'Bar',      bg:'#FFF7ED', border:'#FED7AA', dot:'#F97316'},
+  {value:'privado',  label:'Privado',  bg:'#FDF4FF', border:'#E9D5FF', dot:'#A855F7'},
+  {value:'exterior', label:'Exterior', bg:'#FEFCE8', border:'#FEF08A', dot:'#EAB308'},
+];
+const SHAPES_DEF = [
+  {value:'square',    label:'Cuadrada',    icon:'⬜'},
+  {value:'round',     label:'Redonda',     icon:'⭕'},
+  {value:'rectangle', label:'Rectangular', icon:'▬'},
+];
+const CELL_SZ = 80; const GAP_SZ = 14;
 
-  // Sincronizar con prop externa y Realtime — FIX is_occupied
+function getTableDims(shape) {
+  if(shape==='rectangle') return {w:CELL_SZ*1.65, h:CELL_SZ*0.72};
+  return {w:CELL_SZ, h:CELL_SZ};
+}
+function getTableBR(shape) {
+  if(shape==='round') return '50%';
+  if(shape==='rectangle') return 8;
+  return 10;
+}
+function getPosInZone(t, idxInZone) {
+  if(t.pos_x != null && t.pos_y != null) return {x:t.pos_x, y:t.pos_y};
+  const cols = Math.max(Math.floor((window.innerWidth-260) / (CELL_SZ+GAP_SZ)), 3);
+  return {x:(idxInZone%cols)*(CELL_SZ+GAP_SZ)+GAP_SZ, y:Math.floor(idxInZone/cols)*(CELL_SZ+GAP_SZ)+GAP_SZ};
+}
+
+function ZonaCanvas({zona, tables, activeOrders, editMode, dragging, dragOff, setDragging, setDragOff, setTables, onOpenEdit, onOpenDetail, db}) {
+  const canvasRef = useRef(null);
+  const zd = ZONAS_DEF.find(z=>z.value===zona)||ZONAS_DEF[0];
+
+  const canvasH = tables.length
+    ? Math.max(...tables.map((t,i)=>{ const p=getPosInZone(t,i); const{h}=getTableDims(t.shape||'square'); return p.y+h+GAP_SZ; }), 120)
+    : 90;
+
+  function onMouseDown(e,t) {
+    if(!editMode) return;
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDragOff({x:e.clientX-rect.left, y:e.clientY-rect.top, zona});
+    setDragging(t.id);
+  }
+  function onMouseMove(e) {
+    if(!dragging||!canvasRef.current||dragOff.zona!==zona) return;
+    const cr = canvasRef.current.getBoundingClientRect();
+    const nx = Math.max(0, e.clientX-cr.left-dragOff.x);
+    const ny = Math.max(0, e.clientY-cr.top-dragOff.y);
+    setTables(prev=>prev.map(t=>t.id===dragging?{...t,pos_x:nx,pos_y:ny}:t));
+  }
+  async function onMouseUp() {
+    if(!dragging||dragOff.zona!==zona) return;
+    const t = tables.find(x=>x.id===dragging);
+    if(t&&db) await db.from('tables').update({pos_x:Math.round(t.pos_x),pos_y:Math.round(t.pos_y)}).eq('id',t.id);
+    setDragging(null);
+  }
+
+  return (
+    <div style={{marginBottom:16}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+        <div style={{width:8,height:8,borderRadius:'50%',background:zd.dot}}/>
+        <div style={{fontSize:12,fontWeight:700,color:'#3D3D3D',textTransform:'uppercase',letterSpacing:'0.5px'}}>{zd.label}</div>
+        <div style={{fontSize:11,color:'#86868B'}}>· {tables.length} {tables.length===1?'mesa':'mesas'}{activeOrders.filter(o=>tables.some(t=>t.id===o.table_id)).length>0?' · '+activeOrders.filter(o=>tables.some(t=>t.id===o.table_id)).length+' activas':''}</div>
+      </div>
+      <div ref={canvasRef} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+        style={{position:'relative',width:'100%',minHeight:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,borderRadius:10,overflow:'hidden'}}>
+        {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#C0C0C0',fontSize:12}}>Sin mesas en {zd.label.toLowerCase()}</div>}
+        {tables.map((t,idx)=>{
+          const pos = getPosInZone(t,idx);
+          const order = activeOrders.find(o=>o.table_id===t.id);
+          const busy = t.is_occupied||!!order;
+          const isDrag = dragging===t.id;
+          const shape = t.shape||'square';
+          const {w,h} = getTableDims(shape);
+          const br = getTableBR(shape);
+          return (
+            <div key={t.id}
+              onMouseDown={e=>onMouseDown(e,t)}
+              onClick={()=>{ if(editMode) onOpenEdit(t); else if(busy) onOpenDetail(t,order); }}
+              style={{
+                position:'absolute', left:pos.x, top:pos.y, width:w, height:h,
+                background:busy?'rgba(0,0,0,0.06)':'#FFFFFF',
+                border:`2px solid ${busy?'#1D1D1F':'#D2D2D7'}`,
+                borderRadius:br,
+                display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+                cursor:editMode?'grab':(busy?'pointer':'default'),
+                userSelect:'none', transition:isDrag?'none':'box-shadow .15s',
+                boxShadow:isDrag?'0 8px 24px rgba(0,0,0,0.22)':'0 1px 3px rgba(0,0,0,0.06)',
+                zIndex:isDrag?10:1,
+              }}>
+              <div style={{fontSize:shape==='rectangle'?13:16,fontWeight:800,color:'#000',lineHeight:1}}>{t.number}</div>
+              {busy
+                ?<div style={{fontSize:8,color:'#4B4B4B',textAlign:'center',marginTop:3,lineHeight:1.3,fontWeight:500}}>
+                    {order?fmt(order.total):'Ocupada'}
+                  </div>
+                :<div style={{fontSize:8,color:'#86868B',marginTop:2,fontWeight:500}}>Libre</div>}
+              {busy&&<div style={{width:5,height:5,borderRadius:'50%',background:'#000',marginTop:3}}/>}
+              {editMode&&<div style={{fontSize:6,color:'#999',marginTop:2,textTransform:'uppercase',letterSpacing:'0.3px'}}>{t.capacity||4}p</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MesasPage({tables: tablesProp, orders, onRefresh}) {
+  const [tables, setTables]    = useState(tablesProp);
+  const [editMode, setEditMode] = useState(false);
+  const [modal, setModal]       = useState(null);
+  const [formModal, setFormModal]= useState(null);
+  const [form, setForm]         = useState({number:'',capacity:'4',zona:'salon',shape:'square'});
+  const [saving, setSaving]     = useState(false);
+  const [dragging, setDragging] = useState(null);
+  const [dragOff, setDragOff]   = useState({x:0,y:0,zona:null});
+
   useEffect(()=>{ setTables(tablesProp); },[tablesProp]);
 
   useEffect(()=>{
     if(!db) return;
     const ch = db.channel('mesas-rt')
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, payload=>{
-        setTables(prev => prev.map(t=> t.id===payload.new.id ? {...t,...payload.new} : t));
+        setTables(prev=>prev.map(t=>t.id===payload.new.id?{...t,...payload.new}:t));
       })
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) onRefresh(); })
       .on('postgres_changes',{event:'DELETE',schema:'public',table:'tables'}, ()=>{ if(!_shouldPause()) onRefresh(); })
@@ -1283,51 +1387,23 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
 
   const activeOrders = orders.filter(o=>['paid','kitchen_received','cooking','ready'].includes(o.status));
 
-  // Posición inicial si no tiene pos_x/pos_y
-  function getPos(t, idx) {
-    if(t.pos_x != null && t.pos_y != null) return {x:t.pos_x, y:t.pos_y};
-    const cols = Math.max(Math.floor((window.innerWidth-300) / (CELL+GAP)), 4);
-    return { x: (idx%cols)*(CELL+GAP)+GAP, y: Math.floor(idx/cols)*(CELL+GAP)+GAP };
-  }
-
-  // Drag en canvas
-  function onMouseDown(e, t) {
-    if(!editMode) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    setDragOff({x: e.clientX-rect.left, y: e.clientY-rect.top});
-    setDragging(t.id);
-  }
-  function onMouseMove(e) {
-    if(!dragging||!canvasRef.current) return;
-    const cr = canvasRef.current.getBoundingClientRect();
-    const nx = Math.max(0, e.clientX-cr.left-dragOff.x);
-    const ny = Math.max(0, e.clientY-cr.top-dragOff.y);
-    setTables(prev=>prev.map(t=>t.id===dragging?{...t,pos_x:nx,pos_y:ny}:t));
-  }
-  async function onMouseUp() {
-    if(!dragging||!db) { setDragging(null); return; }
-    const t = tables.find(x=>x.id===dragging);
-    if(t) await db.from('tables').update({pos_x:Math.round(t.pos_x),pos_y:Math.round(t.pos_y)}).eq('id',t.id);
-    setDragging(null);
-  }
-
   async function saveTable() {
     if(!db||!form.number){toast('Número de mesa requerido',false);return;}
     const num=parseInt(form.number);
     if(isNaN(num)||num<1){toast('Número inválido',false);return;}
     setSaving(true);
+    const zonaChanged = formModal.mode==='edit' && formModal.table.zona!==form.zona;
     if(formModal.mode==='add') {
       const token=(crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)).replace(/-/g,'').slice(0,16);
-      const idx = tables.length;
-      const cols = Math.max(Math.floor((window.innerWidth-300)/(CELL+GAP)),4);
-      const px=(idx%cols)*(CELL+GAP)+GAP; const py=Math.floor(idx/cols)*(CELL+GAP)+GAP;
-      const{error}=await db.from('tables').insert({restaurant_id:RID,number:num,capacity:parseInt(form.capacity)||4,qr_token:token,pos_x:px,pos_y:py,zona:form.zona||'salon',shape:form.shape||'square'}).select().single();
+      const{error}=await db.from('tables').insert({restaurant_id:RID,number:num,capacity:parseInt(form.capacity)||4,qr_token:token,pos_x:null,pos_y:null,zona:form.zona||'salon',shape:form.shape||'square'}).select().single();
       if(error){toast('Error: '+error.message,false);}
       else{toast('Mesa '+num+' creada');onRefresh();setFormModal(null);}
     } else {
-      const{data,error}=await db.from('tables').update({number:num,capacity:parseInt(form.capacity)||4,zona:form.zona||'salon',shape:form.shape||'square'}).eq('id',formModal.table.id).select('id');
+      const upd={number:num,capacity:parseInt(form.capacity)||4,zona:form.zona||'salon',shape:form.shape||'square'};
+      if(zonaChanged){upd.pos_x=null;upd.pos_y=null;}
+      const{data,error}=await db.from('tables').update(upd).eq('id',formModal.table.id).select('id');
       if(error){toast('Error: '+error.message,false);}
-      else if(!data||data.length===0){toast('No se pudo actualizar la mesa — verificá RLS en Supabase',false);}
+      else if(!data||data.length===0){toast('No se pudo actualizar — verificá RLS en Supabase',false);}
       else{toast('Mesa actualizada');onRefresh();setFormModal(null);}
     }
     setSaving(false);
@@ -1343,40 +1419,17 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
     else{toast('Mesa eliminada');onRefresh();}
   }
 
-  const ZONAS = [
-    {value:'salon',   label:'Salón'},
-    {value:'terraza', label:'Terraza'},
-    {value:'bar',     label:'Bar'},
-    {value:'privado', label:'Privado'},
-    {value:'exterior',label:'Exterior'},
-  ];
-  const SHAPES = [
-    {value:'square',    label:'Cuadrada',    icon:'⬜'},
-    {value:'round',     label:'Redonda',     icon:'⭕'},
-    {value:'rectangle', label:'Rectangular', icon:'▬'},
-  ];
-
-  function getTableDims(shape) {
-    if(shape==='rectangle') return {w:CELL*1.65, h:CELL*0.75};
-    return {w:CELL, h:CELL};
-  }
-  function getTableBR(shape) {
-    if(shape==='round') return '50%';
-    if(shape==='rectangle') return 8;
-    return 10;
+  function openEdit(t) {
+    setForm({number:String(t.number),capacity:String(t.capacity||4),zona:t.zona||'salon',shape:t.shape||'square'});
+    setFormModal({mode:'edit',table:t});
   }
 
-  const ZONA_COLORS = {salon:'#E8F4FD',terraza:'#E8F8E8',bar:'#FDF2E8',privado:'#F4E8FD',exterior:'#FDF8E8'};
-
-  const canvasH = tables.length ? Math.max(...tables.map((t,i)=>{ const p=getPos(t,i); const {h}=getTableDims(t.shape); return p.y+h+GAP; }), 300) : 300;
-
-  // Agrupar zonas para mostrar etiquetas de fondo
-  const zonaGroups = {};
-  tables.forEach((t,i)=>{
-    const z = t.zona||'salon';
-    if(!zonaGroups[z]) zonaGroups[z]=[];
-    zonaGroups[z].push({t,i});
-  });
+  // Agrupar por zona; mostrar todas las zonas que tengan mesas + en editMode mostrar vacías también
+  const zonaMap = {};
+  tables.forEach(t=>{ const z=t.zona||'salon'; if(!zonaMap[z]) zonaMap[z]=[]; zonaMap[z].push(t); });
+  const zonasToShow = editMode
+    ? ZONAS_DEF
+    : ZONAS_DEF.filter(z=>zonaMap[z.value]?.length>0);
 
   return (
     <div className="page">
@@ -1393,54 +1446,28 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
         </div>
       </div>
 
-      {editMode&&<div style={{fontSize:11,color:'#86868B',marginBottom:12,padding:'8px 14px',background:'#F5F5F7',borderRadius:6}}>Arrastrá las mesas para posicionarlas. En modo vista, click en una mesa ocupada muestra sus pedidos.</div>}
+      {editMode&&<div style={{fontSize:11,color:'#86868B',marginBottom:14,padding:'8px 14px',background:'#F5F5F7',borderRadius:6}}>Arrastrá las mesas dentro de su zona para posicionarlas. Para cambiar de zona, editá la mesa. En modo vista, click en una mesa ocupada muestra sus pedidos.</div>}
 
-      {/* Canvas drag-and-drop */}
-      <div ref={canvasRef} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
-        style={{position:'relative',width:'100%',minHeight:canvasH,background:'#FAFAFA',border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden',marginBottom:16}}>
-        {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#D2D2D7',fontSize:13}}>No hay mesas. Creá la primera.</div>}
-        {tables.map((t,idx)=>{
-          const pos = getPos(t,idx);
-          const order = activeOrders.find(o=>o.table_id===t.id);
-          const busy = t.is_occupied || !!order;
-          const isDrag = dragging===t.id;
-          const shape = t.shape||'square';
-          const {w,h} = getTableDims(shape);
-          const br = getTableBR(shape);
-          const zona = t.zona||'salon';
-          const zonaColor = ZONA_COLORS[zona]||'#F5F5F7';
-          return (
-            <div key={t.id}
-              onMouseDown={e=>onMouseDown(e,t)}
-              onClick={()=>{ if(editMode){setFormModal({mode:'edit',table:t});setForm({number:String(t.number),capacity:String(t.capacity||4),zona:t.zona||'salon',shape:t.shape||'square'});}else if(busy) setModal({table:t,order}); }}
-              style={{
-                position:'absolute', left:pos.x, top:pos.y,
-                width:w, height:h,
-                background:busy?zonaColor:'#FFFFFF',
-                border:`2px solid ${busy?'#000000':'#D2D2D7'}`,
-                borderRadius:br,
-                display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
-                cursor: editMode?'grab': (busy?'pointer':'default'),
-                userSelect:'none', transition:isDrag?'none':'box-shadow .15s',
-                boxShadow: isDrag?'0 8px 20px rgba(0,0,0,0.18)':'none',
-                zIndex: isDrag?10:1,
-              }}>
-              <div style={{fontSize:shape==='rectangle'?14:18,fontWeight:800,color:'#000',lineHeight:1}}>
-                {t.number}
-              </div>
-              {busy
-                ?<div style={{fontSize:8,color:'#6E6E73',textAlign:'center',marginTop:3,lineHeight:1.3}}>
-                    {order?fmt(order.total):t.is_occupied?'Ocupada':''}
-                  </div>
-                :<div style={{fontSize:8,color:'#86868B',marginTop:2,fontWeight:500}}>Libre</div>}
-              {busy&&<div style={{width:6,height:6,borderRadius:'50%',background:'#000',marginTop:4}}/>}
-              {editMode&&<div style={{fontSize:7,color:'#86868B',marginTop:2,textTransform:'uppercase',letterSpacing:'0.3px'}}>{ZONAS.find(z=>z.value===zona)?.label||zona}</div>}
-            </div>
-          );
-        })}
-      </div>
+      {tables.length===0&&!editMode&&<div style={{padding:40,textAlign:'center',color:'#C0C0C0',fontSize:13}}>No hay mesas. Creá la primera.</div>}
 
-      {/* Modal: pedidos activos de mesa (modo vista) */}
+      {zonasToShow.map(z=>(
+        <ZonaCanvas key={z.value}
+          zona={z.value}
+          tables={zonaMap[z.value]||[]}
+          activeOrders={activeOrders}
+          editMode={editMode}
+          dragging={dragging}
+          dragOff={dragOff}
+          setDragging={setDragging}
+          setDragOff={setDragOff}
+          setTables={setTables}
+          onOpenEdit={openEdit}
+          onOpenDetail={(t,order)=>setModal({table:t,order})}
+          db={db}
+        />
+      ))}
+
+      {/* Modal detalle mesa ocupada */}
       {modal&&!editMode&&(
         <Modal title={`Mesa ${modal.table.number}`} onClose={()=>setModal(null)} width={420}>
           {modal.order?(
@@ -1454,15 +1481,15 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
               </div>
               <div style={{fontSize:20,fontWeight:800,color:'#000',marginBottom:20}}>{fmt(modal.order.total)}</div>
               <div style={{display:'flex',gap:8}}>
-                <Btn style={{flex:1}} onClick={()=>{setModal(null);}}>Cerrar</Btn>
-                {!editMode&&<button onClick={()=>{setFormModal({mode:'edit',table:modal.table});setForm({number:String(modal.table.number),capacity:String(modal.table.capacity||4),zona:modal.table.zona||'salon',shape:modal.table.shape||'square'});setModal(null);}} style={{padding:'8px 14px',border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,cursor:'pointer',background:'transparent',color:'#6E6E73'}}>Editar mesa</button>}
+                <Btn style={{flex:1}} onClick={()=>setModal(null)}>Cerrar</Btn>
+                <button onClick={()=>{openEdit(modal.table);setModal(null);}} style={{padding:'8px 14px',border:`1px solid ${C.border}`,borderRadius:6,fontSize:12,cursor:'pointer',background:'transparent',color:'#6E6E73'}}>Editar mesa</button>
               </div>
             </div>
           ):<div style={{color:'#6E6E73',fontSize:13}}>Sin pedido activo en esta mesa.</div>}
         </Modal>
       )}
 
-      {/* Modal form add/edit */}
+      {/* Modal crear/editar */}
       {formModal&&(
         <Modal title={formModal.mode==='add'?'Nueva mesa':'Editar mesa'} onClose={()=>setFormModal(null)} width={380}>
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
@@ -1473,7 +1500,7 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
             <div>
               <Lbl>ZONA / SECTOR</Lbl>
               <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:4}}>
-                {ZONAS.map(z=>(
+                {ZONAS_DEF.map(z=>(
                   <button key={z.value} onClick={()=>setForm(f=>({...f,zona:z.value}))}
                     style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'#000':'#D2D2D7'}`,background:form.zona===z.value?'#000':'transparent',color:form.zona===z.value?'#fff':'#3D3D3D',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400,transition:'all .1s'}}>
                     {z.label}
@@ -1484,7 +1511,7 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
             <div>
               <Lbl>FORMA DE LA MESA</Lbl>
               <div style={{display:'flex',gap:8,marginTop:4}}>
-                {SHAPES.map(s=>(
+                {SHAPES_DEF.map(s=>(
                   <button key={s.value} onClick={()=>setForm(f=>({...f,shape:s.value}))}
                     style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'#000':'#D2D2D7'}`,background:form.shape===s.value?'#000':'transparent',color:form.shape===s.value?'#fff':'#3D3D3D',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',transition:'all .1s',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
                     <span style={{fontSize:20}}>{s.icon}</span>
@@ -1493,6 +1520,11 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
                 ))}
               </div>
             </div>
+            {formModal.mode==='edit'&&formModal.table.zona!==form.zona&&(
+              <div style={{fontSize:11,color:'#86868B',background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:6,padding:'8px 10px'}}>
+                Al cambiar de zona, la mesa se reposicionará automáticamente en la nueva zona.
+              </div>
+            )}
             {formModal.mode==='edit'&&formModal.table.qr_token&&(
               <div style={{background:'#F5F5F7',border:`1px solid ${C.border}`,borderRadius:6,padding:10}}>
                 <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:4}}>TOKEN QR</div>
