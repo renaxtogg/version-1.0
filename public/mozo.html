@@ -521,79 +521,6 @@ function vibrateDevice() {
   if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
 }
 
-/* ── LOGIN SCREEN ── */
-function LoginScreen({ onLogin }) {
-  const [name, setName] = React.useState('');
-  const [pin, setPin] = React.useState('');
-  const [error, setError] = React.useState('');
-  const [loading, setLoading] = React.useState(false);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    if (!name.trim() || pin.length !== 4) { setError('Ingresá nombre y PIN de 4 dígitos'); return; }
-    setLoading(true); setError('');
-
-    if (!db) {
-      // Demo: sin DB, cualquier PIN de 4 dígitos funciona
-      onLogin({ mozo_id: null, mozo_name: name.trim(), turno_inicio: new Date().toISOString() });
-      return;
-    }
-
-    try {
-      const { data, error: dbErr } = await db.from('user_profiles')
-        .select('id, full_name, pin')
-        .eq('pin', pin)
-        .ilike('full_name', name.trim())
-        .maybeSingle();
-      setLoading(false);
-      if (dbErr || !data) { setError('Nombre o PIN incorrecto'); return; }
-      onLogin({ mozo_id: data.id, mozo_name: data.full_name, turno_inicio: new Date().toISOString() });
-    } catch(e) {
-      setLoading(false);
-      // Si la tabla no existe aún, modo demo
-      onLogin({ mozo_id: null, mozo_name: name.trim(), turno_inicio: new Date().toISOString() });
-    }
-  }
-
-  return (
-    <div style={{ minHeight: '100vh', background: '#F5F5F7', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
-      <div style={{ background: '#fff', border: '1px solid #D2D2D7', borderRadius: 20, padding: '40px 32px', width: '100%', maxWidth: 360, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: '#000', letterSpacing: '-1px' }}>Mythos</div>
-          <div style={{ fontSize: 13, color: '#6E6E73', marginTop: 4 }}>Panel Mozo — Iniciar turno</div>
-        </div>
-        {error && (
-          <div style={{ background: '#FFEDEC', border: '1px solid #FFCDD0', color: '#C0190F', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 16 }}>{error}</div>
-        )}
-        <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6E6E73', marginBottom: 6 }}>Tu nombre</label>
-            <input
-              type="text" value={name} onChange={e => setName(e.target.value)}
-              placeholder="Nombre del mozo" autoFocus required
-              style={{ width: '100%', padding: '11px 14px', border: '1px solid #D2D2D7', borderRadius: 10, fontSize: 15, outline: 'none', fontFamily: 'inherit', color: '#1D1D1F', boxSizing: 'border-box' }}
-            />
-          </div>
-          <div style={{ marginBottom: 24 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6E6E73', marginBottom: 6 }}>PIN (4 dígitos)</label>
-            <input
-              type="password" inputMode="numeric" maxLength={4}
-              value={pin} onChange={e => setPin(e.target.value.replace(/\D/g,'').slice(0,4))}
-              placeholder="••••" required
-              style={{ width: '100%', padding: '11px 14px', border: '1px solid #D2D2D7', borderRadius: 10, fontSize: 22, outline: 'none', fontFamily: 'monospace', textAlign: 'center', letterSpacing: 8, color: '#1D1D1F', boxSizing: 'border-box' }}
-            />
-          </div>
-          <button type="submit" disabled={loading}
-            style={{ width: '100%', background: '#000', color: '#fff', border: 'none', borderRadius: 10, padding: 13, fontSize: 15, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1, fontFamily: 'inherit' }}>
-            {loading ? 'Verificando...' : 'Iniciar turno'}
-          </button>
-        </form>
-        <div style={{ fontSize: 12, color: '#AEAEB2', textAlign: 'center', marginTop: 20 }}>Mythos · Sistema gastronómico</div>
-      </div>
-    </div>
-  );
-}
-
 /* ── APP ── */
 function App() {
   const [tables, setTables] = useState([]);
@@ -649,14 +576,10 @@ function App() {
   const [dividirPersonas, setDividirPersonas] = useState(2);
   const [fraccionStates, setFraccionStates] = useState({});
 
-  // Mozo session (login turno)
+  // Mozo session
   const [mozoSession, setMozoSession] = useState(() => {
     try { return JSON.parse(localStorage.getItem('mozo_session') || 'null'); } catch(e) { return null; }
   });
-  const [loginName, setLoginName] = useState('');
-  const [loginPin, setLoginPin] = useState('');
-  const [loginError, setLoginError] = useState('');
-  const [loginLoading, setLoginLoading] = useState(false);
 
   const toastTimer = useRef(null);
   const alertTimer = useRef(null);
@@ -667,6 +590,24 @@ function App() {
   const knownReadyIds = useRef(new Set());
   const pollingRef = useRef(null);
   const channelRef = useRef(null);
+
+  // Auth check: if no Supabase session, redirect to login
+  useEffect(() => {
+    if (!db) return;
+    db.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { window.location.replace('login.html'); return; }
+      if (mozoSession) return;
+      const { data: profile } = await db.rpc('get_my_profile').catch(() => ({ data: null }));
+      const s = {
+        mozo_id: session.user.id,
+        mozo_name: profile?.full_name || session.user.email,
+        turno_inicio: localStorage.getItem('turno_inicio') || new Date().toISOString()
+      };
+      localStorage.setItem('mozo_session', JSON.stringify(s));
+      localStorage.setItem('turno_inicio', s.turno_inicio);
+      setMozoSession(s);
+    });
+  }, []);
 
   useEffect(() => { localStorage.setItem('mozo_view', currentView); }, [currentView]);
   useEffect(() => {
@@ -1291,11 +1232,10 @@ function App() {
   /* ── SESSION GUARD ── */
   if (!mozoSession) {
     return (
-      <LoginScreen onLogin={(session) => {
-        localStorage.setItem('mozo_session', JSON.stringify(session));
-        localStorage.setItem('turno_inicio', session.turno_inicio);
-        setMozoSession(session);
-      }} />
+      <div className="loading-screen">
+        <div className="spinner"></div>
+        <div style={{ color: 'var(--text2)', fontSize: 14 }}>Verificando sesión...</div>
+      </div>
     );
   }
 
@@ -1609,12 +1549,11 @@ function App() {
                 <button
                   className="btn btn-sm"
                   style={{ background: 'var(--text)', color: 'white', border: 'none' }}
-                  onClick={() => {
+                  onClick={async () => {
                     localStorage.removeItem('mozo_session');
                     localStorage.removeItem('turno_inicio');
-                    setMozoSession(null);
-                    setLoginName('');
-                    setLoginPin('');
+                    if (db) await db.auth.signOut();
+                    window.location.replace('login.html');
                   }}
                 >Terminar turno</button>
               </div>
