@@ -850,7 +850,7 @@ function App() {
     if (!db) return;
     setLoadingTurno(true);
     const { data } = await db.from('orders')
-      .select('id, order_number, status, total, table_id, created_at, order_items(id, item_name, quantity)')
+      .select('id, order_number, status, total, table_id, created_at, payment_method, paid_by_name, paid_at, waiter_name, order_items(id, item_name, quantity)')
       .eq('restaurant_id', RID)
       .gte('created_at', turnoInicio)
       .neq('status', 'cancelled')
@@ -932,18 +932,26 @@ function App() {
       subtotal: 0,
       discount_amount: 0,
       total: 0,
+      // waiter_id y waiter_name requieren migración 044 aplicada en Supabase
+      waiter_id: currentSession.user.id,
+      waiter_name: mozoSession?.mozo_name || currentSession.user.email,
     };
-    // Solo agregar waiter_id si el mozo_id coincide con la sesión actual
-    if (mozoSession?.mozo_id && mozoSession.mozo_id === currentSession.user.id) {
-      insertPayload.waiter_id = mozoSession.mozo_id;
+
+    let { data: order, error } = await db.from('orders').insert(insertPayload).select().single();
+
+    // Si falla por columna inexistente (migración 044 pendiente), reintenta sin campos opcionales
+    if (error && (error.message?.includes('waiter_id') || error.message?.includes('waiter_name') || error.message?.includes('schema cache'))) {
+      const safePayload = { restaurant_id: insertPayload.restaurant_id, table_id: insertPayload.table_id, order_number: insertPayload.order_number, order_type: insertPayload.order_type, status: insertPayload.status, subtotal: 0, discount_amount: 0, total: 0 };
+      const retry = await db.from('orders').insert(safePayload).select().single();
+      order = retry.data;
+      error = retry.error;
     }
 
-    const { data: order, error } = await db.from('orders').insert(insertPayload).select().single();
     if (error) {
       console.error('createOrder error:', error);
       const msg = error.code === '23505' ? 'Número de orden duplicado, reintentá'
                 : error.code === '23503' ? 'Error de referencia en DB'
-                : error.code === '42501' ? 'Sin permisos para crear orden'
+                : error.code === '42501' ? 'Sin permisos — verificá RLS de orders'
                 : `Error: ${error.message || error.code || 'desconocido'}`;
       showToast(msg);
       return;
@@ -1194,14 +1202,25 @@ function App() {
       .not('status', 'in', '("cancelled","delivered")');
 
     if (pendingOrders && pendingOrders.length > 0) {
+      const { data: { session: paySession } } = await db.auth.getSession();
+      const payerId = paySession?.user?.id || null;
+      const payerName = mozoSession?.mozo_name || paySession?.user?.email || 'mozo';
       for (const ord of pendingOrders) {
-        await db.from('orders').update({
+        // Intentar con campos de auditoría (requieren migración 044)
+        let { error: updErr } = await db.from('orders').update({
           status: 'delivered',
           payment_method: pm,
           total: total,
           completed_at: new Date().toISOString(),
+          paid_by: payerId,
+          paid_by_name: payerName,
+          paid_at: new Date().toISOString(),
         }).eq('id', ord.id);
-        await db.from('order_status_history').insert({ order_id: ord.id, status: 'delivered', changed_by: 'mozo_cobro' });
+        // Fallback sin campos de auditoría si la migración no está aplicada
+        if (updErr && (updErr.message?.includes('paid_by') || updErr.message?.includes('schema cache'))) {
+          await db.from('orders').update({ status: 'delivered', payment_method: pm, total: total, completed_at: new Date().toISOString() }).eq('id', ord.id);
+        }
+        await db.from('order_status_history').insert({ order_id: ord.id, status: 'delivered', changed_by: payerName });
       }
     }
 
@@ -1715,6 +1734,47 @@ function App() {
               </div>
             </div>
 
+            {/* Registro del mozo */}
+            <div style={{ margin: '0 16px 14px', background: '#000', borderRadius: 12, padding: '16px' }}>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 }}>Mozo en turno</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 20, background: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                  {(mozoSession?.mozo_name || '?')[0].toUpperCase()}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: '#fff' }}>{mozoSession?.mozo_name || 'Sin nombre'}</div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
+                    Inicio: {new Date(mozoSession?.turno_inicio || turnoInicio).toLocaleString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              </div>
+              {/* Campo para actualizar nombre visible del mozo */}
+              <div style={{ marginTop: 12, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 12 }}>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 6 }}>Cambiar nombre para este turno</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    id="mozo-name-input"
+                    type="text"
+                    placeholder="Tu nombre..."
+                    defaultValue={mozoSession?.mozo_name || ''}
+                    style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, padding: '8px 12px', color: '#fff', fontSize: 14, fontFamily: 'inherit', outline: 'none' }}
+                  />
+                  <button
+                    style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 8, padding: '8px 14px', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
+                    onClick={() => {
+                      const input = document.getElementById('mozo-name-input');
+                      const newName = input?.value?.trim();
+                      if (!newName) return;
+                      const updated = { ...mozoSession, mozo_name: newName };
+                      localStorage.setItem('mozo_session', JSON.stringify(updated));
+                      setMozoSession(updated);
+                      showToast('Nombre actualizado: ' + newName);
+                    }}
+                  >Guardar</button>
+                </div>
+              </div>
+            </div>
+
             <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div className="turno-stat">
                 <div className="turno-stat-label">Pedidos atendidos</div>
@@ -1737,21 +1797,34 @@ function App() {
               ) : turnoOrders.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text3)' }}>Sin órdenes en este turno</div>
               ) : (
-                turnoOrders.map(ord => (
+                turnoOrders.map(ord => {
+                  const isPaid = ord.status === 'delivered' && ord.payment_method;
+                  const pmLabel = ord.payment_method === 'efectivo' ? 'Efectivo' : ord.payment_method === 'pos' || ord.payment_method === 'tarjeta' ? 'POS' : ord.payment_method === 'qr' ? 'QR' : ord.payment_method;
+                  return (
                   <div key={ord.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', marginBottom: 8 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                       <div>
                         <span style={{ fontSize: 12, fontWeight: 700 }}>{ord.order_number}</span>
                         <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>{timeStr(ord.created_at)}</span>
                       </div>
-                      <div style={{ fontSize: 14, fontWeight: 800 }}>{fGs(ord.total)}</div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 14, fontWeight: 800 }}>{fGs(ord.total)}</div>
+                        {isPaid && <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--green)', textTransform: 'uppercase' }}>{pmLabel} ✓</div>}
+                      </div>
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--text3)' }}>
                       {(ord.order_items || []).slice(0, 3).map(i => `${i.quantity}× ${i.item_name}`).join(', ')}
                       {(ord.order_items || []).length > 3 ? ` +${(ord.order_items || []).length - 3} más` : ''}
                     </div>
+                    {ord.paid_by_name && (
+                      <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
+                        Cobrado por: <span style={{ fontWeight: 700 }}>{ord.paid_by_name}</span>
+                        {ord.paid_at && ` · ${timeStr(ord.paid_at)}`}
+                      </div>
+                    )}
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
