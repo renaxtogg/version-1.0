@@ -4164,13 +4164,24 @@ function ReservasPage({tables}) {
 
 function ReservaFormModal({reserva,tables,onClose,onSaved}){
   const isNew=!reserva;
-  const todayStr=new Date().toISOString().slice(0,10);
+  const now=new Date();
+  const todayStr=now.toISOString().slice(0,10);
+  const MONTHS_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const OCCASION_OPTS=[{id:'',label:'Sin motivo especial'},{id:'birthday',label:'🎂 Cumpleaños'},{id:'anniversary',label:'💑 Aniversario'},{id:'business',label:'💼 Reunión'},{id:'celebration',label:'🥂 Celebración'},{id:'other',label:'✦ Otro'}];
   const STATUS_OPTS=[{id:'pending',label:'Pendiente'},{id:'confirmed',label:'Confirmada'},{id:'seated',label:'En mesa'},{id:'no_show',label:'No llegó'},{id:'cancelled',label:'Cancelada'}];
+
+  const TIME_SLOTS=[];
+  for(let h=10;h<=23;h++){TIME_SLOTS.push(`${String(h).padStart(2,'0')}:00`);TIME_SLOTS.push(`${String(h).padStart(2,'0')}:30`);}
+
+  const initDate=reserva?.reservation_date||todayStr;
+  const [selYear,selMonth,selDay]=initDate.split('-').map(Number);
+
   const [form,setForm]=useState({
     customer_name:   reserva?.customer_name   ||'',
     customer_phone:  reserva?.customer_phone  ||'',
-    reservation_date:reserva?.reservation_date||todayStr,
+    day:   selDay,
+    month: selMonth,
+    year:  selYear,
     reservation_time:reserva?.reservation_time?.slice(0,5)||'',
     guests:          reserva?.guests          ||2,
     table_id:        reserva?.table_id        ||'',
@@ -4181,23 +4192,34 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
   const [saving,setSaving]=useState(false);
   const f=(k,v)=>setForm(p=>({...p,[k]:v}));
   const inputSt={width:'100%',height:38,border:`1px solid ${C.border}`,borderRadius:6,padding:'0 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none',boxSizing:'border-box'};
+  const selSt={...inputSt,cursor:'pointer'};
+
+  const daysInMonth=new Date(form.year,form.month,0).getDate();
+  const yearOptions=[now.getFullYear(),now.getFullYear()+1,now.getFullYear()+2];
+
+  function buildDateStr(){
+    const d=String(Math.min(form.day,daysInMonth)).padStart(2,'0');
+    const m=String(form.month).padStart(2,'0');
+    return `${form.year}-${m}-${d}`;
+  }
 
   async function save(){
-    if(!form.customer_name||!form.customer_phone||!form.reservation_date||!form.reservation_time)return;
+    const dateStr=buildDateStr();
+    if(!form.customer_name||!form.customer_phone||!dateStr||!form.reservation_time)return;
     setSaving(true);
     if(isNew){
       const confirmNum='R-'+String(Math.floor(Date.now()%90000)+10000);
       await db.from('reservations').insert({
         restaurant_id:RID,confirm_num:confirmNum,
         customer_name:form.customer_name,customer_phone:form.customer_phone,
-        reservation_date:form.reservation_date,reservation_time:form.reservation_time,
+        reservation_date:dateStr,reservation_time:form.reservation_time,
         guests:Number(form.guests),table_id:form.table_id||null,
         occasion:form.occasion||null,notes:form.notes||null,status:form.status,
       });
     } else {
       await db.from('reservations').update({
         customer_name:form.customer_name,customer_phone:form.customer_phone,
-        reservation_date:form.reservation_date,reservation_time:form.reservation_time,
+        reservation_date:dateStr,reservation_time:form.reservation_time,
         guests:Number(form.guests),table_id:form.table_id||null,
         occasion:form.occasion||null,notes:form.notes||null,status:form.status,
       }).eq('id',reserva.id);
@@ -4206,58 +4228,117 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
     onSaved();
   }
 
+  const canSave=form.customer_name&&form.customer_phone&&form.reservation_time;
+
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
-      <div style={{background:C.surface,borderRadius:14,width:'100%',maxWidth:520,maxHeight:'90vh',overflowY:'auto',padding:24}}>
+      <div style={{background:C.surface,borderRadius:14,width:'100%',maxWidth:560,maxHeight:'92vh',overflowY:'auto',padding:24}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
           <div style={{fontSize:18,fontWeight:800,color:C.ink}}>{isNew?'Nueva reserva':'Editar reserva'}</div>
           <button onClick={onClose} style={{width:30,height:30,borderRadius:'50%',border:`1px solid ${C.border}`,background:'transparent',cursor:'pointer',fontSize:16,color:C.mid}}>✕</button>
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+
+          {/* Contacto */}
           <div style={{display:'flex',gap:10}}>
-            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Nombre *</label><input value={form.customer_name} onChange={e=>f('customer_name',e.target.value)} style={inputSt}/></div>
-            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Teléfono *</label><input value={form.customer_phone} onChange={e=>f('customer_phone',e.target.value)} type="tel" style={inputSt}/></div>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Nombre *</label><input value={form.customer_name} onChange={e=>f('customer_name',e.target.value)} style={inputSt} placeholder="Nombre del cliente"/></div>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Teléfono *</label><input value={form.customer_phone} onChange={e=>f('customer_phone',e.target.value)} type="tel" style={inputSt} placeholder="+595 9XX XXX XXX"/></div>
           </div>
-          <div style={{display:'flex',gap:10}}>
-            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Fecha *</label><input type="date" value={form.reservation_date} onChange={e=>f('reservation_date',e.target.value)} style={inputSt}/></div>
-            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Hora *</label><input type="time" value={form.reservation_time} onChange={e=>f('reservation_time',e.target.value)} style={inputSt}/></div>
+
+          {/* Fecha — dropdowns */}
+          <div>
+            <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:6}}>Fecha de la reserva *</label>
+            <div style={{display:'flex',gap:8}}>
+              <div style={{flex:'0 0 90px'}}>
+                <div style={{fontSize:10,color:C.mid,marginBottom:3,fontWeight:600}}>DÍA</div>
+                <select value={form.day} onChange={e=>f('day',Number(e.target.value))} style={selSt}>
+                  {Array.from({length:daysInMonth},(_,i)=><option key={i+1} value={i+1}>{i+1}</option>)}
+                </select>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:10,color:C.mid,marginBottom:3,fontWeight:600}}>MES</div>
+                <select value={form.month} onChange={e=>f('month',Number(e.target.value))} style={selSt}>
+                  {MONTHS_ES.map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
+                </select>
+              </div>
+              <div style={{flex:'0 0 90px'}}>
+                <div style={{fontSize:10,color:C.mid,marginBottom:3,fontWeight:600}}>AÑO</div>
+                <select value={form.year} onChange={e=>f('year',Number(e.target.value))} style={selSt}>
+                  {yearOptions.map(y=><option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{marginTop:6,fontSize:11,color:C.mid}}>
+              → <strong style={{color:C.ink}}>{MONTHS_ES[form.month-1]} {Math.min(form.day,daysInMonth)}, {form.year}</strong>
+            </div>
           </div>
+
+          {/* Hora — slots clickeables */}
+          <div>
+            <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:6}}>
+              Horario *{form.reservation_time&&<strong style={{color:C.ink,marginLeft:8}}>{form.reservation_time} hs</strong>}
+            </label>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:5}}>
+              {TIME_SLOTS.map(t=>{
+                const sel=form.reservation_time===t;
+                return(
+                  <button key={t} onClick={()=>f('reservation_time',t)}
+                    style={{padding:'6px 4px',borderRadius:6,border:`1.5px solid ${sel?'#000':C.border}`,background:sel?'#000':'transparent',color:sel?'#fff':C.ink,fontSize:11,fontWeight:sel?700:400,cursor:'pointer',textAlign:'center',transition:'all 100ms'}}>
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Personas + Mesa */}
           <div style={{display:'flex',gap:10}}>
-            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Personas</label>
-              <select value={form.guests} onChange={e=>f('guests',e.target.value)} style={inputSt}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Personas</label>
+              <select value={form.guests} onChange={e=>f('guests',e.target.value)} style={selSt}>
                 {[1,2,3,4,5,6,7,8,10,12].map(n=><option key={n} value={n}>{n} personas</option>)}
               </select>
             </div>
-            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Mesa</label>
-              <select value={form.table_id} onChange={e=>f('table_id',e.target.value)} style={inputSt}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Mesa</label>
+              <select value={form.table_id} onChange={e=>f('table_id',e.target.value)} style={selSt}>
                 <option value="">Sin asignar</option>
-                {tables.map(t=><option key={t.id} value={t.id}>Mesa {t.number}{t.capacity?` (${t.capacity}p)`:''}</option>)}
+                {(tables||[]).map(t=><option key={t.id} value={t.id}>Mesa {t.number}{t.capacity?` (${t.capacity}p)`:''}</option>)}
               </select>
             </div>
           </div>
+
+          {/* Motivo + Estado */}
           <div style={{display:'flex',gap:10}}>
-            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Motivo</label>
-              <select value={form.occasion} onChange={e=>f('occasion',e.target.value)} style={inputSt}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Motivo</label>
+              <select value={form.occasion} onChange={e=>f('occasion',e.target.value)} style={selSt}>
                 {OCCASION_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </div>
-            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Estado</label>
-              <select value={form.status} onChange={e=>f('status',e.target.value)} style={inputSt}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Estado</label>
+              <select value={form.status} onChange={e=>f('status',e.target.value)} style={selSt}>
                 {STATUS_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
             </div>
           </div>
-          <div><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Notas / comentarios</label>
-            <textarea value={form.notes} onChange={e=>f('notes',e.target.value)} rows={3}
-              style={{width:'100%',border:`1px solid ${C.border}`,borderRadius:6,padding:'8px 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none',resize:'vertical',boxSizing:'border-box'}}/>
+
+          {/* Notas */}
+          <div>
+            <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Notas / comentarios</label>
+            <textarea value={form.notes} onChange={e=>f('notes',e.target.value)} rows={2}
+              style={{width:'100%',border:`1px solid ${C.border}`,borderRadius:6,padding:'8px 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none',resize:'none',boxSizing:'border-box'}}/>
           </div>
-          <div style={{background:'#fff8e6',border:'1px solid #ffe082',borderRadius:8,padding:'10px 14px',fontSize:11,color:'#b45309',lineHeight:1.6}}>
-            ⚠ <strong>Tolerancia 15 min.</strong> Si el cliente no llega en 15 minutos de la hora reservada, marcá como "No llegó" para liberar la mesa.
+
+          <div style={{background:'#fff8e6',border:'1px solid #ffe082',borderRadius:8,padding:'9px 12px',fontSize:11,color:'#b45309'}}>
+            ⚠ <strong>Tolerancia 15 min.</strong> Si el cliente no llega en 15 min de la hora reservada, marcá como "No llegó".
           </div>
-          <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:8}}>
+
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
             <button onClick={onClose} style={{padding:'8px 18px',border:`1px solid ${C.border}`,borderRadius:8,background:'transparent',color:C.mid,fontSize:13,cursor:'pointer'}}>Cancelar</button>
-            <button onClick={save} disabled={saving||!form.customer_name||!form.customer_phone||!form.reservation_date||!form.reservation_time}
-              style={{padding:'8px 22px',border:'none',borderRadius:8,background:'#000',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',opacity:saving?.6:1}}>
+            <button onClick={save} disabled={saving||!canSave}
+              style={{padding:'8px 22px',border:'none',borderRadius:8,background:canSave?'#000':'#ccc',color:'#fff',fontSize:13,fontWeight:700,cursor:canSave?'pointer':'default',opacity:saving?.6:1}}>
               {saving?'Guardando…':isNew?'Crear reserva':'Guardar cambios'}
             </button>
           </div>

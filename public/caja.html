@@ -1958,11 +1958,183 @@ function CalculadoraFlotante(){
 /* ═══════════════════════════════════════════
    PANEL: RESERVAS (CAJA)
 ═══════════════════════════════════════════ */
+function ReservaFormModalCaja({reserva,tables,onClose,onSaved}){
+  const isNew=!reserva;
+  const now=new Date();
+  const MONTHS_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const OCCASION_OPTS=[{id:'',label:'Sin motivo especial'},{id:'birthday',label:'🎂 Cumpleaños'},{id:'anniversary',label:'💑 Aniversario'},{id:'business',label:'💼 Reunión'},{id:'celebration',label:'🥂 Celebración'},{id:'other',label:'✦ Otro'}];
+  const STATUS_OPTS=[{id:'pending',label:'Pendiente'},{id:'confirmed',label:'Confirmada'},{id:'seated',label:'En mesa'},{id:'no_show',label:'No llegó'},{id:'cancelled',label:'Cancelada'}];
+
+  const TIME_SLOTS=[];
+  for(let h=10;h<=23;h++){TIME_SLOTS.push(`${String(h).padStart(2,'0')}:00`);TIME_SLOTS.push(`${String(h).padStart(2,'0')}:30`);}
+
+  const todayStr=now.toISOString().slice(0,10);
+  const initDate=reserva?.reservation_date||todayStr;
+  const [iY,iM,iD]=initDate.split('-').map(Number);
+
+  const [form,setForm]=useState({
+    customer_name:   reserva?.customer_name   ||'',
+    customer_phone:  reserva?.customer_phone  ||'',
+    day:iD, month:iM, year:iY,
+    reservation_time:reserva?.reservation_time?.slice(0,5)||'',
+    guests:          reserva?.guests          ||2,
+    table_id:        reserva?.table_id        ||'',
+    occasion:        reserva?.occasion        ||'',
+    notes:           reserva?.notes           ||'',
+    status:          reserva?.status          ||'confirmed',
+  });
+  const [saving,setSaving]=useState(false);
+  const f=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const inputSt={width:'100%',height:38,border:`1px solid ${C.border}`,borderRadius:6,padding:'0 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none',boxSizing:'border-box'};
+  const selSt={...inputSt,cursor:'pointer'};
+
+  const daysInMonth=new Date(form.year,form.month,0).getDate();
+  const yearOptions=[now.getFullYear(),now.getFullYear()+1];
+
+  function buildDateStr(){
+    const d=String(Math.min(form.day,daysInMonth)).padStart(2,'0');
+    const m=String(form.month).padStart(2,'0');
+    return `${form.year}-${m}-${d}`;
+  }
+
+  async function save(){
+    const dateStr=buildDateStr();
+    if(!form.customer_name||!form.customer_phone||!dateStr||!form.reservation_time)return;
+    setSaving(true);
+    if(isNew){
+      const confirmNum='R-'+String(Math.floor(Date.now()%90000)+10000);
+      await db.from('reservations').insert({
+        restaurant_id:RID,confirm_num:confirmNum,
+        customer_name:form.customer_name,customer_phone:form.customer_phone,
+        reservation_date:dateStr,reservation_time:form.reservation_time,
+        guests:Number(form.guests),table_id:form.table_id||null,
+        occasion:form.occasion||null,notes:form.notes||null,status:form.status,
+      });
+    } else {
+      await db.from('reservations').update({
+        customer_name:form.customer_name,customer_phone:form.customer_phone,
+        reservation_date:buildDateStr(),reservation_time:form.reservation_time,
+        guests:Number(form.guests),table_id:form.table_id||null,
+        occasion:form.occasion||null,notes:form.notes||null,status:form.status,
+      }).eq('id',reserva.id);
+    }
+    setSaving(false);
+    onSaved();
+  }
+
+  const canSave=form.customer_name&&form.customer_phone&&form.reservation_time;
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:C.surface,borderRadius:14,width:'100%',maxWidth:540,maxHeight:'92vh',overflowY:'auto',padding:24}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+          <div style={{fontSize:17,fontWeight:800,color:C.ink}}>{isNew?'Nueva reserva':'Editar reserva'}</div>
+          <button onClick={onClose} style={{width:28,height:28,borderRadius:'50%',border:`1px solid ${C.border}`,background:'transparent',cursor:'pointer',fontSize:15,color:C.mid}}>✕</button>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Nombre *</label><input value={form.customer_name} onChange={e=>f('customer_name',e.target.value)} style={inputSt} placeholder="Nombre del cliente"/></div>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Teléfono *</label><input value={form.customer_phone} onChange={e=>f('customer_phone',e.target.value)} type="tel" style={inputSt} placeholder="+595 9XX XXX XXX"/></div>
+          </div>
+
+          {/* Fecha dropdowns */}
+          <div>
+            <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:6}}>Fecha *</label>
+            <div style={{display:'flex',gap:8}}>
+              <div style={{flex:'0 0 80px'}}>
+                <div style={{fontSize:10,color:C.mid,marginBottom:3,fontWeight:600}}>DÍA</div>
+                <select value={form.day} onChange={e=>f('day',Number(e.target.value))} style={selSt}>
+                  {Array.from({length:daysInMonth},(_,i)=><option key={i+1} value={i+1}>{i+1}</option>)}
+                </select>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:10,color:C.mid,marginBottom:3,fontWeight:600}}>MES</div>
+                <select value={form.month} onChange={e=>f('month',Number(e.target.value))} style={selSt}>
+                  {MONTHS_ES.map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
+                </select>
+              </div>
+              <div style={{flex:'0 0 82px'}}>
+                <div style={{fontSize:10,color:C.mid,marginBottom:3,fontWeight:600}}>AÑO</div>
+                <select value={form.year} onChange={e=>f('year',Number(e.target.value))} style={selSt}>
+                  {yearOptions.map(y=><option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{marginTop:5,fontSize:11,color:C.mid}}>→ <strong style={{color:C.ink}}>{MONTHS_ES[form.month-1]} {Math.min(form.day,daysInMonth)}, {form.year}</strong></div>
+          </div>
+
+          {/* Hora — slots */}
+          <div>
+            <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:6}}>
+              Horario *{form.reservation_time&&<strong style={{color:C.ink,marginLeft:8}}>{form.reservation_time} hs</strong>}
+            </label>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
+              {TIME_SLOTS.map(t=>{
+                const sel=form.reservation_time===t;
+                return <button key={t} onClick={()=>f('reservation_time',t)}
+                  style={{padding:'5px 2px',borderRadius:5,border:`1.5px solid ${sel?'#000':C.border}`,background:sel?'#000':'transparent',color:sel?'#fff':C.ink,fontSize:11,fontWeight:sel?700:400,cursor:'pointer',transition:'all 100ms'}}>
+                  {t}</button>;
+              })}
+            </div>
+          </div>
+
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Personas</label>
+              <select value={form.guests} onChange={e=>f('guests',e.target.value)} style={selSt}>
+                {[1,2,3,4,5,6,7,8,10,12].map(n=><option key={n} value={n}>{n} personas</option>)}
+              </select>
+            </div>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Mesa</label>
+              <select value={form.table_id} onChange={e=>f('table_id',e.target.value)} style={selSt}>
+                <option value="">Sin asignar</option>
+                {(tables||[]).map(t=><option key={t.id} value={t.id}>Mesa {t.number}{t.capacity?` (${t.capacity}p)`:''}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Motivo</label>
+              <select value={form.occasion} onChange={e=>f('occasion',e.target.value)} style={selSt}>
+                {OCCASION_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Estado</label>
+              <select value={form.status} onChange={e=>f('status',e.target.value)} style={selSt}>
+                {STATUS_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Notas</label>
+            <textarea value={form.notes} onChange={e=>f('notes',e.target.value)} rows={2}
+              style={{width:'100%',border:`1px solid ${C.border}`,borderRadius:6,padding:'8px 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none',resize:'none',boxSizing:'border-box'}}/>
+          </div>
+
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:4}}>
+            <button onClick={onClose} style={{padding:'8px 16px',border:`1px solid ${C.border}`,borderRadius:8,background:'transparent',color:C.mid,fontSize:13,cursor:'pointer'}}>Cancelar</button>
+            <button onClick={save} disabled={saving||!canSave}
+              style={{padding:'8px 20px',border:'none',borderRadius:8,background:canSave?'#000':'#ccc',color:'#fff',fontSize:13,fontWeight:700,cursor:canSave?'pointer':'default',opacity:saving?.6:1}}>
+              {saving?'Guardando…':isNew?'Crear reserva':'Guardar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReservasPanel(){
   const [reservas,setReservas]=useState([]);
   const [loading,setLoading]=useState(true);
   const [dateFilter,setDateFilter]=useState(new Date().toISOString().slice(0,10));
-  const [confirmModal,setConfirmModal]=useState(null);
+  const [newModal,setNewModal]=useState(false);
+  const [editModal,setEditModal]=useState(null);
+  const [tables,setTables]=useState([]);
 
   const OCCASION_LABEL={birthday:'🎂 Cumpleaños',anniversary:'💑 Aniversario',business:'💼 Reunión',celebration:'🥂 Celebración',other:'✦ Otro'};
   const STATUS_CFG={
@@ -1973,14 +2145,15 @@ function ReservasPanel(){
     cancelled: {label:'Cancelada', color:'#FF3B30', bg:'rgba(255,59,48,.12)'},
   };
 
+  useEffect(()=>{
+    if(db) db.from('tables').select('id,number,capacity').eq('restaurant_id',RID).order('number').then(({data})=>setTables(data||[]));
+  },[]);
+
   async function load(){
     setLoading(true);
     if(!db){setLoading(false);return;}
     const{data}=await db.from('reservations')
-      .select('*')
-      .eq('restaurant_id',RID)
-      .eq('reservation_date',dateFilter)
-      .order('reservation_time');
+      .select('*').eq('restaurant_id',RID).eq('reservation_date',dateFilter).order('reservation_time');
     setReservas(data||[]);
     setLoading(false);
   }
@@ -1989,7 +2162,6 @@ function ReservasPanel(){
   async function updateStatus(id,status){
     await db.from('reservations').update({status}).eq('id',id);
     setReservas(p=>p.map(r=>r.id===id?{...r,status}:r));
-    setConfirmModal(null);
   }
 
   const fmtTime=t=>t?t.slice(0,5):'';
@@ -1999,20 +2171,22 @@ function ReservasPanel(){
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:10}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:800,color:'#000000',margin:0}}>Reservas</h1>
-          <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{reservas.filter(r=>['pending','confirmed'].includes(r.status)).length} activas para hoy</div>
+          <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{reservas.filter(r=>['pending','confirmed'].includes(r.status)).length} activas para esta fecha</div>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <input type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}
             style={{height:34,border:`1px solid ${C.border}`,borderRadius:6,padding:'0 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none'}}/>
           <button onClick={load} style={{height:34,padding:'0 12px',border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,color:C.mid,fontSize:12,cursor:'pointer'}}>↺</button>
+          <button onClick={()=>setNewModal(true)} style={{height:34,padding:'0 14px',border:'none',borderRadius:6,background:'#000',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Nueva</button>
         </div>
       </div>
 
       {loading&&<div style={{textAlign:'center',padding:40,color:C.mid}}>Cargando…</div>}
       {!loading&&reservas.length===0&&(
         <div style={{textAlign:'center',padding:60,color:C.mid}}>
-          <div style={{fontSize:32,marginBottom:12}}>📅</div>
+          <div style={{fontSize:28,marginBottom:10}}>◷</div>
           <div style={{fontSize:14,fontWeight:600}}>Sin reservas para esta fecha</div>
+          <button onClick={()=>setNewModal(true)} style={{marginTop:14,padding:'8px 20px',border:'none',borderRadius:8,background:'#000',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>+ Crear reserva</button>
         </div>
       )}
 
@@ -2029,40 +2203,36 @@ function ReservasPanel(){
                       <span style={{fontSize:11,fontWeight:700,color:sc.color,background:sc.bg,padding:'2px 8px',borderRadius:20}}>{sc.label}</span>
                     </div>
                     <div style={{display:'flex',gap:16,fontSize:12,color:C.mid,flexWrap:'wrap'}}>
-                      <span>🕐 {fmtTime(r.reservation_time)}</span>
+                      <span>◷ {fmtTime(r.reservation_time)}</span>
                       <span>👥 {r.guests} personas</span>
-                      {r.table_id&&<span>🍽 Mesa asignada</span>}
+                      {r.table_id&&<span>Mesa asignada</span>}
                       {r.occasion&&<span>{OCCASION_LABEL[r.occasion]||r.occasion}</span>}
                     </div>
                     <div style={{fontSize:12,color:C.mid,marginTop:4}}>
-                      📱 {r.customer_phone}
-                      <span style={{marginLeft:12,color:'#6E6E73',fontFamily:'monospace'}}>{r.confirm_num}</span>
+                      {r.customer_phone}
+                      <span style={{marginLeft:12,color:'#86868B',fontFamily:'monospace',fontSize:11}}>{r.confirm_num}</span>
                     </div>
                     {r.notes&&<div style={{fontSize:11,color:C.mid,marginTop:6,fontStyle:'italic',borderTop:`1px solid ${C.border}`,paddingTop:6}}>{r.notes}</div>}
                   </div>
+                  <button onClick={()=>setEditModal(r)} style={{padding:'4px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:11,cursor:'pointer',flexShrink:0}}>Editar</button>
                 </div>
 
-                {/* Acciones según estado */}
                 <div style={{display:'flex',gap:8,marginTop:12,flexWrap:'wrap'}}>
                   {r.status==='pending'&&<>
                     <button onClick={()=>updateStatus(r.id,'confirmed')} style={{padding:'6px 14px',borderRadius:6,border:'none',background:'#34C759',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>✓ Confirmar</button>
                     <button onClick={()=>updateStatus(r.id,'cancelled')} style={{padding:'6px 14px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#FF3B30',fontSize:12,fontWeight:600,cursor:'pointer'}}>✕ Cancelar</button>
                   </>}
                   {r.status==='confirmed'&&<>
-                    <button onClick={()=>updateStatus(r.id,'seated')} style={{padding:'6px 14px',borderRadius:6,border:'none',background:'#007AFF',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>🪑 Sentar</button>
+                    <button onClick={()=>updateStatus(r.id,'seated')} style={{padding:'6px 14px',borderRadius:6,border:'none',background:'#007AFF',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>Sentar</button>
                     <button onClick={()=>updateStatus(r.id,'no_show')} style={{padding:'6px 14px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:12,fontWeight:600,cursor:'pointer'}}>No llegó</button>
                     <button onClick={()=>updateStatus(r.id,'cancelled')} style={{padding:'6px 14px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#FF3B30',fontSize:12,fontWeight:600,cursor:'pointer'}}>✕ Cancelar</button>
                   </>}
-                  {r.status==='seated'&&<>
-                    <span style={{fontSize:12,color:'#007AFF',fontWeight:600}}>Cliente en mesa</span>
-                  </>}
+                  {r.status==='seated'&&<span style={{fontSize:12,color:'#007AFF',fontWeight:600}}>Cliente en mesa</span>}
                   {(r.status==='no_show'||r.status==='cancelled')&&(
                     <button onClick={()=>updateStatus(r.id,'pending')} style={{padding:'6px 14px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:12,cursor:'pointer'}}>↩ Reactivar</button>
                   )}
-                  {/* WhatsApp rápido */}
                   <a href={`https://wa.me/${r.customer_phone.replace(/\D/g,'')}`} target="_blank"
-                    style={{padding:'6px 14px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#25D366',fontSize:12,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:4}}>
-                    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
+                    style={{padding:'6px 12px',borderRadius:6,border:`1px solid #25D366`,background:'transparent',color:'#25D366',fontSize:12,fontWeight:600,textDecoration:'none'}}>
                     WhatsApp
                   </a>
                 </div>
@@ -2070,6 +2240,15 @@ function ReservasPanel(){
             );
           })}
         </div>
+      )}
+
+      {(newModal||editModal)&&(
+        <ReservaFormModalCaja
+          reserva={editModal}
+          tables={tables}
+          onClose={()=>{setNewModal(false);setEditModal(null);}}
+          onSaved={()=>{setNewModal(false);setEditModal(null);load();}}
+        />
       )}
     </div>
   );
