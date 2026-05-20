@@ -5,6 +5,11 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
+  try { return await _handler(req, res); }
+  catch(e) { return res.status(500).json({ error: e.message || 'Error interno del servidor' }); }
+}
+
+async function _handler(req, res) {
 
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
