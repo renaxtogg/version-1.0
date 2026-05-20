@@ -1401,6 +1401,9 @@ function PersonalPage() {
   const [editId,setEditId]     = useState(null);
   const [editRole,setEditRole] = useState('');
   const [editActive,setEditActive] = useState(true);
+  const [addModal,setAddModal] = useState(false);
+  const [addForm,setAddForm]   = useState({username:'',password:'',display_name:'',role:'mozo'});
+  const [addLoading,setAddLoading] = useState(false);
 
   // Turnos
   const [shifts,setShifts]         = useState([]);
@@ -1456,6 +1459,31 @@ function PersonalPage() {
     setEditId(null);
   }
 
+  async function addEmployee() {
+    if(!db){toast('Sin conexión',false);return;}
+    const{username,password,display_name,role}=addForm;
+    if(!username.trim()){toast('Ingresá un nombre de usuario',false);return;}
+    if(password.length<6){toast('La contraseña debe tener al menos 6 caracteres',false);return;}
+    setAddLoading(true);
+    try {
+      const{data:{session}}=await db.auth.getSession();
+      const token=session?.access_token;
+      if(!token) throw new Error('Sin sesión activa');
+      const resp=await fetch('/api/create-user',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+        body:JSON.stringify({username:username.trim(),password,display_name:display_name.trim(),role,restaurant_id:RID})
+      });
+      const result=await resp.json();
+      if(!resp.ok) throw new Error(result.error||'Error desconocido');
+      toast(`Empleado "${result.username}" creado`);
+      setAddModal(false);
+      setAddForm({username:'',password:'',display_name:'',role:'mozo'});
+      loadProfiles();
+    } catch(e){toast(e.message,false);}
+    setAddLoading(false);
+  }
+
   async function clockIn() {
     if(!db||!shiftEmp){toast('Seleccioná un empleado',false);return;}
     const emp = profiles.find(p=>p.id===shiftEmp);
@@ -1500,7 +1528,10 @@ function PersonalPage() {
 
       {/* Tab Empleados */}
       {tab==='empleados'&&(<>
-        <div style={{fontSize:12,color:'#6E6E73',marginBottom:12}}>Usuarios con acceso al sistema · restaurante {RID.slice(0,8)}…</div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+          <div style={{fontSize:12,color:'#6E6E73'}}>Usuarios con acceso al sistema · restaurante {RID.slice(0,8)}…</div>
+          <Btn small onClick={()=>{setAddForm({username:'',password:'',display_name:'',role:'mozo'});setAddModal(true);}}>+ Nuevo empleado</Btn>
+        </div>
         {loading&&<div style={{display:'flex',gap:10,alignItems:'center',color:'#6E6E73',fontSize:13}}><span className="spin"/>Cargando personal…</div>}
         {error&&<div style={{color:C.orange,fontSize:13,padding:16,background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.2)',borderRadius:8,marginBottom:14}}><div style={{fontWeight:700,marginBottom:4}}>Atención</div>{error}</div>}
         {!loading&&(
@@ -1531,17 +1562,61 @@ function PersonalPage() {
                     </Td>
                   </tr>
                 ))}
-                {profiles.length===0&&!error&&<EmptyRow cols={7} label="Sin usuarios. Creá usuarios desde el panel SuperAdmin."/>}
+                {profiles.length===0&&!error&&<EmptyRow cols={7} label="Sin empleados. Usá + Nuevo empleado para agregar personal."/>}
               </tbody>
             </table>
           </div>
         )}
-        {profiles.length>0&&<div style={{marginTop:10,fontSize:11,color:'#86868B'}}>{profiles.filter(p=>p.is_active!==false).length} activos · {profiles.filter(p=>p.is_active===false).length} inactivos · Para crear usuarios usá el panel SuperAdmin.</div>}
-        {/* Crear usuarios — sin service_role */}
-        <div style={{marginTop:16,padding:'10px 14px',background:'#F5F5F7',border:`1px solid ${C.border}`,borderRadius:8,fontSize:12,color:'#86868B'}}>
-          Para crear nuevos usuarios con contraseña usá el panel <a href="superadmin.html" style={{color:'#000',fontWeight:600}}>SuperAdmin</a>.
-          {/* TODO: Edge Function — no usar service_role en frontend */}
-        </div>
+        {profiles.length>0&&<div style={{marginTop:10,fontSize:11,color:'#86868B'}}>{profiles.filter(p=>p.is_active!==false).length} activos · {profiles.filter(p=>p.is_active===false).length} inactivos</div>}
+
+        {addModal&&(
+          <Modal title="Nuevo empleado" onClose={()=>setAddModal(false)}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+              <div>
+                <label style={{display:'block',fontSize:12,color:'#6E6E73',marginBottom:5}}>Usuario *</label>
+                <input
+                  value={addForm.username}
+                  onChange={e=>setAddForm(f=>({...f,username:e.target.value}))}
+                  placeholder="ej: juanmozo"
+                  autoFocus
+                  style={{width:'100%',boxSizing:'border-box'}}
+                />
+              </div>
+              <div>
+                <label style={{display:'block',fontSize:12,color:'#6E6E73',marginBottom:5}}>Nombre para mostrar</label>
+                <input
+                  value={addForm.display_name}
+                  onChange={e=>setAddForm(f=>({...f,display_name:e.target.value}))}
+                  placeholder="ej: Juan García"
+                  style={{width:'100%',boxSizing:'border-box'}}
+                />
+              </div>
+            </div>
+            <div style={{marginTop:14}}>
+              <label style={{display:'block',fontSize:12,color:'#6E6E73',marginBottom:5}}>Contraseña * (mínimo 6 caracteres)</label>
+              <input
+                type="password"
+                value={addForm.password}
+                onChange={e=>setAddForm(f=>({...f,password:e.target.value}))}
+                placeholder="Contraseña segura"
+                style={{width:'100%',boxSizing:'border-box'}}
+              />
+            </div>
+            <div style={{marginTop:14}}>
+              <label style={{display:'block',fontSize:12,color:'#6E6E73',marginBottom:5}}>Rol</label>
+              <Sel value={addForm.role} onChange={e=>setAddForm(f=>({...f,role:e.target.value}))} style={{width:'100%'}}>
+                {ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+              </Sel>
+            </div>
+            <div style={{marginTop:14,padding:'8px 12px',background:'#F5F5F7',borderRadius:8,fontSize:12,color:'#86868B'}}>
+              El empleado iniciará sesión con su usuario y contraseña en el panel correspondiente a su rol.
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:16}}>
+              <Btn variant="ghost" onClick={()=>setAddModal(false)} disabled={addLoading}>Cancelar</Btn>
+              <Btn onClick={addEmployee} disabled={addLoading}>{addLoading?'Creando…':'Crear empleado'}</Btn>
+            </div>
+          </Modal>
+        )}
       </>)}
 
       {/* Tab Turnos */}

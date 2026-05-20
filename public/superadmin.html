@@ -833,6 +833,34 @@ function PageUsuarios({restaurants, setFlash}) {
   const [editModal,setEditModal]= useState(null);
   const [editForm, setEditForm] = useState({role:'admin',restaurant_id:'',display_name:''});
   const [saving,   setSaving]   = useState(false);
+  const [newModal, setNewModal] = useState(false);
+  const [newForm,  setNewForm]  = useState({username:'',password:'',display_name:'',role:'admin',restaurant_id:''});
+  const [creating, setCreating] = useState(false);
+
+  const createUser = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    const { username, password, display_name, role, restaurant_id } = newForm;
+    if (!username.trim()) { setFlash({type:'warn',text:'Ingresá un nombre de usuario'}); return; }
+    if (password.length < 6) { setFlash({type:'warn',text:'La contraseña debe tener al menos 6 caracteres'}); return; }
+    setCreating(true);
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Sin sesión activa');
+      const resp = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ username: username.trim(), password, display_name: display_name.trim(), role, restaurant_id: restaurant_id || null })
+      });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error || 'Error desconocido');
+      setFlash({type:'ok',text:`Usuario "${result.username}" creado con éxito`});
+      setNewModal(false);
+      setNewForm({username:'',password:'',display_name:'',role:'admin',restaurant_id:''});
+      loadUsers();
+    } catch(e) { setFlash({type:'error',text:e.message}); }
+    setCreating(false);
+  };
 
   const loadUsers = useCallback(async () => {
     if (!db) { setLoading(false); return; }
@@ -905,8 +933,7 @@ function PageUsuarios({restaurants, setFlash}) {
         </div>
         <div style={{display:'flex',gap:10,alignItems:'center'}}>
           <input placeholder="Buscar usuario, email, restaurante..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:260}}/>
-          {/* TODO: mover a Edge Function — no usar service_role en frontend */}
-          <Btn disabled title="Requiere configuración del servidor">+ Nuevo usuario</Btn>
+          <Btn onClick={()=>{ setNewForm({username:'',password:'',display_name:'',role:'admin',restaurant_id:''}); setNewModal(true); }} disabled={!db}>+ Nuevo usuario</Btn>
         </div>
       </div>
 
@@ -915,10 +942,6 @@ function PageUsuarios({restaurants, setFlash}) {
           Sin conexión a Supabase — gestión de usuarios no disponible en modo demo
         </div>
       )}
-
-      <div style={{background:'#F5F5F7',border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 16px',marginBottom:20,fontSize:12,color:C.mid}}>
-        La creación de usuarios requiere una Edge Function segura en el servidor. El botón está deshabilitado hasta su configuración.
-      </div>
 
       {loading ? (
         <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:160,gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando usuarios…</span></div>
@@ -965,6 +988,56 @@ function PageUsuarios({restaurants, setFlash}) {
             </div>
           </SectionCard>
         ))
+      )}
+
+      {newModal&&(
+        <Modal title="Nuevo usuario" onClose={()=>setNewModal(false)}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Usuario *">
+              <input
+                value={newForm.username}
+                onChange={e=>setNewForm(f=>({...f,username:e.target.value}))}
+                placeholder="ej: mariaperez"
+                autoFocus
+              />
+            </FormField>
+            <FormField label="Nombre para mostrar">
+              <input
+                value={newForm.display_name}
+                onChange={e=>setNewForm(f=>({...f,display_name:e.target.value}))}
+                placeholder="ej: María Pérez"
+              />
+            </FormField>
+          </div>
+          <FormField label="Contraseña * (mínimo 6 caracteres)">
+            <input
+              type="password"
+              value={newForm.password}
+              onChange={e=>setNewForm(f=>({...f,password:e.target.value}))}
+              placeholder="Contraseña segura"
+            />
+          </FormField>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Rol">
+              <select value={newForm.role} onChange={e=>setNewForm(f=>({...f,role:e.target.value}))}>
+                {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Restaurante asignado">
+              <select value={newForm.restaurant_id} onChange={e=>setNewForm(f=>({...f,restaurant_id:e.target.value}))}>
+                <option value="">Sin restaurante (global)</option>
+                {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </FormField>
+          </div>
+          <div style={{padding:'10px 14px',background:'#F5F5F7',borderRadius:8,fontSize:12,color:C.mid,marginTop:4}}>
+            El usuario iniciará sesión con su nombre de usuario y contraseña. El email asignado es interno.
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
+            <Btn variant="ghost" onClick={()=>setNewModal(false)} disabled={creating}>Cancelar</Btn>
+            <Btn onClick={createUser} disabled={creating}>{creating?'Creando…':'Crear usuario'}</Btn>
+          </div>
+        </Modal>
       )}
 
       {editModal&&(
