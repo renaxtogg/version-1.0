@@ -3950,6 +3950,10 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
       setHint(`✓ Radio actualizado a ${distKm} km`);
     });
 
+    // Evitar que eventos del mapa burbujeen al DOM de React
+    window.L.DomEvent.disableClickPropagation(mapDivRef.current);
+    window.L.DomEvent.disableScrollPropagation(mapDivRef.current);
+
     mapRef.current = map;
     return ()=>{ map.remove(); mapRef.current=null; circlesRef.current={}; };
   },[]);
@@ -3989,7 +3993,13 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
   const azClr = ZCLR[az?.color]||'#EF4444';
 
   return (
-    <div style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+    <div
+      style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
+      onClick={e=>e.stopPropagation()}
+      onMouseDown={e=>e.stopPropagation()}
+      onTouchStart={e=>e.stopPropagation()}
+      onPointerDown={e=>e.stopPropagation()}
+    >
       <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:700,maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 32px 80px rgba(0,0,0,0.4)'}}>
         {/* Header */}
         <div style={{padding:'16px 20px',borderBottom:'1px solid #E5E5EA',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
@@ -3997,12 +4007,12 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
             <div style={{fontSize:17,fontWeight:800,color:'#000'}}>Editor de zonas en el mapa</div>
             <div style={{fontSize:12,color:'#86868B',marginTop:2}}>Tocá el mapa para definir el alcance · Arrastrá el pin para reposicionar el local</div>
           </div>
-          <button onClick={onClose} style={{background:'#F5F5F7',border:'none',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:18,color:'#86868B',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+          <button onClick={e=>{e.stopPropagation();onClose();}} style={{background:'#F5F5F7',border:'none',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:18,color:'#86868B',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
         </div>
 
         {/* Mapa */}
         <div style={{position:'relative',flexShrink:0}}>
-          <div ref={mapDivRef} style={{height:320,width:'100%'}}/>
+          <div ref={mapDivRef} style={{height:320,width:'100%',touchAction:'none'}}/>
           {/* Hint overlay */}
           <div style={{position:'absolute',bottom:8,left:'50%',transform:'translateX(-50%)',background:'rgba(0,0,0,0.65)',color:'#fff',borderRadius:20,padding:'5px 14px',fontSize:11,fontWeight:600,pointerEvents:'none',whiteSpace:'nowrap',maxWidth:'90%',overflow:'hidden',textOverflow:'ellipsis'}}>
             {hint}
