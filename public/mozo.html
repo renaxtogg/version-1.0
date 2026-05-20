@@ -914,8 +914,16 @@ function App() {
     setMesaDialog(null);
     if (!db) { showToast('Sin conexión'); return; }
     if (!tableId) { showToast('Seleccioná una mesa antes de continuar'); return; }
-    const orderNum = 'W-' + tableNum + '-' + Date.now().toString().slice(-4);
-    const { data: order, error } = await db.from('orders').insert({
+    // Número único: prefijo + mesa + timestamp base36 + random
+    const ts = Date.now().toString(36).toUpperCase().slice(-4);
+    const rnd = Math.random().toString(36).slice(-2).toUpperCase();
+    const orderNum = 'W-' + tableNum + '-' + ts + rnd;
+
+    // Verificar que el auth session es válido antes de insertar
+    const { data: { session: currentSession } } = await db.auth.getSession();
+    if (!currentSession) { window.location.replace('login.html'); return; }
+
+    const insertPayload = {
       restaurant_id: RID,
       table_id: tableId,
       order_number: orderNum,
@@ -924,9 +932,22 @@ function App() {
       subtotal: 0,
       discount_amount: 0,
       total: 0,
-      ...(mozoSession?.mozo_id ? { waiter_id: mozoSession.mozo_id } : {}),
-    }).select().single();
-    if (error) { showToast('Error al crear orden'); console.error(error); return; }
+    };
+    // Solo agregar waiter_id si el mozo_id coincide con la sesión actual
+    if (mozoSession?.mozo_id && mozoSession.mozo_id === currentSession.user.id) {
+      insertPayload.waiter_id = mozoSession.mozo_id;
+    }
+
+    const { data: order, error } = await db.from('orders').insert(insertPayload).select().single();
+    if (error) {
+      console.error('createOrder error:', error);
+      const msg = error.code === '23505' ? 'Número de orden duplicado, reintentá'
+                : error.code === '23503' ? 'Error de referencia en DB'
+                : error.code === '42501' ? 'Sin permisos para crear orden'
+                : `Error: ${error.message || error.code || 'desconocido'}`;
+      showToast(msg);
+      return;
+    }
     await db.from('order_status_history').insert({ order_id: order.id, status: 'confirmed', changed_by: 'mozo' });
     // Fix is_occupied: trigger may be slow, update directly
     await db.from('tables').update({ is_occupied: true, occupied_since: order.created_at }).eq('id', tableId);
