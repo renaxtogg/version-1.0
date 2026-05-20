@@ -18,9 +18,9 @@
   .screen{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scroll-behavior:smooth;background:#fff}
   .screen::-webkit-scrollbar{display:none}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-  @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(1.15)}}
   @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes popIn{0%{opacity:0;transform:scale(.88)}100%{opacity:1;transform:scale(1)}}
   @media(max-width:430px){
     body{display:block;background:#fff}
     .phone-wrap,.phone-wrap>div{display:block}
@@ -32,7 +32,7 @@
 <body>
 <div id="app"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback } = React;
+const { useState, useEffect, useRef } = React;
 
 /* ── DB ── */
 const _initDB = () => {
@@ -45,314 +45,571 @@ const _initDB = () => {
 };
 const db = _initDB();
 const RID = ((window.SUPABASE_CONFIG?.restaurantId)||'00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
-const _params = new URLSearchParams(window.location.search);
-const RIDER_ID = _params.get('rider_id') || null;
 
 /* ── UTILS ── */
 const fmt = n => '₲ ' + (n||0).toLocaleString('es-PY');
 const fmtTime = d => new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'});
 const diffMin = (a,b) => Math.round((new Date(b)-new Date(a))/60000);
-const encAddr = s => encodeURIComponent(s||'');
-
-/* ── VIBRATE ── */
-function vibrate() {
-  try { navigator.vibrate && navigator.vibrate([200,100,200]); } catch(e) {}
-}
-
-/* ── INVALID URL ── */
-function InvalidScreen() {
-  return (
-    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,textAlign:'center',background:'#fff'}}>
-      <div style={{fontSize:48,marginBottom:24}}>🔗</div>
-      <div style={{fontSize:20,fontWeight:700,color:'#1D1D1F',marginBottom:12}}>URL inválida</div>
-      <div style={{fontSize:15,color:'#6E6E73',lineHeight:1.5}}>Pedí el link de acceso a tu administrador. Debe incluir tu ID de rider.</div>
-    </div>
-  );
-}
+const vibrate = () => { try { navigator.vibrate && navigator.vibrate([200,100,200]); } catch(e) {} };
+const VEHICLE = { moto:'🛵', bici:'🚲', auto:'🚗', pie:'🚶' };
 
 /* ── SPINNER ── */
 function Spinner() {
-  return <div style={{width:22,height:22,border:'2px solid #D2D2D7',borderTopColor:'#000',borderRadius:'50%',animation:'spin .7s linear infinite',margin:'40px auto',display:'block'}} />;
+  return <div style={{width:22,height:22,border:'2px solid #D2D2D7',borderTopColor:'#000',borderRadius:'50%',animation:'spin .7s linear infinite',margin:'48px auto',display:'block'}} />;
 }
 
-/* ── HEADER ── */
-function Header({ title, onBack }) {
+/* ─────────────────────────────────────────
+   PANTALLA: LOGIN
+───────────────────────────────────────── */
+function LoginScreen({ onLogin }) {
+  const [pin, setPin] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleLogin() {
+    const trimmed = pin.trim();
+    if (trimmed.length < 4) { setError('El PIN debe tener al menos 4 dígitos'); return; }
+    if (!db) { setError('Sin conexión a base de datos'); return; }
+    setLoading(true); setError('');
+    const { data, error: dbErr } = await db
+      .from('delivery_riders')
+      .select('*')
+      .eq('restaurant_id', RID)
+      .eq('rider_pin', trimmed)
+      .eq('active', true)
+      .maybeSingle();
+    if (dbErr || !data) {
+      setError('PIN incorrecto o rider inactivo');
+      setLoading(false);
+      return;
+    }
+    onLogin(data);
+  }
+
   return (
-    <div style={{display:'flex',alignItems:'center',gap:8,padding:'16px 20px',borderBottom:'1px solid #F5F5F7',background:'#fff',position:'sticky',top:0,zIndex:10}}>
-      {onBack && (
-        <button onClick={onBack} style={{background:'none',border:'none',padding:'4px 8px 4px 0',fontSize:22,lineHeight:1,color:'#1D1D1F',cursor:'pointer'}}>‹</button>
-      )}
-      {!onBack && <div style={{fontSize:17,fontWeight:700,color:'#1D1D1F'}}>Mythos · Delivery</div>}
-      {onBack && <div style={{fontSize:17,fontWeight:600,color:'#1D1D1F'}}>{title}</div>}
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'#fff'}}>
+      <div style={{fontSize:52,marginBottom:8,animation:'popIn .3s ease'}}>🛵</div>
+      <div style={{fontSize:24,fontWeight:800,color:'#1D1D1F',marginBottom:4}}>Panel Rider</div>
+      <div style={{fontSize:14,color:'#86868B',marginBottom:44,textAlign:'center'}}>Ingresá tu PIN de acceso</div>
+
+      <input
+        type="tel"
+        inputMode="numeric"
+        maxLength={6}
+        placeholder="• • • •"
+        value={pin}
+        onChange={e => { setPin(e.target.value.replace(/\D/g,'')); setError(''); }}
+        onKeyDown={e => e.key === 'Enter' && handleLogin()}
+        autoFocus
+        style={{
+          width:'100%', padding:'18px 20px', fontSize:32, fontWeight:800,
+          textAlign:'center', border:`2px solid ${error?'#FF3B30':'#D2D2D7'}`,
+          borderRadius:16, background:'#F5F5F7', outline:'none', letterSpacing:12,
+          marginBottom:10, color:'#1D1D1F', fontFamily:"'SF Mono',ui-monospace,monospace",
+          transition:'border-color .15s'
+        }}
+      />
+
+      {error
+        ? <div style={{fontSize:13,color:'#FF3B30',marginBottom:16,textAlign:'center',minHeight:20}}>{error}</div>
+        : <div style={{minHeight:36}} />
+      }
+
+      <button
+        onClick={handleLogin}
+        disabled={loading || pin.length < 4}
+        style={{
+          width:'100%', padding:'18px', background:pin.length>=4?'#000':'#D2D2D7',
+          color:'#fff', border:'none', borderRadius:16, fontSize:17, fontWeight:700,
+          cursor:pin.length>=4?'pointer':'default', transition:'background .15s'
+        }}
+      >{loading ? '…' : 'Entrar'}</button>
     </div>
   );
 }
 
-/* ── SCREEN A — DISPONIBILIDAD ── */
-function ScreenAvailability({ status, stats, onChangeStatus, onShowHistory, onShowOrder, activeOrder }) {
-  const busy = status === 'on_route';
+/* ─────────────────────────────────────────
+   PANTALLA: HOME
+───────────────────────────────────────── */
+function HomeScreen({ rider, stats, activeOrders, onEnterPins, onShowRoute, onShowHistory, onLogout, onStatusChange }) {
+  const [changingStatus, setChangingStatus] = useState(false);
+  const status = rider.current_status || 'disponible';
+  const hasRoute = activeOrders.length > 0;
 
-  const bgMap = {
-    offline: '#F5F5F7',
-    available: '#F0FAF4',
-    on_route: '#FFF7E6',
-  };
+  async function toggleStatus() {
+    if (!db) return;
+    setChangingStatus(true);
+    const next = status === 'disponible' ? 'offline' : 'disponible';
+    await db.from('delivery_riders').update({ current_status: next }).eq('id', rider.id);
+    onStatusChange(next);
+    setChangingStatus(false);
+  }
+
+  const STATUS_BG    = { disponible:'#F0FAF4', offline:'#F5F5F7', en_ruta:'#FFF7E6' };
+  const STATUS_COLOR = { disponible:'#34C759', offline:'#86868B', en_ruta:'#FF9500' };
+  const STATUS_LABEL = { disponible:'Disponible', offline:'Offline', en_ruta:'En ruta' };
+
+  function earnLabel() {
+    if (!stats.count) return '—';
+    if (rider.commission_type === 'salary') return `${stats.count} entregas`;
+    return fmt(stats.earned);
+  }
 
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#fff'}}>
-      <Header />
-      <div style={{flex:1,overflowY:'auto',padding:'24px 20px 100px'}}>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'20px 20px 16px',borderBottom:'1px solid #F5F5F7'}}>
+        <div>
+          <div style={{fontSize:20,fontWeight:800,color:'#1D1D1F'}}>
+            {VEHICLE[rider.vehicle]||'🛵'} {rider.name.split(' ')[0]}
+          </div>
+          <div style={{fontSize:12,color:'#86868B',marginTop:2}}>{rider.name}</div>
+        </div>
+        <button
+          onClick={onLogout}
+          style={{background:'none',border:'1.5px solid #D2D2D7',borderRadius:8,padding:'6px 12px',fontSize:12,color:'#6E6E73',cursor:'pointer',fontWeight:500}}
+        >Salir</button>
+      </div>
 
-        {/* Estado toggle */}
-        <div style={{borderRadius:20,background: bgMap[status]||'#F5F5F7',padding:28,marginBottom:24,animation:'fadeIn .2s ease'}}>
-          {status === 'offline' && (
-            <>
-              <div style={{textAlign:'center',marginBottom:20}}>
-                <div style={{width:14,height:14,borderRadius:'50%',background:'#D2D2D7',margin:'0 auto 12px'}} />
-                <div style={{fontSize:18,fontWeight:600,color:'#6E6E73'}}>No disponible</div>
-                <div style={{fontSize:13,color:'#86868B',marginTop:4}}>Activate para recibir pedidos</div>
-              </div>
+      <div style={{flex:1,overflowY:'auto',padding:'20px 20px 100px'}}>
+
+        {/* Status card */}
+        <div style={{background:STATUS_BG[status]||'#F5F5F7',borderRadius:20,padding:'20px 24px',marginBottom:20,animation:'fadeIn .2s'}}>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <div style={{
+              width:12,height:12,borderRadius:'50%',
+              background:STATUS_COLOR[status]||'#86868B',
+              flexShrink:0,
+              animation:status==='disponible'?'pulse 1.8s ease-in-out infinite':'none'
+            }} />
+            <div style={{fontSize:17,fontWeight:700,color:'#1D1D1F',flex:1}}>{STATUS_LABEL[status]||status}</div>
+            {status !== 'en_ruta' && (
               <button
-                onClick={() => onChangeStatus('available')}
-                style={{width:'100%',padding:'16px',background:'#000',color:'#fff',border:'none',borderRadius:14,fontSize:16,fontWeight:600,cursor:'pointer',letterSpacing:.3}}
-              >Activarme</button>
-            </>
-          )}
-          {status === 'available' && (
-            <>
-              <div style={{textAlign:'center',marginBottom:20}}>
-                <div style={{width:14,height:14,borderRadius:'50%',background:'#34C759',margin:'0 auto 12px',animation:'pulse 1.8s ease-in-out infinite'}} />
-                <div style={{fontSize:18,fontWeight:600,color:'#1D1D1F'}}>Disponible</div>
-                <div style={{fontSize:13,color:'#34C759',marginTop:4}}>Esperando pedidos...</div>
-              </div>
-              <button
-                onClick={() => onChangeStatus('offline')}
-                style={{width:'100%',padding:'14px',background:'transparent',color:'#6E6E73',border:'1.5px solid #D2D2D7',borderRadius:14,fontSize:15,fontWeight:500,cursor:'pointer'}}
-              >Ir offline</button>
-            </>
-          )}
-          {status === 'on_route' && (
-            <>
-              <div style={{textAlign:'center',marginBottom:20}}>
-                <div style={{fontSize:28,marginBottom:10}}>🛵</div>
-                <div style={{fontSize:18,fontWeight:600,color:'#FF9500'}}>En ruta</div>
-                <div style={{fontSize:13,color:'#86868B',marginTop:4}}>Completá la entrega para liberar tu estado</div>
-              </div>
-              {activeOrder && (
-                <button
-                  onClick={onShowOrder}
-                  style={{width:'100%',padding:'14px',background:'#000',color:'#fff',border:'none',borderRadius:14,fontSize:15,fontWeight:600,cursor:'pointer'}}
-                >Ver pedido activo</button>
-              )}
-            </>
+                onClick={toggleStatus}
+                disabled={changingStatus}
+                style={{
+                  padding:'8px 16px',
+                  background: status==='disponible' ? 'transparent' : '#000',
+                  color: status==='disponible' ? '#6E6E73' : '#fff',
+                  border: status==='disponible' ? '1.5px solid #D2D2D7' : 'none',
+                  borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer'
+                }}
+              >{changingStatus ? '…' : status==='disponible' ? 'Ir offline' : 'Activarme'}</button>
+            )}
+          </div>
+          {hasRoute && (
+            <div style={{marginTop:12,fontSize:13,color:STATUS_COLOR['en_ruta'],fontWeight:600}}>
+              {activeOrders.length} pedido{activeOrders.length>1?'s':''} activo{activeOrders.length>1?'s':''} en ruta
+            </div>
           )}
         </div>
 
-        {/* Resumen del día */}
+        {/* Stats */}
         <div style={{background:'#F5F5F7',borderRadius:16,padding:'18px 20px',marginBottom:20}}>
-          <div style={{fontSize:12,fontWeight:600,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:14}}>Resumen del día</div>
+          <div style={{fontSize:11,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:14}}>Hoy</div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,textAlign:'center'}}>
             <div>
-              <div style={{fontSize:22,fontWeight:700,color:'#1D1D1F'}}>{stats.count}</div>
-              <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Pedidos</div>
+              <div style={{fontSize:26,fontWeight:800,color:'#1D1D1F'}}>{stats.count}</div>
+              <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Entregas</div>
             </div>
             <div>
-              <div style={{fontSize:16,fontWeight:700,color:'#1D1D1F'}}>{fmt(stats.earned)}</div>
-              <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Ganado</div>
+              <div style={{fontSize:rider.commission_type==='salary'?13:14,fontWeight:700,color:'#1D1D1F',lineHeight:1.3}}>{earnLabel()}</div>
+              <div style={{fontSize:11,color:'#86868B',marginTop:2}}>{rider.commission_type==='salary'?'Sueldo fijo':'Ganado'}</div>
             </div>
             <div>
-              <div style={{fontSize:22,fontWeight:700,color:'#1D1D1F'}}>{stats.avgMin > 0 ? stats.avgMin + 'min' : '—'}</div>
+              <div style={{fontSize:22,fontWeight:700,color:'#1D1D1F'}}>{stats.avgMin>0?stats.avgMin+'min':'—'}</div>
               <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Promedio</div>
             </div>
           </div>
         </div>
 
-        {/* Botón historial */}
-        <button
-          onClick={onShowHistory}
-          style={{width:'100%',padding:'14px',background:'#fff',color:'#1D1D1F',border:'1.5px solid #D2D2D7',borderRadius:14,fontSize:15,fontWeight:500,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}
-        >
-          <span>📋</span> Ver historial del día
-        </button>
+        {/* Action buttons */}
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          {hasRoute && (
+            <button
+              onClick={onShowRoute}
+              style={{width:'100%',padding:'18px',background:'#FF9500',color:'#fff',border:'none',borderRadius:16,fontSize:16,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:10,animation:'fadeIn .2s'}}
+            >
+              <span>🛵</span>
+              <span>Ver ruta activa ({activeOrders.length})</span>
+            </button>
+          )}
+          <button
+            onClick={onEnterPins}
+            style={{width:'100%',padding:'18px',background:'#000',color:'#fff',border:'none',borderRadius:16,fontSize:16,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:10}}
+          >
+            <span>📦</span> Ingresar PIN de pedido
+          </button>
+          <button
+            onClick={onShowHistory}
+            style={{width:'100%',padding:'14px',background:'transparent',color:'#1D1D1F',border:'1.5px solid #D2D2D7',borderRadius:14,fontSize:15,fontWeight:500,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}
+          >
+            <span>📋</span> Historial del día
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ── SCREEN B — PEDIDO ASIGNADO ── */
-function ScreenOrder({ order, onBack }) {
-  const [loading, setLoading] = useState(false);
-  const [riderStatus, setRiderStatus] = useState(order?.rider_status || 'confirmed');
+/* ─────────────────────────────────────────
+   PANTALLA: INGRESO DE PINs
+───────────────────────────────────────── */
+function PinEntryScreen({ rider, onStart, onBack }) {
+  const [input, setInput]     = useState('');
+  const [orders, setOrders]   = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [error, setError]     = useState('');
+  const [starting, setStarting] = useState(false);
+  const inputRef = useRef(null);
 
-  if (!order) return null;
+  async function addPin() {
+    const pin = input.trim();
+    if (!pin || pin.length < 4) { setError('Ingresá al menos 4 dígitos'); return; }
+    if (orders.some(o => o.delivery_pin === pin)) { setError('Este PIN ya fue agregado'); return; }
+    if (!db) { setError('Sin conexión'); return; }
 
-  const items = order.delivery_order_items || order.order_items || [];
-  const addr = order.delivery_address || {};
-  const mapAddr = addr.lat && addr.lng
-    ? `${addr.lat},${addr.lng}`
-    : encAddr([addr.street, addr.city].filter(Boolean).join(', '));
-  const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${mapAddr}`;
+    setSearching(true); setError('');
+    const { data, error: dbErr } = await db
+      .from('delivery_orders')
+      .select('*')
+      .eq('restaurant_id', RID)
+      .eq('delivery_pin', pin)
+      .not('rider_status', 'in', '("delivered","cancelled")')
+      .maybeSingle();
 
-  async function advance() {
-    if (!db) return;
-    setLoading(true);
-    const nextMap = { confirmed:'picked_up', picked_up:'on_way', on_way:'delivered' };
-    const next = nextMap[riderStatus];
-    if (!next) { setLoading(false); return; }
-    const patch = { rider_status: next };
-    if (next === 'picked_up') patch.picked_up_at = new Date().toISOString();
-    if (next === 'delivered') patch.delivered_at = new Date().toISOString();
-    const { error } = await db.from('delivery_orders').update(patch).eq('id', order.id);
-    if (!error) {
-      setRiderStatus(next);
-      if (next === 'delivered') {
-        setTimeout(() => onBack(true), 800);
-      }
+    if (dbErr || !data) {
+      setError('PIN no encontrado o pedido ya entregado/cancelado');
+      setSearching(false);
+      inputRef.current?.focus();
+      return;
     }
-    setLoading(false);
+
+    setOrders(prev => [...prev, data]);
+    setInput('');
+    setSearching(false);
+    setTimeout(() => inputRef.current?.focus(), 50);
   }
 
-  const btnLabel = {
-    confirmed: 'Recogí el pedido',
-    picked_up: 'Voy en camino',
-    on_way: 'Pedido entregado',
-    delivered: 'Entregado ✓',
-  }[riderStatus] || '';
+  async function startRoute() {
+    if (!orders.length || !db || starting) return;
+    setStarting(true);
 
-  const statusColor = { confirmed:'#FF9500', picked_up:'#007AFF', on_way:'#34C759', delivered:'#86868B' };
+    for (const order of orders) {
+      await db.from('delivery_orders').update({
+        rider_id: rider.id,
+        rider_name: rider.name,
+        rider_status: 'on_way',
+        picked_up_at: new Date().toISOString()
+      }).eq('id', order.id);
+    }
+
+    await db.from('delivery_riders').update({ current_status: 'en_ruta' }).eq('id', rider.id);
+    setStarting(false);
+    onStart(orders);
+  }
 
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#fff'}}>
-      <Header title="Pedido asignado" onBack={() => onBack(false)} />
-
-      <div style={{flex:1,overflowY:'auto',padding:'20px 20px 120px'}}>
-
-        {/* Número y estado */}
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
-          <div style={{fontSize:22,fontWeight:700,color:'#1D1D1F'}}>{order.order_number || `DO-${order.id?.slice(-5).toUpperCase()}`}</div>
-          <div style={{fontSize:12,fontWeight:600,color:statusColor[riderStatus],background:statusColor[riderStatus]+'18',padding:'4px 10px',borderRadius:20}}>
-            {{ confirmed:'Confirmado', picked_up:'Recogido', on_way:'En camino', delivered:'Entregado' }[riderStatus]}
-          </div>
-        </div>
-
-        {/* Cliente */}
-        <div style={{background:'#F5F5F7',borderRadius:16,padding:'16px 18px',marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:600,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>Cliente</div>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-            <div>
-              <div style={{fontSize:16,fontWeight:600,color:'#1D1D1F'}}>{order.customer_name || 'Sin nombre'}</div>
-              {order.customer_phone && <div style={{fontSize:14,color:'#6E6E73',marginTop:2}}>{order.customer_phone}</div>}
-            </div>
-            {order.customer_phone && (
-              <a href={`tel:${order.customer_phone}`} style={{display:'flex',alignItems:'center',justifyContent:'center',width:44,height:44,background:'#000',borderRadius:22,color:'#fff',textDecoration:'none',fontSize:20}}>📞</a>
-            )}
-          </div>
-        </div>
-
-        {/* Dirección */}
-        <div style={{background:'#F5F5F7',borderRadius:16,padding:'16px 18px',marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:600,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>Dirección</div>
-          {addr.street && <div style={{fontSize:16,fontWeight:700,color:'#1D1D1F',marginBottom:2}}>{addr.street}{addr.number ? ' ' + addr.number : ''}</div>}
-          {addr.detail && <div style={{fontSize:14,color:'#6E6E73',marginBottom:2}}>{addr.detail}</div>}
-          {addr.notes && <div style={{fontSize:14,color:'#86868B',fontStyle:'italic'}}>{addr.notes}</div>}
-          {!addr.street && order.delivery_address_text && (
-            <div style={{fontSize:15,color:'#1D1D1F'}}>{order.delivery_address_text}</div>
-          )}
-          <a href={mapsUrl} target="_blank" rel="noopener noreferrer"
-            style={{display:'flex',alignItems:'center',gap:8,marginTop:14,padding:'11px 16px',background:'#000',color:'#fff',borderRadius:12,textDecoration:'none',fontSize:14,fontWeight:600,width:'fit-content'}}>
-            <span>🗺️</span> Ver en Google Maps
-          </a>
-        </div>
-
-        {/* Productos */}
-        <div style={{background:'#F5F5F7',borderRadius:16,padding:'16px 18px',marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:600,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:12}}>Productos</div>
-          {items.length === 0 && <div style={{fontSize:14,color:'#86868B'}}>Sin detalle disponible</div>}
-          {items.map((it,i) => (
-            <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',paddingBottom:8,marginBottom:8,borderBottom: i < items.length-1 ? '1px solid #E5E5EA' : 'none'}}>
-              <div style={{fontSize:14,color:'#1D1D1F',flex:1,paddingRight:12}}>
-                <span style={{fontWeight:600}}>{it.quantity || it.qty || 1}×</span> {it.name || it.item_name || it.menu_items?.name || ''}
-              </div>
-              <div style={{fontSize:14,color:'#6E6E73',whiteSpace:'nowrap'}}>{fmt((it.price || it.unit_price || 0) * (it.quantity || it.qty || 1))}</div>
-            </div>
-          ))}
-          <div style={{borderTop:'1.5px solid #D2D2D7',marginTop:4,paddingTop:12}}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-              <div style={{fontSize:14,color:'#6E6E73'}}>Subtotal</div>
-              <div style={{fontSize:14,color:'#6E6E73'}}>{fmt(order.subtotal || order.total)}</div>
-            </div>
-            {(order.delivery_fee || 0) > 0 && (
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-                <div style={{fontSize:14,color:'#6E6E73'}}>Delivery</div>
-                <div style={{fontSize:14,color:'#6E6E73'}}>{fmt(order.delivery_fee)}</div>
-              </div>
-            )}
-            <div style={{display:'flex',justifyContent:'space-between',marginTop:6}}>
-              <div style={{fontSize:16,fontWeight:700,color:'#1D1D1F'}}>Total</div>
-              <div style={{fontSize:16,fontWeight:700,color:'#1D1D1F'}}>{fmt((order.total||0) + (order.delivery_fee||0))}</div>
-            </div>
-          </div>
-        </div>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'16px 20px',borderBottom:'1px solid #F5F5F7',position:'sticky',top:0,background:'#fff',zIndex:10}}>
+        <button onClick={onBack} style={{background:'none',border:'none',padding:'4px 8px 4px 0',fontSize:22,lineHeight:1,color:'#1D1D1F',cursor:'pointer'}}>‹</button>
+        <div style={{fontSize:17,fontWeight:600,color:'#1D1D1F'}}>Ingresar PIN de pedido</div>
       </div>
 
-      {/* Botón sticky */}
-      {riderStatus !== 'delivered' && (
+      <div style={{flex:1,overflowY:'auto',padding:'24px 20px 120px'}}>
+
+        {/* PIN input */}
+        <div style={{marginBottom:24}}>
+          <div style={{fontSize:11,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>PIN del pedido</div>
+          <div style={{display:'flex',gap:10}}>
+            <input
+              ref={inputRef}
+              type="tel"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="1234"
+              value={input}
+              onChange={e => { setInput(e.target.value.replace(/\D/g,'')); setError(''); }}
+              onKeyDown={e => e.key === 'Enter' && addPin()}
+              autoFocus
+              style={{
+                flex:1, padding:'16px', fontSize:26, fontWeight:800, textAlign:'center',
+                border:`2px solid ${error?'#FF3B30':'#D2D2D7'}`, borderRadius:14,
+                background:'#F5F5F7', outline:'none', letterSpacing:10, color:'#1D1D1F',
+                fontFamily:"'SF Mono',ui-monospace,monospace", transition:'border-color .15s'
+              }}
+            />
+            <button
+              onClick={addPin}
+              disabled={searching || input.length < 4}
+              style={{
+                padding:'16px 22px',
+                background: input.length>=4 ? '#000' : '#D2D2D7',
+                color:'#fff', border:'none', borderRadius:14, fontSize:15, fontWeight:700,
+                cursor: input.length>=4 ? 'pointer' : 'default', whiteSpace:'nowrap',
+                transition:'background .15s'
+              }}
+            >{searching ? '…' : 'Agregar'}</button>
+          </div>
+          <div style={{minHeight:22,marginTop:6}}>
+            {error && <div style={{fontSize:13,color:'#FF3B30'}}>{error}</div>}
+          </div>
+        </div>
+
+        {/* Orders list */}
+        {orders.length === 0 ? (
+          <div style={{textAlign:'center',padding:'40px 20px',color:'#86868B',fontSize:14}}>
+            <div style={{fontSize:44,marginBottom:14}}>📦</div>
+            Ingresá los PINs de los pedidos<br/>que vas a entregar
+          </div>
+        ) : (
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:12}}>
+              {orders.length} pedido{orders.length>1?'s':''} agregado{orders.length>1?'s':''}
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {orders.map((o, i) => (
+                <div key={o.id} style={{background:'#F5F5F7',borderRadius:14,padding:'14px 16px',display:'flex',alignItems:'center',gap:12,animation:'fadeIn .15s'}}>
+                  <div style={{width:32,height:32,borderRadius:'50%',background:'#34C759',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,flexShrink:0}}>✓</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F'}}>{o.customer_name||'Sin nombre'}</div>
+                    <div style={{fontSize:12,color:'#6E6E73',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.delivery_address||'Sin dirección'}</div>
+                    <div style={{fontSize:11,color:'#86868B',marginTop:2,fontFamily:"'SF Mono',ui-monospace,monospace"}}>PIN {o.delivery_pin} · {fmt((o.order_total||0)+(o.delivery_fee||0))}</div>
+                  </div>
+                  <button
+                    onClick={() => setOrders(prev => prev.filter(x => x.id !== o.id))}
+                    style={{background:'none',border:'none',fontSize:20,color:'#C7C7CC',cursor:'pointer',padding:'4px',flexShrink:0,lineHeight:1}}
+                  >×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Start route button */}
+      {orders.length > 0 && (
         <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'16px 20px',background:'#fff',borderTop:'1px solid #F5F5F7'}}>
           <button
-            onClick={advance}
-            disabled={loading}
-            style={{width:'100%',padding:'18px',background:'#000',color:'#fff',border:'none',borderRadius:16,fontSize:17,fontWeight:700,cursor:loading?'default':'pointer',opacity:loading?.7:1,letterSpacing:.3}}
-          >{loading ? '...' : btnLabel}</button>
+            onClick={startRoute}
+            disabled={starting}
+            style={{width:'100%',padding:'18px',background:'#000',color:'#fff',border:'none',borderRadius:16,fontSize:17,fontWeight:700,cursor:starting?'default':'pointer',opacity:starting?.7:1,display:'flex',alignItems:'center',justifyContent:'center',gap:10}}
+          >
+            <span>🛵</span>
+            <span>{starting ? 'Iniciando…' : `Arrancar ruta · ${orders.length} pedido${orders.length>1?'s':''}`}</span>
+          </button>
         </div>
       )}
     </div>
   );
 }
 
-/* ── SCREEN C — HISTORIAL ── */
-function ScreenHistory({ riderId, onBack }) {
+/* ─────────────────────────────────────────
+   PANTALLA: RUTA ACTIVA
+───────────────────────────────────────── */
+function RouteScreen({ rider, initialOrders, onDone }) {
+  const [orders, setOrders] = useState(() =>
+    initialOrders.map(o => ({ ...o, _done:false, _delivering:false }))
+  );
+  const [allDone, setAllDone] = useState(false);
+
+  const pending   = orders.filter(o => !o._done);
+  const delivered = orders.filter(o =>  o._done);
+
+  async function deliverOrder(id) {
+    setOrders(prev => prev.map(o => o.id===id ? {...o, _delivering:true} : o));
+
+    if (db) {
+      await db.from('delivery_orders').update({
+        rider_status: 'delivered',
+        delivered_at: new Date().toISOString()
+      }).eq('id', id);
+    }
+
+    const updated = orders.map(o =>
+      o.id===id ? {...o, _done:true, _delivering:false} : o
+    );
+    setOrders(updated);
+
+    if (updated.every(o => o._done)) {
+      if (db) await db.from('delivery_riders').update({ current_status:'disponible' }).eq('id', rider.id);
+      vibrate();
+      setAllDone(true);
+    }
+  }
+
+  function getMapsUrl() {
+    const addrs = pending.map(o => encodeURIComponent(o.delivery_address || o.customer_name || ''));
+    if (!addrs.length) return null;
+    if (addrs.length === 1) return `https://www.google.com/maps/dir/?api=1&destination=${addrs[0]}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${addrs[addrs.length-1]}&waypoints=${addrs.slice(0,-1).join('|')}`;
+  }
+
+  /* ── Todos entregados ── */
+  if (allDone) {
+    return (
+      <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'#fff',textAlign:'center'}}>
+        <div style={{fontSize:72,marginBottom:20,animation:'popIn .4s ease'}}>✅</div>
+        <div style={{fontSize:24,fontWeight:800,color:'#1D1D1F',marginBottom:8}}>¡Ruta completada!</div>
+        <div style={{fontSize:15,color:'#6E6E73',marginBottom:48,lineHeight:1.6}}>
+          {orders.length} pedido{orders.length>1?'s':''} entregado{orders.length>1?'s':''}<br/>
+          Estás disponible de nuevo
+        </div>
+        <button
+          onClick={onDone}
+          style={{width:'100%',padding:'18px',background:'#000',color:'#fff',border:'none',borderRadius:16,fontSize:17,fontWeight:700,cursor:'pointer'}}
+        >Volver al inicio</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#fff'}}>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 20px',borderBottom:'1px solid #F5F5F7',background:'#fff',position:'sticky',top:0,zIndex:10}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{fontSize:17,fontWeight:700,color:'#1D1D1F'}}>En ruta</div>
+          <div style={{background:'#FF9500',color:'#fff',borderRadius:12,padding:'2px 9px',fontSize:12,fontWeight:800}}>{pending.length}</div>
+        </div>
+        {getMapsUrl() && (
+          <a
+            href={getMapsUrl()}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',background:'#000',color:'#fff',borderRadius:10,textDecoration:'none',fontSize:13,fontWeight:600}}
+          >
+            🗺️ Ruta completa
+          </a>
+        )}
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'16px 20px 32px'}}>
+
+        {/* Pending orders */}
+        {pending.map((o, i) => (
+          <div key={o.id} style={{background:'#F5F5F7',borderRadius:16,padding:'16px 18px',marginBottom:14,animation:'fadeIn .2s'}}>
+            {/* Top row: number + customer + total */}
+            <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:10}}>
+              <div style={{width:30,height:30,borderRadius:'50%',background:'#000',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:800,flexShrink:0,marginTop:1}}>{i+1}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:15,fontWeight:700,color:'#1D1D1F'}}>{o.customer_name||'Sin nombre'}</div>
+                {o.customer_phone && <div style={{fontSize:12,color:'#6E6E73',marginTop:1}}>{o.customer_phone}</div>}
+              </div>
+              <div style={{fontSize:15,fontWeight:700,color:'#1D1D1F',flexShrink:0}}>{fmt((o.order_total||0)+(o.delivery_fee||0))}</div>
+            </div>
+
+            {/* Address */}
+            <div style={{fontSize:14,color:'#1D1D1F',marginBottom:12,paddingLeft:40,lineHeight:1.4}}>
+              📍 {o.delivery_address||'Sin dirección'}
+            </div>
+
+            {/* Actions */}
+            <div style={{display:'flex',gap:8,paddingLeft:40}}>
+              {o.customer_phone && (
+                <a
+                  href={`tel:${o.customer_phone}`}
+                  style={{display:'flex',alignItems:'center',justifyContent:'center',width:42,height:42,background:'#fff',border:'1.5px solid #D2D2D7',borderRadius:10,fontSize:18,textDecoration:'none',flexShrink:0}}
+                >📞</a>
+              )}
+              <a
+                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.delivery_address||o.customer_name||'')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{display:'flex',alignItems:'center',justifyContent:'center',width:42,height:42,background:'#fff',border:'1.5px solid #D2D2D7',borderRadius:10,fontSize:18,textDecoration:'none',flexShrink:0}}
+              >🗺️</a>
+              <button
+                onClick={() => deliverOrder(o.id)}
+                disabled={o._delivering}
+                style={{flex:1,padding:'10px',background:'#34C759',color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:700,cursor:o._delivering?'default':'pointer',opacity:o._delivering?.7:1,transition:'opacity .15s'}}
+              >{o._delivering ? '…' : '✓ Entregar'}</button>
+            </div>
+          </div>
+        ))}
+
+        {/* Delivered orders */}
+        {delivered.length > 0 && (
+          <div style={{marginTop:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>
+              Entregados ({delivered.length})
+            </div>
+            {delivered.map(o => (
+              <div key={o.id} style={{padding:'12px 0',borderBottom:'1px solid #F5F5F7',display:'flex',alignItems:'center',gap:12}}>
+                <div style={{width:26,height:26,borderRadius:'50%',background:'#34C759',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,color:'#fff',flexShrink:0}}>✓</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:600,color:'#8E8E93'}}>{o.customer_name||'Sin nombre'}</div>
+                  <div style={{fontSize:12,color:'#C7C7CC',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.delivery_address||'—'}</div>
+                </div>
+                <div style={{fontSize:13,color:'#8E8E93',flexShrink:0}}>{fmt((o.order_total||0)+(o.delivery_fee||0))}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────
+   PANTALLA: HISTORIAL
+───────────────────────────────────────── */
+function HistoryScreen({ rider, onBack }) {
   const [orders, setOrders] = useState(null);
 
   useEffect(() => {
-    if (!db || !riderId) { setOrders([]); return; }
+    if (!db) { setOrders([]); return; }
     const today = new Date(); today.setHours(0,0,0,0);
     db.from('delivery_orders')
-      .select('id,order_number,delivery_address,delivery_address_text,total,delivery_fee,picked_up_at,delivered_at,created_at,customer_name')
-      .eq('rider_id', riderId)
-      .eq('rider_status','delivered')
+      .select('id,delivery_pin,customer_name,delivery_address,order_total,delivery_fee,picked_up_at,delivered_at')
+      .eq('rider_id', rider.id)
+      .eq('rider_status', 'delivered')
       .gte('delivered_at', today.toISOString())
-      .order('delivered_at',{ascending:false})
+      .order('delivered_at', { ascending: false })
       .then(({ data }) => setOrders(data || []));
-  }, [riderId]);
+  }, []);
 
-  const total = (orders||[]).reduce((s,o) => s + (o.total||0) + (o.delivery_fee||0), 0);
-  const avgMin = orders?.length
-    ? Math.round(orders.filter(o=>o.picked_up_at&&o.delivered_at).reduce((s,o) => s + diffMin(o.picked_up_at, o.delivered_at),0) / (orders.filter(o=>o.picked_up_at&&o.delivered_at).length||1))
+  function calcEarning(o) {
+    if (rider.commission_type === 'pct')   return Math.round((o.order_total||0) * (rider.commission_value||0) / 100);
+    if (rider.commission_type === 'fixed') return rider.commission_value||0;
+    return null;
+  }
+
+  const totalEarned = (orders||[]).reduce((s, o) => s + (calcEarning(o)||0), 0);
+  const timings = (orders||[]).filter(o => o.picked_up_at && o.delivered_at);
+  const avgMin  = timings.length
+    ? Math.round(timings.reduce((s,o) => s + diffMin(o.picked_up_at, o.delivered_at), 0) / timings.length)
     : 0;
 
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#fff'}}>
-      <Header title="Historial del día" onBack={onBack} />
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'16px 20px',borderBottom:'1px solid #F5F5F7',position:'sticky',top:0,background:'#fff',zIndex:10}}>
+        <button onClick={onBack} style={{background:'none',border:'none',padding:'4px 8px 4px 0',fontSize:22,lineHeight:1,color:'#1D1D1F',cursor:'pointer'}}>‹</button>
+        <div style={{fontSize:17,fontWeight:600,color:'#1D1D1F'}}>Historial del día</div>
+      </div>
+
       <div style={{flex:1,overflowY:'auto',padding:'16px 20px 32px'}}>
         {orders === null && <Spinner />}
         {orders !== null && orders.length === 0 && (
-          <div style={{textAlign:'center',padding:'60px 20px',color:'#86868B',fontSize:15}}>No hay entregas hoy todavía</div>
+          <div style={{textAlign:'center',padding:'60px 20px',color:'#86868B',fontSize:15}}>
+            <div style={{fontSize:44,marginBottom:14}}>📋</div>
+            No hay entregas hoy todavía
+          </div>
         )}
-        {orders !== null && orders.map((o,i) => {
-          const addr = o.delivery_address || {};
-          const addrShort = addr.street ? (addr.street + (addr.number ? ' ' + addr.number : '')) : (o.delivery_address_text || '—');
-          const mins = (o.picked_up_at && o.delivered_at) ? diffMin(o.picked_up_at, o.delivered_at) : null;
+        {orders !== null && orders.map((o, i) => {
+          const mins    = (o.picked_up_at && o.delivered_at) ? diffMin(o.picked_up_at, o.delivered_at) : null;
+          const earning = calcEarning(o);
           return (
-            <div key={o.id} style={{padding:'14px 0',borderBottom: i < orders.length-1 ? '1px solid #F5F5F7' : 'none'}}>
+            <div key={o.id} style={{padding:'14px 0',borderBottom:i<orders.length-1?'1px solid #F5F5F7':'none'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                 <div style={{flex:1,paddingRight:12}}>
-                  <div style={{fontSize:13,color:'#86868B',marginBottom:2}}>{o.delivered_at ? fmtTime(o.delivered_at) : '—'}</div>
-                  <div style={{fontSize:15,fontWeight:600,color:'#1D1D1F',marginBottom:2}}>{addrShort}</div>
-                  {o.customer_name && <div style={{fontSize:13,color:'#6E6E73'}}>{o.customer_name}</div>}
+                  <div style={{fontSize:12,color:'#86868B',marginBottom:2}}>{o.delivered_at ? fmtTime(o.delivered_at) : '—'}</div>
+                  <div style={{fontSize:15,fontWeight:600,color:'#1D1D1F',marginBottom:2}}>{o.customer_name||'Sin nombre'}</div>
+                  <div style={{fontSize:12,color:'#6E6E73',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.delivery_address||'—'}</div>
                 </div>
-                <div style={{textAlign:'right'}}>
-                  <div style={{fontSize:15,fontWeight:600,color:'#1D1D1F'}}>{fmt((o.total||0)+(o.delivery_fee||0))}</div>
-                  {mins !== null && <div style={{fontSize:12,color:'#86868B',marginTop:2}}>{mins}min</div>}
+                <div style={{textAlign:'right',flexShrink:0}}>
+                  <div style={{fontSize:14,fontWeight:600,color:'#1D1D1F'}}>{fmt((o.order_total||0)+(o.delivery_fee||0))}</div>
+                  {earning !== null && <div style={{fontSize:12,color:'#34C759',marginTop:2,fontWeight:600}}>+{fmt(earning)}</div>}
+                  {mins !== null && <div style={{fontSize:11,color:'#86868B',marginTop:2}}>{mins}min</div>}
                 </div>
               </div>
             </div>
@@ -360,19 +617,27 @@ function ScreenHistory({ riderId, onBack }) {
         })}
       </div>
 
-      {/* Totales */}
+      {/* Summary footer */}
       {orders !== null && orders.length > 0 && (
         <div style={{borderTop:'1px solid #F5F5F7',padding:'16px 20px',background:'#F5F5F7',display:'grid',gridTemplateColumns:'repeat(3,1fr)',textAlign:'center'}}>
           <div>
-            <div style={{fontSize:20,fontWeight:700,color:'#1D1D1F'}}>{orders.length}</div>
-            <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Pedidos</div>
+            <div style={{fontSize:22,fontWeight:800,color:'#1D1D1F'}}>{orders.length}</div>
+            <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Entregas</div>
           </div>
           <div>
-            <div style={{fontSize:15,fontWeight:700,color:'#1D1D1F'}}>{fmt(total)}</div>
-            <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Total</div>
+            {rider.commission_type === 'salary'
+              ? <>
+                  <div style={{fontSize:12,fontWeight:700,color:'#1D1D1F'}}>Sueldo</div>
+                  <div style={{fontSize:11,color:'#86868B',marginTop:2}}>fijo mensual</div>
+                </>
+              : <>
+                  <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F'}}>{fmt(totalEarned)}</div>
+                  <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Ganado</div>
+                </>
+            }
           </div>
           <div>
-            <div style={{fontSize:20,fontWeight:700,color:'#1D1D1F'}}>{avgMin > 0 ? avgMin + 'min' : '—'}</div>
+            <div style={{fontSize:22,fontWeight:700,color:'#1D1D1F'}}>{avgMin>0?avgMin+'min':'—'}</div>
             <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Promedio</div>
           </div>
         </div>
@@ -381,140 +646,115 @@ function ScreenHistory({ riderId, onBack }) {
   );
 }
 
-/* ── ROOT ── */
+/* ─────────────────────────────────────────
+   APP ROOT
+───────────────────────────────────────── */
 function App() {
-  const [screen, setScreen] = useState('availability'); // availability | order | history
-  const [riderStatus, setRiderStatus] = useState('offline');
-  const [activeOrder, setActiveOrder] = useState(null);
-  const [stats, setStats] = useState({ count:0, earned:0, avgMin:0 });
-  const [loading, setLoading] = useState(true);
-  const channelRef = useRef(null);
+  const [screen, setScreen]       = useState('login');
+  const [rider, setRider]         = useState(null);
+  const [activeOrders, setActiveOrders] = useState([]);
+  const [stats, setStats]         = useState({ count:0, earned:0, avgMin:0 });
 
-  if (!RIDER_ID) return (
-    <div className="phone-wrap"><div className="phone"><div className="screen"><InvalidScreen /></div></div></div>
-  );
+  async function loadStats(r) {
+    if (!db || !r) return;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const { data } = await db.from('delivery_orders')
+      .select('order_total,delivery_fee,picked_up_at,delivered_at')
+      .eq('rider_id', r.id)
+      .eq('rider_status', 'delivered')
+      .gte('delivered_at', today.toISOString());
 
-  /* Cargar estado del rider y stats del día */
-  useEffect(() => {
-    if (!db) { setLoading(false); return; }
+    if (!data?.length) return;
 
-    async function init() {
-      /* Estado actual */
-      const { data: rider } = await db.from('delivery_drivers').select('status').eq('id', RIDER_ID).maybeSingle();
-      if (rider) setRiderStatus(rider.status || 'offline');
+    let earned = 0;
+    data.forEach(o => {
+      if (r.commission_type === 'pct')   earned += Math.round((o.order_total||0) * (r.commission_value||0) / 100);
+      else if (r.commission_type === 'fixed') earned += (r.commission_value||0);
+    });
 
-      /* Pedido activo */
-      const { data: active } = await db.from('delivery_orders')
-        .select('*,delivery_order_items(*)')
-        .eq('rider_id', RIDER_ID)
-        .in('rider_status',['confirmed','picked_up','on_way'])
-        .order('created_at',{ascending:false})
-        .limit(1)
-        .maybeSingle();
-      if (active) {
-        setActiveOrder(active);
-        setRiderStatus(active.rider_status === 'on_way' ? 'on_route' : (rider?.status || 'available'));
-        if (active.rider_status !== 'delivered') setScreen('order');
-      }
+    const timings = data.filter(o => o.picked_up_at && o.delivered_at);
+    const avgMin  = timings.length
+      ? Math.round(timings.reduce((s,o) => s + diffMin(o.picked_up_at, o.delivered_at), 0) / timings.length)
+      : 0;
 
-      /* Stats del día */
-      const today = new Date(); today.setHours(0,0,0,0);
-      const { data: done } = await db.from('delivery_orders')
-        .select('total,delivery_fee,picked_up_at,delivered_at')
-        .eq('rider_id', RIDER_ID)
-        .eq('rider_status','delivered')
-        .gte('delivered_at', today.toISOString());
-      if (done?.length) {
-        const earned = done.reduce((s,o)=>s+(o.total||0)+(o.delivery_fee||0),0);
-        const timings = done.filter(o=>o.picked_up_at&&o.delivered_at);
-        const avgMin = timings.length ? Math.round(timings.reduce((s,o)=>s+diffMin(o.picked_up_at,o.delivered_at),0)/timings.length) : 0;
-        setStats({ count:done.length, earned, avgMin });
-      }
-
-      setLoading(false);
-    }
-    init();
-  }, []);
-
-  /* Realtime — escucha pedidos asignados */
-  useEffect(() => {
-    if (!db || !RIDER_ID) return;
-
-    const ch = db.channel(`rider-orders-${RIDER_ID}`)
-      .on('postgres_changes', {
-        event:'*',
-        schema:'public',
-        table:'delivery_orders',
-        filter:`rider_id=eq.${RIDER_ID}`
-      }, (payload) => {
-        const row = payload.new;
-        if (!row) return;
-        if (row.rider_status === 'confirmed') {
-          setActiveOrder(row);
-          setScreen('order');
-          vibrate();
-        }
-        if (row.rider_status === 'delivered') {
-          setActiveOrder(null);
-          setRiderStatus('available');
-          /* Actualizar stats */
-          setStats(prev => {
-            const mins = (row.picked_up_at && row.delivered_at) ? diffMin(row.picked_up_at, row.delivered_at) : 0;
-            const newCount = prev.count + 1;
-            const newEarned = prev.earned + (row.total||0) + (row.delivery_fee||0);
-            const newAvg = Math.round((prev.avgMin * prev.count + mins) / newCount);
-            return { count: newCount, earned: newEarned, avgMin: newAvg };
-          });
-        }
-      })
-      .subscribe();
-
-    channelRef.current = ch;
-    return () => { db.removeChannel(ch); };
-  }, []);
-
-  /* Cambiar estado del rider en DB */
-  async function handleChangeStatus(next) {
-    setRiderStatus(next);
-    if (!db) return;
-    await db.from('delivery_drivers').update({ status: next }).eq('id', RIDER_ID);
+    setStats({ count: data.length, earned, avgMin });
   }
 
-  if (loading) return (
-    <div className="phone-wrap"><div className="phone"><div className="screen" style={{background:'#fff',display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <Spinner />
-    </div></div></div>
-  );
+  async function loadActiveOrders(r) {
+    if (!db || !r) return;
+    const { data } = await db.from('delivery_orders')
+      .select('*')
+      .eq('rider_id', r.id)
+      .in('rider_status', ['confirmed','on_way'])
+      .order('created_at', { ascending: true });
+    if (data?.length) setActiveOrders(data);
+  }
+
+  function handleLogin(riderData) {
+    setRider(riderData);
+    setScreen('home');
+    loadStats(riderData);
+    loadActiveOrders(riderData);
+  }
+
+  function handleLogout() {
+    setRider(null);
+    setActiveOrders([]);
+    setStats({ count:0, earned:0, avgMin:0 });
+    setScreen('login');
+  }
+
+  function handleStartRoute(orders) {
+    setActiveOrders(orders);
+    setScreen('route');
+  }
+
+  function handleAllDelivered() {
+    const updated = rider ? { ...rider, current_status:'disponible' } : rider;
+    setRider(updated);
+    setActiveOrders([]);
+    if (updated) loadStats(updated);
+    setScreen('home');
+  }
 
   return (
     <div className="phone-wrap">
       <div className="phone">
         <div className="screen">
-          {screen === 'availability' && (
-            <ScreenAvailability
-              status={riderStatus}
+          {screen === 'login' && (
+            <LoginScreen onLogin={handleLogin} />
+          )}
+          {screen === 'home' && rider && (
+            <HomeScreen
+              rider={rider}
               stats={stats}
-              activeOrder={activeOrder}
-              onChangeStatus={handleChangeStatus}
+              activeOrders={activeOrders}
+              onEnterPins={() => setScreen('pin_entry')}
+              onShowRoute={() => setScreen('route')}
               onShowHistory={() => setScreen('history')}
-              onShowOrder={() => setScreen('order')}
+              onLogout={handleLogout}
+              onStatusChange={next => setRider(prev => prev ? {...prev, current_status:next} : prev)}
             />
           )}
-          {screen === 'order' && activeOrder && (
-            <ScreenOrder
-              order={activeOrder}
-              onBack={(delivered) => {
-                if (delivered) {
-                  setActiveOrder(null);
-                  setRiderStatus('available');
-                  if (db) db.from('delivery_drivers').update({ status:'available' }).eq('id', RIDER_ID);
-                }
-                setScreen('availability');
-              }}
+          {screen === 'pin_entry' && rider && (
+            <PinEntryScreen
+              rider={rider}
+              onStart={handleStartRoute}
+              onBack={() => setScreen('home')}
             />
           )}
-          {screen === 'history' && (
-            <ScreenHistory riderId={RIDER_ID} onBack={() => setScreen('availability')} />
+          {screen === 'route' && rider && (
+            <RouteScreen
+              rider={rider}
+              initialOrders={activeOrders}
+              onDone={handleAllDelivered}
+            />
+          )}
+          {screen === 'history' && rider && (
+            <HistoryScreen
+              rider={rider}
+              onBack={() => setScreen('home')}
+            />
           )}
         </div>
       </div>

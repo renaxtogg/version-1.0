@@ -4329,9 +4329,11 @@ function DelivPedidos({deliveryOrders, riders, channels, onRefresh}) {
     if(!db||!selected) return;
     setAssigning(true);
     const rider = riders.find(r=>r.id===selRider);
-    const{error}=await db.from('delivery_orders').update({rider_id:selRider||null,rider_name:rider?.name||null,rider_status:selRider?'confirmed':'pending'}).eq('id',selected.id);
+    const newPin = selRider ? String(Math.floor(1000 + Math.random() * 9000)) : null;
+    const update = {rider_id:selRider||null,rider_name:rider?.name||null,rider_status:selRider?'confirmed':'pending',delivery_pin:newPin};
+    const{error}=await db.from('delivery_orders').update(update).eq('id',selected.id);
     if(error) toast('Error al asignar: '+error.message,false);
-    else{toast('Rider asignado');onRefresh();setSelected(null);}
+    else{toast('Rider asignado');setSelected(prev=>({...prev,...update}));onRefresh();}
     setAssigning(false);
   }
 
@@ -4436,6 +4438,13 @@ function DelivPedidos({deliveryOrders, riders, channels, onRefresh}) {
                 <Btn onClick={assignRider} disabled={assigning}>{assigning?'…':'Guardar'}</Btn>
               </div>
             </div>
+            {selected.delivery_pin&&selected.rider_status==='confirmed'&&(
+              <div style={{background:'#FFF7E6',border:'2px solid #FF9500',borderRadius:12,padding:'14px 16px',textAlign:'center'}}>
+                <div style={{fontSize:10,fontWeight:800,color:'#FF9500',letterSpacing:1,marginBottom:8}}>PIN PARA EL RIDER</div>
+                <div style={{fontSize:44,fontWeight:900,color:'#1D1D1F',letterSpacing:10,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{selected.delivery_pin}</div>
+                <div style={{fontSize:11,color:'#86868B',marginTop:6}}>Dáselo al rider para que lo ingrese en su panel</div>
+              </div>
+            )}
             {selected.rider_status&&(
               <div>
                 <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>ESTADO ACTUAL</div>
@@ -4469,17 +4478,20 @@ function DelivPedidos({deliveryOrders, riders, channels, onRefresh}) {
 /* ── DelivRiders ── */
 function DelivRiders({riders, onRefresh}) {
   const [modal,setModal] = useState(null);
-  const [form,setForm] = useState({name:'',phone:'',vehicle:'moto',commission_type:'pct',commission_value:0,active:true});
+  const [form,setForm] = useState({name:'',phone:'',vehicle:'moto',commission_type:'pct',commission_value:0,rider_pin:'',active:true});
   const [saving,setSaving] = useState(false);
   const VEHICLE_LABELS = {moto:'Moto',bici:'Bici',auto:'Auto',pie:'A pie'};
+  const COMM_LABELS = {pct:'% del pedido',fixed:'₲ por entrega',salary:'₲ sueldo/mes'};
 
-  function openNew() { setForm({name:'',phone:'',vehicle:'moto',commission_type:'pct',commission_value:0,active:true}); setModal('new'); }
-  function openEdit(r) { setForm({name:r.name||'',phone:r.phone||'',vehicle:r.vehicle||'moto',commission_type:r.commission_type||'pct',commission_value:r.commission_value||0,active:r.active!==false}); setModal(r); }
+  function genPin() { return String(Math.floor(1000+Math.random()*9000)); }
+  function openNew() { setForm({name:'',phone:'',vehicle:'moto',commission_type:'pct',commission_value:0,rider_pin:genPin(),active:true}); setModal('new'); }
+  function openEdit(r) { setForm({name:r.name||'',phone:r.phone||'',vehicle:r.vehicle||'moto',commission_type:r.commission_type||'pct',commission_value:r.commission_value||0,rider_pin:r.rider_pin||'',active:r.active!==false}); setModal(r); }
 
   async function saveRider() {
     if(!db||!form.name.trim()){toast('El nombre es obligatorio',false);return;}
+    if(!form.rider_pin||form.rider_pin.length<4){toast('El PIN debe tener 4 dígitos',false);return;}
     setSaving(true);
-    const payload={restaurant_id:RID,name:form.name.trim(),phone:form.phone,vehicle:form.vehicle,commission_type:form.commission_type,commission_value:Number(form.commission_value),active:form.active!==false};
+    const payload={restaurant_id:RID,name:form.name.trim(),phone:form.phone,vehicle:form.vehicle,commission_type:form.commission_type,commission_value:Number(form.commission_value),rider_pin:form.rider_pin,active:form.active!==false};
     const{error}=modal==='new'
       ? await db.from('delivery_riders').insert(payload)
       : await db.from('delivery_riders').update(payload).eq('id',modal.id);
@@ -4493,6 +4505,12 @@ function DelivRiders({riders, onRefresh}) {
     const{error}=await db.from('delivery_riders').update({active:!r.active}).eq('id',r.id);
     if(error) toast('Error: '+error.message,false);
     else{toast(r.active?'Rider desactivado':'Rider activado');onRefresh();}
+  }
+
+  function commLabel(r) {
+    if(r.commission_type==='pct')    return `${r.commission_value||0}% del pedido`;
+    if(r.commission_type==='salary') return `Sueldo: ${fmt(r.commission_value||0)}/mes`;
+    return `${fmt(r.commission_value||0)} por entrega`;
   }
 
   return (
@@ -4522,12 +4540,15 @@ function DelivRiders({riders, onRefresh}) {
                       <div style={{fontSize:11,color:'#86868B'}}>{VEHICLE_LABELS[r.vehicle]||r.vehicle||'—'}</div>
                     </div>
                   </div>
-                  <div style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:10,fontWeight:800,background:statusCol+'22',color:statusCol,border:`1px solid ${statusCol}44`,borderRadius:5,marginBottom:10}}>
+                  <div style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:10,fontWeight:800,background:statusCol+'22',color:statusCol,border:`1px solid ${statusCol}44`,borderRadius:5,marginBottom:8}}>
                     <span style={{width:5,height:5,borderRadius:'50%',background:statusCol}}/>{statusLabel}
                   </div>
-                  <div style={{fontSize:11,color:'#86868B',marginBottom:14}}>
-                    Comisión: {r.commission_value||0}{r.commission_type==='pct'?'%':' ₲'}
-                  </div>
+                  <div style={{fontSize:11,color:'#86868B',marginBottom:4}}>{commLabel(r)}</div>
+                  {r.rider_pin&&(
+                    <div style={{fontSize:11,color:'#86868B',marginBottom:12}}>
+                      PIN: <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,color:'#007AFF',letterSpacing:2}}>{r.rider_pin}</span>
+                    </div>
+                  )}
                   <div style={{display:'flex',gap:6}}>
                     <Btn small variant="secondary" onClick={()=>openEdit(r)}>Editar</Btn>
                     <Btn small variant={r.active===false?'secondary':'danger'} onClick={()=>toggleActive(r)}>{r.active===false?'Activar':'Desactivar'}</Btn>
@@ -4538,7 +4559,7 @@ function DelivRiders({riders, onRefresh}) {
           </div>
       }
       {modal&&(
-        <Modal title={modal==='new'?'Nuevo Rider':'Editar Rider'} onClose={()=>setModal(null)} width={420}>
+        <Modal title={modal==='new'?'Nuevo Rider':'Editar Rider'} onClose={()=>setModal(null)} width={440}>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             <div><Lbl>NOMBRE *</Lbl><Inp value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="Juan Pérez"/></div>
             <div><Lbl>TELÉFONO</Lbl><Inp value={form.phone||''} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="0981 000 000"/></div>
@@ -4548,12 +4569,30 @@ function DelivRiders({riders, onRefresh}) {
               </Sel>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-              <div><Lbl>TIPO COMISIÓN</Lbl>
+              <div><Lbl>TIPO DE PAGO</Lbl>
                 <Sel value={form.commission_type} onChange={e=>setForm({...form,commission_type:e.target.value})}>
-                  <option value="pct">Porcentaje %</option><option value="fixed">Fija en ₲</option>
+                  <option value="pct">Comisión %</option>
+                  <option value="fixed">Monto fijo/entrega</option>
+                  <option value="salary">Sueldo mensual</option>
                 </Sel>
               </div>
-              <div><Lbl>VALOR</Lbl><Inp type="number" value={form.commission_value} onChange={e=>setForm({...form,commission_value:e.target.value})} placeholder="0"/></div>
+              <div>
+                <Lbl>{form.commission_type==='pct'?'PORCENTAJE %':form.commission_type==='salary'?'MONTO ₲/MES':'MONTO ₲/ENTREGA'}</Lbl>
+                <Inp type="number" value={form.commission_value} onChange={e=>setForm({...form,commission_value:e.target.value})} placeholder="0"/>
+              </div>
+            </div>
+            <div>
+              <Lbl>PIN DE ACCESO (4 dígitos)</Lbl>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <Inp
+                  value={form.rider_pin||''}
+                  onChange={e=>setForm({...form,rider_pin:e.target.value.replace(/\D/g,'').slice(0,6)})}
+                  placeholder="1234"
+                  style={{fontFamily:"'SF Mono',ui-monospace,monospace",letterSpacing:6,fontSize:20,textAlign:'center',flex:1}}
+                />
+                <Btn small variant="secondary" onClick={()=>setForm({...form,rider_pin:genPin()})}>Generar</Btn>
+              </div>
+              <div style={{fontSize:11,color:'#86868B',marginTop:4}}>El rider usa este PIN para acceder a su panel</div>
             </div>
             {modal!=='new'&&(
               <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13}}>
