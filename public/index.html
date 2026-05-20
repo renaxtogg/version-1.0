@@ -132,13 +132,40 @@ async function dbLoadRestaurant() {
 }
 
 async function dbSaveReservation(res) {
-  // Guardado en localStorage por ahora (sin tabla DB todavía)
+  if (db) {
+    try {
+      const { error } = await db.from('reservations').insert({
+        restaurant_id:    res.restaurant_id,
+        confirm_num:      res.confirm_num,
+        customer_name:    res.name,
+        customer_phone:   res.phone,
+        reservation_date: res.date,
+        reservation_time: res.time,
+        guests:           res.guests,
+        table_id:         res.table_id || null,
+        occasion:         res.occasion || null,
+        notes:            res.notes || null,
+        status:           'pending',
+      });
+      if (!error) return { ok: true };
+    } catch(e) {}
+  }
+  // Fallback localStorage si no hay DB
   try {
     const reservas = JSON.parse(localStorage.getItem('reservations') || '[]');
     reservas.push({ ...res, id: Date.now(), created_at: new Date().toISOString() });
     localStorage.setItem('reservations', JSON.stringify(reservas));
   } catch(e) {}
   return { ok: true };
+}
+
+async function dbLoadTables() {
+  if (!db) return [];
+  try {
+    const { data } = await db.from('tables').select('id,number,capacity')
+      .eq('restaurant_id', RESTAURANT_ID).order('number');
+    return data || [];
+  } catch(e) { return []; }
 }
 
 // UUID de la mesa actual (cargado al inicio desde Supabase)
@@ -1204,15 +1231,28 @@ function RatingScreen({ onDone, orderId, tableId }) {
 }
 
 /* ══ SCREEN: RESERVAR MESA ══════════════ */
+const OCCASIONS = [
+  { id: 'birthday',     label: '🎂 Cumpleaños' },
+  { id: 'anniversary',  label: '💑 Aniversario' },
+  { id: 'business',     label: '💼 Reunión' },
+  { id: 'celebration',  label: '🥂 Celebración' },
+  { id: 'other',        label: '✦ Otro motivo' },
+];
+
 function ReservationScreen({ onBack, onDone }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
   const restName = restaurant?.name || 'La Huaca';
-  const [form, setForm] = useState({ name: '', phone: '', date: '', time: '', guests: 2, notes: '' });
+  const [form, setForm] = useState({ name: '', phone: '', date: '', time: '', guests: 2, table_id: '', occasion: '', notes: '' });
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(null);
+  const [tables, setTables] = useState([]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
+
+  React.useEffect(() => {
+    dbLoadTables().then(setTables);
+  }, []);
 
   const handleSubmit = async () => {
     if (!form.name || !form.phone || !form.date || !form.time) return;
@@ -1227,15 +1267,21 @@ function ReservationScreen({ onBack, onDone }) {
     <div style={{ minHeight: '100%', background: T.black, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', textAlign: 'center' }}>
       <div style={{ width: 72, height: 72, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}><Icon name="check" size={32} color="#fff" sw={2} /></div>
       <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: '#fff', marginBottom: 10 }}>¡Reserva enviada!</div>
-      <div style={{ fontSize: 13, color: '#6E6E73', lineHeight: 1.7, marginBottom: 8 }}>Tu solicitud fue recibida.</div>
-      <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '14px 24px', width: '100%', marginBottom: 16, textAlign: 'left' }}>
+      <div style={{ fontSize: 13, color: '#6E6E73', lineHeight: 1.7, marginBottom: 8 }}>Tu solicitud fue recibida. Te confirmaremos pronto.</div>
+      <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '14px 24px', width: '100%', marginBottom: 12, textAlign: 'left' }}>
         <div style={{ fontSize: 10, color: '#86868B', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>Nro. de confirmación</div>
-        <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace,monospace", fontSize: 20, fontWeight: 500, color: '#fff' }}>{done.confirmNum}</div>
+        <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 20, fontWeight: 500, color: '#fff' }}>{done.confirmNum}</div>
+      </div>
+      <div style={{ background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 10, padding: '12px 16px', width: '100%', marginBottom: 12, textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#FF9500" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <div style={{ fontSize: 11, color: '#fbbf24', lineHeight: 1.6 }}>
+          Tolerancia de <strong>15 minutos</strong>. Si no llegás a tiempo, la mesa queda disponible para otros clientes.
+        </div>
       </div>
       <div style={{ background: '#0D1F0D', border: '1px solid #1a3a1a', borderRadius: 10, padding: '12px 16px', width: '100%', marginBottom: 32, textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
         <div style={{ fontSize: 12, color: '#86efac', lineHeight: 1.6 }}>
-          Te confirmaremos tu reserva por WhatsApp al número <strong>{done.phone}</strong> con anticipación.
+          Te confirmaremos tu reserva por WhatsApp al <strong>{done.phone}</strong>.
         </div>
       </div>
       <button onClick={onDone} style={{ width: '100%', height: 52, background: '#fff', color: '#000', border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer' }}>Volver al inicio</button>
@@ -1244,6 +1290,7 @@ function ReservationScreen({ onBack, onDone }) {
 
   const f = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
   const canSubmit = form.name && form.phone && form.date && form.time;
+  const inputSt = { width: '100%', height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 12px', fontSize: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none', boxSizing: 'border-box' };
 
   return (
     <div style={{ minHeight: '100%', background: T.offwhite, display: 'flex', flexDirection: 'column' }}>
@@ -1257,11 +1304,12 @@ function ReservationScreen({ onBack, onDone }) {
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px' }}>
+
         {/* Personas */}
         <div style={{ background: T.white, borderRadius: 14, padding: '18px 16px', marginBottom: 14, border: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 14 }}>¿Para cuántas personas?</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {[2,3,4,5,6,7,8].map(n => (
+            {[1,2,3,4,5,6,7,8].map(n => (
               <button key={n} onClick={() => f('guests', n)} style={{ width: 44, height: 44, borderRadius: 10, border: `2px solid ${form.guests === n ? T.black : T.border}`, background: form.guests === n ? T.black : 'transparent', color: form.guests === n ? T.white : T.mid, fontSize: 15, fontWeight: 800, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 150ms' }}>{n}</button>
             ))}
           </div>
@@ -1273,33 +1321,67 @@ function ReservationScreen({ onBack, onDone }) {
           <div style={{ display: 'flex', gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: T.gray, display: 'block', marginBottom: 6 }}>Fecha</label>
-              <input type="date" value={form.date} min={todayStr} onChange={e => f('date', e.target.value)} style={{ width: '100%', height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 12px', fontSize: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none' }} />
+              <input type="date" value={form.date} min={todayStr} onChange={e => f('date', e.target.value)} style={inputSt} />
             </div>
             <div style={{ flex: 1 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: T.gray, display: 'block', marginBottom: 6 }}>Hora</label>
-              <input type="time" value={form.time} onChange={e => f('time', e.target.value)} style={{ width: '100%', height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 12px', fontSize: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none' }} />
+              <input type="time" value={form.time} onChange={e => f('time', e.target.value)} style={inputSt} />
             </div>
           </div>
         </div>
+
+        {/* Motivo / ocasión */}
+        <div style={{ background: T.white, borderRadius: 14, padding: '18px 16px', marginBottom: 14, border: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 14 }}>Motivo de la visita <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(opcional)</span></div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {OCCASIONS.map(occ => (
+              <button key={occ.id} onClick={() => f('occasion', form.occasion === occ.id ? '' : occ.id)} style={{ padding: '8px 14px', borderRadius: 20, border: `2px solid ${form.occasion === occ.id ? T.black : T.border}`, background: form.occasion === occ.id ? T.black : 'transparent', color: form.occasion === occ.id ? T.white : T.ink, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 150ms' }}>{occ.label}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Mesa (opcional) */}
+        {tables.length > 0 && (
+          <div style={{ background: T.white, borderRadius: 14, padding: '18px 16px', marginBottom: 14, border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 14 }}>Preferencia de mesa <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(opcional)</span></div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => f('table_id', '')} style={{ padding: '8px 14px', borderRadius: 20, border: `2px solid ${!form.table_id ? T.black : T.border}`, background: !form.table_id ? T.black : 'transparent', color: !form.table_id ? T.white : T.ink, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>Sin preferencia</button>
+              {tables.map(t => (
+                <button key={t.id} onClick={() => f('table_id', t.id)} style={{ padding: '8px 14px', borderRadius: 20, border: `2px solid ${form.table_id === t.id ? T.black : T.border}`, background: form.table_id === t.id ? T.black : 'transparent', color: form.table_id === t.id ? T.white : T.ink, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>Mesa {t.number}{t.capacity ? ` (${t.capacity}p)` : ''}</button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Datos de contacto */}
         <div style={{ background: T.white, borderRadius: 14, padding: '18px 16px', marginBottom: 14, border: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 14 }}>Datos de contacto</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <input value={form.name} onChange={e => f('name', e.target.value)} placeholder="Nombre completo *" style={{ height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 14px', fontSize: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none', width: '100%' }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 0, border: `1.5px solid ${T.border}`, borderRadius: 10, overflow: 'hidden', background: T.offwhite }}>
+            <input value={form.name} onChange={e => f('name', e.target.value)} placeholder="Nombre completo *" style={inputSt} />
+            <div style={{ display: 'flex', alignItems: 'center', border: `1.5px solid ${T.border}`, borderRadius: 10, overflow: 'hidden', background: T.offwhite }}>
               <div style={{ padding: '0 12px', height: 44, display: 'flex', alignItems: 'center', borderRight: `1px solid ${T.border}`, flexShrink: 0 }}>
                 <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={T.silver} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
               </div>
               <input value={form.phone} onChange={e => f('phone', e.target.value)} placeholder="+595 9XX XXX XXX *" type="tel" style={{ flex: 1, height: 44, border: 'none', padding: '0 14px', fontSize: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: 'transparent', outline: 'none' }} />
             </div>
-            <textarea value={form.notes} onChange={e => f('notes', e.target.value)} placeholder="Ocasión especial, preferencias, alergias…" rows={3} style={{ border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none', resize: 'none', width: '100%' }} />
+            <textarea value={form.notes} onChange={e => f('notes', e.target.value)} placeholder="Comentarios adicionales, alergias, pedidos especiales…" rows={3} style={{ border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none', resize: 'none', width: '100%', boxSizing: 'border-box' }} />
           </div>
         </div>
 
+        {/* Advertencia tolerancia */}
+        <div style={{ background: '#1a1200', border: '1px solid #3a2800', borderRadius: 10, padding: '12px 14px', marginBottom: 12, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#FF9500" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <div style={{ fontSize: 11, color: '#fbbf24', lineHeight: 1.7 }}>
+            <strong>Tolerancia de 15 minutos.</strong> Si no llegás dentro de los 15 minutos de la hora reservada, la mesa será liberada para otros comensales.
+          </div>
+        </div>
+
+        {/* Confirmación WhatsApp */}
         <div style={{ background: '#0D1F0D', border: '1px solid #1a3a1a', borderRadius: 10, padding: '12px 14px', marginBottom: 20, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#34C759" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
-          <div style={{ fontSize: 11, color: '#86efac', lineHeight: 1.6 }}>Te confirmaremos tu reserva por WhatsApp con anticipación. No se requiere seña por el momento.</div>
+          <div style={{ fontSize: 11, color: '#86efac', lineHeight: 1.7 }}>
+            Te confirmaremos la reserva por <strong>WhatsApp</strong> con anticipación. No se requiere seña.
+          </div>
         </div>
 
         <button onClick={handleSubmit} disabled={!canSubmit || saving} style={{ width: '100%', height: 54, background: canSubmit ? T.btnPrimary : T.light, color: canSubmit ? T.btnPrimaryText : T.silver, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: canSubmit ? 'pointer' : 'default', marginBottom: 32, transition: 'all 200ms', opacity: saving ? 0.7 : 1 }}>

@@ -298,6 +298,7 @@ const NAV = [
   null,
   {id:'menu',      label:'Menú',         icon:'⊞', group:'GESTIÓN'},
   {id:'mesas',     label:'Mesas',        icon:'⊡'},
+  {id:'reservas',  label:'Reservas',     icon:'📅'},
   {id:'personal',  label:'Personal',     icon:'◎'},
   {id:'stock',     label:'Stock',        icon:'▤'},
   null,
@@ -4003,6 +4004,270 @@ function DeliveryModule() {
 }
 
 /* ══════════════════════════════════════════════
+   PÁGINA: RESERVAS (ADMIN)
+══════════════════════════════════════════════ */
+function ReservasPage({tables}) {
+  const [reservas,setReservas] = useState([]);
+  const [loading,setLoading]   = useState(true);
+  const [dateFilter,setDateFilter] = useState(new Date().toISOString().slice(0,10));
+  const [statusFilter,setStatusFilter] = useState('all');
+  const [editModal,setEditModal] = useState(null);
+  const [newModal,setNewModal]  = useState(false);
+
+  const OCCASION_LABEL={birthday:'🎂 Cumpleaños',anniversary:'💑 Aniversario',business:'💼 Reunión',celebration:'🥂 Celebración',other:'✦ Otro'};
+  const STATUS_CFG={
+    pending:   {label:'Pendiente', color:'#FF9500'},
+    confirmed: {label:'Confirmada',color:'#34C759'},
+    seated:    {label:'En mesa',   color:'#007AFF'},
+    no_show:   {label:'No llegó',  color:'#6E6E73'},
+    cancelled: {label:'Cancelada', color:'#FF3B30'},
+  };
+  const ALL_STATUS = Object.entries(STATUS_CFG);
+
+  async function load(){
+    setLoading(true);
+    if(!db){setLoading(false);return;}
+    let q = db.from('reservations').select('*').eq('restaurant_id',RID).order('reservation_date').order('reservation_time');
+    if(dateFilter) q = q.eq('reservation_date',dateFilter);
+    if(statusFilter!=='all') q = q.eq('status',statusFilter);
+    const{data}=await q.limit(200);
+    setReservas(data||[]);
+    setLoading(false);
+  }
+  useEffect(()=>{load();},[dateFilter,statusFilter]);
+
+  async function updateStatus(id,status){
+    await db.from('reservations').update({status}).eq('id',id);
+    setReservas(p=>p.map(r=>r.id===id?{...r,status}:r));
+  }
+
+  async function deleteReserva(id){
+    if(!window.confirm('¿Eliminar esta reserva?')) return;
+    await db.from('reservations').delete().eq('id',id);
+    setReservas(p=>p.filter(r=>r.id!==id));
+  }
+
+  const fmtTime=t=>t?t.slice(0,5):'—';
+  const fmtDate=d=>{if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}/${y}`;};
+  const tableNum=id=>{const t=(tables||[]).find(t=>t.id===id);return t?`Mesa ${t.number}`:null;};
+
+  const pending  = reservas.filter(r=>r.status==='pending').length;
+  const confirmed= reservas.filter(r=>r.status==='confirmed').length;
+
+  return(
+    <div>
+      {/* Header */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#000000',margin:0}}>Reservas</h1>
+          <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{pending} pendientes · {confirmed} confirmadas</div>
+        </div>
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          <input type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}
+            style={{height:34,border:`1px solid ${C.border}`,borderRadius:6,padding:'0 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none'}}/>
+          <button onClick={()=>setDateFilter('')} style={{height:34,padding:'0 10px',border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,color:C.mid,fontSize:12,cursor:'pointer'}}>Todas las fechas</button>
+          <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}
+            style={{height:34,border:`1px solid ${C.border}`,borderRadius:6,padding:'0 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none'}}>
+            <option value="all">Todos los estados</option>
+            {ALL_STATUS.map(([id,cfg])=><option key={id} value={id}>{cfg.label}</option>)}
+          </select>
+          <button onClick={load} style={{height:34,padding:'0 10px',border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,color:C.mid,fontSize:12,cursor:'pointer'}}>↺</button>
+          <button onClick={()=>setNewModal(true)} style={{height:34,padding:'0 14px',border:'none',borderRadius:6,background:'#000',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Nueva reserva</button>
+        </div>
+      </div>
+
+      {/* KPIs del día */}
+      {dateFilter&&(
+        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:20}}>
+          {ALL_STATUS.map(([id,cfg])=>{
+            const count=reservas.filter(r=>r.status===id).length;
+            return(
+              <div key={id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px',cursor:'pointer',opacity:statusFilter!=='all'&&statusFilter!==id?.5:1}}
+                onClick={()=>setStatusFilter(statusFilter===id?'all':id)}>
+                <div style={{fontSize:11,color:'#6E6E73',marginBottom:4}}>{cfg.label}</div>
+                <div style={{fontSize:24,fontWeight:800,color:cfg.color}}>{count}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Tabla */}
+      {loading&&<div style={{textAlign:'center',padding:40,color:C.mid}}>Cargando…</div>}
+      {!loading&&reservas.length===0&&(
+        <div style={{textAlign:'center',padding:60,color:C.mid}}>
+          <div style={{fontSize:32,marginBottom:12}}>📅</div>
+          <div style={{fontSize:14,fontWeight:600,marginBottom:6}}>Sin reservas</div>
+          <div style={{fontSize:12}}>Cambiá los filtros o creá una nueva reserva.</div>
+        </div>
+      )}
+      {!loading&&reservas.length>0&&(
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead>
+              <tr style={{borderBottom:`1px solid ${C.border}`,background:C.bg}}>
+                {['Confirmación','Cliente','Fecha','Hora','Pers.','Mesa','Motivo','Estado','Acciones'].map(h=>(
+                  <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:10,fontWeight:700,color:'#3a3a3c',letterSpacing:'0.08em',textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {reservas.map((r,i)=>{
+                const sc=STATUS_CFG[r.status]||STATUS_CFG.pending;
+                const tn=tableNum(r.table_id);
+                return(
+                  <tr key={r.id} style={{borderBottom:i<reservas.length-1?`1px solid ${C.border}`:'none',background:'transparent'}}>
+                    <td style={{padding:'10px 12px',fontFamily:'monospace',fontSize:12,color:C.mid}}>{r.confirm_num}</td>
+                    <td style={{padding:'10px 12px'}}>
+                      <div style={{fontWeight:600,fontSize:13,color:C.ink}}>{r.customer_name}</div>
+                      <div style={{fontSize:11,color:C.mid}}>📱 {r.customer_phone}</div>
+                    </td>
+                    <td style={{padding:'10px 12px',fontSize:13,color:C.ink,whiteSpace:'nowrap'}}>{fmtDate(r.reservation_date)}</td>
+                    <td style={{padding:'10px 12px',fontSize:13,fontWeight:700,color:C.ink}}>{fmtTime(r.reservation_time)}</td>
+                    <td style={{padding:'10px 12px',fontSize:13,textAlign:'center',color:C.ink}}>{r.guests}</td>
+                    <td style={{padding:'10px 12px',fontSize:12,color:C.mid}}>{tn||'—'}</td>
+                    <td style={{padding:'10px 12px',fontSize:12,color:C.mid}}>{r.occasion?OCCASION_LABEL[r.occasion]||r.occasion:'—'}</td>
+                    <td style={{padding:'10px 12px'}}>
+                      <select value={r.status} onChange={e=>updateStatus(r.id,e.target.value)}
+                        style={{border:`1px solid ${sc.color}`,borderRadius:20,padding:'3px 8px',fontSize:11,fontWeight:700,color:sc.color,background:'transparent',cursor:'pointer',outline:'none'}}>
+                        {ALL_STATUS.map(([id,cfg])=><option key={id} value={id} style={{color:C.ink}}>{cfg.label}</option>)}
+                      </select>
+                    </td>
+                    <td style={{padding:'10px 12px'}}>
+                      <div style={{display:'flex',gap:6}}>
+                        <button onClick={()=>setEditModal(r)} style={{padding:'4px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:11,cursor:'pointer'}}>Editar</button>
+                        <a href={`https://wa.me/${r.customer_phone.replace(/\D/g,'')}`} target="_blank"
+                          style={{padding:'4px 10px',borderRadius:6,border:`1px solid #25D366`,background:'transparent',color:'#25D366',fontSize:11,fontWeight:600,textDecoration:'none'}}>WA</a>
+                        <button onClick={()=>deleteReserva(r.id)} style={{padding:'4px 10px',borderRadius:6,border:`1px solid #FF3B30`,background:'transparent',color:'#FF3B30',fontSize:11,cursor:'pointer'}}>✕</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Modal editar / nueva reserva */}
+      {(editModal||newModal)&&(
+        <ReservaFormModal
+          reserva={editModal}
+          tables={tables||[]}
+          onClose={()=>{setEditModal(null);setNewModal(false);}}
+          onSaved={()=>{setEditModal(null);setNewModal(false);load();}}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReservaFormModal({reserva,tables,onClose,onSaved}){
+  const isNew=!reserva;
+  const todayStr=new Date().toISOString().slice(0,10);
+  const OCCASION_OPTS=[{id:'',label:'Sin motivo especial'},{id:'birthday',label:'🎂 Cumpleaños'},{id:'anniversary',label:'💑 Aniversario'},{id:'business',label:'💼 Reunión'},{id:'celebration',label:'🥂 Celebración'},{id:'other',label:'✦ Otro'}];
+  const STATUS_OPTS=[{id:'pending',label:'Pendiente'},{id:'confirmed',label:'Confirmada'},{id:'seated',label:'En mesa'},{id:'no_show',label:'No llegó'},{id:'cancelled',label:'Cancelada'}];
+  const [form,setForm]=useState({
+    customer_name:   reserva?.customer_name   ||'',
+    customer_phone:  reserva?.customer_phone  ||'',
+    reservation_date:reserva?.reservation_date||todayStr,
+    reservation_time:reserva?.reservation_time?.slice(0,5)||'',
+    guests:          reserva?.guests          ||2,
+    table_id:        reserva?.table_id        ||'',
+    occasion:        reserva?.occasion        ||'',
+    notes:           reserva?.notes           ||'',
+    status:          reserva?.status          ||'pending',
+  });
+  const [saving,setSaving]=useState(false);
+  const f=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const inputSt={width:'100%',height:38,border:`1px solid ${C.border}`,borderRadius:6,padding:'0 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none',boxSizing:'border-box'};
+
+  async function save(){
+    if(!form.customer_name||!form.customer_phone||!form.reservation_date||!form.reservation_time)return;
+    setSaving(true);
+    if(isNew){
+      const confirmNum='R-'+String(Math.floor(Date.now()%90000)+10000);
+      await db.from('reservations').insert({
+        restaurant_id:RID,confirm_num:confirmNum,
+        customer_name:form.customer_name,customer_phone:form.customer_phone,
+        reservation_date:form.reservation_date,reservation_time:form.reservation_time,
+        guests:Number(form.guests),table_id:form.table_id||null,
+        occasion:form.occasion||null,notes:form.notes||null,status:form.status,
+      });
+    } else {
+      await db.from('reservations').update({
+        customer_name:form.customer_name,customer_phone:form.customer_phone,
+        reservation_date:form.reservation_date,reservation_time:form.reservation_time,
+        guests:Number(form.guests),table_id:form.table_id||null,
+        occasion:form.occasion||null,notes:form.notes||null,status:form.status,
+      }).eq('id',reserva.id);
+    }
+    setSaving(false);
+    onSaved();
+  }
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:C.surface,borderRadius:14,width:'100%',maxWidth:520,maxHeight:'90vh',overflowY:'auto',padding:24}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <div style={{fontSize:18,fontWeight:800,color:C.ink}}>{isNew?'Nueva reserva':'Editar reserva'}</div>
+          <button onClick={onClose} style={{width:30,height:30,borderRadius:'50%',border:`1px solid ${C.border}`,background:'transparent',cursor:'pointer',fontSize:16,color:C.mid}}>✕</button>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Nombre *</label><input value={form.customer_name} onChange={e=>f('customer_name',e.target.value)} style={inputSt}/></div>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Teléfono *</label><input value={form.customer_phone} onChange={e=>f('customer_phone',e.target.value)} type="tel" style={inputSt}/></div>
+          </div>
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Fecha *</label><input type="date" value={form.reservation_date} onChange={e=>f('reservation_date',e.target.value)} style={inputSt}/></div>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Hora *</label><input type="time" value={form.reservation_time} onChange={e=>f('reservation_time',e.target.value)} style={inputSt}/></div>
+          </div>
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Personas</label>
+              <select value={form.guests} onChange={e=>f('guests',e.target.value)} style={inputSt}>
+                {[1,2,3,4,5,6,7,8,10,12].map(n=><option key={n} value={n}>{n} personas</option>)}
+              </select>
+            </div>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Mesa</label>
+              <select value={form.table_id} onChange={e=>f('table_id',e.target.value)} style={inputSt}>
+                <option value="">Sin asignar</option>
+                {tables.map(t=><option key={t.id} value={t.id}>Mesa {t.number}{t.capacity?` (${t.capacity}p)`:''}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Motivo</label>
+              <select value={form.occasion} onChange={e=>f('occasion',e.target.value)} style={inputSt}>
+                {OCCASION_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+            <div style={{flex:1}}><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Estado</label>
+              <select value={form.status} onChange={e=>f('status',e.target.value)} style={inputSt}>
+                {STATUS_OPTS.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div><label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Notas / comentarios</label>
+            <textarea value={form.notes} onChange={e=>f('notes',e.target.value)} rows={3}
+              style={{width:'100%',border:`1px solid ${C.border}`,borderRadius:6,padding:'8px 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none',resize:'vertical',boxSizing:'border-box'}}/>
+          </div>
+          <div style={{background:'#fff8e6',border:'1px solid #ffe082',borderRadius:8,padding:'10px 14px',fontSize:11,color:'#b45309',lineHeight:1.6}}>
+            ⚠ <strong>Tolerancia 15 min.</strong> Si el cliente no llega en 15 minutos de la hora reservada, marcá como "No llegó" para liberar la mesa.
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:8}}>
+            <button onClick={onClose} style={{padding:'8px 18px',border:`1px solid ${C.border}`,borderRadius:8,background:'transparent',color:C.mid,fontSize:13,cursor:'pointer'}}>Cancelar</button>
+            <button onClick={save} disabled={saving||!form.customer_name||!form.customer_phone||!form.reservation_date||!form.reservation_time}
+              style={{padding:'8px 22px',border:'none',borderRadius:8,background:'#000',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',opacity:saving?.6:1}}>
+              {saving?'Guardando…':isNew?'Crear reserva':'Guardar cambios'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
    ROOT APP
 ══════════════════════════════════════════════ */
 function AdminApp() {
@@ -4092,6 +4357,7 @@ function AdminApp() {
       case 'pedidos':   return <PedidosPage orders={orders} tables={tables} onRefresh={loadAll}/>;
       case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
       case 'mesas':     return <MesasPage tables={tables} orders={orders} onRefresh={loadAll}/>;
+      case 'reservas':  return <ReservasPage tables={tables}/>;
       case 'personal':  return <PersonalPage/>;
       case 'clientes':  return <ClientesPage orders={orders}/>;
       case 'caja':      return <CajaAdminPage/>;

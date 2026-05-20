@@ -298,6 +298,7 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
     {id:'salon',   icon:'',  lbl:'Vista del salón'},
     {id:'pedido',  icon:'',  lbl:'Tomar pedido'},
     {id:'cobros',  icon:'',  lbl:'Cobrar pedidos'},
+    {id:'reservas',icon:'📅', lbl:'Reservas'},
     {id:'retiro',  icon:'',  lbl:'Retiro de efectivo'},
     {id:'cancelaciones', icon:'✕', lbl:'Cancelaciones'},
     {id:'ingresos_egresos', icon:'₲', lbl:'Ingresos / Egresos'},
@@ -1955,6 +1956,126 @@ function CalculadoraFlotante(){
 }
 
 /* ═══════════════════════════════════════════
+   PANEL: RESERVAS (CAJA)
+═══════════════════════════════════════════ */
+function ReservasPanel(){
+  const [reservas,setReservas]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [dateFilter,setDateFilter]=useState(new Date().toISOString().slice(0,10));
+  const [confirmModal,setConfirmModal]=useState(null);
+
+  const OCCASION_LABEL={birthday:'🎂 Cumpleaños',anniversary:'💑 Aniversario',business:'💼 Reunión',celebration:'🥂 Celebración',other:'✦ Otro'};
+  const STATUS_CFG={
+    pending:   {label:'Pendiente', color:'#FF9500', bg:'rgba(255,149,0,.12)'},
+    confirmed: {label:'Confirmada',color:'#34C759', bg:'rgba(52,199,89,.12)'},
+    seated:    {label:'En mesa',   color:'#007AFF', bg:'rgba(0,122,255,.12)'},
+    no_show:   {label:'No llegó',  color:'#6E6E73', bg:'rgba(110,110,115,.12)'},
+    cancelled: {label:'Cancelada', color:'#FF3B30', bg:'rgba(255,59,48,.12)'},
+  };
+
+  async function load(){
+    setLoading(true);
+    if(!db){setLoading(false);return;}
+    const{data}=await db.from('reservations')
+      .select('*')
+      .eq('restaurant_id',RID)
+      .eq('reservation_date',dateFilter)
+      .order('reservation_time');
+    setReservas(data||[]);
+    setLoading(false);
+  }
+  useEffect(()=>{load();},[dateFilter]);
+
+  async function updateStatus(id,status){
+    await db.from('reservations').update({status}).eq('id',id);
+    setReservas(p=>p.map(r=>r.id===id?{...r,status}:r));
+    setConfirmModal(null);
+  }
+
+  const fmtTime=t=>t?t.slice(0,5):'';
+
+  return(
+    <div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:10}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#000000',margin:0}}>Reservas</h1>
+          <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{reservas.filter(r=>['pending','confirmed'].includes(r.status)).length} activas para hoy</div>
+        </div>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <input type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}
+            style={{height:34,border:`1px solid ${C.border}`,borderRadius:6,padding:'0 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none'}}/>
+          <button onClick={load} style={{height:34,padding:'0 12px',border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,color:C.mid,fontSize:12,cursor:'pointer'}}>↺</button>
+        </div>
+      </div>
+
+      {loading&&<div style={{textAlign:'center',padding:40,color:C.mid}}>Cargando…</div>}
+      {!loading&&reservas.length===0&&(
+        <div style={{textAlign:'center',padding:60,color:C.mid}}>
+          <div style={{fontSize:32,marginBottom:12}}>📅</div>
+          <div style={{fontSize:14,fontWeight:600}}>Sin reservas para esta fecha</div>
+        </div>
+      )}
+
+      {!loading&&reservas.length>0&&(
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {reservas.map(r=>{
+            const sc=STATUS_CFG[r.status]||STATUS_CFG.pending;
+            return(
+              <div key={r.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                      <span style={{fontSize:16,fontWeight:800,color:C.ink}}>{r.customer_name}</span>
+                      <span style={{fontSize:11,fontWeight:700,color:sc.color,background:sc.bg,padding:'2px 8px',borderRadius:20}}>{sc.label}</span>
+                    </div>
+                    <div style={{display:'flex',gap:16,fontSize:12,color:C.mid,flexWrap:'wrap'}}>
+                      <span>🕐 {fmtTime(r.reservation_time)}</span>
+                      <span>👥 {r.guests} personas</span>
+                      {r.table_id&&<span>🍽 Mesa asignada</span>}
+                      {r.occasion&&<span>{OCCASION_LABEL[r.occasion]||r.occasion}</span>}
+                    </div>
+                    <div style={{fontSize:12,color:C.mid,marginTop:4}}>
+                      📱 {r.customer_phone}
+                      <span style={{marginLeft:12,color:'#6E6E73',fontFamily:'monospace'}}>{r.confirm_num}</span>
+                    </div>
+                    {r.notes&&<div style={{fontSize:11,color:C.mid,marginTop:6,fontStyle:'italic',borderTop:`1px solid ${C.border}`,paddingTop:6}}>{r.notes}</div>}
+                  </div>
+                </div>
+
+                {/* Acciones según estado */}
+                <div style={{display:'flex',gap:8,marginTop:12,flexWrap:'wrap'}}>
+                  {r.status==='pending'&&<>
+                    <button onClick={()=>updateStatus(r.id,'confirmed')} style={{padding:'6px 14px',borderRadius:6,border:'none',background:'#34C759',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>✓ Confirmar</button>
+                    <button onClick={()=>updateStatus(r.id,'cancelled')} style={{padding:'6px 14px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#FF3B30',fontSize:12,fontWeight:600,cursor:'pointer'}}>✕ Cancelar</button>
+                  </>}
+                  {r.status==='confirmed'&&<>
+                    <button onClick={()=>updateStatus(r.id,'seated')} style={{padding:'6px 14px',borderRadius:6,border:'none',background:'#007AFF',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>🪑 Sentar</button>
+                    <button onClick={()=>updateStatus(r.id,'no_show')} style={{padding:'6px 14px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:12,fontWeight:600,cursor:'pointer'}}>No llegó</button>
+                    <button onClick={()=>updateStatus(r.id,'cancelled')} style={{padding:'6px 14px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#FF3B30',fontSize:12,fontWeight:600,cursor:'pointer'}}>✕ Cancelar</button>
+                  </>}
+                  {r.status==='seated'&&<>
+                    <span style={{fontSize:12,color:'#007AFF',fontWeight:600}}>Cliente en mesa</span>
+                  </>}
+                  {(r.status==='no_show'||r.status==='cancelled')&&(
+                    <button onClick={()=>updateStatus(r.id,'pending')} style={{padding:'6px 14px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:12,cursor:'pointer'}}>↩ Reactivar</button>
+                  )}
+                  {/* WhatsApp rápido */}
+                  <a href={`https://wa.me/${r.customer_phone.replace(/\D/g,'')}`} target="_blank"
+                    style={{padding:'6px 14px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#25D366',fontSize:12,fontWeight:600,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:4}}>
+                    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.12 1.18 2 2 0 012.11 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.09 7.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z" /></svg>
+                    WhatsApp
+                  </a>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
    DASHBOARD PRINCIPAL DEL TURNO
 ═══════════════════════════════════════════ */
 function DashboardCaja({turno,profile,onCierre}){
@@ -1991,6 +2112,7 @@ function DashboardCaja({turno,profile,onCierre}){
       case 'cobros':           return <CobrosPanel       turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
       case 'cancelaciones':    return <CancelacionesPanel turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
       case 'ingresos_egresos': return <IngresosEgresosPanel turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
+      case 'reservas':          return <ReservasPanel/>;
       case 'quejas':           return <QuejasPanel       turno={turno} profile={profile}/>;
       case 'retiro':           return <RetiroPanel       turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
       case 'cierre':           return <CierreCajaPanel   turno={turno} movimientos={movimientos} profile={profile} onCierre={handleCierre}/>;
