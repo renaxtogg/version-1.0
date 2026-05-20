@@ -64,6 +64,16 @@ const _initDB = () => {
 };
 const db = _initDB();
 
+/* contador global — pausa el polling cuando hay modal abierto o input con foco */
+let _modalCount = 0;
+function _shouldPause() {
+  if (_modalCount > 0) return true;
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return ['INPUT','TEXTAREA','SELECT'].includes(tag) || el.isContentEditable;
+}
+
 // ── Demo data ────────────────────────────────────────────────
 const DEMO = {
   restaurants:[
@@ -226,17 +236,25 @@ const FlashMsg = ({msg,onClose}) => {
   );
 };
 
-const Modal = ({title,onClose,children,width=540}) => (
-  <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:1000,padding:'48px 16px 16px'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,width:'100%',maxWidth:width,maxHeight:'calc(100vh - 32px)',overflowY:'auto',boxShadow:'0 24px 64px rgba(0,0,0,.25)',display:'flex',flexDirection:'column'}} className="animate-in">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:1,flexShrink:0}}>
-        <span style={{fontWeight:700,fontSize:15,color:C.ink}}>{title}</span>
-        <button onClick={onClose} style={{background:'none',border:'none',color:C.mid,fontSize:20,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>×</button>
+function Modal({title,onClose,children,width=540}) {
+  useEffect(()=>{
+    _modalCount++;
+    const fn = e => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', fn);
+    return ()=>{ _modalCount = Math.max(0, _modalCount - 1); window.removeEventListener('keydown', fn); };
+  },[onClose]);
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:1000,padding:'48px 16px 16px'}} onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,width:'100%',maxWidth:width,maxHeight:'calc(100vh - 32px)',overflowY:'auto',boxShadow:'0 24px 64px rgba(0,0,0,.25)',display:'flex',flexDirection:'column'}} className="animate-in">
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:1,flexShrink:0}}>
+          <span style={{fontWeight:700,fontSize:15,color:C.ink}}>{title}</span>
+          <button onClick={onClose} style={{background:'none',border:'none',color:C.mid,fontSize:20,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>×</button>
+        </div>
+        <div style={{padding:24,overflowY:'auto'}}>{children}</div>
       </div>
-      <div style={{padding:24,overflowY:'auto'}}>{children}</div>
     </div>
-  </div>
-);
+  );
+}
 
 const FormField = ({label,children,hint,col}) => (
   <div style={{marginBottom:14,gridColumn:col}}>
@@ -873,9 +891,9 @@ function PageUsuarios({restaurants, setFlash}) {
   useEffect(()=>{
     loadUsers();
     if (!db) return;
-    const interval = setInterval(loadUsers, 30000);
+    const interval = setInterval(()=>{ if(!_shouldPause()) loadUsers(); }, 30000);
     const ch = db.channel('usuarios-rt')
-      .on('postgres_changes',{event:'*',schema:'public',table:'user_roles'},loadUsers)
+      .on('postgres_changes',{event:'*',schema:'public',table:'user_roles'},()=>{ if(!_shouldPause()) loadUsers(); })
       .subscribe();
     return ()=>{ clearInterval(interval); db.removeChannel(ch); };
   },[loadUsers]);
@@ -1524,14 +1542,15 @@ function App() {
   // Realtime + polling fallback 30s
   useEffect(()=>{
     if (!db) return;
-    const interval = setInterval(loadAll, 30000);
+    const interval = setInterval(()=>{ if(!_shouldPause()) loadAll(); }, 30000);
+    const safeLoad = ()=>{ if(!_shouldPause()) loadAll(); };
     const ch = db.channel('superadmin-rt')
-      .on('postgres_changes',{event:'*',schema:'public',table:'orders'},          loadAll)
-      .on('postgres_changes',{event:'*',schema:'public',table:'restaurants'},     loadAll)
-      .on('postgres_changes',{event:'*',schema:'public',table:'subscriptions'},   loadAll)
-      .on('postgres_changes',{event:'*',schema:'public',table:'platform_events'}, loadAll)
-      .on('postgres_changes',{event:'*',schema:'public',table:'user_roles'},      loadAll)
-      .on('postgres_changes',{event:'*',schema:'public',table:'platform_config'}, loadAll)
+      .on('postgres_changes',{event:'*',schema:'public',table:'orders'},          safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'restaurants'},     safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'subscriptions'},   safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'platform_events'}, safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'user_roles'},      safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'platform_config'}, safeLoad)
       .subscribe(s=>setRtLive(s==='SUBSCRIBED'));
     return ()=>{ clearInterval(interval); db.removeChannel(ch); };
   },[loadAll]);
