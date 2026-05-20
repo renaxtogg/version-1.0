@@ -11,6 +11,8 @@
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{background:#F5F5F7;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:#1D1D1F;-webkit-font-smoothing:antialiased}
@@ -3875,10 +3877,222 @@ function DelivRiders({riders, onRefresh}) {
   );
 }
 
+/* ── MapEditor ── */
+function MapEditor({zones, restaurant, onSave, onClose}) {
+  const mapDivRef = useRef(null);
+  const mapRef    = useRef(null);
+  const pinRef    = useRef(null);
+  const circlesRef= useRef({});
+  const latRef    = useRef(restaurant?.lat || -25.2867);
+  const lngRef    = useRef(restaurant?.lng || -57.6470);
+
+  const ZCLR = {red:'#EF4444',orange:'#F97316',yellow:'#EAB308',green:'#22C55E'};
+  const ZLBL = {red:'Roja',orange:'Naranja',yellow:'Amarilla',green:'Verde'};
+
+  const [editZones, setEditZones] = useState(()=>zones.map(z=>({
+    ...z, radius_km: z.radius_km||z.radius||3, price: z.price||0, time: z.time||30, color: z.color||'red'
+  })));
+  const [activeIdx, setActiveIdx] = useState(0);
+  const activeIdxRef = useRef(0);
+  const setActive = (i) => { activeIdxRef.current = i; setActiveIdx(i); if(mapRef.current) mapRef.current._activeIdxRef = activeIdxRef; };
+  const [saving, setSaving] = useState(false);
+  const [hint, setHint] = useState('Tocá el mapa para definir el alcance de la zona activa');
+
+  useEffect(()=>{
+    if(!mapDivRef.current||!window.L) return;
+    const L = window.L;
+    const lat0 = latRef.current, lng0 = lngRef.current;
+    const map = L.map(mapDivRef.current,{zoomControl:true}).setView([lat0,lng0],13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'© OpenStreetMap',maxZoom:19
+    }).addTo(map);
+
+    // Pin del local
+    const pin = L.marker([lat0,lng0],{
+      draggable:true,
+      icon:L.divIcon({
+        className:'',
+        html:'<div style="width:22px;height:22px;background:#000;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,0.5);cursor:grab"></div>',
+        iconSize:[22,22],iconAnchor:[11,11]
+      })
+    }).addTo(map).bindTooltip('📍 Local (arrastrar)',{permanent:false});
+    pin.on('dragend',e=>{
+      const {lat,lng}=e.target.getLatLng();
+      latRef.current=lat; lngRef.current=lng;
+      Object.values(circlesRef.current).forEach(c=>c.setLatLng([lat,lng]));
+      setHint('📍 Ubicación del local actualizada');
+    });
+    pinRef.current = pin;
+
+    // Círculos de zonas (orden inverso: externo primero para que internos queden encima)
+    const sorted = [...editZones].map((z,i)=>({...z,origIdx:i})).sort((a,b)=>(b.radius_km||99)-(a.radius_km||99));
+    sorted.forEach(z=>{
+      const clr = ZCLR[z.color]||'#EF4444';
+      const c = L.circle([lat0,lng0],{
+        radius:(z.radius_km||3)*1000,
+        color:clr, fillColor:clr, fillOpacity:0.08, weight:2.5
+      }).addTo(map).bindTooltip(`${ZLBL[z.color]||z.color} — ${z.name}`,{permanent:false,sticky:true});
+      circlesRef.current[z.origIdx] = c;
+    });
+
+    // Click en mapa → actualiza radio de zona activa
+    map._activeIdxRef = activeIdxRef;
+    map.on('click',e=>{
+      const pinLL = pinRef.current.getLatLng();
+      const distM = pinLL.distanceTo(e.latlng);
+      const distKm = Math.max(0.3, Math.round(distM/100)/10);
+      const idx = map._activeIdxRef.current;
+      setEditZones(pz=>pz.map((z,i)=>{
+        if(i!==idx) return z;
+        if(circlesRef.current[i]) circlesRef.current[i].setRadius(distKm*1000);
+        return {...z,radius_km:distKm};
+      }));
+      setHint(`✓ Radio actualizado a ${distKm} km`);
+    });
+
+    mapRef.current = map;
+    return ()=>{ map.remove(); mapRef.current=null; circlesRef.current={}; };
+  },[]);
+
+  const updateRadius = (idx,km)=>{
+    const v = Math.max(0.3,Math.min(50,parseFloat(km)||0.3));
+    setEditZones(pz=>pz.map((z,i)=>i===idx?{...z,radius_km:v}:z));
+    if(circlesRef.current[idx]) circlesRef.current[idx].setRadius(v*1000);
+  };
+
+  const handleSave = async ()=>{
+    setSaving(true);
+    const lat = latRef.current, lng = lngRef.current;
+    if(db){
+      // Actualizar lat/lng del restaurante
+      await db.from('restaurants').update({lat,lng}).eq('id',RID);
+      // Upsert zonas
+      const isUUID = s => typeof s==='string' && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(s);
+      for(const z of editZones){
+        const payload = {
+          restaurant_id:RID, name:z.name, radius_km:z.radius_km,
+          price_guarani:Number(z.price)||0, estimated_minutes:Number(z.time)||30,
+          is_active:z.active!==false, color:z.color||'red'
+        };
+        if(isUUID(z.id)){
+          await db.from('delivery_zones').update(payload).eq('id',z.id);
+        } else {
+          await db.from('delivery_zones').insert(payload);
+        }
+      }
+    }
+    onSave(lat, lng, editZones);
+    setSaving(false);
+  };
+
+  const az = editZones[activeIdx] || editZones[0];
+  const azClr = ZCLR[az?.color]||'#EF4444';
+
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:700,maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 32px 80px rgba(0,0,0,0.4)'}}>
+        {/* Header */}
+        <div style={{padding:'16px 20px',borderBottom:'1px solid #E5E5EA',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+          <div>
+            <div style={{fontSize:17,fontWeight:800,color:'#000'}}>Editor de zonas en el mapa</div>
+            <div style={{fontSize:12,color:'#86868B',marginTop:2}}>Tocá el mapa para definir el alcance · Arrastrá el pin para reposicionar el local</div>
+          </div>
+          <button onClick={onClose} style={{background:'#F5F5F7',border:'none',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:18,color:'#86868B',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+        </div>
+
+        {/* Mapa */}
+        <div style={{position:'relative',flexShrink:0}}>
+          <div ref={mapDivRef} style={{height:320,width:'100%'}}/>
+          {/* Hint overlay */}
+          <div style={{position:'absolute',bottom:8,left:'50%',transform:'translateX(-50%)',background:'rgba(0,0,0,0.65)',color:'#fff',borderRadius:20,padding:'5px 14px',fontSize:11,fontWeight:600,pointerEvents:'none',whiteSpace:'nowrap',maxWidth:'90%',overflow:'hidden',textOverflow:'ellipsis'}}>
+            {hint}
+          </div>
+          {/* Tabs de zona superpuestos sobre el mapa */}
+          <div style={{position:'absolute',top:8,right:8,display:'flex',flexDirection:'column',gap:4}}>
+            {editZones.map((z,i)=>(
+              <button key={i} onClick={()=>{ setActive(i); setHint(`Zona ${ZLBL[z.color]||z.name} activa — tocá el mapa para ajustar radio`); }} style={{background:activeIdx===i?ZCLR[z.color]||'#EF4444':'rgba(255,255,255,0.92)',border:`2px solid ${ZCLR[z.color]||'#EF4444'}`,borderRadius:20,padding:'4px 10px',fontSize:11,fontWeight:800,cursor:'pointer',color:activeIdx===i?'#fff':ZCLR[z.color]||'#EF4444',transition:'all 150ms',boxShadow:'0 2px 8px rgba(0,0,0,0.2)'}}>
+                {ZLBL[z.color]||'Zona'} {z.radius_km} km
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Panel de edición zona activa */}
+        <div style={{flex:1,overflowY:'auto',padding:'16px 20px'}}>
+          {/* Tabs selector */}
+          <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
+            {editZones.map((z,i)=>{
+              const clr=ZCLR[z.color]||'#EF4444';
+              return (
+                <button key={i} onClick={()=>setActive(i)} style={{display:'flex',alignItems:'center',gap:6,padding:'6px 14px',border:`2px solid ${activeIdx===i?clr:'#E5E5EA'}`,borderRadius:20,background:activeIdx===i?clr+'18':'transparent',cursor:'pointer',fontSize:12,fontWeight:700,color:activeIdx===i?clr:'#86868B',transition:'all 150ms'}}>
+                  <span style={{width:10,height:10,borderRadius:'50%',background:clr,display:'inline-block'}}/>
+                  {ZLBL[z.color]||z.name}
+                </button>
+              );
+            })}
+          </div>
+
+          {az && (
+            <div style={{background:'#F9F9FA',border:`2px solid ${azClr}33`,borderRadius:12,padding:16}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+                <span style={{width:14,height:14,borderRadius:'50%',background:azClr,display:'inline-block',flexShrink:0}}/>
+                <span style={{fontSize:14,fontWeight:800,color:'#000'}}>{az.name}</span>
+                <span style={{fontSize:11,color:'#86868B'}}>{ZLBL[az.color]||az.color}</span>
+              </div>
+
+              {/* Radio con slider */}
+              <div style={{marginBottom:14}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                  <span style={{fontSize:12,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:1}}>Radio</span>
+                  <span style={{fontSize:15,fontWeight:800,color:azClr}}>{az.radius_km} km</span>
+                </div>
+                <input type="range" min="0.3" max="50" step="0.1" value={az.radius_km||3}
+                  onChange={e=>updateRadius(activeIdx,parseFloat(e.target.value))}
+                  style={{width:'100%',accentColor:azClr}}
+                />
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'#86868B',marginTop:2}}>
+                  <span>0.3 km</span><span>25 km</span><span>50 km</span>
+                </div>
+              </div>
+
+              {/* Precio y tiempo */}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>Precio delivery (₲)</div>
+                  <input type="number" value={az.price||0}
+                    onChange={e=>setEditZones(pz=>pz.map((z,i)=>i===activeIdx?{...z,price:Number(e.target.value)}:z))}
+                    style={{width:'100%',height:40,border:`1.5px solid ${azClr}44`,borderRadius:8,padding:'0 10px',fontSize:14,fontWeight:700,outline:'none'}}
+                  />
+                </div>
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>Tiempo estimado (min)</div>
+                  <input type="number" value={az.time||30}
+                    onChange={e=>setEditZones(pz=>pz.map((z,i)=>i===activeIdx?{...z,time:Number(e.target.value)}:z))}
+                    style={{width:'100%',height:40,border:`1.5px solid ${azClr}44`,borderRadius:8,padding:'0 10px',fontSize:14,fontWeight:700,outline:'none'}}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{padding:'12px 20px 16px',borderTop:'1px solid #E5E5EA',flexShrink:0,display:'flex',gap:8}}>
+          <button onClick={handleSave} disabled={saving} style={{flex:1,height:44,background:'#000',color:'#fff',border:'none',borderRadius:10,fontSize:14,fontWeight:800,cursor:saving?'default':'pointer',opacity:saving?0.6:1,fontFamily:'inherit'}}>
+            {saving?'Guardando…':'Guardar zonas en el mapa'}
+          </button>
+          <button onClick={onClose} style={{height:44,padding:'0 18px',background:'transparent',color:'#86868B',border:'1.5px solid #E5E5EA',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── DelivConfig ── */
-function DelivConfig({zones, setZones, channels, setChannels}) {
+function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRestaurant}) {
   const [zoneModal,setZoneModal] = useState(null);
   const [chanModal,setChanModal] = useState(null);
+  const [mapOpen,setMapOpen] = useState(false);
   const [zForm,setZForm] = useState({name:'',radius:'',price:0,time:30,active:true,color:'red'});
   const [cForm,setCForm] = useState({name:'',commission:0,color:'#000000',active:true});
 
@@ -3910,7 +4124,10 @@ function DelivConfig({zones, setZones, channels, setChannels}) {
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
         <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>ZONAS DE COBERTURA</div>
-          <Btn small onClick={()=>{setZForm({name:'',radius:'',price:0,time:30,active:true,color:'red'});setZoneModal('new');}}>+ Agregar zona</Btn>
+          <div style={{display:'flex',gap:6}}>
+            <Btn small variant="secondary" onClick={()=>setMapOpen(true)}>🗺 Editor de mapa</Btn>
+            <Btn small onClick={()=>{setZForm({name:'',radius:'',price:0,time:30,active:true,color:'red'});setZoneModal('new');}}>+ Agregar zona</Btn>
+          </div>
         </div>
         {zones.length===0
           ? <div style={{padding:32,textAlign:'center',color:'#D2D2D7',fontSize:13}}>Sin zonas configuradas</div>
@@ -4004,6 +4221,31 @@ function DelivConfig({zones, setZones, channels, setChannels}) {
         </Modal>
       )}
 
+      {mapOpen&&zones.length>0&&(
+        <MapEditor
+          zones={zones}
+          restaurant={restaurant}
+          onSave={(lat,lng,updatedZones)=>{
+            if(setRestaurant&&restaurant) setRestaurant({...restaurant,lat,lng});
+            const mapped = updatedZones.map(z=>({...z,radius:z.radius_km}));
+            setZones(mapped);
+            setMapOpen(false);
+            toast('Zonas y ubicación del local guardadas');
+          }}
+          onClose={()=>setMapOpen(false)}
+        />
+      )}
+      {mapOpen&&zones.length===0&&(
+        <div style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{background:'#fff',borderRadius:14,padding:28,maxWidth:360,textAlign:'center'}}>
+            <div style={{fontSize:32,marginBottom:12}}>🗺</div>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:8}}>Primero creá al menos una zona</div>
+            <div style={{fontSize:13,color:'#86868B',marginBottom:20}}>Necesitás tener zonas configuradas para editarlas en el mapa.</div>
+            <Btn onClick={()=>setMapOpen(false)}>Entendido</Btn>
+          </div>
+        </div>
+      )}
+
       {chanModal&&(
         <Modal title={chanModal==='new'?'Nuevo canal':'Editar canal'} onClose={()=>setChanModal(null)} width={420}>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
@@ -4036,6 +4278,7 @@ function DeliveryModule() {
   const [deliveryOrders,setDeliveryOrders] = useState([]);
   const [riders,setRiders] = useState([]);
   const [loading,setLoading] = useState(true);
+  const [restaurant,setRestaurant] = useState(null);
   const [zones,setZonesState] = useState(()=>LS.get(`deliv_zones_${RID}`,[]) );
   const [channels,setChannelsState] = useState(()=>LS.get(`deliv_channels_${RID}`,[
     {id:'propio',    name:'Propio',     commission:0,  color:'#000000', active:true},
@@ -4051,12 +4294,23 @@ function DeliveryModule() {
   async function loadDelivery() {
     setLoading(true);
     if(!db){ setLoading(false); return; }
-    const [doR,rR] = await Promise.all([
+    const [doR,rR,zR,restR] = await Promise.all([
       db.from('delivery_orders').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(300),
       db.from('delivery_riders').select('*').eq('restaurant_id',RID).order('name'),
+      db.from('delivery_zones').select('*').eq('restaurant_id',RID).order('radius_km'),
+      db.from('restaurants').select('id,name,lat,lng').eq('id',RID).maybeSingle(),
     ]);
     setDeliveryOrders(doR.data||[]);
     setRiders(rR.data||[]);
+    if(restR.data) setRestaurant(restR.data);
+    if(zR.data?.length){
+      const mapped = zR.data.map(z=>({
+        id:z.id, name:z.name, radius:z.radius_km, radius_km:z.radius_km,
+        price:z.price_guarani, time:z.estimated_minutes,
+        active:z.is_active!==false, color:z.color||'red'
+      }));
+      setZones(mapped);
+    }
     setLoading(false);
   }
 
@@ -4098,7 +4352,7 @@ function DeliveryModule() {
       case 'dashboard': return <DelivDashboard deliveryOrders={deliveryOrders} channels={channels}/>;
       case 'pedidos':   return <DelivPedidos deliveryOrders={deliveryOrders} riders={riders} channels={channels} onRefresh={loadDelivery}/>;
       case 'riders':    return <DelivRiders riders={riders} onRefresh={loadDelivery}/>;
-      case 'config':    return <DelivConfig zones={zones} setZones={setZones} channels={channels} setChannels={setChannels}/>;
+      case 'config':    return <DelivConfig zones={zones} setZones={setZones} channels={channels} setChannels={setChannels} restaurant={restaurant} setRestaurant={setRestaurant}/>;
       default: return null;
     }
   }
