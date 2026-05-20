@@ -25,6 +25,7 @@
   @keyframes spin{to{transform:rotate(360deg)}}
   .page{animation:fadeIn .15s ease}
   .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #D2D2D7;border-top-color:#1D1D1F;border-radius:50%;vertical-align:middle}
+  @media print{aside,nav,.no-print{display:none!important}main{padding:0!important}body{background:#fff}}
 </style>
 </head>
 <body>
@@ -3178,6 +3179,7 @@ function ReportesPage({orders}) {
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Reportes</h1>
         <div style={{display:'flex',gap:8}}>
+          <Btn onClick={()=>window.print()} variant="secondary" small>Imprimir resumen</Btn>
           <Btn onClick={exportar} variant="secondary" small>Exportar Excel</Btn>
         </div>
       </div>
@@ -3199,6 +3201,27 @@ function ReportesPage({orders}) {
           </div>
         )}
       </div>
+
+      {/* Producto ganador del período */}
+      {prodRows.length>0&&(
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:20}}>
+          <div style={{background:'#000',color:'#fff',borderRadius:10,padding:'16px 20px',gridColumn:'1'}}>
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,color:'rgba(255,255,255,0.5)',marginBottom:8,textTransform:'uppercase'}}>Producto del período</div>
+            <div style={{fontSize:16,fontWeight:800,lineHeight:1.2,marginBottom:4,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{prodRows[0]?.name||'—'}</div>
+            <div style={{fontSize:12,color:'rgba(255,255,255,0.7)'}}>{prodRows[0]?.qty||0} unidades · {fmt(prodRows[0]?.ingreso||0)}</div>
+          </div>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 20px'}}>
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,color:'#6E6E73',marginBottom:8,textTransform:'uppercase'}}>2° lugar</div>
+            <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{prodRows[1]?.name||'—'}</div>
+            <div style={{fontSize:12,color:'#6E6E73'}}>{prodRows[1]?.qty||0} uds · {fmt(prodRows[1]?.ingreso||0)}</div>
+          </div>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 20px'}}>
+            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,color:'#6E6E73',marginBottom:8,textTransform:'uppercase'}}>3° lugar</div>
+            <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{prodRows[2]?.name||'—'}</div>
+            <div style={{fontSize:12,color:'#6E6E73'}}>{prodRows[2]?.qty||0} uds · {fmt(prodRows[2]?.ingreso||0)}</div>
+          </div>
+        </div>
+      )}
 
       {/* KPIs con comparativa */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
@@ -4024,7 +4047,7 @@ function AdminApp() {
     const [rR,tR,oR,cR,iR,cpR,raR] = await Promise.all([
       db.from('restaurants').select('*').eq('id',RID).single(),
       db.from('tables').select('*').eq('restaurant_id',RID).order('number'),
-      db.from('orders').select('id,order_number,order_type,status,subtotal,discount_amount,coupon_code,total,payment_method,customer_name,created_at,table_id').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(500),
+      db.from('orders').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(500),
       db.from('menu_categories').select('*').eq('restaurant_id',RID).order('sort_order'),
       db.from('menu_items').select('*').eq('restaurant_id',RID).order('sort_order'),
       db.from('coupons').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}),
