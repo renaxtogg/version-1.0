@@ -178,6 +178,20 @@ function Lbl({children}) { return <label style={{fontSize:10,color:'#6E6E73',dis
 function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}) {
   return <input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'8px 10px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',borderRadius:6,...(rest.style||{})}}/>;
 }
+/* Input de guaraníes: muestra separadores de miles automáticamente */
+function MoneyInp({value, onChange, placeholder='0', full=true, ...rest}) {
+  const fmtDisplay = n => { const num=parseInt(n)||0; return num>0?num.toLocaleString('es-PY'):''; };
+  const [display, setDisplay] = React.useState(() => fmtDisplay(value));
+  React.useEffect(() => { setDisplay(fmtDisplay(value)); }, [value]);
+  function handleChange(e) {
+    const raw = e.target.value.replace(/\D/g,'');
+    const num = raw===''?0:(parseInt(raw)||0);
+    setDisplay(num>0?num.toLocaleString('es-PY'):raw===''?'':'0');
+    onChange(num);
+  }
+  const fmtPlaceholder = parseInt(placeholder)>0 ? parseInt(placeholder).toLocaleString('es-PY') : placeholder;
+  return <input type="text" inputMode="numeric" value={display} onChange={handleChange} placeholder={fmtPlaceholder} {...rest} style={{width:full?'100%':'auto',padding:'8px 10px',fontSize:13,fontFamily:"'SF Mono',ui-monospace,monospace",borderRadius:6,...(rest.style||{})}}/>;
+}
 function Sel({value,onChange,children,...rest}) {
   return <select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'8px 10px',fontSize:13,borderRadius:6,...(rest.style||{})}}>{children}</select>;
 }
@@ -894,7 +908,7 @@ function ItemModal({item, categories, onClose, onSaved}) {
         {/* Precio */}
         <div>
           <Lbl>PRECIO (₲) *</Lbl>
-          <Inp type="number" mono value={form.price_guarani} onChange={e=>f('price_guarani',e.target.value)} placeholder="75000"/>
+          <MoneyInp value={form.price_guarani} onChange={v=>f('price_guarani',v)} placeholder="75000"/>
         </div>
 
         {/* Descuento */}
@@ -959,8 +973,7 @@ function ItemModal({item, categories, onClose, onSaved}) {
               <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 140px 76px 32px',gap:8,alignItems:'center',marginBottom:7}}>
                 <Inp value={e.name} onChange={ev=>updExtra(i,'name',ev.target.value)} placeholder="Ej: Queso extra, Picante, Sin cebolla"/>
                 <div style={{display:'flex',alignItems:'center',gap:4}}>
-                  <span style={{fontSize:11,color:'#6E6E73',flexShrink:0}}>₲</span>
-                  <Inp type="number" mono value={e.price_guarani} onChange={ev=>updExtra(i,'price_guarani',ev.target.value)} placeholder="0"/>
+                  <MoneyInp value={e.price_guarani} onChange={v=>updExtra(i,'price_guarani',v)} placeholder="0" style={{flex:1}}/>
                 </div>
                 <button onClick={()=>updExtra(i,'is_active',!e.is_active)}
                   style={{padding:'5px 6px',fontSize:11,fontWeight:600,borderRadius:5,cursor:'pointer',border:`1px solid ${e.is_active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,background:e.is_active?'rgba(52,199,89,0.1)':'transparent',color:e.is_active?'#34C759':'#86868B'}}>
@@ -3156,7 +3169,7 @@ function FinanzasPage({orders}) {
               <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:10}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
                   <div><Lbl>FECHA</Lbl><Inp type="date" value={egForm.date} onChange={e=>setEgForm({...egForm,date:e.target.value})}/></div>
-                  <div><Lbl>MONTO (₲) *</Lbl><Inp type="number" mono value={egForm.amount} onChange={e=>setEgForm({...egForm,amount:e.target.value})} placeholder="50000"/></div>
+                  <div><Lbl>MONTO (₲) *</Lbl><MoneyInp value={egForm.amount} onChange={v=>setEgForm({...egForm,amount:v})} placeholder="50000"/></div>
                   <div><Lbl>CATEGORIA</Lbl><Sel value={egForm.category} onChange={e=>setEgForm({...egForm,category:e.target.value})}>{EG_CATS.map(c=><option key={c}>{c}</option>)}</Sel></div>
                   <div><Lbl>DESCRIPCION *</Lbl><Inp value={egForm.desc} onChange={e=>setEgForm({...egForm,desc:e.target.value})} placeholder="Descripcion…"/></div>
                 </div>
@@ -3369,8 +3382,13 @@ function MarketingPage({coupons,orders,onRefresh}) {
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10,marginBottom:12}}>
               <div><Lbl>CÓDIGO *</Lbl><Inp value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} placeholder="PROMO20"/></div>
               <div><Lbl>TIPO</Lbl><Sel value={form.discount_type} onChange={e=>setForm({...form,discount_type:e.target.value})}><option value="percentage">% Porcentaje</option><option value="fixed">₲ Fijo</option></Sel></div>
-              <div><Lbl>VALOR *</Lbl><Inp type="number" mono value={form.discount_value} onChange={e=>setForm({...form,discount_value:e.target.value})} placeholder={form.discount_type==='percentage'?'10':'5000'}/></div>
-              <div><Lbl>MONTO MÍN. (₲)</Lbl><Inp type="number" mono value={form.min_order_amount} onChange={e=>setForm({...form,min_order_amount:e.target.value})} placeholder="0"/></div>
+              <div><Lbl>VALOR *</Lbl>
+                {form.discount_type==='percentage'
+                  ? <Inp type="number" mono value={form.discount_value} onChange={e=>setForm({...form,discount_value:e.target.value})} placeholder="10"/>
+                  : <MoneyInp value={form.discount_value} onChange={v=>setForm({...form,discount_value:v})} placeholder="5000"/>
+                }
+              </div>
+              <div><Lbl>MONTO MÍN. (₲)</Lbl><MoneyInp value={form.min_order_amount} onChange={v=>setForm({...form,min_order_amount:v})} placeholder="0"/></div>
               <div><Lbl>USOS MÁX.</Lbl><Inp type="number" mono value={form.max_uses} onChange={e=>setForm({...form,max_uses:e.target.value})} placeholder="∞"/></div>
             </div>
             <Btn onClick={addCoupon} disabled={saving||!form.code||!form.discount_value}>{saving?'Creando…':'Crear cupón'}</Btn>
@@ -5029,7 +5047,10 @@ function DelivRiders({riders, onRefresh}) {
               </div>
               <div>
                 <Lbl>{form.commission_type==='pct'?'PORCENTAJE %':form.commission_type==='salary'?'MONTO ₲/MES':'MONTO ₲/ENTREGA'}</Lbl>
-                <Inp type="number" value={form.commission_value} onChange={e=>setForm({...form,commission_value:e.target.value})} placeholder="0"/>
+                {form.commission_type==='pct'
+                  ? <Inp type="number" value={form.commission_value} onChange={e=>setForm({...form,commission_value:e.target.value})} placeholder="10"/>
+                  : <MoneyInp value={form.commission_value} onChange={v=>setForm({...form,commission_value:v})} placeholder="2000000"/>
+                }
               </div>
             </div>
             <div>
@@ -5402,7 +5423,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
               </div>
             </div>
             <div><Lbl>RADIO (km — vacío = sin límite)</Lbl><Inp type="number" value={zForm.radius||''} onChange={e=>setZForm({...zForm,radius:e.target.value})} placeholder="5"/></div>
-            <div><Lbl>PRECIO DELIVERY (₲)</Lbl><Inp type="number" value={zForm.price} onChange={e=>setZForm({...zForm,price:e.target.value})} placeholder="15000"/></div>
+            <div><Lbl>PRECIO DELIVERY (₲)</Lbl><MoneyInp value={zForm.price} onChange={v=>setZForm({...zForm,price:v})} placeholder="15000"/></div>
             <div><Lbl>TIEMPO ESTIMADO (minutos)</Lbl><Inp type="number" value={zForm.time} onChange={e=>setZForm({...zForm,time:e.target.value})} placeholder="30"/></div>
             <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13}}>
               <input type="checkbox" checked={zForm.active} onChange={e=>setZForm({...zForm,active:e.target.checked})}/> Zona activa
