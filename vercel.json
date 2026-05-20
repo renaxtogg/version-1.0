@@ -3,9 +3,6 @@
   "public": true,
   "buildCommand": "bash build.sh",
   "outputDirectory": "public",
-  "functions": {
-    "api/**": { "runtime": "nodejs18.x" }
-  },
   "rewrites": [
     { "source": "/cocina", "destination": "/cocina.html" },
     { "source": "/admin", "destination": "/admin.html" },
