@@ -3879,7 +3879,7 @@ function DelivRiders({riders, onRefresh}) {
 function DelivConfig({zones, setZones, channels, setChannels}) {
   const [zoneModal,setZoneModal] = useState(null);
   const [chanModal,setChanModal] = useState(null);
-  const [zForm,setZForm] = useState({name:'',radius:'',price:0,time:30,active:true});
+  const [zForm,setZForm] = useState({name:'',radius:'',price:0,time:30,active:true,color:'red'});
   const [cForm,setCForm] = useState({name:'',commission:0,color:'#000000',active:true});
 
   function saveZone() {
@@ -3910,28 +3910,39 @@ function DelivConfig({zones, setZones, channels, setChannels}) {
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
         <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>ZONAS DE COBERTURA</div>
-          <Btn small onClick={()=>{setZForm({name:'',radius:'',price:0,time:30,active:true});setZoneModal('new');}}>+ Agregar zona</Btn>
+          <Btn small onClick={()=>{setZForm({name:'',radius:'',price:0,time:30,active:true,color:'red'});setZoneModal('new');}}>+ Agregar zona</Btn>
         </div>
         {zones.length===0
           ? <div style={{padding:32,textAlign:'center',color:'#D2D2D7',fontSize:13}}>Sin zonas configuradas</div>
           : <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'#F9F9FA'}}><Th>Nombre</Th><Th>Radio</Th><Th right>Precio delivery</Th><Th right>Tiempo est.</Th><Th>Activa</Th><Th/></tr></thead>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'#F9F9FA'}}><Th>Zona</Th><Th>Radio</Th><Th right>Precio delivery</Th><Th right>Tiempo est.</Th><Th>Activa</Th><Th/></tr></thead>
               <tbody>
-                {zones.map(z=>(
+                {zones.map(z=>{
+                  const ZONE_COLORS={red:'#EF4444',orange:'#F97316',yellow:'#EAB308',green:'#22C55E'};
+                  const ZONE_LABELS={red:'Roja',orange:'Naranja',yellow:'Amarilla',green:'Verde'};
+                  const zc=ZONE_COLORS[z.color]||'#EF4444';
+                  return (
                   <tr key={z.id} style={{borderBottom:`1px solid ${C.border}`}}>
-                    <Td>{z.name}</Td>
+                    <Td>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        <span style={{width:12,height:12,borderRadius:'50%',background:zc,display:'inline-block',flexShrink:0,boxShadow:`0 0 0 2px ${zc}33`}}/>
+                        <span>{z.name}</span>
+                        <span style={{fontSize:10,color:'#86868B',fontWeight:600}}>({ZONE_LABELS[z.color]||'Roja'})</span>
+                      </div>
+                    </Td>
                     <Td dim>{z.radius?`${z.radius} km`:'Sin límite'}</Td>
                     <Td mono right>{fmt(z.price)}</Td>
                     <Td mono right dim>{z.time} min</Td>
                     <Td><span style={{fontSize:10,fontWeight:700,color:z.active?C.green:'#86868B'}}>{z.active?'Activa':'Inactiva'}</span></Td>
                     <Td>
                       <div style={{display:'flex',gap:6}}>
-                        <Btn small variant="secondary" onClick={()=>{setZForm({...z,radius:z.radius||''});setZoneModal(z);}}>Editar</Btn>
+                        <Btn small variant="secondary" onClick={()=>{setZForm({...z,radius:z.radius||'',color:z.color||'red'});setZoneModal(z);}}>Editar</Btn>
                         <Btn small variant="danger" onClick={()=>deleteZone(z.id)}>Eliminar</Btn>
                       </div>
                     </Td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
         }
@@ -3967,6 +3978,18 @@ function DelivConfig({zones, setZones, channels, setChannels}) {
         <Modal title={zoneModal==='new'?'Nueva zona':'Editar zona'} onClose={()=>setZoneModal(null)} width={420}>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             <div><Lbl>NOMBRE *</Lbl><Inp value={zForm.name} onChange={e=>setZForm({...zForm,name:e.target.value})} placeholder="Centro, Barrio Sur…"/></div>
+            <div>
+              <Lbl>COLOR DE ZONA</Lbl>
+              <div style={{display:'flex',gap:8,marginTop:4}}>
+                {[{v:'red',label:'Roja',hex:'#EF4444',desc:'Más cercana'},{v:'orange',label:'Naranja',hex:'#F97316',desc:'Intermedia'},{v:'yellow',label:'Amarilla',hex:'#EAB308',desc:'Límite'},{v:'green',label:'Verde',hex:'#22C55E',desc:'Especial'}].map(opt=>(
+                  <button key={opt.v} onClick={()=>setZForm({...zForm,color:opt.v})} style={{flex:1,padding:'8px 4px',border:`2px solid ${zForm.color===opt.v?opt.hex:'#E5E5EA'}`,borderRadius:8,background:zForm.color===opt.v?opt.hex+'18':'transparent',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:4,transition:'all 150ms'}}>
+                    <span style={{width:20,height:20,borderRadius:'50%',background:opt.hex,display:'block',flexShrink:0}}/>
+                    <span style={{fontSize:11,fontWeight:700,color:zForm.color===opt.v?opt.hex:'#86868B'}}>{opt.label}</span>
+                    <span style={{fontSize:10,color:'#86868B'}}>{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div><Lbl>RADIO (km — vacío = sin límite)</Lbl><Inp type="number" value={zForm.radius||''} onChange={e=>setZForm({...zForm,radius:e.target.value})} placeholder="5"/></div>
             <div><Lbl>PRECIO DELIVERY (₲)</Lbl><Inp type="number" value={zForm.price} onChange={e=>setZForm({...zForm,price:e.target.value})} placeholder="15000"/></div>
             <div><Lbl>TIEMPO ESTIMADO (minutos)</Lbl><Inp type="number" value={zForm.time} onChange={e=>setZForm({...zForm,time:e.target.value})} placeholder="30"/></div>

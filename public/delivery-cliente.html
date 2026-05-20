@@ -100,6 +100,15 @@ function calcDeliveryFee(userLat, userLng, zones, restLat, restLng) {
   return match ? { zone: match, price: match.price_guarani || 0, minutes: match.estimated_minutes || 30, distKm: dist } : null;
 }
 
+/* ── ZONE COLORS ────────────────────────── */
+const ZONE_COLOR_MAP = {
+  red:    { bg: '#FEF2F2', border: '#FECACA', dot: '#EF4444', text: '#B91C1C', label: 'Roja',    emoji: '🔴' },
+  orange: { bg: '#FFF7ED', border: '#FED7AA', dot: '#F97316', text: '#C2410C', label: 'Naranja', emoji: '🟠' },
+  yellow: { bg: '#FEFCE8', border: '#FDE68A', dot: '#EAB308', text: '#A16207', label: 'Amarilla',emoji: '🟡' },
+  green:  { bg: '#F0FDF4', border: '#BBF7D0', dot: '#22C55E', text: '#15803D', label: 'Verde',   emoji: '🟢' }
+};
+function zoneColors(z) { return ZONE_COLOR_MAP[z?.color] || ZONE_COLOR_MAP.red; }
+
 /* ── MENU ESTÁTICO ──────────────────────── */
 const MENU_STATIC = {
   Entrantes: [
@@ -159,7 +168,7 @@ async function dbLoadDeliveryZones() {
   if (!db) return [];
   try {
     const { data } = await db.from('delivery_zones')
-      .select('id,name,radius_km,price_guarani,estimated_minutes,is_active')
+      .select('id,name,radius_km,price_guarani,estimated_minutes,is_active,color')
       .eq('restaurant_id', RESTAURANT_ID)
       .eq('is_active', true)
       .order('radius_km');
@@ -341,13 +350,15 @@ function WelcomeScreen({ restaurant, onDelivery, onPickup }) {
 /* ══ PANTALLA 2A — COBERTURA ════════════ */
 function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManual, onBack }) {
   const T = useContext(ThemeCtx);
-  const [status, setStatus]   = useState('idle'); // idle | loading | ok | no | denied | manual
-  const [result, setResult]   = useState(null);
-  const [manualZone, setManualZone] = useState('');
-  const [manualInput, setManualInput] = useState('');
+  const [status, setStatus]       = useState('idle'); // idle | loading | ok | no | denied | manual
+  const [result, setResult]       = useState(null);
+  const [manualZone, setManualZone] = useState(null);
+  const [manualAddr, setManualAddr] = useState('');
+  const [manualRef,  setManualRef]  = useState('');
 
   const restLat = restaurant?.lat || null;
   const restLng = restaurant?.lng || null;
+  const activeZones = zones.length > 0 ? zones : FALLBACK_ZONES;
 
   const tryGeo = () => {
     if (!navigator.geolocation) { setStatus('manual'); return; }
@@ -355,7 +366,7 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
-        const found = calcDeliveryFee(latitude, longitude, zones.length > 0 ? zones : FALLBACK_ZONES, restLat, restLng);
+        const found = calcDeliveryFee(latitude, longitude, activeZones, restLat, restLng);
         if (found) {
           setResult({ ...found, userLat: latitude, userLng: longitude });
           setStatus('ok');
@@ -368,21 +379,17 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
     );
   };
 
-  // Zonas de fallback si no hay zonas en DB
-  const FALLBACK_ZONES = [
-    { id: null, name: 'Centro', radius_km: 3, price_guarani: 10000, estimated_minutes: 20, is_active: true },
-    { id: null, name: 'Zona intermedia', radius_km: 7, price_guarani: 18000, estimated_minutes: 35, is_active: true },
-    { id: null, name: 'Zona ampliada', radius_km: 15, price_guarani: 28000, estimated_minutes: 50, is_active: true }
-  ];
-  const activeZones = zones.length > 0 ? zones : FALLBACK_ZONES;
-
   const handleManualConfirm = () => {
-    const z = activeZones.find(z => z.id === manualZone || z.name === manualZone);
-    if (z) {
-      onCovered({ zone: z, price: z.price_guarani, minutes: z.estimated_minutes, userLat: null, userLng: null });
-    } else if (manualInput.trim()) {
-      onCovered({ zone: null, price: 0, minutes: null, userLat: null, userLng: null, pendingConfirm: true, inputAddress: manualInput });
+    if (manualZone) {
+      onCovered({ zone: manualZone, price: manualZone.price_guarani, minutes: manualZone.estimated_minutes, userLat: null, userLng: null, manualAddr: manualAddr.trim() || null, manualRef: manualRef.trim() || null });
+    } else if (manualAddr.trim()) {
+      onCovered({ zone: null, price: 0, minutes: null, userLat: null, userLng: null, pendingConfirm: true, manualAddr: manualAddr.trim(), manualRef: manualRef.trim() || null });
     }
+  };
+
+  const ZoneDot = ({ color, size = 12 }) => {
+    const c = zoneColors({ color });
+    return <span style={{ width: size, height: size, borderRadius: '50%', background: c.dot, display: 'inline-block', flexShrink: 0, boxShadow: `0 0 0 3px ${c.dot}22` }} />;
   };
 
   return (
@@ -394,25 +401,56 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
         </button>
         <div style={{ fontSize: 22, fontWeight: 800, color: T.ink }}>¿Llegamos a tu zona?</div>
         <div style={{ fontSize: 14, color: T.gray, marginTop: 6, lineHeight: 1.6 }}>
-          Necesitamos tu ubicación para calcular el costo de envío.
+          Calculamos el costo de envío según la distancia al local.
         </div>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '24px 20px' }}>
-        {/* Estado: idle o denied → botón GPS */}
+
+        {/* Estado: idle o denied → botón GPS + mapa de zonas */}
         {(status === 'idle' || status === 'denied') && (
           <>
-            <button onClick={tryGeo} style={{ width: '100%', height: 54, background: T.black, color: T.white, border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", marginBottom: 16 }}>
+            <button onClick={tryGeo} style={{ width: '100%', height: 54, background: T.black, color: T.white, border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", marginBottom: 12 }}>
               <Icon name="location" size={18} color="#fff" />
-              {status === 'denied' ? 'Reintentar ubicación' : 'Permitir ubicación'}
+              {status === 'denied' ? 'Reintentar con GPS' : 'Detectar mi ubicación'}
             </button>
             {status === 'denied' && (
-              <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#92400E', lineHeight: 1.5 }}>
-                Parece que bloqueaste el permiso de ubicación. Revisá la configuración de tu navegador o ingresá tu dirección manualmente.
+              <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#92400E', lineHeight: 1.5 }}>
+                Bloqueaste el GPS. Revisá la configuración del navegador o seleccioná tu zona manualmente abajo.
               </div>
             )}
-            <button onClick={() => setStatus('manual')} style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'center', fontSize: 13, color: T.gray, textDecoration: 'underline', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", padding: '8px 0' }}>
-              Ingresar dirección manualmente
+
+            {/* Mapa visual de zonas */}
+            <div style={{ background: T.offwhite, border: `1px solid ${T.border}`, borderRadius: 14, padding: '16px', marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.gray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>Zonas de cobertura desde el local</div>
+              {/* Diagrama de anillos */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, position: 'relative', height: 70 }}>
+                {[...activeZones].reverse().map((z, i, arr) => {
+                  const c = zoneColors(z);
+                  const sz = 68 - (arr.length - 1 - i) * 16;
+                  return <div key={z.id || z.name} style={{ position: 'absolute', width: sz, height: sz, borderRadius: '50%', background: c.dot + '30', border: `2px solid ${c.dot}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i === arr.length - 1 && <span style={{ fontSize: 9, color: T.gray }}>📍</span>}</div>;
+                })}
+              </div>
+              {activeZones.map((z) => {
+                const c = zoneColors(z);
+                return (
+                  <div key={z.id || z.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: `1px solid ${T.border}` }}>
+                    <ZoneDot color={z.color} size={10} />
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: c.text }}>{z.name}</span>
+                      {z.radius_km && <span style={{ fontSize: 11, color: T.gray }}>hasta {z.radius_km} km</span>}
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: T.ink }}>{fmt(z.price_guarani)}</div>
+                      <div style={{ fontSize: 11, color: T.gray }}>~{z.estimated_minutes} min</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button onClick={() => setStatus('manual')} style={{ background: 'none', border: `1.5px solid ${T.border}`, borderRadius: 12, cursor: 'pointer', width: '100%', textAlign: 'center', fontSize: 13, fontWeight: 700, color: T.ink, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", padding: '12px 0' }}>
+              Seleccionar zona manualmente
             </button>
           </>
         )}
@@ -425,35 +463,36 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
           </div>
         )}
 
-        {/* Estado: OK — zona encontrada */}
-        {status === 'ok' && result && (
-          <div style={{ animation: 'fadeIn 300ms' }}>
-            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 14, padding: '20px', marginBottom: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-                <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#16A34A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon name="check" size={18} color="#fff" sw={2.5} />
+        {/* Estado: OK — zona encontrada por GPS */}
+        {status === 'ok' && result && (() => {
+          const c = zoneColors(result.zone);
+          return (
+            <div style={{ animation: 'fadeIn 300ms' }}>
+              <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 14, padding: '20px', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                  <ZoneDot color={result.zone?.color} size={36} />
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: c.text }}>¡Llegamos a tu zona!</div>
+                    <div style={{ fontSize: 13, color: c.text, fontWeight: 600 }}>{result.zone?.name || 'Zona detectada'}</div>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 800, color: '#15803D' }}>¡Llegamos a tu zona!</div>
-                  <div style={{ fontSize: 12, color: '#16A34A' }}>{result.zone?.name || 'Zona detectada'}</div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <div style={{ flex: 1, background: T.white, borderRadius: 10, padding: '12px', textAlign: 'center', border: `1px solid ${c.border}` }}>
+                    <div style={{ fontSize: 11, color: c.dot, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Envío</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>{fmt(result.price)}</div>
+                  </div>
+                  <div style={{ flex: 1, background: T.white, borderRadius: 10, padding: '12px', textAlign: 'center', border: `1px solid ${c.border}` }}>
+                    <div style={{ fontSize: 11, color: c.dot, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Tiempo</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>~{result.minutes} min</div>
+                  </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <div style={{ flex: 1, background: '#fff', borderRadius: 10, padding: '12px', textAlign: 'center', border: '1px solid #BBF7D0' }}>
-                  <div style={{ fontSize: 11, color: '#6EE7B7', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Envío</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: '#15803D' }}>{fmt(result.price)}</div>
-                </div>
-                <div style={{ flex: 1, background: '#fff', borderRadius: 10, padding: '12px', textAlign: 'center', border: '1px solid #BBF7D0' }}>
-                  <div style={{ fontSize: 11, color: '#6EE7B7', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Tiempo</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: '#15803D' }}>~{result.minutes} min</div>
-                </div>
-              </div>
+              <button onClick={() => onCovered(result)} style={{ width: '100%', height: 54, background: T.black, color: T.white, border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
+                Continuar con este envío
+              </button>
             </div>
-            <button onClick={() => onCovered(result)} style={{ width: '100%', height: 54, background: T.black, color: T.white, border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
-              Continuar con este envío
-            </button>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Estado: no cubre */}
         {status === 'no' && (
@@ -472,44 +511,73 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
           </div>
         )}
 
-        {/* Estado: manual */}
+        {/* Estado: manual — selección visual por zona */}
         {status === 'manual' && (
           <div style={{ animation: 'fadeIn 200ms' }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 14 }}>¿En qué zona estás?</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.ink, marginBottom: 4 }}>Seleccioná tu zona</div>
+            <div style={{ fontSize: 13, color: T.gray, marginBottom: 16, lineHeight: 1.5 }}>
+              Las zonas se miden desde el local. Si no sabés cuál es, elegí la más cercana a donde estés y el repartidor confirma al salir.
+            </div>
 
-            {activeZones.length > 0 && (
-              <>
-                <div style={{ fontSize: 12, color: T.gray, marginBottom: 10 }}>Seleccioná tu zona de cobertura:</div>
-                {activeZones.map((z) => (
-                  <div key={z.id || z.name} onClick={() => setManualZone(z.id || z.name)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', background: T.white, border: `2px solid ${manualZone === (z.id || z.name) ? T.black : T.border}`, borderRadius: 12, marginBottom: 8, cursor: 'pointer', transition: 'border-color 150ms' }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{z.name}</div>
-                      <div style={{ fontSize: 12, color: T.gray, marginTop: 2 }}>{fmt(z.price_guarani)} · ~{z.estimated_minutes} min</div>
-                    </div>
-                    <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${manualZone === (z.id || z.name) ? T.black : T.border}`, background: manualZone === (z.id || z.name) ? T.black : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {manualZone === (z.id || z.name) && <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.white }} />}
+            {activeZones.map((z) => {
+              const c = zoneColors(z);
+              const sel = manualZone?.name === z.name;
+              return (
+                <div key={z.id || z.name} onClick={() => setManualZone(z)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: sel ? c.bg : T.white, border: `2px solid ${sel ? c.dot : T.border}`, borderRadius: 14, marginBottom: 10, cursor: 'pointer', transition: 'all 150ms' }}>
+                  <ZoneDot color={z.color} size={32} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: sel ? c.text : T.ink }}>{z.name}</div>
+                    <div style={{ fontSize: 12, color: T.gray, marginTop: 2 }}>
+                      {z.radius_km ? `Hasta ${z.radius_km} km del local` : 'Zona extendida'}
                     </div>
                   </div>
-                ))}
-                <div style={{ height: 1, background: T.border, margin: '16px 0' }} />
-              </>
-            )}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: sel ? c.text : T.ink }}>{fmt(z.price_guarani)}</div>
+                    <div style={{ fontSize: 11, color: T.gray }}>~{z.estimated_minutes} min</div>
+                  </div>
+                  {sel && (
+                    <div style={{ width: 22, height: 22, borderRadius: '50%', background: c.dot, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Icon name="check" size={12} color="#fff" sw={3} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
-            <div style={{ fontSize: 12, color: T.gray, marginBottom: 8 }}>O escribí tu barrio o dirección:</div>
+            <div style={{ height: 1, background: T.border, margin: '16px 0' }} />
+
+            {/* Dirección libre */}
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, marginBottom: 8, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Tu dirección o barrio
+            </div>
             <input
-              value={manualInput}
-              onChange={e => setManualInput(e.target.value)}
-              placeholder="Ej: Villa Morra, San Lorenzo…"
+              value={manualAddr}
+              onChange={e => setManualAddr(e.target.value)}
+              placeholder="Ej: Av. Mcal. López 1840, Villa Morra…"
               style={{ ...inputStyle(T), marginBottom: 10 }}
             />
-            <div style={{ background: '#FFF7ED', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 12px', marginBottom: 16, fontSize: 12, color: '#92400E', lineHeight: 1.5 }}>
-              Si ingresás tu barrio manualmente, tu pedido quedará pendiente de confirmación de cobertura.
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, marginBottom: 8, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Referencias para el repartidor (opcional)
             </div>
-            <button onClick={handleManualConfirm} disabled={!manualZone && !manualInput.trim()} style={{ width: '100%', height: 54, background: (manualZone || manualInput.trim()) ? T.black : T.light, color: (manualZone || manualInput.trim()) ? T.white : T.silver, border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: (manualZone || manualInput.trim()) ? 'pointer' : 'default', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 200ms', marginBottom: 10 }}>
+            <input
+              value={manualRef}
+              onChange={e => setManualRef(e.target.value)}
+              placeholder="Portón azul, al lado de la farmacia, timbre 3…"
+              style={{ ...inputStyle(T), marginBottom: 12 }}
+            />
+
+            {!manualZone && manualAddr.trim() && (
+              <div style={{ background: '#FFF7ED', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 12px', marginBottom: 14, fontSize: 12, color: '#92400E', lineHeight: 1.5 }}>
+                Sin zona seleccionada, el equipo confirma el costo antes de salir a entregar.
+              </div>
+            )}
+
+            <button onClick={handleManualConfirm} disabled={!manualZone && !manualAddr.trim()} style={{ width: '100%', height: 54, background: (manualZone || manualAddr.trim()) ? T.black : T.light, color: (manualZone || manualAddr.trim()) ? T.white : T.silver, border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: (manualZone || manualAddr.trim()) ? 'pointer' : 'default', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 200ms', marginBottom: 10 }}>
               Continuar
             </button>
             <button onClick={() => setStatus('idle')} style={{ width: '100%', height: 44, background: 'transparent', color: T.gray, border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
-              Usar ubicación automática
+              Usar GPS en cambio
             </button>
           </div>
         )}
@@ -522,7 +590,12 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
 function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
   const T = useContext(ThemeCtx);
   const isDelivery = orderType === 'delivery';
-  const [form, setForm] = useState({ name: '', phone: '', address: '', detail: '', references: '' });
+  const [form, setForm] = useState({
+    name: '', phone: '',
+    address: deliveryResult?.manualAddr || '',
+    detail: '',
+    references: deliveryResult?.manualRef || ''
+  });
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -549,21 +622,24 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
         {/* Zona seleccionada (solo delivery) */}
-        {isDelivery && zoneName && (
-          <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Icon name="location" size={16} color={T.black} />
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>{zoneName}</div>
-                {deliveryResult?.pendingConfirm && <div style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }}>Pendiente de confirmación</div>}
+        {isDelivery && zoneName && (() => {
+          const c = zoneColors(deliveryResult?.zone);
+          return (
+            <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ width: 14, height: 14, borderRadius: '50%', background: c.dot, display: 'inline-block', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: c.text }}>{zoneName}</div>
+                  {deliveryResult?.pendingConfirm && <div style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }}>Pendiente de confirmación</div>}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                {zoneFee != null && <div style={{ fontSize: 13, fontWeight: 800, color: c.text }}>{fmt(zoneFee)}</div>}
+                {zoneMins && <div style={{ fontSize: 11, color: T.gray }}>~{zoneMins} min</div>}
               </div>
             </div>
-            <div style={{ textAlign: 'right' }}>
-              {zoneFee != null && <div style={{ fontSize: 13, fontWeight: 800, color: T.ink }}>{fmt(zoneFee)}</div>}
-              {zoneMins && <div style={{ fontSize: 11, color: T.gray }}>~{zoneMins} min</div>}
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         <div style={{ background: T.white, borderRadius: 14, padding: '20px', border: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Nombre */}
@@ -1038,14 +1114,17 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
                 </span>
               </div>
             )}
-            {isDelivery && deliveryResult?.zone?.name && (
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Icon name="moto" size={14} color={T.gray} />
-                <span style={{ fontSize: 13, color: T.mid }}>
-                  {deliveryResult.zone.name} · {fmt(deliveryFee || 0)} · ~{deliveryResult.minutes} min
-                </span>
-              </div>
-            )}
+            {isDelivery && deliveryResult?.zone?.name && (() => {
+              const c = zoneColors(deliveryResult.zone);
+              return (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.dot, display: 'inline-block', flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, color: T.mid }}>
+                    {deliveryResult.zone.name} · {fmt(deliveryFee || 0)} · ~{deliveryResult.minutes} min
+                  </span>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
