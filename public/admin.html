@@ -1608,147 +1608,285 @@ function PersonalPage() {
 }
 
 /* ══════════════════════════════════════════════
-   CLIENTES — Vista mejorada con ranking y export
+   CLIENTES — CRM Marketing / Meta Ads
 ══════════════════════════════════════════════ */
 function ClientesPage({orders}) {
   const [view,setView]       = useState('todos');
   const [canalF,setCanalF]   = useState('todos');
   const [periodF,setPeriodF] = useState('todos');
   const [search,setSearch]   = useState('');
-  const [detalle,setDetalle] = useState(null); // cliente seleccionado
+  const [detalle,setDetalle] = useState(null);
+  const [detalleOrders,setDetalleOrders] = useState([]);
   const now = Date.now();
-  const VIP_THRESHOLD = 500000; // ₲ 500.000
+  const VIP_THRESHOLD = 500000;
 
   const ORDER_TYPES = {
     'mesa':'QR Mesa','llevar':'Para Llevar','delivery':'Delivery','counter':'Mostrador','external':'Plataforma'
   };
+  const CANAL_ICON = {'mesa':'🪑','llevar':'🥡','delivery':'🛵','counter':'🏪','external':'📱'};
+  const CANAL_COLOR = {'mesa':'#007AFF','llevar':'#34C759','delivery':'#FF9500','counter':'#8E8E93','external':'#AF52DE'};
 
   const periodStart = p => {
+    if(p==='hoy'){const d=new Date();d.setHours(0,0,0,0);return d.toISOString();}
     if(p==='semana'){const d=new Date();d.setDate(d.getDate()-6);d.setHours(0,0,0,0);return d.toISOString();}
     if(p==='mes'){const d=new Date();d.setDate(1);d.setHours(0,0,0,0);return d.toISOString();}
     if(p==='anio'){const d=new Date();d.setMonth(0,1);d.setHours(0,0,0,0);return d.toISOString();}
     return '';
   };
 
-  const { clientMap, frecuentes, inactivos, vip } = useMemo(()=>{
+  const { clientMap, frecuentes, inactivos, vip, anonimos, conFactura, byCanal } = useMemo(()=>{
     const m={};
     const validOrders = orders.filter(o=>!['draft','cancelled'].includes(o.status));
-    // filtrar por período
     const ps = periodStart(periodF);
     const periodOrds = ps ? validOrders.filter(o=>o.created_at>=ps) : validOrders;
 
     periodOrds.forEach(o=>{
-      const k = o.customer_name||`Anónimo #${o.id.slice(0,6)}`;
-      if(!m[k]) m[k]={name:k,phone:o.customer_phone||null,email:o.customer_email||null,registered:!!o.customer_name,orders:0,total:0,firstDate:o.created_at,lastDate:o.created_at,canales:[],pideFactura:false};
+      const isAnon = !o.customer_name;
+      const k = o.customer_name || `Anónimo #${o.id.slice(0,6)}`;
+      if(!m[k]) m[k]={
+        name:k, phone:o.customer_phone||null, email:o.customer_email||null,
+        registered:!isAnon, anonymous:isAnon,
+        orders:0, total:0,
+        firstDate:o.created_at, lastDate:o.created_at,
+        canales:[], canalCount:{},
+        pideFactura:false, facturaCount:0,
+        addresses:[], tables:[],
+        paymentMethods:{},
+        orderHistory:[],
+      };
       m[k].orders++;
-      m[k].total+=(o.total||0);
-      if(o.created_at<m[k].firstDate) m[k].firstDate=o.created_at;
-      if(o.created_at>m[k].lastDate) m[k].lastDate=o.created_at;
-      if(o.order_type) m[k].canales.push(o.order_type);
-      if(o.requires_invoice) m[k].pideFactura=true;
+      m[k].total += (o.total||0);
+      if(o.created_at < m[k].firstDate) m[k].firstDate = o.created_at;
+      if(o.created_at > m[k].lastDate)  m[k].lastDate  = o.created_at;
+      if(o.order_type){
+        m[k].canales.push(o.order_type);
+        m[k].canalCount[o.order_type] = (m[k].canalCount[o.order_type]||0)+1;
+      }
+      if(o.requires_invoice){ m[k].pideFactura=true; m[k].facturaCount++; }
+      if(o.delivery_address && !m[k].addresses.includes(o.delivery_address)) m[k].addresses.push(o.delivery_address);
+      if(o.table_number && !m[k].tables.includes(o.table_number)) m[k].tables.push(o.table_number);
+      if(o.payment_method) m[k].paymentMethods[o.payment_method]=(m[k].paymentMethods[o.payment_method]||0)+1;
+      m[k].orderHistory.push({id:o.id,num:o.order_number,date:o.created_at,total:o.total||0,type:o.order_type,status:o.status});
     });
 
     const all = Object.values(m).map(c=>{
-      const canalCount={};
-      c.canales.forEach(t=>{canalCount[t]=(canalCount[t]||0)+1;});
-      const preferred = Object.entries(canalCount).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
-      return {...c, preferred, isVip: c.total>=VIP_THRESHOLD};
+      const preferred = Object.entries(c.canalCount).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+      const ticket = c.orders>0 ? Math.round(c.total/c.orders) : 0;
+      const diasActivo = Math.round((new Date(c.lastDate)-new Date(c.firstDate))/(864e5))||0;
+      c.orderHistory.sort((a,b)=>b.date.localeCompare(a.date));
+      return {...c, preferred, isVip:c.total>=VIP_THRESHOLD, ticket, diasActivo};
     }).sort((a,b)=>b.total-a.total);
 
     const cutoff = new Date(Date.now()-30*864e5).toISOString();
+    const cByCanal={};
+    all.forEach(c=>{ if(c.preferred) cByCanal[c.preferred]=(cByCanal[c.preferred]||0)+1; });
     return {
       clientMap: all,
       frecuentes: all.filter(c=>c.orders>=3),
-      inactivos: all.filter(c=>c.lastDate<cutoff),
+      inactivos: all.filter(c=>c.lastDate<cutoff&&c.registered),
       vip: all.filter(c=>c.isVip),
+      anonimos: all.filter(c=>c.anonymous),
+      conFactura: all.filter(c=>c.pideFactura),
+      byCanal: cByCanal,
     };
   },[orders,periodF]);
 
   // Ranking top consumidores
   const hoy = new Date().toDateString();
   const semanaStart = new Date(Date.now()-6*864e5).toISOString();
-  const mesStart = new Date(new Date().setDate(1)).toISOString();
-  function topConsumidor(filter) {
+  const mesStart    = (() => { const d=new Date(); d.setDate(1); d.setHours(0,0,0,0); return d.toISOString(); })();
+  function topConsumidor(filterFn) {
     const m={};
-    orders.filter(o=>!['draft','cancelled'].includes(o.status)&&o.customer_name&&filter(o)).forEach(o=>{
+    orders.filter(o=>!['draft','cancelled'].includes(o.status)&&o.customer_name&&filterFn(o)).forEach(o=>{
       const k=o.customer_name;
-      if(!m[k])m[k]={name:k,total:0};
-      m[k].total+=(o.total||0);
+      if(!m[k]) m[k]={name:k,phone:o.customer_phone||null,total:0,orders:0};
+      m[k].total+=(o.total||0); m[k].orders++;
     });
     return Object.values(m).sort((a,b)=>b.total-a.total)[0]||null;
   }
-  const topDia = topConsumidor(o=>new Date(o.created_at).toDateString()===hoy);
+  const topDia    = topConsumidor(o=>new Date(o.created_at).toDateString()===hoy);
   const topSemana = topConsumidor(o=>o.created_at>=semanaStart);
-  const topMes = topConsumidor(o=>o.created_at>=mesStart);
+  const topMes    = topConsumidor(o=>o.created_at>=mesStart);
 
-  // Aplicar filtros
   const displayed = useMemo(()=>{
-    let res = view==='frecuentes'?frecuentes:view==='inactivos'?inactivos:view==='vip'?vip:view==='factura'?clientMap.filter(c=>c.pideFactura):clientMap;
+    let res = view==='frecuentes'?frecuentes
+      :view==='inactivos'?inactivos
+      :view==='vip'?vip
+      :view==='factura'?conFactura
+      :view==='anonimos'?anonimos
+      :view==='delivery'?clientMap.filter(c=>(c.canalCount['delivery']||0)>0)
+      :clientMap;
     if(canalF!=='todos') res=res.filter(c=>c.preferred===canalF);
-    if(search.trim()) res=res.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())||(c.phone||'').includes(search));
+    if(search.trim()){
+      const q=search.toLowerCase();
+      res=res.filter(c=>c.name.toLowerCase().includes(q)||(c.phone||'').includes(q)||(c.email||'').toLowerCase().includes(q)||(c.addresses||[]).some(a=>a.toLowerCase().includes(q)));
+    }
     return res;
-  },[clientMap,frecuentes,inactivos,vip,view,canalF,search]);
+  },[clientMap,frecuentes,inactivos,vip,conFactura,anonimos,view,canalF,search]);
+
+  // ── EXPORTS ──────────────────────────────────
+  function buildExportRows(list) {
+    return list.map(c=>({
+      'Nombre':              c.name,
+      'Teléfono':            c.phone||'',
+      'Email':               c.email||'',
+      'Tipo':                c.isVip?'VIP':c.registered?'Registrado':'Anónimo',
+      'Pedidos totales':     c.orders,
+      'Total gastado (₲)':  c.total,
+      'Ticket promedio (₲)':c.ticket,
+      'Pide factura':        c.pideFactura?'Sí':'No',
+      'Canal preferido':     ORDER_TYPES[c.preferred]||c.preferred||'—',
+      'Mesa QR':             c.canalCount['mesa']||0,
+      'Para llevar':         c.canalCount['llevar']||0,
+      'Delivery':            c.canalCount['delivery']||0,
+      'Mostrador':           c.canalCount['counter']||0,
+      'Direcciones delivery':c.addresses.join(' | '),
+      'Mesas usadas':        c.tables.join(', '),
+      'Primer pedido':       c.firstDate?fmtDate(c.firstDate):'',
+      'Último pedido':       c.lastDate?fmtDate(c.lastDate):'',
+      'Días activo':         c.diasActivo,
+    }));
+  }
 
   function exportExcel() {
     if(!window.XLSX){toast('SheetJS no cargado',false);return;}
-    const rows = displayed.map(c=>({
-      'Nombre': c.name,
-      'Teléfono': c.phone||'',
-      'Email': c.email||'',
-      'Tipo': c.isVip?'VIP':c.registered?'Registrado':'Anónimo',
-      'Pedidos totales': c.orders,
-      'Total gastado (₲)': c.total,
-      'Canal preferido': ORDER_TYPES[c.preferred]||c.preferred||'—',
-      'Primer pedido': c.firstDate?fmtDate(c.firstDate):'',
-      'Último pedido': c.lastDate?fmtDate(c.lastDate):'',
-    }));
+    const rows = buildExportRows(displayed);
     const ws = XLSX.utils.json_to_sheet(rows);
+    // auto-width
+    const colW = Object.keys(rows[0]||{}).map(k=>({wch:Math.max(k.length,12)}));
+    ws['!cols']=colW;
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Clientes');
     XLSX.writeFile(wb,`clientes_${new Date().toISOString().slice(0,10)}.xlsx`);
+    toast('Excel descargado');
   }
 
   function exportCSV() {
-    const headers = ['Nombre','Telefono','Email','Tipo','Pedidos','Total Gs','Canal preferido','Primer pedido','Ultimo pedido'];
-    const rows = displayed.map(c=>[c.name,c.phone||'',c.email||'',c.isVip?'VIP':c.registered?'Registrado':'Anonimo',c.orders,c.total,c.preferred||'',c.firstDate?fmtDate(c.firstDate):'',c.lastDate?fmtDate(c.lastDate):'']);
-    const csv = [headers,...rows].map(r=>r.join(',')).join('\n');
+    const rows = buildExportRows(displayed);
+    if(!rows.length){toast('Sin datos',false);return;}
+    const headers = Object.keys(rows[0]);
+    const csv = [headers,...rows.map(r=>headers.map(h=>`"${(r[h]??'').toString().replace(/"/g,'""')}"`))].map(r=>Array.isArray(r)?r.join(','):r.join(',')).join('\n');
     const a=document.createElement('a');
-    a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+    a.href='data:text/csv;charset=utf-8,﻿'+encodeURIComponent(csv);
     a.download=`clientes_${new Date().toISOString().slice(0,10)}.csv`;
     a.click();
+    toast('CSV descargado');
   }
 
+  function exportPDF() {
+    const printWin = window.open('','_blank','width=900,height=700');
+    const rows = buildExportRows(displayed);
+    const fecha = new Date().toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const cols = ['Nombre','Teléfono','Email','Tipo','Pedidos totales','Total gastado (₲)','Ticket promedio (₲)','Pide factura','Canal preferido','Direcciones delivery'];
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Clientes — ${fecha}</title>
+    <style>body{font-family:-apple-system,Arial,sans-serif;font-size:11px;color:#1D1D1F;margin:24px}
+    h1{font-size:18px;font-weight:800;margin:0 0 4px}p{color:#6E6E73;margin:0 0 16px;font-size:11px}
+    table{width:100%;border-collapse:collapse;font-size:10px}
+    th{background:#1D1D1F;color:#fff;padding:6px 8px;text-align:left;font-weight:700;white-space:nowrap}
+    td{padding:5px 8px;border-bottom:1px solid #E5E5EA;vertical-align:top}
+    tr:nth-child(even)td{background:#F5F5F7}
+    .vip{background:#FFF4E0;color:#8A4B00;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}
+    .reg{background:#000;color:#fff;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}
+    .anon{background:#F5F5F7;color:#86868B;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}
+    @media print{@page{margin:1cm;size:A4 landscape}}</style></head>
+    <body><h1>Clientes — La Huaca</h1><p>Exportado el ${fecha} · ${rows.length} cliente${rows.length!==1?'s':''} · Filtro: ${view}</p>
+    <table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r=>`<tr>${cols.map(c=>{
+      if(c==='Tipo'){
+        const cls=r[c]==='VIP'?'vip':r[c]==='Registrado'?'reg':'anon';
+        return `<td><span class="${cls}">${r[c]}</span></td>`;
+      }
+      if(c==='Total gastado (₲)'||c==='Ticket promedio (₲)') return `<td style="text-align:right;font-family:monospace">₲ ${Number(r[c]).toLocaleString()}</td>`;
+      if(c==='Pedidos totales') return `<td style="text-align:right">${r[c]}</td>`;
+      return `<td>${r[c]||'—'}</td>`;
+    }).join('')}</tr>`).join('')}</tbody></table>
+    <script>window.onload=()=>{window.print();}<\/script></body></html>`;
+    printWin.document.write(html);
+    printWin.document.close();
+  }
+
+  // ── BADGE / UI helpers ────────────────────────
   const TypeBadge = ({c}) => {
     if(c.isVip) return <span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>VIP</span>;
-    if(c.registered) return <span style={{background:'#000',color:'#fff',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>REGISTRADO</span>;
-    return <span style={{background:'#F5F5F7',border:'1px solid #D2D2D7',color:'#86868B',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>ANONIMO</span>;
+    if(c.registered) return <span style={{background:'#000',color:'#fff',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>REG</span>;
+    return <span style={{background:'#F5F5F7',border:'1px solid #D2D2D7',color:'#86868B',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>ANÓN</span>;
   };
+
+  const CanalBar = ({canalCount,total}) => {
+    const canales = Object.entries(canalCount).sort((a,b)=>b[1]-a[1]);
+    if(!canales.length) return <span style={{color:'#D2D2D7',fontSize:11}}>—</span>;
+    return <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
+      {canales.map(([k,v])=>(
+        <span key={k} style={{background:CANAL_COLOR[k]||'#8E8E93',color:'#fff',padding:'1px 6px',borderRadius:10,fontSize:9,fontWeight:700,whiteSpace:'nowrap'}}>
+          {CANAL_ICON[k]||''} {ORDER_TYPES[k]||k} {v>1?`×${v}`:''}
+        </span>
+      ))}
+    </div>;
+  };
+
+  // Canal breakdown para KPIs
+  const totalCanalOrds = Object.values(byCanal).reduce((s,v)=>s+v,0)||1;
 
   return (
     <div className="page">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Clientes</h1>
-        <div style={{display:'flex',gap:8}}>
-          <Btn variant="secondary" small onClick={exportCSV}>Exportar CSV</Btn>
-          <Btn variant="secondary" small onClick={exportExcel}>Exportar Excel</Btn>
+      {/* Header */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#000000',margin:0}}>Clientes</h1>
+          <div style={{fontSize:11,color:'#86868B',marginTop:2}}>CRM · datos para Marketing y Meta Ads</div>
+        </div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          <Btn variant="secondary" small onClick={exportCSV}>↓ CSV</Btn>
+          <Btn variant="secondary" small onClick={exportExcel}>↓ Excel</Btn>
+          <Btn variant="secondary" small onClick={exportPDF}>↓ PDF</Btn>
         </div>
       </div>
 
-      {/* KPIs */}
-      <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
-        <KpiCard label="Clientes únicos"  value={clientMap.length} sub="en el período"/>
-        <KpiCard label="Frecuentes"       value={frecuentes.length} sub="3+ pedidos" accent={C.green}/>
-        <KpiCard label="VIP"              value={vip.length} sub={`+₲ ${(VIP_THRESHOLD/1000).toFixed(0)}k gastados`} accent={C.orange}/>
-        <KpiCard label="Inactivos"        value={inactivos.length} sub="+30 días sin pedir" accent={inactivos.length>5?C.red:C.mid}/>
+      {/* KPIs fila 1 */}
+      <div style={{display:'flex',gap:10,marginBottom:10,flexWrap:'wrap'}}>
+        <KpiCard label="Clientes únicos"  value={clientMap.length}    sub="en el período"/>
+        <KpiCard label="Registrados"      value={clientMap.filter(c=>c.registered).length} sub="con nombre" accent={C.green}/>
+        <KpiCard label="Anónimos"         value={anonimos.length}      sub="sin identificar" accent={C.mid}/>
+        <KpiCard label="Frecuentes"       value={frecuentes.length}    sub="3+ pedidos" accent={C.green}/>
+        <KpiCard label="VIP"              value={vip.length}           sub={`+₲${(VIP_THRESHOLD/1000).toFixed(0)}k`} accent={C.orange}/>
+        <KpiCard label="Piden factura"    value={conFactura.length}    sub="RUC / factura" accent={'#007AFF'}/>
+        <KpiCard label="Inactivos"        value={inactivos.length}     sub="+30 días" accent={inactivos.length>5?C.red:C.mid}/>
+      </div>
+
+      {/* Breakdown por canal */}
+      <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px',marginBottom:10}}>
+        <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:8}}>DISTRIBUCIÓN POR CANAL (clientes con preferencia)</div>
+        <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center'}}>
+          {Object.entries(ORDER_TYPES).map(([k,v])=>{
+            const count = byCanal[k]||0;
+            const pct = Math.round(count/totalCanalOrds*100);
+            return (
+              <div key={k} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,minWidth:70}}>
+                <div style={{fontSize:18}}>{CANAL_ICON[k]}</div>
+                <div style={{fontSize:11,fontWeight:700,color:CANAL_COLOR[k]}}>{count}</div>
+                <div style={{fontSize:10,color:'#6E6E73',textAlign:'center',lineHeight:1.2}}>{v}</div>
+                <div style={{width:60,height:4,background:'#F0F0F0',borderRadius:2}}>
+                  <div style={{width:`${pct}%`,height:'100%',background:CANAL_COLOR[k],borderRadius:2}}/>
+                </div>
+                <div style={{fontSize:9,color:'#D2D2D7'}}>{pct}%</div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Ranking top consumidores */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:14}}>
-        {[['Mayor consumidor del dia',topDia],['Mayor consumidor de la semana',topSemana],['Mayor consumidor del mes',topMes]].map(([lbl,top])=>(
+        {[['🏆 Top del día',topDia],['⭐ Top de la semana',topSemana],['👑 Top del mes',topMes]].map(([lbl,top])=>(
           <div key={lbl} style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px'}}>
-            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>{lbl.toUpperCase()}</div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:0.8,marginBottom:6}}>{lbl}</div>
             {top
-              ?<><div style={{fontSize:14,fontWeight:700,color:'#000',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{top.name}</div><div style={{fontSize:12,color:'#6E6E73',marginTop:2,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(top.total)}</div></>
+              ?<>
+                <div style={{fontSize:14,fontWeight:700,color:'#000',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{top.name}</div>
+                {top.phone&&<div style={{fontSize:11,color:'#6E6E73',marginTop:1}}>{top.phone}</div>}
+                <div style={{fontSize:12,color:C.orange,marginTop:4,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{fmt(top.total)}</div>
+                <div style={{fontSize:10,color:'#D2D2D7'}}>{top.orders} pedido{top.orders!==1?'s':''}</div>
+              </>
               :<div style={{fontSize:12,color:'#D2D2D7'}}>Sin datos</div>
             }
           </div>
@@ -1757,48 +1895,71 @@ function ClientesPage({orders}) {
 
       {/* Filtros */}
       <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
-        <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`}}>
-          {[['todos','Todos'],['frecuentes','Frecuentes'],['vip','VIP'],['inactivos','Inactivos'],['factura','Piden factura']].map(([id,lbl])=>(
-            <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?'#000':'#86868B',padding:'7px 12px',fontSize:12,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+        <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,overflowX:'auto'}}>
+          {[['todos','Todos'],['frecuentes','Frecuentes'],['vip','VIP'],['inactivos','Inactivos'],['factura','Factura'],['anonimos','Anónimos'],['delivery','Delivery']].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?'#000':'#86868B',padding:'7px 12px',fontSize:12,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1,whiteSpace:'nowrap'}}>{lbl}</button>
           ))}
         </div>
         <select value={canalF} onChange={e=>setCanalF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
           <option value="todos">Todos los canales</option>
-          {Object.entries(ORDER_TYPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+          {Object.entries(ORDER_TYPES).map(([k,v])=><option key={k} value={k}>{CANAL_ICON[k]} {v}</option>)}
         </select>
         <select value={periodF} onChange={e=>setPeriodF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
           <option value="todos">Todo el tiempo</option>
+          <option value="hoy">Hoy</option>
           <option value="semana">Esta semana</option>
           <option value="mes">Este mes</option>
           <option value="anio">Este año</option>
         </select>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar nombre o teléfono…" style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:180}}/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar nombre, tel, email, dirección…" style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:220}}/>
         <span style={{fontSize:11,color:'#86868B',marginLeft:'auto'}}>{displayed.length} cliente{displayed.length!==1?'s':''}</span>
       </div>
 
       {/* Tabla */}
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Nombre</Th><Th>Teléfono</Th><Th>Tipo</Th><Th right>Pedidos</Th><Th right>Total gastado</Th><Th>Último pedido</Th><Th>Canal</Th></tr></thead>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:760}}>
+          <thead>
+            <tr style={{borderBottom:`1px solid ${C.border}`,background:'#FAFAFA'}}>
+              <Th>Cliente</Th>
+              <Th>Contacto</Th>
+              <Th>Tipo</Th>
+              <Th right>Pedidos</Th>
+              <Th right>Total gastado</Th>
+              <Th right>Ticket prom.</Th>
+              <Th>Canales usados</Th>
+              <Th>Último pedido</Th>
+            </tr>
+          </thead>
           <tbody>
             {displayed.map((c,i)=>{
               const diasInactivo=Math.floor((now-new Date(c.lastDate).getTime())/864e5);
               return (
-                <tr key={i} onClick={()=>setDetalle(c)} style={{borderBottom:`1px solid #F0F0F0`,cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='#F9F9FA'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <tr key={i} onClick={()=>{ setDetalle(c); setDetalleOrders(c.orderHistory.slice(0,10)); }} style={{borderBottom:`1px solid #F0F0F0`,cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='#F9F9FA'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                   <Td>
-                    <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
-                    {c.pideFactura&&<span style={{fontSize:9,fontWeight:700,color:'#007AFF',marginTop:2,display:'block',letterSpacing:0.5}}>FACTURA</span>}
+                    <div style={{fontWeight:700,fontSize:13,color:'#1D1D1F'}}>{c.name}</div>
+                    <div style={{display:'flex',gap:3,marginTop:3,flexWrap:'wrap'}}>
+                      {c.pideFactura&&<span style={{fontSize:9,fontWeight:700,color:'#007AFF',letterSpacing:0.5,background:'#E8F2FF',padding:'1px 4px',borderRadius:3}}>FACTURA</span>}
+                      {c.orders>=3&&!c.isVip&&<span style={{fontSize:9,fontWeight:700,color:C.green,background:'#E8F8EE',padding:'1px 4px',borderRadius:3}}>FRECUENTE</span>}
+                      {c.addresses.length>0&&<span style={{fontSize:9,fontWeight:700,color:'#FF9500',background:'#FFF4E0',padding:'1px 4px',borderRadius:3}}>🛵 DELIVERY</span>}
+                    </div>
                   </Td>
-                  <Td dim>{c.phone||'—'}</Td>
+                  <Td>
+                    <div style={{fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",color:c.phone?'#1D1D1F':'#D2D2D7'}}>{c.phone||'—'}</div>
+                    {c.email&&<div style={{fontSize:11,color:'#86868B',marginTop:1}}>{c.email}</div>}
+                  </Td>
                   <Td><TypeBadge c={c}/></Td>
-                  <Td right><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color:c.orders>=3?C.green:C.ink}}>{c.orders}</span></Td>
-                  <Td mono right>{fmt(c.total)}</Td>
-                  <Td><span style={{color:diasInactivo>30?C.orange:C.mid,fontSize:12}}>{fmtDate(c.lastDate)}{diasInactivo>0&&<span style={{color:'#D2D2D7',fontSize:10,marginLeft:4}}>({diasInactivo}d)</span>}</span></Td>
-                  <Td dim style={{fontSize:11}}>{ORDER_TYPES[c.preferred]||c.preferred||'—'}</Td>
+                  <Td right><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color:c.orders>=3?C.green:C.ink,fontSize:14}}>{c.orders}</span></Td>
+                  <Td mono right><span style={{fontWeight:700,color:c.isVip?C.orange:C.ink}}>{fmt(c.total)}</span></Td>
+                  <Td mono right><span style={{color:'#6E6E73'}}>{fmt(c.ticket)}</span></Td>
+                  <Td><CanalBar canalCount={c.canalCount} total={c.orders}/></Td>
+                  <Td>
+                    <span style={{color:diasInactivo>30?C.orange:C.mid,fontSize:12}}>{fmtDate(c.lastDate)}</span>
+                    {diasInactivo>0&&<div style={{color:'#D2D2D7',fontSize:10}}>{diasInactivo}d atrás</div>}
+                  </Td>
                 </tr>
               );
             })}
-            {displayed.length===0&&<EmptyRow cols={7} label="Sin clientes en este filtro"/>}
+            {displayed.length===0&&<EmptyRow cols={8} label="Sin clientes en este filtro"/>}
           </tbody>
         </table>
       </div>
@@ -1806,26 +1967,130 @@ function ClientesPage({orders}) {
 
       {/* Modal detalle cliente */}
       {detalle&&(
-        <Modal title={detalle.name} onClose={()=>setDetalle(null)} width={500}>
-          <div style={{display:'flex',flexDirection:'column',gap:14}}>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-              <div style={{background:'#F5F5F7',borderRadius:8,padding:12}}>
-                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:8,letterSpacing:1}}>DATOS</div>
-                <div style={{fontSize:13,marginBottom:4}}>{detalle.phone?`Tel: ${detalle.phone}`:'Sin teléfono'}</div>
-                <div style={{fontSize:12,color:'#6E6E73'}}>{detalle.email||'Sin email'}</div>
+        <Modal title="" onClose={()=>setDetalle(null)} width={560}>
+          <div style={{display:'flex',flexDirection:'column',gap:16}}>
+
+            {/* Header cliente */}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
+              <div>
+                <div style={{fontSize:20,fontWeight:800,color:'#1D1D1F'}}>{detalle.name}</div>
+                <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
+                  <TypeBadge c={detalle}/>
+                  {detalle.isVip&&<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>VIP</span>}
+                  {detalle.orders>=3&&<span style={{background:'#E8F8EE',color:C.green,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>FRECUENTE</span>}
+                  {detalle.pideFactura&&<span style={{background:'#E8F2FF',color:'#007AFF',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>PIDE FACTURA</span>}
+                </div>
               </div>
-              <div style={{background:'#F5F5F7',borderRadius:8,padding:12}}>
-                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:8,letterSpacing:1}}>ESTADISTICAS</div>
-                <div style={{fontSize:13,marginBottom:4}}>Total: <b>{fmt(detalle.total)}</b></div>
-                <div style={{fontSize:12,color:'#6E6E73'}}>{detalle.orders} pedidos · Canal: {ORDER_TYPES[detalle.preferred]||detalle.preferred||'—'}</div>
+              {detalle.phone&&(
+                <a href={`https://wa.me/595${detalle.phone.replace(/\D/g,'').replace(/^0/,'').replace(/^595/,'')}`} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',gap:6,background:'#25D366',color:'#fff',padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:700,textDecoration:'none',whiteSpace:'nowrap'}}>
+                  <span>💬</span> WhatsApp
+                </a>
+              )}
+            </div>
+
+            {/* Datos de contacto */}
+            <div style={{background:'#F5F5F7',borderRadius:10,padding:14}}>
+              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>DATOS DE CONTACTO</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                <div>
+                  <div style={{fontSize:10,color:'#86868B',marginBottom:2}}>Teléfono</div>
+                  <div style={{fontSize:13,fontWeight:600,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{detalle.phone||<span style={{color:'#D2D2D7'}}>—</span>}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,color:'#86868B',marginBottom:2}}>Email</div>
+                  <div style={{fontSize:13,fontWeight:600,wordBreak:'break-all'}}>{detalle.email||<span style={{color:'#D2D2D7'}}>—</span>}</div>
+                </div>
+                {detalle.addresses.length>0&&(
+                  <div style={{gridColumn:'1/-1'}}>
+                    <div style={{fontSize:10,color:'#86868B',marginBottom:4}}>Direcciones de delivery</div>
+                    {detalle.addresses.map((a,i)=>(
+                      <div key={i} style={{fontSize:12,padding:'4px 8px',background:'#FFF4E0',borderRadius:6,marginBottom:3}}>🛵 {a}</div>
+                    ))}
+                  </div>
+                )}
+                {detalle.tables.length>0&&(
+                  <div>
+                    <div style={{fontSize:10,color:'#86868B',marginBottom:2}}>Mesas usadas</div>
+                    <div style={{fontSize:13}}>{detalle.tables.map(n=>`Mesa ${n}`).join(', ')}</div>
+                  </div>
+                )}
+                {Object.keys(detalle.paymentMethods).length>0&&(
+                  <div>
+                    <div style={{fontSize:10,color:'#86868B',marginBottom:2}}>Formas de pago</div>
+                    <div style={{fontSize:12}}>{Object.entries(detalle.paymentMethods).map(([k,v])=>`${k} (${v}×)`).join(', ')}</div>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Estadísticas */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}}>
+              {[
+                ['Total gastado',fmt(detalle.total),C.orange],
+                ['Pedidos',detalle.orders,'#000'],
+                ['Ticket prom.',fmt(detalle.ticket),'#000'],
+                ['Días activo',detalle.diasActivo+' d','#6E6E73'],
+              ].map(([lbl,val,clr])=>(
+                <div key={lbl} style={{background:'#F5F5F7',borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
+                  <div style={{fontSize:15,fontWeight:800,color:clr,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{val}</div>
+                  <div style={{fontSize:10,color:'#86868B',marginTop:3}}>{lbl}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Canales */}
             <div>
-              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:6,letterSpacing:1}}>ACTIVIDAD</div>
-              <div style={{fontSize:12,color:'#6E6E73'}}>Primer pedido: {fmtDate(detalle.firstDate)}</div>
-              <div style={{fontSize:12,color:'#6E6E73'}}>Último pedido: {fmtDate(detalle.lastDate)} ({Math.floor((now-new Date(detalle.lastDate).getTime())/864e5)}d atrás)</div>
+              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:8}}>CANALES UTILIZADOS</div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                {Object.entries(detalle.canalCount).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+                  const pct = Math.round(v/detalle.orders*100);
+                  return (
+                    <div key={k} style={{background:'#F5F5F7',borderRadius:8,padding:'8px 12px',minWidth:90,textAlign:'center'}}>
+                      <div style={{fontSize:20,marginBottom:2}}>{CANAL_ICON[k]||'📦'}</div>
+                      <div style={{fontSize:12,fontWeight:700,color:CANAL_COLOR[k]||'#000'}}>{v} pedido{v!==1?'s':''}</div>
+                      <div style={{fontSize:10,color:'#86868B'}}>{ORDER_TYPES[k]||k}</div>
+                      <div style={{fontSize:10,color:'#D2D2D7'}}>{pct}%</div>
+                    </div>
+                  );
+                })}
+                {!Object.keys(detalle.canalCount).length&&<span style={{color:'#D2D2D7',fontSize:12}}>Sin datos</span>}
+              </div>
             </div>
-            <div style={{display:'flex',justifyContent:'flex-end'}}><Btn variant="secondary" onClick={()=>setDetalle(null)}>Cerrar</Btn></div>
+
+            {/* Actividad */}
+            <div style={{background:'#F5F5F7',borderRadius:10,padding:14}}>
+              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:8}}>ACTIVIDAD</div>
+              <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+                <div><div style={{fontSize:10,color:'#86868B'}}>Primer pedido</div><div style={{fontSize:13,fontWeight:600}}>{fmtDate(detalle.firstDate)}</div></div>
+                <div><div style={{fontSize:10,color:'#86868B'}}>Último pedido</div><div style={{fontSize:13,fontWeight:600}}>{fmtDate(detalle.lastDate)} <span style={{fontSize:11,color:'#D2D2D7'}}>({Math.floor((now-new Date(detalle.lastDate).getTime())/864e5)}d)</span></div></div>
+                {detalle.pideFactura&&<div><div style={{fontSize:10,color:'#86868B'}}>Facturas solicitadas</div><div style={{fontSize:13,fontWeight:600,color:'#007AFF'}}>{detalle.facturaCount}×</div></div>}
+              </div>
+            </div>
+
+            {/* Historial pedidos */}
+            {detalleOrders.length>0&&(
+              <div>
+                <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:8}}>ÚLTIMOS PEDIDOS</div>
+                <div style={{background:'#F5F5F7',borderRadius:10,overflow:'hidden'}}>
+                  {detalleOrders.map((o,i)=>(
+                    <div key={o.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderBottom:i<detalleOrders.length-1?'1px solid #E5E5EA':'none'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        <span style={{fontSize:14}}>{CANAL_ICON[o.type]||'📦'}</span>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:600,color:'#1D1D1F'}}>{o.num?`#${o.num}`:o.id.slice(0,8)}</div>
+                          <div style={{fontSize:10,color:'#86868B'}}>{fmtDate(o.date)} · {ORDER_TYPES[o.type]||o.type||'—'}</div>
+                        </div>
+                      </div>
+                      <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:13,fontWeight:700,color:'#1D1D1F'}}>{fmt(o.total)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{display:'flex',justifyContent:'flex-end',gap:8}}>
+              <Btn variant="secondary" onClick={()=>setDetalle(null)}>Cerrar</Btn>
+            </div>
           </div>
         </Modal>
       )}
