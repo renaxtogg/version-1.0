@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
@@ -3569,205 +3569,438 @@ function StockPage() {
    REPORTES
 ══════════════════════════════════════════════ */
 function ReportesPage({orders}) {
-  const [period,setPeriod]     = useState('7d');
-  const [dateFrom,setFrom]     = useState('');
-  const [dateTo,setTo]         = useState('');
-  const [ingredients,setIng]   = useState([]);
-  const [recipes,setRec]       = useState([]);
-  const [loadingCost,setLC]    = useState(false);
-  const [orderItems,setOI]     = useState([]);
+  const [rType, setRType]     = useState('');
+  const [fromStr, setFromStr] = useState('');
+  const [toStr, setToStr]     = useState('');
+  const [rows, setRows]       = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [reportTitle, setReportTitle] = useState('');
 
-  const valid = o=>!['draft','cancelled'].includes(o.status);
-
-  function getRange(p,from,to) {
-    const now=new Date(); let s,e=new Date();
-    if(p==='hoy'){ s=new Date(now); s.setHours(0,0,0,0); }
-    else if(p==='7d'){ s=new Date(now); s.setDate(s.getDate()-6); s.setHours(0,0,0,0); }
-    else if(p==='30d'){ s=new Date(now); s.setDate(s.getDate()-29); s.setHours(0,0,0,0); }
-    else { s=from?new Date(from):new Date(now); e=to?new Date(to+'T23:59:59'):new Date(); }
-    return {s,e};
-  }
-
-  const {s,e} = getRange(period,dateFrom,dateTo);
-  const rangeOrds  = orders.filter(o=>valid(o)&&new Date(o.created_at)>=s&&new Date(o.created_at)<=e);
-
-  // Período anterior (mismo delta)
-  const delta = e-s;
-  const prevE = new Date(s); const prevS = new Date(s.getTime()-delta);
-  const prevOrds = orders.filter(o=>valid(o)&&new Date(o.created_at)>=prevS&&new Date(o.created_at)<=prevE);
-
-  const ingresos  = rangeOrds.reduce((a,o)=>a+(o.total||0),0);
-  const prevIng   = prevOrds.reduce((a,o)=>a+(o.total||0),0);
-  const pedidos   = rangeOrds.length;
-  const prevPed   = prevOrds.length;
-  const ticket    = pedidos?Math.round(ingresos/pedidos):0;
-  const prevTick  = prevPed?Math.round(prevIng/prevPed):0;
-
-  const pct=(h,a)=>a>0?Math.round((h-a)/a*100):null;
-  const Delta=({v,p})=>{
-    const d=pct(v,p);
-    if(d===null)return null;
-    const up=d>=0;
-    return <span style={{fontSize:11,fontWeight:700,color:up?'#34C759':'#FF3B30',marginLeft:8}}>{up?'↑':'↓'}{Math.abs(d)}%</span>;
-  };
-
-  // Ventas por producto
   useEffect(()=>{
-    if(!db||!rangeOrds.length)return;
-    const ids=rangeOrds.map(o=>o.id).slice(0,200);
-    db.from('order_items').select('item_name,quantity,total_price').in('order_id',ids).then(({data})=>setOI(data||[]));
-  },[orders,period,dateFrom,dateTo]);
-
-  const prodRows = Object.values(orderItems.reduce((acc,it)=>{
-    const k=it.item_name||'—';
-    if(!acc[k])acc[k]={name:k,qty:0,ingreso:0};
-    acc[k].qty+=(it.quantity||1); acc[k].ingreso+=(it.total_price||0);
-    return acc;
-  },{})).sort((a,b)=>b.ingreso-a.ingreso);
-
-  // Costos desde stock_movements (tipo 'deduct') en el período
-  useEffect(()=>{
-    if(!db) return;
-    setLC(true);
-    Promise.all([
-      db.from('ingredients').select('id,name,unit_cost').eq('restaurant_id',RID),
-      db.from('recipes').select('*'),
-    ]).then(([iR,rR])=>{
-      setIng(iR.data||[]); setRec(rR.data||[]); setLC(false);
-    });
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const pad = n => String(n).padStart(2,'0');
+    setFromStr(`${pad(first.getDate())}/${pad(first.getMonth()+1)}/${first.getFullYear()}`);
+    setToStr(`${pad(now.getDate())}/${pad(now.getMonth()+1)}/${now.getFullYear()}`);
   },[]);
 
-  function costoProducto(itemId) {
-    const recs=recipes.filter(r=>r.menu_item_id===itemId);
-    return recs.reduce((a,r)=>{
-      const ing=ingredients.find(i=>i.id===r.ingredient_id);
-      return a+(ing?.unit_cost||0)*(r.quantity_required||1);
-    },0);
+  function parseDMY(str) {
+    if(!str) return null;
+    const p = str.split('/');
+    if(p.length!==3) return null;
+    const d=new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+    return isNaN(d.getTime()) ? null : d;
   }
 
-  const rentabilidadRows = prodRows.map(p=>{
-    const miId=orderItems.find(i=>i.item_name===p.name)?.menu_item_id;
-    const costo=miId?costoProducto(miId)*p.qty:0;
-    const margen=p.ingreso-costo;
-    return {...p,costo,margen};
-  });
-  const costoTotal=rentabilidadRows.reduce((a,r)=>a+r.costo,0);
-  const margenBruto=ingresos-costoTotal;
+  function dmyToISO(str) {
+    if(!str) return '';
+    const p = str.split('/');
+    if(p.length!==3) return '';
+    return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+  }
 
-  function exportar() {
+  const REPORT_DEFS = [
+    {id:'ventas_periodo',   label:'Ventas por período',        cat:'ventas',    desc:'Total, pedidos y ticket promedio del período'},
+    {id:'ventas_producto',  label:'Ventas por producto',       cat:'ventas',    desc:'Ranking de productos por cantidad e ingreso'},
+    {id:'ventas_mesa',      label:'Ventas por mesa',           cat:'ventas',    desc:'Ingresos generados por cada mesa o canal'},
+    {id:'metodo_pago',      label:'Métodos de pago',           cat:'ventas',    desc:'Distribución por efectivo, tarjeta, QR, POS'},
+    {id:'rentabilidad',     label:'Rentabilidad por producto', cat:'ventas',    desc:'Margen bruto descontando costo de insumos'},
+    {id:'egresos',          label:'Egresos / Gastos',          cat:'finanzas',  desc:'Gastos registrados por categoría en el período'},
+    {id:'balance',          label:'Balance del período',       cat:'finanzas',  desc:'Ingresos vs egresos y resultado neto'},
+    {id:'movimientos_caja', label:'Movimientos de caja',       cat:'caja',      desc:'Cobros, egresos y movimientos por turno'},
+    {id:'stock_actual',     label:'Stock actual',              cat:'stock',     desc:'Inventario actual de ingredientes y alertas'},
+    {id:'movimientos_stock',label:'Movimientos de stock',      cat:'stock',     desc:'Entradas, consumos y ajustes de inventario'},
+    {id:'ratings',          label:'Calificaciones',            cat:'clientes',  desc:'Puntajes y comentarios de clientes'},
+    {id:'cupones',          label:'Cupones y descuentos',      cat:'marketing', desc:'Uso y efectividad de cupones aplicados'},
+  ];
+
+  const CATS = [
+    {id:'ventas',    label:'Ventas y facturación', icon:'↗', color:'#007AFF'},
+    {id:'finanzas',  label:'Finanzas',             icon:'₲', color:'#34C759'},
+    {id:'caja',      label:'Caja',                 icon:'□', color:'#FF9500'},
+    {id:'stock',     label:'Stock / Insumos',      icon:'▤', color:'#AF52DE'},
+    {id:'clientes',  label:'Clientes',             icon:'★', color:'#FFD60A'},
+    {id:'marketing', label:'Marketing',            icon:'%', color:'#FF2D55'},
+  ];
+
+  const valid = o => !['draft','cancelled'].includes(o.status);
+
+  async function generate() {
+    const from = parseDMY(fromStr);
+    const to   = parseDMY(toStr);
+    if(!rType){ toast('Seleccioná un tipo de reporte',false); return; }
+    if(!from||!to){ toast('Fechas inválidas — usá formato dd/mm/aaaa',false); return; }
+    to.setHours(23,59,59,999);
+    setLoading(true);
+    setRows(null); setSummary(null);
+    const def = REPORT_DEFS.find(r=>r.id===rType);
+    setReportTitle(def?.label||'Reporte');
+    try { await _run(rType, from, to); }
+    catch(e){ toast('Error: '+e.message, false); }
+    setLoading(false);
+  }
+
+  async function _run(type, from, to) {
+    const fromISO = from.toISOString().slice(0,10);
+    const toISO   = to.toISOString().slice(0,10);
+
+    if(type==='ventas_periodo') {
+      const f = orders.filter(o=>valid(o)&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const total = f.reduce((s,o)=>s+(o.total||0),0);
+      const count = f.length;
+      setSummary([
+        {label:'Total ventas',    value:fmt(total),                              color:'#34C759'},
+        {label:'Pedidos',         value:count,                                   color:'#007AFF'},
+        {label:'Ticket promedio', value:count?fmt(Math.round(total/count)):'—',  color:'#FF9500'},
+      ]);
+      setRows({
+        cols:['Fecha','N° Pedido','Mesa','Estado','Pago','Total'],
+        data:f.map(o=>[
+          fmtDate(o.created_at),
+          o.order_number||o.id?.slice(-6)||'—',
+          mesaLabel(o),
+          SL[o.status]||o.status,
+          PL[o.payment_method]||o.payment_method||'—',
+          fmt(o.total||0),
+        ]),
+      });
+    }
+
+    else if(type==='ventas_producto') {
+      const f = orders.filter(o=>valid(o)&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const ids = f.map(o=>o.id).slice(0,500);
+      const {data:items} = ids.length>0&&db ? await db.from('order_items').select('item_name,quantity,total_price').in('order_id',ids) : {data:[]};
+      const map = {};
+      (items||[]).forEach(it=>{ const k=it.item_name||'—'; if(!map[k])map[k]={name:k,qty:0,total:0}; map[k].qty+=(it.quantity||1); map[k].total+=(it.total_price||0); });
+      const rows2 = Object.values(map).sort((a,b)=>b.total-a.total);
+      const tot = rows2.reduce((s,r)=>s+r.total,0);
+      setSummary([
+        {label:'Total ventas',        value:fmt(tot),                              color:'#34C759'},
+        {label:'Productos distintos', value:rows2.length,                          color:'#007AFF'},
+        {label:'Unidades vendidas',   value:rows2.reduce((s,r)=>s+r.qty,0),       color:'#FF9500'},
+      ]);
+      setRows({ cols:['Producto','Unidades','Ingreso','% del total'], data:rows2.map(r=>[r.name, r.qty, fmt(r.total), tot>0?`${Math.round(r.total/tot*100)}%`:'—']) });
+    }
+
+    else if(type==='ventas_mesa') {
+      const f = orders.filter(o=>valid(o)&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const map = {};
+      f.forEach(o=>{ const k=mesaLabel(o); if(!map[k])map[k]={mesa:k,pedidos:0,total:0}; map[k].pedidos++; map[k].total+=(o.total||0); });
+      const rows2 = Object.values(map).sort((a,b)=>b.total-a.total);
+      const tot = rows2.reduce((s,r)=>s+r.total,0);
+      setSummary([
+        {label:'Total ventas',  value:fmt(tot),    color:'#34C759'},
+        {label:'Mesas/canales', value:rows2.length,color:'#007AFF'},
+        {label:'Total pedidos', value:f.length,    color:'#FF9500'},
+      ]);
+      setRows({ cols:['Mesa / Canal','Pedidos','Ingreso','Ticket promedio'], data:rows2.map(r=>[r.mesa, r.pedidos, fmt(r.total), fmt(r.pedidos?Math.round(r.total/r.pedidos):0)]) });
+    }
+
+    else if(type==='metodo_pago') {
+      const f = orders.filter(o=>valid(o)&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const map = {};
+      f.forEach(o=>{ const k=PL[o.payment_method]||o.payment_method||'Sin especificar'; if(!map[k])map[k]={metodo:k,pedidos:0,total:0}; map[k].pedidos++; map[k].total+=(o.total||0); });
+      const rows2 = Object.values(map).sort((a,b)=>b.total-a.total);
+      const tot = rows2.reduce((s,r)=>s+r.total,0);
+      setSummary([
+        {label:'Total cobrado',      value:fmt(tot),    color:'#34C759'},
+        {label:'Métodos distintos',  value:rows2.length,color:'#007AFF'},
+        {label:'Total pedidos',      value:f.length,    color:'#FF9500'},
+      ]);
+      setRows({ cols:['Método de pago','Pedidos','Total','% participación'], data:rows2.map(r=>[r.metodo, r.pedidos, fmt(r.total), tot>0?`${Math.round(r.total/tot*100)}%`:'—']) });
+    }
+
+    else if(type==='rentabilidad') {
+      const f = orders.filter(o=>valid(o)&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const ids = f.map(o=>o.id).slice(0,500);
+      const [{data:items},{data:ings},{data:recs}] = await Promise.all([
+        ids.length>0&&db ? db.from('order_items').select('item_name,quantity,total_price,menu_item_id').in('order_id',ids) : {data:[]},
+        db ? db.from('ingredients').select('id,name,unit_cost').eq('restaurant_id',RID) : {data:[]},
+        db ? db.from('recipes').select('*') : {data:[]},
+      ]);
+      const map = {};
+      (items||[]).forEach(it=>{ const k=it.item_name||'—'; if(!map[k])map[k]={name:k,qty:0,total:0,mid:it.menu_item_id}; map[k].qty+=(it.quantity||1); map[k].total+=(it.total_price||0); });
+      const rows2 = Object.values(map).map(p=>{
+        const costU = (recs||[]).filter(r=>r.menu_item_id===p.mid).reduce((s,r)=>{ const i=(ings||[]).find(x=>x.id===r.ingredient_id); return s+(i?.unit_cost||0)*(r.quantity_required||1); },0);
+        const costo = costU*p.qty;
+        return {...p, costo, margen:p.total-costo};
+      }).sort((a,b)=>b.total-a.total);
+      const totV=rows2.reduce((s,r)=>s+r.total,0), totC=rows2.reduce((s,r)=>s+r.costo,0);
+      setSummary([
+        {label:'Ingresos',     value:fmt(totV),       color:'#34C759'},
+        {label:'Costo insumos',value:fmt(totC),       color:'#FF3B30'},
+        {label:'Margen bruto', value:fmt(totV-totC),  color:(totV-totC)>=0?'#34C759':'#FF3B30'},
+      ]);
+      setRows({ cols:['Producto','Uds','Ingreso','Costo','Margen','% Margen'], data:rows2.map(r=>[r.name, r.qty, fmt(r.total), r.costo>0?fmt(r.costo):'—', r.costo>0?fmt(r.margen):'—', r.costo>0&&r.total>0?`${Math.round(r.margen/r.total*100)}%`:'—']) });
+    }
+
+    else if(type==='egresos') {
+      let data = [];
+      if(db){
+        const{data:d}=await db.from('expenses').select('*').eq('restaurant_id',RID).gte('date',fromISO).lte('date',toISO).order('date',{ascending:false});
+        data = d||[];
+        if(data.length===0) data = LS.get(EGRESOS_KEY,[]).filter(e=>e.date>=fromISO&&e.date<=toISO);
+      } else { data = LS.get(EGRESOS_KEY,[]).filter(e=>e.date>=fromISO&&e.date<=toISO); }
+      const tot = data.reduce((s,e)=>s+(e.amount||0),0);
+      const catMap = {};
+      data.forEach(e=>{ const c=e.category||'Sin categoría'; catMap[c]=(catMap[c]||0)+(e.amount||0); });
+      setSummary([
+        {label:'Total egresos',value:fmt(tot),                   color:'#FF3B30'},
+        {label:'Registros',    value:data.length,                color:'#6E6E73'},
+        {label:'Categorías',   value:Object.keys(catMap).length, color:'#FF9500'},
+      ]);
+      setRows({ cols:['Fecha','Categoría','Descripción','Monto'], data:data.map(e=>[e.date?e.date.split('-').reverse().join('/'):'—', e.category||'—', e.description||e.desc||'—', fmt(e.amount||0)]) });
+    }
+
+    else if(type==='balance') {
+      const f = orders.filter(o=>valid(o)&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const ingresos = f.reduce((s,o)=>s+(o.total||0),0);
+      let egData = [];
+      if(db){
+        const{data:d}=await db.from('expenses').select('*').eq('restaurant_id',RID).gte('date',fromISO).lte('date',toISO);
+        egData=d||[];
+        if(egData.length===0) egData=LS.get(EGRESOS_KEY,[]).filter(e=>e.date>=fromISO&&e.date<=toISO);
+      } else { egData=LS.get(EGRESOS_KEY,[]).filter(e=>e.date>=fromISO&&e.date<=toISO); }
+      const egresos = egData.reduce((s,e)=>s+(e.amount||0),0);
+      const resultado = ingresos-egresos;
+      const catMap = {};
+      egData.forEach(e=>{ const c=e.category||'Sin cat'; catMap[c]=(catMap[c]||0)+(e.amount||0); });
+      setSummary([
+        {label:'Ingresos',      value:fmt(ingresos),  color:'#34C759'},
+        {label:'Egresos',       value:fmt(egresos),   color:'#FF3B30'},
+        {label:'Resultado neto',value:fmt(resultado), color:resultado>=0?'#34C759':'#FF3B30'},
+      ]);
+      const balRows = [
+        ['── INGRESOS ──','',''],
+        ...f.slice(0,100).map(o=>[fmtDate(o.created_at), `Pedido #${o.order_number||'—'}`, fmt(o.total||0)]),
+        ...(f.length>100?[[`… y ${f.length-100} más`,'',fmt(ingresos)]]:[] ),
+        ['── EGRESOS ──','',''],
+        ...Object.entries(catMap).map(([c,a])=>[c,'',fmt(a)]),
+        ['── RESULTADO NETO ──','',fmt(resultado)],
+      ];
+      setRows({ cols:['Concepto','Detalle','Monto'], data:balRows });
+    }
+
+    else if(type==='movimientos_caja') {
+      if(!db){toast('Sin conexión a base de datos',false);return;}
+      const{data:turnos}=await db.from('turnos_caja').select('*').eq('restaurant_id',RID).gte('fecha_apertura',from.toISOString()).lte('fecha_apertura',to.toISOString()).order('fecha_apertura',{ascending:false});
+      const tIds=(turnos||[]).map(t=>t.id);
+      let movs=[];
+      if(tIds.length>0){const{data:m}=await db.from('movimientos_caja').select('*').in('turno_id',tIds).order('created_at',{ascending:false});movs=m||[];}
+      const totCobros=movs.filter(m=>m.tipo==='cobro').reduce((s,m)=>s+Number(m.monto||0),0);
+      const totEg=movs.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+Number(m.monto||0),0);
+      setSummary([
+        {label:'Total cobrado', value:fmt(totCobros),      color:'#34C759'},
+        {label:'Egresos caja',  value:fmt(totEg),          color:'#FF3B30'},
+        {label:'Turnos',        value:(turnos||[]).length, color:'#007AFF'},
+      ]);
+      setRows({ cols:['Fecha/Hora','Tipo','Descripción','Monto','Cajero'], data:movs.slice(0,300).map(m=>[fmtDT(m.created_at), m.tipo||'—', m.descripcion||'—', fmt(Number(m.monto||0)), m.cajero_nombre||'—']) });
+    }
+
+    else if(type==='stock_actual') {
+      if(!db){toast('Sin conexión a base de datos',false);return;}
+      const [{data:ings},{data:alerts}] = await Promise.all([
+        db.from('ingredients').select('*').eq('restaurant_id',RID).order('name'),
+        db.from('stock_alerts').select('*').eq('restaurant_id',RID).eq('resolved',false),
+      ]);
+      const alertIds=new Set((alerts||[]).map(a=>a.ingredient_id));
+      const total=(ings||[]).length;
+      setSummary([
+        {label:'Ingredientes',value:total,               color:'#007AFF'},
+        {label:'Con alerta',  value:alertIds.size,       color:'#FF3B30'},
+        {label:'OK',          value:total-alertIds.size, color:'#34C759'},
+      ]);
+      setRows({ cols:['Ingrediente','Stock actual','Mínimo','Unidad','Costo unit.','Estado'], data:(ings||[]).map(i=>[i.name, i.current_stock??'—', i.min_stock??'—', i.unit||'—', i.unit_cost?fmt(i.unit_cost):'—', alertIds.has(i.id)?'⚠ Alerta':'✓ OK']) });
+    }
+
+    else if(type==='movimientos_stock') {
+      if(!db){toast('Sin conexión a base de datos',false);return;}
+      const{data:movs}=await db.from('stock_movements').select('*,ingredients(name)').eq('restaurant_id',RID).gte('created_at',from.toISOString()).lte('created_at',to.toISOString()).order('created_at',{ascending:false}).limit(300);
+      const data=movs||[];
+      const entradas=data.filter(m=>m.type==='add').reduce((s,m)=>s+(m.quantity||0),0);
+      const salidas=data.filter(m=>m.type==='deduct').reduce((s,m)=>s+(m.quantity||0),0);
+      setSummary([
+        {label:'Movimientos',      value:data.length, color:'#007AFF'},
+        {label:'Entradas',         value:entradas,    color:'#34C759'},
+        {label:'Salidas/Consumos', value:salidas,     color:'#FF3B30'},
+      ]);
+      setRows({ cols:['Fecha','Ingrediente','Tipo','Cantidad','Nota'], data:data.map(m=>[fmtDate(m.created_at), m.ingredients?.name||'—', m.type==='add'?'Entrada':m.type==='deduct'?'Consumo':m.type||'—', m.quantity||0, m.note||'—']) });
+    }
+
+    else if(type==='ratings') {
+      let data=[];
+      if(db){const{data:d}=await db.from('ratings').select('*').eq('restaurant_id',RID).gte('created_at',from.toISOString()).lte('created_at',to.toISOString()).order('created_at',{ascending:false});data=d||[];}
+      const count=data.length;
+      const avg=count?(data.reduce((s,r)=>s+(r.stars||r.rating||0),0)/count).toFixed(1):'—';
+      const pos=data.filter(r=>(r.stars||r.rating||0)>=4).length;
+      setSummary([
+        {label:'Calificaciones',  value:count,      color:'#007AFF'},
+        {label:'Promedio',        value:`${avg} ★`, color:'#FFD60A'},
+        {label:'Positivas (≥4★)', value:pos,        color:'#34C759'},
+      ]);
+      setRows({ cols:['Fecha','Puntaje','Comentario','Mesa'], data:data.map(r=>[fmtDate(r.created_at), `${r.stars||r.rating||'—'} ★`, r.comment||r.comentario||'—', r.table_number?`Mesa ${r.table_number}`:'—']) });
+    }
+
+    else if(type==='cupones') {
+      const f = orders.filter(o=>valid(o)&&o.coupon_code&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const map={};
+      f.forEach(o=>{ const k=o.coupon_code; if(!map[k])map[k]={code:k,usos:0,desc:0}; map[k].usos++; map[k].desc+=(o.discount_amount||0); });
+      const rows2=Object.values(map).sort((a,b)=>b.usos-a.usos);
+      const totDesc=rows2.reduce((s,c)=>s+c.desc,0);
+      setSummary([
+        {label:'Pedidos con cupón', value:f.length,    color:'#007AFF'},
+        {label:'Cupones distintos', value:rows2.length,color:'#FF9500'},
+        {label:'Total descuentos',  value:fmt(totDesc),color:'#FF3B30'},
+      ]);
+      setRows({ cols:['Cupón','Usos','Descuento total'], data:rows2.map(c=>[c.code, c.usos, fmt(c.desc)]) });
+    }
+  }
+
+  function exportCSV() {
+    if(!rows) return;
+    const lines=[rows.cols.join(','),...rows.data.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(','))];
+    const blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url; a.download=`reporte_${rType}_${dmyToISO(fromStr)}.csv`; a.click(); URL.revokeObjectURL(url);
+  }
+
+  function exportXLS() {
+    if(!rows) return;
+    const ws=XLSX.utils.aoa_to_sheet([rows.cols,...rows.data]);
     const wb=XLSX.utils.book_new();
-    const resumen=[
-      ['Métrica','Período actual','Período anterior','Var %'],
-      ['Ventas',ingresos,prevIng,pct(ingresos,prevIng)||0],
-      ['Pedidos',pedidos,prevPed,pct(pedidos,prevPed)||0],
-      ['Ticket promedio',ticket,prevTick,pct(ticket,prevTick)||0],
-    ];
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(resumen),'Resumen');
-    const ventas=[['Producto','Unidades','Ingreso (₲)','Costo (₲)','Margen (₲)'],...rentabilidadRows.map(r=>[r.name,r.qty,r.ingreso,r.costo,r.margen])];
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(ventas),'Ventas por producto');
-    XLSX.writeFile(wb,`reporte_${new Date().toISOString().slice(0,10)}.xlsx`);
+    XLSX.utils.book_append_sheet(wb,ws,(REPORT_DEFS.find(r=>r.id===rType)?.label||'Reporte').slice(0,31));
+    XLSX.writeFile(wb,`reporte_${rType}_${dmyToISO(fromStr)}.xlsx`);
   }
 
-  const PERIODS=[['hoy','Hoy'],['7d','7 días'],['30d','30 días'],['custom','Custom']];
+  function exportPDF() {
+    if(!rows) return;
+    const def=REPORT_DEFS.find(r=>r.id===rType);
+    const restaurantName = window.SUPABASE_CONFIG?.restaurantName || 'La Huaca';
+    const w=window.open('','_blank');
+    const sumHtml=summary?summary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${s.label}</div><div style="font-size:20px;font-weight:800;color:${s.color}">${s.value}</div></div>`).join(''):'';
+    const tHead=`<tr>${rows.cols.map(c=>`<th style="background:#E65100;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${c}</th>`).join('')}</tr>`;
+    const tBody=rows.data.map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">${r.map(v=>`<td style="padding:7px 12px;font-size:11px;border-bottom:1px solid #eee">${v}</td>`).join('')}</tr>`).join('');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${def?.label||'Reporte'}</title><style>body{font-family:system-ui,sans-serif;margin:32px;color:#222}@media print{button{display:none!important}}</style></head><body>
+      <div style="font-size:24px;font-weight:800;color:#1D1D1F;margin-bottom:4px">${restaurantName}</div>
+      <div style="font-size:16px;font-weight:700;color:#E65100;margin-bottom:4px">${def?.label||'Reporte'}</div>
+      <div style="font-size:11px;color:#888;margin-bottom:18px">Generado: ${new Date().toLocaleDateString('es-PY')} · Período: ${fromStr} al ${toStr}</div>
+      <div style="margin-bottom:20px;padding:14px 0;border-top:2px solid #E65100;border-bottom:1px solid #eee">${sumHtml}</div>
+      <table style="width:100%;border-collapse:collapse;margin-top:4px"><thead>${tHead}</thead><tbody>${tBody}</tbody></table>
+      <div style="margin-top:24px;font-size:9px;color:#bbb;text-align:right">Página 1 de 1 · Mythos</div>
+      <script>window.onload=function(){window.print();}<\/script>
+    </body></html>`);
+    w.document.close();
+  }
+
+  function limpiar() { setRType(''); setRows(null); setSummary(null); setReportTitle(''); }
+
+  const selDef = REPORT_DEFS.find(r=>r.id===rType);
 
   return (
     <div className="page">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+      <div style={{marginBottom:20}}>
         <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Reportes</h1>
-        <div style={{display:'flex',gap:8}}>
-          <Btn onClick={()=>window.print()} variant="secondary" small>Imprimir resumen</Btn>
-          <Btn onClick={exportar} variant="secondary" small>Exportar Excel</Btn>
-        </div>
+        <div style={{fontSize:13,color:'#6E6E73',marginTop:2}}>Análisis e informes con filtros y exportación</div>
       </div>
 
-      {/* Selector período */}
-      <div style={{display:'flex',gap:8,marginBottom:20,alignItems:'center',flexWrap:'wrap'}}>
-        <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:6,overflow:'hidden'}}>
-          {PERIODS.map(([id,lbl],i,a)=>(
-            <button key={id} onClick={()=>setPeriod(id)} style={{padding:'6px 14px',fontSize:12,fontWeight:period===id?700:400,background:period===id?'#000':'#fff',color:period===id?'#fff':'#6E6E73',border:'none',cursor:'pointer',borderRight:i<a.length-1?`1px solid ${C.border}`:'none'}}>
-              {lbl}
-            </button>
-          ))}
+      {/* Panel personalizado */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,marginBottom:20}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+          <div style={{width:32,height:32,borderRadius:8,background:'rgba(230,81,0,0.1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>≈</div>
+          <div style={{fontSize:15,fontWeight:700}}>Reportes personalizados</div>
         </div>
-        {period==='custom'&&(
-          <div style={{display:'flex',gap:6,alignItems:'center'}}>
-            <input type="date" value={dateFrom} onChange={e=>setFrom(e.target.value)} style={{padding:'5px 9px',fontSize:11,borderRadius:6,border:`1px solid ${C.border}`}}/>
-            <span style={{fontSize:11,color:'#86868B'}}>–</span>
-            <input type="date" value={dateTo} onChange={e=>setTo(e.target.value)} style={{padding:'5px 9px',fontSize:11,borderRadius:6,border:`1px solid ${C.border}`}}/>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:600,color:'#6E6E73',marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Tipo de reporte</div>
+          <select value={rType} onChange={e=>{setRType(e.target.value);setRows(null);setSummary(null);}} style={{width:'100%',maxWidth:420,padding:'9px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,background:'#fff',color:'#1D1D1F'}}>
+            <option value="">— Seleccioná un tipo —</option>
+            {REPORT_DEFS.map(r=><option key={r.id} value={r.id}>{r.label}</option>)}
+          </select>
+          {selDef&&<div style={{fontSize:11,color:'#86868B',marginTop:4}}>{selDef.desc}</div>}
+        </div>
+
+        <div style={{display:'flex',gap:14,alignItems:'flex-end',flexWrap:'wrap',marginBottom:16}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,color:'#6E6E73',marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Fecha desde</div>
+            <input type="text" value={fromStr} onChange={e=>setFromStr(e.target.value)} placeholder="dd/mm/aaaa" style={{padding:'8px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,width:145,background:'#fff',color:'#1D1D1F'}}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,color:'#6E6E73',marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Fecha hasta</div>
+            <input type="text" value={toStr} onChange={e=>setToStr(e.target.value)} placeholder="dd/mm/aaaa" style={{padding:'8px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,width:145,background:'#fff',color:'#1D1D1F'}}/>
+          </div>
+        </div>
+
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+          <button onClick={generate} disabled={loading} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 18px',background:'#E65100',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',opacity:loading?0.7:1}}>
+            {loading&&<span className="spin"/>}{loading?'Generando…':'≡ Generar reporte'}
+          </button>
+          {rows&&<>
+            <button onClick={exportPDF} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#FF3B30',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Exportar PDF</button>
+            <button onClick={exportXLS} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#34C759',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Exportar Excel</button>
+            <button onClick={exportCSV} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#1D1D1F',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Exportar CSV</button>
+            <button onClick={limpiar} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 14px',background:'transparent',color:'#6E6E73',border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:'pointer'}}>✕ Limpiar</button>
+          </>}
+        </div>
+
+        {summary&&(
+          <div style={{marginTop:20,display:'flex',gap:12,flexWrap:'wrap'}}>
+            {summary.map((s,i)=>(
+              <div key={i} style={{flex:'1 1 180px',background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',borderLeft:`3px solid ${s.color}`}}>
+                <div style={{fontSize:11,color:'#6E6E73',marginBottom:4,textTransform:'uppercase',letterSpacing:.5,fontWeight:600}}>{s.label}</div>
+                <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {rows&&(
+          <div style={{marginTop:16,overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <thead>
+                <tr>{rows.cols.map((c,i)=><th key={i} style={{background:'#E65100',color:'#fff',padding:'8px 12px',textAlign:'left',fontWeight:700,fontSize:11,whiteSpace:'nowrap'}}>{c}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.data.map((r,ri)=>(
+                  <tr key={ri} style={{background:ri%2===0?'#fff':'#F9F9F9',borderBottom:`1px solid ${C.border}`}}>
+                    {r.map((v,vi)=><td key={vi} style={{padding:'8px 12px',color:'#1D1D1F'}}>{v}</td>)}
+                  </tr>
+                ))}
+                {rows.data.length===0&&<tr><td colSpan={rows.cols.length} style={{textAlign:'center',padding:28,color:'#86868B',fontSize:13}}>Sin datos en el período seleccionado</td></tr>}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
-      {/* Producto ganador del período */}
-      {prodRows.length>0&&(
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:20}}>
-          <div style={{background:'#000',color:'#fff',borderRadius:10,padding:'16px 20px',gridColumn:'1'}}>
-            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,color:'rgba(255,255,255,0.5)',marginBottom:8,textTransform:'uppercase'}}>Producto del período</div>
-            <div style={{fontSize:16,fontWeight:800,lineHeight:1.2,marginBottom:4,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{prodRows[0]?.name||'—'}</div>
-            <div style={{fontSize:12,color:'rgba(255,255,255,0.7)'}}>{prodRows[0]?.qty||0} unidades · {fmt(prodRows[0]?.ingreso||0)}</div>
-          </div>
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 20px'}}>
-            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,color:'#6E6E73',marginBottom:8,textTransform:'uppercase'}}>2° lugar</div>
-            <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{prodRows[1]?.name||'—'}</div>
-            <div style={{fontSize:12,color:'#6E6E73'}}>{prodRows[1]?.qty||0} uds · {fmt(prodRows[1]?.ingreso||0)}</div>
-          </div>
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 20px'}}>
-            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,color:'#6E6E73',marginBottom:8,textTransform:'uppercase'}}>3° lugar</div>
-            <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{prodRows[2]?.name||'—'}</div>
-            <div style={{fontSize:12,color:'#6E6E73'}}>{prodRows[2]?.qty||0} uds · {fmt(prodRows[2]?.ingreso||0)}</div>
-          </div>
-        </div>
-      )}
-
-      {/* KPIs con comparativa */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
-        {[
-          {label:'Ventas',val:fmt(ingresos),prev:prevIng,curr:ingresos,sub:`${pedidos} pedidos`},
-          {label:'Pedidos',val:pedidos,prev:prevPed,curr:pedidos,sub:'en el período'},
-          {label:'Ticket promedio',val:pedidos>0?fmt(ticket):'—',prev:prevTick,curr:ticket,sub:'por pedido'},
-        ].map(k=>(
-          <div key={k.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'18px 20px'}}>
-            <div style={{fontSize:12,color:'#6E6E73',fontWeight:500,marginBottom:8}}>{k.label}</div>
-            <div style={{fontSize:28,fontWeight:800,color:'#000',lineHeight:1,letterSpacing:'-0.5px'}}>{k.val}</div>
-            <div style={{marginTop:6,fontSize:11,color:'#86868B'}}>{k.sub}<Delta v={k.curr} p={k.prev}/></div>
-          </div>
-        ))}
-      </div>
-
-      {/* Rentabilidad */}
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18,marginBottom:20}}>
-        <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:12}}>RENTABILIDAD DEL PERÍODO</div>
-        <div style={{display:'flex',gap:24,marginBottom:16,flexWrap:'wrap'}}>
-          <div><div style={{fontSize:11,color:'#6E6E73'}}>Ingresos</div><div style={{fontSize:20,fontWeight:800,color:'#34C759'}}>{fmt(ingresos)}</div></div>
-          <div><div style={{fontSize:11,color:'#6E6E73'}}>Costo insumos</div><div style={{fontSize:20,fontWeight:800,color:'#FF3B30'}}>{fmt(costoTotal)}</div></div>
-          <div><div style={{fontSize:11,color:'#6E6E73'}}>Margen bruto</div><div style={{fontSize:20,fontWeight:800,color:margenBruto>=0?'#34C759':'#FF3B30'}}>{fmt(margenBruto)}</div></div>
-          {!loadingCost&&costoTotal===0&&<div style={{fontSize:11,color:'#86868B',alignSelf:'flex-end',marginBottom:4}}>Configurá recetas con costo para ver margen real</div>}
-        </div>
-      </div>
-
-      {/* Ventas por producto */}
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-        <div style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:'#6E6E73',letterSpacing:1}}>VENTAS POR PRODUCTO</div>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Producto</Th><Th right>Unidades</Th><Th right>Ingreso</Th><Th right>Costo insumos</Th><Th right>Margen</Th></tr></thead>
-          <tbody>
-            {rentabilidadRows.slice(0,30).map((r,i)=>(
-              <tr key={i} style={{borderBottom:`1px solid #F0F0F0`}}>
-                <Td>{r.name}</Td>
-                <Td mono right>{r.qty}</Td>
-                <Td mono right style={{color:'#34C759'}}>{fmt(r.ingreso)}</Td>
-                <Td mono right style={{color:'#FF3B30'}}>{r.costo>0?fmt(r.costo):'—'}</Td>
-                <Td mono right style={{color:r.costo>0?(r.margen>=0?'#34C759':'#FF3B30'):'#86868B'}}>{r.costo>0?fmt(r.margen):'—'}</Td>
-              </tr>
-            ))}
-            {rentabilidadRows.length===0&&<EmptyRow cols={5} label="Sin datos en el período"/>}
-          </tbody>
-        </table>
+      {/* Categorías de reportes */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:16}}>
+        {CATS.map(cat=>{
+          const catReps=REPORT_DEFS.filter(r=>r.cat===cat.id);
+          return (
+            <div key={cat.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+                <div style={{width:30,height:30,borderRadius:7,background:`${cat.color}1A`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,color:cat.color,fontWeight:700}}>{cat.icon}</div>
+                <div style={{fontSize:14,fontWeight:700}}>{cat.label}</div>
+              </div>
+              {catReps.map(r=>(
+                <button key={r.id} onClick={()=>{setRType(r.id);setRows(null);setSummary(null);window.scrollTo({top:0,behavior:'smooth'});}} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',marginBottom:4,background:'transparent',border:'1px solid transparent',borderRadius:7,cursor:'pointer'}}>
+                  <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
+                    <span style={{fontSize:11,color:'#D2D2D7',marginTop:2,flexShrink:0}}>≡</span>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:'#1D1D1F'}}>{r.label}</div>
+                      <div style={{fontSize:11,color:'#86868B',marginTop:1}}>{r.desc}</div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
-
 /* ══════════════════════════════════════════════
    CONFIG
 ══════════════════════════════════════════════ */
