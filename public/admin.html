@@ -5334,41 +5334,105 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
   // Bloquear polling global mientras el editor esté abierto
   useEffect(()=>{ _modalCount++; return ()=>{ _modalCount=Math.max(0,_modalCount-1); }; },[]);
 
-  // Buscador de lugares (Nominatim / OpenStreetMap)
+  // Buscador de lugares — Google Places API (si hay googleMapsKey en config.js) o Nominatim
+  const GKEY = window.SUPABASE_CONFIG?.googleMapsKey || '';
   const [searchQ, setSearchQ]     = useState('');
   const [searchRes, setSearchRes] = useState([]);
   const [searching, setSearching] = useState(false);
-  const searchTimer = useRef(null);
+  const [gmapsReady, setGmapsReady] = useState(false);
+  const searchTimer  = useRef(null);
+  const autoSvcRef   = useRef(null);  // google.maps.places.AutocompleteService
+  const placesSvcRef = useRef(null);  // google.maps.places.PlacesService
+  const placesDivRef = useRef(null);  // nodo oculto requerido por PlacesService
+
+  function _initGooglePlaces() {
+    if(!window.google?.maps?.places) return;
+    autoSvcRef.current  = new window.google.maps.places.AutocompleteService();
+    const dummyMap = new window.google.maps.Map(placesDivRef.current||document.createElement('div'),{center:{lat:-25.28,lng:-57.64},zoom:12});
+    placesSvcRef.current = new window.google.maps.places.PlacesService(dummyMap);
+    setGmapsReady(true);
+  }
+
+  useEffect(()=>{
+    if(!GKEY) return;
+    if(window.google?.maps?.places){ _initGooglePlaces(); return; }
+    const existing = document.querySelector('script[data-gmaps-places]');
+    if(existing){ existing.addEventListener('load',_initGooglePlaces); return; }
+    const s = document.createElement('script');
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${GKEY}&libraries=places&language=es`;
+    s.async = true; s.setAttribute('data-gmaps-places','1');
+    s.onload = _initGooglePlaces;
+    document.head.appendChild(s);
+  },[]);
+
+  function _movePinTo(lat, lng) {
+    if(!mapRef.current||isNaN(lat)||isNaN(lng)) return;
+    latRef.current = lat; lngRef.current = lng;
+    mapRef.current.setView([lat,lng],17,{animate:true});
+    if(pinRef.current){
+      pinRef.current.setLatLng([lat,lng]);
+      Object.values(circlesRef.current).forEach(c=>c.setLatLng([lat,lng]));
+    }
+  }
 
   function handleSearchChange(q) {
     setSearchQ(q);
     clearTimeout(searchTimer.current);
     if(!q.trim()){ setSearchRes([]); return; }
-    searchTimer.current = setTimeout(async ()=>{
+    searchTimer.current = setTimeout(()=>{
       setSearching(true);
-      try {
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&accept-language=es&addressdetails=1`;
-        const res = await fetch(url);
-        const data = await res.json();
-        setSearchRes(Array.isArray(data)?data:[]);
-      } catch(e){ setSearchRes([]); }
-      setSearching(false);
+      if(autoSvcRef.current) {
+        // Google Places: encuentra negocios por nombre en cualquier lugar
+        autoSvcRef.current.getPlacePredictions(
+          {input:q, language:'es'},
+          (predictions, status)=>{
+            setSearching(false);
+            if(status==='OK'&&predictions){
+              setSearchRes(predictions.map(p=>({
+                _type:'google',
+                place_id: p.place_id,
+                main: p.structured_formatting.main_text,
+                secondary: p.structured_formatting.secondary_text||'',
+              })));
+            } else { setSearchRes([]); }
+          }
+        );
+      } else {
+        // Fallback: Nominatim / OpenStreetMap (cobertura limitada en PY)
+        fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&accept-language=es&addressdetails=1`)
+          .then(r=>r.json())
+          .then(data=>{
+            const items = (Array.isArray(data)?data:[]).map(d=>({
+              _type:'osm', place_id:null,
+              main: d.display_name.split(',').slice(0,2).join(',').trim(),
+              secondary: d.display_name.split(',').slice(2,5).join(',').trim(),
+              lat:d.lat, lon:d.lon,
+            }));
+            setSearchRes(items); setSearching(false);
+          })
+          .catch(()=>{ setSearchRes([]); setSearching(false); });
+      }
     }, 420);
   }
 
-  function goToPlace(place) {
-    const lat = parseFloat(place.lat), lng = parseFloat(place.lon);
-    if(!mapRef.current||isNaN(lat)||isNaN(lng)) return;
-    latRef.current = lat; lngRef.current = lng;
-    mapRef.current.setView([lat,lng],16,{animate:true});
-    if(pinRef.current){
-      pinRef.current.setLatLng([lat,lng]);
-      Object.values(circlesRef.current).forEach(c=>c.setLatLng([lat,lng]));
+  function goToPlace(item) {
+    if(item._type==='google' && placesSvcRef.current) {
+      placesSvcRef.current.getDetails(
+        {placeId:item.place_id, fields:['geometry','name','formatted_address']},
+        (place, status)=>{
+          if(status!=='OK'||!place?.geometry) return;
+          _movePinTo(place.geometry.location.lat(), place.geometry.location.lng());
+          setSearchQ(place.name||item.main);
+          setSearchRes([]);
+          setHint(`📍 ${place.name||item.main} — guardá para confirmar`);
+        }
+      );
+    } else {
+      _movePinTo(parseFloat(item.lat||0), parseFloat(item.lon||0));
+      setSearchQ(item.main);
+      setSearchRes([]);
+      setHint('📍 Ubicación actualizada — guardá para confirmar');
     }
-    const parts = place.display_name.split(',');
-    setSearchQ(parts.slice(0,2).join(',').trim());
-    setSearchRes([]);
-    setHint('📍 Ubicación actualizada — guardá para confirmar');
   }
 
   useEffect(()=>{
@@ -5483,39 +5547,50 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
             </div>
             <button onClick={e=>{e.stopPropagation();onClose();}} style={{background:'#F5F5F7',border:'none',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:18,color:'#86868B',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginLeft:12}}>×</button>
           </div>
+          {/* Nodo oculto requerido por Google PlacesService */}
+          <div ref={placesDivRef} style={{display:'none'}}/>
+
           {/* Buscador de lugares */}
           <div style={{position:'relative'}}>
-            <div style={{display:'flex',alignItems:'center',gap:8,background:'#F5F5F7',border:'1.5px solid #D2D2D7',borderRadius:10,padding:'9px 12px',transition:'border-color .15s'}}
-              onFocus={()=>{}} onBlur={()=>{}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,background:'#F5F5F7',border:`1.5px solid ${gmapsReady?'#A3D9B1':'#D2D2D7'}`,borderRadius:10,padding:'9px 12px'}}>
               <span style={{fontSize:16,flexShrink:0}}>🔍</span>
               <input
                 value={searchQ}
                 onChange={e=>handleSearchChange(e.target.value)}
-                placeholder="Buscar el local por nombre o dirección… (ej: Starbucks, Villa Morra)"
+                placeholder={gmapsReady?'Buscar por nombre del local… (ej: Terrapizza Fernando de la Mora)':'Buscar por dirección o ciudad…'}
                 style={{flex:1,background:'none',border:'none',fontSize:13,outline:'none',color:'#1D1D1F',minWidth:0}}
                 onKeyDown={e=>{ if(e.key==='Escape'){setSearchQ('');setSearchRes([]);} }}
               />
               {searching&&<span className="spin" style={{width:14,height:14,borderWidth:1.5,flexShrink:0}}/>}
+              {!searching&&(
+                gmapsReady
+                  ?<span style={{fontSize:10,fontWeight:700,color:'#1A7E37',background:'#F0FAF3',border:'1px solid #A3D9B1',borderRadius:5,padding:'2px 6px',flexShrink:0,whiteSpace:'nowrap'}}>Google ✓</span>
+                  :<span style={{fontSize:10,fontWeight:600,color:'#86868B',background:'#F0F0F0',borderRadius:5,padding:'2px 6px',flexShrink:0,whiteSpace:'nowrap'}}>OSM</span>
+              )}
               {searchQ&&!searching&&(
                 <button onClick={()=>{setSearchQ('');setSearchRes([]);}} style={{background:'none',border:'none',color:'#86868B',cursor:'pointer',fontSize:17,lineHeight:1,padding:0,flexShrink:0}}>×</button>
               )}
             </div>
+
+            {/* Aviso cuando no hay Google API key */}
+            {!GKEY&&(
+              <div style={{marginTop:6,padding:'7px 10px',background:'#FFF4E0',border:'1px solid #FFD580',borderRadius:7,fontSize:11,color:'#8A4B00',display:'flex',gap:6,alignItems:'flex-start'}}>
+                <span style={{flexShrink:0}}>⚠</span>
+                <span>Para buscar por nombre de negocio (como Google Maps) agregá <code style={{fontFamily:"'SF Mono',monospace",fontSize:10}}>googleMapsKey: 'AIza…'</code> en tu <strong>config.js</strong>. Habilitá <em>Maps JavaScript API</em> y <em>Places API</em> en Google Cloud Console.</span>
+              </div>
+            )}
+
             {searchRes.length>0&&(
-              <div style={{position:'absolute',left:0,right:0,top:'calc(100% + 4px)',background:'#fff',border:'1px solid #D2D2D7',borderRadius:10,boxShadow:'0 8px 28px rgba(0,0,0,0.14)',zIndex:99999,overflow:'hidden',maxHeight:240,overflowY:'auto'}}>
-                {searchRes.map((r,i)=>{
-                  const parts = r.display_name.split(',');
-                  const main = parts.slice(0,2).join(',').trim();
-                  const sub  = parts.slice(2,5).join(',').trim();
-                  return (
-                    <button key={i} onClick={()=>goToPlace(r)}
-                      style={{display:'block',width:'100%',padding:'10px 14px',textAlign:'left',background:'none',border:'none',borderBottom:i<searchRes.length-1?'1px solid #F0F0F0':'none',cursor:'pointer',fontFamily:'inherit'}}
-                      onMouseEnter={e=>e.currentTarget.style.background='#F5F5F7'}
-                      onMouseLeave={e=>e.currentTarget.style.background='none'}>
-                      <div style={{fontSize:13,fontWeight:600,color:'#1D1D1F',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>📍 {main}</div>
-                      {sub&&<div style={{fontSize:11,color:'#86868B',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{sub}</div>}
-                    </button>
-                  );
-                })}
+              <div style={{position:'absolute',left:0,right:0,top:'calc(100% + 4px)',background:'#fff',border:'1px solid #D2D2D7',borderRadius:10,boxShadow:'0 8px 28px rgba(0,0,0,0.14)',zIndex:99999,overflow:'hidden',maxHeight:260,overflowY:'auto'}}>
+                {searchRes.map((r,i)=>(
+                  <button key={i} onClick={()=>goToPlace(r)}
+                    style={{display:'block',width:'100%',padding:'10px 14px',textAlign:'left',background:'none',border:'none',borderBottom:i<searchRes.length-1?'1px solid #F0F0F0':'none',cursor:'pointer',fontFamily:'inherit'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='#F5F5F7'}
+                    onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                    <div style={{fontSize:13,fontWeight:600,color:'#1D1D1F',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>📍 {r.main}</div>
+                    {r.secondary&&<div style={{fontSize:11,color:'#86868B',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.secondary}</div>}
+                  </button>
+                ))}
               </div>
             )}
             {searchQ.trim()&&!searching&&searchRes.length===0&&(
