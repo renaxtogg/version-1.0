@@ -220,11 +220,10 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
     }
   }
 
-  await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
-
-  // Registrar en delivery_orders para flujo delivery/rider
+  // Registrar en delivery_orders ANTES de order_status_history para que cocina
+  // ya tenga el row de delivery cuando recibe el evento realtime
   if (orderType === 'delivery' || orderType === 'pickup') {
-    const { error: delErr } = await db.from('delivery_orders').insert({
+    const { data: delRow, error: delErr } = await db.from('delivery_orders').insert({
       order_id:           order.id,
       restaurant_id:      RESTAURANT_ID,
       order_type:         orderType,
@@ -241,11 +240,62 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
       estimated_minutes:  zone?.estimated_minutes || null,
       canal:              canal || 'web',
       status:             'pending',
-    });
-    if (delErr) console.error('delivery_orders insert error:', delErr.message);
+    }).select('id').single();
+    if (delErr) {
+      console.error('[delivery] delivery_orders insert error:', delErr.message, delErr);
+    } else if (delRow?.id && orderType === 'delivery') {
+      await dbAutoAssignRider(delRow.id);
+    }
   }
 
+  // order_status_history va AL FINAL para que cocina reciba el evento
+  // después de que delivery_orders y el rider ya estén asignados
+  await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
+
   return order;
+}
+
+async function dbAutoAssignRider(deliveryOrderId) {
+  if (!db || !deliveryOrderId) return;
+  try {
+    const { data: riders, error: ridersErr } = await db.from('delivery_riders')
+      .select('id,name')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('active', true)
+      .neq('current_status', 'offline');
+    if (ridersErr) { console.error('[delivery] auto-assign: error buscando riders:', ridersErr.message, ridersErr); return; }
+    if (!riders?.length) { console.warn('[delivery] auto-assign: no hay riders disponibles para', RESTAURANT_ID); return; }
+
+    const riderIds = riders.map(r => r.id);
+    const { data: lastAssignments } = await db.from('delivery_orders')
+      .select('rider_id,assigned_at')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .in('rider_id', riderIds)
+      .not('assigned_at', 'is', null)
+      .order('assigned_at', { ascending: false });
+
+    const lastTs = {};
+    for (const r of riders) lastTs[r.id] = 0;
+    for (const a of (lastAssignments || [])) {
+      if (!lastTs[a.rider_id]) lastTs[a.rider_id] = new Date(a.assigned_at).getTime();
+    }
+
+    const selected = [...riders].sort((a, b) => lastTs[a.id] - lastTs[b.id])[0];
+    const { error: updErr } = await db.from('delivery_orders').update({
+      rider_id:    selected.id,
+      rider_name:  selected.name,
+      rider_status:'confirmed',
+      status:      'assigned',
+      assigned_at: new Date().toISOString(),
+    }).eq('id', deliveryOrderId);
+    if (updErr) {
+      console.error('[delivery] auto-assign: error al asignar rider', selected.name, 'a orden', deliveryOrderId, ':', updErr.message, updErr);
+    } else {
+      console.info('[delivery] auto-assign: rider asignado OK →', selected.name, 'a orden', deliveryOrderId);
+    }
+  } catch(e) {
+    console.error('[delivery] auto-assign: excepción inesperada:', e);
+  }
 }
 
 async function dbSubmitRating(orderId, stars, comment) {
@@ -1261,10 +1311,11 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
   const orderNum   = order?.order_number || 'D-?????';
 
   const DELIVERY_STEPS = [
-    { label: 'Confirmado', sub: 'Recibimos tu pedido' },
-    { label: 'En cocina', sub: 'Están preparando tu pedido' },
-    { label: 'En camino', sub: 'El repartidor está en ruta' },
-    { label: 'Entregado', sub: '¡A disfrutar!' }
+    { label: 'Confirmado',  sub: 'Recibimos tu pedido' },
+    { label: 'En cocina',   sub: 'Están preparando tu pedido' },
+    { label: 'Listo',       sub: 'Tu pedido está listo para entregar' },
+    { label: 'En camino',   sub: 'El repartidor está en ruta' },
+    { label: 'Entregado',   sub: '¡A disfrutar!' }
   ];
   const PICKUP_STEPS = [
     { label: 'Confirmado', sub: 'Recibimos tu pedido' },
@@ -1277,9 +1328,10 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
 
   // Para delivery: el step se calcula combinando orders.status + delivery_orders.rider_status
   const calcDeliveryStep = (orderStatus, riderStatus) => {
-    if (riderStatus === 'delivered') return 3;
-    if (riderStatus === 'on_way')    return 2;
-    if (['kitchen_received','cooking','ready'].includes(orderStatus)) return 1;
+    if (riderStatus === 'delivered') return 4;
+    if (riderStatus === 'on_way')    return 3;
+    if (orderStatus === 'ready')     return 2;
+    if (['kitchen_received','cooking'].includes(orderStatus)) return 1;
     return 0;
   };
 
@@ -1345,8 +1397,8 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
           filter: `order_id=eq.${oid}`
         }, p => {
           const rs = p.new.rider_status;
-          if (rs === 'delivered') { setActive(3); return; }
-          if (rs === 'on_way')    { setActive(2); return; }
+          if (rs === 'delivered') { setActive(4); return; }
+          if (rs === 'on_way')    { setActive(3); return; }
           fetchStatus();
         })
         .subscribe();

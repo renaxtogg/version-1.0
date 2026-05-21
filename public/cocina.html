@@ -1285,7 +1285,8 @@ function App() {
         if (!['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
         if (seenOrders.has(ord.id)) return;
         seenOrders.add(ord.id);
-        setTimeout(() => fetchAndAddTicket(ord.id), 800);
+        // 2500ms: dar tiempo para que delivery_orders se inserte antes que cocina lo lea
+        setTimeout(() => fetchAndAddTicket(ord.id), 2500);
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_status_history' }, (payload) => {
         const hist = payload.new;
@@ -1376,7 +1377,7 @@ function App() {
           );
           if (newDeliveries.length) maybeAutoAssignDeliveries(newDeliveries);
           setTickets(prev => {
-            const sig = t => t.id + t.status;
+            const sig = t => t.id + t.status + (t.deliveryInfo?.riderName || '') + (t.deliveryInfo?.riderStatus || '');
             const unchanged = prev.length === data.length && prev.every((t, i) => sig(t) === sig(data[i]));
             return unchanged ? prev : data;
           });
