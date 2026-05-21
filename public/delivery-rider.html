@@ -613,6 +613,15 @@ function App() {
   const [activeOrders, setActiveOrders] = useState([]);
   const [stats, setStats]         = useState({ count:0, earned:0, avgMin:0 });
 
+  // Al montar: si la página se recargó mientras un rider estaba activo, limpiar su sesión en DB
+  useEffect(() => {
+    const staleId = sessionStorage.getItem('rider_id');
+    if (staleId && db) {
+      db.from('delivery_riders').update({ current_status: 'disponible' }).eq('id', staleId)
+        .then(() => sessionStorage.removeItem('rider_id'));
+    }
+  }, []);
+
   async function loadStats(r) {
     if (!db || !r) return;
     const today = new Date(); today.setHours(0,0,0,0);
@@ -649,6 +658,7 @@ function App() {
   }
 
   function handleLogin(riderData) {
+    sessionStorage.setItem('rider_id', riderData.id);
     setRider(riderData);
     setScreen('home');
     loadStats(riderData);
@@ -669,7 +679,12 @@ function App() {
     }
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    sessionStorage.removeItem('rider_id');
+    if (rider?.id && db) {
+      await db.from('delivery_riders').update({ current_status: 'disponible' }).eq('id', rider.id);
+      db.removeAllChannels();
+    }
     setRider(null);
     setActiveOrders([]);
     setStats({ count:0, earned:0, avgMin:0 });

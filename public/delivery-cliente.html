@@ -1807,15 +1807,25 @@ function ReservaScreen({ onBack, onDone }) {
 function App() {
   const theme = makeTheme();
 
-  const [screen, setScreen]         = useState('welcome');
-  const [orderType, setOrderType]   = useState('delivery');
+  const [confirmedOrder, setConfirmedOrder] = useState(() => {
+    try { const s = localStorage.getItem('dc_order'); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const [screen, setScreen] = useState(() => {
+    try { return localStorage.getItem('dc_order') ? 'confirm' : 'welcome'; } catch { return 'welcome'; }
+  });
+  const [orderType, setOrderType] = useState(() => {
+    try { return localStorage.getItem('dc_order_type') || 'delivery'; } catch { return 'delivery'; }
+  });
+  const [deliveryResult, setDeliveryResult] = useState(() => {
+    try { const s = localStorage.getItem('dc_zone'); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const [customerData, setCustomerData] = useState(() => {
+    try { const s = localStorage.getItem('dc_customer'); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
   const [zones, setZones]           = useState([]);
-  const [deliveryResult, setDeliveryResult] = useState(null);
-  const [customerData, setCustomerData]     = useState(null);
   const [cartItems, setCartItems]           = useState([]);
   const [selItem, setSelItem]               = useState(null);
   const [toast, setToast]                   = useState(null);
-  const [confirmedOrder, setConfirmedOrder] = useState(null);
   const [payData, setPayData]               = useState({ subtotal: 0, fee: 0, total: 0 });
   const [restaurant, setRestaurant]         = useState(null);
   const [liveMenu, setLiveMenu]             = useState(null);
@@ -1861,12 +1871,19 @@ function App() {
   };
 
   const handleConfirmed = (order) => {
+    try {
+      localStorage.setItem('dc_order',    JSON.stringify(order));
+      localStorage.setItem('dc_order_type', orderType);
+      if (customerData)   localStorage.setItem('dc_customer', JSON.stringify(customerData));
+      if (deliveryResult) localStorage.setItem('dc_zone',     JSON.stringify(deliveryResult));
+    } catch {}
     setConfirmedOrder(order);
     setCartItems([]);
     setScreen('confirm');
   };
 
   const handleNewOrder = () => {
+    ['dc_order','dc_order_type','dc_customer','dc_zone'].forEach(k => localStorage.removeItem(k));
     setConfirmedOrder(null);
     setCustomerData(null);
     setDeliveryResult(null);
