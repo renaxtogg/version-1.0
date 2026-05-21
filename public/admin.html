@@ -5331,6 +5331,46 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
   const [saving, setSaving] = useState(false);
   const [hint, setHint] = useState('Tocá el mapa para definir el alcance de la zona activa');
 
+  // Bloquear polling global mientras el editor esté abierto
+  useEffect(()=>{ _modalCount++; return ()=>{ _modalCount=Math.max(0,_modalCount-1); }; },[]);
+
+  // Buscador de lugares (Nominatim / OpenStreetMap)
+  const [searchQ, setSearchQ]     = useState('');
+  const [searchRes, setSearchRes] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const searchTimer = useRef(null);
+
+  function handleSearchChange(q) {
+    setSearchQ(q);
+    clearTimeout(searchTimer.current);
+    if(!q.trim()){ setSearchRes([]); return; }
+    searchTimer.current = setTimeout(async ()=>{
+      setSearching(true);
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&accept-language=es&addressdetails=1`;
+        const res = await fetch(url);
+        const data = await res.json();
+        setSearchRes(Array.isArray(data)?data:[]);
+      } catch(e){ setSearchRes([]); }
+      setSearching(false);
+    }, 420);
+  }
+
+  function goToPlace(place) {
+    const lat = parseFloat(place.lat), lng = parseFloat(place.lon);
+    if(!mapRef.current||isNaN(lat)||isNaN(lng)) return;
+    latRef.current = lat; lngRef.current = lng;
+    mapRef.current.setView([lat,lng],16,{animate:true});
+    if(pinRef.current){
+      pinRef.current.setLatLng([lat,lng]);
+      Object.values(circlesRef.current).forEach(c=>c.setLatLng([lat,lng]));
+    }
+    const parts = place.display_name.split(',');
+    setSearchQ(parts.slice(0,2).join(',').trim());
+    setSearchRes([]);
+    setHint('📍 Ubicación actualizada — guardá para confirmar');
+  }
+
   useEffect(()=>{
     if(!mapDivRef.current||!window.L) return;
     const L = window.L;
@@ -5435,12 +5475,55 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
     >
       <div style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:700,maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 32px 80px rgba(0,0,0,0.4)'}}>
         {/* Header */}
-        <div style={{padding:'16px 20px',borderBottom:'1px solid #E5E5EA',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
-          <div>
-            <div style={{fontSize:17,fontWeight:800,color:'#000'}}>Editor de zonas en el mapa</div>
-            <div style={{fontSize:12,color:'#86868B',marginTop:2}}>Tocá el mapa para definir el alcance · Arrastrá el pin para reposicionar el local</div>
+        <div style={{padding:'16px 20px',borderBottom:'1px solid #E5E5EA',flexShrink:0}}>
+          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:12}}>
+            <div>
+              <div style={{fontSize:17,fontWeight:800,color:'#000'}}>Ubicación del local y zonas</div>
+              <div style={{fontSize:12,color:'#86868B',marginTop:2}}>Buscá el local por nombre · Arrastrá el pin · Tocá el mapa para ajustar radios</div>
+            </div>
+            <button onClick={e=>{e.stopPropagation();onClose();}} style={{background:'#F5F5F7',border:'none',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:18,color:'#86868B',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginLeft:12}}>×</button>
           </div>
-          <button onClick={e=>{e.stopPropagation();onClose();}} style={{background:'#F5F5F7',border:'none',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:18,color:'#86868B',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+          {/* Buscador de lugares */}
+          <div style={{position:'relative'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,background:'#F5F5F7',border:'1.5px solid #D2D2D7',borderRadius:10,padding:'9px 12px',transition:'border-color .15s'}}
+              onFocus={()=>{}} onBlur={()=>{}}>
+              <span style={{fontSize:16,flexShrink:0}}>🔍</span>
+              <input
+                value={searchQ}
+                onChange={e=>handleSearchChange(e.target.value)}
+                placeholder="Buscar el local por nombre o dirección… (ej: Starbucks, Villa Morra)"
+                style={{flex:1,background:'none',border:'none',fontSize:13,outline:'none',color:'#1D1D1F',minWidth:0}}
+                onKeyDown={e=>{ if(e.key==='Escape'){setSearchQ('');setSearchRes([]);} }}
+              />
+              {searching&&<span className="spin" style={{width:14,height:14,borderWidth:1.5,flexShrink:0}}/>}
+              {searchQ&&!searching&&(
+                <button onClick={()=>{setSearchQ('');setSearchRes([]);}} style={{background:'none',border:'none',color:'#86868B',cursor:'pointer',fontSize:17,lineHeight:1,padding:0,flexShrink:0}}>×</button>
+              )}
+            </div>
+            {searchRes.length>0&&(
+              <div style={{position:'absolute',left:0,right:0,top:'calc(100% + 4px)',background:'#fff',border:'1px solid #D2D2D7',borderRadius:10,boxShadow:'0 8px 28px rgba(0,0,0,0.14)',zIndex:99999,overflow:'hidden',maxHeight:240,overflowY:'auto'}}>
+                {searchRes.map((r,i)=>{
+                  const parts = r.display_name.split(',');
+                  const main = parts.slice(0,2).join(',').trim();
+                  const sub  = parts.slice(2,5).join(',').trim();
+                  return (
+                    <button key={i} onClick={()=>goToPlace(r)}
+                      style={{display:'block',width:'100%',padding:'10px 14px',textAlign:'left',background:'none',border:'none',borderBottom:i<searchRes.length-1?'1px solid #F0F0F0':'none',cursor:'pointer',fontFamily:'inherit'}}
+                      onMouseEnter={e=>e.currentTarget.style.background='#F5F5F7'}
+                      onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                      <div style={{fontSize:13,fontWeight:600,color:'#1D1D1F',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>📍 {main}</div>
+                      {sub&&<div style={{fontSize:11,color:'#86868B',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{sub}</div>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {searchQ.trim()&&!searching&&searchRes.length===0&&(
+              <div style={{position:'absolute',left:0,right:0,top:'calc(100% + 4px)',background:'#fff',border:'1px solid #D2D2D7',borderRadius:10,padding:'14px',textAlign:'center',color:'#86868B',fontSize:12,zIndex:99999}}>
+                Sin resultados — intentá con otro nombre o ciudad
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Mapa */}
@@ -5734,9 +5817,9 @@ function DeliveryModule() {
 
   useEffect(()=>{ loadDelivery(); },[]);
 
-  async function loadDelivery() {
-    setLoading(true);
-    if(!db){ setLoading(false); return; }
+  async function loadDelivery(silent=false) {
+    if(!silent) setLoading(true);
+    if(!db){ if(!silent) setLoading(false); return; }
     const [doR,rR,zR,restR] = await Promise.all([
       db.from('delivery_orders').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(300),
       db.from('delivery_riders').select('*').eq('restaurant_id',RID).order('name'),
@@ -5780,10 +5863,10 @@ function DeliveryModule() {
         setDeliveryOrders(prev=>[payload.new,...prev]);
         if(!payload.new.rider_id) autoAssignRider(payload.new);
       })
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'delivery_orders',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) loadDelivery(); })
-      .on('postgres_changes',{event:'*',schema:'public',table:'delivery_riders',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) loadDelivery(); })
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'delivery_orders',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) loadDelivery(true); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'delivery_riders',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) loadDelivery(true); })
       .subscribe();
-    const poll = setInterval(()=>{ if(_shouldPause()) return; loadDelivery(); }, 30000);
+    const poll = setInterval(()=>{ if(_shouldPause()) return; loadDelivery(true); }, 120000);
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };
   },[riders]);
 
