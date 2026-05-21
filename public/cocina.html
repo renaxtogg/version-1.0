@@ -421,9 +421,10 @@ async function maybeAutoAssignDeliveries(tickets) {
 async function dbDismissDeliveryTicket(supabaseId, deliveryOrderId) {
   if (!db || !supabaseId) return;
   try {
-    await db.from('orders').update({ status: 'ready' }).eq('id', supabaseId);
-    await db.from('order_status_history').insert({ order_id: supabaseId, status: 'ready', changed_by: 'kitchen' });
-    // Asegurar que el rider esté asignado (fallback si no se asignó al entrar)
+    // pending_payment: saca el pedido del filtro de cocina y no reaparece en el loop
+    await db.from('orders').update({ status: 'pending_payment' }).eq('id', supabaseId);
+    await db.from('order_status_history').insert({ order_id: supabaseId, status: 'pending_payment', changed_by: 'kitchen' });
+    // Asignar rider (fallback si no se asignó cuando llegó el pedido)
     if (deliveryOrderId) {
       await autoAssignRider(deliveryOrderId);
     }
@@ -643,7 +644,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
             </div>
           )}
           {ticket.deliveryInfo.isDelivery && !ticket.deliveryInfo.riderName && !isEntregado && (
-            <div style={{ fontSize: 9, color: '#FF9500', fontWeight: 600 }}>⏳ rider se asignará al marcar listo</div>
+            <div style={{ fontSize: 9, color: '#FF9500', fontWeight: 600 }}>⏳ buscando rider disponible</div>
           )}
         </div>
       )}
