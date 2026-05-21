@@ -1647,12 +1647,24 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
 ═══════════════════════════════════════════ */
 function OrderDetailModal({order,onClose}){
   const [items,setItems]=useState([]);
+  const [dInfo,setDInfo]=useState(null);
   useEffect(()=>{
     db.from('order_items').select('id,item_name,quantity,unit_price,observations,order_item_extras(extra_name,extra_price)')
       .eq('order_id',order.id).then(({data})=>setItems(data||[]));
+    if(order.order_type==='delivery'){
+      db.from('delivery_orders')
+        .select('customer_name,customer_phone,delivery_address,rider_name,rider_status,delivery_fee,cash_amount,order_total')
+        .eq('order_id',order.id).maybeSingle()
+        .then(({data})=>setDInfo(data||null));
+    }
   },[order.id]);
   const mesa=order.tables?.number?`Mesa ${order.tables.number}`:order.customer_name||'Sin identificar';
   const espera=Math.floor((Date.now()-new Date(order.created_at))/60000);
+  const isDelivery=order.order_type==='delivery';
+  const deliveryFee=dInfo?.delivery_fee||0;
+  const cashAmt=dInfo?.cash_amount||0;
+  const orderTot=dInfo?.order_total||Number(order.total)||0;
+  const cashChg=cashAmt>0?cashAmt-orderTot:0;
   return(
     <Modal title={`Pedido #${order.order_number}`} onClose={onClose} width={440}>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
@@ -1661,6 +1673,30 @@ function OrderDetailModal({order,onClose}){
         <span style={{fontSize:12,color:'#6E6E73'}}>{mesa}</span>
         <span style={{fontSize:11,color:'#86868B'}}>⏱ {espera}m</span>
       </div>
+
+      {/* Info delivery */}
+      {isDelivery&&dInfo&&(
+        <div style={{background:'rgba(255,59,48,0.05)',border:'1px solid rgba(255,59,48,0.18)',borderRadius:9,padding:'10px 13px',marginBottom:14,fontSize:12}}>
+          {(dInfo.customer_name||order.customer_name)&&<div style={{fontWeight:700,color:'#1D1D1F',marginBottom:3}}>👤 {dInfo.customer_name||order.customer_name}</div>}
+          {dInfo.customer_phone&&<div style={{color:'#6E6E73',marginBottom:2}}>📞 {dInfo.customer_phone}</div>}
+          {dInfo.delivery_address&&<div style={{color:'#6E6E73',marginBottom:2}}>📍 {dInfo.delivery_address}</div>}
+          {dInfo.rider_name
+            ?<div style={{color:'#34C759',fontWeight:700,marginTop:3}}>🛵 Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':''}</div>
+            :<div style={{color:'#FF9500',fontWeight:600,marginTop:3}}>⏳ Sin rider asignado</div>
+          }
+          {cashAmt>0&&cashChg>=0&&(
+            <div style={{marginTop:6,paddingTop:6,borderTop:'1px solid rgba(255,59,48,0.15)'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <span style={{color:'#15803D',fontWeight:700}}>💵 Vuelto a llevar</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,fontSize:14,color:'#16A34A'}}>{fmt(cashChg)}</span>
+              </div>
+              <div style={{fontSize:10,color:'#6E6E73',marginTop:1}}>Cliente paga {fmt(cashAmt)} · total {fmt(orderTot)}</div>
+            </div>
+          )}
+        </div>
+      )}
+      {isDelivery&&!dInfo&&<div style={{fontSize:11,color:'#86868B',marginBottom:12}}>Cargando info delivery…</div>}
+
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:12,minHeight:60}}>
         {items.length===0&&<div style={{color:'#86868B',fontSize:12,textAlign:'center',padding:8}}>Cargando ítems…</div>}
         {items.map(it=>(
@@ -1676,6 +1712,12 @@ function OrderDetailModal({order,onClose}){
           </div>
         ))}
       </div>
+      {isDelivery&&deliveryFee>0&&(
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#6E6E73',marginBottom:6}}>
+          <span>Costo delivery</span>
+          <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(deliveryFee)}</span>
+        </div>
+      )}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderTop:`1px solid ${C.border}`,marginBottom:14}}>
         <span style={{fontSize:13,fontWeight:700,color:C.mid}}>TOTAL</span>
         <span style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(order.total)}</span>
