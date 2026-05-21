@@ -1157,7 +1157,26 @@ function App() {
   /* ── REMOVE ITEM ── */
   async function removeItem(itemId) {
     if (!db) return;
-    // Buscar el ítem en tableOrders (puede ser de cualquier orden de la mesa)
+    let targetOrder = null;
+    let targetItem = null;
+    for (const ord of tableOrders) {
+      const found = (ord.order_items || []).find(i => i.id === itemId);
+      if (found) { targetOrder = ord; targetItem = found; break; }
+    }
+    if (!targetOrder || !targetItem) { showToast('Ítem no encontrado'); return; }
+    const { error: delErr } = await db.from('order_items').delete().eq('id', itemId);
+    if (delErr) { showToast('Error al eliminar: ' + (delErr.message || delErr.code)); return; }
+    const lineTotal = Number(targetItem.total_price) || Number((targetItem.unit_price || 0)) * Number(targetItem.quantity || 0);
+    const newTotal = Math.max(0, (targetOrder.total || 0) - lineTotal);
+    await db.from('orders').update({ subtotal: newTotal, total: newTotal }).eq('id', targetOrder.id);
+    await loadData();
+    if (activeTableId) await loadTableOrders(activeTableId);
+    showToast('Ítem eliminado');
+  }
+
+  /* ── ADJUST ITEM QUANTITY ── */
+  async function adjustItemQty(itemId, delta) {
+    if (!db) return;
     let targetOrder = null;
     let targetItem = null;
     for (const ord of tableOrders) {
@@ -1165,13 +1184,23 @@ function App() {
       if (found) { targetOrder = ord; targetItem = found; break; }
     }
     if (!targetOrder || !targetItem) return;
-    await db.from('order_items').delete().eq('id', itemId);
-    const lineTotal = Number(targetItem.total_price) || Number((targetItem.unit_price || 0)) * Number(targetItem.quantity || 0);
-    const newTotal = Math.max(0, (targetOrder.total || 0) - lineTotal);
-    await db.from('orders').update({ subtotal: newTotal, total: newTotal }).eq('id', targetOrder.id);
+    const oldQty = Number(targetItem.quantity || 1);
+    const newQty = oldQty + delta;
+    if (newQty <= 0) {
+      await removeItem(itemId);
+      return;
+    }
+    const unitPrice = Number(targetItem.unit_price || 0);
+    const oldLineTotal = Number(targetItem.total_price) || unitPrice * oldQty;
+    const newLineTotal = unitPrice * newQty;
+    const { error: updErr } = await db.from('order_items')
+      .update({ quantity: newQty, total_price: newLineTotal })
+      .eq('id', itemId);
+    if (updErr) { showToast('Error al actualizar cantidad: ' + (updErr.message || updErr.code)); return; }
+    const newOrderTotal = Math.max(0, (targetOrder.total || 0) - oldLineTotal + newLineTotal);
+    await db.from('orders').update({ subtotal: newOrderTotal, total: newOrderTotal }).eq('id', targetOrder.id);
     await loadData();
-    if (activeTableId) loadTableOrders(activeTableId);
-    showToast('Ítem eliminado');
+    if (activeTableId) await loadTableOrders(activeTableId);
   }
 
   /* ── ENVIAR A COCINA ── */
@@ -1615,8 +1644,8 @@ function App() {
                             <div key={item.id} className="item-card">
                               <div className="item-top">
                                 <div style={{ flex: 1 }}>
-                                  <div className="item-name" style={{ color: isDelivered ? 'var(--text3)' : 'var(--text)', textDecoration: isDelivered ? 'none' : 'none' }}>
-                                    {item.quantity}× {item.item_name}
+                                  <div className="item-name" style={{ color: isDelivered ? 'var(--text3)' : 'var(--text)' }}>
+                                    {item._canRemove ? item.item_name : `${item.quantity}× ${item.item_name}`}
                                   </div>
                                   {!isEditing && item.observations && (
                                     <div className="item-note" onClick={() => { setItemEditId(item.id); setItemEditNote(item.observations || ''); }} style={{ cursor: 'pointer' }}>
@@ -1646,7 +1675,14 @@ function App() {
                                   )}
                                 </div>
                                 <div className="item-price">{fGs(item._lineTotal)}</div>
-                                {item._canRemove && <div className="item-del" onClick={() => removeItem(item.id)}>✕</div>}
+                                {item._canRemove ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginLeft: 6, flexShrink: 0 }}>
+                                    <div className="qty-btn" style={{ width: 26, height: 26, borderRadius: 6, fontSize: 16 }} onClick={() => adjustItemQty(item.id, -1)}>−</div>
+                                    <span style={{ fontSize: 14, fontWeight: 800, minWidth: 20, textAlign: 'center' }}>{item.quantity}</span>
+                                    <div className="qty-btn" style={{ width: 26, height: 26, borderRadius: 6, fontSize: 16 }} onClick={() => adjustItemQty(item.id, 1)}>+</div>
+                                    <div className="item-del" style={{ marginLeft: 2 }} onClick={() => removeItem(item.id)}>✕</div>
+                                  </div>
+                                ) : null}
                               </div>
                               <div className="item-status-row">
                                 {itemStatusBadge(item._orderStatus, item._paymentStatus)}
