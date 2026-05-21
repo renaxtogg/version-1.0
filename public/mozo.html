@@ -722,12 +722,12 @@ function App() {
       const tblNumById = {};
       allTables.forEach(t => { tblNumById[t.id] = t.number; });
 
-      // Detect newly ready orders → alert
-      const readyOrders = (ordersRes.data || []).filter(o => o.status === 'ready');
+      // Detect newly ready orders → alert (solo pedidos de mesa, no delivery/llevar/pickup)
+      const readyOrders = (ordersRes.data || []).filter(o => o.status === 'ready' && o.table_id);
       const newReady = readyOrders.filter(o => !knownReadyIds.current.has(o.id));
       if (newReady.length > 0 && knownReadyIds.current.size > 0) {
         newReady.forEach(o => {
-          const mesaNum = o.table_id ? (tblNumById[o.table_id] || '?') : '?';
+          const mesaNum = tblNumById[o.table_id] || '?';
           playAlertSound();
           vibrateDevice();
           showToast(`Mesa ${mesaNum} — pedido listo`);
@@ -735,8 +735,8 @@ function App() {
       }
       knownReadyIds.current = new Set(readyOrders.map(o => o.id));
 
-      // Detect newly pending_payment orders → alert (cliente pide la cuenta)
-      const pendPayOrders = (ordersRes.data || []).filter(o => o.status === 'pending_payment');
+      // Detect newly pending_payment orders → alert (solo mesas, cliente pide la cuenta)
+      const pendPayOrders = (ordersRes.data || []).filter(o => o.status === 'pending_payment' && o.table_id);
       const newPendPay = pendPayOrders.filter(o => !knownPendPayIds.current.has(o.id));
       if (newPendPay.length > 0 && knownPendPayIds.current.size > 0) {
         newPendPay.forEach(o => {

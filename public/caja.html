@@ -1974,6 +1974,28 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
   const [justif,setJustif]=useState('');
   const [tipoReporte,setTipoReporte]=useState('Z');
   const [busy,setBusy]=useState(false);
+  const [deliveryByRider,setDeliveryByRider]=useState([]);
+
+  useEffect(()=>{
+    const cobros=movimientos.filter(m=>m.tipo==='cobro'&&m.pedido_id);
+    if(!cobros.length||!db){setDeliveryByRider([]);return;}
+    const pedidoIds=cobros.map(m=>m.pedido_id);
+    db.from('delivery_orders')
+      .select('order_id,rider_name,order_total,delivery_fee')
+      .in('order_id',pedidoIds)
+      .then(({data})=>{
+        if(!data?.length){setDeliveryByRider([]);return;}
+        const byRider={};
+        for(const d of data){
+          const rider=d.rider_name||'Sin asignar';
+          if(!byRider[rider])byRider[rider]={rider,pedidos:0,total:0,fee:0};
+          byRider[rider].pedidos++;
+          byRider[rider].total+=d.order_total||0;
+          byRider[rider].fee+=d.delivery_fee||0;
+        }
+        setDeliveryByRider(Object.values(byRider).sort((a,b)=>b.total-a.total));
+      });
+  },[movimientos]);
 
   const cobros=movimientos.filter(m=>m.tipo==='cobro');
   const totalCobrado=cobros.reduce((s,m)=>s+Number(m.monto),0);
@@ -2041,6 +2063,33 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
               <KpiMini key={lbl} label={lbl} value={val} accent={color}/>
             ))}
           </div>
+          {deliveryByRider.length>0&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.ink,marginBottom:8}}>🛵 Deliveries del turno — por rider</div>
+              <div style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                  <thead>
+                    <tr style={{background:C.surface}}>
+                      <th style={{padding:'8px 12px',textAlign:'left',fontWeight:700,color:C.mid,borderBottom:`1px solid ${C.border}`}}>Rider</th>
+                      <th style={{padding:'8px 12px',textAlign:'center',fontWeight:700,color:C.mid,borderBottom:`1px solid ${C.border}`}}>Pedidos</th>
+                      <th style={{padding:'8px 12px',textAlign:'right',fontWeight:700,color:C.mid,borderBottom:`1px solid ${C.border}`}}>Total</th>
+                      <th style={{padding:'8px 12px',textAlign:'right',fontWeight:700,color:C.mid,borderBottom:`1px solid ${C.border}`}}>Fee entrega</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deliveryByRider.map((r,i)=>(
+                      <tr key={r.rider} style={{background:i%2===0?'transparent':C.surface}}>
+                        <td style={{padding:'8px 12px',fontWeight:600,color:C.ink}}>🛵 {r.rider}</td>
+                        <td style={{padding:'8px 12px',textAlign:'center',color:C.mid}}>{r.pedidos}</td>
+                        <td style={{padding:'8px 12px',textAlign:'right',color:C.ink,fontWeight:600}}>{fmt(r.total)}</td>
+                        <td style={{padding:'8px 12px',textAlign:'right',color:'#34C759',fontWeight:600}}>{fmt(r.fee)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <div style={{display:'flex',gap:8}}>
             <div style={{marginRight:'auto',fontSize:12,color:'#6E6E73',alignSelf:'center'}}>
               Turno activo desde {fmtDT(turno.fecha_apertura)} · {fmtDur(turno.fecha_apertura)}
