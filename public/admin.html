@@ -445,14 +445,6 @@ function DashboardPage({orders, ratings, setPage}) {
       .then(({data})=>setTodayItems(data||[]));
   },[orders]);
 
-  useEffect(()=>{
-    if(!db) return;
-    const ch = db.channel('dash-rt')
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{})
-      .subscribe();
-    const poll = setInterval(()=>{}, 30000);
-    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
-  },[]);
 
   return (
     <div className="page">
@@ -638,6 +630,7 @@ function PedidosPage({orders, tables, onRefresh}) {
     const ch = db.channel('pedidos-rt')
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ setNewBadge(n=>n+1); if(!_shouldPause()) onRefresh(); })
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) onRefresh(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'waiter_calls',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) onRefresh(); })
       .subscribe();
     const poll = setInterval(()=>{ if(_shouldPause()) return; onRefresh(); }, 30000);
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };
@@ -1392,7 +1385,7 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
         setTables(prev=>prev.map(t=>t.id===payload.new.id?{...t,...payload.new}:t));
       })
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) onRefresh(); })
-      .on('postgres_changes',{event:'DELETE',schema:'public',table:'tables'}, ()=>{ if(!_shouldPause()) onRefresh(); })
+      .on('postgres_changes',{event:'DELETE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) onRefresh(); })
       .subscribe();
     const poll = setInterval(()=>{ if(_shouldPause()) return; onRefresh(); }, 30000);
     return ()=>{ db.removeChannel(ch); clearInterval(poll); };

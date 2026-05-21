@@ -392,6 +392,26 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
   const [searchQ,setSearchQ]=useState('');
 
   useEffect(()=>{loadOrders();},[]);
+  useEffect(()=>{
+    if(!db)return;
+    const ch=db.channel('cobros-rt')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>loadOrders())
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},(payload)=>{
+        const o=payload.new;
+        if(['delivered','cancelled'].includes(o.status)){
+          setOrders(p=>p.filter(x=>x.id!==o.id));
+        } else {
+          setOrders(p=>p.some(x=>x.id===o.id)
+            ?p.map(x=>x.id===o.id?{...x,status:o.status,payment_status:o.payment_status,payment_method:o.payment_method,total:o.total}:x)
+            :p
+          );
+        }
+      })
+      .subscribe();
+    const onVisible=()=>{if(document.visibilityState==='visible')loadOrders();};
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{db.removeChannel(ch);document.removeEventListener('visibilitychange',onVisible);};
+  },[]);
 
   async function loadOrders(){
     setLoading(true);
@@ -1606,7 +1626,9 @@ function SalonPanel({profile}){
       .on('postgres_changes',{event:'*',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>load())
       .on('postgres_changes',{event:'*',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`},()=>load())
       .subscribe();
-    return()=>db.removeChannel(ch);
+    const onVisible=()=>{if(document.visibilityState==='visible')load();};
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{db.removeChannel(ch);document.removeEventListener('visibilitychange',onVisible);};
   },[]);
 
   async function load(){
@@ -2615,12 +2637,21 @@ function DashboardCaja({turno,profile,onCierre}){
   }
 
   useEffect(()=>{loadMovimientos();},[turno.id]);
+  useEffect(()=>{
+    if(!db)return;
+    const ch=db.channel(`movimientos-rt-${turno.id}`)
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'movimientos_caja',filter:`turno_id=eq.${turno.id}`},(payload)=>{
+        setMovimientos(p=>p.find(m=>m.id===payload.new.id)?p:[payload.new,...p]);
+      })
+      .subscribe();
+    return()=>db.removeChannel(ch);
+  },[turno.id]);
 
   async function loadMovimientos(){
     const{data}=await db.from('movimientos_caja').select('*').eq('turno_id',turno.id).order('created_at',{ascending:false});
     setMovimientos(data||[]);
   }
-  function addMovimiento(m){setMovimientos(p=>[m,...p]);}
+  function addMovimiento(m){setMovimientos(p=>p.find(x=>x.id===m.id)?p:[m,...p]);}
 
   function handleCierre(){
     if(panel==='cierre')return;

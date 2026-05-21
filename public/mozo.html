@@ -845,6 +845,10 @@ function App() {
         loadDataRef.current?.();
         if (activeTableIdRef.current) loadTableOrdersRef.current?.(activeTableIdRef.current);
       })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_status_history' }, () => {
+        loadDataRef.current?.();
+        if (activeTableIdRef.current) loadTableOrdersRef.current?.(activeTableIdRef.current);
+      })
       .subscribe();
   }
 
