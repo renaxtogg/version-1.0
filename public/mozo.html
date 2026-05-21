@@ -701,9 +701,15 @@ function App() {
       const allTables = tablesRes.data || [];
       setTables(allTables);
 
+      const tblById = {};
+      allTables.forEach(t => { tblById[t.id] = t; });
+
       const om = {};
       (ordersRes.data || []).forEach(o => {
         if (!o.table_id) return;
+        // Excluir órdenes de sesiones anteriores (antes del occupied_since actual)
+        const tbl = tblById[o.table_id];
+        if (tbl?.occupied_since && new Date(o.created_at) < new Date(tbl.occupied_since)) return;
         const existing = om[o.table_id];
         if (!existing) { om[o.table_id] = o; return; }
         const newPrio = STATUS_PRIORITY.indexOf(o.status);
@@ -754,13 +760,16 @@ function App() {
       if (occupiedIds.length > 0) {
         // Solo contar órdenes activas (no cobradas = no delivered+payment_method)
         const { data: sessData } = await db
-          .from('orders').select('table_id, total')
+          .from('orders').select('table_id, total, created_at')
           .eq('restaurant_id', RID)
           .in('table_id', occupiedIds)
           .not('status', 'in', '("cancelled")')
           .or('status.neq.delivered,payment_method.is.null');
         const st = {};
         (sessData || []).forEach(o => {
+          // Filtrar por occupied_since para no acumular deudas de sesiones anteriores
+          const tbl = tblById[o.table_id];
+          if (tbl?.occupied_since && new Date(o.created_at) < new Date(tbl.occupied_since)) return;
           st[o.table_id] = (st[o.table_id] || 0) + Number(o.total || 0);
         });
         setSessionTotals(st);
@@ -1073,7 +1082,8 @@ function App() {
         .order('created_at', { ascending: false });
       if (tbl?.occupied_since) q = q.gte('created_at', tbl.occupied_since);
       const { data } = await q;
-      setHistorialOrders(data || []);
+      // Ocultar órdenes fantasma: sin ítems y sin total (restos de sesiones corruptas)
+      setHistorialOrders((data || []).filter(o => (o.order_items || []).length > 0 || Number(o.total || 0) > 0));
     } catch(e) {
       console.error('loadHistorial error:', e);
     }
@@ -1789,10 +1799,55 @@ function App() {
                   className="btn btn-sm"
                   style={{ background: 'var(--text)', color: 'white', border: 'none' }}
                   onClick={async () => {
-                    localStorage.removeItem('mozo_session');
-                    localStorage.removeItem('turno_inicio');
-                    if (db) await db.auth.signOut();
-                    window.location.replace('login.html');
+                    if (!db) return;
+                    // Buscar órdenes activas sin cobrar del turno actual
+                    const { data: pendientes } = await db.from('orders')
+                      .select('id, order_number, total, table_id, order_items(id)')
+                      .eq('restaurant_id', RID)
+                      .not('status', 'in', '("cancelled","delivered")')
+                      .neq('payment_status', 'paid');
+                    const conItems = (pendientes || []).filter(o => (o.order_items || []).length > 0);
+                    const vacias  = (pendientes || []).filter(o => (o.order_items || []).length === 0);
+
+                    const doClose = async () => {
+                      // Cancelar órdenes vacías automáticamente
+                      for (const o of vacias) {
+                        await db.from('orders').update({ status: 'cancelled' }).eq('id', o.id);
+                      }
+                      // Liberar todas las mesas ocupadas sin orden activa con ítems
+                      const tablasConDeuda = new Set(conItems.map(o => o.table_id).filter(Boolean));
+                      const { data: allOccupied } = await db.from('tables')
+                        .select('id').eq('restaurant_id', RID).eq('is_occupied', true);
+                      for (const t of (allOccupied || [])) {
+                        if (!tablasConDeuda.has(t.id)) {
+                          await db.from('tables').update({ is_occupied: false, occupied_since: null }).eq('id', t.id);
+                        }
+                      }
+                      localStorage.removeItem('mozo_session');
+                      localStorage.removeItem('turno_inicio');
+                      if (db) await db.auth.signOut();
+                      window.location.replace('login.html');
+                    };
+
+                    if (conItems.length > 0) {
+                      const mesaNums = conItems.map(o => {
+                        const tbl = tablesById[o.table_id];
+                        return `Mesa ${tbl?.number || '?'} (${fGsK(o.total || 0)})`;
+                      }).join(', ');
+                      setConfirmDialog({
+                        title: 'Terminar turno',
+                        body: `⚠ Quedan ${conItems.length} orden(es) sin cobrar: ${mesaNums}.\n\nEstas quedarán pendientes para caja. ¿Confirmar cierre de turno?`,
+                        danger: true,
+                        onOk: doClose,
+                      });
+                    } else {
+                      setConfirmDialog({
+                        title: 'Terminar turno',
+                        body: 'Todas las órdenes están cobradas. ¿Confirmar cierre de turno?',
+                        danger: false,
+                        onOk: doClose,
+                      });
+                    }
                   }}
                 >Terminar turno</button>
               </div>
@@ -1946,7 +2001,7 @@ function App() {
                         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--green)', background: 'var(--green-soft)', padding: '2px 6px', borderRadius: 4 }}>PAGADO ✓</span>
                       )}
                       <div style={{ fontSize: 13, fontWeight: 800, color: (ord.status === 'delivered' || ord.payment_status === 'paid') ? 'var(--green)' : 'var(--orange)' }}>
-                        {fGs(ord.total)}
+                        {fGs(Number(ord.total) > 0 ? ord.total : (ord.order_items || []).reduce((s, i) => s + Number(i.total_price || 0), 0))}
                       </div>
                     </div>
                   </div>
@@ -1963,7 +2018,10 @@ function App() {
                 <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text2)' }}>Total del servicio</div>
                   <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)' }}>
-                    {fGs(historialOrders.reduce((s, o) => s + Number(o.total || 0), 0))}
+                    {fGs(historialOrders.reduce((s, o) => {
+                      const t = Number(o.total) > 0 ? Number(o.total) : (o.order_items || []).reduce((si, i) => si + Number(i.total_price || 0), 0);
+                      return s + t;
+                    }, 0))}
                   </div>
                 </div>
               )}
