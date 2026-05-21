@@ -746,18 +746,6 @@ function App() {
       }
       knownPendPayIds.current = new Set(pendPayOrders.map(o => o.id));
 
-      // Auto-liberar mesas marcadas como ocupadas pero sin ninguna orden activa
-      const tablesWithActiveOrders = new Set(Object.keys(om));
-      const ghostTables = allTables.filter(t => t.is_occupied && !tablesWithActiveOrders.has(t.id));
-      if (ghostTables.length > 0) {
-        for (const gt of ghostTables) {
-          await db.from('tables').update({ is_occupied: false, occupied_since: null }).eq('id', gt.id);
-        }
-        // Recargar tablas después de limpiar
-        const { data: refreshedTables } = await db.from('tables').select('*').eq('restaurant_id', RID).eq('is_active', true).order('number');
-        if (refreshedTables) allTables.splice(0, allTables.length, ...refreshedTables);
-      }
-
       const activeTableIds = new Set([
         ...allTables.filter(t => t.is_occupied).map(t => t.id),
         ...Object.keys(om),
@@ -991,23 +979,19 @@ function App() {
     if (!db) return;
     const mesa = tables.find(t => t.id === tableId);
 
-    // Hard check: no liberar si hay órdenes activas sin cobrar
-    // Una orden está "sin cobrar" si no está delivered+payment_method ni cancelada
+    // Advertencia si quedan pedidos sin cobrar (no bloquea — el mozo decide)
     const { data: deudas } = await db.from('orders')
       .select('id')
       .eq('table_id', tableId)
-      .not('status', 'in', '("cancelled")')
-      .or('status.neq.delivered,payment_method.is.null');
-
-    if (deudas && deudas.length > 0) {
-      showToast('No se puede liberar — hay pedidos sin pagar');
-      return;
-    }
+      .not('status', 'in', '("cancelled","delivered")');
+    const hayDeuda = deudas && deudas.length > 0;
 
     setConfirmDialog({
       title: `Liberar Mesa ${mesa?.number}`,
-      body: '¿Confirmar que el servicio concluyó y la mesa quedó libre?',
-      danger: false,
+      body: hayDeuda
+        ? `⚠ Hay pedidos sin cobrar. ¿Confirmar que el servicio concluyó y la mesa quedó libre?`
+        : '¿Confirmar que el servicio concluyó y la mesa quedó libre?',
+      danger: hayDeuda,
       onOk: async () => {
         await db.from('tables').update({ is_occupied: false, occupied_since: null }).eq('id', tableId);
         await loadData();
@@ -1236,6 +1220,7 @@ function App() {
         // Intentar con campos de auditoría (requieren migración 044)
         let { error: updErr } = await db.from('orders').update({
           status: 'delivered',
+          payment_status: 'paid',
           payment_method: pm,
           total: total,
           completed_at: new Date().toISOString(),
@@ -1245,15 +1230,10 @@ function App() {
         }).eq('id', ord.id);
         // Fallback sin campos de auditoría si la migración no está aplicada
         if (updErr && (updErr.message?.includes('paid_by') || updErr.message?.includes('schema cache'))) {
-          await db.from('orders').update({ status: 'delivered', payment_method: pm, total: total, completed_at: new Date().toISOString() }).eq('id', ord.id);
+          await db.from('orders').update({ status: 'delivered', payment_status: 'paid', payment_method: pm, total: total, completed_at: new Date().toISOString() }).eq('id', ord.id);
         }
         await db.from('order_status_history').insert({ order_id: ord.id, status: 'delivered', changed_by: payerName });
       }
-    }
-
-    // Liberar mesa
-    if (activeTableId) {
-      await db.from('tables').update({ is_occupied: false, occupied_since: null }).eq('id', activeTableId);
     }
 
     await loadData();

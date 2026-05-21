@@ -4765,7 +4765,7 @@ function DelivDashboard({deliveryOrders, channels}) {
 }
 
 /* ── DelivPedidos ── */
-function DelivPedidos({deliveryOrders, riders, channels, onRefresh}) {
+function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
   const [filter,setFilter] = useState('all');
   const [chanFilter,setChanFilter] = useState('all');
   const [dateFilter,setDateFilter] = useState('today');
@@ -4773,7 +4773,65 @@ function DelivPedidos({deliveryOrders, riders, channels, onRefresh}) {
   const [items,setItems] = useState([]);
   const [assigning,setAssigning] = useState(false);
   const [selRider,setSelRider] = useState('');
+  const [showNew,setShowNew] = useState(false);
+  const [newForm,setNewForm] = useState({customer_name:'',customer_phone:'',delivery_address:'',delivery_detail:'',delivery_references:'',zone_id:'',channel:'propio',payment_method:'efectivo',notes:'',items:[{name:'',qty:1,price:0}]});
+  const [saving,setSaving] = useState(false);
   const DFILTS = [{id:'all',label:'Todos'},{id:'active',label:'Activos'},{id:'delivered',label:'Entregados'},{id:'cancelled',label:'Cancelados'}];
+
+  function updForm(k,v){ setNewForm(f=>({...f,[k]:v})); }
+  function addItem(){ setNewForm(f=>({...f,items:[...f.items,{name:'',qty:1,price:0}]})); }
+  function updItem(i,k,v){ setNewForm(f=>({...f,items:f.items.map((it,j)=>j===i?{...it,[k]:v}:it)})); }
+  function removeItem(i){ setNewForm(f=>({...f,items:f.items.filter((_,j)=>j!==i)})); }
+
+  const selZone = (zones||[]).find(z=>z.id===newForm.zone_id);
+  const selChan = (channels||[]).find(c=>c.id===newForm.channel);
+  const newSubtotal = newForm.items.reduce((s,it)=>s+(Number(it.price)*Number(it.qty)),0);
+  const newDelivFee = selZone?.price||0;
+  const newTotal = newSubtotal + newDelivFee;
+
+  async function saveNewOrder() {
+    if(!db) return;
+    if(!newForm.customer_name.trim()){toast('Nombre requerido',false);return;}
+    if(!newForm.delivery_address.trim()){toast('Dirección requerida',false);return;}
+    const validItems = newForm.items.filter(it=>it.name.trim()&&Number(it.price)>0);
+    if(!validItems.length){toast('Agregá al menos un producto con precio',false);return;}
+    setSaving(true);
+    try {
+      const orderNum = 'D-'+String(Math.floor(Date.now()%90000)+10000);
+      const{data:order,error:oErr}=await db.from('orders').insert({
+        restaurant_id:RID, order_number:orderNum, order_type:'delivery',
+        status:'paid', subtotal:newSubtotal, discount_amount:0,
+        total:newTotal, payment_method:newForm.payment_method,
+        customer_name:newForm.customer_name.trim()||null,
+      }).select().single();
+      if(oErr) throw new Error(oErr.message);
+      await db.from('order_items').insert(validItems.map(it=>({
+        order_id:order.id, item_name:it.name.trim(),
+        quantity:Number(it.qty), unit_price:Number(it.price),
+        total_price:Number(it.price)*Number(it.qty),
+      })));
+      const{error:dErr}=await db.from('delivery_orders').insert({
+        restaurant_id:RID, order_id:order.id, order_number:orderNum,
+        order_type:'delivery', customer_name:newForm.customer_name.trim()||null,
+        customer_phone:newForm.customer_phone.trim()||null,
+        delivery_address:newForm.delivery_address.trim(),
+        delivery_detail:newForm.delivery_detail.trim()||null,
+        delivery_references:newForm.delivery_references.trim()||null,
+        zone_id:newForm.zone_id||null, zone_name:selZone?.name||null,
+        delivery_fee:newDelivFee, estimated_minutes:selZone?.time||null,
+        channel:newForm.channel||'propio', channel_commission:selChan?.commission||0,
+        order_total:newSubtotal, rider_status:'pending',
+        delivery_notes:newForm.notes.trim()||null,
+      });
+      if(dErr) throw new Error(dErr.message);
+      await db.from('order_status_history').insert({order_id:order.id,status:'paid',changed_by:'admin'});
+      toast('Pedido delivery creado');
+      setShowNew(false);
+      setNewForm({customer_name:'',customer_phone:'',delivery_address:'',delivery_detail:'',delivery_references:'',zone_id:'',channel:'propio',payment_method:'efectivo',notes:'',items:[{name:'',qty:1,price:0}]});
+      onRefresh();
+    } catch(e){ toast('Error: '+e.message,false); }
+    setSaving(false);
+  }
 
   const filtered = useMemo(()=>{
     let res = [...deliveryOrders];
@@ -4815,7 +4873,8 @@ function DelivPedidos({deliveryOrders, riders, channels, onRefresh}) {
 
   return (
     <div>
-      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
+      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center',justifyContent:'space-between'}}>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
         <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:6,overflow:'hidden'}}>
           {DFILTS.map((f,i)=>(
             <button key={f.id} onClick={()=>setFilter(f.id)} style={{padding:'6px 14px',fontSize:12,fontWeight:filter===f.id?700:400,background:filter===f.id?'#000000':'#FFF',color:filter===f.id?'#FFF':'#1D1D1F',border:'none',cursor:'pointer',borderRight:i<DFILTS.length-1?`1px solid ${C.border}`:'none'}}>
@@ -4833,6 +4892,8 @@ function DelivPedidos({deliveryOrders, riders, channels, onRefresh}) {
           <option value="30d">Últimos 30 días</option>
           <option value="all">Todos</option>
         </select>
+        </div>
+        <button onClick={()=>setShowNew(true)} style={{height:34,padding:'0 16px',background:'#000',color:'#fff',border:'none',borderRadius:6,fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Nuevo pedido</button>
       </div>
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -4859,6 +4920,88 @@ function DelivPedidos({deliveryOrders, riders, channels, onRefresh}) {
           </tbody>
         </table>
       </div>
+
+      {showNew && (
+        <Modal title="Nuevo pedido delivery" onClose={()=>setShowNew(false)} width={580}>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div>
+                <Lbl>NOMBRE *</Lbl>
+                <Inp value={newForm.customer_name} onChange={e=>updForm('customer_name',e.target.value)} placeholder="Nombre del cliente"/>
+              </div>
+              <div>
+                <Lbl>TELÉFONO</Lbl>
+                <Inp value={newForm.customer_phone} onChange={e=>updForm('customer_phone',e.target.value)} placeholder="0981 000000"/>
+              </div>
+            </div>
+            <div>
+              <Lbl>DIRECCIÓN *</Lbl>
+              <Inp value={newForm.delivery_address} onChange={e=>updForm('delivery_address',e.target.value)} placeholder="Calle, número, barrio"/>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div>
+                <Lbl>DETALLE (apto/piso)</Lbl>
+                <Inp value={newForm.delivery_detail} onChange={e=>updForm('delivery_detail',e.target.value)} placeholder="Ej: Piso 2, Apto B"/>
+              </div>
+              <div>
+                <Lbl>REFERENCIAS</Lbl>
+                <Inp value={newForm.delivery_references} onChange={e=>updForm('delivery_references',e.target.value)} placeholder="Ej: Portón rojo"/>
+              </div>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+              <div>
+                <Lbl>ZONA</Lbl>
+                <Sel value={newForm.zone_id} onChange={e=>updForm('zone_id',e.target.value)}>
+                  <option value="">Sin zona</option>
+                  {(zones||[]).filter(z=>z.active!==false).map(z=><option key={z.id} value={z.id}>{z.name} — {fmt(z.price)}</option>)}
+                </Sel>
+              </div>
+              <div>
+                <Lbl>CANAL</Lbl>
+                <Sel value={newForm.channel} onChange={e=>updForm('channel',e.target.value)}>
+                  {(channels||[]).filter(c=>c.active!==false).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                </Sel>
+              </div>
+              <div>
+                <Lbl>PAGO</Lbl>
+                <Sel value={newForm.payment_method} onChange={e=>updForm('payment_method',e.target.value)}>
+                  <option value="efectivo">Efectivo</option>
+                  <option value="tarjeta">Tarjeta</option>
+                  <option value="transferencia">Transferencia</option>
+                </Sel>
+              </div>
+            </div>
+            <div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                <Lbl style={{marginBottom:0}}>PRODUCTOS *</Lbl>
+                <button onClick={addItem} style={{fontSize:11,fontWeight:700,background:'none',border:`1px solid ${C.border}`,borderRadius:4,padding:'2px 8px',cursor:'pointer'}}>+ Agregar</button>
+              </div>
+              {newForm.items.map((it,i)=>(
+                <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 60px 110px 28px',gap:6,marginBottom:6}}>
+                  <Inp value={it.name} onChange={e=>updItem(i,'name',e.target.value)} placeholder="Nombre del producto"/>
+                  <Inp value={it.qty} type="number" min="1" onChange={e=>updItem(i,'qty',e.target.value)} placeholder="Qty"/>
+                  <Inp value={it.price} type="number" min="0" onChange={e=>updItem(i,'price',e.target.value)} placeholder="Precio ₲"/>
+                  {newForm.items.length>1&&<button onClick={()=>removeItem(i)} style={{background:'#FF3B30',color:'#fff',border:'none',borderRadius:4,cursor:'pointer',fontWeight:700}}>×</button>}
+                </div>
+              ))}
+            </div>
+            <div>
+              <Lbl>NOTAS</Lbl>
+              <Inp value={newForm.notes} onChange={e=>updForm('notes',e.target.value)} placeholder="Instrucciones especiales…"/>
+            </div>
+            <div style={{background:'#F5F5F7',borderRadius:8,padding:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}><span style={{color:'#6E6E73'}}>Subtotal</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(newSubtotal)}</span></div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}><span style={{color:'#6E6E73'}}>Delivery fee {selZone?`(${selZone.name})`:''}</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(newDelivFee)}</span></div>
+              <div style={{height:1,background:C.border,margin:'6px 0'}}/>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:15,fontWeight:800}}><span>Total</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(newTotal)}</span></div>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <Btn onClick={saveNewOrder} disabled={saving} style={{flex:1}}>{saving?'Guardando…':'Crear pedido'}</Btn>
+              <Btn variant="secondary" onClick={()=>setShowNew(false)}>Cancelar</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {selected && (
         <Modal title={`Pedido #${selected.order_number||selected.id.slice(0,8)}`} onClose={()=>setSelected(null)} width={560}>
@@ -5565,7 +5708,7 @@ function DeliveryModule() {
     if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:300,gap:12}}><span className="spin"/><span style={{fontSize:13,color:'#86868B'}}>Cargando…</span></div>;
     switch(tab){
       case 'dashboard': return <DelivDashboard deliveryOrders={deliveryOrders} channels={channels}/>;
-      case 'pedidos':   return <DelivPedidos deliveryOrders={deliveryOrders} riders={riders} channels={channels} onRefresh={loadDelivery}/>;
+      case 'pedidos':   return <DelivPedidos deliveryOrders={deliveryOrders} riders={riders} channels={channels} zones={zones} onRefresh={loadDelivery}/>;
       case 'riders':    return <DelivRiders riders={riders} onRefresh={loadDelivery}/>;
       case 'config':    return <DelivConfig zones={zones} setZones={setZones} channels={channels} setChannels={setChannels} restaurant={restaurant} setRestaurant={setRestaurant}/>;
       default: return null;

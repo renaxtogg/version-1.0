@@ -325,8 +325,9 @@ async function dbAdvanceTicket(supabaseId, currentKitchenStatus) {
 async function dbDismissTicket(supabaseId) {
   if (!db || !supabaseId) return;
   try {
-    await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', supabaseId);
-    await db.from('order_status_history').insert({ order_id: supabaseId, status: 'delivered', changed_by: 'kitchen' });
+    // 'pending_payment': cocina entregó pero el cobro lo gestiona el mozo/caja
+    await db.from('orders').update({ status: 'pending_payment' }).eq('id', supabaseId);
+    await db.from('order_status_history').insert({ order_id: supabaseId, status: 'pending_payment', changed_by: 'kitchen' });
   } catch(e) { console.warn('Dismiss error:', e); }
 }
 
