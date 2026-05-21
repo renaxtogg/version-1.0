@@ -117,20 +117,19 @@ function timerColor(min, status) {
 /* ── TIPO DE ORDEN — identificador de mesa/origen ─── */
 function orderTypeInfo(order) {
   const t = (order.order_type || '').toLowerCase();
-  if (t === 'delivery')        return { tipo: 'delivery',   label: 'DELIVERY',   color: '#FF9500', bg: 'rgba(255,149,0,0.14)', border: 'rgba(255,149,0,0.35)' };
-  if (t === 'pickup')          return { tipo: 'pickup',     label: 'PICKUP',     color: '#007AFF', bg: 'rgba(0,122,255,0.14)', border: 'rgba(0,122,255,0.35)' };
-  if (t === 'llevar')          return { tipo: 'llevar',     label: 'PARA LLEVAR',color: '#FF9500', bg: 'rgba(255,149,0,0.14)', border: 'rgba(255,149,0,0.35)' };
-  if (t === 'mostrador')       return { tipo: 'mostrador',  label: 'MOSTRADOR',  color: '#5856D6', bg: 'rgba(88,86,214,0.14)', border: 'rgba(88,86,214,0.35)' };
-  return null; // mesa local — no badge
+  if (t === 'delivery')                   return { tipo: 'delivery',  label: 'DELIVERY',    color: '#FF3B30', bg: 'rgba(255,59,48,0.14)',  border: 'rgba(255,59,48,0.35)' };
+  if (t === 'pickup')                     return { tipo: 'pickup',    label: 'PARA BUSCAR', color: '#FFD60A', bg: 'rgba(255,214,10,0.14)', border: 'rgba(255,214,10,0.35)' };
+  if (t === 'llevar' || t === 'takeaway') return { tipo: 'llevar',    label: 'PARA LLEVAR', color: '#FF9500', bg: 'rgba(255,149,0,0.14)',  border: 'rgba(255,149,0,0.35)' };
+  if (t === 'mostrador')                  return { tipo: 'mostrador', label: 'SIN MESA',    color: '#5AC8FA', bg: 'rgba(90,200,250,0.14)', border: 'rgba(90,200,250,0.35)' };
+  return { tipo: 'local', label: 'SALÓN', color: '#5AC8FA', bg: 'rgba(90,200,250,0.14)', border: 'rgba(90,200,250,0.35)' };
 }
 
 function mesaDisplayLabel(ticket) {
   if (ticket.mesa != null) return `Mesa ${ticket.mesa}`;
   if (ticket.tipo === 'delivery')  return 'Delivery';
-  if (ticket.tipo === 'pickup')    return 'Pickup';
+  if (ticket.tipo === 'pickup')    return 'Para buscar';
   if (ticket.tipo === 'llevar')    return 'Para llevar';
-  if (ticket.tipo === 'mostrador') return 'Mostrador';
-  return 'Mostrador'; // NUNCA mostrar '?' o null
+  return 'Sin mesa';
 }
 
 /* ── STATS (localStorage por día) ─── */
@@ -217,16 +216,17 @@ function filterTicketsForHalf(tickets, half) {
 
 /* ── TIPO DE ORDEN FILTER ─── */
 const ORDER_TYPE_FILTERS = [
-  { key: 'todos',     label: 'Todos' },
-  { key: 'mesa',      label: 'Mesa' },
-  { key: 'delivery',  label: 'Delivery' },
-  { key: 'pickup',    label: 'Pickup' },
-  { key: 'llevar',    label: 'Para llevar' },
-  { key: 'mostrador', label: 'Mostrador' },
+  { key: 'todos',    label: 'Todos' },
+  { key: 'mesa',     label: 'Mesa' },
+  { key: 'delivery', label: 'Delivery' },
+  { key: 'pickup',   label: 'Para buscar' },
+  { key: 'llevar',   label: 'Para llevar' },
+  { key: 'sinmesa',  label: 'Sin mesa' },
 ];
 function filterByOrderType(tickets, typeFilter) {
   if (typeFilter === 'todos') return tickets;
-  if (typeFilter === 'mesa') return tickets.filter(t => t.mesa != null && (t.tipo === 'local' || !t.tipo));
+  if (typeFilter === 'mesa') return tickets.filter(t => t.mesa != null);
+  if (typeFilter === 'sinmesa') return tickets.filter(t => t.mesa === null && (t.tipo === 'local' || t.tipo === 'mostrador'));
   return tickets.filter(t => t.tipo === typeFilter);
 }
 
@@ -235,9 +235,10 @@ function orderToTicket(order) {
   const created = new Date(order.created_at);
   const elapsed = Math.floor((Date.now() - created.getTime()) / 60000);
   const typeInfo = orderTypeInfo(order);
-  const isNonLocal = typeInfo !== null;
+  const _t = (order.order_type || '').toLowerCase();
+  const isLocal = _t === 'local' || _t === 'dine_in' || _t === '';
   let mesa = null;
-  if (!isNonLocal && order.tables && order.tables.number != null) {
+  if (isLocal && order.tables && order.tables.number != null) {
     mesa = order.tables.number;
   }
 
@@ -486,7 +487,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
           <div style={{ width: 1, height: 11, background: C.border }} />
 
           {/* Mesa / tipo label */}
-          <span style={{ fontFamily: 'system-ui,sans-serif', fontSize: 18, fontWeight: 800, color: C.white, flexShrink: 0 }}>
+          <span style={{ fontFamily: 'system-ui,sans-serif', fontSize: 18, fontWeight: 800, color: ticket.typeInfo ? ticket.typeInfo.color : C.white, flexShrink: 0 }}>
             {mesaDisplayLabel(ticket)}
           </span>
 
@@ -532,8 +533,8 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
 
       {/* Info delivery (cliente + dirección) */}
       {ticket.deliveryInfo && !isEntregado && (
-        <div style={{ background: 'rgba(255,149,0,0.06)', borderBottom: `1px solid rgba(255,149,0,0.18)`, padding: '5px 16px' }}>
-          {ticket.deliveryInfo.cliente && <div style={{ fontSize: 11, color: '#FF9500', fontWeight: 600 }}>{ticket.deliveryInfo.cliente}</div>}
+        <div style={{ background: 'rgba(255,59,48,0.06)', borderBottom: `1px solid rgba(255,59,48,0.18)`, padding: '5px 16px' }}>
+          {ticket.deliveryInfo.cliente && <div style={{ fontSize: 11, color: '#FF3B30', fontWeight: 600 }}>{ticket.deliveryInfo.cliente}</div>}
           {ticket.deliveryInfo.direccion && <div style={{ fontSize: 10, color: C.mid }}>{ticket.deliveryInfo.direccion}</div>}
         </div>
       )}
@@ -698,8 +699,10 @@ function OrderTypeFilterTabs({ active, onChange, tickets }) {
     acc[f.key] = f.key === 'todos'
       ? tickets.filter(t => t.status !== 'entregado').length
       : f.key === 'mesa'
-        ? tickets.filter(t => t.mesa != null && (t.tipo === 'local' || !t.tipo) && t.status !== 'entregado').length
-        : tickets.filter(t => t.tipo === f.key && t.status !== 'entregado').length;
+        ? tickets.filter(t => t.mesa != null && t.status !== 'entregado').length
+        : f.key === 'sinmesa'
+          ? tickets.filter(t => t.mesa === null && (t.tipo === 'local' || t.tipo === 'mostrador') && t.status !== 'entregado').length
+          : tickets.filter(t => t.tipo === f.key && t.status !== 'entregado').length;
     return acc;
   }, {});
 

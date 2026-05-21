@@ -160,6 +160,19 @@ function KpiMini({label,value,accent,sub}){
 function Badge({txt,color='#86868B'}){
   return<span style={{background:color+'22',color,border:`1px solid ${color}44`,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4,whiteSpace:'nowrap'}}>{txt}</span>;
 }
+function orderTypeColor(t){
+  if(t==='delivery') return '#FF3B30';
+  if(t==='llevar'||t==='takeaway') return '#FF9500';
+  if(t==='pickup') return '#FFD60A';
+  return '#5AC8FA'; // local/dine_in/mostrador/sin_mesa — celeste
+}
+function orderTypeLabel(t){
+  if(t==='delivery') return 'Delivery';
+  if(t==='llevar'||t==='takeaway') return 'Para llevar';
+  if(t==='pickup') return 'Para buscar';
+  if(t==='mostrador') return 'Sin mesa';
+  return 'Salón';
+}
 function AlertBox({type='info',children}){
   const cfg={info:{bg:'rgba(59,130,246,0.08)',border:'rgba(59,130,246,0.25)',color:'#93c5fd'},warn:{bg:'rgba(251,191,36,0.08)',border:'rgba(251,191,36,0.25)',color:'#fde68a'},error:{bg:'rgba(239,68,68,0.08)',border:'rgba(239,68,68,0.25)',color:'#fca5a5'},success:{bg:'rgba(34,197,94,0.08)',border:'rgba(34,197,94,0.25)',color:'#86efac'}};
   const s=cfg[type]||cfg.info;
@@ -477,8 +490,11 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace"}}>#{o.order_number}</div>
-                    <div style={{fontSize:12,color:'#1D1D1F',marginTop:2,fontWeight:600}}>{mesa}</div>
-                    <div style={{fontSize:10,color:'#6E6E73',marginTop:1}}>{origen}</div>
+                    <div style={{display:'flex',gap:6,alignItems:'center',marginTop:4,flexWrap:'wrap'}}>
+                      <Badge txt={orderTypeLabel(o.order_type)} color={orderTypeColor(o.order_type)}/>
+                      <span style={{fontSize:12,color:'#1D1D1F',fontWeight:600}}>{mesa}</span>
+                    </div>
+                    <div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{origen}</div>
                   </div>
                   <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
                 </div>
@@ -1200,8 +1216,8 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   const montoNum=parseInt(montoPagado)||0;
   const cambio=metodo==='efectivo'?montoNum-subtotal:0;
   const BILLETES=[1000,2000,5000,10000,20000,50000,100000];
-  const mesa=tables.find(t=>t.id===tableId);
-  const origen=orderType==='dine_in'?`Mesa ${mesa?.number||'?'}`:orderType==='delivery'?'Delivery':'Para llevar';
+  const mesa=tableId&&tableId!=='sin_mesa'?tables.find(t=>t.id===tableId):null;
+  const origen=orderType==='dine_in'?(tableId==='sin_mesa'?'Sin número de mesa':`Mesa ${mesa?.number||'?'}`):orderType==='delivery'?'Delivery':'Para llevar';
 
   async function confirmar(){
     if(metodo==='efectivo'&&montoNum<subtotal){toast('El monto recibido es menor al total',false);return;}
@@ -1212,7 +1228,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
       const orderNum='C-'+String(Math.floor(Date.now()%90000)+10000);
       const{data:order,error:e1}=await db.from('orders').insert({
         restaurant_id:RID,
-        table_id:orderType==='dine_in'&&tableId?tableId:null,
+        table_id:orderType==='dine_in'&&tableId&&tableId!=='sin_mesa'?tableId:null,
         order_number:orderNum,order_type:dbOrderType,
         status:'paid',
         payment_status:'paid',
@@ -1388,7 +1404,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
 
   function abrirPago(){
     if(cart.length===0){toast('El carrito está vacío',false);return;}
-    if(orderType==='dine_in'&&!tableId){toast('Seleccioná una mesa',false);return;}
+    if(orderType==='dine_in'&&!tableId){toast('Seleccioná una mesa o "Sin número de mesa"',false);return;}
     setPagoModal(true);
   }
 
@@ -1476,7 +1492,8 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
                 <>
                   <Lbl required>MESA</Lbl>
                   <Sel value={tableId} onChange={e=>setTableId(e.target.value)}>
-                    <option value="">Seleccionar mesa…</option>
+                    <option value="">Seleccionar…</option>
+                    <option value="sin_mesa">— Sin número de mesa</option>
                     {tables.map(t=><option key={t.id} value={t.id}>Mesa {t.number}</option>)}
                   </Sel>
                 </>
@@ -1575,12 +1592,11 @@ function OrderDetailModal({order,onClose}){
   },[order.id]);
   const mesa=order.tables?.number?`Mesa ${order.tables.number}`:order.customer_name||'Sin identificar';
   const espera=Math.floor((Date.now()-new Date(order.created_at))/60000);
-  const typeLabel={dine_in:'En mesa',takeaway:'Para llevar',delivery:'Delivery'};
   return(
     <Modal title={`Pedido #${order.order_number}`} onClose={onClose} width={440}>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#6E6E73'}/>
-        {order.order_type&&<Badge txt={typeLabel[order.order_type]||order.order_type} color={C.blue}/>}
+        {order.order_type&&<Badge txt={orderTypeLabel(order.order_type)} color={orderTypeColor(order.order_type)}/>}
         <span style={{fontSize:12,color:'#6E6E73'}}>{mesa}</span>
         <span style={{fontSize:11,color:'#86868B'}}>⏱ {espera}m</span>
       </div>
@@ -1733,9 +1749,8 @@ function SalonPanel({profile}){
 
   function OrderRow({order}){
     const espera=Math.floor((Date.now()-new Date(order.created_at))/60000);
-    const typeLabel={local:'En mesa',llevar:'Para llevar',delivery:'Delivery',dine_in:'En mesa',takeaway:'Para llevar'};
     const name=order.customer_name?` — ${order.customer_name}`:'';
-    const tipo=typeLabel[order.order_type]||order.order_type||'';
+    const tipo=orderTypeLabel(order.order_type);
     return(
       <div onClick={()=>setSelOrder(order)} style={{
         background:C.surface,border:`1px solid ${(SC[order.status]||'#D2D2D7')}44`,
@@ -1748,7 +1763,7 @@ function SalonPanel({profile}){
           </div>
           <div style={{display:'flex',gap:6,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
             <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#6E6E73'}/>
-            {tipo&&<Badge txt={tipo} color={C.blue}/>}
+            {tipo&&<Badge txt={tipo} color={orderTypeColor(order.order_type)}/>}
             <span style={{fontSize:10,color:'#6E6E73'}}>⏱ {espera}m</span>
           </div>
         </div>
@@ -1787,8 +1802,8 @@ function SalonPanel({profile}){
         <KpiMini label="Mesas ocupadas"   value={`${ocupadas} / ${tables.length}`} accent={ocupadas>0?C.orange:C.mid}/>
         <KpiMini label="En cocina"        value={kitchenCount} accent={C.yellow}/>
         <KpiMini label="Listos"           value={readyCount}   accent={C.green}/>
-        <KpiMini label="Para llevar"      value={takeawayOrders.length+otherOrders.length} accent={C.blue}/>
-        <KpiMini label="Delivery"         value={deliveryOrders.length} accent={C.purple}/>
+        <KpiMini label="Para llevar"      value={takeawayOrders.length+otherOrders.length} accent={'#FF9500'}/>
+        <KpiMini label="Delivery"         value={deliveryOrders.length} accent={'#FF3B30'}/>
         <KpiMini label="Total en proceso" value={fmt(totalEnProceso)} accent={C.cyan}/>
       </div>
 
@@ -1821,18 +1836,18 @@ function SalonPanel({profile}){
           {/* Columna derecha: para llevar + delivery */}
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             <SideSection
-              title="PARA LLEVAR / MOSTRADOR"
+              title="PARA LLEVAR / SIN MESA"
               desc="Pedidos caja sin mesa asignada"
               list={[...takeawayOrders,...otherOrders]}
               emptyMsg="Sin pedidos para llevar en este momento"
-              accent={C.blue}
+              accent={'#FF9500'}
             />
             <SideSection
               title="DELIVERY A DOMICILIO"
               desc="Pedidos de delivery pendientes"
               list={deliveryOrders}
               emptyMsg="Sin pedidos delivery activos"
-              accent={C.purple}
+              accent={'#FF3B30'}
             />
           </div>
         </div>
