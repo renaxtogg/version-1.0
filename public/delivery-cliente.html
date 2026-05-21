@@ -187,11 +187,14 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
   const orderNum = 'D-' + String(Math.floor(Date.now() % 90000) + 10000);
   if (!db) return { id: null, order_number: orderNum };
 
+  // order_type='delivery' para domicilio real; 'llevar' para retiro en local
+  const dbOrderType = orderType === 'delivery' ? 'delivery' : 'llevar';
+
   const { data: order, error: orderErr } = await db.from('orders').insert({
     restaurant_id: RESTAURANT_ID,
     table_id: null,
     order_number: orderNum,
-    order_type: 'llevar',
+    order_type: dbOrderType,
     status: 'paid',
     subtotal,
     discount_amount: 0,
@@ -219,25 +222,28 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
 
   await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
 
-  // Intentar insertar en delivery_orders (tabla pendiente de migración)
-  try {
-    await db.from('delivery_orders').insert({
-      order_id: order.id,
-      restaurant_id: RESTAURANT_ID,
-      order_type: orderType,
-      customer_name: customerData.name,
-      customer_phone: customerData.phone,
-      delivery_address: orderType === 'delivery' ? customerData.address : null,
-      delivery_detail: orderType === 'delivery' ? customerData.detail : null,
-      delivery_references: orderType === 'delivery' ? customerData.references : null,
-      zone_id: zone?.id || null,
-      zone_name: zone?.name || null,
-      delivery_fee: deliveryFee || 0,
-      estimated_minutes: zone?.estimated_minutes || null,
-      canal: canal || 'web',
-      status: 'pending'
+  // Registrar en delivery_orders para flujo delivery/rider
+  if (orderType === 'delivery' || orderType === 'pickup') {
+    const { error: delErr } = await db.from('delivery_orders').insert({
+      order_id:           order.id,
+      restaurant_id:      RESTAURANT_ID,
+      order_type:         orderType,
+      order_number:       orderNum,
+      order_total:        total,
+      customer_name:      customerData.name,
+      customer_phone:     customerData.phone,
+      delivery_address:   orderType === 'delivery' ? customerData.address : null,
+      delivery_detail:    orderType === 'delivery' ? customerData.detail : null,
+      delivery_references:orderType === 'delivery' ? customerData.references : null,
+      zone_id:            zone?.id || null,
+      zone_name:          zone?.name || null,
+      delivery_fee:       deliveryFee || 0,
+      estimated_minutes:  zone?.estimated_minutes || null,
+      canal:              canal || 'web',
+      status:             'pending',
     });
-  } catch(e) { /* tabla delivery_orders aún no existe — ignorar */ }
+    if (delErr) console.error('delivery_orders insert error:', delErr.message);
+  }
 
   return order;
 }
@@ -1267,10 +1273,15 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
   ];
   const STEPS = isDelivery ? DELIVERY_STEPS : PICKUP_STEPS;
 
-  // Status map de orders → step
-  const STATUS_MAP_DELIVERY = { paid: 0, confirmed: 0, kitchen_received: 1, cooking: 1, ready: 2, delivered: 3 };
-  const STATUS_MAP_PICKUP   = { paid: 0, confirmed: 0, kitchen_received: 1, cooking: 1, ready: 2, delivered: 2 };
-  const STATUS_MAP = isDelivery ? STATUS_MAP_DELIVERY : STATUS_MAP_PICKUP;
+  const STATUS_MAP_PICKUP = { paid: 0, confirmed: 0, kitchen_received: 1, cooking: 1, ready: 2, delivered: 2 };
+
+  // Para delivery: el step se calcula combinando orders.status + delivery_orders.rider_status
+  const calcDeliveryStep = (orderStatus, riderStatus) => {
+    if (riderStatus === 'delivered') return 3;
+    if (riderStatus === 'on_way')    return 2;
+    if (['kitchen_received','cooking','ready'].includes(orderStatus)) return 1;
+    return 0;
+  };
 
   const [active, setActive] = useState(0);
 
@@ -1298,41 +1309,86 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
 
   useEffect(() => {
     if (!db || !order?.order_number) {
-      // Simulación demo cuando no hay DB
       const t = setInterval(() => setActive(a => a < STEPS.length - 1 ? a + 1 : a), 4000);
       return () => clearInterval(t);
     }
 
-    let sub = null;
-    let poll = null;
+    let orderSub  = null;
+    let delivSub  = null;
+    let poll      = null;
+    let orderId   = order?.id || null;
 
     const fetchStatus = async () => {
       try {
-        const { data } = await db.from('orders').select('status').eq('order_number', order.order_number).maybeSingle();
-        if (data) setActive(STATUS_MAP[data.status] ?? 0);
+        const { data: ord } = await db.from('orders')
+          .select('status,id').eq('order_number', order.order_number).maybeSingle();
+        if (!ord) return;
+        orderId = ord.id;
+
+        if (!isDelivery) {
+          setActive(STATUS_MAP_PICKUP[ord.status] ?? 0);
+          return;
+        }
+
+        const { data: delOrd } = await db.from('delivery_orders')
+          .select('rider_status').eq('order_id', ord.id).maybeSingle();
+        setActive(calcDeliveryStep(ord.status, delOrd?.rider_status));
       } catch(e) {}
     };
 
-    const subscribe = () => {
-      if (sub) db.removeChannel(sub);
-      sub = db.channel('dc-track-' + order.order_number)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `order_number=eq.${order.order_number}` }, p => {
-          setActive(STATUS_MAP[p.new.status] ?? 0);
+    const subscribeDelivery = (oid) => {
+      if (!isDelivery || !oid) return;
+      if (delivSub) db.removeChannel(delivSub);
+      delivSub = db.channel('dc-delord-' + oid)
+        .on('postgres_changes', {
+          event: 'UPDATE', schema: 'public', table: 'delivery_orders',
+          filter: `order_id=eq.${oid}`
+        }, p => {
+          const rs = p.new.rider_status;
+          if (rs === 'delivered') { setActive(3); return; }
+          if (rs === 'on_way')    { setActive(2); return; }
+          fetchStatus();
         })
-        .subscribe(status => {
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') fetchStatus();
+        .subscribe();
+    };
+
+    const subscribe = () => {
+      if (orderSub) db.removeChannel(orderSub);
+      orderSub = db.channel('dc-track-' + order.order_number)
+        .on('postgres_changes', {
+          event: 'UPDATE', schema: 'public', table: 'orders',
+          filter: `order_number=eq.${order.order_number}`
+        }, p => {
+          if (isDelivery) {
+            fetchStatus();
+          } else {
+            setActive(STATUS_MAP_PICKUP[p.new.status] ?? 0);
+          }
+        })
+        .subscribe(s => {
+          if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT') fetchStatus();
         });
     };
 
-    fetchStatus();
-    subscribe();
+    fetchStatus().then(() => {
+      subscribe();
+      if (orderId) subscribeDelivery(orderId);
+    });
+
     poll = setInterval(fetchStatus, 12000);
 
-    const onVisible = () => { if (document.visibilityState === 'visible') { fetchStatus(); subscribe(); } };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        fetchStatus();
+        subscribe();
+        if (orderId) subscribeDelivery(orderId);
+      }
+    };
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      if (sub) db.removeChannel(sub);
+      if (orderSub) db.removeChannel(orderSub);
+      if (delivSub) db.removeChannel(delivSub);
       clearInterval(poll);
       document.removeEventListener('visibilitychange', onVisible);
     };

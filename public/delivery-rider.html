@@ -129,12 +129,15 @@ function LoginScreen({ onLogin }) {
 }
 
 /* ─────────────────────────────────────────
-   PANTALLA: HOME
+   PANTALLA: HOME (con pedidos asignados integrados)
 ───────────────────────────────────────── */
-function HomeScreen({ rider, stats, activeOrders, onEnterPins, onShowRoute, onShowHistory, onLogout, onStatusChange }) {
+function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onShowHistory, onLogout, onStatusChange, onRefresh }) {
   const [changingStatus, setChangingStatus] = useState(false);
+  const [starting, setStarting] = useState(false);
   const status = rider.current_status || 'disponible';
-  const hasRoute = activeOrders.length > 0;
+
+  const pendingOrders = activeOrders.filter(o => o.rider_status === 'confirmed');
+  const routeOrders   = activeOrders.filter(o => o.rider_status === 'on_way');
 
   async function toggleStatus() {
     if (!db) return;
@@ -143,6 +146,27 @@ function HomeScreen({ rider, stats, activeOrders, onEnterPins, onShowRoute, onSh
     await db.from('delivery_riders').update({ current_status: next }).eq('id', rider.id);
     onStatusChange(next);
     setChangingStatus(false);
+  }
+
+  async function handleStartRoute() {
+    if (!pendingOrders.length || !db || starting) return;
+    setStarting(true);
+    for (const o of pendingOrders) {
+      await db.from('delivery_orders').update({
+        rider_status: 'on_way',
+        picked_up_at: new Date().toISOString(),
+      }).eq('id', o.id);
+    }
+    await db.from('delivery_riders').update({ current_status: 'en_ruta' }).eq('id', rider.id);
+    setStarting(false);
+    onStartRoute(pendingOrders);
+  }
+
+  function getMapsUrl(orders) {
+    const addrs = orders.map(o => encodeURIComponent(o.delivery_address || o.customer_name || ''));
+    if (!addrs.length) return null;
+    if (addrs.length === 1) return `https://www.google.com/maps/dir/?api=1&destination=${addrs[0]}`;
+    return `https://www.google.com/maps/dir/?api=1&destination=${addrs[addrs.length-1]}&waypoints=${addrs.slice(0,-1).join('|')}`;
   }
 
   const STATUS_BG    = { disponible:'#F0FAF4', offline:'#F5F5F7', en_ruta:'#FFF7E6' };
@@ -158,249 +182,149 @@ function HomeScreen({ rider, stats, activeOrders, onEnterPins, onShowRoute, onSh
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#fff'}}>
       {/* Header */}
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'20px 20px 16px',borderBottom:'1px solid #F5F5F7'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'20px 20px 14px',borderBottom:'1px solid #F5F5F7'}}>
         <div>
           <div style={{fontSize:20,fontWeight:800,color:'#1D1D1F'}}>
             {VEHICLE[rider.vehicle]||'🛵'} {rider.name.split(' ')[0]}
           </div>
           <div style={{fontSize:12,color:'#86868B',marginTop:2}}>{rider.name}</div>
         </div>
-        <button
-          onClick={onLogout}
-          style={{background:'none',border:'1.5px solid #D2D2D7',borderRadius:8,padding:'6px 12px',fontSize:12,color:'#6E6E73',cursor:'pointer',fontWeight:500}}
-        >Salir</button>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <button onClick={onRefresh} style={{background:'none',border:'1.5px solid #D2D2D7',borderRadius:8,padding:'6px 10px',fontSize:13,color:'#6E6E73',cursor:'pointer'}}>↻</button>
+          <button onClick={onLogout} style={{background:'none',border:'1.5px solid #D2D2D7',borderRadius:8,padding:'6px 12px',fontSize:12,color:'#6E6E73',cursor:'pointer',fontWeight:500}}>Salir</button>
+        </div>
       </div>
 
-      <div style={{flex:1,overflowY:'auto',padding:'20px 20px 100px'}}>
+      <div style={{flex:1,overflowY:'auto',padding:'16px 20px 80px'}}>
 
         {/* Status card */}
-        <div style={{background:STATUS_BG[status]||'#F5F5F7',borderRadius:20,padding:'20px 24px',marginBottom:20,animation:'fadeIn .2s'}}>
+        <div style={{background:STATUS_BG[status]||'#F5F5F7',borderRadius:16,padding:'16px 20px',marginBottom:16,animation:'fadeIn .2s'}}>
           <div style={{display:'flex',alignItems:'center',gap:12}}>
-            <div style={{
-              width:12,height:12,borderRadius:'50%',
-              background:STATUS_COLOR[status]||'#86868B',
-              flexShrink:0,
-              animation:status==='disponible'?'pulse 1.8s ease-in-out infinite':'none'
-            }} />
-            <div style={{fontSize:17,fontWeight:700,color:'#1D1D1F',flex:1}}>{STATUS_LABEL[status]||status}</div>
+            <div style={{width:11,height:11,borderRadius:'50%',background:STATUS_COLOR[status]||'#86868B',flexShrink:0,animation:status==='disponible'?'pulse 1.8s ease-in-out infinite':'none'}} />
+            <div style={{fontSize:15,fontWeight:700,color:'#1D1D1F',flex:1}}>{STATUS_LABEL[status]||status}</div>
             {status !== 'en_ruta' && (
-              <button
-                onClick={toggleStatus}
-                disabled={changingStatus}
-                style={{
-                  padding:'8px 16px',
-                  background: status==='disponible' ? 'transparent' : '#000',
-                  color: status==='disponible' ? '#6E6E73' : '#fff',
-                  border: status==='disponible' ? '1.5px solid #D2D2D7' : 'none',
-                  borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer'
-                }}
-              >{changingStatus ? '…' : status==='disponible' ? 'Ir offline' : 'Activarme'}</button>
+              <button onClick={toggleStatus} disabled={changingStatus} style={{padding:'7px 14px',background:status==='disponible'?'transparent':'#000',color:status==='disponible'?'#6E6E73':'#fff',border:status==='disponible'?'1.5px solid #D2D2D7':'none',borderRadius:9,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                {changingStatus ? '…' : status==='disponible' ? 'Ir offline' : 'Activarme'}
+              </button>
             )}
           </div>
-          {hasRoute && (
-            <div style={{marginTop:12,fontSize:13,color:STATUS_COLOR['en_ruta'],fontWeight:600}}>
-              {activeOrders.length} pedido{activeOrders.length>1?'s':''} activo{activeOrders.length>1?'s':''} en ruta
-            </div>
-          )}
         </div>
 
+        {/* Ruta activa */}
+        {routeOrders.length > 0 && (
+          <div style={{background:'#FFF7ED',border:'1.5px solid #FDBA74',borderRadius:16,padding:'16px',marginBottom:16,animation:'fadeIn .2s'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+              <div style={{fontSize:14,fontWeight:800,color:'#C2410C'}}>🛵 Ruta activa — {routeOrders.length} entrega{routeOrders.length>1?'s':''}</div>
+              {getMapsUrl(routeOrders) && (
+                <a href={getMapsUrl(routeOrders)} target="_blank" rel="noopener noreferrer" style={{fontSize:12,fontWeight:700,color:'#fff',background:'#C2410C',borderRadius:8,padding:'5px 10px',textDecoration:'none'}}>
+                  Ver mapa
+                </a>
+              )}
+            </div>
+            {routeOrders.map((o,i) => (
+              <div key={o.id} style={{fontSize:12,color:'#92400E',padding:'4px 0',borderTop:i>0?'1px solid rgba(194,65,12,.15)':'none',display:'flex',gap:8,alignItems:'flex-start'}}>
+                <span style={{fontWeight:800,flexShrink:0}}>{i+1}.</span>
+                <span>{o.customer_name} — {o.delivery_address||'—'}</span>
+              </div>
+            ))}
+            <button onClick={onShowRoute} style={{marginTop:12,width:'100%',padding:'12px',background:'#C2410C',color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>
+              Continuar ruta →
+            </button>
+          </div>
+        )}
+
+        {/* Pedidos asignados esperando inicio */}
+        {pendingOrders.length > 0 && (
+          <div style={{marginBottom:16,animation:'fadeIn .2s'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+              <div style={{fontSize:11,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:.8}}>
+                {pendingOrders.length} pedido{pendingOrders.length>1?'s':''} asignado{pendingOrders.length>1?'s':''} — esperan en local
+              </div>
+              {getMapsUrl(pendingOrders) && (
+                <a href={getMapsUrl(pendingOrders)} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:'#6E6E73',textDecoration:'underline'}}>
+                  Ver en mapa
+                </a>
+              )}
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {pendingOrders.map((o,i) => (
+                <div key={o.id} style={{background:'#F5F5F7',borderRadius:14,padding:'14px 16px',animation:'fadeIn .15s'}}>
+                  <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:6}}>
+                    <div style={{width:26,height:26,borderRadius:'50%',background:'#000',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,flexShrink:0,marginTop:1}}>{i+1}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F'}}>{o.customer_name||'Sin nombre'}</div>
+                      {o.customer_phone && <div style={{fontSize:11,color:'#6E6E73',marginTop:1}}>📞 {o.customer_phone}</div>}
+                    </div>
+                    <div style={{fontSize:13,fontWeight:700,color:'#1D1D1F',flexShrink:0}}>{fmt((o.order_total||0)+(o.delivery_fee||0))}</div>
+                  </div>
+                  <div style={{fontSize:12,color:'#1D1D1F',marginBottom:8,paddingLeft:36,lineHeight:1.4}}>
+                    📍 {o.delivery_address||'Sin dirección'}
+                    {o.delivery_detail && <div style={{fontSize:11,color:'#6E6E73',marginTop:1}}>{o.delivery_detail}</div>}
+                  </div>
+                  <div style={{display:'flex',gap:8,paddingLeft:36}}>
+                    {o.customer_phone && (
+                      <a href={`tel:${o.customer_phone}`} style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'#fff',border:'1.5px solid #D2D2D7',borderRadius:8,fontSize:16,textDecoration:'none',flexShrink:0}}>📞</a>
+                    )}
+                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.delivery_address||o.customer_name||'')}`} target="_blank" rel="noopener noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'#fff',border:'1.5px solid #D2D2D7',borderRadius:8,fontSize:16,textDecoration:'none',flexShrink:0}}>🗺️</a>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={handleStartRoute}
+              disabled={starting}
+              style={{width:'100%',padding:'16px',background:'#000',color:'#fff',border:'none',borderRadius:14,fontSize:15,fontWeight:700,cursor:starting?'default':'pointer',opacity:starting?.7:1,marginTop:12,display:'flex',alignItems:'center',justifyContent:'center',gap:10}}
+            >
+              <span>🛵</span>
+              <span>{starting ? 'Iniciando…' : `Comenzar ruta · ${pendingOrders.length} pedido${pendingOrders.length>1?'s':''}`}</span>
+            </button>
+          </div>
+        )}
+
+        {/* Sin pedidos */}
+        {pendingOrders.length === 0 && routeOrders.length === 0 && (
+          <div style={{textAlign:'center',padding:'32px 20px',color:'#86868B',fontSize:14,background:'#F5F5F7',borderRadius:16,marginBottom:16}}>
+            <div style={{fontSize:36,marginBottom:10}}>📦</div>
+            <div style={{fontWeight:600}}>Sin pedidos asignados</div>
+            <div style={{fontSize:12,marginTop:4}}>Cuando cocina termine un pedido de delivery,<br/>aparecerá aquí automáticamente.</div>
+          </div>
+        )}
+
         {/* Stats */}
-        <div style={{background:'#F5F5F7',borderRadius:16,padding:'18px 20px',marginBottom:20}}>
-          <div style={{fontSize:11,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:14}}>Hoy</div>
+        <div style={{background:'#F5F5F7',borderRadius:14,padding:'14px 18px',marginBottom:14}}>
+          <div style={{fontSize:10,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>Hoy</div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,textAlign:'center'}}>
             <div>
-              <div style={{fontSize:26,fontWeight:800,color:'#1D1D1F'}}>{stats.count}</div>
-              <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Entregas</div>
+              <div style={{fontSize:22,fontWeight:800,color:'#1D1D1F'}}>{stats.count}</div>
+              <div style={{fontSize:10,color:'#86868B',marginTop:2}}>Entregas</div>
             </div>
             <div>
-              <div style={{fontSize:rider.commission_type==='salary'?13:14,fontWeight:700,color:'#1D1D1F',lineHeight:1.3}}>{earnLabel()}</div>
-              <div style={{fontSize:11,color:'#86868B',marginTop:2}}>{rider.commission_type==='salary'?'Sueldo fijo':'Ganado'}</div>
+              <div style={{fontSize:rider.commission_type==='salary'?12:13,fontWeight:700,color:'#1D1D1F',lineHeight:1.3}}>{earnLabel()}</div>
+              <div style={{fontSize:10,color:'#86868B',marginTop:2}}>{rider.commission_type==='salary'?'Sueldo fijo':'Ganado'}</div>
             </div>
             <div>
-              <div style={{fontSize:22,fontWeight:700,color:'#1D1D1F'}}>{stats.avgMin>0?stats.avgMin+'min':'—'}</div>
-              <div style={{fontSize:11,color:'#86868B',marginTop:2}}>Promedio</div>
+              <div style={{fontSize:18,fontWeight:700,color:'#1D1D1F'}}>{stats.avgMin>0?stats.avgMin+'min':'—'}</div>
+              <div style={{fontSize:10,color:'#86868B',marginTop:2}}>Promedio</div>
             </div>
           </div>
         </div>
 
-        {/* Action buttons */}
-        <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          {hasRoute && (
-            <button
-              onClick={onShowRoute}
-              style={{width:'100%',padding:'18px',background:'#FF9500',color:'#fff',border:'none',borderRadius:16,fontSize:16,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:10,animation:'fadeIn .2s'}}
-            >
-              <span>🛵</span>
-              <span>Ver ruta activa ({activeOrders.length})</span>
-            </button>
-          )}
-          <button
-            onClick={onEnterPins}
-            style={{width:'100%',padding:'18px',background:'#000',color:'#fff',border:'none',borderRadius:16,fontSize:16,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:10}}
-          >
-            <span>📦</span> Ingresar PIN de pedido
-          </button>
-          <button
-            onClick={onShowHistory}
-            style={{width:'100%',padding:'14px',background:'transparent',color:'#1D1D1F',border:'1.5px solid #D2D2D7',borderRadius:14,fontSize:15,fontWeight:500,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}
-          >
-            <span>📋</span> Historial del día
-          </button>
-        </div>
+        <button onClick={onShowHistory} style={{width:'100%',padding:'12px',background:'transparent',color:'#1D1D1F',border:'1.5px solid #D2D2D7',borderRadius:12,fontSize:14,fontWeight:500,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+          <span>📋</span> Historial del día
+        </button>
       </div>
     </div>
   );
 }
 
-/* ─────────────────────────────────────────
-   PANTALLA: INGRESO DE PINs
-───────────────────────────────────────── */
-function PinEntryScreen({ rider, onStart, onBack }) {
-  const [input, setInput]     = useState('');
-  const [orders, setOrders]   = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [error, setError]     = useState('');
-  const [starting, setStarting] = useState(false);
-  const inputRef = useRef(null);
-
-  async function addPin() {
-    const pin = input.trim();
-    if (!pin || pin.length < 4) { setError('Ingresá al menos 4 dígitos'); return; }
-    if (orders.some(o => o.delivery_pin === pin)) { setError('Este PIN ya fue agregado'); return; }
-    if (!db) { setError('Sin conexión'); return; }
-
-    setSearching(true); setError('');
-    const { data, error: dbErr } = await db
-      .from('delivery_orders')
-      .select('*')
-      .eq('restaurant_id', RID)
-      .eq('delivery_pin', pin)
-      .not('rider_status', 'in', '("delivered","cancelled")')
-      .maybeSingle();
-
-    if (dbErr || !data) {
-      setError('PIN no encontrado o pedido ya entregado/cancelado');
-      setSearching(false);
-      inputRef.current?.focus();
-      return;
-    }
-
-    setOrders(prev => [...prev, data]);
-    setInput('');
-    setSearching(false);
-    setTimeout(() => inputRef.current?.focus(), 50);
-  }
-
-  async function startRoute() {
-    if (!orders.length || !db || starting) return;
-    setStarting(true);
-
-    for (const order of orders) {
-      await db.from('delivery_orders').update({
-        rider_id: rider.id,
-        rider_name: rider.name,
-        rider_status: 'on_way',
-        picked_up_at: new Date().toISOString()
-      }).eq('id', order.id);
-    }
-
-    await db.from('delivery_riders').update({ current_status: 'en_ruta' }).eq('id', rider.id);
-    setStarting(false);
-    onStart(orders);
-  }
-
+/* PinEntryScreen eliminado — asignación automática por cocina */
+function PinEntryScreen({ onBack }) {
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#fff'}}>
-      {/* Header */}
-      <div style={{display:'flex',alignItems:'center',gap:8,padding:'16px 20px',borderBottom:'1px solid #F5F5F7',position:'sticky',top:0,background:'#fff',zIndex:10}}>
-        <button onClick={onBack} style={{background:'none',border:'none',padding:'4px 8px 4px 0',fontSize:22,lineHeight:1,color:'#1D1D1F',cursor:'pointer'}}>‹</button>
-        <div style={{fontSize:17,fontWeight:600,color:'#1D1D1F'}}>Ingresar PIN de pedido</div>
-      </div>
-
-      <div style={{flex:1,overflowY:'auto',padding:'24px 20px 120px'}}>
-
-        {/* PIN input */}
-        <div style={{marginBottom:24}}>
-          <div style={{fontSize:11,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>PIN del pedido</div>
-          <div style={{display:'flex',gap:10}}>
-            <input
-              ref={inputRef}
-              type="tel"
-              inputMode="numeric"
-              maxLength={6}
-              placeholder="1234"
-              value={input}
-              onChange={e => { setInput(e.target.value.replace(/\D/g,'')); setError(''); }}
-              onKeyDown={e => e.key === 'Enter' && addPin()}
-              autoFocus
-              style={{
-                flex:1, padding:'16px', fontSize:26, fontWeight:800, textAlign:'center',
-                border:`2px solid ${error?'#FF3B30':'#D2D2D7'}`, borderRadius:14,
-                background:'#F5F5F7', outline:'none', letterSpacing:10, color:'#1D1D1F',
-                fontFamily:"'SF Mono',ui-monospace,monospace", transition:'border-color .15s'
-              }}
-            />
-            <button
-              onClick={addPin}
-              disabled={searching || input.length < 4}
-              style={{
-                padding:'16px 22px',
-                background: input.length>=4 ? '#000' : '#D2D2D7',
-                color:'#fff', border:'none', borderRadius:14, fontSize:15, fontWeight:700,
-                cursor: input.length>=4 ? 'pointer' : 'default', whiteSpace:'nowrap',
-                transition:'background .15s'
-              }}
-            >{searching ? '…' : 'Agregar'}</button>
-          </div>
-          <div style={{minHeight:22,marginTop:6}}>
-            {error && <div style={{fontSize:13,color:'#FF3B30'}}>{error}</div>}
-          </div>
-        </div>
-
-        {/* Orders list */}
-        {orders.length === 0 ? (
-          <div style={{textAlign:'center',padding:'40px 20px',color:'#86868B',fontSize:14}}>
-            <div style={{fontSize:44,marginBottom:14}}>📦</div>
-            Ingresá los PINs de los pedidos<br/>que vas a entregar
-          </div>
-        ) : (
-          <div>
-            <div style={{fontSize:11,fontWeight:700,color:'#86868B',textTransform:'uppercase',letterSpacing:.8,marginBottom:12}}>
-              {orders.length} pedido{orders.length>1?'s':''} agregado{orders.length>1?'s':''}
-            </div>
-            <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              {orders.map((o, i) => (
-                <div key={o.id} style={{background:'#F5F5F7',borderRadius:14,padding:'14px 16px',display:'flex',alignItems:'center',gap:12,animation:'fadeIn .15s'}}>
-                  <div style={{width:32,height:32,borderRadius:'50%',background:'#34C759',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800,flexShrink:0}}>✓</div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F'}}>{o.customer_name||'Sin nombre'}</div>
-                    <div style={{fontSize:12,color:'#6E6E73',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.delivery_address||'Sin dirección'}</div>
-                    <div style={{fontSize:11,color:'#86868B',marginTop:2,fontFamily:"'SF Mono',ui-monospace,monospace"}}>PIN {o.delivery_pin} · {fmt((o.order_total||0)+(o.delivery_fee||0))}</div>
-                  </div>
-                  <button
-                    onClick={() => setOrders(prev => prev.filter(x => x.id !== o.id))}
-                    style={{background:'none',border:'none',fontSize:20,color:'#C7C7CC',cursor:'pointer',padding:'4px',flexShrink:0,lineHeight:1}}
-                  >×</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Start route button */}
-      {orders.length > 0 && (
-        <div style={{position:'absolute',bottom:0,left:0,right:0,padding:'16px 20px',background:'#fff',borderTop:'1px solid #F5F5F7'}}>
-          <button
-            onClick={startRoute}
-            disabled={starting}
-            style={{width:'100%',padding:'18px',background:'#000',color:'#fff',border:'none',borderRadius:16,fontSize:17,fontWeight:700,cursor:starting?'default':'pointer',opacity:starting?.7:1,display:'flex',alignItems:'center',justifyContent:'center',gap:10}}
-          >
-            <span>🛵</span>
-            <span>{starting ? 'Iniciando…' : `Arrancar ruta · ${orders.length} pedido${orders.length>1?'s':''}`}</span>
-          </button>
-        </div>
-      )}
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'#fff',textAlign:'center'}}>
+      <div style={{fontSize:44,marginBottom:16}}>🛵</div>
+      <div style={{fontSize:16,fontWeight:700,color:'#1D1D1F',marginBottom:8}}>Los pedidos se asignan automáticamente</div>
+      <div style={{fontSize:13,color:'#86868B',marginBottom:24,lineHeight:1.6}}>Cocina te asigna los pedidos cuando están listos.<br/>Volvé al inicio para verlos.</div>
+      <button onClick={onBack} style={{padding:'12px 24px',background:'#000',color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>Volver</button>
     </div>
   );
 }
@@ -421,10 +345,16 @@ function RouteScreen({ rider, initialOrders, onDone }) {
     setOrders(prev => prev.map(o => o.id===id ? {...o, _delivering:true} : o));
 
     if (db) {
+      const delivOrd = orders.find(o => o.id === id);
       await db.from('delivery_orders').update({
         rider_status: 'delivered',
-        delivered_at: new Date().toISOString()
+        status: 'delivered',
+        delivered_at: new Date().toISOString(),
       }).eq('id', id);
+      // Actualizar orders.status para que caja y cliente vean el pedido como entregado
+      if (delivOrd?.order_id) {
+        await db.from('orders').update({ status: 'delivered' }).eq('id', delivOrd.order_id);
+      }
     }
 
     const updated = orders.map(o =>
@@ -687,7 +617,7 @@ function App() {
       .eq('rider_id', r.id)
       .in('rider_status', ['confirmed','on_way'])
       .order('created_at', { ascending: true });
-    if (data?.length) setActiveOrders(data);
+    setActiveOrders(data || []);
   }
 
   function handleLogin(riderData) {
@@ -695,6 +625,20 @@ function App() {
     setScreen('home');
     loadStats(riderData);
     loadActiveOrders(riderData);
+
+    // Suscripción Realtime para nuevas asignaciones
+    if (db) {
+      db.channel('rider-assignments-' + riderData.id)
+        .on('postgres_changes', {
+          event: 'UPDATE', schema: 'public', table: 'delivery_orders',
+          filter: `rider_id=eq.${riderData.id}`
+        }, () => loadActiveOrders(riderData))
+        .on('postgres_changes', {
+          event: 'INSERT', schema: 'public', table: 'delivery_orders',
+          filter: `rider_id=eq.${riderData.id}`
+        }, () => loadActiveOrders(riderData))
+        .subscribe();
+    }
   }
 
   function handleLogout() {
@@ -705,8 +649,8 @@ function App() {
   }
 
   function handleStartRoute(orders) {
-    setActiveOrders(orders);
-    setScreen('route');
+    // Pasar a ruta con los pedidos que acaban de iniciar (on_way)
+    loadActiveOrders(rider).then(() => setScreen('route'));
   }
 
   function handleAllDelivered() {
@@ -729,24 +673,18 @@ function App() {
               rider={rider}
               stats={stats}
               activeOrders={activeOrders}
-              onEnterPins={() => setScreen('pin_entry')}
+              onStartRoute={handleStartRoute}
               onShowRoute={() => setScreen('route')}
               onShowHistory={() => setScreen('history')}
               onLogout={handleLogout}
+              onRefresh={() => { loadActiveOrders(rider); loadStats(rider); }}
               onStatusChange={next => setRider(prev => prev ? {...prev, current_status:next} : prev)}
-            />
-          )}
-          {screen === 'pin_entry' && rider && (
-            <PinEntryScreen
-              rider={rider}
-              onStart={handleStartRoute}
-              onBack={() => setScreen('home')}
             />
           )}
           {screen === 'route' && rider && (
             <RouteScreen
               rider={rider}
-              initialOrders={activeOrders}
+              initialOrders={activeOrders.filter(o => o.rider_status === 'on_way')}
               onDone={handleAllDelivered}
             />
           )}

@@ -403,6 +403,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
   const [selected,setSelected]=useState(null);
   const [cobroModal,setCobroModal]=useState(false);
   const [searchQ,setSearchQ]=useState('');
+  const [deliveryInfoMap,setDeliveryInfoMap]=useState({});
 
   useEffect(()=>{loadOrders();},[]);
   useEffect(()=>{
@@ -434,7 +435,23 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
       .in('status',['confirmed','paid','pending_payment','kitchen_received','cooking','ready'])
       .or('payment_status.neq.paid,payment_status.is.null')
       .order('created_at',{ascending:true});
-    if(!error)setOrders(data||[]);
+    if(!error){
+      const orders = data || [];
+      setOrders(orders);
+      // Cargar info de delivery (rider, dirección, teléfono) para pedidos delivery/llevar
+      const deliveryIds = orders.filter(o => o.order_type === 'delivery' || o.order_type === 'llevar').map(o => o.id);
+      if(deliveryIds.length > 0){
+        const{data:delData}=await db.from('delivery_orders')
+          .select('order_id,order_type,customer_name,customer_phone,delivery_address,rider_name,rider_status')
+          .in('order_id',deliveryIds)
+          .eq('order_type','delivery');
+        const map = {};
+        for(const d of (delData||[])) map[d.order_id] = d;
+        setDeliveryInfoMap(map);
+      } else {
+        setDeliveryInfoMap({});
+      }
+    }
     setLoading(false);
   }
 
@@ -475,14 +492,13 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
             const sinCobrar=o.payment_status!=='paid';
             const enCocina=['kitchen_received','cooking'].includes(o.status);
             const listo=o.status==='ready'||o.status==='pending_payment';
-            // Calcular total real desde items si el campo total está en 0
             const totalReal=Number(o.total)||0;
             const totalItems=(o.order_items||[]).reduce((s,i)=>s+Number(i.quantity||1)*Number(i.unit_price||0),0);
             const displayTotal=totalReal>0?totalReal:totalItems;
             const pmLabel=o.payment_method==='efectivo'?'Efectivo':o.payment_method==='pos'||o.payment_method==='tarjeta'?'POS/Tarjeta':o.payment_method==='qr'?'QR':o.payment_method==='pos_mesa'?'POS Mesa':o.payment_method?o.payment_method:null;
             const borderColor=yaCobrado?C.green:sinCobrar?C.red:listo?C.green:enCocina?C.orange:C.border;
-            // Si ya cobró el mozo (payment_status=paid pero no hay movimiento de caja), enriquecer selected con totalReal
             const orderForModal={...o,total:displayTotal};
+            const dInfo=deliveryInfoMap[o.id]||null;
             return(
               <div key={o.id} style={{background:C.surface,border:`2px solid ${borderColor}`,borderRadius:10,padding:16,cursor:yaCobrado?'default':'pointer',opacity:yaCobrado?.7:1,position:'relative'}} onClick={()=>!yaCobrado&&selectOrder(orderForModal)}>
                 {yaCobrado&&<div style={{position:'absolute',top:10,right:10,background:C.green+'22',color:C.green,border:`1px solid ${C.green}44`,padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>Cobrado ✓{pmLabel?` — ${pmLabel}`:''}</div>}
@@ -498,6 +514,17 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                   </div>
                   <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
                 </div>
+                {dInfo&&(
+                  <div style={{background:'rgba(255,59,48,0.05)',border:'1px solid rgba(255,59,48,0.15)',borderRadius:7,padding:'7px 10px',marginBottom:8,fontSize:11}}>
+                    {(dInfo.customer_name||o.customer_name)&&<div style={{fontWeight:700,color:'#1D1D1F',marginBottom:2}}>👤 {dInfo.customer_name||o.customer_name}</div>}
+                    {dInfo.customer_phone&&<div style={{color:'#6E6E73',marginBottom:1}}>📞 {dInfo.customer_phone}</div>}
+                    {dInfo.delivery_address&&<div style={{color:'#6E6E73',marginBottom:1}}>📍 {dInfo.delivery_address}</div>}
+                    {dInfo.rider_name
+                      ? <div style={{color:'#34C759',fontWeight:700,marginTop:2}}>🛵 Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':''}</div>
+                      : <div style={{color:'#FF9500',fontWeight:600,marginTop:2}}>⏳ Sin rider asignado aún</div>
+                    }
+                  </div>
+                )}
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div style={{fontSize:20,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(displayTotal)}</div>
                   <div style={{fontSize:11,color:espera>30?C.red:espera>15?C.orange:'#6E6E73'}}>⏱ {espera}m</div>

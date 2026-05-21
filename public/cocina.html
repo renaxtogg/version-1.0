@@ -234,13 +234,33 @@ function filterByOrderType(tickets, typeFilter) {
 function orderToTicket(order) {
   const created = new Date(order.created_at);
   const elapsed = Math.floor((Date.now() - created.getTime()) / 60000);
-  const typeInfo = orderTypeInfo(order);
   const _t = (order.order_type || '').toLowerCase();
+
+  // Detectar si es delivery real (via delivery_orders join o order_type='delivery')
+  const delRow = order._deliveryRow || null;
+  const isActualDelivery = delRow?.order_type === 'delivery' || _t === 'delivery';
+
+  let typeInfo = orderTypeInfo(order);
+  // Los pedidos de la app delivery llegan con order_type='llevar' — forzar etiqueta DELIVERY
+  if (isActualDelivery && _t !== 'delivery') {
+    typeInfo = { tipo: 'delivery', label: 'DELIVERY', color: '#FF3B30', bg: 'rgba(255,59,48,0.14)', border: 'rgba(255,59,48,0.35)' };
+  }
+
   const isLocal = _t === 'local' || _t === 'dine_in' || _t === '';
   let mesa = null;
   if (isLocal && order.tables && order.tables.number != null) {
     mesa = order.tables.number;
   }
+
+  const deliveryInfo = delRow ? {
+    cliente:         delRow.customer_name   || null,
+    direccion:       delRow.delivery_address || null,
+    phone:           delRow.customer_phone  || null,
+    deliveryOrderId: delRow.id,
+    riderName:       delRow.rider_name      || null,
+    riderStatus:     delRow.rider_status    || 'pending',
+    isDelivery:      isActualDelivery,
+  } : (isActualDelivery ? { isDelivery: true } : null);
 
   return {
     id: order.order_number,
@@ -251,7 +271,7 @@ function orderToTicket(order) {
     hora: created.toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
     elapsed,
     status: toKitchenStatus(order.status),
-    deliveryInfo: order.delivery_info || null,
+    deliveryInfo,
     items: (order.order_items || []).map((oi, i) => ({
       id: oi.id || i + 1,
       nombre: oi.item_name,
@@ -306,10 +326,18 @@ async function dbLoadTickets() {
     itemsByOrder[item.order_id].push({ ...item, order_item_extras: extrasMap[item.id] || [] });
   });
 
+  // Cargar delivery_orders para identificar pedidos delivery reales y obtener info de rider
+  const { data: delivRows } = await db.from('delivery_orders')
+    .select('id,order_id,order_type,customer_name,customer_phone,delivery_address,rider_name,rider_status')
+    .in('order_id', orderIds);
+  const delivByOrder = {};
+  (delivRows || []).forEach(d => { delivByOrder[d.order_id] = d; });
+
   const tickets = orders.map(o => ({
     ...o,
     tables: o.table_id ? { number: tableMap[o.table_id] ?? null } : null,
-    order_items: itemsByOrder[o.id] || []
+    order_items: itemsByOrder[o.id] || [],
+    _deliveryRow: delivByOrder[o.id] || null,
   })).map(orderToTicket);
   return { tickets, error: null };
 }
@@ -330,6 +358,61 @@ async function dbDismissTicket(supabaseId) {
     await db.from('orders').update({ status: 'pending_payment' }).eq('id', supabaseId);
     await db.from('order_status_history').insert({ order_id: supabaseId, status: 'pending_payment', changed_by: 'kitchen' });
   } catch(e) { console.warn('Dismiss error:', e); }
+}
+
+/* ── AUTO-ASIGNACIÓN DE RIDER (round-robin equitativo) ─── */
+async function autoAssignRider(deliveryOrderId) {
+  if (!db || !deliveryOrderId) return null;
+  try {
+    const { data: riders } = await db.from('delivery_riders')
+      .select('id,name,vehicle')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .eq('active', true)
+      .neq('current_status', 'offline');
+    if (!riders?.length) return null;
+
+    const riderIds = riders.map(r => r.id);
+    const { data: lastAssignments } = await db.from('delivery_orders')
+      .select('rider_id,assigned_at')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .in('rider_id', riderIds)
+      .not('assigned_at', 'is', null)
+      .order('assigned_at', { ascending: false });
+
+    const lastTs = {};
+    for (const r of riders) lastTs[r.id] = 0;
+    for (const a of (lastAssignments || [])) {
+      if (!lastTs[a.rider_id]) lastTs[a.rider_id] = new Date(a.assigned_at).getTime();
+    }
+
+    const selected = [...riders].sort((a, b) => lastTs[a.id] - lastTs[b.id])[0];
+
+    await db.from('delivery_orders').update({
+      rider_id:    selected.id,
+      rider_name:  selected.name,
+      rider_status:'confirmed',
+      status:      'assigned',
+      assigned_at: new Date().toISOString(),
+    }).eq('id', deliveryOrderId);
+
+    return selected;
+  } catch(e) {
+    console.warn('Auto-assign rider error:', e);
+    return null;
+  }
+}
+
+async function dbDismissDeliveryTicket(supabaseId, deliveryOrderId) {
+  if (!db || !supabaseId) return null;
+  try {
+    // Cocina terminó: pedido queda en 'ready' hasta que el rider lo retire
+    await db.from('orders').update({ status: 'ready' }).eq('id', supabaseId);
+    await db.from('order_status_history').insert({ order_id: supabaseId, status: 'ready', changed_by: 'kitchen' });
+    return await autoAssignRider(deliveryOrderId);
+  } catch(e) {
+    console.warn('Dismiss delivery error:', e);
+    return null;
+  }
 }
 
 async function dbLoadKitchenMessages() {
@@ -531,11 +614,20 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
         </div>
       )}
 
-      {/* Info delivery (cliente + dirección) */}
-      {ticket.deliveryInfo && !isEntregado && (
+      {/* Info delivery (cliente + dirección + rider asignado) */}
+      {ticket.deliveryInfo && (
         <div style={{ background: 'rgba(255,59,48,0.06)', borderBottom: `1px solid rgba(255,59,48,0.18)`, padding: '5px 16px' }}>
           {ticket.deliveryInfo.cliente && <div style={{ fontSize: 11, color: '#FF3B30', fontWeight: 600 }}>{ticket.deliveryInfo.cliente}</div>}
           {ticket.deliveryInfo.direccion && <div style={{ fontSize: 10, color: C.mid }}>{ticket.deliveryInfo.direccion}</div>}
+          {ticket.deliveryInfo.phone && <div style={{ fontSize: 10, color: C.mid }}>📞 {ticket.deliveryInfo.phone}</div>}
+          {(ticket.deliveryInfo.riderName || ticket.deliveryInfo.riderAssigned) && (
+            <div style={{ fontSize: 10, color: '#34C759', fontWeight: 700, marginTop: 1 }}>
+              🛵 {ticket.deliveryInfo.riderName || ticket.deliveryInfo.riderAssigned}
+            </div>
+          )}
+          {ticket.deliveryInfo.isDelivery && !ticket.deliveryInfo.riderName && !isEntregado && (
+            <div style={{ fontSize: 9, color: '#FF9500', fontWeight: 600 }}>⏳ rider se asignará al marcar listo</div>
+          )}
         </div>
       )}
 
@@ -1124,7 +1216,13 @@ function App() {
         const { data: ord } = await db.from('orders')
           .select('id,order_number,order_type,status,created_at,table_id')
           .eq('id', orderId).eq('restaurant_id', RESTAURANT_ID).maybeSingle();
-        if (!ord || !['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
+        if (!ord) return;
+        // Cargar delivery_orders para enriquecer el ticket
+        const { data: delRow } = await db.from('delivery_orders')
+          .select('id,order_id,order_type,customer_name,customer_phone,delivery_address,rider_name,rider_status')
+          .eq('order_id', orderId).maybeSingle();
+        ord._deliveryRow = delRow || null;
+        if (!['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
         const tableMap = {};
         if (ord.table_id) {
           const { data: tbl } = await db.from('tables').select('id,number').eq('id', ord.table_id).maybeSingle();
@@ -1290,7 +1388,6 @@ function App() {
 
   const dismiss = async (ticket) => {
     recordDone(ticket.elapsed, ticket.items);
-    setDelivered(prev => [{ ...ticket, status: 'entregado' }, ...prev].slice(0, 10));
     setTickets(prev => prev.filter(t => t.id !== ticket.id));
 
     const newCount = completedCountRef.current + 1;
@@ -1305,7 +1402,19 @@ function App() {
       }
     }
 
-    await dbDismissTicket(ticket._supabaseId);
+    const isDeliveryOrder = ticket.deliveryInfo?.isDelivery && ticket.deliveryInfo?.deliveryOrderId;
+    if (isDeliveryOrder) {
+      const rider = await dbDismissDeliveryTicket(ticket._supabaseId, ticket.deliveryInfo.deliveryOrderId);
+      const riderName = rider?.name || null;
+      setDelivered(prev => [{
+        ...ticket,
+        status: 'entregado',
+        deliveryInfo: { ...ticket.deliveryInfo, riderName, riderAssigned: riderName },
+      }, ...prev].slice(0, 10));
+    } else {
+      setDelivered(prev => [{ ...ticket, status: 'entregado' }, ...prev].slice(0, 10));
+      await dbDismissTicket(ticket._supabaseId);
+    }
   };
 
   /* Filtros */
