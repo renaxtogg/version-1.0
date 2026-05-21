@@ -442,7 +442,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
       const deliveryIds = orders.filter(o => o.order_type === 'delivery' || o.order_type === 'llevar').map(o => o.id);
       if(deliveryIds.length > 0){
         const{data:delData}=await db.from('delivery_orders')
-          .select('order_id,order_type,customer_name,customer_phone,delivery_address,rider_name,rider_status')
+          .select('order_id,order_type,customer_name,customer_phone,delivery_address,rider_name,rider_status,delivery_fee,cash_amount')
           .in('order_id',deliveryIds)
           .eq('order_type','delivery');
         const map = {};
@@ -545,6 +545,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
           order={selected}
           turno={turno}
           profile={profile}
+          deliveryInfo={deliveryInfoMap[selected.id]||null}
           onClose={()=>{setCobroModal(false);setSelected(null);}}
           onSuccess={mov=>{
             onMovimiento(mov);
@@ -559,7 +560,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
 }
 
 /* ─── MODAL: COBRO ────────────────────────────── */
-function CobroModal({order,turno,profile,onClose,onSuccess}){
+function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [metodo,setMetodo]=useState('efectivo');
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
@@ -611,8 +612,35 @@ function CobroModal({order,turno,profile,onClose,onSuccess}){
     setBusy(false);
   }
 
+  const isDeliveryOrder = order.order_type==='delivery';
+  const deliveryFeeNum  = deliveryInfo?.delivery_fee||0;
+  const cashAmountNum   = deliveryInfo?.cash_amount||0;
+  const cashChangeNum   = cashAmountNum>0 ? cashAmountNum-(totalReal+deliveryFeeNum) : 0;
+
   return(
     <Modal title={`Cobrar pedido #${order.order_number}`} onClose={onClose} width={480}>
+      {/* Info delivery */}
+      {isDeliveryOrder&&deliveryInfo&&(
+        <div style={{background:'rgba(255,59,48,0.05)',border:'1px solid rgba(255,59,48,0.18)',borderRadius:9,padding:'10px 13px',marginBottom:14,fontSize:12}}>
+          {(deliveryInfo.customer_name||order.customer_name)&&<div style={{fontWeight:700,color:'#1D1D1F',marginBottom:3}}>👤 {deliveryInfo.customer_name||order.customer_name}</div>}
+          {deliveryInfo.customer_phone&&<div style={{color:'#6E6E73',marginBottom:2}}>📞 {deliveryInfo.customer_phone}</div>}
+          {deliveryInfo.delivery_address&&<div style={{color:'#6E6E73',marginBottom:2}}>📍 {deliveryInfo.delivery_address}</div>}
+          {deliveryInfo.rider_name
+            ?<div style={{color:'#34C759',fontWeight:700,marginTop:3}}>🛵 Rider: {deliveryInfo.rider_name}{deliveryInfo.rider_status==='on_way'?' — En camino':deliveryInfo.rider_status==='confirmed'?' — Esperando retiro':''}</div>
+            :<div style={{color:'#FF9500',fontWeight:600,marginTop:3}}>⏳ Sin rider asignado</div>
+          }
+          {cashAmountNum>0&&cashChangeNum>=0&&(
+            <div style={{marginTop:6,paddingTop:6,borderTop:'1px solid rgba(255,59,48,0.15)'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <span style={{color:'#15803D',fontWeight:700}}>💵 Vuelto a llevar</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,fontSize:15,color:'#16A34A'}}>{fmt(cashChangeNum)}</span>
+              </div>
+              <div style={{fontSize:10,color:'#6E6E73',marginTop:1}}>Cliente paga {fmt(cashAmountNum)} · total {fmt(totalReal+deliveryFeeNum)}</div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{marginBottom:16}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
           <span style={{fontSize:12,color:'#6E6E73'}}>{mesa}</span>
@@ -626,6 +654,12 @@ function CobroModal({order,turno,profile,onClose,onSuccess}){
                 <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#000000',fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
               </div>
             ))}
+          </div>
+        )}
+        {isDeliveryOrder&&deliveryFeeNum>0&&(
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#6E6E73',marginBottom:6}}>
+            <span>Costo delivery</span>
+            <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(deliveryFeeNum)}</span>
           </div>
         )}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderTop:`1px solid ${C.border}`}}>

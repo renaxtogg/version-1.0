@@ -260,6 +260,9 @@ function orderToTicket(order) {
     riderName:       delRow.rider_name      || null,
     riderStatus:     delRow.rider_status    || 'pending',
     isDelivery:      isActualDelivery,
+    deliveryFee:     delRow.delivery_fee    || 0,
+    cashAmount:      delRow.cash_amount     || 0,
+    orderTotal:      delRow.order_total     || 0,
   } : (isActualDelivery ? { isDelivery: true } : null);
 
   return {
@@ -328,7 +331,7 @@ async function dbLoadTickets() {
 
   // Cargar delivery_orders para identificar pedidos delivery reales y obtener info de rider
   const { data: delivRows } = await db.from('delivery_orders')
-    .select('id,order_id,order_type,customer_name,customer_phone,delivery_address,rider_name,rider_status')
+    .select('id,order_id,order_type,customer_name,customer_phone,delivery_address,rider_name,rider_status,delivery_fee,cash_amount')
     .in('order_id', orderIds);
   const delivByOrder = {};
   (delivRows || []).forEach(d => { delivByOrder[d.order_id] = d; });
@@ -646,6 +649,15 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
           {ticket.deliveryInfo.isDelivery && !ticket.deliveryInfo.riderName && !isEntregado && (
             <div style={{ fontSize: 9, color: '#FF9500', fontWeight: 600 }}>⏳ buscando rider disponible</div>
           )}
+          {ticket.deliveryInfo.cashAmount > 0 && (() => {
+            const total = ticket.deliveryInfo.orderTotal || 0;
+            const chg   = ticket.deliveryInfo.cashAmount - total;
+            return chg >= 0 ? (
+              <div style={{ marginTop: 3, fontSize: 10, color: '#16A34A', fontWeight: 700 }}>
+                💵 Vuelto: {fmt(chg)} (paga {fmt(ticket.deliveryInfo.cashAmount)})
+              </div>
+            ) : null;
+          })()}
         </div>
       )}
 
@@ -1237,7 +1249,7 @@ function App() {
         if (!ord) return;
         // Cargar delivery_orders para enriquecer el ticket
         const { data: delRow } = await db.from('delivery_orders')
-          .select('id,order_id,order_type,customer_name,customer_phone,delivery_address,rider_name,rider_status')
+          .select('id,order_id,order_type,customer_name,customer_phone,delivery_address,rider_name,rider_status,delivery_fee,cash_amount')
           .eq('order_id', orderId).maybeSingle();
         ord._deliveryRow = delRow || null;
         if (!['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
