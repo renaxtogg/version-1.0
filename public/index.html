@@ -1084,7 +1084,7 @@ function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaite
     { label: readyLabel, sub: readySub },
     { label: 'Entregado', sub: '¡Buen provecho! 🎉' }
   ];
-  const STATUS_MAP = { paid: 1, kitchen_received: 2, cooking: 3, ready: 4, delivered: 5 };
+  const STATUS_MAP = { paid: 1, kitchen_received: 2, cooking: 3, ready: 4, delivered: 5, pending_payment: 5 };
   const [active, setActive] = useState(1);
 
   useEffect(() => {
