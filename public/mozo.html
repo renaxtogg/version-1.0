@@ -497,7 +497,7 @@ function getMesaStatus(tableId, ordersMap, callsMap, tablesById) {
   if (!order) return 'ocupada';
   if (order.status === 'ready') return 'lista';
   if (order.status === 'cooking' || order.status === 'kitchen_received') return 'cocina';
-  if (order.status === 'pending_payment') return 'pendiente_pago';
+  if (order.status === 'pending_payment' && order.payment_status !== 'paid') return 'pendiente_pago';
   return 'ocupada';
 }
 
