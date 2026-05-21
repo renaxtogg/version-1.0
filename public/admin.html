@@ -674,8 +674,7 @@ function PedidosPage({orders, tables, onRefresh}) {
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) onRefresh(); })
       .on('postgres_changes',{event:'*',schema:'public',table:'waiter_calls',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) onRefresh(); })
       .subscribe();
-    const poll = setInterval(()=>{ if(_shouldPause()) return; onRefresh(); }, 30000);
-    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+    return ()=>{ db.removeChannel(ch); };
   },[]);
 
   function exportExcel() {
@@ -1121,8 +1120,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
     const ch = db.channel('menu-rt')
       .on('postgres_changes',{event:'*',schema:'public',table:'menu_items',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) onRefresh(); })
       .subscribe();
-    const poll = setInterval(()=>{ if(_shouldPause()) return; onRefresh(); }, 30000);
-    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+    return ()=>{ db.removeChannel(ch); };
   },[]);
 
   function onDragStart(item) { dragItem.current = item; }
@@ -1479,8 +1477,7 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) onRefresh(); })
       .on('postgres_changes',{event:'DELETE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) onRefresh(); })
       .subscribe();
-    const poll = setInterval(()=>{ if(_shouldPause()) return; onRefresh(); }, 30000);
-    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+    return ()=>{ db.removeChannel(ch); };
   },[]);
 
   const activeOrders = orders.filter(o=>['paid','kitchen_received','cooking','ready'].includes(o.status));
@@ -1696,8 +1693,7 @@ function PersonalPage() {
       .on('postgres_changes',{event:'*',schema:'public',table:'user_roles',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadProfiles(); })
       .on('postgres_changes',{event:'*',schema:'public',table:'employee_shifts',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadShifts(); })
       .subscribe();
-    const poll = setInterval(()=>{ if(_shouldPause()) return; loadProfiles(); if(tab==='turnos') loadShifts(); }, 30000);
-    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+    return ()=>{ db.removeChannel(ch); };
   },[tab]);
 
   async function saveRole(id) {
@@ -3835,8 +3831,7 @@ function StockPage() {
       .on('postgres_changes',{event:'*',schema:'public',table:'stock_alerts',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) loadData(); })
       .on('postgres_changes',{event:'*',schema:'public',table:'stock_movements',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) loadData(); })
       .subscribe();
-    const poll = setInterval(()=>{ if(_shouldPause()) return; loadData(); }, 30000);
-    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+    return ()=>{ db.removeChannel(ch); };
   }, [loadData]);
 
   const createIngredient = async () => {
