@@ -364,6 +364,11 @@ async function dbDismissTicket(supabaseId) {
 async function autoAssignRider(deliveryOrderId) {
   if (!db || !deliveryOrderId) return null;
   try {
+    // Evitar doble asignación
+    const { data: existing } = await db.from('delivery_orders')
+      .select('rider_id').eq('id', deliveryOrderId).maybeSingle();
+    if (existing?.rider_id) return null;
+
     const { data: riders } = await db.from('delivery_riders')
       .select('id,name,vehicle')
       .eq('restaurant_id', RESTAURANT_ID)
@@ -402,16 +407,28 @@ async function autoAssignRider(deliveryOrderId) {
   }
 }
 
+/* Asigna rider a todos los delivery tickets pendientes que aún no tienen rider */
+async function maybeAutoAssignDeliveries(tickets) {
+  if (!tickets?.length) return;
+  for (const t of tickets) {
+    const di = t.deliveryInfo;
+    if (di?.isDelivery && di.deliveryOrderId && di.riderStatus === 'pending') {
+      autoAssignRider(di.deliveryOrderId).catch(e => console.warn('auto-assign:', e));
+    }
+  }
+}
+
 async function dbDismissDeliveryTicket(supabaseId, deliveryOrderId) {
-  if (!db || !supabaseId) return null;
+  if (!db || !supabaseId) return;
   try {
-    // Cocina terminó: pedido queda en 'ready' hasta que el rider lo retire
     await db.from('orders').update({ status: 'ready' }).eq('id', supabaseId);
     await db.from('order_status_history').insert({ order_id: supabaseId, status: 'ready', changed_by: 'kitchen' });
-    return await autoAssignRider(deliveryOrderId);
+    // Asegurar que el rider esté asignado (fallback si no se asignó al entrar)
+    if (deliveryOrderId) {
+      await autoAssignRider(deliveryOrderId);
+    }
   } catch(e) {
     console.warn('Dismiss delivery error:', e);
-    return null;
   }
 }
 
@@ -1249,6 +1266,10 @@ function App() {
           if (prev.some(t => t.id === ticket.id)) return prev;
           return [ticket, ...prev];
         });
+        // Auto-asignar rider si es delivery sin asignar
+        if (ticket.deliveryInfo?.isDelivery && ticket.deliveryInfo?.deliveryOrderId && ticket.deliveryInfo?.riderStatus === 'pending') {
+          autoAssignRider(ticket.deliveryInfo.deliveryOrderId).catch(e => console.warn('auto-assign:', e));
+        }
         setNewAlert(ticket.id);
         if (soundRef.current && SOUND_NEW) playKitchenAlert(false);
         setTimeout(() => setNewAlert(null), 5000);
@@ -1306,7 +1327,7 @@ function App() {
 
     dbLoadTickets().then(({ tickets: data, error }) => {
       if (error) setDbError(error);
-      else { setDbError(null); if (data) setTickets(data); }
+      else { setDbError(null); if (data) { setTickets(data); maybeAutoAssignDeliveries(data); } }
       setLoading(false);
     });
 
@@ -1348,11 +1369,17 @@ function App() {
       dbLoadTickets().then(({ tickets: data, error }) => {
         if (error) { setDbError(error); return; }
         setDbError(null);
-        if (data) setTickets(prev => {
-          const sig = t => t.id + t.status;
-          const unchanged = prev.length === data.length && prev.every((t, i) => sig(t) === sig(data[i]));
-          return unchanged ? prev : data;
-        });
+        if (data) {
+          const newDeliveries = data.filter(t =>
+            t.deliveryInfo?.isDelivery && t.deliveryInfo?.riderStatus === 'pending'
+          );
+          if (newDeliveries.length) maybeAutoAssignDeliveries(newDeliveries);
+          setTickets(prev => {
+            const sig = t => t.id + t.status;
+            const unchanged = prev.length === data.length && prev.every((t, i) => sig(t) === sig(data[i]));
+            return unchanged ? prev : data;
+          });
+        }
       });
     }, 15000);
 
@@ -1402,14 +1429,13 @@ function App() {
       }
     }
 
-    const isDeliveryOrder = ticket.deliveryInfo?.isDelivery && ticket.deliveryInfo?.deliveryOrderId;
+    const isDeliveryOrder = ticket.deliveryInfo?.isDelivery;
     if (isDeliveryOrder) {
-      const rider = await dbDismissDeliveryTicket(ticket._supabaseId, ticket.deliveryInfo.deliveryOrderId);
-      const riderName = rider?.name || null;
+      await dbDismissDeliveryTicket(ticket._supabaseId, ticket.deliveryInfo?.deliveryOrderId || null);
       setDelivered(prev => [{
         ...ticket,
         status: 'entregado',
-        deliveryInfo: { ...ticket.deliveryInfo, riderName, riderAssigned: riderName },
+        deliveryInfo: { ...ticket.deliveryInfo },
       }, ...prev].slice(0, 10));
     } else {
       setDelivered(prev => [{ ...ticket, status: 'entregado' }, ...prev].slice(0, 10));
