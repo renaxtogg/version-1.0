@@ -507,6 +507,143 @@ function statusLabel(s) {
   return { libre: 'Libre', ocupada: 'Ocupada', cocina: 'En cocina', lista: 'Lista', cuenta: 'Cuenta', alerta: 'Alerta', pendiente_pago: 'Cobro pte.' }[s] || s;
 }
 
+/* ══════════════════════════════════════════════
+   MAPA DE ZONAS — componentes compartidos mozo
+══════════════════════════════════════════════ */
+const ZONAS_DEF_M=[
+  {value:'salon',    label:'Salón',    bg:'#F0F7FF',border:'#BFDBFE',dot:'#3B82F6'},
+  {value:'terraza',  label:'Terraza',  bg:'#F0FFF4',border:'#BBF7D0',dot:'#22C55E'},
+  {value:'bar',      label:'Bar',      bg:'#FFF7ED',border:'#FED7AA',dot:'#F97316'},
+  {value:'privado',  label:'Privado',  bg:'#FDF4FF',border:'#E9D5FF',dot:'#A855F7'},
+  {value:'exterior', label:'Exterior', bg:'#FEFCE8',border:'#FEF08A',dot:'#EAB308'},
+];
+const SHAPES_DEF_M=[{value:'square',label:'Cuadrada',icon:'⬜'},{value:'round',label:'Redonda',icon:'⭕'},{value:'rectangle',label:'Rectangular',icon:'▬'}];
+const CELL_M=70; const GAP_M=10;
+function tdM(shape){if(shape==='rectangle')return{w:Math.round(CELL_M*1.55),h:Math.round(CELL_M*0.65)};return{w:CELL_M,h:CELL_M};}
+function tbrM(shape){if(shape==='round')return'50%';if(shape==='rectangle')return 6;return 8;}
+function posM(t,idx){
+  if(t.pos_x!=null&&t.pos_y!=null)return{x:t.pos_x,y:t.pos_y};
+  const cols=Math.max(Math.floor((window.innerWidth-52)/(CELL_M+GAP_M)),2);
+  return{x:(idx%cols)*(CELL_M+GAP_M)+GAP_M,y:Math.floor(idx/cols)*(CELL_M+GAP_M)+GAP_M};
+}
+const SC_M={
+  libre:{bg:'#FFFFFF',bd:'#D2D2D7',tx:'#000000'},
+  ocupada:{bg:'#1D1D1F',bd:'#1D1D1F',tx:'#FFFFFF'},
+  cocina:{bg:'#555555',bd:'#555555',tx:'#FFFFFF'},
+  lista:{bg:'#FFFFFF',bd:'#1D1D1F',tx:'#000000'},
+  pendiente_pago:{bg:'#FFF4E5',bd:'#FF9500',tx:'#C05300'},
+  alerta:{bg:'#FFF0F0',bd:'#FF3B30',tx:'#CC0000'},
+};
+function ZonaMozo({zona,tables,ordersMap,callsMap,tablesById,sessionTotals,editMode,onTableClick,onEditTable}){
+  const zd=ZONAS_DEF_M.find(z=>z.value===zona)||ZONAS_DEF_M[0];
+  const canvasH=tables.length
+    ?Math.max(...tables.map((t,i)=>{const p=posM(t,i);const{h}=tdM(t.shape||'square');return p.y+h+GAP_M;}),100)
+    :80;
+  return(
+    <div style={{marginBottom:20}}>
+      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,padding:'0 16px'}}>
+        <div style={{width:7,height:7,borderRadius:'50%',background:zd.dot}}/>
+        <div style={{fontSize:11,fontWeight:700,color:'#3D3D3D',textTransform:'uppercase',letterSpacing:'0.5px'}}>{zd.label}</div>
+        <div style={{fontSize:10,color:'#86868B'}}>· {tables.length} {tables.length===1?'mesa':'mesas'}</div>
+      </div>
+      <div style={{position:'relative',width:'100%',minHeight:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,overflow:'hidden'}}>
+        {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#C0C0C0',fontSize:12}}>Sin mesas en {zd.label.toLowerCase()}</div>}
+        {tables.map((t,idx)=>{
+          const pos=posM(t,idx);
+          const status=getMesaStatus(t.id,ordersMap,callsMap,tablesById);
+          const shape=t.shape||'square';
+          const{w,h}=tdM(shape);
+          const br=tbrM(shape);
+          const sesTotal=sessionTotals[t.id]||0;
+          const sc=SC_M[status]||SC_M.libre;
+          return(
+            <div key={t.id}
+              onClick={()=>editMode?onEditTable(t):onTableClick(t.id)}
+              style={{position:'absolute',left:pos.x,top:pos.y,width:w,height:h,
+                background:sc.bg,border:`2px solid ${sc.bd}`,borderRadius:br,
+                display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+                cursor:'pointer',userSelect:'none',
+                boxShadow:status==='libre'?'0 1px 3px rgba(0,0,0,0.07)':'0 2px 8px rgba(0,0,0,0.18)',
+              }}>
+              {sesTotal>0&&<div style={{fontSize:7,color:sc.tx==='#000000'?'#22C55E':'rgba(255,255,255,0.85)',fontWeight:700,lineHeight:1,marginBottom:1}}>{fGsK(sesTotal)}</div>}
+              <div style={{fontSize:shape==='rectangle'?13:15,fontWeight:800,color:sc.tx,lineHeight:1}}>{t.number}</div>
+              <div style={{fontSize:7,color:sc.tx==='#000000'?'#86868B':'rgba(255,255,255,0.65)',marginTop:2,fontWeight:500}}>{statusLabel(status)}</div>
+              <div style={{fontSize:7,color:sc.tx==='#000000'?'#86868B':'rgba(255,255,255,0.5)',marginTop:1}}>{t.capacity||4}p</div>
+              {editMode&&<div style={{position:'absolute',top:3,right:4,fontSize:8,color:'#86868B'}}>✎</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MesaEditModalM({table,onSave,onClose}){
+  const [form,setForm]=React.useState({number:String(table.number),capacity:String(table.capacity||4),zona:table.zona||'salon',shape:table.shape||'square'});
+  const [saving,setSaving]=React.useState(false);
+  async function save(){
+    const num=parseInt(form.number);
+    if(isNaN(num)||num<1)return;
+    setSaving(true);
+    const zonaChanged=table.zona!==form.zona;
+    const upd={number:num,capacity:parseInt(form.capacity)||4,zona:form.zona||'salon',shape:form.shape||'square'};
+    if(zonaChanged){upd.pos_x=null;upd.pos_y=null;}
+    const{error}=await db.from('tables').update(upd).eq('id',table.id);
+    setSaving(false);
+    if(error)return;
+    onSave();
+  }
+  async function del(){
+    if(!window.confirm(`¿Eliminar Mesa ${table.number}?`))return;
+    await db.from('tables').delete().eq('id',table.id);
+    onSave();
+  }
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={onClose}>
+      <div style={{background:'#FFFFFF',borderRadius:'16px 16px 0 0',padding:24,width:'100%',maxWidth:480}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:800,marginBottom:20,color:'#000'}}>Editar Mesa {table.number}</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
+          <div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5}}>NÚMERO</div>
+            <input type="number" value={form.number} onChange={e=>setForm(f=>({...f,number:e.target.value}))} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,border:'1px solid #D2D2D7'}}/>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5}}>CAPACIDAD (pax)</div>
+            <input type="number" value={form.capacity} onChange={e=>setForm(f=>({...f,capacity:e.target.value}))} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,border:'1px solid #D2D2D7'}}/>
+          </div>
+        </div>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:6}}>ZONA</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {ZONAS_DEF_M.map(z=>(
+              <button key={z.value} onClick={()=>setForm(f=>({...f,zona:z.value}))}
+                style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'#000':'#D2D2D7'}`,background:form.zona===z.value?'#000':'transparent',color:form.zona===z.value?'#fff':'#3D3D3D',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400}}>
+                {z.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:6}}>FORMA</div>
+          <div style={{display:'flex',gap:8}}>
+            {SHAPES_DEF_M.map(s=>(
+              <button key={s.value} onClick={()=>setForm(f=>({...f,shape:s.value}))}
+                style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'#000':'#D2D2D7'}`,background:form.shape===s.value?'#000':'transparent',color:form.shape===s.value?'#fff':'#3D3D3D',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                <span style={{fontSize:18}}>{s.icon}</span><span>{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={save} disabled={saving} style={{flex:1,padding:'12px',background:'#000',color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer'}}>{saving?'Guardando…':'Guardar'}</button>
+          <button onClick={onClose} style={{padding:'12px 18px',background:'transparent',color:'#6E6E73',border:'1px solid #D2D2D7',borderRadius:8,fontSize:14,fontWeight:600,cursor:'pointer'}}>Cancelar</button>
+          <button onClick={del} style={{padding:'12px 18px',background:'rgba(239,68,68,0.1)',color:'#FF3B30',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,fontSize:14,fontWeight:600,cursor:'pointer'}}>Eliminar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function orderStatusText(status) {
   return {
     paid: 'En cocina', kitchen_received: 'En cocina',
@@ -582,6 +719,11 @@ function App() {
   const [mesaDialog, setMesaDialog] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
 
+  // Mapa de zonas
+  const [mesaViewMode, setMesaViewMode] = useState(() => localStorage.getItem('mozo_mesa_view') || 'grid');
+  const [mapaEditMode, setMapaEditMode] = useState(false);
+  const [mesaFormModal, setMesaFormModal] = useState(null);
+
   // Product selection
   const [selectedProducts, setSelectedProducts] = useState({});
   const [productSearch, setProductSearch] = useState('');
@@ -643,6 +785,7 @@ function App() {
   }, []);
 
   useEffect(() => { localStorage.setItem('mozo_view', currentView); }, [currentView]);
+  useEffect(() => { localStorage.setItem('mozo_mesa_view', mesaViewMode); }, [mesaViewMode]);
   useEffect(() => {
     if (activeTableId) localStorage.setItem('mozo_tableId', activeTableId);
     else localStorage.removeItem('mozo_tableId');
@@ -1483,6 +1626,17 @@ function App() {
                 <div className="section-title">Mesas</div>
                 <div className="section-sub">{tables.length} mesas · {Object.keys(ordersMap).length} activas</div>
               </div>
+              {/* Toggle vista */}
+              <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}>
+                <button onClick={() => { setMesaViewMode('grid'); setMapaEditMode(false); }}
+                  style={{ padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: mesaViewMode === 'grid' ? '#000' : 'transparent', color: mesaViewMode === 'grid' ? '#fff' : 'var(--text2)' }}>
+                  ⊞ Cuadrícula
+                </button>
+                <button onClick={() => setMesaViewMode('mapa')}
+                  style={{ padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: mesaViewMode === 'mapa' ? '#000' : 'transparent', color: mesaViewMode === 'mapa' ? '#fff' : 'var(--text2)' }}>
+                  🗺 Mapa
+                </button>
+              </div>
             </div>
 
             <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px' }}>
@@ -1519,53 +1673,102 @@ function App() {
               </div>
             )}
 
-            <div className="table-grid">
-              {tables.map(mesa => {
-                const status = getMesaStatus(mesa.id, ordersMap, callsMap, tablesById);
-                const order = ordersMap[mesa.id];
-                const itemCount = order?.order_items?.length || 0;
-                const sesTotal = sessionTotals[mesa.id] || 0;
-                const tbl = tablesById[mesa.id];
-                const occupiedMins = tbl?.occupied_since
-                  ? Math.floor((Date.now() - new Date(tbl.occupied_since)) / 60000)
-                  : null;
-                const showCobrar = order?.status === 'ready' && status !== 'libre';
-                // FIX #3 — método de pago badge
-                const pm = order?.payment_method;
-                const pmLabel = pm === 'efectivo' ? 'EFECTIVO' : (pm === 'pos' || pm === 'tarjeta') ? 'POS' : pm === 'qr' ? 'QR' : pm === 'pos_mesa' ? 'POS MESA' : null;
-                const isOccupiedCard = ['ocupada','cocina','lista'].includes(status);
-                return (
-                  <div key={mesa.id} className={`mesa-card ${status}`} onClick={() => handleMesaClick(mesa.id)}>
-                    {itemCount > 0 && <div className="mesa-badge">{itemCount}</div>}
-                    {showCobrar && <div className="cobrar-badge">COBRAR</div>}
-                    {sesTotal > 0 && (
-                      <div style={{ fontSize: 9, fontWeight: 700, color: isOccupiedCard ? 'rgba(255,255,255,0.75)' : 'var(--green)', marginBottom: 1, letterSpacing: '-0.3px' }}>
-                        {fGsK(sesTotal)}
+            {/* ── Vista cuadrícula (existente) ── */}
+            {mesaViewMode === 'grid' && (
+              <>
+                <div className="table-grid">
+                  {tables.map(mesa => {
+                    const status = getMesaStatus(mesa.id, ordersMap, callsMap, tablesById);
+                    const order = ordersMap[mesa.id];
+                    const itemCount = order?.order_items?.length || 0;
+                    const sesTotal = sessionTotals[mesa.id] || 0;
+                    const tbl = tablesById[mesa.id];
+                    const occupiedMins = tbl?.occupied_since
+                      ? Math.floor((Date.now() - new Date(tbl.occupied_since)) / 60000)
+                      : null;
+                    const showCobrar = order?.status === 'ready' && status !== 'libre';
+                    const pm = order?.payment_method;
+                    const pmLabel = pm === 'efectivo' ? 'EFECTIVO' : (pm === 'pos' || pm === 'tarjeta') ? 'POS' : pm === 'qr' ? 'QR' : pm === 'pos_mesa' ? 'POS MESA' : null;
+                    const isOccupiedCard = ['ocupada','cocina','lista'].includes(status);
+                    return (
+                      <div key={mesa.id} className={`mesa-card ${status}`} onClick={() => handleMesaClick(mesa.id)}>
+                        {itemCount > 0 && <div className="mesa-badge">{itemCount}</div>}
+                        {showCobrar && <div className="cobrar-badge">COBRAR</div>}
+                        {sesTotal > 0 && (
+                          <div style={{ fontSize: 9, fontWeight: 700, color: isOccupiedCard ? 'rgba(255,255,255,0.75)' : 'var(--green)', marginBottom: 1, letterSpacing: '-0.3px' }}>
+                            {fGsK(sesTotal)}
+                          </div>
+                        )}
+                        <div className="mesa-num">{mesa.number}</div>
+                        {occupiedMins !== null && status !== 'libre' && (
+                          <div className={`mesa-time${occupiedMins >= 90 ? ' overtime' : ''}`}>
+                            {occupiedMins} min
+                          </div>
+                        )}
+                        <div className="mesa-label">{statusLabel(status)}</div>
+                        {pmLabel && (
+                          <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: '0.3px', color: isOccupiedCard ? 'rgba(255,255,255,0.75)' : '#6E6E73', marginTop: 1 }}>{pmLabel}</div>
+                        )}
                       </div>
-                    )}
-                    <div className="mesa-num">{mesa.number}</div>
-                    {occupiedMins !== null && status !== 'libre' && (
-                      <div className={`mesa-time${occupiedMins >= 90 ? ' overtime' : ''}`}>
-                        {occupiedMins} min
-                      </div>
-                    )}
-                    <div className="mesa-label">{statusLabel(status)}</div>
-                    {pmLabel && (
-                      <div style={{ fontSize: 8, fontWeight: 800, letterSpacing: '0.3px', color: isOccupiedCard ? 'rgba(255,255,255,0.75)' : '#6E6E73', marginTop: 1 }}>{pmLabel}</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                    );
+                  })}
+                </div>
+                <div className="legend">
+                  <div className="legend-item"><div className="legend-dot" style={{ background: 'transparent', border: '1px solid #D2D2D7' }}></div>Libre</div>
+                  <div className="legend-item"><div className="legend-dot" style={{ background: '#000000', border: '1px solid #000000' }}></div>Ocupada</div>
+                  <div className="legend-item"><div className="legend-dot" style={{ background: '#86868B', border: '1px solid #86868B' }}></div>En cocina</div>
+                  <div className="legend-item"><div className="legend-dot" style={{ background: '#FFFFFF', border: '1.5px solid #000000' }}></div>Lista</div>
+                  <div className="legend-item"><div className="legend-dot" style={{ background: 'var(--orange-soft)', border: '1px solid var(--orange)' }}></div>Cobro pte.</div>
+                  <div className="legend-item"><div className="legend-dot" style={{ background: '#FF3B30', border: '1px solid #FF3B30' }}></div>Alerta</div>
+                </div>
+              </>
+            )}
 
-            <div className="legend">
-              <div className="legend-item"><div className="legend-dot" style={{ background: 'transparent', border: '1px solid #D2D2D7' }}></div>Libre</div>
-              <div className="legend-item"><div className="legend-dot" style={{ background: '#000000', border: '1px solid #000000' }}></div>Ocupada</div>
-              <div className="legend-item"><div className="legend-dot" style={{ background: '#86868B', border: '1px solid #86868B' }}></div>En cocina</div>
-              <div className="legend-item"><div className="legend-dot" style={{ background: '#FFFFFF', border: '1.5px solid #000000' }}></div>Lista</div>
-              <div className="legend-item"><div className="legend-dot" style={{ background: 'var(--orange-soft)', border: '1px solid var(--orange)' }}></div>Cobro pte.</div>
-              <div className="legend-item"><div className="legend-dot" style={{ background: '#FF3B30', border: '1px solid #FF3B30' }}></div>Alerta</div>
-            </div>
+            {/* ── Vista mapa de zonas ── */}
+            {mesaViewMode === 'mapa' && (
+              <div style={{ paddingBottom: 20 }}>
+                {/* Barra de acciones del mapa */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 14px' }}>
+                  <div style={{ fontSize: 11, color: '#86868B' }}>
+                    {mapaEditMode ? 'Tocá una mesa para editarla' : 'Tocá una mesa para ver su estado'}
+                  </div>
+                  <button onClick={() => setMapaEditMode(e => !e)}
+                    style={{ padding: '6px 14px', borderRadius: 20, border: '1.5px solid #D2D2D7', background: mapaEditMode ? '#000' : 'transparent', color: mapaEditMode ? '#fff' : '#3D3D3D', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                    {mapaEditMode ? '✓ Editando' : '✎ Editar mesas'}
+                  </button>
+                </div>
+                {tables.length === 0 && (
+                  <div style={{ padding: '40px 16px', textAlign: 'center', color: '#C0C0C0', fontSize: 13 }}>No hay mesas configuradas.</div>
+                )}
+                {(() => {
+                  const zonaMap = {};
+                  tables.forEach(t => { const z = t.zona || 'salon'; if (!zonaMap[z]) zonaMap[z] = []; zonaMap[z].push(t); });
+                  const zonasToShow = ZONAS_DEF_M.filter(z => zonaMap[z.value]?.length > 0);
+                  return zonasToShow.map(z => (
+                    <ZonaMozo key={z.value}
+                      zona={z.value}
+                      tables={zonaMap[z.value] || []}
+                      ordersMap={ordersMap}
+                      callsMap={callsMap}
+                      tablesById={tablesById}
+                      sessionTotals={sessionTotals}
+                      editMode={mapaEditMode}
+                      onTableClick={handleMesaClick}
+                      onEditTable={t => setMesaFormModal(t)}
+                    />
+                  ));
+                })()}
+              </div>
+            )}
+
+            {/* Modal de edición de mesa (solo vista mapa) */}
+            {mesaFormModal && (
+              <MesaEditModalM
+                table={mesaFormModal}
+                onSave={() => { setMesaFormModal(null); setMapaEditMode(false); loadData(); }}
+                onClose={() => setMesaFormModal(null)}
+              />
+            )}
           </div>
         )}
 

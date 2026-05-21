@@ -1727,6 +1727,185 @@ function OrderDetailModal({order,onClose}){
   );
 }
 
+/* ══════════════════════════════════════════════
+   MAPA DE ZONAS — componentes para caja
+══════════════════════════════════════════════ */
+const ZONAS_DEF_C=[
+  {value:'salon',    label:'Salón',    bg:'#F0F7FF',border:'#BFDBFE',dot:'#3B82F6'},
+  {value:'terraza',  label:'Terraza',  bg:'#F0FFF4',border:'#BBF7D0',dot:'#22C55E'},
+  {value:'bar',      label:'Bar',      bg:'#FFF7ED',border:'#FED7AA',dot:'#F97316'},
+  {value:'privado',  label:'Privado',  bg:'#FDF4FF',border:'#E9D5FF',dot:'#A855F7'},
+  {value:'exterior', label:'Exterior', bg:'#FEFCE8',border:'#FEF08A',dot:'#EAB308'},
+];
+const SHAPES_DEF_C=[{value:'square',label:'Cuadrada',icon:'⬜'},{value:'round',label:'Redonda',icon:'⭕'},{value:'rectangle',label:'Rectangular',icon:'▬'}];
+const CELL_C=80; const GAP_C=14;
+function tdC(shape){if(shape==='rectangle')return{w:Math.round(CELL_C*1.65),h:Math.round(CELL_C*0.72)};return{w:CELL_C,h:CELL_C};}
+function tbrC(shape){if(shape==='round')return'50%';if(shape==='rectangle')return 8;return 10;}
+function posC(t,idx){
+  if(t.pos_x!=null&&t.pos_y!=null)return{x:t.pos_x,y:t.pos_y};
+  const cols=Math.max(Math.floor((window.innerWidth-620)/(CELL_C+GAP_C)),3);
+  return{x:(idx%cols)*(CELL_C+GAP_C)+GAP_C,y:Math.floor(idx/cols)*(CELL_C+GAP_C)+GAP_C};
+}
+
+function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dragOff,setDragging,setDragOff,setTables,onTableClick,onEditTable}){
+  const canvasRef=React.useRef(null);
+  const zd=ZONAS_DEF_C.find(z=>z.value===zona)||ZONAS_DEF_C[0];
+  const canvasH=tables.length
+    ?Math.max(...tables.map((t,i)=>{const p=posC(t,i);const{h}=tdC(t.shape||'square');return p.y+h+GAP_C;}),120)
+    :90;
+  function onMouseDown(e,t){
+    if(!editMode)return;
+    e.stopPropagation();
+    const rect=e.currentTarget.getBoundingClientRect();
+    setDragOff({x:e.clientX-rect.left,y:e.clientY-rect.top,zona});
+    setDragging(t.id);
+  }
+  function onMouseMove(e){
+    if(!dragging||!canvasRef.current||dragOff.zona!==zona)return;
+    const cr=canvasRef.current.getBoundingClientRect();
+    const nx=Math.max(0,e.clientX-cr.left-dragOff.x);
+    const ny=Math.max(0,e.clientY-cr.top-dragOff.y);
+    setTables(prev=>prev.map(t=>t.id===dragging?{...t,pos_x:nx,pos_y:ny}:t));
+  }
+  async function onMouseUp(){
+    if(!dragging||dragOff.zona!==zona)return;
+    const t=tables.find(x=>x.id===dragging);
+    if(t&&db)await db.from('tables').update({pos_x:Math.round(t.pos_x),pos_y:Math.round(t.pos_y)}).eq('id',t.id);
+    setDragging(null);
+  }
+  const ACTIVE_STATUSES=['paid','pending_payment','kitchen_received','cooking','ready'];
+  function getTableStatus(t){
+    const order=ordersByTable[t.id];
+    const occ=t.is_occupied||!!order;
+    if(!occ)return'libre';
+    if(!order)return'ocupada';
+    if(order.status==='ready')return'lista';
+    if(['cooking','kitchen_received'].includes(order.status))return'cocina';
+    if(order.status==='pending_payment')return'cobro';
+    return'ocupada';
+  }
+  const SC_C={
+    libre:{bg:'#FFFFFF',bd:'#D2D2D7',tx:'#000000'},
+    ocupada:{bg:'#1D1D1F',bd:'#1D1D1F',tx:'#FFFFFF'},
+    cocina:{bg:'#555555',bd:'#555555',tx:'#FFFFFF'},
+    lista:{bg:'#FFFFFF',bd:'#000000',tx:'#000000'},
+    cobro:{bg:'#FFF4E5',bd:'#FF9500',tx:'#C05300'},
+  };
+  return(
+    <div style={{marginBottom:16}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+        <div style={{width:8,height:8,borderRadius:'50%',background:zd.dot}}/>
+        <div style={{fontSize:12,fontWeight:700,color:'#3D3D3D',textTransform:'uppercase',letterSpacing:'0.5px'}}>{zd.label}</div>
+        <div style={{fontSize:11,color:'#86868B'}}>· {tables.length} {tables.length===1?'mesa':'mesas'}</div>
+      </div>
+      <div ref={canvasRef} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+        style={{position:'relative',width:'100%',minHeight:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,borderRadius:10,overflow:'hidden'}}>
+        {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#C0C0C0',fontSize:12}}>Sin mesas en {zd.label.toLowerCase()}</div>}
+        {tables.map((t,idx)=>{
+          const pos=posC(t,idx);
+          const shape=t.shape||'square';
+          const{w,h}=tdC(shape);
+          const br=tbrC(shape);
+          const status=getTableStatus(t);
+          const sc=SC_C[status]||SC_C.libre;
+          const order=ordersByTable[t.id];
+          const sesTotal=sessionTotals[t.id]||0;
+          const isDrag=dragging===t.id;
+          return(
+            <div key={t.id}
+              onMouseDown={e=>onMouseDown(e,t)}
+              onClick={()=>editMode?onEditTable(t):onTableClick(t,order)}
+              style={{position:'absolute',left:pos.x,top:pos.y,width:w,height:h,
+                background:sc.bg,border:`2px solid ${sc.bd}`,borderRadius:br,
+                display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+                cursor:editMode?'grab':'pointer',userSelect:'none',
+                transition:isDrag?'none':'box-shadow .15s',
+                boxShadow:isDrag?'0 8px 24px rgba(0,0,0,0.22)':'0 1px 3px rgba(0,0,0,0.06)',
+                zIndex:isDrag?10:1,
+              }}>
+              {sesTotal>0&&<div style={{fontSize:8,color:sc.tx==='#000000'?'#22C55E':'rgba(255,255,255,0.85)',fontWeight:700,lineHeight:1,marginBottom:2,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(sesTotal)}</div>}
+              <div style={{fontSize:shape==='rectangle'?13:16,fontWeight:800,color:sc.tx,lineHeight:1}}>{t.number}</div>
+              {status==='libre'
+                ?<div style={{fontSize:8,color:'#86868B',marginTop:2,fontWeight:500}}>Libre</div>
+                :<div style={{fontSize:8,color:sc.tx==='#000000'?'#555':'rgba(255,255,255,0.7)',marginTop:2,fontWeight:500}}>
+                  {status==='cocina'?'Cocina':status==='lista'?'Lista':status==='cobro'?'A cobrar':'Ocupada'}
+                </div>
+              }
+              <div style={{fontSize:8,color:sc.tx==='#000000'?'#86868B':'rgba(255,255,255,0.5)',marginTop:2}}>{t.capacity||4} pax</div>
+              {editMode&&<div style={{position:'absolute',top:3,right:5,fontSize:9,color:'#86868B'}}>✎</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MesaEditModalC({table,onSave,onClose}){
+  const [form,setForm]=React.useState({number:String(table.number),capacity:String(table.capacity||4),zona:table.zona||'salon',shape:table.shape||'square'});
+  const [saving,setSaving]=React.useState(false);
+  async function save(){
+    const num=parseInt(form.number);
+    if(isNaN(num)||num<1)return;
+    setSaving(true);
+    const zonaChanged=table.zona!==form.zona;
+    const upd={number:num,capacity:parseInt(form.capacity)||4,zona:form.zona||'salon',shape:form.shape||'square'};
+    if(zonaChanged){upd.pos_x=null;upd.pos_y=null;}
+    const{error}=await db.from('tables').update(upd).eq('id',table.id);
+    setSaving(false);
+    if(error){toast('Error: '+error.message,false);return;}
+    onSave();
+  }
+  async function del(){
+    if(!window.confirm(`¿Eliminar Mesa ${table.number}?`))return;
+    const{error}=await db.from('tables').delete().eq('id',table.id);
+    if(error){toast('Error: '+error.message,false);return;}
+    onSave();
+  }
+  return(
+    <Modal title={`Editar Mesa ${table.number}`} onClose={onClose} width={400}>
+      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div><Lbl>NÚMERO *</Lbl><Inp type="number" value={form.number} onChange={e=>setForm(f=>({...f,number:e.target.value}))} placeholder="1"/></div>
+          <div><Lbl>LUGARES (pax)</Lbl><Inp type="number" value={form.capacity} onChange={e=>setForm(f=>({...f,capacity:e.target.value}))} placeholder="4"/></div>
+        </div>
+        <div>
+          <Lbl>ZONA / SECTOR</Lbl>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:4}}>
+            {ZONAS_DEF_C.map(z=>(
+              <button key={z.value} onClick={()=>setForm(f=>({...f,zona:z.value}))}
+                style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'#000':'#D2D2D7'}`,background:form.zona===z.value?'#000':'transparent',color:form.zona===z.value?'#fff':'#3D3D3D',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400}}>
+                {z.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <Lbl>FORMA DE LA MESA</Lbl>
+          <div style={{display:'flex',gap:8,marginTop:4}}>
+            {SHAPES_DEF_C.map(s=>(
+              <button key={s.value} onClick={()=>setForm(f=>({...f,shape:s.value}))}
+                style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'#000':'#D2D2D7'}`,background:form.shape===s.value?'#000':'transparent',color:form.shape===s.value?'#fff':'#3D3D3D',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                <span style={{fontSize:20}}>{s.icon}</span><span>{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {table.zona!==form.zona&&(
+          <div style={{fontSize:11,color:'#86868B',background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:6,padding:'8px 10px'}}>
+            Al cambiar de zona, la mesa se reposicionará automáticamente.
+          </div>
+        )}
+        <div style={{display:'flex',gap:8,marginTop:4}}>
+          <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+          <Btn variant="danger" small onClick={del}>Eliminar</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 /* ═══════════════════════════════════════════
    PANEL: VISTA DEL SALÓN
 ═══════════════════════════════════════════ */
@@ -1737,6 +1916,10 @@ function SalonPanel({profile}){
   const [loading,setLoading]=useState(true);
   const [selTable,setSelTable]=useState(null); // {table, orders: []}
   const [selOrder,setSelOrder]=useState(null);
+  const [editMode,setEditMode]=useState(false);
+  const [dragging,setDragging]=useState(null);
+  const [dragOff,setDragOff]=useState({x:0,y:0,zona:null});
+  const [mesaEdit,setMesaEdit]=useState(null);
   const ACTIVE=['paid','pending_payment','kitchen_received','cooking','ready'];
 
   useEffect(()=>{
@@ -1753,7 +1936,7 @@ function SalonPanel({profile}){
 
   async function load(){
     const[{data:tbl},{data:ord}]=await Promise.all([
-      db.from('tables').select('id,number,capacity,is_occupied,occupied_since').eq('restaurant_id',RID).order('number'),
+      db.from('tables').select('id,number,capacity,is_occupied,occupied_since,zona,shape,pos_x,pos_y').eq('restaurant_id',RID).order('number'),
       db.from('orders')
         .select('id,order_number,status,total,order_type,customer_name,created_at,table_id,tables(number)')
         .eq('restaurant_id',RID).in('status',ACTIVE).order('created_at',{ascending:true}),
@@ -1914,17 +2097,42 @@ function SalonPanel({profile}){
 
       {!loading&&(
         <div style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:20,alignItems:'start'}}>
-          {/* Grid de mesas */}
+          {/* Mapa de zonas */}
           <div>
-            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:12}}>MESAS DEL SALÓN</div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>MAPA DEL SALÓN</div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                {editMode&&<div style={{fontSize:11,color:'#86868B'}}>Arrastrá para posicionar · click para editar</div>}
+                <button onClick={()=>{setEditMode(e=>!e);setDragging(null);}}
+                  style={{padding:'5px 14px',borderRadius:6,border:`1px solid ${editMode?'#000':'#D2D2D7'}`,background:editMode?'#000':'transparent',color:editMode?'#fff':'#6E6E73',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                  {editMode?'✓ Editando':'✎ Editar mesas'}
+                </button>
+              </div>
+            </div>
             {tables.length===0?(
               <div style={{color:'#6E6E73',fontSize:13,padding:20,fontWeight:500}}>No hay mesas configuradas para este restaurante.</div>
-            ):(
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:14}}>
-                {tables.map(t=><TableCard key={t.id} table={t}/>)}
-              </div>
-            )}
-            {/* Pedidos con table_id que no está en la lista de mesas (mesa eliminada o de otro restaurante) */}
+            ):(()=>{
+              const zonaMap={};
+              tables.forEach(t=>{const z=t.zona||'salon';if(!zonaMap[z])zonaMap[z]=[];zonaMap[z].push(t);});
+              const zonasToShow=editMode?ZONAS_DEF_C:ZONAS_DEF_C.filter(z=>zonaMap[z.value]?.length>0);
+              return zonasToShow.map(z=>(
+                <ZonaCaja key={z.value}
+                  zona={z.value}
+                  tables={zonaMap[z.value]||[]}
+                  ordersByTable={ordersByTable}
+                  sessionTotals={sessionTotals}
+                  editMode={editMode}
+                  dragging={dragging}
+                  dragOff={dragOff}
+                  setDragging={setDragging}
+                  setDragOff={setDragOff}
+                  setTables={setTables}
+                  onTableClick={(t,order)=>loadTableSession(t)}
+                  onEditTable={t=>setMesaEdit(t)}
+                />
+              ));
+            })()}
+            {/* Pedidos con table_id que no está en la lista de mesas */}
             {dineInOrders.filter(o=>o.table_id&&!tables.find(t=>t.id===o.table_id)).length>0&&(
               <div style={{marginTop:16}}>
                 <div style={{fontSize:10,color:C.yellow,fontWeight:700,letterSpacing:1,marginBottom:8}}>⚠ PEDIDOS CON MESA NO REGISTRADA</div>
@@ -1957,6 +2165,15 @@ function SalonPanel({profile}){
       )}
 
       {selOrder&&<OrderDetailModal order={selOrder} onClose={()=>setSelOrder(null)}/>}
+
+      {/* Modal edición de mesa */}
+      {mesaEdit&&(
+        <MesaEditModalC
+          table={mesaEdit}
+          onSave={()=>{setMesaEdit(null);setEditMode(false);load();}}
+          onClose={()=>setMesaEdit(null)}
+        />
+      )}
 
       {/* Modal de sesión de mesa — historial + liberar */}
       {selTable&&(
