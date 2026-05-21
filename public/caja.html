@@ -398,7 +398,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>loadOrders())
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},(payload)=>{
         const o=payload.new;
-        if(['delivered','cancelled'].includes(o.status)){
+        if(['delivered','cancelled'].includes(o.status)||o.payment_status==='paid'){
           setOrders(p=>p.filter(x=>x.id!==o.id));
         } else {
           setOrders(p=>p.some(x=>x.id===o.id)
@@ -419,6 +419,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
       .select('id,order_number,status,payment_status,total,payment_method,order_type,customer_name,created_at,table_id,tables(number),order_items(id,quantity,unit_price)')
       .eq('restaurant_id',RID)
       .in('status',['confirmed','paid','pending_payment','kitchen_received','cooking','ready'])
+      .or('payment_status.neq.paid,payment_status.is.null')
       .order('created_at',{ascending:true});
     if(!error)setOrders(data||[]);
     setLoading(false);

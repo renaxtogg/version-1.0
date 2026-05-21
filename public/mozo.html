@@ -826,10 +826,11 @@ function App() {
     channelRef.current = db.channel('mozo-live')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `restaurant_id=eq.${RID}` }, (payload) => {
         const newStatus = payload?.new?.status;
+        const newPayStatus = payload?.new?.payment_status;
         const tblId = payload?.new?.table_id;
         const payMethod = payload?.new?.payment_method;
-        // Sync con caja: cuando una mesa se cobra desde caja, notificar al mozo
-        if (newStatus === 'delivered' && payMethod && tblId) {
+        // Sync con caja: notificar al mozo cuando se cobra (delivered desde mozo, o payment_status=paid desde caja)
+        if ((newStatus === 'delivered' && payMethod && tblId) || (newPayStatus === 'paid' && tblId)) {
           if (activeTableIdRef.current === tblId) {
             setCobroModal(false);
             showToast('Mesa cobrada en caja');
@@ -1012,11 +1013,11 @@ function App() {
     if (!db || !tableId) return;
     const tbl = tablesById[tableId];
     let q = db.from('orders')
-      .select('id, order_number, status, total, created_at, payment_method, order_items(id, item_name, quantity, unit_price, total_price, observations)')
+      .select('id, order_number, status, payment_status, total, created_at, payment_method, order_items(id, item_name, quantity, unit_price, total_price, observations)')
       .eq('restaurant_id', RID)
       .eq('table_id', tableId)
       .not('status', 'in', '("cancelled")')
-      // Excluir órdenes ya cobradas (delivered + payment_method seteado)
+      // Excluir órdenes ya cobradas por mozo (delivered + payment_method seteado)
       .or('status.neq.delivered,payment_method.is.null')
       .order('created_at');
     // Filtrar por sesión actual para no mostrar sesiones históricas de la misma mesa
@@ -1032,19 +1033,20 @@ function App() {
     if (!db || !tableId) return;
     const tbl = tablesById[tableId];
     let q = db.from('orders')
-      .select('id, status, payment_method, order_items(id, item_name, quantity, unit_price, total_price, observations)')
+      .select('id, status, payment_status, payment_method, order_items(id, item_name, quantity, unit_price, total_price, observations)')
       .eq('restaurant_id', RID)
       .eq('table_id', tableId)
       .not('status', 'in', '("cancelled")')
       .or('status.neq.delivered,payment_method.is.null')
+      .or('payment_status.neq.paid,payment_status.is.null')
       .order('created_at');
     if (tbl?.occupied_since) q = q.gte('created_at', tbl.occupied_since);
     const { data: orders } = await q;
     const items = [];
     let total = 0;
     (orders || []).forEach(o => {
-      // Si está delivered Y tiene payment_method → ya fue cobrado, no lo incluimos
-      const yaCobrado = o.status === 'delivered' && o.payment_method;
+      // Si está delivered + payment_method, o payment_status='paid' → ya fue cobrado
+      const yaCobrado = (o.status === 'delivered' && o.payment_method) || o.payment_status === 'paid';
       if (yaCobrado) return;
       (o.order_items || []).forEach(i => {
         const lineTotal = Number(i.total_price) || Number((i.unit_price || 0)) * Number(i.quantity || 0);
@@ -1062,15 +1064,19 @@ function App() {
     setHistorialOrders([]);
     setHistorialModal(true);
     const tbl = tablesById[tableId];
-    let q = db.from('orders')
-      .select('id, order_number, status, total, created_at, order_items(id, item_name, quantity, total_price)')
-      .eq('restaurant_id', RID)
-      .eq('table_id', tableId)
-      .neq('status', 'cancelled')
-      .order('created_at', { ascending: false });
-    if (tbl?.occupied_since) q = q.gte('created_at', tbl.occupied_since);
-    const { data } = await q;
-    setHistorialOrders(data || []);
+    try {
+      let q = db.from('orders')
+        .select('id, order_number, status, payment_status, payment_method, total, created_at, order_items(id, item_name, quantity, total_price)')
+        .eq('restaurant_id', RID)
+        .eq('table_id', tableId)
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false });
+      if (tbl?.occupied_since) q = q.gte('created_at', tbl.occupied_since);
+      const { data } = await q;
+      setHistorialOrders(data || []);
+    } catch(e) {
+      console.error('loadHistorial error:', e);
+    }
     setLoadingHistorial(false);
   }
 
@@ -1151,14 +1157,20 @@ function App() {
   /* ── REMOVE ITEM ── */
   async function removeItem(itemId) {
     if (!db) return;
-    const order = ordersMap[activeTableId];
-    if (!order) return;
-    const item = (order.order_items || []).find(i => i.id === itemId);
-    if (!item) return;
+    // Buscar el ítem en tableOrders (puede ser de cualquier orden de la mesa)
+    let targetOrder = null;
+    let targetItem = null;
+    for (const ord of tableOrders) {
+      const found = (ord.order_items || []).find(i => i.id === itemId);
+      if (found) { targetOrder = ord; targetItem = found; break; }
+    }
+    if (!targetOrder || !targetItem) return;
     await db.from('order_items').delete().eq('id', itemId);
-    const newTotal = Math.max(0, (order.subtotal || 0) - item.total_price);
-    await db.from('orders').update({ subtotal: newTotal, total: newTotal }).eq('id', order.id);
+    const lineTotal = Number(targetItem.total_price) || Number((targetItem.unit_price || 0)) * Number(targetItem.quantity || 0);
+    const newTotal = Math.max(0, (targetOrder.total || 0) - lineTotal);
+    await db.from('orders').update({ subtotal: newTotal, total: newTotal }).eq('id', targetOrder.id);
     await loadData();
+    if (activeTableId) loadTableOrders(activeTableId);
     showToast('Ítem eliminado');
   }
 
@@ -1304,10 +1316,10 @@ function App() {
   const mesasACobrar = Object.keys(ordersMap).length;
   const montoACobrar = Object.values(sessionTotals).reduce((s, v) => s + v, 0);
 
-  // Mesas con cobro pendiente (pending_payment o payment_method seteado sin cobrar)
+  // Mesas con cobro pendiente (pending_payment o payment_method seteado sin cobrar), excluyendo ya pagadas desde caja
   const pendingPaymentTables = useMemo(() => {
     return Object.entries(ordersMap)
-      .filter(([, o]) => o.status === 'pending_payment' || (o.payment_method && o.status !== 'delivered' && o.status !== 'cancelled'))
+      .filter(([, o]) => o.payment_status !== 'paid' && (o.status === 'pending_payment' || (o.payment_method && o.status !== 'delivered' && o.status !== 'cancelled')))
       .map(([tableId, o]) => {
         const tbl = tablesById[tableId];
         const pm = o.payment_method;
@@ -1318,6 +1330,8 @@ function App() {
 
   const activeOrder = activeTableId ? ordersMap[activeTableId] : null;
   const activeTable = activeTableId ? tables.find(t => t.id === activeTableId) : null;
+  // Hay cobro pendiente si existe alguna orden de la mesa sin payment_status='paid' y con ítems
+  const hasPendingCobro = tableOrders.some(o => o.payment_status !== 'paid' && (o.order_items || []).length > 0);
   const activeTableOccupied = activeTableId ? (tablesById[activeTableId]?.is_occupied ?? false) : false;
   const pendingAlerts = waiterCalls.length;
   // Badge count: orders in 'ready' status (listos para entregar)
@@ -1363,7 +1377,8 @@ function App() {
   }), [turnoOrders]);
 
   /* ── ITEM STATUS BADGE ── */
-  function itemStatusBadge(orderStatus) {
+  function itemStatusBadge(orderStatus, paymentStatus) {
+    if (paymentStatus === 'paid') return <span className="item-badge" style={{background:'var(--green-soft)',color:'var(--green)'}}>PAGADO ✓</span>;
     if (orderStatus === 'ready') return <span className="item-badge item-badge-listo">Listo</span>;
     if (orderStatus === 'delivered') return <span className="item-badge item-badge-entregado">Entregado</span>;
     if (orderStatus === 'cooking') return <span className="item-badge item-badge-cooking">Preparando</span>;
@@ -1540,7 +1555,7 @@ function App() {
                       {activeOrder && ['confirmed', 'draft'].includes(activeOrder.status) && (
                         <button className="order-action-btn" onClick={enviarACocina} title="Enviar a cocina">&#9201;</button>
                       )}
-                      {(activeOrder || tableOrders.some(o => (o.order_items||[]).length > 0)) && (
+                      {hasPendingCobro && (
                         <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">$</button>
                       )}
                       {activeOrder && <button className="order-action-btn" onClick={finalizarOrden} title="Marcar entregada sin cobrar">&#10003;</button>}
@@ -1587,8 +1602,10 @@ function App() {
                         tableOrders.flatMap(ord =>
                           (ord.order_items || []).map(item => ({
                             ...item,
+                            _orderId: ord.id,
                             _orderStatus: ord.status,
-                            _canRemove: ['confirmed', 'draft'].includes(ord.status),
+                            _paymentStatus: ord.payment_status,
+                            _canRemove: ['confirmed', 'draft'].includes(ord.status) && ord.payment_status !== 'paid',
                             _lineTotal: Number(item.total_price) || Number((item.unit_price || 0)) * Number(item.quantity || 0),
                           }))
                         ).map(item => {
@@ -1632,7 +1649,7 @@ function App() {
                                 {item._canRemove && <div className="item-del" onClick={() => removeItem(item.id)}>✕</div>}
                               </div>
                               <div className="item-status-row">
-                                {itemStatusBadge(item._orderStatus)}
+                                {itemStatusBadge(item._orderStatus, item._paymentStatus)}
                               </div>
                             </div>
                           );
@@ -1888,8 +1905,13 @@ function App() {
                       <span style={{ fontSize: 12, fontWeight: 700 }}>#{ord.order_number}</span>
                       <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>&#9200; {timeStr(ord.created_at)}</span>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: ord.status === 'delivered' ? 'var(--green)' : 'var(--orange)' }}>
-                      {fGs(ord.total)}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {(ord.payment_status === 'paid' || ord.status === 'delivered') && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--green)', background: 'var(--green-soft)', padding: '2px 6px', borderRadius: 4 }}>PAGADO ✓</span>
+                      )}
+                      <div style={{ fontSize: 13, fontWeight: 800, color: (ord.status === 'delivered' || ord.payment_status === 'paid') ? 'var(--green)' : 'var(--orange)' }}>
+                        {fGs(ord.total)}
+                      </div>
                     </div>
                   </div>
                   {(ord.order_items || []).map(it => (
