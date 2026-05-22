@@ -645,10 +645,12 @@ function MesaEditModalM({table,onSave,onClose}){
   );
 }
 
-function orderStatusText(status) {
+function orderStatusText(status, paymentStatus) {
+  if (paymentStatus === 'paid') return 'Cobrado';
   return {
     paid: 'En cocina', kitchen_received: 'En cocina',
-    cooking: 'Preparando', ready: 'Listo', delivered: 'Entregado'
+    cooking: 'Preparando', ready: 'Listo', delivered: 'Entregado',
+    pending_payment: 'A cobrar'
   }[status] || status;
 }
 
@@ -908,7 +910,8 @@ function App() {
           .eq('restaurant_id', RID)
           .in('table_id', occupiedIds)
           .not('status', 'in', '("cancelled")')
-          .or('status.neq.delivered,payment_method.is.null');
+          .or('status.neq.delivered,payment_method.is.null')
+          .neq('payment_status', 'paid');
         const st = {};
         (sessData || []).forEach(o => {
           // Filtrar por occupied_since para no acumular deudas de sesiones anteriores
@@ -1496,7 +1499,7 @@ function App() {
     Object.values(ordersMap).reduce((sum, o) => sum + Number(o.total || 0), 0)
   , [ordersMap]);
 
-  const mesasACobrar = Object.keys(ordersMap).length;
+  const mesasACobrar = Object.values(ordersMap).filter(o => o.payment_status !== 'paid').length;
   const montoACobrar = Object.values(sessionTotals).reduce((s, v) => s + v, 0);
 
   // Mesas con cobro pendiente (pending_payment o payment_method seteado sin cobrar), excluyendo ya pagadas desde caja
@@ -1809,7 +1812,7 @@ function App() {
                     <div className="order-mesa-btn">Mesa {activeTable?.number}</div>
                     {activeOrder && (
                       <div style={{ marginLeft: 'auto', fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
-                        {orderStatusText(activeOrder.status)}
+                        {orderStatusText(activeOrder.status, activeOrder.payment_status)}
                       </div>
                     )}
                     {sessionTotals[activeTableId] > 0 && (
@@ -1830,7 +1833,7 @@ function App() {
                       <div className="order-info-item">&#9200; {timeStr(activeOrder.created_at)}</div>
                       <div className="order-info-item" style={{ fontSize: 12 }}>{activeOrder.order_number}</div>
                       <div className={`order-status-badge ${orderStatusClass(activeOrder.status)}`}>
-                        {orderStatusText(activeOrder.status).toUpperCase()}
+                        {orderStatusText(activeOrder.status, activeOrder.payment_status).toUpperCase()}
                       </div>
                     </div>
 

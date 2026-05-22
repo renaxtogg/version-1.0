@@ -87,8 +87,8 @@ const fmtDur = (from,to=new Date()) => {
   const h=Math.floor(s/3600), m=Math.floor((s%3600)/60);
   return h>0?`${h}h ${m}m`:`${m}m`;
 };
-const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',kitchen_received:'En cocina',cooking:'Preparando',ready:'Listo',delivered:'Entregado',cancelled:'Cancelado'};
-const SC = {paid:'#FF9500',kitchen_received:'#007AFF',cooking:'#FF9500',ready:'#34C759',delivered:'#86868B',cancelled:'#FF3B30'};
+const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',pending_payment:'A cobrar',kitchen_received:'En cocina',cooking:'Preparando',ready:'Listo',delivered:'Entregado',cancelled:'Cancelado'};
+const SC = {paid:'#FF9500',pending_payment:'#FF9500',kitchen_received:'#007AFF',cooking:'#FF9500',ready:'#34C759',delivered:'#86868B',cancelled:'#FF3B30'};
 
 /* ── PALETA ── */
 const C_LIGHT = {
