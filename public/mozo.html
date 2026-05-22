@@ -146,10 +146,10 @@ body {
 .mesa-card.cuenta .mesa-num { color: #000000; }
 .mesa-card.alerta { background: var(--red-soft); border-color: var(--red); animation: pulse-ring 1.5s infinite; }
 .mesa-card.alerta .mesa-num { color: var(--red); }
-.mesa-card.pendiente_pago { background: var(--orange-soft); border-color: var(--orange); animation: pulse-ring 1.5s infinite; }
-.mesa-card.pendiente_pago .mesa-num { color: var(--orange); }
-.mesa-card.pendiente_pago .mesa-label { color: var(--orange); font-weight: 700; }
-.mesa-card.pendiente_pago .mesa-time { color: var(--orange); }
+.mesa-card.pendiente_pago { background: #FF9500; border-color: #B45309; animation: pulse-ring 1.5s infinite; }
+.mesa-card.pendiente_pago .mesa-num { color: #FFFFFF; }
+.mesa-card.pendiente_pago .mesa-label { color: #FFFFFF; font-weight: 800; }
+.mesa-card.pendiente_pago .mesa-time { color: rgba(255,255,255,0.85); }
 
 /* COBROS PENDIENTES SECTION */
 .cobros-section {
@@ -620,7 +620,7 @@ const SC_M={
   ocupada:{bg:'#1D1D1F',bd:'#1D1D1F',tx:'#FFFFFF'},
   cocina:{bg:'#555555',bd:'#555555',tx:'#FFFFFF'},
   lista:{bg:'#FFFFFF',bd:'#1D1D1F',tx:'#000000'},
-  pendiente_pago:{bg:'#FFF4E5',bd:'#FF9500',tx:'#C05300'},
+  pendiente_pago:{bg:'#FF9500',bd:'#B45309',tx:'#FFFFFF'},
   alerta:{bg:'#FFF0F0',bd:'#FF3B30',tx:'#CC0000'},
 };
 function ZonaMozo({zona,tables,ordersMap,callsMap,tablesById,sessionTotals,editMode,setTables,onTableClick,onEditTable}){
@@ -1915,7 +1915,7 @@ function App() {
                     const showCobrar = order?.status === 'ready' && status !== 'libre';
                     const pm = order?.payment_method;
                     const pmLabel = pm === 'efectivo' ? 'EFECTIVO' : (pm === 'pos' || pm === 'tarjeta') ? 'POS' : pm === 'qr' ? 'QR' : pm === 'pos_mesa' ? 'POS MESA' : null;
-                    const isOccupiedCard = ['ocupada','cocina','lista'].includes(status);
+                    const isOccupiedCard = ['ocupada','cocina','lista','pendiente_pago'].includes(status);
                     return (
                       <div key={mesa.id} className={`mesa-card ${status}`} onClick={() => handleMesaClick(mesa.id)}>
                         {itemCount > 0 && <div className="mesa-badge">{itemCount}</div>}
@@ -1944,7 +1944,7 @@ function App() {
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#000000', border: '1px solid #000000' }}></div>Ocupada</div>
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#86868B', border: '1px solid #86868B' }}></div>En cocina</div>
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#FFFFFF', border: '1.5px solid #000000' }}></div>Lista</div>
-                  <div className="legend-item"><div className="legend-dot" style={{ background: 'var(--orange-soft)', border: '1px solid var(--orange)' }}></div>Cobro pte.</div>
+                  <div className="legend-item"><div className="legend-dot" style={{ background: '#FF9500', border: '1px solid #B45309' }}></div>Cobro pte.</div>
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#FF3B30', border: '1px solid #FF3B30' }}></div>Alerta</div>
                 </div>
               </>
