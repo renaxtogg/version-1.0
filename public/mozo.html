@@ -519,13 +519,25 @@ const ZONAS_DEF_M=[
 ];
 const SHAPES_DEF_M=[{value:'square',label:'Cuadrada',icon:'⬜'},{value:'round',label:'Redonda',icon:'⭕'},{value:'rectangle',label:'Rectangular',icon:'▬'}];
 const CELL_M=70; const GAP_M=10;
+// Coordenadas virtuales 0-1000 (compartido con admin y caja)
+const VCOORD_MAX_M=1000;
+const CANVAS_ASPECT_M=0.55;
 function tdM(shape){if(shape==='rectangle')return{w:Math.round(CELL_M*1.55),h:Math.round(CELL_M*0.65)};return{w:CELL_M,h:CELL_M};}
 function tbrM(shape){if(shape==='round')return'50%';if(shape==='rectangle')return 6;return 8;}
-function posM(t,idx){
-  const availW=Math.min(window.innerWidth-32,520);
-  const cols=Math.min(Math.max(Math.floor(availW/(CELL_M+GAP_M)),2),5);
-  if(t.pos_x!=null&&t.pos_y!=null&&t.pos_x<availW-CELL_M)return{x:t.pos_x,y:t.pos_y};
-  return{x:(idx%cols)*(CELL_M+GAP_M)+GAP_M,y:Math.floor(idx/cols)*(CELL_M+GAP_M)+GAP_M};
+function defaultVPosM(idx,total){
+  const cols=Math.min(Math.max(Math.ceil(Math.sqrt(Math.max(total,1))),3),6);
+  const rows=Math.max(Math.ceil(total/cols),1);
+  const col=idx%cols, row=Math.floor(idx/cols);
+  const stepX=VCOORD_MAX_M/cols, stepY=VCOORD_MAX_M/Math.max(rows,1);
+  return{vx:col*stepX+stepX/2,vy:row*stepY+stepY/2};
+}
+function vToPxM(vx,vy,cw,ch,tw,th){
+  const cx=(vx/VCOORD_MAX_M)*cw, cy=(vy/VCOORD_MAX_M)*ch;
+  return{x:Math.max(0,Math.min(cw-tw,cx-tw/2)),y:Math.max(0,Math.min(ch-th,cy-th/2))};
+}
+function pxToVM(px,py,cw,ch,tw,th){
+  const cx=px+tw/2, cy=py+th/2;
+  return{vx:Math.max(0,Math.min(VCOORD_MAX_M,(cx/Math.max(cw,1))*VCOORD_MAX_M)),vy:Math.max(0,Math.min(VCOORD_MAX_M,(cy/Math.max(ch,1))*VCOORD_MAX_M))};
 }
 const SC_M={
   libre:{bg:'#FFFFFF',bd:'#D2D2D7',tx:'#000000'},
@@ -535,11 +547,55 @@ const SC_M={
   pendiente_pago:{bg:'#FFF4E5',bd:'#FF9500',tx:'#C05300'},
   alerta:{bg:'#FFF0F0',bd:'#FF3B30',tx:'#CC0000'},
 };
-function ZonaMozo({zona,tables,ordersMap,callsMap,tablesById,sessionTotals,editMode,onTableClick,onEditTable}){
+function ZonaMozo({zona,tables,ordersMap,callsMap,tablesById,sessionTotals,editMode,setTables,onTableClick,onEditTable}){
   const zd=ZONAS_DEF_M.find(z=>z.value===zona)||ZONAS_DEF_M[0];
-  const canvasH=tables.length
-    ?Math.min(Math.max(...tables.map((t,i)=>{const p=posM(t,i);const{h}=tdM(t.shape||'square');return p.y+h+GAP_M;}),100),260)
-    :80;
+  const canvasRef=React.useRef(null);
+  const [canvasW,setCanvasW]=React.useState(0);
+  const [dragging,setDragging]=React.useState(null);
+  const dragOffRef=React.useRef({x:0,y:0});
+  const movedRef=React.useRef(false);
+  React.useEffect(()=>{
+    if(!canvasRef.current)return;
+    const update=()=>{if(canvasRef.current)setCanvasW(canvasRef.current.offsetWidth);};
+    update();
+    const ro=new ResizeObserver(update);
+    ro.observe(canvasRef.current);
+    return()=>ro.disconnect();
+  },[]);
+  const canvasH=Math.max(Math.round(canvasW*CANVAS_ASPECT_M),180);
+
+  function onPointerDown(e,t){
+    if(!editMode)return;
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const rect=e.currentTarget.getBoundingClientRect();
+    dragOffRef.current={x:e.clientX-rect.left,y:e.clientY-rect.top};
+    movedRef.current=false;
+    setDragging(t.id);
+  }
+  function onPointerMove(e){
+    if(!dragging||!canvasRef.current)return;
+    e.preventDefault();
+    const cr=canvasRef.current.getBoundingClientRect();
+    const t=tables.find(x=>x.id===dragging);
+    if(!t)return;
+    const{w,h}=tdM(t.shape||'square');
+    const px=Math.max(0,Math.min(cr.width-w,e.clientX-cr.left-dragOffRef.current.x));
+    const py=Math.max(0,Math.min(cr.height-h,e.clientY-cr.top-dragOffRef.current.y));
+    const{vx,vy}=pxToVM(px,py,cr.width,cr.height,w,h);
+    movedRef.current=true;
+    setTables(prev=>prev.map(x=>x.id===dragging?{...x,pos_x:vx,pos_y:vy}:x));
+  }
+  async function onPointerUp(){
+    if(!dragging)return;
+    const t=tables.find(x=>x.id===dragging);
+    const wasMoved=movedRef.current;
+    setDragging(null);
+    if(t&&db&&wasMoved){
+      await db.from('tables').update({pos_x:Math.round(t.pos_x),pos_y:Math.round(t.pos_y)}).eq('id',t.id);
+    }
+  }
+
   return(
     <div style={{marginBottom:20}}>
       <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,padding:'0 16px'}}>
@@ -547,24 +603,34 @@ function ZonaMozo({zona,tables,ordersMap,callsMap,tablesById,sessionTotals,editM
         <div style={{fontSize:11,fontWeight:700,color:'#3D3D3D',textTransform:'uppercase',letterSpacing:'0.5px'}}>{zd.label}</div>
         <div style={{fontSize:10,color:'#86868B'}}>· {tables.length} {tables.length===1?'mesa':'mesas'}</div>
       </div>
-      <div style={{position:'relative',width:'100%',maxWidth:560,height:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,overflow:'auto'}}>
+      <div ref={canvasRef} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+        style={{position:'relative',width:'100%',maxWidth:560,height:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,overflow:'hidden',touchAction:editMode?'none':'auto'}}>
         {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#C0C0C0',fontSize:12}}>Sin mesas en {zd.label.toLowerCase()}</div>}
-        {tables.map((t,idx)=>{
-          const pos=posM(t,idx);
-          const status=getMesaStatus(t.id,ordersMap,callsMap,tablesById);
+        {canvasW>0 && tables.map((t,idx)=>{
           const shape=t.shape||'square';
           const{w,h}=tdM(shape);
           const br=tbrM(shape);
+          const hasPos=t.pos_x!=null&&t.pos_y!=null;
+          const v=hasPos?{vx:t.pos_x,vy:t.pos_y}:defaultVPosM(idx,tables.length);
+          const pos=vToPxM(v.vx,v.vy,canvasW,canvasH,w,h);
+          const status=getMesaStatus(t.id,ordersMap,callsMap,tablesById);
           const sesTotal=sessionTotals[t.id]||0;
           const sc=SC_M[status]||SC_M.libre;
+          const isDrag=dragging===t.id;
           return(
             <div key={t.id}
-              onClick={()=>editMode?onEditTable(t):onTableClick(t.id)}
+              onPointerDown={e=>onPointerDown(e,t)}
+              onClick={()=>{
+                if(movedRef.current){ movedRef.current=false; return; }
+                editMode?onEditTable(t):onTableClick(t.id);
+              }}
               style={{position:'absolute',left:pos.x,top:pos.y,width:w,height:h,
                 background:sc.bg,border:`2px solid ${sc.bd}`,borderRadius:br,
                 display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
-                cursor:'pointer',userSelect:'none',
-                boxShadow:status==='libre'?'0 1px 3px rgba(0,0,0,0.07)':'0 2px 8px rgba(0,0,0,0.18)',
+                cursor:editMode?'grab':'pointer',userSelect:'none',touchAction:editMode?'none':'auto',
+                transition:isDrag?'none':'box-shadow .15s',
+                boxShadow:isDrag?'0 8px 24px rgba(0,0,0,0.22)':(status==='libre'?'0 1px 3px rgba(0,0,0,0.07)':'0 2px 8px rgba(0,0,0,0.18)'),
+                zIndex:isDrag?10:1,
               }}>
               {sesTotal>0&&<div style={{fontSize:7,color:sc.tx==='#000000'?'#22C55E':'rgba(255,255,255,0.85)',fontWeight:700,lineHeight:1,marginBottom:1}}>{fGsK(sesTotal)}</div>}
               <div style={{fontSize:shape==='rectangle'?13:15,fontWeight:800,color:sc.tx,lineHeight:1}}>{t.number}</div>
@@ -1775,6 +1841,7 @@ function App() {
                       tablesById={tablesById}
                       sessionTotals={sessionTotals}
                       editMode={mapaEditMode}
+                      setTables={setTables}
                       onTableClick={handleMesaClick}
                       onEditTable={t => setMesaFormModal(t)}
                     />

@@ -1362,6 +1362,10 @@ const SHAPES_DEF = [
   {value:'rectangle', label:'Rectangular', icon:'▬'},
 ];
 const CELL_SZ = 80; const GAP_SZ = 14;
+// Coordenadas virtuales: pos_x/pos_y son 0-1000 (porcentaje × 10).
+// Cada panel mapea a píxeles reales según el ancho del canvas.
+const VCOORD_MAX = 1000;
+const CANVAS_ASPECT = 0.55; // height = width × 0.55
 
 function getTableDims(shape) {
   if(shape==='rectangle') return {w:CELL_SZ*1.65, h:CELL_SZ*0.72};
@@ -1372,35 +1376,71 @@ function getTableBR(shape) {
   if(shape==='rectangle') return 8;
   return 10;
 }
-function getPosInZone(t, idxInZone) {
-  if(t.pos_x != null && t.pos_y != null) return {x:t.pos_x, y:t.pos_y};
-  const cols = Math.max(Math.floor((window.innerWidth-260) / (CELL_SZ+GAP_SZ)), 3);
-  return {x:(idxInZone%cols)*(CELL_SZ+GAP_SZ)+GAP_SZ, y:Math.floor(idxInZone/cols)*(CELL_SZ+GAP_SZ)+GAP_SZ};
+// Layout por defecto en coords virtuales (grid auto centrado)
+function defaultVPos(idxInZone, total) {
+  const cols = Math.min(Math.max(Math.ceil(Math.sqrt(Math.max(total,1))), 3), 6);
+  const rows = Math.max(Math.ceil(total/cols), 1);
+  const col = idxInZone % cols;
+  const row = Math.floor(idxInZone / cols);
+  const stepX = VCOORD_MAX / cols;
+  const stepY = VCOORD_MAX / Math.max(rows, 1);
+  return { vx: col*stepX + stepX/2, vy: row*stepY + stepY/2 };
+}
+// Convierte coords virtuales (centro de mesa) a píxeles del canvas (esquina sup-izq)
+function vToPx(vx, vy, canvasW, canvasH, tableW, tableH) {
+  const cx = (vx / VCOORD_MAX) * canvasW;
+  const cy = (vy / VCOORD_MAX) * canvasH;
+  return {
+    x: Math.max(0, Math.min(canvasW - tableW, cx - tableW/2)),
+    y: Math.max(0, Math.min(canvasH - tableH, cy - tableH/2)),
+  };
+}
+function pxToV(px, py, canvasW, canvasH, tableW, tableH) {
+  const cx = px + tableW/2;
+  const cy = py + tableH/2;
+  return {
+    vx: Math.max(0, Math.min(VCOORD_MAX, (cx / Math.max(canvasW,1)) * VCOORD_MAX)),
+    vy: Math.max(0, Math.min(VCOORD_MAX, (cy / Math.max(canvasH,1)) * VCOORD_MAX)),
+  };
 }
 
 function ZonaCanvas({zona, tables, activeOrders, editMode, dragging, dragOff, setDragging, setDragOff, setTables, onOpenEdit, onOpenDetail, db}) {
   const canvasRef = useRef(null);
   const zd = ZONAS_DEF.find(z=>z.value===zona)||ZONAS_DEF[0];
+  const [canvasW, setCanvasW] = useState(0);
 
-  const canvasH = tables.length
-    ? Math.max(...tables.map((t,i)=>{ const p=getPosInZone(t,i); const{h}=getTableDims(t.shape||'square'); return p.y+h+GAP_SZ; }), 120)
-    : 90;
+  useEffect(() => {
+    if(!canvasRef.current) return;
+    const update = () => { if(canvasRef.current) setCanvasW(canvasRef.current.offsetWidth); };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(canvasRef.current);
+    return () => ro.disconnect();
+  }, []);
 
-  function onMouseDown(e,t) {
+  const canvasH = Math.max(Math.round(canvasW * CANVAS_ASPECT), 180);
+
+  function onPointerDown(e,t) {
     if(!editMode) return;
     e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     const rect = e.currentTarget.getBoundingClientRect();
-    setDragOff({x:e.clientX-rect.left, y:e.clientY-rect.top, zona});
+    setDragOff({x:e.clientX-rect.left, y:e.clientY-rect.top, zona, pointerId:e.pointerId});
     setDragging(t.id);
   }
-  function onMouseMove(e) {
+  function onPointerMove(e) {
     if(!dragging||!canvasRef.current||dragOff.zona!==zona) return;
+    e.preventDefault();
     const cr = canvasRef.current.getBoundingClientRect();
-    const nx = Math.max(0, e.clientX-cr.left-dragOff.x);
-    const ny = Math.max(0, e.clientY-cr.top-dragOff.y);
-    setTables(prev=>prev.map(t=>t.id===dragging?{...t,pos_x:nx,pos_y:ny}:t));
+    const t = tables.find(x=>x.id===dragging);
+    if(!t) return;
+    const {w,h} = getTableDims(t.shape||'square');
+    const px = Math.max(0, Math.min(cr.width - w, e.clientX-cr.left-dragOff.x));
+    const py = Math.max(0, Math.min(cr.height - h, e.clientY-cr.top-dragOff.y));
+    const {vx, vy} = pxToV(px, py, cr.width, cr.height, w, h);
+    setTables(prev=>prev.map(x=>x.id===dragging?{...x,pos_x:vx,pos_y:vy}:x));
   }
-  async function onMouseUp() {
+  async function onPointerUp(e) {
     if(!dragging||dragOff.zona!==zona) return;
     const t = tables.find(x=>x.id===dragging);
     if(t&&db) await db.from('tables').update({pos_x:Math.round(t.pos_x),pos_y:Math.round(t.pos_y)}).eq('id',t.id);
@@ -1414,20 +1454,22 @@ function ZonaCanvas({zona, tables, activeOrders, editMode, dragging, dragOff, se
         <div style={{fontSize:12,fontWeight:700,color:'#3D3D3D',textTransform:'uppercase',letterSpacing:'0.5px'}}>{zd.label}</div>
         <div style={{fontSize:11,color:'#86868B'}}>· {tables.length} {tables.length===1?'mesa':'mesas'}{activeOrders.filter(o=>tables.some(t=>t.id===o.table_id)).length>0?' · '+activeOrders.filter(o=>tables.some(t=>t.id===o.table_id)).length+' activas':''}</div>
       </div>
-      <div ref={canvasRef} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
-        style={{position:'relative',width:'100%',minHeight:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,borderRadius:10,overflow:'hidden'}}>
+      <div ref={canvasRef} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+        style={{position:'relative',width:'100%',height:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,borderRadius:10,overflow:'hidden',touchAction:editMode?'none':'auto'}}>
         {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#C0C0C0',fontSize:12}}>Sin mesas en {zd.label.toLowerCase()}</div>}
-        {tables.map((t,idx)=>{
-          const pos = getPosInZone(t,idx);
-          const order = activeOrders.find(o=>o.table_id===t.id);
-          const busy = t.is_occupied||!!order;
-          const isDrag = dragging===t.id;
+        {canvasW>0 && tables.map((t,idx)=>{
           const shape = t.shape||'square';
           const {w,h} = getTableDims(shape);
           const br = getTableBR(shape);
+          const hasPos = t.pos_x!=null && t.pos_y!=null;
+          const v = hasPos ? {vx:t.pos_x, vy:t.pos_y} : defaultVPos(idx, tables.length);
+          const pos = vToPx(v.vx, v.vy, canvasW, canvasH, w, h);
+          const order = activeOrders.find(o=>o.table_id===t.id);
+          const busy = t.is_occupied||!!order;
+          const isDrag = dragging===t.id;
           return (
             <div key={t.id}
-              onMouseDown={e=>onMouseDown(e,t)}
+              onPointerDown={e=>onPointerDown(e,t)}
               onClick={()=>{ if(editMode) onOpenEdit(t); else if(busy) onOpenDetail(t,order); }}
               style={{
                 position:'absolute', left:pos.x, top:pos.y, width:w, height:h,
@@ -1436,7 +1478,8 @@ function ZonaCanvas({zona, tables, activeOrders, editMode, dragging, dragOff, se
                 borderRadius:br,
                 display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
                 cursor:editMode?'grab':(busy?'pointer':'default'),
-                userSelect:'none', transition:isDrag?'none':'box-shadow .15s',
+                userSelect:'none', touchAction:editMode?'none':'auto',
+                transition:isDrag?'none':'box-shadow .15s',
                 boxShadow:isDrag?'0 8px 24px rgba(0,0,0,0.22)':'0 1px 3px rgba(0,0,0,0.06)',
                 zIndex:isDrag?10:1,
               }}>

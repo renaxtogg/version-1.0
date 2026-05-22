@@ -1741,36 +1741,61 @@ const ZONAS_DEF_C=[
 ];
 const SHAPES_DEF_C=[{value:'square',label:'Cuadrada',icon:'⬜'},{value:'round',label:'Redonda',icon:'⭕'},{value:'rectangle',label:'Rectangular',icon:'▬'}];
 const CELL_C=80; const GAP_C=14;
+// Coordenadas virtuales 0-1000 (compartido con admin y mozo)
+const VCOORD_MAX_C=1000;
+const CANVAS_ASPECT_C=0.5;
 function tdC(shape){if(shape==='rectangle')return{w:Math.round(CELL_C*1.65),h:Math.round(CELL_C*0.72)};return{w:CELL_C,h:CELL_C};}
 function tbrC(shape){if(shape==='round')return'50%';if(shape==='rectangle')return 8;return 10;}
-function posC(t,idx){
-  if(t.pos_x!=null&&t.pos_y!=null)return{x:t.pos_x,y:t.pos_y};
-  const cols=Math.max(Math.floor((window.innerWidth-620)/(CELL_C+GAP_C)),3);
-  return{x:(idx%cols)*(CELL_C+GAP_C)+GAP_C,y:Math.floor(idx/cols)*(CELL_C+GAP_C)+GAP_C};
+function defaultVPosC(idx,total){
+  const cols=Math.min(Math.max(Math.ceil(Math.sqrt(Math.max(total,1))),3),6);
+  const rows=Math.max(Math.ceil(total/cols),1);
+  const col=idx%cols, row=Math.floor(idx/cols);
+  const stepX=VCOORD_MAX_C/cols, stepY=VCOORD_MAX_C/Math.max(rows,1);
+  return{vx:col*stepX+stepX/2,vy:row*stepY+stepY/2};
+}
+function vToPxC(vx,vy,cw,ch,tw,th){
+  const cx=(vx/VCOORD_MAX_C)*cw, cy=(vy/VCOORD_MAX_C)*ch;
+  return{x:Math.max(0,Math.min(cw-tw,cx-tw/2)),y:Math.max(0,Math.min(ch-th,cy-th/2))};
+}
+function pxToVC(px,py,cw,ch,tw,th){
+  const cx=px+tw/2, cy=py+th/2;
+  return{vx:Math.max(0,Math.min(VCOORD_MAX_C,(cx/Math.max(cw,1))*VCOORD_MAX_C)),vy:Math.max(0,Math.min(VCOORD_MAX_C,(cy/Math.max(ch,1))*VCOORD_MAX_C))};
 }
 
 function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dragOff,setDragging,setDragOff,setTables,onTableClick,onEditTable}){
   const canvasRef=React.useRef(null);
   const zd=ZONAS_DEF_C.find(z=>z.value===zona)||ZONAS_DEF_C[0];
-  const rawH=tables.length
-    ?Math.max(...tables.map((t,i)=>{const p=posC(t,i);const{h}=tdC(t.shape||'square');return p.y+h+GAP_C;}),120)
-    :90;
-  const canvasH=Math.min(rawH,280);
-  function onMouseDown(e,t){
+  const [canvasW,setCanvasW]=React.useState(0);
+  React.useEffect(()=>{
+    if(!canvasRef.current)return;
+    const update=()=>{if(canvasRef.current)setCanvasW(canvasRef.current.offsetWidth);};
+    update();
+    const ro=new ResizeObserver(update);
+    ro.observe(canvasRef.current);
+    return()=>ro.disconnect();
+  },[]);
+  const canvasH=Math.max(Math.round(canvasW*CANVAS_ASPECT_C),160);
+  function onPointerDown(e,t){
     if(!editMode)return;
     e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     const rect=e.currentTarget.getBoundingClientRect();
-    setDragOff({x:e.clientX-rect.left,y:e.clientY-rect.top,zona});
+    setDragOff({x:e.clientX-rect.left,y:e.clientY-rect.top,zona,pointerId:e.pointerId});
     setDragging(t.id);
   }
-  function onMouseMove(e){
+  function onPointerMove(e){
     if(!dragging||!canvasRef.current||dragOff.zona!==zona)return;
+    e.preventDefault();
     const cr=canvasRef.current.getBoundingClientRect();
-    const nx=Math.max(0,e.clientX-cr.left-dragOff.x);
-    const ny=Math.max(0,e.clientY-cr.top-dragOff.y);
-    setTables(prev=>prev.map(t=>t.id===dragging?{...t,pos_x:nx,pos_y:ny}:t));
+    const t=tables.find(x=>x.id===dragging);
+    if(!t)return;
+    const{w,h}=tdC(t.shape||'square');
+    const px=Math.max(0,Math.min(cr.width-w,e.clientX-cr.left-dragOff.x));
+    const py=Math.max(0,Math.min(cr.height-h,e.clientY-cr.top-dragOff.y));
+    const{vx,vy}=pxToVC(px,py,cr.width,cr.height,w,h);
+    setTables(prev=>prev.map(x=>x.id===dragging?{...x,pos_x:vx,pos_y:vy}:x));
   }
-  async function onMouseUp(){
+  async function onPointerUp(){
     if(!dragging||dragOff.zona!==zona)return;
     const t=tables.find(x=>x.id===dragging);
     if(t&&db)await db.from('tables').update({pos_x:Math.round(t.pos_x),pos_y:Math.round(t.pos_y)}).eq('id',t.id);
@@ -1801,14 +1826,16 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dra
         <div style={{fontSize:12,fontWeight:700,color:'#3D3D3D',textTransform:'uppercase',letterSpacing:'0.5px'}}>{zd.label}</div>
         <div style={{fontSize:11,color:'#86868B'}}>· {tables.length} {tables.length===1?'mesa':'mesas'}</div>
       </div>
-      <div ref={canvasRef} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
-        style={{position:'relative',width:'100%',height:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,borderRadius:10,overflow:'auto'}}>
+      <div ref={canvasRef} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+        style={{position:'relative',width:'100%',height:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,borderRadius:10,overflow:'hidden',touchAction:editMode?'none':'auto'}}>
         {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#C0C0C0',fontSize:12}}>Sin mesas en {zd.label.toLowerCase()}</div>}
-        {tables.map((t,idx)=>{
-          const pos=posC(t,idx);
+        {canvasW>0 && tables.map((t,idx)=>{
           const shape=t.shape||'square';
           const{w,h}=tdC(shape);
           const br=tbrC(shape);
+          const hasPos=t.pos_x!=null&&t.pos_y!=null;
+          const v=hasPos?{vx:t.pos_x,vy:t.pos_y}:defaultVPosC(idx,tables.length);
+          const pos=vToPxC(v.vx,v.vy,canvasW,canvasH,w,h);
           const status=getTableStatus(t);
           const sc=SC_C[status]||SC_C.libre;
           const order=ordersByTable[t.id];
@@ -1816,12 +1843,12 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dra
           const isDrag=dragging===t.id;
           return(
             <div key={t.id}
-              onMouseDown={e=>onMouseDown(e,t)}
+              onPointerDown={e=>onPointerDown(e,t)}
               onClick={()=>editMode?onEditTable(t):onTableClick(t,order)}
               style={{position:'absolute',left:pos.x,top:pos.y,width:w,height:h,
                 background:sc.bg,border:`2px solid ${sc.bd}`,borderRadius:br,
                 display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
-                cursor:editMode?'grab':'pointer',userSelect:'none',
+                cursor:editMode?'grab':'pointer',userSelect:'none',touchAction:editMode?'none':'auto',
                 transition:isDrag?'none':'box-shadow .15s',
                 boxShadow:isDrag?'0 8px 24px rgba(0,0,0,0.22)':'0 1px 3px rgba(0,0,0,0.06)',
                 zIndex:isDrag?10:1,
