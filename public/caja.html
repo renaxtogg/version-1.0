@@ -591,7 +591,9 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       // Solo cambiar status si el pedido aún no llegó a cocina — así kitchen puede continuar independiente
       const orderUpdate = order.status==='confirmed'
         ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:metodo}
-        : {payment_status:'paid', total:totalReal, payment_method:metodo};
+        : order.status==='pending_payment'
+          ? {payment_status:'paid', status:'delivered', total:totalReal, payment_method:metodo}
+          : {payment_status:'paid', total:totalReal, payment_method:metodo};
       const{error:e1}=await db.from('orders').update(orderUpdate).eq('id',order.id);
       if(e1)throw e1;
       // Registrar en historial solo si el pedido pasó a cocina por primera vez
@@ -1782,7 +1784,7 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dra
     if(!order)return'ocupada';
     if(order.status==='ready')return'lista';
     if(['cooking','kitchen_received'].includes(order.status))return'cocina';
-    if(order.status==='pending_payment')return'cobro';
+    if(order.status==='pending_payment'&&order.payment_status!=='paid')return'cobro';
     return'ocupada';
   }
   const SC_C={
@@ -1993,8 +1995,10 @@ function SalonPanel({profile}){
     const[{data:tbl},{data:ord}]=await Promise.all([
       db.from('tables').select('id,number,capacity,is_occupied,occupied_since,zona,shape,pos_x,pos_y').eq('restaurant_id',RID).order('number'),
       db.from('orders')
-        .select('id,order_number,status,total,order_type,customer_name,created_at,table_id,tables(number)')
-        .eq('restaurant_id',RID).in('status',ACTIVE).order('created_at',{ascending:true}),
+        .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,tables(number)')
+        .eq('restaurant_id',RID).in('status',ACTIVE)
+        .or('payment_status.neq.paid,payment_status.is.null')
+        .order('created_at',{ascending:true}),
     ]);
     const allTables=tbl||[];
     setTables(allTables);setOrders(ord||[]);
