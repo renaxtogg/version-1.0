@@ -1750,9 +1750,10 @@ function posC(t,idx){
 function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dragOff,setDragging,setDragOff,setTables,onTableClick,onEditTable}){
   const canvasRef=React.useRef(null);
   const zd=ZONAS_DEF_C.find(z=>z.value===zona)||ZONAS_DEF_C[0];
-  const canvasH=tables.length
+  const rawH=tables.length
     ?Math.max(...tables.map((t,i)=>{const p=posC(t,i);const{h}=tdC(t.shape||'square');return p.y+h+GAP_C;}),120)
     :90;
+  const canvasH=Math.min(rawH,280);
   function onMouseDown(e,t){
     if(!editMode)return;
     e.stopPropagation();
@@ -1799,7 +1800,7 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dra
         <div style={{fontSize:11,color:'#86868B'}}>· {tables.length} {tables.length===1?'mesa':'mesas'}</div>
       </div>
       <div ref={canvasRef} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
-        style={{position:'relative',width:'100%',minHeight:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,borderRadius:10,overflow:'hidden'}}>
+        style={{position:'relative',width:'100%',height:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,borderRadius:10,overflow:'auto'}}>
         {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#C0C0C0',fontSize:12}}>Sin mesas en {zd.label.toLowerCase()}</div>}
         {tables.map((t,idx)=>{
           const pos=posC(t,idx);
@@ -1841,6 +1842,59 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dra
   );
 }
 
+function NuevaMesaModalC({onSave,onClose}){
+  const [form,setForm]=React.useState({number:'',capacity:'4',zona:'salon',shape:'square'});
+  const [saving,setSaving]=React.useState(false);
+  async function save(){
+    const num=parseInt(form.number);
+    if(isNaN(num)||num<1){toast('Número de mesa requerido',false);return;}
+    setSaving(true);
+    const token=(crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)).replace(/-/g,'').slice(0,16);
+    const{error}=await db.from('tables').insert({restaurant_id:RID,number:num,capacity:parseInt(form.capacity)||4,qr_token:token,pos_x:null,pos_y:null,zona:form.zona||'salon',shape:form.shape||'square'}).select().single();
+    setSaving(false);
+    if(error){toast('Error: '+error.message,false);return;}
+    toast('Mesa '+num+' creada');
+    onSave();
+  }
+  return(
+    <Modal title="Nueva mesa" onClose={onClose} width={380}>
+      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div><Lbl>NÚMERO *</Lbl><Inp type="number" value={form.number} onChange={e=>setForm(f=>({...f,number:e.target.value}))} placeholder="1"/></div>
+          <div><Lbl>LUGARES (pax)</Lbl><Inp type="number" value={form.capacity} onChange={e=>setForm(f=>({...f,capacity:e.target.value}))} placeholder="4"/></div>
+        </div>
+        <div>
+          <Lbl>ZONA / SECTOR</Lbl>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:4}}>
+            {ZONAS_DEF_C.map(z=>(
+              <button key={z.value} type="button" onClick={()=>setForm(prev=>({...prev,zona:z.value}))}
+                style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'#000':'#D2D2D7'}`,background:form.zona===z.value?'#000':'transparent',color:form.zona===z.value?'#fff':'#3D3D3D',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400}}>
+                {z.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <Lbl>FORMA DE LA MESA</Lbl>
+          <div style={{display:'flex',gap:8,marginTop:4}}>
+            {SHAPES_DEF_C.map(s=>(
+              <button key={s.value} type="button" onClick={()=>setForm(prev=>({...prev,shape:s.value}))}
+                style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'#000':'#D2D2D7'}`,background:form.shape===s.value?'#000':'transparent',color:form.shape===s.value?'#fff':'#3D3D3D',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                <span style={{fontSize:18,pointerEvents:'none'}}>{s.icon}</span>
+                <span style={{pointerEvents:'none'}}>{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8,marginTop:4}}>
+          <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Crear mesa'}</Btn>
+          <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function MesaEditModalC({table,onSave,onClose}){
   const [form,setForm]=React.useState({number:String(table.number),capacity:String(table.capacity||4),zona:table.zona||'salon',shape:table.shape||'square'});
   const [saving,setSaving]=React.useState(false);
@@ -1873,7 +1927,7 @@ function MesaEditModalC({table,onSave,onClose}){
           <Lbl>ZONA / SECTOR</Lbl>
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:4}}>
             {ZONAS_DEF_C.map(z=>(
-              <button key={z.value} onClick={()=>setForm(f=>({...f,zona:z.value}))}
+              <button key={z.value} type="button" onClick={()=>setForm(prev=>({...prev,zona:z.value}))}
                 style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'#000':'#D2D2D7'}`,background:form.zona===z.value?'#000':'transparent',color:form.zona===z.value?'#fff':'#3D3D3D',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400}}>
                 {z.label}
               </button>
@@ -1884,9 +1938,9 @@ function MesaEditModalC({table,onSave,onClose}){
           <Lbl>FORMA DE LA MESA</Lbl>
           <div style={{display:'flex',gap:8,marginTop:4}}>
             {SHAPES_DEF_C.map(s=>(
-              <button key={s.value} onClick={()=>setForm(f=>({...f,shape:s.value}))}
+              <button key={s.value} type="button" onClick={()=>setForm(prev=>({...prev,shape:s.value}))}
                 style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'#000':'#D2D2D7'}`,background:form.shape===s.value?'#000':'transparent',color:form.shape===s.value?'#fff':'#3D3D3D',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
-                <span style={{fontSize:20}}>{s.icon}</span><span>{s.label}</span>
+                <span style={{fontSize:18,pointerEvents:'none'}}>{s.icon}</span><span style={{pointerEvents:'none'}}>{s.label}</span>
               </button>
             ))}
           </div>
@@ -1920,6 +1974,7 @@ function SalonPanel({profile}){
   const [dragging,setDragging]=useState(null);
   const [dragOff,setDragOff]=useState({x:0,y:0,zona:null});
   const [mesaEdit,setMesaEdit]=useState(null);
+  const [newMesa,setNewMesa]=useState(false);
   const ACTIVE=['paid','pending_payment','kitchen_received','cooking','ready'];
 
   useEffect(()=>{
@@ -2103,7 +2158,11 @@ function SalonPanel({profile}){
               <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>MAPA DEL SALÓN</div>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
                 {editMode&&<div style={{fontSize:11,color:'#86868B'}}>Arrastrá para posicionar · click para editar</div>}
-                <button onClick={()=>{setEditMode(e=>!e);setDragging(null);}}
+                <button type="button" onClick={()=>setNewMesa(true)}
+                  style={{padding:'5px 14px',borderRadius:6,border:'none',background:'#000',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                  + Nueva mesa
+                </button>
+                <button type="button" onClick={()=>{setEditMode(e=>!e);setDragging(null);}}
                   style={{padding:'5px 14px',borderRadius:6,border:`1px solid ${editMode?'#000':'#D2D2D7'}`,background:editMode?'#000':'transparent',color:editMode?'#fff':'#6E6E73',fontSize:12,fontWeight:700,cursor:'pointer'}}>
                   {editMode?'✓ Editando':'✎ Editar mesas'}
                 </button>
@@ -2172,6 +2231,14 @@ function SalonPanel({profile}){
           table={mesaEdit}
           onSave={()=>{setMesaEdit(null);setEditMode(false);load();}}
           onClose={()=>setMesaEdit(null)}
+        />
+      )}
+
+      {/* Modal nueva mesa */}
+      {newMesa&&(
+        <NuevaMesaModalC
+          onSave={()=>{setNewMesa(false);load();}}
+          onClose={()=>setNewMesa(false)}
         />
       )}
 

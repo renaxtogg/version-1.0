@@ -1596,7 +1596,7 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
               <Lbl>ZONA / SECTOR</Lbl>
               <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:4}}>
                 {ZONAS_DEF.map(z=>(
-                  <button key={z.value} onClick={()=>setForm(f=>({...f,zona:z.value}))}
+                  <button key={z.value} type="button" onClick={()=>setForm(prev=>({...prev,zona:z.value}))}
                     style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'#000':'#D2D2D7'}`,background:form.zona===z.value?'#000':'transparent',color:form.zona===z.value?'#fff':'#3D3D3D',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400,transition:'all .1s'}}>
                     {z.label}
                   </button>
@@ -1607,10 +1607,10 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
               <Lbl>FORMA DE LA MESA</Lbl>
               <div style={{display:'flex',gap:8,marginTop:4}}>
                 {SHAPES_DEF.map(s=>(
-                  <button key={s.value} onClick={()=>setForm(f=>({...f,shape:s.value}))}
+                  <button key={s.value} type="button" onClick={()=>setForm(prev=>({...prev,shape:s.value}))}
                     style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'#000':'#D2D2D7'}`,background:form.shape===s.value?'#000':'transparent',color:form.shape===s.value?'#fff':'#3D3D3D',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',transition:'all .1s',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
-                    <span style={{fontSize:20}}>{s.icon}</span>
-                    <span>{s.label}</span>
+                    <span style={{fontSize:20,pointerEvents:'none'}}>{s.icon}</span>
+                    <span style={{pointerEvents:'none'}}>{s.label}</span>
                   </button>
                 ))}
               </div>
