@@ -330,6 +330,62 @@ body {
 .qty-btn:active { background: var(--bg3); }
 .qty-num { font-size: 15px; font-weight: 700; min-width: 20px; text-align: center; color: var(--text); }
 
+/* PROMOS & FEATURED */
+.promo-badge {
+  display: inline-block; font-size: 9px; font-weight: 800;
+  background: #000; color: #fff; border-radius: 4px;
+  padding: 2px 6px; letterSpacing: 0.04em;
+  margin-left: 6px; vertical-align: middle;
+}
+.promo-badge.disc { background: var(--green); }
+.promo-badge.type { background: var(--blue); }
+.promo-section-title {
+  font-size: 11px; font-weight: 800; color: var(--text2);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  margin: 14px 0 8px; padding: 0 2px;
+  display: flex; align-items: center; gap: 6px;
+}
+.featured-card {
+  display: flex; align-items: center; gap: 12px;
+  background: linear-gradient(135deg, #1D1D1F 0%, #000 100%);
+  color: #fff; border-radius: 12px; padding: 12px 14px;
+  margin-bottom: 10px; cursor: pointer; position: relative; overflow: hidden;
+}
+.featured-card .feat-img {
+  width: 52px; height: 52px; border-radius: 10px; background: rgba(255,255,255,0.08);
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.featured-card .feat-img img { width: 100%; height: 100%; object-fit: cover; }
+.featured-card .feat-info { flex: 1; min-width: 0; }
+.featured-card .feat-tag { font-size: 9px; font-weight: 800; color: rgba(255,255,255,0.55); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 2px; }
+.featured-card .feat-name { font-size: 14px; font-weight: 700; color: #fff; }
+.featured-card .feat-price { font-size: 12px; color: rgba(255,255,255,0.65); margin-top: 2px; }
+.featured-card .feat-add {
+  background: #fff; color: #000; border-radius: 8px;
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  font-size: 20px; font-weight: 800; flex-shrink: 0;
+}
+.promo-strip {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  margin-bottom: 10px; padding-bottom: 4px;
+}
+.promo-strip::-webkit-scrollbar { display: none; }
+.promo-pill {
+  flex-shrink: 0; min-width: 140px; max-width: 180px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 10px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.promo-pill .pill-badge {
+  display: inline-block; font-size: 9px; font-weight: 800;
+  background: var(--orange); color: #fff;
+  border-radius: 4px; padding: 1px 6px; align-self: flex-start;
+}
+.promo-pill.disc .pill-badge { background: var(--green); }
+.promo-pill .pill-name { font-size: 12px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.promo-pill .pill-price { font-size: 11px; color: var(--text2); display: flex; gap: 6px; align-items: baseline; }
+.promo-pill .pill-old { text-decoration: line-through; color: var(--text3); font-size: 10px; }
+
 /* PRODUCT EXTRAS / NOTES */
 .product-extras { padding: 6px 0 8px 56px; }
 .product-note-field {
@@ -484,6 +540,26 @@ const RID = ((window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || 
 
 /* ── UTILS ── */
 const fGs = n => '₲ ' + Math.round(n || 0).toLocaleString('es-PY');
+const PROMO_TYPE_LABEL = {
+  '2x1': '2×1',
+  '3x2': '3×2',
+  'happy_hour': 'Happy Hour',
+  'combo': 'Combo',
+  'descuento': 'Descuento',
+  'destacado': 'Destacado',
+  'chef': 'Chef ★',
+};
+function promoLabel(item) {
+  if (item.promo_tag) return item.promo_tag;
+  if (item.discount_pct > 0) return `−${item.discount_pct}%`;
+  if (item.promo_type) return PROMO_TYPE_LABEL[item.promo_type] || item.promo_type;
+  return null;
+}
+function effectivePrice(item) {
+  const base = Number(item.price_guarani || 0);
+  if (item.discount_pct > 0) return Math.round(base * (1 - item.discount_pct / 100));
+  return base;
+}
 const timeStr = dt => new Date(dt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
 const minAgo = dt => Math.floor((Date.now() - new Date(dt)) / 60000);
 
@@ -905,8 +981,8 @@ function App() {
         db.from('orders').select('*, order_items(*)').eq('restaurant_id', RID)
           .in('status', ['draft', 'confirmed', 'paid', 'pending_payment', 'kitchen_received', 'cooking', 'ready'])
           .order('created_at'),
-        db.from('waiter_calls').select('*').eq('restaurant_id', RID).eq('status', 'pending').order('created_at'),
-        db.from('menu_categories').select('*, menu_items(*)').eq('restaurant_id', RID).eq('is_active', true).order('sort_order'),
+        db.from('waiter_calls').select('*').eq('restaurant_id', RID).eq('status', 'pending').or('type.is.null,type.neq.payment_request').order('created_at'),
+        db.from('menu_categories').select('*, menu_items(id, name, price_guarani, image_url, is_available, discount_pct, promo_tag, promo_type, sort_order)').eq('restaurant_id', RID).eq('is_active', true).order('sort_order'),
         db.from('menu_item_extras').select('*'),
       ]);
 
@@ -1324,13 +1400,14 @@ function App() {
       .filter(([, qty]) => qty > 0)
       .map(([id, qty]) => {
         const p = menu.find(m => m.id === parseInt(id));
+        const unit = effectivePrice(p);
         return {
           order_id: order.id,
           item_id: p.id,
           item_name: p.name,
           quantity: qty,
-          unit_price: p.price_guarani,
-          total_price: p.price_guarani * qty,
+          unit_price: unit,
+          total_price: unit * qty,
           observations: itemNotes[id] || null,
         };
       });
@@ -1445,6 +1522,18 @@ function App() {
   /* ── LLAMAR A CAJA ── */
   async function callCaja() {
     if (!db || !activeTableId) return;
+    // Evitar duplicar solicitudes pendientes para la misma mesa
+    const { data: existing } = await db.from('waiter_calls')
+      .select('id')
+      .eq('restaurant_id', RID)
+      .eq('table_id', activeTableId)
+      .eq('type', 'payment_request')
+      .eq('status', 'pending')
+      .limit(1);
+    if (existing && existing.length > 0) {
+      showToast('Caja ya fue notificada para esta mesa');
+      return;
+    }
     const { error } = await db.from('waiter_calls').insert({
       restaurant_id: RID,
       table_id: activeTableId,
@@ -1452,7 +1541,7 @@ function App() {
       status: 'pending',
     });
     if (error) { showToast('Error al notificar a caja'); console.error(error); return; }
-    showToast('Caja notificada');
+    showToast('✓ Caja notificada — solicitando cobro');
   }
 
   /* ── COBRO ── */
@@ -1612,6 +1701,22 @@ function App() {
     p.name.toLowerCase().includes(productSearch.toLowerCase())
   ), [menu, activeCategory, productSearch]);
 
+  // Items con promoción (promo_tag, promo_type o descuento)
+  const promoItems = useMemo(
+    () => menu.filter(p => p.promo_tag || p.promo_type || (Number(p.discount_pct) > 0)),
+    [menu]
+  );
+  // Destacado del día: el que tenga "★" o "chef" en el tag, sino el primero con mayor descuento
+  const featuredItem = useMemo(() => {
+    if (promoItems.length === 0) return null;
+    const star = promoItems.find(p => (p.promo_tag || '').toLowerCase().includes('★') || p.promo_type === 'destacado' || p.promo_type === 'chef');
+    if (star) return star;
+    const byDisc = [...promoItems].sort((a, b) => (Number(b.discount_pct) || 0) - (Number(a.discount_pct) || 0));
+    return byDisc[0];
+  }, [promoItems]);
+  // Mostrar promos/destacados solo en filtro "Todos" y sin búsqueda
+  const showPromosSection = activeCategory === 'Todos' && !productSearch.trim() && promoItems.length > 0;
+
   const selectedCount = Object.values(selectedProducts).reduce((s, q) => s + q, 0);
   const selectedTotal = Object.entries(selectedProducts).reduce((s, [id, q]) => {
     const p = menu.find(m => m.id === parseInt(id));
@@ -1620,7 +1725,7 @@ function App() {
       const ex = (extrasMap[parseInt(id)] || []).find(e => e.id === parseInt(eid));
       return es + (ex ? ex.price_guarani * q : 0);
     }, 0);
-    return s + (p ? p.price_guarani * q : 0) + extrasSum;
+    return s + (p ? effectivePrice(p) * q : 0) + extrasSum;
   }, 0);
 
   const orderBase = activeOrder ? (activeOrder.total || 0) : 0;
@@ -1640,11 +1745,31 @@ function App() {
   const cobroBase = cobroRealTotal > 0 ? cobroRealTotal : (activeOrder?.total || 0);
 
   // Turno stats
-  const turnoStats = useMemo(() => ({
-    pedidos: turnoOrders.length,
-    mesas: new Set(turnoOrders.map(o => o.table_id).filter(Boolean)).size,
-    total: turnoOrders.reduce((s, o) => s + Number(o.total || 0), 0),
-  }), [turnoOrders]);
+  const turnoStats = useMemo(() => {
+    const paid = turnoOrders.filter(o => (o.status === 'delivered' && o.payment_method) || o.payment_status === 'paid' || (o.payment_method && Number(o.total||0) > 0));
+    const pendientes = turnoOrders.filter(o => !((o.status === 'delivered' && o.payment_method) || o.payment_status === 'paid'));
+    const byMethod = { efectivo: 0, pos: 0, qr: 0, tarjeta: 0, otro: 0 };
+    const cntMethod = { efectivo: 0, pos: 0, qr: 0, tarjeta: 0, otro: 0 };
+    paid.forEach(o => {
+      const m = o.payment_method;
+      const t = Number(o.total || 0);
+      if (m === 'efectivo') { byMethod.efectivo += t; cntMethod.efectivo++; }
+      else if (m === 'pos' || m === 'pos_mesa') { byMethod.pos += t; cntMethod.pos++; }
+      else if (m === 'qr') { byMethod.qr += t; cntMethod.qr++; }
+      else if (m === 'tarjeta' || m === 'transferencia') { byMethod.tarjeta += t; cntMethod.tarjeta++; }
+      else if (m) { byMethod.otro += t; cntMethod.otro++; }
+    });
+    return {
+      pedidos: turnoOrders.length,
+      mesas: new Set(turnoOrders.map(o => o.table_id).filter(Boolean)).size,
+      total: turnoOrders.reduce((s, o) => s + Number(o.total || 0), 0),
+      cobrados: paid.length,
+      pendientes: pendientes.length,
+      totalCobrado: paid.reduce((s, o) => s + Number(o.total || 0), 0),
+      byMethod,
+      cntMethod,
+    };
+  }, [turnoOrders]);
 
   /* ── ITEM STATUS BADGE ── */
   function itemStatusBadge(orderStatus, paymentStatus) {
@@ -2187,17 +2312,99 @@ function App() {
             </div>
 
             <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div className="turno-stat">
-                <div className="turno-stat-label">Pedidos atendidos</div>
-                <div className="turno-stat-value">{turnoStats.pedidos}</div>
+              {/* Resumen rápido: grid 2x2 */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div className="turno-stat" style={{ padding: '12px 14px' }}>
+                  <div className="turno-stat-label" style={{ fontSize: 11 }}>Pedidos</div>
+                  <div className="turno-stat-value" style={{ fontSize: 22 }}>{turnoStats.pedidos}</div>
+                </div>
+                <div className="turno-stat" style={{ padding: '12px 14px' }}>
+                  <div className="turno-stat-label" style={{ fontSize: 11 }}>Mesas</div>
+                  <div className="turno-stat-value" style={{ fontSize: 22 }}>{turnoStats.mesas}</div>
+                </div>
+                <div className="turno-stat" style={{ padding: '12px 14px', borderColor: 'var(--green)', background: 'var(--green-soft)' }}>
+                  <div className="turno-stat-label" style={{ fontSize: 11, color: 'var(--green)' }}>Cobrados</div>
+                  <div className="turno-stat-value" style={{ fontSize: 22, color: 'var(--green)' }}>{turnoStats.cobrados}</div>
+                </div>
+                <div className="turno-stat" style={{ padding: '12px 14px', borderColor: turnoStats.pendientes > 0 ? 'var(--orange)' : 'var(--border)', background: turnoStats.pendientes > 0 ? 'var(--orange-soft)' : 'var(--surface)' }}>
+                  <div className="turno-stat-label" style={{ fontSize: 11, color: turnoStats.pendientes > 0 ? 'var(--orange)' : 'var(--text2)' }}>Pendientes</div>
+                  <div className="turno-stat-value" style={{ fontSize: 22, color: turnoStats.pendientes > 0 ? 'var(--orange)' : 'var(--text)' }}>{turnoStats.pendientes}</div>
+                </div>
               </div>
-              <div className="turno-stat">
-                <div className="turno-stat-label">Mesas atendidas</div>
-                <div className="turno-stat-value">{turnoStats.mesas}</div>
-              </div>
+
+              {/* Total facturado destacado */}
               <div className="turno-stat highlight">
                 <div className="turno-stat-label">Total facturado</div>
                 <div className="turno-stat-value">{fGs(turnoStats.total)}</div>
+              </div>
+
+              {/* Desglose por método de pago */}
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', marginTop: 4 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>Cobros por método</div>
+                {[
+                  { key: 'efectivo', icon: '$', label: 'Efectivo', color: 'var(--green)' },
+                  { key: 'pos',      icon: '▣', label: 'Tarjeta POS', color: 'var(--blue)' },
+                  { key: 'qr',       icon: '▦', label: 'QR Mesa', color: 'var(--indigo)' },
+                  { key: 'tarjeta',  icon: '↔', label: 'Transferencia', color: 'var(--text)' },
+                ].map(m => {
+                  const total = turnoStats.byMethod[m.key] || 0;
+                  const cnt   = turnoStats.cntMethod[m.key] || 0;
+                  const pct   = turnoStats.totalCobrado > 0 ? Math.round((total / turnoStats.totalCobrado) * 100) : 0;
+                  return (
+                    <div key={m.key} style={{ marginBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ width: 22, height: 22, borderRadius: 6, background: 'var(--bg2)', color: m.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 12 }}>{m.icon}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{m.label}</span>
+                          <span style={{ fontSize: 10, color: 'var(--text3)' }}>{cnt > 0 ? `· ${cnt}` : ''}</span>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: cnt > 0 ? 'var(--text)' : 'var(--text3)' }}>{fGs(total)}</div>
+                      </div>
+                      <div style={{ height: 4, background: 'var(--bg2)', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ width: pct + '%', height: '100%', background: m.color, transition: 'width 0.3s' }}></div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {turnoStats.byMethod.otro > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text3)', marginTop: 6 }}>
+                    <span>Otros</span>
+                    <span style={{ fontWeight: 700 }}>{fGs(turnoStats.byMethod.otro)}</span>
+                  </div>
+                )}
+                {turnoStats.cobrados === 0 && (
+                  <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text3)', padding: 6 }}>
+                    Sin cobros en este turno
+                  </div>
+                )}
+              </div>
+
+              {/* Sesión: inicio + duración */}
+              <div style={{ background: 'var(--bg2)', borderRadius: 12, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Inicio de turno</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>
+                    {new Date(mozoSession?.turno_inicio || turnoInicio).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Duración</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>
+                    {(() => {
+                      const start = new Date(mozoSession?.turno_inicio || turnoInicio).getTime();
+                      const mins = Math.floor((Date.now() - start) / 60000);
+                      const h = Math.floor(mins / 60);
+                      const m = mins % 60;
+                      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+                    })()}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ticket promedio</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>
+                    {fGs(turnoStats.cobrados > 0 ? Math.round(turnoStats.totalCobrado / turnoStats.cobrados) : 0)}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -2350,10 +2557,79 @@ function App() {
                   <div key={c} className={`chip ${activeCategory === c ? 'active' : ''}`} onClick={() => setActiveCategory(c)}>{c}</div>
                 ))}
               </div>
+
+              {/* ── DESTACADO DEL DÍA ── */}
+              {showPromosSection && featuredItem && (
+                <>
+                  <div className="promo-section-title">
+                    <span>⭐</span> Destacado del día
+                  </div>
+                  <div className="featured-card" onClick={() => setSelectedProducts(prev => ({ ...prev, [featuredItem.id]: (prev[featuredItem.id] || 0) + 1 }))}>
+                    <div className="feat-img">
+                      {featuredItem.image_url
+                        ? <img src={featuredItem.image_url} alt={featuredItem.name} />
+                        : <span style={{ fontSize: 22, color: 'rgba(255,255,255,0.5)' }}>★</span>}
+                    </div>
+                    <div className="feat-info">
+                      <div className="feat-tag">
+                        {promoLabel(featuredItem) || 'Recomendado del chef'}
+                      </div>
+                      <div className="feat-name">{featuredItem.name}</div>
+                      <div className="feat-price">
+                        {Number(featuredItem.discount_pct) > 0 && (
+                          <span style={{ textDecoration: 'line-through', marginRight: 6, opacity: 0.5 }}>
+                            {fGs(featuredItem.price_guarani)}
+                          </span>
+                        )}
+                        <span style={{ color: '#fff', fontWeight: 700 }}>{fGs(effectivePrice(featuredItem))}</span>
+                      </div>
+                    </div>
+                    <div className="feat-add">＋</div>
+                  </div>
+                </>
+              )}
+
+              {/* ── PROMOCIONES DISPONIBLES ── */}
+              {showPromosSection && promoItems.length > 0 && (
+                <>
+                  <div className="promo-section-title">
+                    <span style={{ color: 'var(--orange)' }}>🎁</span> Promociones disponibles
+                  </div>
+                  <div className="promo-strip">
+                    {promoItems.map(p => {
+                      const lbl = promoLabel(p);
+                      const hasDisc = Number(p.discount_pct) > 0;
+                      return (
+                        <div
+                          key={'promo-' + p.id}
+                          className={`promo-pill ${hasDisc ? 'disc' : ''}`}
+                          onClick={() => setSelectedProducts(prev => ({ ...prev, [p.id]: (prev[p.id] || 0) + 1 }))}
+                        >
+                          {lbl && <span className="pill-badge">{lbl}</span>}
+                          <div className="pill-name">{p.name}</div>
+                          <div className="pill-price">
+                            {hasDisc && <span className="pill-old">{fGs(p.price_guarani)}</span>}
+                            <span style={{ fontWeight: 700, color: 'var(--text)' }}>{fGs(effectivePrice(p))}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {showPromosSection && (
+                <div className="promo-section-title">
+                  <span>📋</span> Todo el menú
+                </div>
+              )}
+
               <div>
                 {filteredMenu.map(p => {
                   const qty = selectedProducts[p.id] || 0;
                   const hasExtras = (extrasMap[p.id] || []).length > 0;
+                  const lbl = promoLabel(p);
+                  const hasDisc = Number(p.discount_pct) > 0;
                   return (
                     <div key={p.id}>
                       <div className="product-item">
@@ -2361,8 +2637,20 @@ function App() {
                           {p.image_url ? <img src={p.image_url} alt={p.name} /> : <span style={{ fontSize: 18, color: 'var(--text3)' }}>○</span>}
                         </div>
                         <div className="product-info">
-                          <div className="product-name">{p.name}</div>
-                          <div className="product-price">{fGs(p.price_guarani)}</div>
+                          <div className="product-name">
+                            {p.name}
+                            {lbl && (
+                              <span className={`promo-badge ${hasDisc ? 'disc' : p.promo_type ? 'type' : ''}`}>{lbl}</span>
+                            )}
+                          </div>
+                          <div className="product-price">
+                            {hasDisc && (
+                              <span style={{ textDecoration: 'line-through', color: 'var(--text3)', marginRight: 6, fontSize: 12 }}>
+                                {fGs(p.price_guarani)}
+                              </span>
+                            )}
+                            {fGs(effectivePrice(p))}
+                          </div>
                         </div>
                         {qty === 0 ? (
                           <div className="product-add-btn" onClick={() => setSelectedProducts(prev => ({ ...prev, [p.id]: 1 }))}>+</div>
