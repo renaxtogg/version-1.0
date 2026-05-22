@@ -1682,8 +1682,16 @@ function App() {
       .map(([tableId, o]) => {
         const tbl = tablesById[tableId];
         const pm = o.payment_method;
-        const pmLabel = pm === 'efectivo' ? 'Efectivo' : pm === 'pos' || pm === 'tarjeta' ? 'POS/Tarjeta' : pm === 'qr' ? 'QR Mesa' : pm === 'pos_mesa' ? 'POS Mesa' : 'Solicita cuenta';
-        return { tableId, tableNum: tbl?.number || '?', pmLabel, total: sessionTotals[tableId] || 0, orderId: o.id };
+        // El cliente realmente solicitó la cuenta sólo si eligió método de pago (desde el cliente QR).
+        // Si cocina marcó "Entregado" sin método, la orden queda en pending_payment pero no hubo solicitud explícita.
+        const pmLabel =
+          pm === 'efectivo' ? 'Efectivo' :
+          (pm === 'pos' || pm === 'tarjeta') ? 'POS/Tarjeta' :
+          pm === 'qr' ? 'QR Mesa' :
+          pm === 'pos_mesa' ? 'POS Mesa' :
+          'Listo · a cobrar';
+        const requested = !!pm; // sólo true si el cliente eligió método de pago
+        return { tableId, tableNum: tbl?.number || '?', pmLabel, requested, total: sessionTotals[tableId] || 0, orderId: o.id };
       });
   }, [ordersMap, tablesById, sessionTotals]);
 
@@ -1866,15 +1874,20 @@ function App() {
             {pendingPaymentTables.length > 0 && (
               <div className="cobros-section">
                 <div className="cobros-section-title">Cobros pendientes — {pendingPaymentTables.length} mesa(s)</div>
-                {pendingPaymentTables.map(p => (
+                {pendingPaymentTables.map(p => {
+                  // requested=true → cliente eligió método de pago (solicitó cuenta de verdad).
+                  // requested=false → cocina entregó pero nadie pidió la cuenta (solo listo a cobrar).
+                  const bg = p.requested ? '#B45309' : '#1D1D1F';
+                  return (
                   <div key={p.tableId} className="cobro-pending-row" onClick={() => openOrderView(p.tableId)} style={{ cursor: 'pointer' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--orange)' }}>Mesa {p.tableNum}</div>
-                      <span style={{ fontSize: 11, background: 'var(--orange)', color: '#fff', borderRadius: 4, padding: '2px 7px', fontWeight: 700 }}>{p.pmLabel}</span>
+                      <span style={{ fontSize: 11, background: bg, color: '#fff', borderRadius: 4, padding: '3px 8px', fontWeight: 700, letterSpacing: '0.02em' }}>{p.pmLabel}</span>
                     </div>
                     <div style={{ fontWeight: 800, fontSize: 14 }}>{fGs(p.total)}</div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
