@@ -1141,11 +1141,12 @@ function App() {
     const mesa = tables.find(t => t.id === tableId);
 
     // Advertencia si quedan pedidos sin cobrar (no bloquea — el mozo decide)
+    // Excluye órdenes ya pagadas (payment_status='paid') aunque sigan en cocina.
     const { data: deudas } = await db.from('orders')
-      .select('id')
+      .select('id, payment_status')
       .eq('table_id', tableId)
       .not('status', 'in', '("cancelled","delivered")');
-    const hayDeuda = deudas && deudas.length > 0;
+    const hayDeuda = !!(deudas && deudas.some(o => o.payment_status !== 'paid'));
 
     setConfirmDialog({
       title: `Liberar Mesa ${mesa?.number}`,
@@ -1407,9 +1408,13 @@ function App() {
     const total = Math.round(base * (1 + tipPct / 100));
     const pm = payMethod || 'efectivo';
 
-    // Marcar todas las órdenes activas de la mesa como entregadas y cobradas
+    // Cobrar órdenes activas: si la orden ya pasó cocina (ready/pending_payment) la
+    // marcamos delivered; si todavía está en flujo de cocina (paid/kitchen_received/
+    // cooking/draft/confirmed) sólo registramos el cobro y dejamos que cocina siga
+    // trabajando — caso contrario el ticket desaparece del KDS y la mesa figura como
+    // entregada aunque la comida nunca se haya preparado.
     const { data: pendingOrders } = await db.from('orders')
-      .select('id')
+      .select('id, status')
       .eq('restaurant_id', RID)
       .eq('table_id', activeTableId)
       .not('status', 'in', '("cancelled","delivered")');
@@ -1418,23 +1423,34 @@ function App() {
       const { data: { session: paySession } } = await db.auth.getSession();
       const payerId = paySession?.user?.id || null;
       const payerName = mozoSession?.mozo_name || paySession?.user?.email || 'mozo';
+      const nowIso = new Date().toISOString();
       for (const ord of pendingOrders) {
-        // Intentar con campos de auditoría (requieren migración 044)
-        let { error: updErr } = await db.from('orders').update({
-          status: 'delivered',
+        const pastKitchen = ord.status === 'ready' || ord.status === 'pending_payment';
+        const update = {
           payment_status: 'paid',
           payment_method: pm,
           total: total,
-          completed_at: new Date().toISOString(),
           paid_by: payerId,
           paid_by_name: payerName,
-          paid_at: new Date().toISOString(),
-        }).eq('id', ord.id);
+          paid_at: nowIso,
+        };
+        if (pastKitchen) {
+          update.status = 'delivered';
+          update.completed_at = nowIso;
+        }
+        // Intentar con campos de auditoría (requieren migración 044)
+        let { error: updErr } = await db.from('orders').update(update).eq('id', ord.id);
         // Fallback sin campos de auditoría si la migración no está aplicada
         if (updErr && (updErr.message?.includes('paid_by') || updErr.message?.includes('schema cache'))) {
-          await db.from('orders').update({ status: 'delivered', payment_status: 'paid', payment_method: pm, total: total, completed_at: new Date().toISOString() }).eq('id', ord.id);
+          const fallback = { payment_status: 'paid', payment_method: pm, total: total };
+          if (pastKitchen) { fallback.status = 'delivered'; fallback.completed_at = nowIso; }
+          await db.from('orders').update(fallback).eq('id', ord.id);
         }
-        await db.from('order_status_history').insert({ order_id: ord.id, status: 'delivered', changed_by: payerName });
+        await db.from('order_status_history').insert({
+          order_id: ord.id,
+          status: pastKitchen ? 'delivered' : 'paid_in_kitchen',
+          changed_by: payerName,
+        });
       }
     }
 
