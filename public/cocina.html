@@ -519,6 +519,7 @@ const DEMO_TICKETS = [
 
 /* ── HELPERS ─── */
 function fmtTime(min) { if (min < 60) return `${min}m`; return `${Math.floor(min/60)}h${min%60}m`; }
+function fmt(n) { return `₲ ${Math.round(Number(n) || 0).toLocaleString('es-PY')}`; }
 
 function sortByUrgency(tickets) {
   return [...tickets].sort((a, b) => {
