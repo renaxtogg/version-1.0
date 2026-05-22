@@ -1783,7 +1783,7 @@ function App() {
   function itemStatusBadge(orderStatus, paymentStatus) {
     if (paymentStatus === 'paid') return <span className="item-badge" style={{background:'var(--green-soft)',color:'var(--green)'}}>PAGADO ✓</span>;
     if (orderStatus === 'ready') return <span className="item-badge item-badge-listo">Listo</span>;
-    if (orderStatus === 'delivered') return <span className="item-badge item-badge-entregado">Entregado</span>;
+    if (orderStatus === 'delivered' || orderStatus === 'pending_payment') return <span className="item-badge item-badge-entregado">Entregado</span>;
     if (orderStatus === 'cooking') return <span className="item-badge item-badge-cooking">Preparando</span>;
     return <span className="item-badge item-badge-prep">En cocina</span>;
   }
@@ -2509,10 +2509,13 @@ function App() {
                       <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>&#9200; {timeStr(ord.created_at)}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {(ord.payment_status === 'paid' || ord.status === 'delivered') && (
+                      {(ord.payment_status === 'paid' || (ord.status === 'delivered' && ord.payment_method)) && (
                         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--green)', background: 'var(--green-soft)', padding: '2px 6px', borderRadius: 4 }}>PAGADO ✓</span>
                       )}
-                      <div style={{ fontSize: 13, fontWeight: 800, color: (ord.status === 'delivered' || ord.payment_status === 'paid') ? 'var(--green)' : 'var(--orange)' }}>
+                      {ord.status === 'delivered' && !ord.payment_method && ord.payment_status !== 'paid' && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--orange)', background: 'var(--orange-soft)', padding: '2px 6px', borderRadius: 4 }}>SIN COBRO</span>
+                      )}
+                      <div style={{ fontSize: 13, fontWeight: 800, color: (ord.payment_status === 'paid' || (ord.status === 'delivered' && ord.payment_method)) ? 'var(--green)' : 'var(--orange)' }}>
                         {fGs(Number(ord.total) > 0 ? ord.total : (ord.order_items || []).reduce((s, i) => s + Number(i.total_price || 0), 0))}
                       </div>
                     </div>

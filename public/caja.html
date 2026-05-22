@@ -509,8 +509,6 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
             const dInfo=deliveryInfoMap[o.id]||null;
             return(
               <div key={o.id} style={{background:C.surface,border:`2px solid ${borderColor}`,borderRadius:10,padding:16,cursor:yaCobrado?'default':'pointer',opacity:yaCobrado?.7:1,position:'relative'}} onClick={()=>!yaCobrado&&selectOrder(orderForModal)}>
-                {yaCobrado&&<div style={{position:'absolute',top:10,right:10,background:C.green+'22',color:C.green,border:`1px solid ${C.green}44`,padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>Cobrado ✓{pmLabel?` — ${pmLabel}`:''}</div>}
-                {sinCobrar&&!yaCobrado&&<div style={{position:'absolute',top:10,right:10,background:'rgba(255,59,48,0.1)',color:C.red,border:`1px solid rgba(255,59,48,0.3)`,padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>{listo?'Listo — cobrar':'Sin cobrar'}</div>}
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace"}}>#{o.order_number}</div>
@@ -537,10 +535,12 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                   <div style={{fontSize:20,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(displayTotal)}</div>
                   <div style={{fontSize:11,color:espera>30?C.red:espera>15?C.orange:'#6E6E73'}}>⏱ {espera}m</div>
                 </div>
-                {!yaCobrado&&(
+                {!yaCobrado?(
                   <Btn full small style={{marginTop:12}} variant={sinCobrar?'danger':listo?'success':'secondary'} onClick={e=>{e.stopPropagation();selectOrder(orderForModal);}}>
                     {listo?'✓ Cobrar':'⚠ Cobrar ahora'}
                   </Btn>
+                ):(
+                  <div style={{marginTop:12,textAlign:'center',background:C.green+'15',color:C.green,border:`1px solid ${C.green}44`,padding:'6px 8px',fontSize:11,fontWeight:700,borderRadius:6}}>Cobrado ✓{pmLabel?` — ${pmLabel}`:''}</div>
                 )}
               </div>
             );
