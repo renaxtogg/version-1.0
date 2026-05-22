@@ -139,9 +139,10 @@ body {
 .mesa-card.cocina .mesa-label { color: #D2D2D7; }
 .mesa-card.cocina .mesa-time { color: #D2D2D7; }
 .mesa-card.cocina .mesa-time.overtime { color: #FF9500; }
-.mesa-card.lista { background: #FFFFFF; border: 1.5px solid #000000; }
-.mesa-card.lista .mesa-num { color: #000000; }
-.mesa-card.lista .mesa-label { color: #6E6E73; font-weight: 700; }
+.mesa-card.lista { background: #34C759; border: 2px solid #248A3D; animation: pulse-ring 1.5s infinite; }
+.mesa-card.lista .mesa-num { color: #FFFFFF; }
+.mesa-card.lista .mesa-label { color: #FFFFFF; font-weight: 800; }
+.mesa-card.lista .mesa-time { color: rgba(255,255,255,0.85); }
 .mesa-card.cuenta { background: #FFFFFF; border-color: #000000; }
 .mesa-card.cuenta .mesa-num { color: #000000; }
 .mesa-card.alerta { background: var(--red-soft); border-color: var(--red); animation: pulse-ring 1.5s infinite; }
@@ -572,15 +573,19 @@ function getMesaStatus(tableId, ordersMap, callsMap, tablesById) {
   if (!occupied) return 'libre';
   if (!order) return 'ocupada';
   if (order.status === 'ready') return 'lista';
+  if (order.status === 'pending_payment' && order.payment_status !== 'paid') {
+    // payment_method seteado = cliente solicitó la cuenta (cobro pendiente)
+    // sin payment_method = cocina despachó pero el mozo aún debe retirar/entregar
+    return order.payment_method ? 'pendiente_pago' : 'lista';
+  }
   if (order.status === 'cooking' || order.status === 'kitchen_received') return 'cocina';
-  if (order.status === 'pending_payment' && order.payment_status !== 'paid') return 'pendiente_pago';
   return 'ocupada';
 }
 
 const fGsK = n => '₲ ' + (n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? Math.round(n/1000)+'k' : String(Math.round(n||0)));
 
 function statusLabel(s) {
-  return { libre: 'Libre', ocupada: 'Ocupada', cocina: 'En cocina', lista: 'Lista', cuenta: 'Cuenta', alerta: 'Alerta', pendiente_pago: 'Cobro pte.' }[s] || s;
+  return { libre: 'Libre', ocupada: 'Ocupada', cocina: 'En cocina', lista: 'Retirar', cuenta: 'Cuenta', alerta: 'Alerta', pendiente_pago: 'Cobro pte.' }[s] || s;
 }
 
 /* ══════════════════════════════════════════════
@@ -619,7 +624,7 @@ const SC_M={
   libre:{bg:'#FFFFFF',bd:'#D2D2D7',tx:'#000000'},
   ocupada:{bg:'#1D1D1F',bd:'#1D1D1F',tx:'#FFFFFF'},
   cocina:{bg:'#555555',bd:'#555555',tx:'#FFFFFF'},
-  lista:{bg:'#FFFFFF',bd:'#1D1D1F',tx:'#000000'},
+  lista:{bg:'#34C759',bd:'#248A3D',tx:'#FFFFFF'},
   pendiente_pago:{bg:'#FF9500',bd:'#B45309',tx:'#FFFFFF'},
   alerta:{bg:'#FFF0F0',bd:'#FF3B30',tx:'#CC0000'},
 };
@@ -971,7 +976,10 @@ function App() {
     if (currentView === 'turno') loadTurnoData();
   }, [currentView]);
 
-  const STATUS_PRIORITY = ['draft', 'confirmed', 'paid', 'pending_payment', 'kitchen_received', 'cooking', 'ready'];
+  // Mostramos como "orden activa de la mesa" la que necesita más atención del mozo.
+  // Prioridad alta = más visible. ready/pending_payment van arriba porque requieren
+  // acción inmediata (retirar de cocina o cobrar) frente a órdenes aún en preparación.
+  const STATUS_PRIORITY = ['draft', 'confirmed', 'paid', 'kitchen_received', 'cooking', 'ready', 'pending_payment'];
 
   async function loadData() {
     if (!db) { setLoading(false); return; }
@@ -1023,14 +1031,16 @@ function App() {
       }
       knownReadyIds.current = new Set(readyOrders.map(o => o.id));
 
-      // Detect newly pending_payment orders → alert (solo mesas, cliente pide la cuenta)
+      // Detect newly pending_payment orders → alert. Hay dos sub-casos:
+      //   con payment_method = cliente eligió método y solicitó la cuenta
+      //   sin payment_method = cocina despachó el pedido (mozo debe retirarlo)
       const pendPayOrders = (ordersRes.data || []).filter(o => o.status === 'pending_payment' && o.table_id);
       const newPendPay = pendPayOrders.filter(o => !knownPendPayIds.current.has(o.id));
       if (newPendPay.length > 0 && knownPendPayIds.current.size > 0) {
         newPendPay.forEach(o => {
           const mesaNum = o.table_id ? (tblNumById[o.table_id] || '?') : '?';
           const pm = o.payment_method;
-          const pmLabel = pm === 'efectivo' ? 'Efectivo' : pm === 'pos' || pm === 'tarjeta' ? 'POS/Tarjeta' : pm === 'qr' ? 'QR' : pm === 'pos_mesa' ? 'POS Mesa' : 'Cuenta';
+          const pmLabel = pm === 'efectivo' ? 'Efectivo' : pm === 'pos' || pm === 'tarjeta' ? 'POS/Tarjeta' : pm === 'qr' ? 'QR' : pm === 'pos_mesa' ? 'POS Mesa' : 'Listo · retirar';
           playAlertSound();
           vibrateDevice();
           setAlertPopup({ tableNum: mesaNum, callId: null, isPay: true, pmLabel });
@@ -1617,24 +1627,53 @@ function App() {
     showToast('Cobro registrado — ' + fGs(total));
   }
 
-  /* ── FINALIZAR ── */
+  /* ── FINALIZAR / CONFIRMAR ENTREGA ──
+   * Si la orden ya está pagada → finalizar (status='delivered')
+   * Si la orden está en ready/pending_payment → confirmar que el mozo llevó los
+   *   platos a la mesa. NO se marca delivered ni paid: pasa a pending_payment
+   *   para que caja/mozo puedan cobrarla después.
+   * Si está en cocina o sin enviar → no se permite (cocina aún cocina). */
   function finalizarOrden() {
     const order = ordersMap[activeTableId];
-    const hasTotal = order && (order.total || 0) > 0;
-    const yaPagado = order && order.payment_status === 'paid';
-    const warnSinCobro = hasTotal && !yaPagado;
+    if (!order) return;
+    const yaPagado = order.payment_status === 'paid';
+
+    if (yaPagado) {
+      setConfirmDialog({
+        title: 'Finalizar orden',
+        body: '¿Finalizar la orden? Se marcará como entregada y se cerrará el ticket.',
+        onOk: async () => {
+          if (!db) return;
+          await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', order.id);
+          await db.from('order_status_history').insert({ order_id: order.id, status: 'delivered', changed_by: 'mozo_finalizar' });
+          await loadData();
+          showToast('Orden finalizada');
+        },
+      });
+      return;
+    }
+
+    if (['draft','confirmed','paid','kitchen_received','cooking'].includes(order.status)) {
+      showToast('La cocina aún está preparando esta orden');
+      return;
+    }
+
+    // ready o pending_payment → confirmar entrega física a la mesa
     setConfirmDialog({
-      title: warnSinCobro ? 'Marcar como entregada SIN cobrar' : 'Finalizar orden',
-      body: warnSinCobro
-        ? `Esta orden tiene un total de ${fGs(order.total)}. ¿Confirmar que se entregó sin registrar cobro?`
-        : '¿Finalizar la orden? Se marcará como entregada.',
-      danger: warnSinCobro,
+      title: 'Confirmar entrega a la mesa',
+      body: `¿Ya entregaste los platos al cliente? La orden quedará pendiente de cobro (₲ ${fGs(order.total).replace('₲ ','')}).`,
       onOk: async () => {
-        if (!order || !db) return;
-        await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', order.id);
-        await db.from('order_status_history').insert({ order_id: order.id, status: 'delivered', changed_by: yaPagado ? 'mozo_finalizar' : 'mozo_sin_cobro' });
+        if (!db) return;
+        // Si está en ready, pasarla a pending_payment (cocina la "despacha" por el mozo)
+        if (order.status === 'ready') {
+          await db.from('orders').update({ status: 'pending_payment' }).eq('id', order.id);
+          await db.from('order_status_history').insert({ order_id: order.id, status: 'pending_payment', changed_by: 'mozo_entregado' });
+        } else {
+          // Ya en pending_payment: solo registramos confirmación de entrega
+          await db.from('order_status_history').insert({ order_id: order.id, status: 'pending_payment', changed_by: 'mozo_entregado' });
+        }
         await loadData();
-        showToast(yaPagado ? 'Orden finalizada' : 'Orden marcada como entregada sin cobro');
+        showToast('Entrega confirmada · pendiente de cobro');
       },
     });
   }
@@ -1701,8 +1740,11 @@ function App() {
   const hasPendingCobro = tableOrders.some(o => o.payment_status !== 'paid' && (o.order_items || []).length > 0);
   const activeTableOccupied = activeTableId ? (tablesById[activeTableId]?.is_occupied ?? false) : false;
   const pendingAlerts = waiterCalls.length;
-  // Badge count: orders in 'ready' status (listos para entregar)
-  const readyCount = Object.values(ordersMap).filter(o => o.status === 'ready').length;
+  // Badge count: pedidos que el mozo debe retirar de cocina
+  // ready = cocina marcó listo · pending_payment sin payment_method = cocina despachó sin que cliente pida cuenta
+  const readyCount = Object.values(ordersMap).filter(o =>
+    o.status === 'ready' || (o.status === 'pending_payment' && !o.payment_method && o.payment_status !== 'paid')
+  ).length;
 
   const filteredMenu = useMemo(() => menu.filter(p =>
     (activeCategory === 'Todos' || p.cat === activeCategory) &&
@@ -1782,8 +1824,10 @@ function App() {
   /* ── ITEM STATUS BADGE ── */
   function itemStatusBadge(orderStatus, paymentStatus) {
     if (paymentStatus === 'paid') return <span className="item-badge" style={{background:'var(--green-soft)',color:'var(--green)'}}>PAGADO ✓</span>;
+    if (orderStatus === 'draft' || orderStatus === 'confirmed') return <span className="item-badge" style={{background:'var(--bg2)',color:'var(--text2)',border:'1px solid var(--border)'}}>Sin enviar</span>;
     if (orderStatus === 'ready') return <span className="item-badge item-badge-listo">Listo</span>;
-    if (orderStatus === 'delivered' || orderStatus === 'pending_payment') return <span className="item-badge item-badge-entregado">Entregado</span>;
+    if (orderStatus === 'delivered') return <span className="item-badge item-badge-entregado">Entregado</span>;
+    if (orderStatus === 'pending_payment') return <span className="item-badge item-badge-listo">Listo · retirar</span>;
     if (orderStatus === 'cooking') return <span className="item-badge item-badge-cooking">Preparando</span>;
     return <span className="item-badge item-badge-prep">En cocina</span>;
   }
@@ -1912,13 +1956,15 @@ function App() {
                     const occupiedMins = tbl?.occupied_since
                       ? Math.floor((Date.now() - new Date(tbl.occupied_since)) / 60000)
                       : null;
-                    const showCobrar = order?.status === 'ready' && status !== 'libre';
+                    const showRetirar = status === 'lista';
+                    const showCobrar = status === 'pendiente_pago';
                     const pm = order?.payment_method;
                     const pmLabel = pm === 'efectivo' ? 'EFECTIVO' : (pm === 'pos' || pm === 'tarjeta') ? 'POS' : pm === 'qr' ? 'QR' : pm === 'pos_mesa' ? 'POS MESA' : null;
                     const isOccupiedCard = ['ocupada','cocina','lista','pendiente_pago'].includes(status);
                     return (
                       <div key={mesa.id} className={`mesa-card ${status}`} onClick={() => handleMesaClick(mesa.id)}>
                         {itemCount > 0 && <div className="mesa-badge">{itemCount}</div>}
+                        {showRetirar && <div className="cobrar-badge" style={{ background: '#248A3D' }}>RETIRAR</div>}
                         {showCobrar && <div className="cobrar-badge">COBRAR</div>}
                         {sesTotal > 0 && (
                           <div style={{ fontSize: 9, fontWeight: 700, color: isOccupiedCard ? 'rgba(255,255,255,0.75)' : 'var(--green)', marginBottom: 1, letterSpacing: '-0.3px' }}>
@@ -1943,7 +1989,7 @@ function App() {
                   <div className="legend-item"><div className="legend-dot" style={{ background: 'transparent', border: '1px solid #D2D2D7' }}></div>Libre</div>
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#000000', border: '1px solid #000000' }}></div>Ocupada</div>
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#86868B', border: '1px solid #86868B' }}></div>En cocina</div>
-                  <div className="legend-item"><div className="legend-dot" style={{ background: '#FFFFFF', border: '1.5px solid #000000' }}></div>Lista</div>
+                  <div className="legend-item"><div className="legend-dot" style={{ background: '#34C759', border: '1px solid #248A3D' }}></div>Retirar</div>
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#FF9500', border: '1px solid #B45309' }}></div>Cobro pte.</div>
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#FF3B30', border: '1px solid #FF3B30' }}></div>Alerta</div>
                 </div>
@@ -2027,7 +2073,9 @@ function App() {
                       {hasPendingCobro && (
                         <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">$</button>
                       )}
-                      {activeOrder && <button className="order-action-btn" onClick={finalizarOrden} title="Marcar entregada sin cobrar">&#10003;</button>}
+                      {activeOrder && (activeOrder.payment_status === 'paid' || ['ready','pending_payment'].includes(activeOrder.status)) && (
+                        <button className="order-action-btn" onClick={finalizarOrden} title={activeOrder.payment_status === 'paid' ? 'Finalizar orden' : 'Confirmar entrega a la mesa'}>&#10003;</button>
+                      )}
                       <button className="order-action-btn" onClick={() => loadHistorial(activeTableId)} title="Historial">&#9776;</button>
                     </div>
                   </div>
@@ -2512,7 +2560,7 @@ function App() {
                       {(ord.payment_status === 'paid' || (ord.status === 'delivered' && ord.payment_method)) && (
                         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--green)', background: 'var(--green-soft)', padding: '2px 6px', borderRadius: 4 }}>PAGADO ✓</span>
                       )}
-                      {ord.status === 'delivered' && !ord.payment_method && ord.payment_status !== 'paid' && (
+                      {ord.payment_status !== 'paid' && !ord.payment_method && (ord.status === 'pending_payment' || (ord.status === 'delivered')) && (
                         <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--orange)', background: 'var(--orange-soft)', padding: '2px 6px', borderRadius: 4 }}>SIN COBRO</span>
                       )}
                       <div style={{ fontSize: 13, fontWeight: 800, color: (ord.payment_status === 'paid' || (ord.status === 'delivered' && ord.payment_method)) ? 'var(--green)' : 'var(--orange)' }}>
@@ -2878,22 +2926,31 @@ function App() {
       )}
 
       {/* ALERT POPUP — nueva llamada o cobro en tiempo real */}
-      {alertPopup && (
-        <div className="alert-popup" style={alertPopup.isPay ? { background: 'var(--orange)' } : {}}>
-          <div className="alert-popup-body">
-            <div className="alert-popup-title">{alertPopup.isPay ? `Cobro pendiente — ${alertPopup.pmLabel || ''}` : 'Asistencia solicitada'}</div>
-            <div className="alert-popup-sub">{alertPopup.tableNum != null ? `Mesa ${alertPopup.tableNum}` : 'Mesa desconocida'}</div>
+      {alertPopup && (() => {
+        const isRetirar = alertPopup.isPay && alertPopup.pmLabel === 'Listo · retirar';
+        const bg = isRetirar ? '#34C759' : (alertPopup.isPay ? 'var(--orange)' : null);
+        const title = isRetirar
+          ? 'Pedido despachado · retirar'
+          : alertPopup.isPay
+            ? `Cobro pendiente — ${alertPopup.pmLabel || ''}`
+            : 'Asistencia solicitada';
+        return (
+          <div className="alert-popup" style={bg ? { background: bg } : {}}>
+            <div className="alert-popup-body">
+              <div className="alert-popup-title">{title}</div>
+              <div className="alert-popup-sub">{alertPopup.tableNum != null ? `Mesa ${alertPopup.tableNum}` : 'Mesa desconocida'}</div>
+            </div>
+            <button className="alert-popup-btn" style={bg ? { color: bg } : {}} onClick={async () => {
+              setAlertPopup(null);
+              if (!alertPopup.isPay && db && alertPopup.callId) {
+                await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).eq('id', alertPopup.callId);
+                await loadData();
+                showToast('Asistencia registrada');
+              }
+            }}>OK</button>
           </div>
-          <button className="alert-popup-btn" style={alertPopup.isPay ? { color: 'var(--orange)' } : {}} onClick={async () => {
-            setAlertPopup(null);
-            if (!alertPopup.isPay && db && alertPopup.callId) {
-              await db.from('waiter_calls').update({ status: 'attended', attended_at: new Date().toISOString() }).eq('id', alertPopup.callId);
-              await loadData();
-              showToast('Asistencia registrada');
-            }
-          }}>OK</button>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TOAST */}
       <div className={`toast ${toast ? 'show' : ''}`}>
