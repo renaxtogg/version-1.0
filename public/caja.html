@@ -1824,15 +1824,15 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dra
                 boxShadow:isDrag?'0 8px 24px rgba(0,0,0,0.22)':'0 1px 3px rgba(0,0,0,0.06)',
                 zIndex:isDrag?10:1,
               }}>
-              {sesTotal>0&&<div style={{fontSize:8,color:sc.tx==='#000000'?'#22C55E':'rgba(255,255,255,0.85)',fontWeight:700,lineHeight:1,marginBottom:2,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(sesTotal)}</div>}
+              {sesTotal>0&&<div style={{fontSize:8,color:sc.tx==='#FFFFFF'?'rgba(255,255,255,0.85)':'#22C55E',fontWeight:700,lineHeight:1,marginBottom:2,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(sesTotal)}</div>}
               <div style={{fontSize:shape==='rectangle'?13:16,fontWeight:800,color:sc.tx,lineHeight:1}}>{t.number}</div>
               {status==='libre'
                 ?<div style={{fontSize:8,color:'#86868B',marginTop:2,fontWeight:500}}>Libre</div>
-                :<div style={{fontSize:8,color:sc.tx==='#000000'?'#555':'rgba(255,255,255,0.7)',marginTop:2,fontWeight:500}}>
+                :<div style={{fontSize:8,color:sc.tx==='#FFFFFF'?'rgba(255,255,255,0.7)':'#555',marginTop:2,fontWeight:500}}>
                   {status==='cocina'?'Cocina':status==='lista'?'Lista':status==='cobro'?'A cobrar':'Ocupada'}
                 </div>
               }
-              <div style={{fontSize:8,color:sc.tx==='#000000'?'#86868B':'rgba(255,255,255,0.5)',marginTop:2}}>{t.capacity||4} pax</div>
+              <div style={{fontSize:8,color:sc.tx==='#FFFFFF'?'rgba(255,255,255,0.5)':'#86868B',marginTop:2}}>{t.capacity||4} pax</div>
               {editMode&&<div style={{position:'absolute',top:3,right:5,fontSize:9,color:'#86868B'}}>✎</div>}
             </div>
           );
