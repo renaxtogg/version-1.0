@@ -1450,18 +1450,20 @@ function App() {
   function finalizarOrden() {
     const order = ordersMap[activeTableId];
     const hasTotal = order && (order.total || 0) > 0;
+    const yaPagado = order && order.payment_status === 'paid';
+    const warnSinCobro = hasTotal && !yaPagado;
     setConfirmDialog({
-      title: hasTotal ? 'Marcar como entregada SIN cobrar' : 'Finalizar orden',
-      body: hasTotal
+      title: warnSinCobro ? 'Marcar como entregada SIN cobrar' : 'Finalizar orden',
+      body: warnSinCobro
         ? `Esta orden tiene un total de ${fGs(order.total)}. ¿Confirmar que se entregó sin registrar cobro?`
         : '¿Finalizar la orden? Se marcará como entregada.',
-      danger: hasTotal,
+      danger: warnSinCobro,
       onOk: async () => {
         if (!order || !db) return;
         await db.from('orders').update({ status: 'delivered', completed_at: new Date().toISOString() }).eq('id', order.id);
-        await db.from('order_status_history').insert({ order_id: order.id, status: 'delivered', changed_by: 'mozo_sin_cobro' });
+        await db.from('order_status_history').insert({ order_id: order.id, status: 'delivered', changed_by: yaPagado ? 'mozo_finalizar' : 'mozo_sin_cobro' });
         await loadData();
-        showToast('Orden marcada como entregada sin cobro');
+        showToast(yaPagado ? 'Orden finalizada' : 'Orden marcada como entregada sin cobro');
       },
     });
   }

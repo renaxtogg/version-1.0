@@ -2299,7 +2299,7 @@ function SalonPanel({profile}){
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                     <div style={{display:'flex',gap:8,alignItems:'center'}}>
                       <span style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F'}}>#{ord.order_number}</span>
-                      <Badge txt={SL[ord.status]||ord.status} color={SC[ord.status]||'#6E6E73'} />
+                      {!(ord.status==='pending_payment'&&esPagado)&&<Badge txt={SL[ord.status]||ord.status} color={SC[ord.status]||'#6E6E73'} />}
                       {esPagado?<span style={{fontSize:10,color:C.green,fontWeight:700}}>✓ Cobrado</span>:<span style={{fontSize:10,color:C.red,fontWeight:700}}>⚠ Sin cobrar</span>}
                     </div>
                     <div style={{textAlign:'right'}}>
