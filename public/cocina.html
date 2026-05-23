@@ -357,16 +357,12 @@ async function dbAdvanceTicket(supabaseId, currentKitchenStatus) {
 async function dbDismissTicket(supabaseId) {
   if (!db || !supabaseId) return;
   try {
-    // Si la orden ya fue cobrada por el mozo mientras estaba en cocina, al
-    // despachar va directo a 'delivered'. Si no, queda 'pending_payment' para
-    // que mozo/caja la cobren.
-    const { data: ord } = await db.from('orders')
-      .select('payment_status').eq('id', supabaseId).maybeSingle();
-    const finalStatus = ord?.payment_status === 'paid' ? 'delivered' : 'pending_payment';
-    const update = { status: finalStatus };
-    if (finalStatus === 'delivered') update.completed_at = new Date().toISOString();
-    await db.from('orders').update(update).eq('id', supabaseId);
-    await db.from('order_status_history').insert({ order_id: supabaseId, status: finalStatus, changed_by: 'kitchen' });
+    // Cocina despacha el pedido: siempre pasa a 'pending_payment'. Aunque el
+    // cliente ya haya pagado, el mozo todavía debe retirar la comida y
+    // entregarla físicamente a la mesa (eso lo marca delivered_to_table_at).
+    // No saltamos a 'delivered' acá para no perder ese paso intermedio.
+    await db.from('orders').update({ status: 'pending_payment' }).eq('id', supabaseId);
+    await db.from('order_status_history').insert({ order_id: supabaseId, status: 'pending_payment', changed_by: 'kitchen' });
   } catch(e) { console.warn('Dismiss error:', e); }
 }
 

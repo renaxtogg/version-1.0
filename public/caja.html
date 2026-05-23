@@ -596,11 +596,15 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
     }
     setBusy(true);
     try{
-      // Solo cambiar status si el pedido aún no llegó a cocina — así kitchen puede continuar independiente
+      // Solo cambiar status si el pedido aún no llegó a cocina — así kitchen puede continuar independiente.
+      // Si está en pending_payment pero el mozo aún no entregó físicamente (delivered_to_table_at null),
+      // dejamos status='pending_payment' para que la mesa siga marcada como "retirar" hasta que el mozo
+      // confirme entrega. Sólo cerramos a 'delivered' cuando la comida ya está en la mesa.
+      const yaEnMesa = !!order.delivered_to_table_at;
       const orderUpdate = order.status==='confirmed'
         ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:metodo}
-        : order.status==='pending_payment'
-          ? {payment_status:'paid', status:'delivered', total:totalReal, payment_method:metodo}
+        : order.status==='pending_payment' && yaEnMesa
+          ? {payment_status:'paid', status:'delivered', completed_at:new Date().toISOString(), total:totalReal, payment_method:metodo}
           : {payment_status:'paid', total:totalReal, payment_method:metodo};
       const{error:e1}=await db.from('orders').update(orderUpdate).eq('id',order.id);
       if(e1)throw e1;
