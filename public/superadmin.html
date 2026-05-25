@@ -1097,13 +1097,59 @@ function PageUsuarios({restaurants, setFlash}) {
 // ══════════════════════════════════════════════════════════════
 // MÓDULO 5 — CONFIGURACIÓN GLOBAL
 // ══════════════════════════════════════════════════════════════
+// ── Datos de prueba: borrar pedidos / generar ambiente simulado ──
+// Invoca RPCs SECURITY DEFINER definidas en migración 068.
+async function _resetOperationData() {
+  const {data,error} = await db.rpc('superadmin_reset_operation_data');
+  if (error) throw new Error(error.message);
+  return data;
+}
+async function _generateSimulatedEnvironment() {
+  const {data,error} = await db.rpc('superadmin_seed_simulated_environment');
+  if (error) throw new Error(error.message);
+  return data || {};
+}
+
 function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
   const [saving, setSaving] = useState(false);
+  const [resetting,    setResetting]    = useState(false);
+  const [simulating,   setSimulating]   = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const bannerRow   = platformConfig.find(c=>c.key==='global_banner_active');
   const bannerMsgRow= platformConfig.find(c=>c.key==='global_banner_message');
   const [bannerActive, setBannerActive] = useState(bannerRow?.value==='true');
   const [bannerMsg,    setBannerMsg]    = useState(bannerMsgRow?.value||'');
+
+  const handleReset = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    setResetting(true);
+    try {
+      await _resetOperationData();
+      setFlash({type:'ok',text:'Datos operativos borrados — base limpia'});
+      setConfirmReset(false);
+      reload();
+    } catch(e) {
+      setFlash({type:'error',text:'Error borrando: '+e.message});
+    }
+    setResetting(false);
+  };
+
+  const handleSimulate = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    setSimulating(true);
+    try {
+      await _resetOperationData(); // limpia antes para evitar conflictos de mesas ya ocupadas
+      const r = await _generateSimulatedEnvironment();
+      const n = r?.orders_created ?? '?';
+      const m = r?.mesas_ocupadas ?? '?';
+      setFlash({type:'ok',text:`Ambiente simulado: ${n} pedidos, ${m} mesas ocupadas`});
+      reload();
+    } catch(e) {
+      setFlash({type:'error',text:'Error simulando: '+e.message});
+    }
+    setSimulating(false);
+  };
 
   const [restConfig, setRestConfig] = useState({});
   useEffect(()=>{
@@ -1203,6 +1249,55 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
           )}
           <div style={{marginTop:16}}>
             <Btn onClick={saveBanner} disabled={saving}>{saving?'Guardando…':'Guardar configuración'}</Btn>
+          </div>
+        </div>
+      </SectionCard>
+
+      {/* Datos de prueba — testing del sistema */}
+      <SectionCard title="Datos de prueba (testing)" style={{marginTop:20}}>
+        <div style={{padding:'20px 24px'}}>
+          <div style={{fontSize:12,color:C.mid,marginBottom:16,lineHeight:1.5}}>
+            Herramientas para validar el flujo completo del sistema (cliente → cocina → mozo → caja).
+            <strong style={{color:C.red,display:'block',marginTop:6}}>⚠ Solo afecta al restaurante demo (La Huaca). Borra órdenes, items, mesas ocupadas, turnos de caja, ratings y waiter_calls. NO toca menú, mesas, riders ni usuarios.</strong>
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            {/* Borrar */}
+            <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16,background:'#FFF8F7'}}>
+              <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:6}}>🗑 Borrar base operativa</div>
+              <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.4}}>
+                Vacía pedidos, items, historial, llamadas, ratings, caja y delivery. Libera todas las mesas.
+              </div>
+              {!confirmReset ? (
+                <button onClick={()=>setConfirmReset(true)} disabled={resetting||simulating}
+                  style={{width:'100%',background:'#FFFFFF',border:`1px solid ${C.red}`,color:C.red,padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                  Borrar todos los pedidos
+                </button>
+              ) : (
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={handleReset} disabled={resetting}
+                    style={{flex:1,background:C.red,border:'none',color:'#FFFFFF',padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',opacity:resetting?.6:1}}>
+                    {resetting?'Borrando…':'Confirmar borrado'}
+                  </button>
+                  <button onClick={()=>setConfirmReset(false)} disabled={resetting}
+                    style={{background:C.bg,border:`1px solid ${C.border}`,color:C.mid,padding:'9px 14px',borderRadius:8,fontSize:13,cursor:'pointer'}}>
+                    Cancelar
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Simular */}
+            <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16,background:'#F4FBF6'}}>
+              <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:6}}>🎬 Generar ambiente simulado</div>
+              <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.4}}>
+                Crea ~15 pedidos en distintos estados (cocina, listo, cobro pendiente, entregado) simulando un día laboral pesado. Limpia antes la base.
+              </div>
+              <button onClick={handleSimulate} disabled={resetting||simulating}
+                style={{width:'100%',background:C.green,border:'none',color:'#FFFFFF',padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',opacity:simulating?.6:1}}>
+                {simulating?'Generando…':'Generar ambiente simulado'}
+              </button>
+            </div>
           </div>
         </div>
       </SectionCard>
@@ -1737,12 +1832,15 @@ function App() {
   const [flash,   setFlash]   = useState(null);
   const [offline, setOffline] = useState(false);
   const [rtLive,  setRtLive]  = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [rawData, setRawData] = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[],platformConfig:[]});
 
-  const loadAll = useCallback(async () => {
+  const loadAll = useCallback(async (opts) => {
+    const silent = opts && opts.silent;
     if (!db) { setRawData(DEMO); setOffline(true); setLoading(false); return; }
-    setLoading(true);
+    if (!silent) setLoading(true);
+    setRefreshing(true);
     try {
       const ago30 = new Date(Date.now()-30*86400000).toISOString();
       const [rests,subs,plans,events,orders,ratings,config] = await Promise.all([
@@ -1760,9 +1858,10 @@ function App() {
     } catch(e) {
       console.warn('Error cargando datos:',e);
       setRawData(DEMO); setOffline(true);
-      setFlash({type:'warn',text:'Sin conexión a Supabase — datos demo'});
+      if (!silent) setFlash({type:'warn',text:'Sin conexión a Supabase — datos demo'});
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
+    setRefreshing(false);
   }, []);
 
   useEffect(()=>{ loadAll(); },[loadAll]);
@@ -1770,8 +1869,8 @@ function App() {
   // Realtime + polling fallback 30s
   useEffect(()=>{
     if (!db) return;
-    const interval = setInterval(()=>{ if(!_shouldPause()) loadAll(); }, 30000);
-    const safeLoad = ()=>{ if(!_shouldPause()) loadAll(); };
+    const interval = setInterval(()=>{ if(!_shouldPause()) loadAll({silent:true}); }, 30000);
+    const safeLoad = ()=>{ if(!_shouldPause()) loadAll({silent:true}); };
     const ch = db.channel('superadmin-rt')
       .on('postgres_changes',{event:'*',schema:'public',table:'orders'},          safeLoad)
       .on('postgres_changes',{event:'*',schema:'public',table:'restaurants'},     safeLoad)
@@ -1785,6 +1884,9 @@ function App() {
 
   const {restaurants,plans,subscriptions,events,orders,ratings,platformConfig} = rawData;
   const enriched = buildAnalytics(restaurants, orders, ratings, subscriptions, plans);
+
+  // reload silencioso (sin spinner full-screen) — para acciones tras mutaciones
+  const reloadSilent = useCallback(()=>loadAll({silent:true}),[loadAll]);
 
   const bannerRow    = platformConfig.find(c=>c.key==='global_banner_active');
   const bannerMsgRow = platformConfig.find(c=>c.key==='global_banner_message');
@@ -1812,7 +1914,7 @@ function App() {
             {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:'#E8F9ED',padding:'3px 10px',borderRadius:12}} className="pulse">En vivo</span>}
             {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Conectado</span>}
             {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
-            <button onClick={loadAll} title="Recargar datos" style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺</button>
+            <button onClick={()=>loadAll({silent:true})} disabled={refreshing} title="Recargar datos" style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer',opacity:refreshing?.5:1}}><span className={refreshing?'spin':''} style={{display:'inline-block'}}>↺</span></button>
           </div>
         </div>
         {/* Contenido */}
@@ -1823,13 +1925,13 @@ function App() {
             </div>
           ) : (
             <>
-              {page==='dashboard'     && <PageDashboard    enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} setFlash={setFlash} reload={loadAll} setPage={setPage}/>}
-              {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} setFlash={setFlash} reload={loadAll}/>}
-              {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} setFlash={setFlash} reload={loadAll}/>}
+              {page==='dashboard'     && <PageDashboard    enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} setFlash={setFlash} reload={reloadSilent} setPage={setPage}/>}
+              {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
               {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
-              {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={loadAll}/>}
-              {page==='configuracion' && <PageConfiguracion restaurants={restaurants} platformConfig={platformConfig} setFlash={setFlash} reload={loadAll}/>}
+              {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='configuracion' && <PageConfiguracion restaurants={restaurants} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
             </>
           )}
         </div>
