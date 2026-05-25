@@ -1276,7 +1276,7 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
               ) : (
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={handleReset} disabled={resetting}
-                    style={{flex:1,background:C.red,border:'none',color:'#FFFFFF',padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',opacity:resetting?.6:1}}>
+                    style={{flex:1,background:C.red,border:'none',color:'#FFFFFF',padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',opacity:resetting?0.6:1}}>
                     {resetting?'Borrando…':'Confirmar borrado'}
                   </button>
                   <button onClick={()=>setConfirmReset(false)} disabled={resetting}
@@ -1294,7 +1294,7 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
                 Crea ~15 pedidos en distintos estados (cocina, listo, cobro pendiente, entregado) simulando un día laboral pesado. Limpia antes la base.
               </div>
               <button onClick={handleSimulate} disabled={resetting||simulating}
-                style={{width:'100%',background:C.green,border:'none',color:'#FFFFFF',padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',opacity:simulating?.6:1}}>
+                style={{width:'100%',background:C.green,border:'none',color:'#FFFFFF',padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',opacity:simulating?0.6:1}}>
                 {simulating?'Generando…':'Generar ambiente simulado'}
               </button>
             </div>
@@ -1914,7 +1914,7 @@ function App() {
             {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:'#E8F9ED',padding:'3px 10px',borderRadius:12}} className="pulse">En vivo</span>}
             {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Conectado</span>}
             {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
-            <button onClick={()=>loadAll({silent:true})} disabled={refreshing} title="Recargar datos" style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer',opacity:refreshing?.5:1}}><span className={refreshing?'spin':''} style={{display:'inline-block'}}>↺</span></button>
+            <button onClick={()=>loadAll({silent:true})} disabled={refreshing} title="Recargar datos" style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer',opacity:refreshing?0.5:1}}><span className={refreshing?'spin':''} style={{display:'inline-block'}}>↺</span></button>
           </div>
         </div>
         {/* Contenido */}
