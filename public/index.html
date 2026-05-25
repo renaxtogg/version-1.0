@@ -146,6 +146,7 @@ async function dbSaveReservation(res) {
         reservation_time: res.time,
         guests:           res.guests,
         table_id:         res.table_id || null,
+        preferred_zone:   res.preferred_zone || null,
         occasion:         res.occasion || null,
         notes:            res.notes || null,
         status:           'pending',
@@ -165,7 +166,7 @@ async function dbSaveReservation(res) {
 async function dbLoadTables() {
   if (!db) return [];
   try {
-    const { data } = await db.from('tables').select('id,number,capacity')
+    const { data } = await db.from('tables').select('id,number,capacity,zona')
       .eq('restaurant_id', RESTAURANT_ID).order('number');
     return data || [];
   } catch(e) { return []; }
@@ -1277,11 +1278,18 @@ const OCCASIONS = [
   { id: 'other',        label: '✦ Otro motivo' },
 ];
 
+const ZONES = [
+  { id: 'salon',    label: 'Salón',    icon: '🪑' },
+  { id: 'terraza',  label: 'Terraza',  icon: '🌿' },
+  { id: 'bar',      label: 'Bar',      icon: '🍸' },
+  { id: 'privado',  label: 'Privado',  icon: '🚪' },
+];
+
 function ReservationScreen({ onBack, onDone }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
   const restName = restaurant?.name || 'La Huaca';
-  const [form, setForm] = useState({ name: '', phone: '', date: '', time: '', guests: 2, table_id: '', occasion: '', notes: '' });
+  const [form, setForm] = useState({ name: '', phone: '', date: '', time: '', guests: 2, preferred_zone: '', table_id: '', occasion: '', notes: '' });
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(null);
   const [tables, setTables] = useState([]);
@@ -1292,8 +1300,22 @@ function ReservationScreen({ onBack, onDone }) {
     dbLoadTables().then(setTables);
   }, []);
 
+  // Zonas que realmente tienen mesas en este restaurante
+  const availableZones = React.useMemo(() => {
+    const setZ = new Set(tables.map(t => t.zona || 'salon'));
+    return ZONES.filter(z => setZ.has(z.id));
+  }, [tables]);
+
+  // Mesas filtradas por la zona elegida (capacidad >= comensales)
+  const tablesInZone = React.useMemo(() => {
+    if (!form.preferred_zone) return [];
+    return tables
+      .filter(t => (t.zona || 'salon') === form.preferred_zone)
+      .filter(t => !t.capacity || t.capacity >= form.guests);
+  }, [tables, form.preferred_zone, form.guests]);
+
   const handleSubmit = async () => {
-    if (!form.name || !form.phone || !form.date || !form.time) return;
+    if (!form.name || !form.phone || !form.date || !form.time || !form.preferred_zone) return;
     setSaving(true);
     const confirmNum = 'R-' + String(Math.floor(Date.now() % 90000) + 10000);
     await dbSaveReservation({ ...form, restaurant_id: RESTAURANT_ID, confirm_num: confirmNum });
@@ -1326,8 +1348,18 @@ function ReservationScreen({ onBack, onDone }) {
     </div>
   );
 
-  const f = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
-  const canSubmit = form.name && form.phone && form.date && form.time;
+  const f = (k, v) => setForm(prev => {
+    const next = { ...prev, [k]: v };
+    // Si cambia la zona, resetear la mesa elegida
+    if (k === 'preferred_zone' && prev.preferred_zone !== v) next.table_id = '';
+    // Si cambia guests y la mesa actual no soporta, resetear
+    if (k === 'guests') {
+      const t = tables.find(x => x.id === prev.table_id);
+      if (t && t.capacity && t.capacity < v) next.table_id = '';
+    }
+    return next;
+  });
+  const canSubmit = form.name && form.phone && form.date && form.time && form.preferred_zone;
   const inputSt = { width: '100%', height: 44, border: `1.5px solid ${T.border}`, borderRadius: 10, padding: '0 12px', fontSize: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, background: T.offwhite, outline: 'none', boxSizing: 'border-box' };
 
   return (
@@ -1378,16 +1410,40 @@ function ReservationScreen({ onBack, onDone }) {
           </div>
         </div>
 
-        {/* Mesa (opcional) */}
-        {tables.length > 0 && (
+        {/* Zona (obligatorio) */}
+        {availableZones.length > 0 && (
           <div style={{ background: T.white, borderRadius: 14, padding: '18px 16px', marginBottom: 14, border: `1px solid ${T.border}` }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 14 }}>Preferencia de mesa <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(opcional)</span></div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 14 }}>¿Dónde te gustaría sentarte? <span style={{ color: '#FF3B30' }}>*</span></div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10 }}>
+              {availableZones.map(z => {
+                const active = form.preferred_zone === z.id;
+                return (
+                  <button key={z.id} onClick={() => f('preferred_zone', z.id)}
+                    style={{ padding: '14px 10px', borderRadius: 12, border: `2px solid ${active ? T.black : T.border}`, background: active ? T.black : 'transparent', color: active ? T.white : T.ink, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, transition: 'all 150ms' }}>
+                    <span style={{ fontSize: 22 }}>{z.icon}</span>
+                    <span>{z.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Mesa específica (opcional, filtrada por zona) */}
+        {form.preferred_zone && tablesInZone.length > 0 && (
+          <div style={{ background: T.white, borderRadius: 14, padding: '18px 16px', marginBottom: 14, border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 14 }}>Mesa preferida <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(opcional)</span></div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button onClick={() => f('table_id', '')} style={{ padding: '8px 14px', borderRadius: 20, border: `2px solid ${!form.table_id ? T.black : T.border}`, background: !form.table_id ? T.black : 'transparent', color: !form.table_id ? T.white : T.ink, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>Sin preferencia</button>
-              {tables.map(t => (
+              {tablesInZone.map(t => (
                 <button key={t.id} onClick={() => f('table_id', t.id)} style={{ padding: '8px 14px', borderRadius: 20, border: `2px solid ${form.table_id === t.id ? T.black : T.border}`, background: form.table_id === t.id ? T.black : 'transparent', color: form.table_id === t.id ? T.white : T.ink, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>Mesa {t.number}{t.capacity ? ` (${t.capacity}p)` : ''}</button>
               ))}
             </div>
+          </div>
+        )}
+        {form.preferred_zone && tablesInZone.length === 0 && (
+          <div style={{ background: '#1a1200', border: '1px solid #3a2800', borderRadius: 10, padding: '12px 14px', marginBottom: 14, fontSize: 11, color: '#fbbf24', lineHeight: 1.6 }}>
+            No hay mesas con capacidad para {form.guests} en esta zona. El restaurante te asignará la mejor opción al confirmar.
           </div>
         )}
 

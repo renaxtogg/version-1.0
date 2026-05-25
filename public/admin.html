@@ -1405,7 +1405,27 @@ function pxToV(px, py, canvasW, canvasH, tableW, tableH) {
   };
 }
 
-function ZonaCanvas({zona, tables, activeOrders, editMode, dragging, dragOff, setDragging, setDragOff, setTables, onOpenEdit, onOpenDetail, db}) {
+function buildReservationByTableA(reservations, nowMs, windowHours, alertMinutes) {
+  const map = {};
+  const d = new Date(nowMs);
+  const todayStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const winMs = windowHours*3600*1000;
+  const tolMs = 15*60*1000;
+  (reservations||[]).forEach(r=>{
+    if(r.status!=='confirmed') return;
+    if(r.reservation_date!==todayStr) return;
+    if(!r.table_id) return;
+    const t=(r.reservation_time||'00:00:00').slice(0,8);
+    const resMs=new Date(`${r.reservation_date}T${t.length===5?t+':00':t}`).getTime();
+    if(isNaN(resMs)) return;
+    const dt=resMs-nowMs;
+    if(dt>winMs||dt<-tolMs) return;
+    map[r.table_id]={reservation:r,_timeMs:resMs,_alertMinutes:alertMinutes,_minutesUntil:Math.round(dt/60000)};
+  });
+  return map;
+}
+
+function ZonaCanvas({zona, tables, activeOrders, reservationByTable, editMode, dragging, dragOff, setDragging, setDragOff, setTables, onOpenEdit, onOpenDetail, onOpenReservation, db}) {
   const canvasRef = useRef(null);
   const zd = ZONAS_DEF.find(z=>z.value===zona)||ZONAS_DEF[0];
   const [canvasW, setCanvasW] = useState(0);
@@ -1467,30 +1487,38 @@ function ZonaCanvas({zona, tables, activeOrders, editMode, dragging, dragOff, se
           const pos = vToPx(v.vx, v.vy, canvasW, canvasH, w, h);
           const order = activeOrders.find(o=>o.table_id===t.id);
           const busy = t.is_occupied||!!order;
+          const resv = reservationByTable&&reservationByTable[t.id];
+          const isAlert = resv&&busy&&resv._minutesUntil<=resv._alertMinutes;
+          const isReserved = resv&&!busy;
           const isDrag = dragging===t.id;
+          const bg = isAlert?'#FEE2E2':isReserved?'#FFF7ED':(busy?'rgba(0,0,0,0.06)':'#FFFFFF');
+          const bd = isAlert?'#DC2626':isReserved?'#FF9500':(busy?'#1D1D1F':'#D2D2D7');
+          const lblTxt = isAlert?'¡Liberar!':isReserved?'Reservada':(busy?(order?fmt(order.total):'Ocupada'):'Libre');
+          const lblCol = isAlert?'#991B1B':isReserved?'#B45309':(busy?'#4B4B4B':'#86868B');
           return (
             <div key={t.id}
               onPointerDown={e=>onPointerDown(e,t)}
-              onClick={()=>{ if(editMode) onOpenEdit(t); else if(busy) onOpenDetail(t,order); }}
+              onClick={()=>{
+                if(editMode){onOpenEdit(t);return;}
+                if(resv&&onOpenReservation){onOpenReservation(t,resv,order);return;}
+                if(busy) onOpenDetail(t,order);
+              }}
               style={{
                 position:'absolute', left:pos.x, top:pos.y, width:w, height:h,
-                background:busy?'rgba(0,0,0,0.06)':'#FFFFFF',
-                border:`2px solid ${busy?'#1D1D1F':'#D2D2D7'}`,
+                background:bg,
+                border:`2px solid ${bd}`,
                 borderRadius:br,
                 display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
-                cursor:editMode?'grab':(busy?'pointer':'default'),
+                cursor:editMode?'grab':((busy||resv)?'pointer':'default'),
                 userSelect:'none', touchAction:editMode?'none':'auto',
                 transition:isDrag?'none':'box-shadow .15s',
                 boxShadow:isDrag?'0 8px 24px rgba(0,0,0,0.22)':'0 1px 3px rgba(0,0,0,0.06)',
                 zIndex:isDrag?10:1,
               }}>
-              <div style={{fontSize:shape==='rectangle'?13:16,fontWeight:800,color:'#000',lineHeight:1}}>{t.number}</div>
-              {busy
-                ?<div style={{fontSize:8,color:'#4B4B4B',textAlign:'center',marginTop:3,lineHeight:1.3,fontWeight:500}}>
-                    {order?fmt(order.total):'Ocupada'}
-                  </div>
-                :<div style={{fontSize:8,color:'#86868B',marginTop:2,fontWeight:500}}>Libre</div>}
-              {busy&&<div style={{width:5,height:5,borderRadius:'50%',background:'#000',marginTop:3}}/>}
+              <div style={{fontSize:shape==='rectangle'?13:16,fontWeight:800,color:isAlert?'#991B1B':'#000',lineHeight:1}}>{t.number}</div>
+              <div style={{fontSize:8,color:lblCol,textAlign:'center',marginTop:3,lineHeight:1.3,fontWeight:isAlert?800:500}}>{lblTxt}</div>
+              {resv&&<div style={{fontSize:7,color:lblCol,marginTop:1,fontWeight:700}}>{resv.reservation.reservation_time?.slice(0,5)} · {resv.reservation.guests}p</div>}
+              {busy&&!resv&&<div style={{width:5,height:5,borderRadius:'50%',background:'#000',marginTop:3}}/>}
               {editMode&&<div style={{fontSize:6,color:'#999',marginTop:2,textTransform:'uppercase',letterSpacing:'0.3px'}}>{t.capacity||4}p</div>}
             </div>
           );
@@ -1500,7 +1528,7 @@ function ZonaCanvas({zona, tables, activeOrders, editMode, dragging, dragOff, se
   );
 }
 
-function MesasPage({tables: tablesProp, orders, onRefresh}) {
+function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
   const [tables, setTables]    = useState(tablesProp);
   const [editMode, setEditMode] = useState(false);
   const [modal, setModal]       = useState(null);
@@ -1509,8 +1537,36 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
   const [saving, setSaving]     = useState(false);
   const [dragging, setDragging] = useState(null);
   const [dragOff, setDragOff]   = useState({x:0,y:0,zona:null});
+  const [reservationsToday,setReservationsToday] = useState([]);
+  const [resvInfo,setResvInfo] = useState(null);
+  const [nowTick,setNowTick] = useState(Date.now());
 
   useEffect(()=>{ setTables(tablesProp); },[tablesProp]);
+
+  useEffect(()=>{
+    const id = setInterval(()=>setNowTick(Date.now()),60000);
+    return ()=>clearInterval(id);
+  },[]);
+
+  useEffect(()=>{
+    if(!db) return;
+    const todayStr = new Date().toISOString().slice(0,10);
+    db.from('reservations').select('*').eq('restaurant_id',RID).eq('reservation_date',todayStr).eq('status','confirmed')
+      .then(({data})=>setReservationsToday(data||[]));
+    const ch = db.channel('mesas-resv-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'reservations',filter:`restaurant_id=eq.${RID}`}, ()=>{
+        db.from('reservations').select('*').eq('restaurant_id',RID).eq('reservation_date',todayStr).eq('status','confirmed')
+          .then(({data})=>setReservationsToday(data||[]));
+      }).subscribe();
+    return ()=>{ db.removeChannel(ch); };
+  },[]);
+
+  const resvWindow = Number(restaurant?.reservation_window_hours ?? 3);
+  const resvAlertMin = Number(restaurant?.reservation_alert_minutes ?? 30);
+  const reservationByTable = useMemo(
+    ()=>buildReservationByTableA(reservationsToday,nowTick,resvWindow,resvAlertMin),
+    [reservationsToday,nowTick,resvWindow,resvAlertMin]
+  );
 
   useEffect(()=>{
     if(!db) return;
@@ -1594,6 +1650,7 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
           zona={z.value}
           tables={zonaMap[z.value]||[]}
           activeOrders={activeOrders}
+          reservationByTable={reservationByTable}
           editMode={editMode}
           dragging={dragging}
           dragOff={dragOff}
@@ -1602,9 +1659,45 @@ function MesasPage({tables: tablesProp, orders, onRefresh}) {
           setTables={setTables}
           onOpenEdit={openEdit}
           onOpenDetail={(t,order)=>setModal({table:t,order})}
+          onOpenReservation={(t,resv,order)=>setResvInfo({table:t,info:resv,order})}
           db={db}
         />
       ))}
+
+      {/* Modal de info de reserva */}
+      {resvInfo&&(()=>{
+        const r=resvInfo.info.reservation;
+        const mins=resvInfo.info._minutesUntil;
+        const horaTxt=r.reservation_time?.slice(0,5)||'';
+        const tiempoTxt=mins>0?`en ${mins<60?mins+' min':Math.floor(mins/60)+'h '+(mins%60)+'m'}`:`hace ${Math.abs(mins)} min`;
+        const occ=resvInfo.table.is_occupied||!!resvInfo.order;
+        const isAlert=occ&&mins<=resvAlertMin;
+        return(
+          <Modal title={`Mesa ${resvInfo.table.number} — ${isAlert?'⚠ Reserva próxima':'Reservada'}`} onClose={()=>setResvInfo(null)} width={420}>
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {isAlert&&(
+                <div style={{background:'#FEE2E2',border:'1px solid #DC2626',borderRadius:8,padding:'10px 12px',fontSize:12,color:'#991B1B'}}>
+                  ⚠ Esta mesa está ocupada y la reserva es {tiempoTxt}. Avisá al mozo para pedir la cuenta.
+                </div>
+              )}
+              <div style={{background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:8,padding:'12px 14px'}}>
+                <div style={{fontSize:16,fontWeight:800,color:'#1D1D1F',marginBottom:6}}>{r.customer_name}</div>
+                <div style={{fontSize:13,color:'#3D3D3D',lineHeight:1.7}}>
+                  📞 {r.customer_phone}<br/>
+                  🕐 Hora reservada: <strong>{horaTxt}</strong> ({tiempoTxt})<br/>
+                  👥 {r.guests} personas{r.occasion?<><br/>🎉 Motivo: {r.occasion}</>:null}
+                  {r.notes?<><br/>📝 {r.notes}</>:null}
+                </div>
+                <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#86868B',marginTop:8}}>Confirmación {r.confirm_num}</div>
+              </div>
+              <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:6}}>
+                {resvInfo.order&&<Btn variant="ghost" small onClick={()=>{setModal({table:resvInfo.table,order:resvInfo.order});setResvInfo(null);}}>Ver pedido actual</Btn>}
+                <Btn variant="ghost" onClick={()=>setResvInfo(null)}>Cerrar</Btn>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {/* Modal detalle mesa ocupada */}
       {modal&&!editMode&&(
@@ -5112,6 +5205,7 @@ function ConfigPage({restaurant,onRefresh}) {
   const [hours,setHours] = useState([]);
   const [saving,setSaving] = useState(false);
   const [savingH,setSavingH] = useState(false);
+  const [savingR,setSavingR] = useState(false);
 
   useEffect(()=>{
     if(restaurant){
@@ -5141,6 +5235,17 @@ function ConfigPage({restaurant,onRefresh}) {
     else if(!data||data.length===0){toast('No se pudo guardar los horarios — verificá RLS en Supabase',false);}
     else{toast('Horarios guardados');onRefresh();}
     setSavingH(false);
+  }
+  async function saveReservas(){
+    if(!db)return;setSavingR(true);
+    const w=Number(form.reservation_window_hours);
+    const a=Number(form.reservation_alert_minutes);
+    if(!(w>0)||!(a>=0)){toast('Valores inválidos',false);setSavingR(false);return;}
+    const{data,error}=await db.from('restaurants').update({reservation_window_hours:w,reservation_alert_minutes:a}).eq('id',RID).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS / migración 070',false);}
+    else{toast('Reservas: configuración guardada');onRefresh();}
+    setSavingR(false);
   }
 
   const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante'},{key:'address',label:'Dirección'},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@lahuaca'},{key:'website',label:'Sitio web',ph:'lahuaca.com.py'}];
@@ -5221,6 +5326,25 @@ function ConfigPage({restaurant,onRefresh}) {
             </div>
             <Btn onClick={saveHours} disabled={savingH}>{savingH?'Guardando…':'Guardar horarios'}</Btn>
           </div>
+
+          {/* Configuración de reservas */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>RESERVAS</div>
+            <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:14}}>
+              <div>
+                <Lbl>VENTANA PARA MARCAR MESA COMO "RESERVADA" (HORAS)</Lbl>
+                <Inp type="number" min="0.5" max="12" step="0.5" value={form.reservation_window_hours??3} onChange={e=>setForm({...form,reservation_window_hours:e.target.value})} style={{width:90}}/>
+                <div style={{fontSize:11,color:'#86868B',marginTop:6,lineHeight:1.5}}>Las mesas con reserva confirmada se marcan como <strong>Reservada</strong> en mozo/caja/admin cuando faltan menos de estas horas para la hora de la reserva. Recomendado: 3h.</div>
+              </div>
+              <div>
+                <Lbl>ALERTA AL MOZO SI MESA SIGUE OCUPADA (MINUTOS ANTES)</Lbl>
+                <Inp type="number" min="0" max="120" step="5" value={form.reservation_alert_minutes??30} onChange={e=>setForm({...form,reservation_alert_minutes:e.target.value})} style={{width:90}}/>
+                <div style={{fontSize:11,color:'#86868B',marginTop:6,lineHeight:1.5}}>Si una mesa con reserva próxima sigue ocupada cuando faltan estos minutos, aparece una alerta roja al mozo para pedir la cuenta. Recomendado: 30 min.</div>
+              </div>
+            </div>
+            <Btn onClick={saveReservas} disabled={savingR}>{savingR?'Guardando…':'Guardar reservas'}</Btn>
+          </div>
+
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18}}>
             <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:12}}>ACCESOS RÁPIDOS</div>
             {[{l:'Cocina (KDS)',h:'cocina.html'},{l:'App Cliente',h:'index.html'},{l:'Diagnóstico DB',h:'diag.html'}].map(a=>(
@@ -6509,6 +6633,11 @@ function ReservasPage({tables}) {
   const fmtTime=t=>t?t.slice(0,5):'—';
   const fmtDate=d=>{if(!d)return'—';const[y,m,dd]=d.split('-');return`${dd}/${m}/${y}`;};
   const tableNum=id=>{const t=(tables||[]).find(t=>t.id===id);return t?`Mesa ${t.number}`:null;};
+  const ZONE_LABEL={salon:'Salón',terraza:'Terraza',bar:'Bar',privado:'Privado',exterior:'Exterior'};
+  const zoneFor=r=>{
+    if(r.table_id){const t=(tables||[]).find(x=>x.id===r.table_id);if(t)return ZONE_LABEL[t.zona]||t.zona||'—';}
+    return r.preferred_zone?ZONE_LABEL[r.preferred_zone]||r.preferred_zone:'—';
+  };
 
   const pending  = reservas.filter(r=>r.status==='pending').length;
   const confirmed= reservas.filter(r=>r.status==='confirmed').length;
@@ -6565,7 +6694,7 @@ function ReservasPage({tables}) {
           <table style={{width:'100%',borderCollapse:'collapse'}}>
             <thead>
               <tr style={{borderBottom:`1px solid ${C.border}`,background:C.bg}}>
-                {['Confirmación','Cliente','Fecha','Hora','Pers.','Mesa','Motivo','Estado','Acciones'].map(h=>(
+                {['Confirmación','Cliente','Fecha','Hora','Pers.','Zona','Mesa','Motivo','Estado','Acciones'].map(h=>(
                   <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:10,fontWeight:700,color:'#3a3a3c',letterSpacing:'0.08em',textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>
                 ))}
               </tr>
@@ -6584,7 +6713,8 @@ function ReservasPage({tables}) {
                     <td style={{padding:'10px 12px',fontSize:13,color:C.ink,whiteSpace:'nowrap'}}>{fmtDate(r.reservation_date)}</td>
                     <td style={{padding:'10px 12px',fontSize:13,fontWeight:700,color:C.ink}}>{fmtTime(r.reservation_time)}</td>
                     <td style={{padding:'10px 12px',fontSize:13,textAlign:'center',color:C.ink}}>{r.guests}</td>
-                    <td style={{padding:'10px 12px',fontSize:12,color:C.mid}}>{tn||'—'}</td>
+                    <td style={{padding:'10px 12px',fontSize:12,color:C.mid}}>{zoneFor(r)}</td>
+                    <td style={{padding:'10px 12px',fontSize:12,color:C.mid}}>{tn||(r.preferred_zone?<span style={{color:'#FF9500'}}>Sin asignar</span>:'—')}</td>
                     <td style={{padding:'10px 12px',fontSize:12,color:C.mid}}>{r.occasion?OCCASION_LABEL[r.occasion]||r.occasion:'—'}</td>
                     <td style={{padding:'10px 12px'}}>
                       <select value={r.status} onChange={e=>updateStatus(r.id,e.target.value)}
@@ -6643,11 +6773,14 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
     year:  selYear,
     reservation_time:reserva?.reservation_time?.slice(0,5)||'',
     guests:          reserva?.guests          ||2,
+    preferred_zone:  reserva?.preferred_zone  ||(reserva?.table_id?((tables||[]).find(t=>t.id===reserva.table_id)?.zona||''):''),
     table_id:        reserva?.table_id        ||'',
     occasion:        reserva?.occasion        ||'',
     notes:           reserva?.notes           ||'',
     status:          reserva?.status          ||'pending',
   });
+  const ZONE_OPTS=[{id:'',label:'Sin preferencia'},{id:'salon',label:'Salón'},{id:'terraza',label:'Terraza'},{id:'bar',label:'Bar'},{id:'privado',label:'Privado'},{id:'exterior',label:'Exterior'}];
+  const tablesFiltered=(tables||[]).filter(t=>!form.preferred_zone||(t.zona||'salon')===form.preferred_zone);
   const [saving,setSaving]=useState(false);
   const f=(k,v)=>setForm(p=>({...p,[k]:v}));
   const inputSt={width:'100%',height:38,border:`1px solid ${C.border}`,borderRadius:6,padding:'0 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none',boxSizing:'border-box'};
@@ -6673,6 +6806,7 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
         customer_name:form.customer_name,customer_phone:form.customer_phone,
         reservation_date:dateStr,reservation_time:form.reservation_time,
         guests:Number(form.guests),table_id:form.table_id||null,
+        preferred_zone:form.preferred_zone||null,
         occasion:form.occasion||null,notes:form.notes||null,status:form.status,
       });
     } else {
@@ -6680,6 +6814,7 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
         customer_name:form.customer_name,customer_phone:form.customer_phone,
         reservation_date:dateStr,reservation_time:form.reservation_time,
         guests:Number(form.guests),table_id:form.table_id||null,
+        preferred_zone:form.preferred_zone||null,
         occasion:form.occasion||null,notes:form.notes||null,status:form.status,
       }).eq('id',reserva.id);
     }
@@ -6750,19 +6885,25 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
             </div>
           </div>
 
-          {/* Personas + Mesa */}
+          {/* Personas + Zona + Mesa */}
           <div style={{display:'flex',gap:10}}>
-            <div style={{flex:1}}>
+            <div style={{flex:'0 0 110px'}}>
               <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Personas</label>
               <select value={form.guests} onChange={e=>f('guests',e.target.value)} style={selSt}>
-                {[1,2,3,4,5,6,7,8,10,12].map(n=><option key={n} value={n}>{n} personas</option>)}
+                {[1,2,3,4,5,6,7,8,10,12].map(n=><option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+            <div style={{flex:1}}>
+              <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Zona</label>
+              <select value={form.preferred_zone} onChange={e=>{const v=e.target.value;setForm(p=>{const t=(tables||[]).find(x=>x.id===p.table_id);const keepTable=t&&((t.zona||'salon')===v||!v);return{...p,preferred_zone:v,table_id:keepTable?p.table_id:''};});}} style={selSt}>
+                {ZONE_OPTS.map(z=><option key={z.id} value={z.id}>{z.label}</option>)}
               </select>
             </div>
             <div style={{flex:1}}>
               <label style={{fontSize:11,fontWeight:600,color:C.mid,display:'block',marginBottom:4}}>Mesa</label>
-              <select value={form.table_id} onChange={e=>f('table_id',e.target.value)} style={selSt}>
+              <select value={form.table_id} onChange={e=>{const v=e.target.value;const t=(tables||[]).find(x=>x.id===v);setForm(p=>({...p,table_id:v,preferred_zone:t?(t.zona||'salon'):p.preferred_zone}));}} style={selSt}>
                 <option value="">Sin asignar</option>
-                {(tables||[]).map(t=><option key={t.id} value={t.id}>Mesa {t.number}{t.capacity?` (${t.capacity}p)`:''}</option>)}
+                {tablesFiltered.map(t=><option key={t.id} value={t.id}>Mesa {t.number}{t.capacity?` (${t.capacity}p)`:''}</option>)}
               </select>
             </div>
           </div>
@@ -6896,7 +7037,7 @@ function AdminApp() {
       case 'dashboard': return <DashboardPage orders={orders} ratings={ratings} setPage={setPage}/>;
       case 'pedidos':   return <PedidosPage orders={orders} tables={tables} onRefresh={loadAll}/>;
       case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
-      case 'mesas':     return <MesasPage tables={tables} orders={orders} onRefresh={loadAll}/>;
+      case 'mesas':     return <MesasPage tables={tables} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'reservas':  return <ReservasPage tables={tables}/>;
       case 'estaciones':return <EstacionesPage categories={categories} tables={tables}/>;
       case 'personal':  return <PersonalPage/>;

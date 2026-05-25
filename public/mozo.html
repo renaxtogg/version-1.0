@@ -448,7 +448,7 @@ body {
 .dialog-overlay.open { display: flex; }
 .dialog { background: var(--surface); border-radius: var(--radius); padding: 24px; width: 100%; max-width: 320px; animation: fadeIn 0.2s ease; }
 .dialog-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
-.dialog-body { font-size: 14px; color: var(--text2); margin-bottom: 20px; line-height: 1.5; }
+.dialog-body { font-size: 14px; color: var(--text2); margin-bottom: 20px; line-height: 1.5; white-space: pre-line; }
 .dialog-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
 .dialog-btn { padding: 10px 20px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 700; cursor: pointer; border: none; }
 .dialog-btn.cancel { background: var(--bg2); color: var(--text2); }
@@ -594,7 +594,49 @@ function getMesaStatus(tableId, ordersMap, callsMap, tablesById) {
 const fGsK = n => '₲ ' + (n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? Math.round(n/1000)+'k' : String(Math.round(n||0)));
 
 function statusLabel(s) {
-  return { libre: 'Libre', ocupada: 'Ocupada', cocina: 'En cocina', lista: 'Retirar', cuenta: 'Cuenta', alerta: 'Alerta', pendiente_pago: 'Cobro pte.' }[s] || s;
+  return { libre: 'Libre', ocupada: 'Ocupada', cocina: 'En cocina', lista: 'Retirar', cuenta: 'Cuenta', alerta: 'Alerta', pendiente_pago: 'Cobro pte.', reservada: 'Reservada', alerta_reserva: '¡Liberar!' }[s] || s;
+}
+
+/* ── RESERVATION HELPERS ──
+ * Una reserva está "activa" si:
+ *   - status = 'confirmed'
+ *   - reservation_date = hoy
+ *   - está dentro de [now - 15min de tolerancia, now + window_hours]
+ * Devuelve un map { table_id → { reservation, _timeMs, _alertMinutes, _minutesUntil } }
+ * Solo incluye reservas con table_id asignada.
+ */
+function buildReservationByTable(reservations, nowMs, windowHours, alertMinutes) {
+  const map = {};
+  const today = new Date(nowMs);
+  const todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+  const winMs = windowHours * 3600 * 1000;
+  const tolMs = 15 * 60 * 1000; // 15min de tolerancia tras la hora reservada
+  (reservations || []).forEach(r => {
+    if (r.status !== 'confirmed') return;
+    if (r.reservation_date !== todayStr) return;
+    if (!r.table_id) return;
+    const t = (r.reservation_time || '00:00:00').slice(0, 8);
+    const resMs = new Date(`${r.reservation_date}T${t.length === 5 ? t + ':00' : t}`).getTime();
+    if (isNaN(resMs)) return;
+    const dt = resMs - nowMs;
+    if (dt > winMs) return;         // muy lejos en el futuro
+    if (dt < -tolMs) return;        // ya pasó la tolerancia
+    map[r.table_id] = {
+      reservation: r,
+      _timeMs: resMs,
+      _alertMinutes: alertMinutes,
+      _minutesUntil: Math.round(dt / 60000),
+    };
+  });
+  return map;
+}
+
+function applyReservationOverride(baseStatus, tableId, reservationByTable) {
+  const r = reservationByTable && reservationByTable[tableId];
+  if (!r) return baseStatus;
+  if (baseStatus !== 'libre' && r._minutesUntil <= r._alertMinutes) return 'alerta_reserva';
+  if (baseStatus === 'libre') return 'reservada';
+  return baseStatus;
 }
 
 /* ══════════════════════════════════════════════
@@ -636,8 +678,10 @@ const SC_M={
   lista:{bg:'#34C759',bd:'#248A3D',tx:'#FFFFFF'},
   pendiente_pago:{bg:'#FF9500',bd:'#B45309',tx:'#FFFFFF'},
   alerta:{bg:'#FFF0F0',bd:'#FF3B30',tx:'#CC0000'},
+  reservada:{bg:'#FFF7ED',bd:'#FF9500',tx:'#B45309'},
+  alerta_reserva:{bg:'#FEE2E2',bd:'#DC2626',tx:'#991B1B'},
 };
-function ZonaMozo({zona,tables,ordersMap,callsMap,tablesById,sessionTotals,editMode,setTables,onTableClick,onEditTable}){
+function ZonaMozo({zona,tables,ordersMap,callsMap,tablesById,sessionTotals,reservationByTable,editMode,setTables,onTableClick,onEditTable}){
   const zd=ZONAS_DEF_M.find(z=>z.value===zona)||ZONAS_DEF_M[0];
   const canvasRef=React.useRef(null);
   const [canvasW,setCanvasW]=React.useState(0);
@@ -703,9 +747,11 @@ function ZonaMozo({zona,tables,ordersMap,callsMap,tablesById,sessionTotals,editM
           const hasPos=t.pos_x!=null&&t.pos_y!=null;
           const v=hasPos?{vx:t.pos_x,vy:t.pos_y}:defaultVPosM(idx,tables.length);
           const pos=vToPxM(v.vx,v.vy,canvasW,canvasH,w,h);
-          const status=getMesaStatus(t.id,ordersMap,callsMap,tablesById);
+          const baseStatus=getMesaStatus(t.id,ordersMap,callsMap,tablesById);
+          const status=applyReservationOverride(baseStatus,t.id,reservationByTable);
           const sesTotal=sessionTotals[t.id]||0;
           const sc=SC_M[status]||SC_M.libre;
+          const resv=reservationByTable&&reservationByTable[t.id];
           const isDrag=dragging===t.id;
           return(
             <div key={t.id}
@@ -724,8 +770,11 @@ function ZonaMozo({zona,tables,ordersMap,callsMap,tablesById,sessionTotals,editM
               }}>
               {sesTotal>0&&<div style={{fontSize:7,color:sc.tx==='#000000'?'#22C55E':'rgba(255,255,255,0.85)',fontWeight:700,lineHeight:1,marginBottom:1}}>{fGsK(sesTotal)}</div>}
               <div style={{fontSize:shape==='rectangle'?13:15,fontWeight:800,color:sc.tx,lineHeight:1}}>{t.number}</div>
-              <div style={{fontSize:7,color:sc.tx==='#000000'?'#86868B':'rgba(255,255,255,0.65)',marginTop:2,fontWeight:500}}>{statusLabel(status)}</div>
-              <div style={{fontSize:7,color:sc.tx==='#000000'?'#86868B':'rgba(255,255,255,0.5)',marginTop:1}}>{t.capacity||4}p</div>
+              <div style={{fontSize:7,color:sc.tx==='#000000'?'#86868B':sc.tx,marginTop:2,fontWeight:status==='alerta_reserva'?800:500}}>{statusLabel(status)}</div>
+              {(status==='reservada'||status==='alerta_reserva')&&resv&&(
+                <div style={{fontSize:7,color:sc.tx,marginTop:1,fontWeight:700}}>{resv.reservation.reservation_time?.slice(0,5)} · {resv.reservation.guests}p</div>
+              )}
+              {status!=='reservada'&&status!=='alerta_reserva'&&<div style={{fontSize:7,color:sc.tx==='#000000'?'#86868B':'rgba(255,255,255,0.5)',marginTop:1}}>{t.capacity||4}p</div>}
               {editMode&&<div style={{position:'absolute',top:3,right:4,fontSize:8,color:'#86868B'}}>✎</div>}
             </div>
           );
@@ -862,6 +911,9 @@ function App() {
   const [historialModal, setHistorialModal] = useState(false);
   const [historialOrders, setHistorialOrders] = useState([]);
   const [loadingHistorial, setLoadingHistorial] = useState(false);
+  const [reservationsToday, setReservationsToday] = useState([]);
+  const [reservationConfig, setReservationConfig] = useState({ window: 3, alertMin: 30 });
+  const [nowTick, setNowTick] = useState(Date.now());
 
   // Turno: start from localStorage or midnight today
   const turnoInicio = useMemo(() => {
@@ -993,7 +1045,8 @@ function App() {
   async function loadData() {
     if (!db) { setLoading(false); return; }
     try {
-      const [tablesRes, ordersRes, callsRes, menuRes, extrasRes] = await Promise.all([
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const [tablesRes, ordersRes, callsRes, menuRes, extrasRes, resvRes, restRes] = await Promise.all([
         db.from('tables').select('*').eq('restaurant_id', RID).eq('is_active', true).order('number'),
         db.from('orders').select('*, order_items(*)').eq('restaurant_id', RID)
           .in('status', ['draft', 'confirmed', 'paid', 'pending_payment', 'kitchen_received', 'cooking', 'ready'])
@@ -1001,7 +1054,16 @@ function App() {
         db.from('waiter_calls').select('*').eq('restaurant_id', RID).eq('status', 'pending').or('type.is.null,type.neq.payment_request').order('created_at'),
         db.from('menu_categories').select('*, menu_items(id, name, price_guarani, image_url, is_available, discount_pct, promo_tag, promo_type, sort_order)').eq('restaurant_id', RID).eq('is_active', true).order('sort_order'),
         db.from('menu_item_extras').select('*'),
+        db.from('reservations').select('*').eq('restaurant_id', RID).eq('reservation_date', todayStr).eq('status', 'confirmed'),
+        db.from('restaurants').select('reservation_window_hours,reservation_alert_minutes').eq('id', RID).maybeSingle(),
       ]);
+      setReservationsToday(resvRes.data || []);
+      if (restRes.data) {
+        setReservationConfig({
+          window: Number(restRes.data.reservation_window_hours ?? 3),
+          alertMin: Number(restRes.data.reservation_alert_minutes ?? 30),
+        });
+      }
 
       const allTables = tablesRes.data || [];
       setTables(allTables);
@@ -1207,9 +1269,44 @@ function App() {
   function handleMesaClick(tableId) {
     const mesa = tables.find(t => t.id === tableId);
     if (!mesa) return;
-    const status = getMesaStatus(tableId, ordersMap, callsMap, tablesById);
+    const baseStatus = getMesaStatus(tableId, ordersMap, callsMap, tablesById);
+    const status = applyReservationOverride(baseStatus, tableId, reservationByTable);
+    const resv = reservationByTable && reservationByTable[tableId];
 
-    if (status === 'libre') {
+    if (status === 'reservada' && resv) {
+      const r = resv.reservation;
+      const mins = resv._minutesUntil;
+      const horaTxt = r.reservation_time?.slice(0, 5) || '';
+      const tiempoTxt = mins > 0 ? `en ${mins < 60 ? mins + ' min' : Math.floor(mins/60) + 'h ' + (mins%60) + 'm'}` : `hace ${Math.abs(mins)} min`;
+      setMesaDialog({
+        title: `Mesa ${mesa.number} — Reservada`,
+        body: `${r.customer_name} · ${r.guests} personas\n📞 ${r.customer_phone}\nHora reservada: ${horaTxt} (${tiempoTxt})${r.occasion ? '\nMotivo: ' + r.occasion : ''}${r.notes ? '\nNotas: ' + r.notes : ''}\n\nLa mesa se reserva automáticamente cuando se acerca la hora.`,
+        actions: [
+          { label: 'Marcar como sentada (crear orden)', primary: true, action: async () => { await markReservationSeated(r.id); createOrder(tableId, mesa.number); } },
+          { label: 'Llamar al cliente', action: () => { try { window.open('tel:' + r.customer_phone, '_self'); } catch(e) {} } },
+          { label: 'Liberar (no usar)', action: null },
+        ],
+      });
+      return;
+    }
+
+    if (status === 'alerta_reserva' && resv) {
+      const r = resv.reservation;
+      const horaTxt = r.reservation_time?.slice(0, 5) || '';
+      const mins = resv._minutesUntil;
+      setMesaDialog({
+        title: `⚠ Mesa ${mesa.number} — Reserva próxima`,
+        body: `Esta mesa tiene una reserva a las ${horaTxt} (${mins > 0 ? 'en ' + mins + ' min' : 'pasada hace ' + Math.abs(mins) + ' min'}).\n${r.customer_name} · ${r.guests} personas · 📞 ${r.customer_phone}\n\nLa mesa sigue ocupada. Considerá pedir la cuenta al cliente actual.`,
+        actions: [
+          { label: 'Ver orden actual', primary: true, action: () => openOrderView(tableId) },
+          { label: 'Llamar al cliente reservado', action: () => { try { window.open('tel:' + r.customer_phone, '_self'); } catch(e) {} } },
+          { label: 'Cancelar', action: null },
+        ],
+      });
+      return;
+    }
+
+    if (baseStatus === 'libre') {
       setMesaDialog({
         title: `Mesa ${mesa.number}`,
         body: 'Mesa disponible. ¿Qué deseas hacer?',
@@ -1218,7 +1315,7 @@ function App() {
           { label: 'Cancelar', action: null },
         ],
       });
-    } else if (status === 'alerta') {
+    } else if (baseStatus === 'alerta') {
       setMesaDialog({
         title: `Mesa ${mesa.number} — Asistencia`,
         body: 'El cliente ha solicitado asistencia. ¿Fue atendida?',
@@ -1231,6 +1328,11 @@ function App() {
     } else {
       openOrderView(tableId);
     }
+  }
+
+  async function markReservationSeated(reservationId) {
+    if (!db) return;
+    try { await db.from('reservations').update({ status: 'seated' }).eq('id', reservationId); } catch(e) {}
   }
 
   function openOrderView(tableId) {
@@ -1748,6 +1850,17 @@ function App() {
     return m;
   }, [tables]);
 
+  // Tick cada 60s para que la ventana de "Reservada" / alerta avance sin recargar datos
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const reservationByTable = useMemo(
+    () => buildReservationByTable(reservationsToday, nowTick, reservationConfig.window, reservationConfig.alertMin),
+    [reservationsToday, nowTick, reservationConfig.window, reservationConfig.alertMin]
+  );
+
   const totalActivo = useMemo(() =>
     Object.values(ordersMap).reduce((sum, o) => sum + Number(o.total || 0), 0)
   , [ordersMap]);
@@ -2075,6 +2188,7 @@ function App() {
                       callsMap={callsMap}
                       tablesById={tablesById}
                       sessionTotals={sessionTotals}
+                      reservationByTable={reservationByTable}
                       editMode={mapaEditMode}
                       setTables={setTables}
                       onTableClick={handleMesaClick}

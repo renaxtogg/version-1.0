@@ -1783,7 +1783,29 @@ function pxToVC(px,py,cw,ch,tw,th){
   return{vx:Math.max(0,Math.min(VCOORD_MAX_C,(cx/Math.max(cw,1))*VCOORD_MAX_C)),vy:Math.max(0,Math.min(VCOORD_MAX_C,(cy/Math.max(ch,1))*VCOORD_MAX_C))};
 }
 
-function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dragOff,setDragging,setDragOff,setTables,onTableClick,onEditTable}){
+/* ── Reservas: util compartido para mozo/caja/admin ── */
+function buildReservationByTableC(reservations, nowMs, windowHours, alertMinutes) {
+  const map = {};
+  const d = new Date(nowMs);
+  const todayStr = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const winMs = windowHours*3600*1000;
+  const tolMs = 15*60*1000;
+  (reservations||[]).forEach(r=>{
+    if(r.status!=='confirmed') return;
+    if(r.reservation_date!==todayStr) return;
+    if(!r.table_id) return;
+    const t=(r.reservation_time||'00:00:00').slice(0,8);
+    const resMs=new Date(`${r.reservation_date}T${t.length===5?t+':00':t}`).getTime();
+    if(isNaN(resMs)) return;
+    const dt=resMs-nowMs;
+    if(dt>winMs) return;
+    if(dt<-tolMs) return;
+    map[r.table_id]={reservation:r,_timeMs:resMs,_alertMinutes:alertMinutes,_minutesUntil:Math.round(dt/60000)};
+  });
+  return map;
+}
+
+function ZonaCaja({zona,tables,ordersByTable,sessionTotals,reservationByTable,editMode,dragging,dragOff,setDragging,setDragOff,setTables,onTableClick,onEditTable}){
   const canvasRef=React.useRef(null);
   const zd=ZONAS_DEF_C.find(z=>z.value===zona)||ZONAS_DEF_C[0];
   const [canvasW,setCanvasW]=React.useState(0);
@@ -1826,12 +1848,19 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dra
   function getTableStatus(t){
     const order=ordersByTable[t.id];
     const occ=t.is_occupied||!!order;
-    if(!occ)return'libre';
-    if(!order)return'ocupada';
-    if(order.status==='ready')return'lista';
-    if(['cooking','kitchen_received'].includes(order.status))return'cocina';
-    if(order.status==='pending_payment'&&order.payment_status!=='paid')return'cobro';
-    return'ocupada';
+    let base;
+    if(!occ) base='libre';
+    else if(!order) base='ocupada';
+    else if(order.status==='ready') base='lista';
+    else if(['cooking','kitchen_received'].includes(order.status)) base='cocina';
+    else if(order.status==='pending_payment'&&order.payment_status!=='paid') base='cobro';
+    else base='ocupada';
+    const r=reservationByTable&&reservationByTable[t.id];
+    if(r){
+      if(base!=='libre'&&r._minutesUntil<=r._alertMinutes) return 'alerta_reserva';
+      if(base==='libre') return 'reservada';
+    }
+    return base;
   }
   const SC_C={
     libre:{bg:'#FFFFFF',bd:'#D2D2D7',tx:'#000000'},
@@ -1839,6 +1868,8 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dra
     cocina:{bg:'#555555',bd:'#555555',tx:'#FFFFFF'},
     lista:{bg:'#FFFFFF',bd:'#000000',tx:'#000000'},
     cobro:{bg:'#FFF4E5',bd:'#FF9500',tx:'#C05300'},
+    reservada:{bg:'#FFF7ED',bd:'#FF9500',tx:'#B45309'},
+    alerta_reserva:{bg:'#FEE2E2',bd:'#DC2626',tx:'#991B1B'},
   };
   return(
     <div style={{marginBottom:16}}>
@@ -1878,11 +1909,14 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,editMode,dragging,dra
               <div style={{fontSize:shape==='rectangle'?13:16,fontWeight:800,color:sc.tx,lineHeight:1}}>{t.number}</div>
               {status==='libre'
                 ?<div style={{fontSize:8,color:'#86868B',marginTop:2,fontWeight:500}}>Libre</div>
-                :<div style={{fontSize:8,color:sc.tx==='#FFFFFF'?'rgba(255,255,255,0.7)':'#555',marginTop:2,fontWeight:500}}>
-                  {status==='cocina'?'Cocina':status==='lista'?'Lista':status==='cobro'?'A cobrar':'Ocupada'}
+                :<div style={{fontSize:8,color:sc.tx,marginTop:2,fontWeight:status==='alerta_reserva'?800:500}}>
+                  {status==='cocina'?'Cocina':status==='lista'?'Lista':status==='cobro'?'A cobrar':status==='reservada'?'Reservada':status==='alerta_reserva'?'¡Liberar!':'Ocupada'}
                 </div>
               }
-              <div style={{fontSize:8,color:sc.tx==='#FFFFFF'?'rgba(255,255,255,0.5)':'#86868B',marginTop:2}}>{t.capacity||4} pax</div>
+              {(status==='reservada'||status==='alerta_reserva')&&(reservationByTable&&reservationByTable[t.id])
+                ?<div style={{fontSize:8,color:sc.tx,marginTop:1,fontWeight:700}}>{reservationByTable[t.id].reservation.reservation_time?.slice(0,5)} · {reservationByTable[t.id].reservation.guests}p</div>
+                :<div style={{fontSize:8,color:sc.tx==='#FFFFFF'?'rgba(255,255,255,0.5)':'#86868B',marginTop:2}}>{t.capacity||4} pax</div>
+              }
               {editMode&&<div style={{position:'absolute',top:3,right:5,fontSize:9,color:'#86868B'}}>✎</div>}
             </div>
           );
@@ -2025,7 +2059,21 @@ function SalonPanel({profile}){
   const [dragOff,setDragOff]=useState({x:0,y:0,zona:null});
   const [mesaEdit,setMesaEdit]=useState(null);
   const [newMesa,setNewMesa]=useState(false);
+  const [reservationsToday,setReservationsToday]=useState([]);
+  const [resvConfig,setResvConfig]=useState({window:3,alertMin:30});
+  const [nowTick,setNowTick]=useState(Date.now());
+  const [resvInfo,setResvInfo]=useState(null);
   const ACTIVE=['paid','pending_payment','kitchen_received','cooking','ready'];
+
+  useEffect(()=>{
+    const id=setInterval(()=>setNowTick(Date.now()),60000);
+    return()=>clearInterval(id);
+  },[]);
+
+  const reservationByTable=useMemo(
+    ()=>buildReservationByTableC(reservationsToday,nowTick,resvConfig.window,resvConfig.alertMin),
+    [reservationsToday,nowTick,resvConfig.window,resvConfig.alertMin]
+  );
 
   useEffect(()=>{
     load();
@@ -2040,16 +2088,21 @@ function SalonPanel({profile}){
   },[]);
 
   async function load(){
-    const[{data:tbl},{data:ord}]=await Promise.all([
+    const todayStr=new Date().toISOString().slice(0,10);
+    const[{data:tbl},{data:ord},{data:resv},{data:rest}]=await Promise.all([
       db.from('tables').select('id,number,capacity,is_occupied,occupied_since,zona,shape,pos_x,pos_y').eq('restaurant_id',RID).order('number'),
       db.from('orders')
         .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,tables(number)')
         .eq('restaurant_id',RID).in('status',ACTIVE)
         .or('payment_status.neq.paid,payment_status.is.null')
         .order('created_at',{ascending:true}),
+      db.from('reservations').select('*').eq('restaurant_id',RID).eq('reservation_date',todayStr).eq('status','confirmed'),
+      db.from('restaurants').select('reservation_window_hours,reservation_alert_minutes').eq('id',RID).maybeSingle(),
     ]);
     const allTables=tbl||[];
     setTables(allTables);setOrders(ord||[]);
+    setReservationsToday(resv||[]);
+    if(rest)setResvConfig({window:Number(rest.reservation_window_hours??3),alertMin:Number(rest.reservation_alert_minutes??30)});
 
     // Totales de sesión para mesas ocupadas
     const occIds=allTables.filter(t=>t.is_occupied).map(t=>t.id);
@@ -2232,13 +2285,19 @@ function SalonPanel({profile}){
                   tables={zonaMap[z.value]||[]}
                   ordersByTable={ordersByTable}
                   sessionTotals={sessionTotals}
+                  reservationByTable={reservationByTable}
                   editMode={editMode}
                   dragging={dragging}
                   dragOff={dragOff}
                   setDragging={setDragging}
                   setDragOff={setDragOff}
                   setTables={setTables}
-                  onTableClick={(t,order)=>loadTableSession(t)}
+                  onTableClick={(t,order)=>{
+                    const r=reservationByTable[t.id];
+                    if(r&&!t.is_occupied&&!order){setResvInfo({table:t,info:r});return;}
+                    if(r&&(t.is_occupied||order)){setResvInfo({table:t,info:r,alsoOccupied:true});}
+                    loadTableSession(t);
+                  }}
                   onEditTable={t=>setMesaEdit(t)}
                 />
               ));
@@ -2276,6 +2335,38 @@ function SalonPanel({profile}){
       )}
 
       {selOrder&&<OrderDetailModal order={selOrder} onClose={()=>setSelOrder(null)}/>}
+
+      {/* Modal de info de reserva */}
+      {resvInfo&&(()=>{
+        const r=resvInfo.info.reservation;
+        const mins=resvInfo.info._minutesUntil;
+        const horaTxt=r.reservation_time?.slice(0,5)||'';
+        const tiempoTxt=mins>0?`en ${mins<60?mins+' min':Math.floor(mins/60)+'h '+(mins%60)+'m'}`:`hace ${Math.abs(mins)} min`;
+        return(
+          <Modal title={`Mesa ${resvInfo.table.number} — Reserva ${resvInfo.alsoOccupied?'próxima':'activa'}`} onClose={()=>setResvInfo(null)} width={420}>
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {resvInfo.alsoOccupied&&(
+                <div style={{background:'#FEE2E2',border:'1px solid #DC2626',borderRadius:8,padding:'10px 12px',fontSize:12,color:'#991B1B'}}>
+                  ⚠ Esta mesa está ocupada y tiene una reserva próxima. Considerá pedir la cuenta al cliente actual.
+                </div>
+              )}
+              <div style={{background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:8,padding:'12px 14px'}}>
+                <div style={{fontSize:16,fontWeight:800,color:'#1D1D1F',marginBottom:6}}>{r.customer_name}</div>
+                <div style={{fontSize:13,color:'#3D3D3D',lineHeight:1.7}}>
+                  📞 {r.customer_phone}<br/>
+                  🕐 Hora reservada: <strong>{horaTxt}</strong> ({tiempoTxt})<br/>
+                  👥 {r.guests} personas{r.occasion?<><br/>🎉 Motivo: {r.occasion}</>:null}
+                  {r.notes?<><br/>📝 {r.notes}</>:null}
+                </div>
+                <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#86868B',marginTop:8}}>Confirmación {r.confirm_num}</div>
+              </div>
+              <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:6}}>
+                <Btn variant="ghost" onClick={()=>setResvInfo(null)}>Cerrar</Btn>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {/* Modal edición de mesa */}
       {mesaEdit&&(
