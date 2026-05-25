@@ -319,11 +319,12 @@ const NAV = [
   null,
   {id:'delivery',  label:'Delivery',     icon:'→', group:'DELIVERY'},
   null,
-  {id:'menu',      label:'Menú',         icon:'⊞', group:'GESTIÓN'},
-  {id:'mesas',     label:'Mesas',        icon:'⊡'},
-  {id:'reservas',  label:'Reservas',     icon:'◷'},
-  {id:'personal',  label:'Personal',     icon:'◎'},
-  {id:'stock',     label:'Stock',        icon:'▤'},
+  {id:'menu',       label:'Menú',         icon:'⊞', group:'GESTIÓN'},
+  {id:'mesas',      label:'Mesas',        icon:'⊡'},
+  {id:'reservas',   label:'Reservas',     icon:'◷'},
+  {id:'estaciones', label:'Estaciones',   icon:'▣'},
+  {id:'personal',   label:'Personal',     icon:'◎'},
+  {id:'stock',      label:'Stock',        icon:'▤'},
   null,
   {id:'clientes',  label:'Clientes',     icon:'♦', group:'ANÁLISIS'},
   {id:'reportes',  label:'Reportes',     icon:'≈'},
@@ -4657,6 +4658,453 @@ function ReportesPage({orders}) {
   );
 }
 /* ══════════════════════════════════════════════
+   ESTACIONES DE DESPACHO
+   CRUD de cocinas/bares/cafeterías + asignación de
+   categorías y zonas + link compartible + auditoría
+══════════════════════════════════════════════ */
+const STATION_TYPES = [
+  {key:'cocina',    label:'Cocina',    icon:'🍳', color:'#fb923c'},
+  {key:'parrilla',  label:'Parrilla',  icon:'🔥', color:'#f87171'},
+  {key:'bar',       label:'Bar',       icon:'🍸', color:'#60a5fa'},
+  {key:'cafeteria', label:'Cafetería', icon:'☕', color:'#c084fc'},
+  {key:'postres',   label:'Postres',   icon:'🍰', color:'#f9a8d4'},
+  {key:'custom',    label:'Otro',      icon:'⚙️', color:'#6E6E73'},
+];
+const STATION_ICONS = ['🍳','🔥','🍸','☕','🍰','🥘','🍕','🥗','🍔','🍷','🧁','🍺','🥩','🥖','🍦','⚙️'];
+const STATION_COLORS = ['#fb923c','#f87171','#60a5fa','#c084fc','#f9a8d4','#34d399','#fbbf24','#a78bfa','#f472b6','#22d3ee','#000000'];
+
+function EstacionesPage({categories, tables}) {
+  const [tab, setTab]                       = useState('lista');
+  const [stations, setStations]             = useState([]);
+  const [stationCats, setStationCats]       = useState({});  // {station_id: [category_id...]}
+  const [stationZonas, setStationZonas]     = useState({});  // {station_id: [zona...]}
+  const [stats, setStats]                   = useState([]);
+  const [loading, setLoading]               = useState(true);
+  const [editing, setEditing]               = useState(null); // station object o {} para nueva
+  const [saving, setSaving]                 = useState(false);
+  const [confirmDel, setConfirmDel]         = useState(null);
+
+  // Zonas existentes del salón (de la tabla tables) + estándar
+  const STD_ZONAS = ['salon','terraza','bar','privado','exterior'];
+  const zonasFromTables = useMemo(()=>{
+    const s = new Set();
+    (tables||[]).forEach(t=>{ if(t.zona) s.add(t.zona); });
+    STD_ZONAS.forEach(z=>s.add(z));
+    return Array.from(s).sort();
+  },[tables]);
+
+  const loadStations = React.useCallback(async()=>{
+    if(!db) return;
+    setLoading(true);
+    const [sR, scR, szR, stR] = await Promise.all([
+      db.from('kitchen_stations').select('*').eq('restaurant_id',RID).order('sort_order'),
+      db.from('kitchen_station_categories').select('*'),
+      db.from('kitchen_station_zonas').select('*'),
+      db.from('kitchen_station_stats').select('*').eq('restaurant_id',RID),
+    ]);
+    setStations(sR.data||[]);
+    const cm={};(scR.data||[]).forEach(r=>{(cm[r.station_id]=cm[r.station_id]||[]).push(r.category_id);});
+    setStationCats(cm);
+    const zm={};(szR.data||[]).forEach(r=>{(zm[r.station_id]=zm[r.station_id]||[]).push(r.zona);});
+    setStationZonas(zm);
+    setStats(stR.data||[]);
+    setLoading(false);
+  },[]);
+
+  useEffect(()=>{ loadStations(); },[loadStations]);
+
+  // Realtime
+  useEffect(()=>{
+    if(!db) return;
+    const ch = db.channel('estaciones-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'kitchen_stations',filter:`restaurant_id=eq.${RID}`}, ()=>{ if(!_shouldPause()) loadStations(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'kitchen_station_categories'}, ()=>{ if(!_shouldPause()) loadStations(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'kitchen_station_zonas'}, ()=>{ if(!_shouldPause()) loadStations(); })
+      .subscribe();
+    return ()=>{ db.removeChannel(ch); };
+  },[loadStations]);
+
+  function openNew() {
+    setEditing({
+      __new:true,
+      name:'',
+      type:'cocina',
+      color:'#fb923c',
+      icon:'🍳',
+      is_active:true,
+      sort_order:(stations.length||0)+1,
+      _categories:[],
+      _zonas:['*'],
+    });
+  }
+
+  function openEdit(st) {
+    setEditing({
+      ...st,
+      _categories:(stationCats[st.id]||[]).slice(),
+      _zonas:(stationZonas[st.id]||[]).slice(),
+    });
+  }
+
+  async function saveStation() {
+    if(!editing.name.trim()) { toast('Falta el nombre', false); return; }
+    if(!editing._categories.length) { toast('Asigná al menos una categoría', false); return; }
+    if(!editing._zonas.length) { toast('Asigná al menos una zona (o "Todas")', false); return; }
+    setSaving(true);
+    try {
+      let sid = editing.id;
+      if (editing.__new) {
+        const {data, error} = await db.from('kitchen_stations').insert({
+          restaurant_id:RID,
+          name:editing.name.trim(),
+          type:editing.type,
+          color:editing.color,
+          icon:editing.icon,
+          is_active:editing.is_active!==false,
+          sort_order:editing.sort_order||0,
+        }).select().single();
+        if (error) throw error;
+        sid = data.id;
+      } else {
+        const {error} = await db.from('kitchen_stations').update({
+          name:editing.name.trim(),
+          type:editing.type,
+          color:editing.color,
+          icon:editing.icon,
+          is_active:editing.is_active!==false,
+          sort_order:editing.sort_order||0,
+        }).eq('id',sid);
+        if (error) throw error;
+      }
+      // Reescribir categorías y zonas (delete+insert)
+      await db.from('kitchen_station_categories').delete().eq('station_id',sid);
+      if (editing._categories.length) {
+        const rows = editing._categories.map(cid=>({station_id:sid,category_id:cid}));
+        const {error:e1} = await db.from('kitchen_station_categories').insert(rows);
+        if (e1) throw e1;
+      }
+      await db.from('kitchen_station_zonas').delete().eq('station_id',sid);
+      if (editing._zonas.length) {
+        const rows = editing._zonas.map(z=>({station_id:sid,zona:z}));
+        const {error:e2} = await db.from('kitchen_station_zonas').insert(rows);
+        if (e2) throw e2;
+      }
+      toast(editing.__new?'Estación creada':'Estación actualizada');
+      setEditing(null);
+      loadStations();
+    } catch(e) { toast('Error: '+e.message,false); }
+    setSaving(false);
+  }
+
+  async function deleteStation(st) {
+    const {error} = await db.from('kitchen_stations').delete().eq('id',st.id);
+    if (error) { toast('Error: '+error.message,false); return; }
+    toast('Estación eliminada');
+    setConfirmDel(null);
+    loadStations();
+  }
+
+  async function toggleActive(st) {
+    const {error} = await db.from('kitchen_stations').update({is_active:!st.is_active}).eq('id',st.id);
+    if (error) { toast('Error: '+error.message,false); return; }
+    toast(!st.is_active?'Activada':'Desactivada');
+    loadStations();
+  }
+
+  function copyLink(st) {
+    const url = `${window.location.origin}${window.location.pathname.replace(/admin\.html$/,'')}cocina.html?station=${st.access_token}`;
+    navigator.clipboard?.writeText(url).then(()=>toast('Link copiado al portapapeles'),()=>toast('No se pudo copiar',false));
+  }
+
+  function regenToken(st) {
+    const newToken = Array.from(crypto.getRandomValues(new Uint8Array(12))).map(b=>b.toString(16).padStart(2,'0')).join('');
+    db.from('kitchen_stations').update({access_token:newToken}).eq('id',st.id)
+      .then(({error})=>{ if(error) toast('Error: '+error.message,false); else { toast('Token regenerado — los links viejos dejaron de funcionar'); loadStations(); } });
+  }
+
+  if (loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:300,gap:12}}><span className="spin"/><span style={{fontSize:13,color:'#86868B'}}>Cargando estaciones…</span></div>;
+
+  const TabBtn = ({id,label}) => (
+    <button onClick={()=>setTab(id)} style={{padding:'6px 14px',borderRadius:6,border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',background:tab===id?C.white:'transparent',color:tab===id?'#000':C.mid,transition:'all .15s'}}>{label}</button>
+  );
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Estaciones de despacho</h1>
+          <div style={{fontSize:12,color:C.mid,marginTop:4}}>Cocinas, bares y cafeterías con su pantalla y zonas asignadas</div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <Btn variant="secondary" onClick={loadStations}>↺ Actualizar</Btn>
+          {tab==='lista' && <Btn onClick={openNew}>+ Nueva estación</Btn>}
+        </div>
+      </div>
+
+      <div style={{display:'inline-flex',gap:0,background:'#EFEFF4',padding:3,borderRadius:8,marginBottom:18}}>
+        <TabBtn id="lista" label="Estaciones"/>
+        <TabBtn id="stats" label="Estadísticas"/>
+        <TabBtn id="audit" label="Auditoría"/>
+      </div>
+
+      {tab==='lista' && (
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(340px,1fr))',gap:14}}>
+          {stations.length===0 && (
+            <div style={{gridColumn:'1/-1',background:C.surface,border:`1px dashed ${C.border}`,padding:40,textAlign:'center',borderRadius:8,color:C.mid}}>
+              No hay estaciones aún. Hacé clic en "+ Nueva estación" para empezar.
+            </div>
+          )}
+          {stations.map(st => {
+            const typ = STATION_TYPES.find(t=>t.key===st.type) || STATION_TYPES[0];
+            const cats = stationCats[st.id]||[];
+            const zns  = stationZonas[st.id]||[];
+            const stStat = stats.find(s=>s.station_id===st.id);
+            return (
+              <div key={st.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:16,opacity:st.is_active?1:0.55}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+                  <div style={{width:38,height:38,borderRadius:8,background:st.color+'22',border:`1px solid ${st.color}55`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>{st.icon||typ.icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:700,color:'#000',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{st.name}</div>
+                    <div style={{fontSize:11,color:C.mid,marginTop:2}}>
+                      <span style={{display:'inline-block',padding:'1px 6px',background:st.color+'22',color:st.color,borderRadius:4,fontWeight:600,marginRight:6}}>{typ.label}</span>
+                      {!st.is_active && <span style={{color:C.red,fontWeight:700}}>· inactiva</span>}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{display:'flex',gap:8,fontSize:11,marginBottom:10}}>
+                  <div style={{flex:1,background:C.bg,padding:'6px 8px',borderRadius:5,textAlign:'center'}}>
+                    <div style={{color:C.mid,fontSize:9,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase'}}>Categorías</div>
+                    <div style={{fontSize:14,fontWeight:700}}>{cats.length}</div>
+                  </div>
+                  <div style={{flex:1,background:C.bg,padding:'6px 8px',borderRadius:5,textAlign:'center'}}>
+                    <div style={{color:C.mid,fontSize:9,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase'}}>Zonas</div>
+                    <div style={{fontSize:14,fontWeight:700}}>{zns.includes('*')?'Todas':zns.length}</div>
+                  </div>
+                  <div style={{flex:1,background:C.bg,padding:'6px 8px',borderRadius:5,textAlign:'center'}}>
+                    <div style={{color:C.mid,fontSize:9,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase'}}>Hoy</div>
+                    <div style={{fontSize:14,fontWeight:700,color:'#000'}}>{stStat?.items_ready_today||0}</div>
+                  </div>
+                </div>
+
+                <div style={{display:'flex',gap:6,alignItems:'center',background:'#F5F5F7',padding:'6px 8px',borderRadius:6,marginBottom:10,fontSize:11,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace"}}>
+                  <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>cocina.html?station={st.access_token.slice(0,8)}…</span>
+                  <button onClick={()=>copyLink(st)} title="Copiar link" style={{background:'#000',color:'#fff',border:'none',padding:'3px 8px',borderRadius:4,fontSize:10,fontWeight:700,cursor:'pointer'}}>Copiar</button>
+                </div>
+
+                <div style={{display:'flex',gap:6}}>
+                  <Btn small variant="secondary" onClick={()=>openEdit(st)} style={{flex:1}}>Editar</Btn>
+                  <Btn small variant="secondary" onClick={()=>toggleActive(st)} style={{flex:1}}>{st.is_active?'Desactivar':'Activar'}</Btn>
+                  <Btn small variant="danger" onClick={()=>setConfirmDel(st)}>Eliminar</Btn>
+                </div>
+                <div style={{textAlign:'right',marginTop:6}}>
+                  <button onClick={()=>regenToken(st)} style={{background:'none',border:'none',color:C.mid,fontSize:10,cursor:'pointer',textDecoration:'underline'}}>Regenerar token</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab==='stats' && <EstacionesStats stations={stations} stats={stats}/>}
+      {tab==='audit' && <EstacionesAudit stations={stations}/>}
+
+      {editing && (
+        <Modal title={editing.__new?'Nueva estación':'Editar estación'} onClose={()=>setEditing(null)} width={560}>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{display:'flex',gap:10}}>
+              <div style={{flex:2}}>
+                <Lbl>Nombre</Lbl>
+                <Inp value={editing.name} onChange={e=>setEditing({...editing,name:e.target.value})} placeholder="Ej: Bar Terraza Planta Alta" style={{border:`1px solid ${C.border}`,background:'#fff'}}/>
+              </div>
+              <div style={{flex:1}}>
+                <Lbl>Tipo</Lbl>
+                <Sel value={editing.type} onChange={e=>{const t=STATION_TYPES.find(x=>x.key===e.target.value);setEditing({...editing,type:e.target.value, color:t?.color||editing.color, icon:t?.icon||editing.icon});}} style={{border:`1px solid ${C.border}`,background:'#fff'}}>
+                  {STATION_TYPES.map(t=><option key={t.key} value={t.key}>{t.label}</option>)}
+                </Sel>
+              </div>
+            </div>
+
+            <div>
+              <Lbl>Ícono</Lbl>
+              <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                {STATION_ICONS.map(ic=>(
+                  <button key={ic} onClick={()=>setEditing({...editing,icon:ic})} style={{width:34,height:34,fontSize:18,border:`1px solid ${editing.icon===ic?'#000':C.border}`,background:editing.icon===ic?'#000':'#fff',borderRadius:6,cursor:'pointer'}}>{ic}</button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <Lbl>Color</Lbl>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {STATION_COLORS.map(c=>(
+                  <button key={c} onClick={()=>setEditing({...editing,color:c})} style={{width:30,height:30,background:c,border:`2px solid ${editing.color===c?'#000':'transparent'}`,borderRadius:6,cursor:'pointer'}}/>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <Lbl>Categorías que recibe ({editing._categories.length}/{categories.length})</Lbl>
+              <div style={{maxHeight:160,overflowY:'auto',border:`1px solid ${C.border}`,borderRadius:6,padding:8,background:'#fff',display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:4}}>
+                {categories.map(cat=>{
+                  const checked = editing._categories.includes(cat.id);
+                  return (
+                    <label key={cat.id} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 6px',cursor:'pointer',background:checked?'#000':'transparent',color:checked?'#fff':'#000',borderRadius:4,fontSize:12}}>
+                      <input type="checkbox" checked={checked} onChange={()=>{
+                        const next = checked ? editing._categories.filter(x=>x!==cat.id) : [...editing._categories,cat.id];
+                        setEditing({...editing,_categories:next});
+                      }} style={{margin:0}}/>
+                      <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{cat.name}</span>
+                    </label>
+                  );
+                })}
+                {categories.length===0 && <div style={{color:C.mid,fontSize:12,padding:8}}>No hay categorías en el menú</div>}
+              </div>
+              <div style={{display:'flex',gap:6,marginTop:6}}>
+                <button onClick={()=>setEditing({...editing,_categories:categories.map(c=>c.id)})} style={{background:'none',border:`1px solid ${C.border}`,padding:'3px 8px',fontSize:11,borderRadius:4,cursor:'pointer'}}>Seleccionar todas</button>
+                <button onClick={()=>setEditing({...editing,_categories:[]})} style={{background:'none',border:`1px solid ${C.border}`,padding:'3px 8px',fontSize:11,borderRadius:4,cursor:'pointer'}}>Limpiar</button>
+              </div>
+            </div>
+
+            <div>
+              <Lbl>Zonas del salón que atiende</Lbl>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {[{z:'*',label:'⭐ Todas las zonas'},...zonasFromTables.map(z=>({z,label:z}))].map(({z,label})=>{
+                  const checked = editing._zonas.includes(z);
+                  return (
+                    <button key={z} onClick={()=>{
+                      let next;
+                      if (z==='*') next = checked ? [] : ['*'];
+                      else next = checked ? editing._zonas.filter(x=>x!==z) : [...editing._zonas.filter(x=>x!=='*'),z];
+                      setEditing({...editing,_zonas:next});
+                    }} style={{padding:'5px 10px',border:`1px solid ${checked?'#000':C.border}`,background:checked?'#000':'#fff',color:checked?'#fff':'#000',borderRadius:5,fontSize:12,fontWeight:600,cursor:'pointer',textTransform:'capitalize'}}>{label}</button>
+                  );
+                })}
+              </div>
+              <div style={{fontSize:10,color:C.mid,marginTop:6}}>Si el pedido viene de una mesa cuya zona no está asignada a esta estación, no aparecerá en su pantalla. "Todas las zonas" actúa como comodín.</div>
+            </div>
+
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <input type="checkbox" id="st_active" checked={editing.is_active!==false} onChange={e=>setEditing({...editing,is_active:e.target.checked})}/>
+              <label htmlFor="st_active" style={{fontSize:13,cursor:'pointer'}}>Estación activa (recibe pedidos)</label>
+            </div>
+
+            <div style={{display:'flex',gap:8,marginTop:8,justifyContent:'flex-end'}}>
+              <Btn variant="ghost" onClick={()=>setEditing(null)}>Cancelar</Btn>
+              <Btn onClick={saveStation} disabled={saving}>{saving?'Guardando…':(editing.__new?'Crear estación':'Guardar cambios')}</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {confirmDel && (
+        <Modal title="Eliminar estación" onClose={()=>setConfirmDel(null)}>
+          <div style={{fontSize:13,marginBottom:16,color:'#000'}}>¿Eliminar "<b>{confirmDel.name}</b>"? Las pantallas con su link dejarán de funcionar. El historial de auditoría se conserva.</div>
+          <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+            <Btn variant="ghost" onClick={()=>setConfirmDel(null)}>Cancelar</Btn>
+            <Btn variant="danger" onClick={()=>deleteStation(confirmDel)}>Eliminar</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function EstacionesStats({stations, stats}) {
+  return (
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+      <table style={{width:'100%',borderCollapse:'collapse'}}>
+        <thead style={{background:C.bg}}>
+          <tr>
+            <Th>Estación</Th>
+            <Th right>Hoy</Th>
+            <Th right>7 días</Th>
+            <Th right>Total despachado</Th>
+            <Th right>En cocina (acum.)</Th>
+            <Th right>Entregados (acum.)</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {stations.length===0 && <EmptyRow cols={6} label="Sin estaciones"/>}
+          {stations.map(st=>{
+            const s = stats.find(x=>x.station_id===st.id) || {};
+            return (
+              <tr key={st.id} style={{borderTop:`1px solid ${C.border}`}}>
+                <Td><span style={{display:'inline-flex',alignItems:'center',gap:8}}><span style={{width:8,height:8,background:st.color,borderRadius:'50%'}}/>{st.icon} {st.name}</span></Td>
+                <Td right mono>{s.items_ready_today||0}</Td>
+                <Td right mono>{s.items_ready_week||0}</Td>
+                <Td right mono>{s.items_ready_total||0}</Td>
+                <Td right mono dim>{s.items_cooking_total||0}</Td>
+                <Td right mono dim>{s.items_delivered_total||0}</Td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EstacionesAudit({stations}) {
+  const [logs, setLogs] = useState([]);
+  const [filter, setFilter] = useState('all');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(()=>{
+    if (!db) return;
+    setLoading(true);
+    let q = db.from('order_item_station_log').select('*').order('created_at',{ascending:false}).limit(200);
+    if (filter!=='all') q = q.eq('station_id', filter);
+    q.then(({data})=>{ setLogs(data||[]); setLoading(false); });
+  },[filter]);
+
+  const actionColor = a => ({received:'#60a5fa',cooking:'#fb923c',ready:'#34C759',delivered:'#6E6E73'}[a]||C.mid);
+  const actionLabel = a => ({received:'Recibido',cooking:'En preparación',ready:'Listo',delivered:'Entregado'}[a]||a);
+
+  return (
+    <div>
+      <div style={{marginBottom:12,display:'flex',gap:8,alignItems:'center'}}>
+        <span style={{fontSize:12,color:C.mid}}>Filtrar:</span>
+        <Sel value={filter} onChange={e=>setFilter(e.target.value)} style={{maxWidth:240,border:`1px solid ${C.border}`,background:'#fff'}}>
+          <option value="all">Todas las estaciones</option>
+          {stations.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+        </Sel>
+      </div>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead style={{background:C.bg}}>
+            <tr>
+              <Th>Cuándo</Th>
+              <Th>Estación</Th>
+              <Th>Acción</Th>
+              <Th>Usuario</Th>
+              <Th>Order item</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <EmptyRow cols={5} label="Cargando…"/>}
+            {!loading && logs.length===0 && <EmptyRow cols={5} label="Sin registros aún"/>}
+            {!loading && logs.map(l=>{
+              const st = stations.find(s=>s.id===l.station_id);
+              const ts = new Date(l.created_at);
+              return (
+                <tr key={l.id} style={{borderTop:`1px solid ${C.border}`}}>
+                  <Td dim mono>{ts.toLocaleString('es-PY',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</Td>
+                  <Td>{st ? <span><span style={{display:'inline-block',width:6,height:6,background:st.color,borderRadius:'50%',marginRight:6}}/>{st.icon} {st.station_name||st.name}</span> : <span style={{color:C.mid}}>{l.station_name||'—'}</span>}</Td>
+                  <Td><span style={{display:'inline-block',padding:'2px 8px',background:actionColor(l.action)+'22',color:actionColor(l.action),borderRadius:4,fontSize:11,fontWeight:700}}>{actionLabel(l.action)}</span></Td>
+                  <Td>{l.user_name || <span style={{color:C.mid}}>—</span>}</Td>
+                  <Td mono dim>{(l.order_item_id||'').slice(0,8)}…</Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
    CONFIG
 ══════════════════════════════════════════════ */
 function ConfigPage({restaurant,onRefresh}) {
@@ -6450,6 +6898,7 @@ function AdminApp() {
       case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
       case 'mesas':     return <MesasPage tables={tables} orders={orders} onRefresh={loadAll}/>;
       case 'reservas':  return <ReservasPage tables={tables}/>;
+      case 'estaciones':return <EstacionesPage categories={categories} tables={tables}/>;
       case 'personal':  return <PersonalPage/>;
       case 'clientes':  return <ClientesPage orders={orders}/>;
       case 'caja':      return <CajaAdminPage/>;

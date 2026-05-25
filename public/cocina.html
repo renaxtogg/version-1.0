@@ -49,6 +49,57 @@ const _initDB = () => {
 const db = _initDB();
 const RESTAURANT_ID = ((window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
 
+/* ── ESTACIÓN ACTIVA POR TOKEN (?station=<token>) ─────────────
+   Si la URL trae station=<token>, la KDS se restringe a las
+   categorías y zonas asignadas a esa estación en admin.
+   Sin token = comportamiento global (legacy). */
+const URL_PARAMS   = new URLSearchParams(window.location.search);
+const STATION_TOKEN = (URL_PARAMS.get('station')||'').trim();
+let STATION_CONFIG = null; // {id,name,type,color,icon,categoryIds:Set,zonas:Set,isAllZonas:bool} | null
+let CATEGORY_OF_ITEM = {}; // item_id → category_id (cache para filtrado)
+let ZONA_OF_TABLE    = {}; // table_id → zona      (cache para filtrado)
+
+async function loadStationConfig() {
+  if (!STATION_TOKEN || !db) return null;
+  try {
+    const { data: st, error } = await db.from('kitchen_stations')
+      .select('*').eq('access_token', STATION_TOKEN).maybeSingle();
+    if (error || !st) return null;
+    if (st.is_active === false) return { ...st, _inactive:true };
+    const [{data:cats},{data:zons}] = await Promise.all([
+      db.from('kitchen_station_categories').select('category_id').eq('station_id', st.id),
+      db.from('kitchen_station_zonas').select('zona').eq('station_id', st.id),
+    ]);
+    const zonas = new Set((zons||[]).map(r=>r.zona));
+    return {
+      id: st.id, name: st.name, type: st.type, color: st.color, icon: st.icon,
+      categoryIds: new Set((cats||[]).map(r=>r.category_id)),
+      zonas, isAllZonas: zonas.has('*') || zonas.size===0,
+    };
+  } catch(e) { console.error('loadStationConfig', e); return null; }
+}
+
+async function logStationAction(itemIds, action) {
+  if (!STATION_CONFIG || !db || !itemIds?.length) return;
+  try {
+    let userName = null, userId = null;
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      userId = session?.user?.id || null;
+      userName = session?.user?.user_metadata?.name || session?.user?.email || null;
+    } catch(_) {}
+    const rows = itemIds.map(iid => ({
+      order_item_id: iid,
+      station_id: STATION_CONFIG.id,
+      station_name: STATION_CONFIG.name,
+      action,
+      user_id: userId,
+      user_name: userName,
+    }));
+    await db.from('order_item_station_log').insert(rows);
+  } catch(e) { console.warn('logStationAction', e); }
+}
+
 /* ── CONFIG GLOBAL (localStorage) ─── */
 let MAX_PREP_MINUTES = parseInt(localStorage.getItem('kitchen_max_minutes') || '20');
 let SOUND_NEW    = localStorage.getItem('kitchen_sound_new')    !== 'false';
@@ -277,6 +328,8 @@ function orderToTicket(order) {
     deliveryInfo,
     items: (order.order_items || []).map((oi, i) => ({
       id: oi.id || i + 1,
+      itemId: oi.item_id || null,
+      categoryId: oi.item_id ? CATEGORY_OF_ITEM[oi.item_id] : null,
       nombre: oi.item_name,
       cant: oi.quantity,
       extras: (oi.order_item_extras || []).map(e => e.extra_name),
@@ -284,8 +337,25 @@ function orderToTicket(order) {
       allergens: oi.allergens || '',
       station: oi.production_station || null,
       kitchenStatus: oi.kitchen_status || 'pending',
-    }))
+    })),
+    tableZona: order.table_id ? (ZONA_OF_TABLE[order.table_id] || null) : null,
   };
+}
+
+/* Filtra un ticket por la STATION_CONFIG activa.
+   Devuelve el ticket recortado (solo items de la estación) o null si no aplica. */
+function applyStationScope(ticket) {
+  if (!STATION_CONFIG) return ticket;
+  // Zona: si la estación no es comodín, solo aceptar mesas cuya zona esté asignada.
+  // Pedidos sin mesa (delivery/takeaway/mostrador) solo entran si la estación es comodín.
+  if (!STATION_CONFIG.isAllZonas) {
+    if (!ticket.tableZona) return null;
+    if (!STATION_CONFIG.zonas.has(ticket.tableZona)) return null;
+  }
+  // Items: solo los que pertenecen a categorías asignadas a la estación.
+  const filtered = ticket.items.filter(it => it.categoryId && STATION_CONFIG.categoryIds.has(it.categoryId));
+  if (filtered.length === 0) return null;
+  return { ...ticket, items: filtered };
 }
 
 async function dbLoadTickets() {
@@ -304,14 +374,24 @@ async function dbLoadTickets() {
   const tableIds = [...new Set(orders.map(o => o.table_id).filter(Boolean))];
   const tableMap = {};
   if (tableIds.length > 0) {
-    const { data: tbls } = await db.from('tables').select('id,number').in('id', tableIds);
-    (tbls || []).forEach(t => { tableMap[t.id] = t.number; });
+    const { data: tbls } = await db.from('tables').select('id,number,zona').in('id', tableIds);
+    (tbls || []).forEach(t => { tableMap[t.id] = t.number; ZONA_OF_TABLE[t.id] = t.zona || null; });
   }
 
   const orderIds = orders.map(o => o.id);
   const { data: items } = await db.from('order_items')
-    .select('id,order_id,item_name,quantity,observations,production_station,kitchen_status')
+    .select('id,order_id,item_id,item_name,quantity,observations,production_station,kitchen_status')
     .in('order_id', orderIds);
+
+  // Mapear item_id → category_id para filtrar por estación
+  if (STATION_CONFIG && items?.length) {
+    const itemIds = [...new Set(items.map(i => i.item_id).filter(Boolean))];
+    const missing = itemIds.filter(id => CATEGORY_OF_ITEM[id] === undefined);
+    if (missing.length) {
+      const { data: mis } = await db.from('menu_items').select('id,category_id').in('id', missing);
+      (mis||[]).forEach(m => { CATEGORY_OF_ITEM[m.id] = m.category_id; });
+    }
+  }
 
   const extrasMap = {};
   if ((items || []).length > 0) {
@@ -336,12 +416,16 @@ async function dbLoadTickets() {
   const delivByOrder = {};
   (delivRows || []).forEach(d => { delivByOrder[d.order_id] = d; });
 
-  const tickets = orders.map(o => ({
+  let tickets = orders.map(o => ({
     ...o,
     tables: o.table_id ? { number: tableMap[o.table_id] ?? null } : null,
     order_items: itemsByOrder[o.id] || [],
     _deliveryRow: delivByOrder[o.id] || null,
   })).map(orderToTicket);
+
+  if (STATION_CONFIG) {
+    tickets = tickets.map(applyStationScope).filter(Boolean);
+  }
   return { tickets, error: null };
 }
 
@@ -1429,6 +1513,11 @@ function App() {
     const nextStatus = nextKitchenStatus(ticket.status);
     setTickets(prev => prev.map(t => t.id === ticket.id ? { ...t, status: nextStatus } : t));
     await dbAdvanceTicket(ticket._supabaseId, ticket.status);
+    // Auditoría por estación
+    if (STATION_CONFIG) {
+      const action = ticket.status === 'nuevo' ? 'cooking' : (ticket.status === 'preparando' ? 'ready' : null);
+      if (action) await logStationAction(ticket.items.map(it => it.id), action);
+    }
   };
 
   const dismiss = async (ticket) => {
@@ -1458,6 +1547,10 @@ function App() {
     } else {
       setDelivered(prev => [{ ...ticket, status: 'entregado' }, ...prev].slice(0, 10));
       await dbDismissTicket(ticket._supabaseId);
+    }
+    // Auditoría por estación: registrar entrega/despacho
+    if (STATION_CONFIG) {
+      await logStationAction(ticket.items.map(it => it.id), 'delivered');
     }
   };
 
@@ -1496,6 +1589,13 @@ function App() {
           <span style={{ fontWeight: 800, fontSize: 18, color: C.white, letterSpacing: '-0.5px' }}>Mythos · Cocina</span>
           <div style={{ width: 1, height: 16, background: C.border }} />
           <span style={{ fontSize: 10, fontWeight: 600, color: C.dim, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{restaurant?.name || 'KDS'}</span>
+          {STATION_CONFIG && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 4, padding: '4px 10px', background: (STATION_CONFIG.color||'#fb923c')+'22', border: '1px solid '+(STATION_CONFIG.color||'#fb923c')+'55', borderRadius: 14 }}>
+              <span style={{ fontSize: 13 }}>{STATION_CONFIG.icon || '⛳'}</span>
+              <span style={{ fontSize: 11, fontWeight: 800, color: STATION_CONFIG.color || '#fb923c', letterSpacing: '0.04em' }}>{STATION_CONFIG.name}</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: C.dim, textTransform:'uppercase', letterSpacing:'0.06em' }}>{STATION_CONFIG.isAllZonas ? 'TODAS LAS ZONAS' : Array.from(STATION_CONFIG.zonas).join('·')}</span>
+            </div>
+          )}
           {!db && <span style={{ fontSize: 10, fontWeight: 600, color: '#636366', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 5, padding: '2px 7px' }}>DEMO</span>}
           {db && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1530,7 +1630,7 @@ function App() {
             </Btn>
           </div>
           {window._userProfile && <span style={{ fontSize: 10, color: C.dim, fontWeight: 600 }}>{window._userProfile.display_name || window._userProfile.username}</span>}
-          {db && <button onClick={async () => { await db.auth.signOut(); window.location.replace('login.html'); }} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#636366', fontSize: 10, padding: '4px 9px', cursor: 'pointer', fontFamily: 'inherit' }}>Salir</button>}
+          {db && !STATION_CONFIG && <button onClick={async () => { await db.auth.signOut(); window.location.replace('login.html'); }} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#636366', fontSize: 10, padding: '4px 9px', cursor: 'pointer', fontFamily: 'inherit' }}>Salir</button>}
         </div>
       </div>
 
@@ -1654,6 +1754,24 @@ function Clock() {
 /* ── AUTH GUARD ─── */
 async function bootstrap() {
   if (!db) { window.location.replace('login.html'); return; }
+
+  // Modo estación: acceso por token (sin login) — para pantallas de cocina/bar/café.
+  if (STATION_TOKEN) {
+    STATION_CONFIG = await loadStationConfig();
+    if (!STATION_CONFIG || STATION_CONFIG._inactive) {
+      document.getElementById('root').innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:14px;color:#F5F5F7;font-family:system-ui,sans-serif;padding:20px;text-align:center">'+
+        '<div style="font-size:32px">⚠</div>'+
+        '<div style="font-size:20px;font-weight:700">Estación no encontrada o desactivada</div>'+
+        '<div style="font-size:13px;color:#888;max-width:360px">El token de acceso no es válido. Pedile al administrador que regenere el link de esta pantalla.</div>'+
+        '</div>';
+      return;
+    }
+    document.title = `Mythos · ${STATION_CONFIG.name}`;
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    return;
+  }
+
   const { data: { session } } = await db.auth.getSession();
   if (!session) { window.location.replace('login.html'); return; }
   const { data: profile } = await db.rpc('get_my_profile');
