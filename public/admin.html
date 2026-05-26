@@ -2985,24 +2985,54 @@ function CajaAdminPage() {
   const [quejas,setQuejas]   = useState([]);
   const [loading,setLoading] = useState(true);
   const [selTurno,setSelTurno] = useState(null);
+  const [cfg,setCfg]         = useState({cash_mode_default:'libre',cash_fondo_fijo:0,cash_diff_umbral:50000,cash_auto_retiro_excedente:false});
+  const [savingCfg,setSavingCfg] = useState(false);
 
   useEffect(()=>{ if(db) loadAll(); else setLoading(false); },[]);
 
   async function loadAll() {
     setLoading(true);
-    const [tR,qR] = await Promise.all([
+    const [tR,qR,rR] = await Promise.all([
       db.from('turnos_caja').select('*').eq('restaurant_id',RID).order('fecha_apertura',{ascending:false}).limit(30),
       db.from('quejas_sugerencias').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(50),
+      db.from('restaurants').select('cash_mode_default,cash_fondo_fijo,cash_diff_umbral,cash_auto_retiro_excedente').eq('id',RID).maybeSingle(),
     ]);
     const ts = tR.data||[];
     setTurnos(ts);
     setQuejas(qR.data||[]);
+    if(rR.data) setCfg({
+      cash_mode_default: rR.data.cash_mode_default || 'libre',
+      cash_fondo_fijo: Number(rR.data.cash_fondo_fijo)||0,
+      cash_diff_umbral: Number(rR.data.cash_diff_umbral)||50000,
+      cash_auto_retiro_excedente: !!rR.data.cash_auto_retiro_excedente,
+    });
     if(ts.length>0){
       const{data:md}=await db.from('movimientos_caja').select('*').eq('turno_id',ts[0].id).order('created_at',{ascending:false});
       setMovs(md||[]);
       setSelTurno(ts[0]);
     }
     setLoading(false);
+  }
+
+  async function saveCfg(){
+    if(!db) return;
+    const fondo=Number(cfg.cash_fondo_fijo);
+    const umbral=Number(cfg.cash_diff_umbral);
+    if(cfg.cash_mode_default==='fijo' && !(fondo>0)){
+      toast('El fondo fijo debe ser mayor a 0 cuando el modo es "fijo"',false);return;
+    }
+    if(!(umbral>=0)){toast('Umbral inválido',false);return;}
+    setSavingCfg(true);
+    const{data,error}=await db.from('restaurants').update({
+      cash_mode_default: cfg.cash_mode_default,
+      cash_fondo_fijo: fondo,
+      cash_diff_umbral: umbral,
+      cash_auto_retiro_excedente: cfg.cash_auto_retiro_excedente,
+    }).eq('id',RID).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo guardar — verificá migración 071 y RLS',false);}
+    else{toast('Configuración de caja guardada');}
+    setSavingCfg(false);
   }
 
   async function loadMovs(turno){
@@ -3046,6 +3076,48 @@ function CajaAdminPage() {
       {loading && <div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
       {!loading && (
         <>
+          {/* Configuración de cierre/apertura */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <div>
+                <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>CONFIGURACIÓN DE APERTURA / CIERRE</div>
+                <div style={{fontSize:11,color:'#86868B',marginTop:4,lineHeight:1.5}}>
+                  Definí cómo se abre y cierra la caja cada día. En modo <strong>fondo fijo</strong> el cajero confirma el monto preestablecido al abrir y al cerrar deja ese mismo monto en caja (el excedente puede entregarse automáticamente a administración).
+                </div>
+              </div>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(2, minmax(0,1fr))',gap:14,marginBottom:14}}>
+              <div>
+                <Lbl>MODO POR DEFECTO</Lbl>
+                <div style={{display:'flex',gap:8,marginTop:4}}>
+                  {[['libre','Libre (cajero define)'],['fijo','Fondo fijo']].map(([v,lbl])=>(
+                    <button key={v} onClick={()=>setCfg({...cfg,cash_mode_default:v})}
+                      style={{padding:'8px 14px',fontSize:12,borderRadius:6,border:`1px solid ${cfg.cash_mode_default===v?'#000000':C.border}`,background:cfg.cash_mode_default===v?'#000000':'transparent',color:cfg.cash_mode_default===v?'#FFFFFF':C.mid,fontWeight:cfg.cash_mode_default===v?700:500,cursor:'pointer'}}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <Lbl>FONDO FIJO (₲) {cfg.cash_mode_default==='fijo'?'— requerido':'— opcional'}</Lbl>
+                <Inp type="number" min="0" step="1000" value={cfg.cash_fondo_fijo||0} onChange={e=>setCfg({...cfg,cash_fondo_fijo:e.target.value})} placeholder="500000" style={{width:'100%'}} disabled={cfg.cash_mode_default!=='fijo'}/>
+                <div style={{fontSize:11,color:'#86868B',marginTop:6}}>Monto que debe permanecer en caja para el próximo turno.</div>
+              </div>
+              <div>
+                <Lbl>UMBRAL DE DIFERENCIA SIN JUSTIFICAR (₲)</Lbl>
+                <Inp type="number" min="0" step="1000" value={cfg.cash_diff_umbral||0} onChange={e=>setCfg({...cfg,cash_diff_umbral:e.target.value})} placeholder="50000" style={{width:'100%'}}/>
+                <div style={{fontSize:11,color:'#86868B',marginTop:6}}>Si la diferencia entre contado y esperado supera este monto, el cajero deberá justificar.</div>
+              </div>
+              <div>
+                <Lbl>EXCEDENTE AL CERRAR</Lbl>
+                <label style={{display:'flex',alignItems:'center',gap:8,marginTop:8,cursor:'pointer'}}>
+                  <input type="checkbox" checked={!!cfg.cash_auto_retiro_excedente} onChange={e=>setCfg({...cfg,cash_auto_retiro_excedente:e.target.checked})} style={{width:16,height:16,cursor:'pointer'}}/>
+                  <span style={{fontSize:13,color:C.ink,fontWeight:500}}>Generar retiro automático del excedente a administración</span>
+                </label>
+                <div style={{fontSize:11,color:'#86868B',marginTop:6,lineHeight:1.5}}>Solo aplica en modo "fondo fijo". Al cerrar, se registra un movimiento <code>retiro_parcial</code> con el sobrante (contado − fondo fijo).</div>
+              </div>
+            </div>
+            <Btn onClick={saveCfg} disabled={savingCfg}>{savingCfg?'Guardando…':'Guardar configuración de caja'}</Btn>
+          </div>
+
           {/* Estado del turno actual */}
           <div style={{background:turnoActivo?'rgba(34,197,94,0.06)':C.surface,border:`1px solid ${turnoActivo?'rgba(34,197,94,0.25)':C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <div>

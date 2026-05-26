@@ -221,12 +221,41 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
   const [denoms,setDenoms]=useState(emptyDenoms());
   const [obs,setObs]=useState('');
   const [busy,setBusy]=useState(false);
+  const [cfg,setCfg]=useState({cash_mode_default:'libre',cash_fondo_fijo:0,cash_diff_umbral:50000});
+  const [modo,setModo]=useState('libre');
+  const [cfgLoaded,setCfgLoaded]=useState(false);
+
+  useEffect(()=>{
+    (async()=>{
+      const{data}=await db.from('restaurants').select('cash_mode_default,cash_fondo_fijo,cash_diff_umbral').eq('id',RID).maybeSingle();
+      if(data){
+        const c={
+          cash_mode_default:data.cash_mode_default||'libre',
+          cash_fondo_fijo:Number(data.cash_fondo_fijo)||0,
+          cash_diff_umbral:Number(data.cash_diff_umbral)||50000,
+        };
+        setCfg(c);
+        setModo(c.cash_mode_default==='fijo'&&c.cash_fondo_fijo>0?'fijo':'libre');
+      }
+      setCfgLoaded(true);
+    })();
+  },[]);
 
   const total=calcDenomTotal(denoms);
-  const fondoBajo=total>0&&total<FONDO_MINIMO;
+  const fondoBajo=modo==='libre'&&total>0&&total<FONDO_MINIMO;
+  const objetivo=modo==='fijo'?cfg.cash_fondo_fijo:0;
+  const diffFijo=modo==='fijo'?total-objetivo:0;
+  const umbral=cfg.cash_diff_umbral||50000;
+  const matchOk=modo==='libre'||Math.abs(diffFijo)<=umbral;
 
   async function abrir(){
     if(total===0){toast('Ingresá al menos una denominación para el fondo inicial',false);return;}
+    if(modo==='fijo'&&Math.abs(diffFijo)>umbral){
+      toast(`El conteo difiere del fondo fijo en ${fmt(Math.abs(diffFijo))} (umbral ${fmt(umbral)}). Ajustá las denominaciones.`,false);return;
+    }
+    if(modo==='fijo'&&Math.abs(diffFijo)>0&&!obs){
+      toast('Hay diferencia con el fondo fijo. Agregá una observación que la explique.',false);return;
+    }
     setBusy(true);
     try{
       const payload={
@@ -235,6 +264,8 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
         cajero_nombre:profile.display_name||profile.username,
         fondo_apertura:{denominaciones:denoms,total},
         observaciones_apertura:obs||null,
+        modo_apertura:modo,
+        fondo_fijo_objetivo:modo==='fijo'?objetivo:null,
       };
       const{data,error}=await db.from('turnos_caja').insert(payload).select().single();
       if(error)throw error;
@@ -264,16 +295,40 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
           </AlertBox>
         )}
 
+        {cfgLoaded&&cfg.cash_fondo_fijo>0&&(
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'14px 18px',marginBottom:12,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+            <div>
+              <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:4}}>MODO DE APERTURA</div>
+              <div style={{fontSize:12,color:'#86868B'}}>{modo==='fijo'?`Fondo fijo definido por admin: ${fmt(cfg.cash_fondo_fijo)}`:'Cajero define el fondo libremente'}</div>
+            </div>
+            <div style={{display:'flex',gap:6}}>
+              {[['libre','Libre'],['fijo','Fondo fijo']].map(([v,lbl])=>(
+                <button key={v} onClick={()=>setModo(v)}
+                  disabled={v==='fijo'&&!(cfg.cash_fondo_fijo>0)}
+                  style={{padding:'7px 14px',fontSize:12,borderRadius:6,border:`1px solid ${modo===v?'#000000':C.border}`,background:modo===v?'#000000':'transparent',color:modo===v?'#FFFFFF':C.mid,fontWeight:modo===v?700:500,cursor:v==='fijo'&&!(cfg.cash_fondo_fijo>0)?'not-allowed':'pointer',opacity:v==='fijo'&&!(cfg.cash_fondo_fijo>0)?0.4:1}}>{lbl}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {modo==='fijo'&&(
+          <div style={{background:matchOk?'rgba(52,199,89,0.06)':'rgba(255,149,0,0.08)',border:`1px solid ${matchOk?'rgba(52,199,89,0.25)':'rgba(255,149,0,0.3)'}`,borderRadius:10,padding:'12px 16px',marginBottom:12,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,fontFamily:"'SF Mono',ui-monospace,monospace"}}>
+            <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:2}}>OBJETIVO</div><div style={{fontSize:16,fontWeight:800,color:C.ink}}>{fmt(objetivo)}</div></div>
+            <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:2}}>CONTADO</div><div style={{fontSize:16,fontWeight:800,color:C.ink}}>{fmt(total)}</div></div>
+            <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:2}}>DIFERENCIA</div><div style={{fontSize:16,fontWeight:800,color:Math.abs(diffFijo)===0?'#34C759':Math.abs(diffFijo)<=umbral?'#FF9500':'#FF3B30'}}>{diffFijo>=0?'+':''}{fmt(diffFijo)}</div></div>
+          </div>
+        )}
+
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:24,marginBottom:16}}>
-          <DenomGrid values={denoms} onChange={setDenoms} label="Fondo inicial — ingresá la cantidad de cada denominación"/>
+          <DenomGrid values={denoms} onChange={setDenoms} label={modo==='fijo'?`Confirmá el fondo fijo (${fmt(objetivo)}) ingresando billetes y monedas`:'Fondo inicial — ingresá la cantidad de cada denominación'}/>
           <div style={{marginTop:14}}>
-            <Lbl>OBSERVACIONES (opcional)</Lbl>
+            <Lbl>OBSERVACIONES {modo==='fijo'&&Math.abs(diffFijo)>0?'(requerido por diferencia)':'(opcional)'}</Lbl>
             <Textarea value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ej: Fondo recibido de turno anterior, novedades…" rows={2}/>
           </div>
         </div>
 
         <div style={{display:'flex',gap:10}}>
-          <Btn full onClick={abrir} disabled={busy||!!turnoAbierto}>
+          <Btn full onClick={abrir} disabled={busy||!!turnoAbierto||!cfgLoaded}>
             {busy?<><span className="spin"/> Abriendo…</>:'Abrir Turno →'}
           </Btn>
           <Btn variant="ghost" onClick={()=>window.location.href='admin.html'}>Admin</Btn>
@@ -2478,6 +2533,16 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
   const [tipoReporte,setTipoReporte]=useState('Z');
   const [busy,setBusy]=useState(false);
   const [deliveryByRider,setDeliveryByRider]=useState([]);
+  const [cfg,setCfg]=useState({cash_auto_retiro_excedente:false,cash_diff_umbral:50000});
+
+  useEffect(()=>{
+    db.from('restaurants').select('cash_auto_retiro_excedente,cash_diff_umbral').eq('id',RID).maybeSingle().then(({data})=>{
+      if(data) setCfg({
+        cash_auto_retiro_excedente:!!data.cash_auto_retiro_excedente,
+        cash_diff_umbral:Number(data.cash_diff_umbral)||50000,
+      });
+    });
+  },[]);
 
   useEffect(()=>{
     const cobros=movimientos.filter(m=>m.tipo==='cobro'&&m.pedido_id);
@@ -2513,7 +2578,13 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
   const contado=calcDenomTotal(denoms);
   const diferencia=contado-esperado;
   const difAbs=Math.abs(diferencia);
-  const UMBRAL_DIFF=50000;
+  const UMBRAL_DIFF=cfg.cash_diff_umbral||50000;
+
+  // Modo fijo: el cajero deja un fondo fijo objetivo en caja para mañana
+  const modoFijo=turno.modo_apertura==='fijo';
+  const fondoFijoObj=Number(turno.fondo_fijo_objetivo)||0;
+  const excedente=modoFijo?Math.max(0,contado-fondoFijoObj):0;
+  const autoRetiro=modoFijo&&cfg.cash_auto_retiro_excedente&&excedente>0&&tipoReporte==='Z';
 
   async function cerrar(){
     if(tipoReporte==='Z'&&difAbs>UMBRAL_DIFF&&!justif){
@@ -2521,15 +2592,28 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
     }
     setBusy(true);
     try{
+      // Si modo fijo + auto retiro: registrar primero el retiro del excedente
+      if(autoRetiro){
+        const{error:errMov}=await db.from('movimientos_caja').insert({
+          turno_id:turno.id,restaurant_id:RID,tipo:'retiro_parcial',
+          monto:excedente,metodo_pago:'efectivo',
+          descripcion:`Cierre fijo — entrega a administración (deja ${fmt(fondoFijoObj)} en caja)`,
+          usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
+        });
+        if(errMov)throw errMov;
+      }
+      // Recalcular esperado y diferencia considerando el retiro automático
+      const esperadoFinal=esperado-(autoRetiro?excedente:0);
+      const diffFinal=contado-(autoRetiro?excedente:0)-esperadoFinal;
       const payload={
         estado:'cerrado',fecha_cierre:new Date().toISOString(),
         fondo_cierre_contado:{denominaciones:denoms,total:contado},
-        fondo_cierre_esperado:esperado,diferencia,
+        fondo_cierre_esperado:esperadoFinal,diferencia:diffFinal,
         justificacion_diff:justif||null,tipo_reporte:tipoReporte,
       };
       const{error}=await db.from('turnos_caja').update(payload).eq('id',turno.id);
       if(error)throw error;
-      toast(`Turno cerrado — Reporte ${tipoReporte}`);
+      toast(autoRetiro?`Turno cerrado — ${fmt(excedente)} entregado a administración`:`Turno cerrado — Reporte ${tipoReporte}`);
       onCierre();
     }catch(e){toast('Error al cerrar: '+e.message,false);}
     setBusy(false);
@@ -2632,6 +2716,32 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
             {difAbs>0&&difAbs<=UMBRAL_DIFF&&<AlertBox type="warn">Diferencia de {fmt(difAbs)} dentro del umbral permitido ({fmt(UMBRAL_DIFF)}).</AlertBox>}
             {difAbs>UMBRAL_DIFF&&<AlertBox type="error">Diferencia de {fmt(difAbs)} supera el umbral. Se requiere justificación.</AlertBox>}
           </div>
+
+          {modoFijo&&(
+            <div style={{background:autoRetiro?'rgba(0,122,255,0.06)':'rgba(255,149,0,0.06)',border:`1px solid ${autoRetiro?'rgba(0,122,255,0.25)':'rgba(255,149,0,0.25)'}`,borderRadius:10,padding:20,marginBottom:16}}>
+              <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>CIERRE CON FONDO FIJO</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:12}}>
+                <KpiMini label="Fondo fijo a dejar" value={fmt(fondoFijoObj)} accent={C.mid}/>
+                <KpiMini label="Efectivo contado" value={fmt(contado)} accent={C.ink}/>
+                <KpiMini label="Excedente" value={fmt(excedente)} accent={excedente>0?C.blue:C.mid}/>
+              </div>
+              {autoRetiro&&tipoReporte==='Z'&&(
+                <AlertBox type="info">
+                  Al cerrar se registrará automáticamente un retiro de <strong>{fmt(excedente)}</strong> como entrega a administración. Quedan <strong>{fmt(fondoFijoObj)}</strong> en caja para el próximo turno.
+                </AlertBox>
+              )}
+              {modoFijo&&!cfg.cash_auto_retiro_excedente&&excedente>0&&(
+                <AlertBox type="warn">
+                  Hay un excedente de {fmt(excedente)} sobre el fondo fijo. El retiro automático está deshabilitado; podés registrarlo manualmente desde "Retiro de efectivo" antes de cerrar.
+                </AlertBox>
+              )}
+              {modoFijo&&excedente===0&&contado<fondoFijoObj&&(
+                <AlertBox type="error">
+                  Faltan {fmt(fondoFijoObj-contado)} para completar el fondo fijo. Revisá el conteo.
+                </AlertBox>
+              )}
+            </div>
+          )}
 
           {(difAbs>0)&&(
             <div style={{marginBottom:16}}>
