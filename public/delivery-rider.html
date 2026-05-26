@@ -664,16 +664,14 @@ function App() {
     loadStats(riderData);
     loadActiveOrders(riderData);
 
-    // Suscripción Realtime para nuevas asignaciones
+    // Suscripción Realtime: escucha todos los cambios en delivery_orders y
+    // re-fetcha las órdenes del rider. Sin filtro de columna para evitar el
+    // bug de Supabase donde UPDATE de NULL→valor no dispara el filtro
+    // (requeriría REPLICA IDENTITY FULL en la tabla).
     if (db) {
-      db.channel('rider-assignments-' + riderData.id)
+      db.channel('rider-orders-' + riderData.id)
         .on('postgres_changes', {
-          event: 'UPDATE', schema: 'public', table: 'delivery_orders',
-          filter: `rider_id=eq.${riderData.id}`
-        }, () => loadActiveOrders(riderData))
-        .on('postgres_changes', {
-          event: 'INSERT', schema: 'public', table: 'delivery_orders',
-          filter: `rider_id=eq.${riderData.id}`
+          event: '*', schema: 'public', table: 'delivery_orders'
         }, () => loadActiveOrders(riderData))
         .subscribe();
     }
