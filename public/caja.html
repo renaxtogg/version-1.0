@@ -722,6 +722,10 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [busy,setBusy]=useState(false);
   const [items,setItems]=useState([]);
   const [successTicket,setSuccessTicket]=useState(null);
+  const [invoiceType,setInvoiceType]=useState('none'); // 'none'|'ticket'|'fiscal'
+  const [invName,setInvName]=useState('');
+  const [invRuc,setInvRuc]=useState('');
+  const [invEmail,setInvEmail]=useState('');
   const movDataRef=React.useRef(null);
 
   useEffect(()=>{
@@ -751,11 +755,19 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       // dejamos status='pending_payment' para que la mesa siga marcada como "retirar" hasta que el mozo
       // confirme entrega. Sólo cerramos a 'delivered' cuando la comida ya está en la mesa.
       const yaEnMesa = !!order.delivered_to_table_at;
+      const invoiceFields = {
+        requires_invoice: invoiceType !== 'none',
+        ...(invoiceType === 'fiscal' && {
+          customer_name: invName || order.customer_name || null,
+          customer_ruc: invRuc || null,
+          customer_email: invEmail || null,
+        }),
+      };
       const orderUpdate = order.status==='confirmed'
-        ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:metodo}
+        ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:metodo, ...invoiceFields}
         : order.status==='pending_payment' && yaEnMesa
-          ? {payment_status:'paid', status:'delivered', completed_at:new Date().toISOString(), total:totalReal, payment_method:metodo}
-          : {payment_status:'paid', total:totalReal, payment_method:metodo};
+          ? {payment_status:'paid', status:'delivered', completed_at:new Date().toISOString(), total:totalReal, payment_method:metodo, ...invoiceFields}
+          : {payment_status:'paid', total:totalReal, payment_method:metodo, ...invoiceFields};
       const{error:e1}=await db.from('orders').update(orderUpdate).eq('id',order.id);
       if(e1)throw e1;
       // Registrar en historial solo si el pedido pasó a cocina por primera vez
@@ -781,14 +793,16 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         }catch(e){}
       }
       movDataRef.current=movData;
-      setSuccessTicket({
+      const ticket={
         orderNumber:order.order_number,
         mesa,
         items,
         total:totalReal,
         metodo,
         cambio:Math.max(0,cambio),
-      });
+      };
+      setSuccessTicket(ticket);
+      if(invoiceType==='ticket') printTicket(ticket);
     }catch(e){toast('Error al cobrar: '+e.message,false);}
     setBusy(false);
   }
@@ -946,6 +960,33 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           )}
         </div>
       )}
+
+      {/* Comprobante */}
+      <div style={{marginBottom:16}}>
+        <Lbl>COMPROBANTE</Lbl>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:invoiceType!=='none'?10:0}}>
+          {[['none','Sin comprobante'],['ticket','Ticket impreso'],['fiscal','Factura fiscal']].map(([v,lbl])=>(
+            <button key={v} onClick={()=>setInvoiceType(v)} style={{
+              padding:'9px 4px',borderRadius:7,border:`1px solid ${invoiceType===v?'#000000':C.border}`,
+              background:invoiceType===v?'#000000':'transparent',
+              color:invoiceType===v?'#FFFFFF':C.mid,fontSize:11,fontWeight:700,cursor:'pointer',lineHeight:1.3,
+            }}>{lbl}</button>
+          ))}
+        </div>
+        {invoiceType==='ticket'&&(
+          <div style={{padding:'8px 12px',background:'rgba(52,199,89,0.08)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:7,fontSize:12,color:'#248A3D'}}>
+            🖨 El ticket se imprimirá automáticamente al cobrar.
+          </div>
+        )}
+        {invoiceType==='fiscal'&&(
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            <Inp value={invName} onChange={e=>setInvName(e.target.value)} placeholder="Nombre / razón social"/>
+            <Inp value={invRuc} onChange={e=>setInvRuc(e.target.value)} placeholder="RUC / Cédula"/>
+            <Inp type="email" value={invEmail} onChange={e=>setInvEmail(e.target.value)} placeholder="Email para factura electrónica"/>
+            <div style={{fontSize:11,color:C.mid}}>La e-Kuatia (SIFEN) estará disponible próximamente.</div>
+          </div>
+        )}
+      </div>
 
       <div style={{display:'flex',gap:10}}>
         <Btn full onClick={confirmar} disabled={busy} variant="success">

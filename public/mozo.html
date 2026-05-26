@@ -927,6 +927,10 @@ function App() {
   // Modals
   const [productModal, setProductModal] = useState(false);
   const [cobroModal, setCobroModal] = useState(false);
+  const [invoiceType, setInvoiceType] = useState('none'); // 'none'|'ticket'|'fiscal'
+  const [invName, setInvName] = useState('');
+  const [invRuc, setInvRuc] = useState('');
+  const [invEmail, setInvEmail] = useState('');
   const [mesaDialog, setMesaDialog] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
 
@@ -1810,6 +1814,10 @@ function App() {
     setCobroRealTotal(0);
     setDividirPersonas(2);
     setFraccionStates({});
+    setInvoiceType('none');
+    setInvName('');
+    setInvRuc('');
+    setInvEmail('');
     setCobroModal(true);
     loadCobroItems(activeTableId);
   }
@@ -1842,6 +1850,14 @@ function App() {
       for (const ord of pendingOrders) {
         const yaEnMesa = !!ord.delivered_to_table_at;
         const cerrarOrden = ord.status === 'pending_payment' && yaEnMesa;
+        const invoiceFields = {
+          requires_invoice: invoiceType !== 'none',
+          ...(invoiceType === 'fiscal' && {
+            customer_ruc: invRuc || null,
+            customer_email: invEmail || null,
+            ...(invName && { customer_name: invName }),
+          }),
+        };
         const update = {
           payment_status: 'paid',
           payment_method: pm,
@@ -1849,6 +1865,7 @@ function App() {
           paid_by: payerId,
           paid_by_name: payerName,
           paid_at: nowIso,
+          ...invoiceFields,
         };
         if (cerrarOrden) {
           update.status = 'delivered';
@@ -1858,7 +1875,7 @@ function App() {
         let { error: updErr } = await db.from('orders').update(update).eq('id', ord.id);
         // Fallback sin campos de auditoría si la migración no está aplicada
         if (updErr && (updErr.message?.includes('paid_by') || updErr.message?.includes('schema cache'))) {
-          const fallback = { payment_status: 'paid', payment_method: pm, total: total };
+          const fallback = { payment_status: 'paid', payment_method: pm, total: total, ...invoiceFields };
           if (cerrarOrden) { fallback.status = 'delivered'; fallback.completed_at = nowIso; }
           await db.from('orders').update(fallback).eq('id', ord.id);
         }
@@ -3216,6 +3233,28 @@ function App() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Comprobante */}
+              <div className="tip-section">
+                <div className="section-label">Comprobante</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: invoiceType !== 'none' ? 10 : 0 }}>
+                  {[['none','Sin comp.'],['ticket','Ticket'],['fiscal','Factura fiscal']].map(([v,lbl]) => (
+                    <div key={v} className={`tip-chip ${invoiceType === v ? 'active' : ''}`} style={{ fontSize: 11, lineHeight: 1.3, padding: '8px 4px' }} onClick={() => setInvoiceType(v)}>{lbl}</div>
+                  ))}
+                </div>
+                {invoiceType === 'ticket' && (
+                  <div style={{ padding: '8px 12px', background: 'rgba(0,122,255,0.07)', border: '1px solid rgba(0,122,255,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text2)' }}>
+                    Indicá en caja que el cliente pidió ticket impreso.
+                  </div>
+                )}
+                {invoiceType === 'fiscal' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <input value={invName} onChange={e => setInvName(e.target.value)} placeholder="Nombre / razón social" style={{ height: 38, border: '1px solid var(--border)', borderRadius: 7, padding: '0 10px', fontSize: 13, fontFamily: 'inherit', color: 'var(--text)', outline: 'none', background: 'var(--bg2)' }} />
+                    <input value={invRuc} onChange={e => setInvRuc(e.target.value)} placeholder="RUC / Cédula" style={{ height: 38, border: '1px solid var(--border)', borderRadius: 7, padding: '0 10px', fontSize: 13, fontFamily: 'inherit', color: 'var(--text)', outline: 'none', background: 'var(--bg2)' }} />
+                    <input type="email" value={invEmail} onChange={e => setInvEmail(e.target.value)} placeholder="Email para factura electrónica" style={{ height: 38, border: '1px solid var(--border)', borderRadius: 7, padding: '0 10px', fontSize: 13, fontFamily: 'inherit', color: 'var(--text)', outline: 'none', background: 'var(--bg2)' }} />
+                  </div>
+                )}
               </div>
 
               <div className="pay-summary">
