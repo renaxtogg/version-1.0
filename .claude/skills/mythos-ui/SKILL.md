@@ -432,7 +432,7 @@ Claves visuales de esta referencia:
 - Botón: negro sólido, hover con opacity (no cambio de color)
 - Error: borde rosado + texto rojo oscuro — solo semántico, no alarma visual
 
-### `index.html` — Cliente móvil
+### `index.html` — Cliente QR (mesa)
 - Fondo `var(--bg)`, pantalla completa, sin sidebar
 - Header fijo: "Mythos" a la izquierda + nombre del restaurante más pequeño
 - Cards de producto: imagen cuadrada con `border-radius: var(--radius-lg)`, nombre bold, precio en `--text-secondary`
@@ -440,6 +440,19 @@ Claves visuales de esta referencia:
 - Cart badge: número en negro, fondo `--bg-subtle`
 - Bottom sheet para modales (slide up desde abajo, `border-radius` arriba)
 - Tamaños táctiles mínimos: 44px de altura en todo elemento interactivo
+
+### `delivery-cliente.html` — Cliente delivery
+- **Wrapper phone en desktop**: `body{background:#111}` + `.phone{width:390px;height:844px;border-radius:44px}` simulando iPhone
+- En móvil real (`max-width:430px`): `width:100%;height:100dvh;border-radius:0` — ocupa todo el viewport
+- Mismo estilo de pantallas que `index.html` — fondo blanco, stack vertical, bottom sheets
+- Tracking usa badges de estado semánticos con color (excepción documentada — ver sección de colores por tipo)
+
+### `delivery-rider.html` — Panel rider
+- Mismo wrapper phone que `delivery-cliente.html`
+- Login por PIN: campo numérico centrado, botones del 0-9 en grilla 3x4, estilo teclado
+- Lista de pedidos: cards compactas con número de orden, dirección, monto, botón de acción principal
+- Estados del rider como botones de acción bold: "Iniciar ruta", "Entregar pedido"
+- Vibración en notificación de nuevo pedido (`navigator.vibrate`)
 
 ### `cocina.html` — KDS
 - `data-theme="dark"` en `<body>` — fondo negro total, texto blanco
@@ -468,6 +481,24 @@ Claves visuales de esta referencia:
 - Sidebar más amplio: "Mythos" + badge "Superadmin"
 - Lista de restaurantes en sidebar
 - Tabla de ecosistemas con badge de plan y estado
+
+---
+
+## Excepción documentada — colores por tipo de orden
+
+En `cocina.html` y `caja.html` existe una excepción al "blanco y negro": los badges de tipo de orden usan colores de fondo diferenciados. Esto es intencional y fue validado. **No eliminar ni revertir.**
+
+```js
+// Paleta aprobada para tipo de orden (solo badges, nunca fondos de card o sección)
+const ORDER_TYPE_COLORS = {
+  mesa:     { bg: '#EFF6FF', text: '#1D4ED8', label: 'Mesa' },
+  delivery: { bg: '#FFF7ED', text: '#C2410C', label: 'Delivery' },
+  mostrador:{ bg: '#F0FDF4', text: '#15803D', label: 'Mostrador' },
+  llevar:   { bg: '#FAF5FF', text: '#7E22CE', label: 'Llevar' },
+};
+```
+
+Estos colores son semánticos (identifican el canal), no decorativos, por eso son una excepción legítima al design system monocromático.
 
 ---
 

@@ -335,10 +335,11 @@ const NAV = [
   {id:'marketing', label:'Marketing',    icon:'%', group:'ACCIONES'},
   {id:'ratings',   label:'Calificaciones',icon:'★'},
   null,
-  {id:'config',    label:'Config',       icon:'⚙', group:'SISTEMA'},
+  {id:'soporte',   label:'Soporte',      icon:'💬', group:'SISTEMA'},
+  {id:'config',    label:'Config',       icon:'⚙'},
 ];
 
-function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme}) {
+function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={}}) {
   return (
     <aside style={{width:200,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
       <div style={{padding:'18px 16px 14px',borderBottom:`1px solid ${C.border}`}}>
@@ -353,12 +354,14 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme}) {
         {NAV.map((n,i) => {
           if (!n) return <Divider key={i}/>;
           const active = page === n.id;
+          const badge = badges[n.id]||0;
           return (
             <div key={n.id}>
               {n.group && <div style={{padding:'8px 16px 3px',fontSize:9,color:'#6E6E73',fontWeight:800,letterSpacing:'0.14em',textTransform:'uppercase'}}>{n.group}</div>}
               <button onClick={() => setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 16px',background:active?'#000000':'none',border:'none',color:active?'#FFFFFF':'#1D1D1F',textAlign:'left',fontSize:13,fontWeight:active?700:400,cursor:'pointer',borderLeft:active?`2px solid ${C.ink}`:'2px solid transparent'}}>
                 <span style={{fontSize:12,width:14,textAlign:'center',flexShrink:0,fontFamily:'monospace'}}>{n.icon}</span>
-                {n.label}
+                <span style={{flex:1}}>{n.label}</span>
+                {badge > 0 && <span style={{background:active?'#fff':C.red,color:active?C.red:'#fff',fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,minWidth:16,textAlign:'center'}}>{badge}</span>}
               </button>
             </div>
           );
@@ -7522,11 +7525,374 @@ function PurchaseFormModal({purchase, suppliers, onClose, onSaved}) {
 }
 
 /* ══════════════════════════════════════════════
+   SOPORTE (chat con Mythos / Superadmin)
+══════════════════════════════════════════════ */
+const SUPPORT_CATS = {
+  problema_tecnico:'Problema técnico',
+  consulta:'Consulta',
+  facturacion:'Facturación',
+  sugerencia:'Sugerencia',
+  urgente:'Urgente',
+  otro:'Otro'
+};
+const SUPPORT_STATUS = {
+  abierto:{label:'Abierto', color:'#007AFF'},
+  en_curso:{label:'En curso', color:'#FF9500'},
+  esperando_cliente:{label:'Esperando respuesta', color:'#86868B'},
+  resuelto:{label:'Resuelto', color:'#34C759'},
+  cerrado:{label:'Cerrado', color:'#6E6E73'}
+};
+function SupportPill({status}) {
+  const s = SUPPORT_STATUS[status]||{label:status,color:C.mid};
+  return <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'2px 8px',fontSize:11,fontWeight:700,background:s.color+'22',color:s.color,border:`1px solid ${s.color}44`,borderRadius:5}}><span style={{width:5,height:5,borderRadius:'50%',background:s.color}}/>{s.label}</span>;
+}
+
+function SoportePage({restaurant}) {
+  const profile = window._userProfile||{};
+  const [user, setUser] = useState(null);
+  const [tickets, setTickets] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showNew, setShowNew] = useState(false);
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (!db) return;
+    db.auth.getSession().then(({data:{session}}) => setUser(session?.user||null));
+  }, []);
+
+  const userName = profile.display_name||profile.username||'Admin';
+  const userEmail = user?.email||null;
+  const restaurantName = restaurant?.name||'';
+  const restaurantPhone = restaurant?.phone||null;
+
+  const loadTickets = useCallback(async () => {
+    if (!db) return;
+    const { data } = await db.from('support_tickets')
+      .select('*')
+      .eq('restaurant_id', RID)
+      .order('last_message_at', {ascending:false})
+      .limit(80);
+    setTickets(data||[]);
+    setLoading(false);
+  }, []);
+
+  const loadMessages = useCallback(async (ticketId) => {
+    if (!db || !ticketId) return;
+    const { data } = await db.from('support_messages')
+      .select('*')
+      .eq('ticket_id', ticketId)
+      .order('created_at', {ascending:true});
+    setMessages(data||[]);
+    await db.rpc('support_mark_read', {p_ticket_id: ticketId, p_side: 'client'});
+    loadTickets();
+  }, [loadTickets]);
+
+  useEffect(() => { loadTickets(); }, [loadTickets]);
+
+  useEffect(() => {
+    if (!db) return;
+    const ch = db.channel('support-admin-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'support_tickets',filter:`restaurant_id=eq.${RID}`}, () => loadTickets())
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'support_messages'},(payload) => {
+        if (selected && payload.new?.ticket_id === selected.id) loadMessages(selected.id);
+        else loadTickets();
+      })
+      .subscribe();
+    const poll = setInterval(() => { if (!_shouldPause()) loadTickets(); }, 25000);
+    return () => { db.removeChannel(ch); clearInterval(poll); };
+  }, [selected, loadTickets, loadMessages]);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  function openTicket(t) { setSelected(t); loadMessages(t.id); }
+
+  async function createTicket({subject, category, priority, body}) {
+    if (!db) return null;
+    const { data: t, error } = await db.from('support_tickets').insert({
+      restaurant_id: RID,
+      restaurant_name: restaurantName,
+      created_by_user_id: profile.id||user?.id||null,
+      created_by_name: userName,
+      created_by_username: profile.username||null,
+      created_by_role: profile.role||'admin',
+      created_by_email: userEmail,
+      created_by_phone: restaurantPhone,
+      subject, category, priority,
+      status:'abierto',
+      last_message_at: new Date().toISOString(),
+      last_message_preview: body.slice(0,140),
+      last_message_by_side: 'client',
+      total_messages: 0
+    }).select('*').single();
+    if (error || !t) { toast('No se pudo crear el ticket: '+(error?.message||''), false); return null; }
+    const { error: e2 } = await db.from('support_messages').insert({
+      ticket_id: t.id,
+      author_user_id: profile.id||user?.id||null,
+      author_name: userName,
+      author_role: profile.role||'admin',
+      author_side: 'client',
+      body
+    });
+    if (e2) { toast('No se pudo enviar el mensaje: '+e2.message, false); return null; }
+    toast('Ticket enviado a Mythos');
+    await loadTickets();
+    const { data: fresh } = await db.from('support_tickets').select('*').eq('id', t.id).single();
+    setSelected(fresh||t);
+    loadMessages(t.id);
+    return t;
+  }
+
+  async function sendReply(body) {
+    if (!db || !selected || !body.trim()) return;
+    const { error } = await db.from('support_messages').insert({
+      ticket_id: selected.id,
+      author_user_id: profile.id||user?.id||null,
+      author_name: userName,
+      author_role: profile.role||'admin',
+      author_side: 'client',
+      body: body.trim()
+    });
+    if (error) { toast('Error: '+error.message, false); return; }
+    loadMessages(selected.id);
+  }
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <div>
+          <h2 style={{fontSize:22,fontWeight:800,letterSpacing:-0.5}}>Soporte Mythos</h2>
+          <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>Chat directo con el equipo Mythos · Tus datos se envían automáticamente</div>
+        </div>
+        <Btn onClick={() => setShowNew(true)}>＋ Nueva consulta</Btn>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'340px 1fr',gap:14,minHeight:560,height:'calc(100vh - 160px)'}}>
+        {/* LISTA */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`,fontSize:11,color:'#6E6E73',fontWeight:700,textTransform:'uppercase',letterSpacing:1}}>
+            Mis tickets ({tickets.length})
+          </div>
+          <div style={{flex:1,overflowY:'auto'}}>
+            {loading ? <div style={{padding:30,textAlign:'center'}}><span className="spin"/></div>
+              : tickets.length === 0
+                ? <div style={{padding:30,textAlign:'center',color:'#86868B',fontSize:13}}>Sin tickets todavía.<br/>Abrí uno nuevo para escribirle al equipo Mythos.</div>
+                : tickets.map(t => {
+                    const s = SUPPORT_STATUS[t.status]||{label:t.status,color:C.mid};
+                    const isSel = selected?.id === t.id;
+                    return (
+                      <div key={t.id} onClick={() => openTicket(t)} style={{
+                        padding:'12px 14px',borderBottom:`1px solid ${C.border}`,cursor:'pointer',
+                        background: isSel ? '#F0F6FF' : 'transparent',
+                        borderLeft: isSel ? `3px solid ${C.blue}` : '3px solid transparent',
+                        transition:'background .15s'
+                      }}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6,marginBottom:4}}>
+                          <div style={{fontSize:13,fontWeight:700,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.subject}</div>
+                          {t.unread_for_client > 0 && (
+                            <span style={{background:C.red,color:'#fff',fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,flexShrink:0}}>{t.unread_for_client}</span>
+                          )}
+                        </div>
+                        <div style={{fontSize:11,color:'#6E6E73',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',marginBottom:6}}>
+                          {t.last_message_by_side==='support' && <span style={{color:C.blue,fontWeight:700}}>Mythos: </span>}
+                          {t.last_message_preview||'—'}
+                        </div>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6}}>
+                          <SupportPill status={t.status}/>
+                          <span style={{fontSize:10,color:'#86868B'}}>{fmtDT(t.last_message_at)}</span>
+                        </div>
+                      </div>
+                    );
+                  })
+            }
+          </div>
+        </div>
+
+        {/* CHAT */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          {!selected ? (
+            <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:10,padding:40,color:'#86868B'}}>
+              <div style={{fontSize:28,opacity:.4}}>💬</div>
+              <div style={{fontSize:14,fontWeight:600,color:'#6E6E73'}}>Seleccioná un ticket o creá uno nuevo</div>
+              <div style={{fontSize:12,maxWidth:360,textAlign:'center'}}>El equipo Mythos verá automáticamente quién sos, tu rol y tu restaurante. Vos solo escribí tu consulta.</div>
+            </div>
+          ) : (
+            <SoporteChatAdmin
+              ticket={selected}
+              messages={messages}
+              onSend={sendReply}
+              onClose={() => setSelected(null)}
+            />
+          )}
+        </div>
+      </div>
+
+      {showNew && (
+        <NewTicketModalAdmin
+          onClose={() => setShowNew(false)}
+          onCreate={async (d) => { const t = await createTicket(d); if (t) setShowNew(false); }}
+          userName={userName}
+          role={profile.role||'admin'}
+          email={userEmail}
+          restaurantName={restaurantName}
+        />
+      )}
+    </div>
+  );
+}
+
+function SoporteChatAdmin({ticket, messages, onSend, onClose}) {
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef(null);
+  const closed = ['resuelto','cerrado'].includes(ticket.status);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  async function submit() {
+    if (!draft.trim() || sending) return;
+    setSending(true);
+    await onSend(draft);
+    setDraft('');
+    setSending(false);
+  }
+
+  const PRIO_COL = {baja:'#86868B', normal:'#007AFF', alta:'#FF9500', urgente:'#FF3B30'};
+
+  return (
+    <>
+      <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:14,fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{ticket.subject}</div>
+          <div style={{display:'flex',gap:8,marginTop:4,alignItems:'center',flexWrap:'wrap'}}>
+            <SupportPill status={ticket.status}/>
+            <span style={{fontSize:11,color:'#6E6E73'}}>{SUPPORT_CATS[ticket.category]||ticket.category}</span>
+            <span style={{fontSize:11,color:PRIO_COL[ticket.priority]||C.mid,fontWeight:700}}>· Prioridad: {ticket.priority}</span>
+          </div>
+        </div>
+        <button onClick={onClose} style={{background:'none',color:'#6E6E73',fontSize:20,padding:'4px 10px',border:'none',cursor:'pointer'}}>×</button>
+      </div>
+
+      <div ref={scrollRef} style={{flex:1,overflowY:'auto',padding:'18px 20px',background:'#FAFAFB',display:'flex',flexDirection:'column',gap:10}}>
+        {messages.length === 0 && <div style={{textAlign:'center',color:'#86868B',fontSize:12,padding:20}}>Sin mensajes aún…</div>}
+        {messages.map(m => {
+          if (m.author_side === 'system') {
+            return <div key={m.id} style={{textAlign:'center',fontSize:11,color:'#86868B',padding:'4px 8px'}}>— {m.body} · {fmtTime(m.created_at)} —</div>;
+          }
+          const mine = m.author_side === 'client';
+          return (
+            <div key={m.id} style={{display:'flex',justifyContent: mine?'flex-end':'flex-start'}}>
+              <div style={{maxWidth:'78%'}}>
+                <div style={{
+                  background: mine ? '#000' : '#fff',
+                  color: mine ? '#fff' : '#1D1D1F',
+                  border: mine ? '1px solid #000' : `1px solid ${C.border}`,
+                  padding:'9px 13px',borderRadius:12,
+                  borderBottomRightRadius: mine?4:12,
+                  borderBottomLeftRadius:  mine?12:4,
+                  fontSize:13,lineHeight:1.45,whiteSpace:'pre-wrap',wordBreak:'break-word'
+                }}>{m.body}</div>
+                <div style={{fontSize:10,color:'#86868B',marginTop:3,textAlign: mine?'right':'left'}}>
+                  {mine ? 'Vos' : (m.author_name||'Mythos')} · {fmtTime(m.created_at)}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{padding:12,borderTop:`1px solid ${C.border}`,background:C.surface}}>
+        {closed && (
+          <div style={{fontSize:11,color:'#6E6E73',marginBottom:8,textAlign:'center'}}>
+            Este ticket está {SUPPORT_STATUS[ticket.status]?.label?.toLowerCase()}. Si volvés a escribir, se reabrirá.
+          </div>
+        )}
+        <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            rows={2}
+            placeholder="Escribí tu mensaje al equipo Mythos…"
+            onKeyDown={e => { if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) submit(); }}
+            style={{flex:1,minHeight:50,padding:'9px 12px',fontSize:13,borderRadius:8,resize:'none',fontFamily:'inherit'}}
+          />
+          <Btn onClick={submit} disabled={sending || !draft.trim()} style={{flexShrink:0,height:46}}>{sending?'Enviando…':'Enviar'}</Btn>
+        </div>
+        <div style={{fontSize:10,color:'#86868B',marginTop:5,textAlign:'right'}}>Ctrl/Cmd + Enter para enviar</div>
+      </div>
+    </>
+  );
+}
+
+function NewTicketModalAdmin({onClose, onCreate, userName, role, email, restaurantName}) {
+  const [subject, setSubject] = useState('');
+  const [category, setCategory] = useState('consulta');
+  const [priority, setPriority] = useState('normal');
+  const [body, setBody] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!subject.trim() || !body.trim()) { toast('Completá el asunto y el mensaje', false); return; }
+    setSaving(true);
+    await onCreate({subject:subject.trim(), category, priority, body:body.trim()});
+    setSaving(false);
+  }
+
+  return (
+    <Modal title="Nueva consulta a Mythos" onClose={onClose} width={560}>
+      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+        <div style={{background:'#FFFFFF',border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',fontSize:11,color:'#6E6E73',lineHeight:1.6}}>
+          <div style={{fontWeight:700,color:'#1D1D1F',marginBottom:4,fontSize:11,textTransform:'uppercase',letterSpacing:.5}}>Datos que se envían automáticamente</div>
+          <div>Restaurante: <strong style={{color:'#1D1D1F'}}>{restaurantName||'—'}</strong></div>
+          <div>Usuario: <strong style={{color:'#1D1D1F'}}>{userName}</strong> ({role})</div>
+          {email && <div>Email: <strong style={{color:'#1D1D1F'}}>{email}</strong></div>}
+        </div>
+
+        <div><Lbl>Asunto</Lbl>
+          <Inp value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Resumen breve del problema o consulta" autoFocus/>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div><Lbl>Categoría</Lbl>
+            <Sel value={category} onChange={e=>setCategory(e.target.value)}>
+              {Object.entries(SUPPORT_CATS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+            </Sel>
+          </div>
+          <div><Lbl>Prioridad</Lbl>
+            <Sel value={priority} onChange={e=>setPriority(e.target.value)}>
+              <option value="baja">Baja</option>
+              <option value="normal">Normal</option>
+              <option value="alta">Alta</option>
+              <option value="urgente">Urgente</option>
+            </Sel>
+          </div>
+        </div>
+
+        <div><Lbl>Descripción del problema / consulta</Lbl>
+          <textarea value={body} onChange={e=>setBody(e.target.value)} rows={6} placeholder="Describí con el mayor detalle posible qué está pasando, qué intentaste, qué esperabas que pasara…" style={{width:'100%',padding:'10px 12px',fontSize:13,borderRadius:8,resize:'vertical',fontFamily:'inherit',minHeight:120}}/>
+        </div>
+
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+          <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+          <Btn onClick={save} disabled={saving}>{saving?'Enviando…':'Enviar consulta'}</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════════
    ROOT APP
 ══════════════════════════════════════════════ */
 function AdminApp() {
   const [page,setPage] = useState('dashboard');
   const [loading,setLoading] = useState(true);
+  const [unreadSupport,setUnreadSupport] = useState(0);
   const [,forceRender] = useReducer(x=>x+1,0);
   function toggleTheme(){
     const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
@@ -7544,6 +7910,20 @@ function AdminApp() {
   const [restaurant,setRestaurant] = useState(null);
 
   useEffect(()=>{ loadAll(); },[]);
+
+  // Polling de tickets sin leer (Soporte)
+  useEffect(()=>{
+    if(!db) return;
+    const tick = async () => {
+      if(_shouldPause()) return;
+      const { data } = await db.from('support_tickets')
+        .select('unread_for_client').eq('restaurant_id',RID).neq('status','cerrado');
+      setUnreadSupport((data||[]).reduce((s,t)=>s+(t.unread_for_client||0),0));
+    };
+    tick();
+    const id = setInterval(tick, 20000);
+    return () => clearInterval(id);
+  },[]);
 
   // Realtime global + polling 30s
   // Los handlers usan loadAll(true) para no desmontar modales abiertos
@@ -7623,6 +8003,7 @@ function AdminApp() {
       case 'stock':     return <StockPage/>;
       case 'proveedores': return <ProveedoresPage/>;
       case 'delivery':  return <DeliveryModule/>;
+      case 'soporte':   return <SoportePage restaurant={restaurant}/>;
       case 'config':    return <ConfigPage restaurant={restaurant} onRefresh={loadAll}/>;
       default: return null;
     }
@@ -7630,7 +8011,7 @@ function AdminApp() {
 
   return (
     <div style={{display:'flex',minHeight:'100vh'}}>
-      <Sidebar page={page} setPage={setPage} restaurant={restaurant} dbOk={!!db} onToggleTheme={toggleTheme}/>
+      <Sidebar page={page} setPage={setPage} restaurant={restaurant} dbOk={!!db} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}}/>
       <main style={{flex:1,padding:26,overflowY:'auto',minWidth:0}}>
         {renderPage()}
       </main>

@@ -1783,12 +1783,401 @@ const NAV = [
   {id:'restaurantes',   label:'Restaurantes'},
   {id:'facturacion',    label:'Facturación'},
   {id:'usuarios',       label:'Usuarios'},
+  {id:'soporte',        label:'Soporte'},
   {id:'reportes',       label:'Reportes'},
   {id:'actividad',      label:'Actividad'},
   {id:'configuracion',  label:'Configuración'},
 ];
 
-function Sidebar({page, setPage}) {
+/* ─── Soporte: constantes compartidas ─── */
+const SUPPORT_CATS = {
+  problema_tecnico:'Problema técnico',
+  consulta:'Consulta',
+  facturacion:'Facturación',
+  sugerencia:'Sugerencia',
+  urgente:'Urgente',
+  otro:'Otro'
+};
+const SUPPORT_STATUS = {
+  abierto:           {label:'Abierto',              color:'#1D4ED8', bg:'#EEF4FF'},
+  en_curso:          {label:'En curso',             color:'#8A4B00', bg:'#FFF4E0'},
+  esperando_cliente: {label:'Esperando cliente',    color:'#6E6E73', bg:'#F5F5F7'},
+  resuelto:          {label:'Resuelto',             color:'#1A7E37', bg:'#E8F9ED'},
+  cerrado:           {label:'Cerrado',              color:'#6E6E73', bg:'#F5F5F7'}
+};
+const SUPPORT_PRIO = {
+  baja:    {label:'Baja',    color:'#6E6E73'},
+  normal:  {label:'Normal',  color:'#1D4ED8'},
+  alta:    {label:'Alta',    color:'#FF9500'},
+  urgente: {label:'Urgente', color:'#FF3B30'}
+};
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PAGE: SOPORTE — Bandeja de tickets de Gerentes / Admins
+   ════════════════════════════════════════════════════════════════════════════ */
+function PageSoporte({setFlash}) {
+  const [tickets, setTickets] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState('open');  // 'all' | 'open' | 'unread' | 'cerrado' …
+  const [filterText, setFilterText] = useState('');
+  const scrollRef = useRef(null);
+  const profile = window._userProfile||{};
+  const myName = profile.display_name||profile.username||'Mythos';
+
+  const loadTickets = useCallback(async () => {
+    if (!db) return;
+    const { data } = await db.from('support_tickets')
+      .select('*')
+      .order('last_message_at', {ascending:false})
+      .limit(200);
+    setTickets(data||[]);
+    setLoading(false);
+  }, []);
+
+  const loadMessages = useCallback(async (ticketId) => {
+    if (!db || !ticketId) return;
+    const { data } = await db.from('support_messages')
+      .select('*')
+      .eq('ticket_id', ticketId)
+      .order('created_at', {ascending:true});
+    setMessages(data||[]);
+    await db.rpc('support_mark_read', {p_ticket_id: ticketId, p_side: 'support'});
+    loadTickets();
+  }, [loadTickets]);
+
+  useEffect(() => { loadTickets(); }, [loadTickets]);
+
+  useEffect(() => {
+    if (!db) return;
+    const ch = db.channel('support-super-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'support_tickets'}, () => loadTickets())
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'support_messages'}, (payload) => {
+        if (selected && payload.new?.ticket_id === selected.id) loadMessages(selected.id);
+        else loadTickets();
+      })
+      .subscribe();
+    const poll = setInterval(() => { if (!_shouldPause()) loadTickets(); }, 25000);
+    return () => { db.removeChannel(ch); clearInterval(poll); };
+  }, [selected, loadTickets, loadMessages]);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  function openTicket(t) { setSelected(t); loadMessages(t.id); }
+
+  async function sendReply(body) {
+    if (!db || !selected || !body.trim()) return;
+    const { error } = await db.from('support_messages').insert({
+      ticket_id: selected.id,
+      author_user_id: profile.id||null,
+      author_name: myName,
+      author_role: 'superadmin',
+      author_side: 'support',
+      body: body.trim()
+    });
+    if (error) { setFlash({type:'error', text:'Error al enviar: '+error.message}); return; }
+    loadMessages(selected.id);
+  }
+
+  async function changeStatus(newStatus, withSystemNote) {
+    if (!db || !selected) return;
+    const patch = {status: newStatus, updated_at: new Date().toISOString()};
+    if (newStatus === 'cerrado' || newStatus === 'resuelto') {
+      patch.closed_at = new Date().toISOString();
+      patch.closed_by_user_id = profile.id||null;
+      patch.closed_by_name = myName;
+    }
+    if (!selected.assigned_to_user_id && newStatus === 'en_curso') {
+      patch.assigned_to_user_id = profile.id||null;
+      patch.assigned_to_name = myName;
+    }
+    const { error } = await db.from('support_tickets').update(patch).eq('id', selected.id);
+    if (error) { setFlash({type:'error', text:'Error: '+error.message}); return; }
+    if (withSystemNote) {
+      await db.from('support_messages').insert({
+        ticket_id: selected.id,
+        author_name:'Mythos',
+        author_role:'superadmin',
+        author_side:'system',
+        system_event:'status_change',
+        body: `Estado cambiado a: ${SUPPORT_STATUS[newStatus]?.label||newStatus}`
+      });
+    }
+    setFlash({type:'success', text:`Ticket marcado como ${SUPPORT_STATUS[newStatus]?.label||newStatus}`});
+    setSelected({...selected, ...patch});
+    loadTickets();
+    loadMessages(selected.id);
+  }
+
+  async function assignToMe() {
+    if (!db || !selected) return;
+    const { error } = await db.from('support_tickets').update({
+      assigned_to_user_id: profile.id||null,
+      assigned_to_name: myName,
+      status: selected.status==='abierto' ? 'en_curso' : selected.status,
+      updated_at: new Date().toISOString()
+    }).eq('id', selected.id);
+    if (error) { setFlash({type:'error', text:'Error: '+error.message}); return; }
+    await db.from('support_messages').insert({
+      ticket_id: selected.id,
+      author_name:'Mythos',
+      author_role:'superadmin',
+      author_side:'system',
+      system_event:'assigned',
+      body: `${myName} tomó el ticket`
+    });
+    setFlash({type:'success', text:'Ticket asignado a vos'});
+    loadTickets();
+    loadMessages(selected.id);
+    const { data: fresh } = await db.from('support_tickets').select('*').eq('id', selected.id).single();
+    if (fresh) setSelected(fresh);
+  }
+
+  // Filtrado
+  const filtered = tickets.filter(t => {
+    if (filterStatus === 'open' && ['resuelto','cerrado'].includes(t.status)) return false;
+    if (filterStatus === 'unread' && !(t.unread_for_super > 0)) return false;
+    if (filterStatus === 'cerrado' && !['resuelto','cerrado'].includes(t.status)) return false;
+    if (filterStatus !== 'all' && filterStatus !== 'open' && filterStatus !== 'unread' && filterStatus !== 'cerrado') {
+      if (t.status !== filterStatus) return false;
+    }
+    if (filterText.trim()) {
+      const q = filterText.toLowerCase();
+      const hay = `${t.subject||''} ${t.restaurant_name||''} ${t.created_by_name||''} ${t.last_message_preview||''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // KPIs
+  const kpis = {
+    open:    tickets.filter(t => !['resuelto','cerrado'].includes(t.status)).length,
+    unread:  tickets.filter(t => t.unread_for_super > 0).length,
+    urgent:  tickets.filter(t => t.priority === 'urgente' && !['resuelto','cerrado'].includes(t.status)).length,
+    today:   tickets.filter(t => new Date(t.created_at).toDateString() === new Date().toDateString()).length
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:12,marginBottom:18,flexWrap:'wrap'}}>
+        <Kpi label="Abiertos" value={kpis.open} sub={`${kpis.unread} con mensajes sin leer`}/>
+        <Kpi label="Sin leer" value={kpis.unread} sub="Esperan tu respuesta"/>
+        <Kpi label="Urgentes" value={kpis.urgent} sub="Prioridad alta"/>
+        <Kpi label="Hoy" value={kpis.today} sub="Tickets creados hoy"/>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'380px 1fr',gap:14,height:'calc(100vh - 290px)',minHeight:560}}>
+        {/* LISTA */}
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{padding:'10px 12px',borderBottom:`1px solid ${C.border}`}}>
+            <input
+              value={filterText}
+              onChange={e => setFilterText(e.target.value)}
+              placeholder="Buscar por restaurante, asunto…"
+              style={{width:'100%',marginBottom:8}}
+            />
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              <FilterBtn active={filterStatus==='open'}    onClick={()=>setFilterStatus('open')}>Abiertos</FilterBtn>
+              <FilterBtn active={filterStatus==='unread'}  onClick={()=>setFilterStatus('unread')}>Sin leer</FilterBtn>
+              <FilterBtn active={filterStatus==='cerrado'} onClick={()=>setFilterStatus('cerrado')}>Cerrados</FilterBtn>
+              <FilterBtn active={filterStatus==='all'}     onClick={()=>setFilterStatus('all')}>Todos</FilterBtn>
+            </div>
+          </div>
+          <div style={{flex:1,overflowY:'auto'}}>
+            {loading ? <div style={{padding:30,textAlign:'center'}}><Spinner/></div>
+              : filtered.length === 0
+                ? <div style={{padding:30,textAlign:'center',color:C.dim,fontSize:13}}>Sin tickets con esos filtros</div>
+                : filtered.map(t => {
+                    const s = SUPPORT_STATUS[t.status]||{label:t.status,color:C.mid,bg:'#F5F5F7'};
+                    const p = SUPPORT_PRIO[t.priority];
+                    const isSel = selected?.id === t.id;
+                    return (
+                      <div key={t.id} onClick={() => openTicket(t)} style={{
+                        padding:'12px 14px',borderBottom:`1px solid ${C.border}`,cursor:'pointer',
+                        background: isSel ? '#F0F6FF' : (t.unread_for_super>0 ? '#FFFEF7' : 'transparent'),
+                        borderLeft: isSel ? `3px solid ${C.ink}` : (t.unread_for_super>0 ? `3px solid ${C.orange}` : '3px solid transparent'),
+                        transition:'background .15s'
+                      }}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6,marginBottom:5}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.subject}</div>
+                            <div style={{fontSize:11,color:C.mid,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                              <strong style={{color:C.ink}}>{t.restaurant_name||'—'}</strong> · {t.created_by_name||'—'} ({t.created_by_role||'—'})
+                            </div>
+                          </div>
+                          {t.unread_for_super > 0 && (
+                            <span style={{background:C.red,color:'#fff',fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,flexShrink:0}}>{t.unread_for_super}</span>
+                          )}
+                        </div>
+                        <div style={{fontSize:11,color:C.mid,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',marginBottom:6}}>
+                          {t.last_message_by_side==='client' ? <span style={{color:C.orange,fontWeight:700}}>↗ </span> : <span style={{color:C.green,fontWeight:700}}>↙ </span>}
+                          {t.last_message_preview||'—'}
+                        </div>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6}}>
+                          <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                            <span style={{padding:'2px 7px',borderRadius:10,fontSize:10,fontWeight:700,background:s.bg,color:s.color}}>{s.label}</span>
+                            {p && <span style={{fontSize:10,fontWeight:700,color:p.color}}>● {p.label}</span>}
+                          </div>
+                          <span style={{fontSize:10,color:C.dim}}>{fmtRelTime(t.last_message_at)}</span>
+                        </div>
+                      </div>
+                    );
+                  })
+            }
+          </div>
+        </div>
+
+        {/* DETALLE + CHAT */}
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          {!selected ? (
+            <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:12,padding:40,color:C.dim}}>
+              <div style={{fontSize:36,opacity:.4}}>💬</div>
+              <div style={{fontSize:14,fontWeight:600,color:C.mid}}>Seleccioná un ticket para ver la conversación</div>
+              <div style={{fontSize:12,maxWidth:380,textAlign:'center'}}>Vas a ver toda la información del restaurante y del usuario que abrió el ticket, junto con la conversación completa.</div>
+            </div>
+          ) : (
+            <SoporteSuperChat
+              ticket={selected}
+              messages={messages}
+              onSend={sendReply}
+              onStatusChange={changeStatus}
+              onAssign={assignToMe}
+              onClose={() => setSelected(null)}
+              myName={myName}
+              myUserId={profile.id}
+              scrollRef={scrollRef}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SoporteSuperChat({ticket, messages, onSend, onStatusChange, onAssign, onClose, myName, myUserId, scrollRef}) {
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [showInfo, setShowInfo] = useState(true);
+  const s = SUPPORT_STATUS[ticket.status]||{label:ticket.status,color:C.mid,bg:'#F5F5F7'};
+  const p = SUPPORT_PRIO[ticket.priority];
+  const isMine = ticket.assigned_to_user_id === myUserId;
+  const closed = ['resuelto','cerrado'].includes(ticket.status);
+
+  async function submit() {
+    if (!draft.trim() || sending) return;
+    setSending(true);
+    await onSend(draft);
+    setDraft('');
+    setSending(false);
+  }
+
+  return (
+    <>
+      {/* HEADER */}
+      <div style={{padding:'12px 18px',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:700,color:C.ink}}>{ticket.subject}</div>
+            <div style={{display:'flex',gap:8,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
+              <span style={{padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:700,background:s.bg,color:s.color}}>{s.label}</span>
+              <span style={{fontSize:11,color:C.mid}}>{SUPPORT_CATS[ticket.category]||ticket.category}</span>
+              {p && <span style={{fontSize:11,color:p.color,fontWeight:700}}>· {p.label}</span>}
+              {ticket.assigned_to_name && <span style={{fontSize:11,color:C.mid}}>· Asignado a <strong style={{color:C.ink}}>{ticket.assigned_to_name}</strong></span>}
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:'none',color:C.mid,fontSize:22,padding:'2px 8px',border:'none',cursor:'pointer'}}>×</button>
+        </div>
+
+        {/* Acciones */}
+        <div style={{display:'flex',gap:6,marginTop:10,flexWrap:'wrap'}}>
+          {!isMine && !closed && <Btn size="sm" variant="ghost" onClick={onAssign}>Tomar ticket</Btn>}
+          {ticket.status === 'abierto' && <Btn size="sm" variant="ghost" onClick={()=>onStatusChange('en_curso', true)}>Marcar en curso</Btn>}
+          {!closed && <Btn size="sm" variant="ghost" onClick={()=>onStatusChange('esperando_cliente', true)}>Esperando cliente</Btn>}
+          {!closed && <Btn size="sm" variant="success" onClick={()=>onStatusChange('resuelto', true)}>Marcar resuelto</Btn>}
+          {ticket.status === 'resuelto' && <Btn size="sm" variant="ghost" onClick={()=>onStatusChange('cerrado', true)}>Cerrar definitivamente</Btn>}
+          {closed && <Btn size="sm" variant="ghost" onClick={()=>onStatusChange('abierto', true)}>Reabrir</Btn>}
+        </div>
+      </div>
+
+      {/* INFO CLIENTE (colapsable) */}
+      <div style={{background:'#FAFAFB',borderBottom:`1px solid ${C.border}`}}>
+        <button onClick={() => setShowInfo(!showInfo)} style={{width:'100%',padding:'8px 18px',background:'none',border:'none',textAlign:'left',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:11,fontWeight:700,color:C.mid,textTransform:'uppercase',letterSpacing:.5}}>
+          <span>Datos del cliente</span>
+          <span>{showInfo?'▾':'▸'}</span>
+        </button>
+        {showInfo && (
+          <div style={{padding:'4px 18px 12px',display:'grid',gridTemplateColumns:'repeat(2, 1fr)',gap:'6px 18px',fontSize:12}}>
+            <div><span style={{color:C.mid}}>Restaurante: </span><strong>{ticket.restaurant_name||'—'}</strong></div>
+            <div><span style={{color:C.mid}}>ID restaurante: </span><code style={{fontSize:11,color:C.dim}}>{ticket.restaurant_id?.slice(0,8)}…</code></div>
+            <div><span style={{color:C.mid}}>Usuario: </span><strong>{ticket.created_by_name||'—'}</strong></div>
+            <div><span style={{color:C.mid}}>Rol: </span><strong>{ticket.created_by_role||'—'}</strong></div>
+            {ticket.created_by_username && <div><span style={{color:C.mid}}>Username: </span><code style={{fontSize:11}}>{ticket.created_by_username}</code></div>}
+            {ticket.created_by_email && <div><span style={{color:C.mid}}>Email: </span><a href={`mailto:${ticket.created_by_email}`} style={{color:C.ink}}>{ticket.created_by_email}</a></div>}
+            {ticket.created_by_phone && <div><span style={{color:C.mid}}>Teléfono: </span>{ticket.created_by_phone}</div>}
+            <div><span style={{color:C.mid}}>Creado: </span>{fmtDateTime(ticket.created_at)}</div>
+            <div><span style={{color:C.mid}}>Última actividad: </span>{fmtDateTime(ticket.last_message_at)}</div>
+            <div><span style={{color:C.mid}}>Mensajes: </span>{ticket.total_messages||0}</div>
+          </div>
+        )}
+      </div>
+
+      {/* MENSAJES */}
+      <div ref={scrollRef} style={{flex:1,overflowY:'auto',padding:'18px 20px',background:'#FAFAFB',display:'flex',flexDirection:'column',gap:10}}>
+        {messages.length === 0 && <div style={{textAlign:'center',color:C.dim,fontSize:12,padding:20}}>Sin mensajes aún…</div>}
+        {messages.map(m => {
+          if (m.author_side === 'system') {
+            return <div key={m.id} style={{textAlign:'center',fontSize:11,color:C.dim,padding:'4px 8px'}}>— {m.body} · {fmtDateTime(m.created_at)} —</div>;
+          }
+          const mine = m.author_side === 'support';
+          return (
+            <div key={m.id} style={{display:'flex',justifyContent: mine?'flex-end':'flex-start'}}>
+              <div style={{maxWidth:'78%'}}>
+                <div style={{
+                  background: mine ? '#000' : '#fff',
+                  color: mine ? '#fff' : C.ink,
+                  border: mine ? '1px solid #000' : `1px solid ${C.border}`,
+                  padding:'9px 13px',borderRadius:12,
+                  borderBottomRightRadius: mine?4:12,
+                  borderBottomLeftRadius:  mine?12:4,
+                  fontSize:13,lineHeight:1.45,whiteSpace:'pre-wrap',wordBreak:'break-word'
+                }}>{m.body}</div>
+                <div style={{fontSize:10,color:C.dim,marginTop:3,textAlign: mine?'right':'left'}}>
+                  {mine ? `${m.author_name||myName} (Mythos)` : (m.author_name||'Cliente')} · {fmtDateTime(m.created_at)}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* COMPOSER */}
+      <div style={{padding:12,borderTop:`1px solid ${C.border}`,background:C.surface}}>
+        {closed && (
+          <div style={{fontSize:11,color:C.mid,marginBottom:8,textAlign:'center'}}>
+            Este ticket está cerrado. Cualquier mensaje del cliente lo reabrirá automáticamente.
+          </div>
+        )}
+        <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            rows={2}
+            placeholder="Respondé al cliente…"
+            onKeyDown={e => { if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) submit(); }}
+            style={{flex:1,minHeight:50,resize:'none',fontFamily:'inherit'}}
+          />
+          <Btn onClick={submit} disabled={sending || !draft.trim()} style={{flexShrink:0,height:46}}>{sending?'Enviando…':'Enviar'}</Btn>
+        </div>
+        <div style={{fontSize:10,color:C.dim,marginTop:5,textAlign:'right'}}>Ctrl/Cmd + Enter para enviar</div>
+      </div>
+    </>
+  );
+}
+
+function Sidebar({page, setPage, badges={}}) {
   const signOut = async () => {
     if (db) { try { await db.auth.signOut(); } catch(e){} }
     localStorage.removeItem('mesa_session');
@@ -1803,9 +2192,11 @@ function Sidebar({page, setPage}) {
       <nav style={{padding:'10px',flex:1}}>
         {NAV.map(n=>{
           const active = page===n.id;
+          const badge = badges[n.id]||0;
           return (
             <button key={n.id} onClick={()=>setPage(n.id)} style={{display:'flex',alignItems:'center',padding:'9px 12px',borderRadius:8,width:'100%',border:'none',background:active?'#000000':'transparent',color:active?'#FFFFFF':'#1D1D1F',fontWeight:active?600:400,fontSize:13,cursor:'pointer',transition:'all .15s',marginBottom:2,textAlign:'left'}}>
-              {n.label}
+              <span style={{flex:1}}>{n.label}</span>
+              {badge > 0 && <span style={{background:active?'#fff':C.red,color:active?C.red:'#fff',fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,minWidth:16,textAlign:'center'}}>{badge}</span>}
             </button>
           );
         })}
@@ -1834,7 +2225,23 @@ function App() {
   const [rtLive,  setRtLive]  = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [unreadSupport, setUnreadSupport] = useState(0);
   const [rawData, setRawData] = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[],platformConfig:[]});
+
+  // Polling de tickets de soporte sin leer
+  useEffect(()=>{
+    if(!db) return;
+    const tick = async () => {
+      if(_shouldPause()) return;
+      const { data } = await db.from('support_tickets')
+        .select('unread_for_super,status')
+        .neq('status','cerrado');
+      setUnreadSupport((data||[]).reduce((s,t)=>s+(t.unread_for_super||0),0));
+    };
+    tick();
+    const id = setInterval(tick, 20000);
+    return () => clearInterval(id);
+  },[]);
 
   const loadAll = useCallback(async (opts) => {
     const silent = opts && opts.silent;
@@ -1893,11 +2300,11 @@ function App() {
   const bannerActive = bannerRow?.value==='true' && !!bannerMsgRow?.value;
   const bannerMsg    = bannerMsgRow?.value||'';
 
-  const pageTitles = {dashboard:'Dashboard',restaurantes:'Restaurantes',facturacion:'Facturación',usuarios:'Usuarios',reportes:'Reportes',actividad:'Actividad',configuracion:'Configuración'};
+  const pageTitles = {dashboard:'Dashboard',restaurantes:'Restaurantes',facturacion:'Facturación',usuarios:'Usuarios',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',configuracion:'Configuración'};
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
-      <Sidebar page={page} setPage={setPage}/>
+      <Sidebar page={page} setPage={setPage} badges={{soporte:unreadSupport}}/>
       <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
         {/* Banner global */}
         {bannerActive&&!bannerDismissed&&(
@@ -1929,6 +2336,7 @@ function App() {
               {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
+              {page==='soporte'       && <PageSoporte      setFlash={setFlash}/>}
               {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='configuracion' && <PageConfiguracion restaurants={restaurants} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}

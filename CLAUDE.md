@@ -20,6 +20,8 @@
 | Archivo | Rol |
 |---|---|
 | `public/index.html` | Cliente QR (scan→menú→cart→pago→tracking→rating) |
+| `public/delivery-cliente.html` | Cliente delivery (pedido a domicilio, tracking en tiempo real) |
+| `public/delivery-rider.html` | Panel rider (login por PIN, lista de pedidos, cambio de estado) |
 | `public/cocina.html` | KDS cocina (kanban: nuevo/preparando/listo) |
 | `public/mozo.html` | Panel mozo |
 | `public/caja.html` | Panel caja (turnos, cobros, movimientos) |
@@ -31,24 +33,31 @@
 
 ## Tablas principales
 
-restaurants, tables, menu_categories, menu_items, menu_item_extras, coupons, orders, order_items, order_item_extras, order_status_history, waiter_calls, ratings, user_roles, turnos_caja, movimientos_caja, cancelaciones_caja, quejas_sugerencias, subscription_plans, subscriptions, payments, platform_events, ingredients, recipes, stock_movements, stock_alerts, expenses.
+restaurants, tables, menu_categories, menu_items, menu_item_extras, coupons, orders, order_items, order_item_extras, order_status_history, waiter_calls, ratings, user_roles, turnos_caja, movimientos_caja, cancelaciones_caja, quejas_sugerencias, subscription_plans, subscriptions, payments, platform_events, ingredients, recipes, stock_movements, stock_alerts, expenses, delivery_orders, delivery_riders, delivery_zones, reservations, employee_shifts.
 
-**Pendientes:** reservations, customers, delivery_orders, delivery_drivers, moderación de ratings.
+**Pendientes:** customers, moderación de ratings.
 
 **Status flow orders:** `draft → confirmed → paid → kitchen_received → cooking → ready → delivered`
+
+**Status flow delivery (rider_status en delivery_orders):** `pending → confirmed → picked_up → on_way → delivered → cancelled`
+
+**Status flow riders (current_status en delivery_riders):** `disponible → en_ruta → offline`
 
 ---
 
 ## Bugs críticos conocidos
 
-1. `tables.is_occupied` no siempre se actualiza — mozo ve mesas libres con órdenes activas
-2. Mesa ? / Mesa — — número de mesa no resuelto en algunos flujos
-3. Cobro puede salir ₲0 en caja
-4. RLS con `USING(true)` — no segura para multi-restaurante real
-5. Tracking cliente sin Realtime completo
-6. Reservas en localStorage — no persisten entre dispositivos
-7. Caja sin logout claro / cierre de turno
-8. Crear usuarios usa service_role en frontend — riesgo crítico de seguridad
+1. Mesa ? / Mesa — — número de mesa no resuelto en algunos flujos (orders con table_id NULL)
+2. Cobro puede salir ₲0 en caja (race condition en confirmAddProducts)
+3. RLS con `USING(true)` — no segura para multi-restaurante real
+4. Tracking cliente sin Realtime completo
+5. Crear usuarios usa service_role en frontend — riesgo crítico de seguridad
+
+**Resueltos recientemente (no revertir):**
+- ~~`tables.is_occupied` no se actualizaba~~ — fix en `fix(mesa+caja): mesa permanece ocupada hasta liberación explícita`
+- ~~Caja sin logout / cierre de turno~~ — fix en `fix(mozo): corregir deudas fantasma + mejorar cierre de turno`
+- ~~Reservas en localStorage~~ — tabla `reservations` creada en migración 040
+- ~~Mozo mostraba "Cobro pte." con payment_status=paid~~ — fix en `fix(mozo): no mostrar si ya paid`
 
 ---
 
@@ -68,13 +77,11 @@ restaurants, tables, menu_categories, menu_items, menu_item_extras, coupons, ord
 
 ## Prioridades
 
-1. Fix `is_occupied`
-2. Fix Mesa ? / Mesa —
-3. Logout + cierre de turno en caja
-4. Realtime tracking cliente
-5. RLS multi-restaurante segura
-6. Reservations en DB
-7. Customers / CRM
-8. Pagos superadmin
-9. Gestión segura de usuarios (Edge Function)
-10. QR real por mesa (URL param + token)
+1. Fix Mesa ? / Mesa — (orders con table_id NULL)
+2. Fix cobro ₲0 en caja
+3. Realtime tracking cliente
+4. RLS multi-restaurante segura
+5. Customers / CRM
+6. Pagos superadmin (Bancard, Tigo Money)
+7. Gestión segura de usuarios (Edge Function)
+8. QR real por mesa (URL param + token)

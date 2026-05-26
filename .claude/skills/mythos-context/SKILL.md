@@ -31,7 +31,9 @@ Repo: `github.com/mancuellorenato/version-1.0`
 
 | Archivo | Rol | Notas |
 |---|---|---|
-| `public/index.html` | Cliente QR | Móvil. 8 pantallas: menú→pedido→pago→tracking→rating |
+| `public/index.html` | Cliente QR | Móvil. Pantallas: menú→pedido→pago→tracking→rating |
+| `public/delivery-cliente.html` | Cliente delivery | Pedido a domicilio + tracking en tiempo real. Envuelto en phone-wrapper desktop. |
+| `public/delivery-rider.html` | Panel rider | Login por PIN, lista de pedidos asignados, cambio de estado (confirmed/picked_up/on_way/delivered) |
 | `public/cocina.html` | KDS cocina | Kanban en tiempo real. Dark theme. |
 | `public/mozo.html` | Panel mozo | Grilla de mesas + órdenes |
 | `public/caja.html` | Panel caja | Turnos, cobros, egresos, quejas |
@@ -54,12 +56,24 @@ NO modificar el RESTAURANT_ID hardcodeado. Si necesitás multi-tenant real, es u
 
 ---
 
-## Status flow de orders
-draft → confirmed → paid → kitchen_received → cooking → ready → delivered
+## Status flows
 
+**Órdenes (orders.status):**
+`draft → confirmed → paid → kitchen_received → cooking → ready → delivered`
 - Cocina ve: `paid` / `kitchen_received` → "nuevo" | `cooking` → "preparando" | `ready` → "listo"
 - El cliente crea la orden con `status='paid'` directo (sin confirmed intermedio en el flujo actual)
 - Caja cobra órdenes en estado `paid` / `cooking` / `ready`
+
+**Delivery — rider status (delivery_orders.rider_status):**
+`pending → confirmed → picked_up → on_way → delivered → cancelled`
+- `pending`: orden creada, sin rider asignado
+- `confirmed`: rider asignado por cocina (round-robin), esperando retiro en local
+- `picked_up`: rider tomó el pedido (alias interno, va directo a on_way en UI actual)
+- `on_way`: rider inició ruta — cliente ve "En camino"
+- `delivered`: rider confirmó entrega — cliente ve "Entregado"
+
+**Riders (delivery_riders.current_status):**
+`disponible → en_ruta → offline`
 
 ---
 
@@ -69,40 +83,29 @@ coupons, orders, order_items, order_item_extras, order_status_history,
 waiter_calls, ratings, user_roles, turnos_caja, movimientos_caja,
 cancelaciones_caja, quejas_sugerencias, subscription_plans,
 subscriptions, payments, platform_events, ingredients, recipes,
-stock_movements, stock_alerts, expenses
+stock_movements, stock_alerts, expenses,
+delivery_orders, delivery_riders, delivery_zones,
+reservations, employee_shifts
 
-**Pendientes (no existen aún):** `reservations`, `customers`, `delivery_orders`, `delivery_drivers`
+**Pendientes (no existen aún):** `customers`
 
 ---
 
-## Bugs críticos conocidos — no romper el fix en progreso
+## Bugs abiertos — no romper el fix en progreso
 
 | # | Bug | Causa raíz | Archivo |
 |---|---|---|---|
-| 1 | `tables.is_occupied` no se actualiza | `index.html` no hace UPDATE tras INSERT de order | `index.html → dbSubmitOrder()` |
-| 2 | Mesa "?" en cocina | `order.table_id` NULL o join fallido | `cocina.html` |
-| 3 | Mesa "—" en caja | `orders.table_id` NULL para pedidos sin mesa | `caja.html` |
-| 4 | Cobro ₲0 | `orders.total` queda en 0 (race condition en `confirmAddProducts`) | `mozo.html` |
-| 5 | RLS con `USING(true)` | No filtra por restaurant_id del usuario | Supabase → todas las tablas |
-| 6 | Tracking sin Realtime | Suscripción no se dispara correctamente | `index.html` |
-| 7 | Reservas en localStorage | Tabla `reservations` no existe | `index.html` / `admin.html` |
-| 8 | Sin logout en caja | No hay botón explícito | `caja.html` |
-| 9 | Crear usuarios usa service_role en frontend | `superadmin.html` llama Admin API con key expuesta | `superadmin.html` |
+| 1 | Mesa "?" en cocina / Mesa "—" en caja | `orders.table_id` NULL o join fallido | `cocina.html`, `caja.html` |
+| 2 | Cobro ₲0 | `orders.total` queda en 0 (race condition en `confirmAddProducts`) | `mozo.html` |
+| 3 | RLS con `USING(true)` | No filtra por restaurant_id del usuario | Supabase → todas las tablas |
+| 4 | Tracking sin Realtime completo | Suscripción no se dispara correctamente | `index.html` |
+| 5 | Crear usuarios usa service_role en frontend | `superadmin.html` llama Admin API con key expuesta | `superadmin.html` |
 
----
-
-## Relaciones con bug conocido (no romper)
-index.html → dbSubmitOrder() → INSERT orders ← FALTA update tables.is_occupied
-mozo.html → loadData() → suma totales SOLO de mesas con is_occupied=true → bug ₲0
-mozo.html → processPay() → UPDATE orders + movimientos_caja + tables.is_occupied=false
-
-**Fix pendiente para Bug #1:**
-Agregar en `index.html → dbSubmitOrder()` después del INSERT de orders:
-```js
-await db.from('tables')
-  .update({ is_occupied: true, occupied_since: new Date().toISOString() })
-  .eq('id', tableId)
-```
+**Resueltos recientemente — NO revertir:**
+- `tables.is_occupied` → liberación explícita implementada (`fix(mesa+caja)`)
+- Cierre de turno / logout caja → implementado (`fix(mozo): corregir deudas fantasma`)
+- Reservas en localStorage → tabla `reservations` creada (migración 040-042)
+- "Cobro pte." con payment_status=paid → corregido en `mozo.html`
 
 ---
 
@@ -120,10 +123,11 @@ Estos comentarios delimitan zonas de edición en vivo. Borrarlos rompe la featur
 
 ## Migraciones
 
-- Están en `supabase/migrations/` numeradas `001` → `028`
-- Crear migración nueva con número siguiente (`029`, `030`, etc.)
+- Están en `supabase/migrations/` numeradas `001` → `060`
+- Crear migración nueva con número siguiente al último existente
 - **NUNCA** editar una migración existente
-- Aplicar con: `supabase db push` o desde el dashboard
+- Aplicar con: `supabase db push` o desde el SQL Editor del dashboard
+- **Importante:** el dashboard de Supabase en español rompe el SQL — cambiar idioma a inglés antes de ejecutar
 
 ---
 
