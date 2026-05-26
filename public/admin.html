@@ -381,6 +381,10 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={}}) {
 ══════════════════════════════════════════════ */
 function DashboardPage({orders, ratings, setPage}) {
   const [todayItems, setTodayItems] = useState([]);
+  const [stockAlerts, setStockAlerts] = useState([]);
+  const [lowStock, setLowStock]       = useState([]);
+  const [pendingInvoices, setPendingInvoices] = useState([]);
+  const [todaySuppliers, setTodaySuppliers]   = useState([]);
   const now = new Date();
   const todayStr = now.toDateString();
   const ayer = new Date(now); ayer.setDate(ayer.getDate()-1);
@@ -449,6 +453,29 @@ function DashboardPage({orders, ratings, setPage}) {
     db.from('order_items').select('order_id,item_name,quantity,total_price').in('order_id',ids)
       .then(({data})=>setTodayItems(data||[]));
   },[orders]);
+
+  useEffect(()=>{
+    if(!db) return;
+    const DAY_NAMES = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+    const DAY_SHORT = ['dom','lun','mar','mié','jue','vie','sáb'];
+    const todayIdx = now.getDay();
+    Promise.all([
+      db.from('stock_alerts').select('id,alert_type,notes,ingredient:ingredients(name,unit,stock_quantity)').eq('restaurant_id',RID).is('resolved_at',null).order('created_at',{ascending:false}).limit(20),
+      db.from('ingredients').select('id,name,unit,stock_quantity,minimum_quantity').eq('restaurant_id',RID).eq('is_active',true).gt('minimum_quantity',0),
+      db.from('supplier_purchases').select('id,total,paid_amount,status,supplier:suppliers(name)').eq('restaurant_id',RID).eq('status','pendiente').order('purchase_date',{ascending:true}).limit(20),
+      db.from('suppliers').select('id,name,delivery_days,phone').eq('restaurant_id',RID).eq('is_active',true),
+    ]).then(([alertsRes, ingsRes, invoicesRes, suppliersRes]) => {
+      setStockAlerts(alertsRes.data||[]);
+      setLowStock((ingsRes.data||[]).filter(i => Number(i.stock_quantity||0) <= Number(i.minimum_quantity||0)));
+      setPendingInvoices(invoicesRes.data||[]);
+      const todayName = DAY_NAMES[todayIdx];
+      const todayShort = DAY_SHORT[todayIdx];
+      setTodaySuppliers((suppliersRes.data||[]).filter(s => {
+        const dd = (s.delivery_days||'').toLowerCase();
+        return dd.includes(todayName) || dd.includes(todayShort);
+      }));
+    });
+  },[]);
 
 
   return (
@@ -569,28 +596,101 @@ function DashboardPage({orders, ratings, setPage}) {
         </div>
       </div>
 
-      {/* Pedidos recientes */}
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-        <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:'#6E6E73',letterSpacing:1,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          PEDIDOS RECIENTES
-          <button onClick={()=>setPage('pedidos')} style={{background:'none',border:'none',color:'#86868B',fontSize:11,cursor:'pointer'}}>Ver todos →</button>
-        </div>
-        <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>#</Th><Th>Mesa</Th><Th>Estado</Th><Th right>Total</Th><Th>Hora</Th></tr></thead>
-          <tbody>
-            {orders.slice(0,8).map(o=>(
-              <tr key={o.id} style={{borderBottom:`1px solid #F0F0F0`}}>
-                <Td mono dim>{o.order_number}</Td>
-                <Td>{mesaLabel(o)}</Td>
-                <Td><Badge status={o.status}/></Td>
-                <Td mono right>{fmt(o.total)}</Td>
-                <Td mono dim>{fmtTime(o.created_at)}</Td>
-              </tr>
-            ))}
-            {orders.length===0&&<EmptyRow cols={5} label="No hay pedidos"/>}
-          </tbody>
-        </table>
-      </div>
+      {/* Panel de alertas importantes */}
+      {(()=>{
+        const allAlerts = [];
+
+        // Stock crítico (desde stock_alerts)
+        stockAlerts.slice(0,5).forEach(a => {
+          const ing = a.ingredient;
+          allAlerts.push({
+            key: 'alert-'+a.id,
+            level: 'critical',
+            icon: '🔴',
+            title: ing ? `Stock crítico: ${ing.name}` : 'Alerta de stock',
+            sub: ing ? `${Number(ing.stock_quantity||0).toFixed(1)} ${ing.unit||''} en inventario` : (a.notes||''),
+            action: ()=>setPage('stock'),
+            actionLabel: 'Ver stock →',
+          });
+        });
+
+        // Ingredientes con stock bajo (no duplicar los ya en alertas)
+        const alertIngNames = new Set(stockAlerts.map(a=>a.ingredient?.name));
+        lowStock.filter(i=>!alertIngNames.has(i.name)).slice(0,5).forEach(i => {
+          allAlerts.push({
+            key: 'low-'+i.id,
+            level: 'warning',
+            icon: '🟡',
+            title: `Stock bajo: ${i.name}`,
+            sub: `${Number(i.stock_quantity||0).toFixed(1)} ${i.unit||''} (mínimo: ${Number(i.minimum_quantity||0).toFixed(1)})`,
+            action: ()=>setPage('stock'),
+            actionLabel: 'Ver stock →',
+          });
+        });
+
+        // Entregas de proveedores hoy
+        todaySuppliers.forEach(s => {
+          allAlerts.push({
+            key: 'sup-'+s.id,
+            level: 'info',
+            icon: '📦',
+            title: `Entrega hoy: ${s.name}`,
+            sub: s.phone ? `Tel: ${s.phone}` : 'Proveedor activo',
+            action: ()=>setPage('proveedores'),
+            actionLabel: 'Ver proveedor →',
+          });
+        });
+
+        // Facturas pendientes de pago
+        pendingInvoices.slice(0,5).forEach(inv => {
+          const deuda = Number(inv.total||0) - Number(inv.paid_amount||0);
+          allAlerts.push({
+            key: 'inv-'+inv.id,
+            level: 'warning',
+            icon: '💸',
+            title: `Factura pendiente: ${inv.supplier?.name||'Proveedor'}`,
+            sub: `Saldo: ${fmt(deuda)}`,
+            action: ()=>setPage('proveedores'),
+            actionLabel: 'Ver compras →',
+          });
+        });
+
+        const levelStyle = {
+          critical: {bg:'#FFF0F0', border:'#FFCDD2', left:'#FF3B30', titleColor:'#B71C1C'},
+          warning:  {bg:'#FFFBEA', border:'#FFE57F', left:'#FF9500', titleColor:'#7A4900'},
+          info:     {bg:'#F0F6FF', border:'#A8C8FF', left:'#007AFF', titleColor:'#003D8F'},
+        };
+
+        return (
+          <div style={{background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, overflow:'hidden'}}>
+            <div style={{padding:'12px 16px', borderBottom:`1px solid ${C.border}`, fontSize:10, fontWeight:700, color:'#6E6E73', letterSpacing:1, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+              ALERTAS Y NOTIFICACIONES
+              <span style={{fontSize:11, color:'#86868B'}}>{allAlerts.length} {allAlerts.length===1?'alerta':'alertas'}</span>
+            </div>
+            {allAlerts.length === 0
+              ? <div style={{padding:'28px 16px', textAlign:'center', color:'#86868B', fontSize:13}}>
+                  <div style={{fontSize:28, marginBottom:8}}>✅</div>
+                  Todo en orden — sin alertas pendientes
+                </div>
+              : <div style={{display:'flex', flexDirection:'column', gap:0}}>
+                  {allAlerts.map((a,idx) => {
+                    const s = levelStyle[a.level]||levelStyle.info;
+                    return (
+                      <div key={a.key} style={{display:'flex', alignItems:'center', gap:12, padding:'10px 16px', borderBottom: idx<allAlerts.length-1?`1px solid ${C.border}`:'none', background: s.bg, borderLeft:`4px solid ${s.left}`}}>
+                        <div style={{fontSize:20, flexShrink:0}}>{a.icon}</div>
+                        <div style={{flex:1, minWidth:0}}>
+                          <div style={{fontSize:13, fontWeight:700, color: s.titleColor, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{a.title}</div>
+                          <div style={{fontSize:11, color:'#6E6E73', marginTop:1}}>{a.sub}</div>
+                        </div>
+                        <button onClick={a.action} style={{background:'none', border:`1px solid ${s.left}`, color: s.left, fontSize:11, fontWeight:600, padding:'5px 10px', borderRadius:6, cursor:'pointer', flexShrink:0, whiteSpace:'nowrap'}}>{a.actionLabel}</button>
+                      </div>
+                    );
+                  })}
+                </div>
+            }
+          </div>
+        );
+      })()}
     </div>
   );
 }
