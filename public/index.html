@@ -58,8 +58,8 @@ const _initDB = () => {
 const db = _initDB();
 const RESTAURANT_ID = ((window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
 const _urlParams = new URLSearchParams(window.location.search);
-const TABLE_NUM = parseInt(_urlParams.get('mesa') || '4', 10);
-const TABLE_TOKEN = _urlParams.get('token') || null;
+let TABLE_NUM = parseInt(_urlParams.get('mesa') || '0', 10);
+const TABLE_TOKEN = _urlParams.get('t') || _urlParams.get('token') || null;
 
 /* ── SUPABASE HELPERS ────────────────────── */
 async function dbLoadMenu() {
@@ -177,12 +177,14 @@ let _tableUUID = null;
 async function _initTableUUID() {
   if (!db || _tableUUID) return;
   try {
-    const { data } = await db.from('tables')
-      .select('id')
-      .eq('restaurant_id', RESTAURANT_ID)
-      .eq('number', TABLE_NUM)
-      .maybeSingle();
-    if (data) _tableUUID = data.id;
+    let q = db.from('tables').select('id,number').eq('restaurant_id', RESTAURANT_ID);
+    if (TABLE_TOKEN) q = q.eq('qr_token', TABLE_TOKEN);
+    else             q = q.eq('number', TABLE_NUM);
+    const { data } = await q.maybeSingle();
+    if (data) {
+      _tableUUID = data.id;
+      if (TABLE_TOKEN && data.number) TABLE_NUM = data.number;
+    }
   } catch(e) {}
 }
 _initTableUUID();
@@ -1584,14 +1586,106 @@ function SplitBillModal({ items, total, onClose }) {
   );
 }
 
+/* ══ PANTALLAS QR ════════════════════════ */
+function QRCheckingScreen() {
+  return (
+    <div style={{minHeight:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#000',gap:16}}>
+      <div style={{width:40,height:40,border:'3px solid rgba(255,255,255,0.15)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/>
+      <div style={{color:'rgba(255,255,255,0.5)',fontSize:13}}>Verificando mesa…</div>
+    </div>
+  );
+}
+
+function MesaLlenaScreen({scanCount, maxScans}) {
+  return (
+    <div style={{minHeight:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#000',padding:'40px 32px',textAlign:'center',gap:16}}>
+      <div style={{fontSize:60,lineHeight:1}}>⛔</div>
+      <div style={{fontSize:26,fontWeight:900,color:'#fff',letterSpacing:'-0.5px'}}>Mesa llena</div>
+      <div style={{fontSize:14,color:'rgba(255,255,255,0.55)',lineHeight:1.7,maxWidth:280}}>
+        Esta mesa ya alcanzó el límite de {maxScans||'?'} dispositivos.
+        <br/>Pedile a alguien compartir la pantalla.
+      </div>
+      {scanCount && maxScans && <div style={{marginTop:4,fontSize:12,color:'rgba(255,255,255,0.3)'}}>{scanCount}/{maxScans} escaneos</div>}
+    </div>
+  );
+}
+
+function MesaReservadaScreen({firstName, time, onConfirm, onSkip}) {
+  const T = useContext(ThemeCtx);
+  const timeStr = time ? String(time).slice(0,5) : '';
+  return (
+    <div style={{minHeight:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:T.qrBg,padding:'40px 28px',textAlign:'center',gap:20}}>
+      <div style={{fontSize:52,lineHeight:1}}>📅</div>
+      <div style={{display:'flex',flexDirection:'column',gap:6}}>
+        <div style={{fontSize:22,fontWeight:900,color:T.qrText,letterSpacing:'-0.5px',lineHeight:1.2}}>Esta mesa tiene<br/>una reserva</div>
+        {timeStr && <div style={{fontSize:13,color:T.qrSub}}>Hora: {timeStr}</div>}
+      </div>
+      <div style={{fontSize:16,color:T.qrText,fontWeight:700,lineHeight:1.5}}>
+        ¿Sos <span style={{color:'#FF9500'}}>{firstName}</span>?
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:10,width:'100%',maxWidth:300}}>
+        <button onClick={onConfirm} style={{width:'100%',height:52,background:T.white,color:T.black,border:'none',borderRadius:12,fontSize:15,fontWeight:800,cursor:'pointer'}}>
+          Sí, soy {firstName}
+        </button>
+        <button onClick={onSkip} style={{width:'100%',height:44,background:'transparent',color:T.qrSub,border:`1px solid rgba(255,255,255,0.15)`,borderRadius:12,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+          No, no tengo reserva
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ══ APP ROOT ════════════════════════════ */
 function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const theme = makeTheme(tweaks.mood, tweaks.tipo, tweaks.carta);
 
+  // ── Sesión QR (cuando viene de ?t=TOKEN) ──
+  const [scanStatus,      setScanStatus]      = useState(TABLE_TOKEN ? 'checking' : 'ok');
+  const [scanData,        setScanData]        = useState({scanCount:0, maxScans:0});
+  const [reservationInfo, setReservationInfo] = useState(null); // {firstName, time, guests}
+
+  useEffect(() => {
+    if (!TABLE_TOKEN || !db) { setScanStatus('ok'); return; }
+    (async () => {
+      try {
+        const { data: tbl } = await db.from('tables')
+          .select('id,number,capacity')
+          .eq('qr_token', TABLE_TOKEN)
+          .eq('restaurant_id', RESTAURANT_ID)
+          .maybeSingle();
+        if (!tbl) { setScanStatus('ok'); return; }
+        _tableUUID = tbl.id;
+        TABLE_NUM  = tbl.number;
+
+        const { data: res, error } = await db.rpc('join_table_session', { p_table_id: tbl.id });
+        if (error || !res) { setScanStatus('ok'); return; }
+        if (!res.allowed) {
+          setScanData({ scanCount: res.scan_count, maxScans: res.max_scans });
+          setScanStatus('full');
+          return;
+        }
+
+        // Verificar si hay reserva próxima para esta mesa
+        const { data: resv } = await db.rpc('get_table_upcoming_reservation', { p_table_id: tbl.id });
+        if (resv && resv.first_name) {
+          setReservationInfo({ firstName: resv.first_name, time: resv.time, guests: resv.guests });
+          setScanStatus('reserved');
+        } else {
+          setScanStatus('ok');
+        }
+      } catch(e) { setScanStatus('ok'); }
+    })();
+  }, []);
+
   // ── Persistencia localStorage ──
   const [screen, setScreen] = useState(() => {
-    try { const s = localStorage.getItem('app_screen'); return ['menu','cart','pay','track','rate'].includes(s) ? s : 'qr'; } catch { return 'qr'; }
+    try {
+      const s = localStorage.getItem('app_screen');
+      const validScreens = ['menu','cart','pay','track','rate'];
+      if (validScreens.includes(s)) return s;
+      return TABLE_TOKEN ? 'profile' : 'qr';
+    } catch { return TABLE_TOKEN ? 'profile' : 'qr'; }
   });
   const [cartItems, setCartItems] = useState(() => {
     try { return JSON.parse(localStorage.getItem('app_cart') || '[]'); } catch { return []; }
@@ -1686,6 +1780,10 @@ function App() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', position: 'relative' }}>
             <div className="phone" style={{ background: theme.phoneBg }}>
               <div className="screen">
+                {scanStatus === 'checking'  && <QRCheckingScreen />}
+                {scanStatus === 'full'      && <MesaLlenaScreen scanCount={scanData.scanCount} maxScans={scanData.maxScans} />}
+                {scanStatus === 'reserved'  && reservationInfo && <MesaReservadaScreen firstName={reservationInfo.firstName} time={reservationInfo.time} onConfirm={()=>setScanStatus('ok')} onSkip={()=>setScanStatus('ok')} />}
+                {scanStatus === 'ok' && <>
                 <OfflineBanner />
                 {toast && <Toast msg={toast} onHide={() => setToast(null)} />}
                 {selItem && <ProductModal item={selItem} onClose={() => setSelItem(null)} onAdd={addToCart} />}
@@ -1698,6 +1796,7 @@ function App() {
                 {screen === 'pay'     && <PayScreen total={payTotal} subtotal={paySubtotal} discountAmount={payDiscount} couponCode={payCoupon} cartItems={cartItems} orderMode={orderMode} lang={lang} onBack={() => setScreen('cart')} onDone={(ordNum, method) => { setCurrentOrderNum(ordNum); if (method) setPayMethod(method); setScreen('track'); }} />}
                 {screen === 'track'   && <TrackingScreen onRate={() => setScreen('rate')} orderNumber={currentOrderNum} orderMode={orderMode} cartItems={cartItems} onCallWaiter={handleCallWaiter} />}
                 {screen === 'rate'    && <RatingScreen onDone={clearSession} orderId={null} tableId={null} />}
+                </>}
               </div>
             </div>
             <TweaksPanel>

@@ -1429,7 +1429,7 @@ function buildReservationByTableA(reservations, nowMs, windowHours, alertMinutes
   return map;
 }
 
-function ZonaCanvas({zona, tables, activeOrders, reservationByTable, editMode, dragging, dragOff, setDragging, setDragOff, setTables, onOpenEdit, onOpenDetail, onOpenReservation, db}) {
+function ZonaCanvas({zona, tables, activeOrders, reservationByTable, editMode, dragging, dragOff, setDragging, setDragOff, setTables, onOpenEdit, onOpenDetail, onOpenReservation, onOpenQR, db}) {
   const canvasRef = useRef(null);
   const zd = ZONAS_DEF.find(z=>z.value===zona)||ZONAS_DEF[0];
   const [canvasW, setCanvasW] = useState(0);
@@ -1524,6 +1524,7 @@ function ZonaCanvas({zona, tables, activeOrders, reservationByTable, editMode, d
               {resv&&<div style={{fontSize:7,color:lblCol,marginTop:1,fontWeight:700}}>{resv.reservation.reservation_time?.slice(0,5)} · {resv.reservation.guests}p</div>}
               {busy&&!resv&&<div style={{width:5,height:5,borderRadius:'50%',background:'#000',marginTop:3}}/>}
               {editMode&&<div style={{fontSize:6,color:'#999',marginTop:2,textTransform:'uppercase',letterSpacing:'0.3px'}}>{t.capacity||4}p</div>}
+              {!editMode&&onOpenQR&&<button onClick={e=>{e.stopPropagation();onOpenQR(t);}} style={{position:'absolute',top:2,right:2,padding:'1px 4px',background:'rgba(0,0,0,0.08)',border:'none',borderRadius:3,cursor:'pointer',fontSize:7,color:'#444',lineHeight:'12px',fontWeight:700}}>QR</button>}
             </div>
           );
         })}
@@ -1536,6 +1537,7 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
   const [tables, setTables]    = useState(tablesProp);
   const [editMode, setEditMode] = useState(false);
   const [modal, setModal]       = useState(null);
+  const [qrModal, setQrModal]   = useState(null);
   const [formModal, setFormModal]= useState(null);
   const [form, setForm]         = useState({number:'',capacity:'4',zona:'salon',shape:'square'});
   const [saving, setSaving]     = useState(false);
@@ -1641,6 +1643,7 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
           <button onClick={()=>setEditMode(e=>!e)} style={{padding:'8px 16px',border:`1px solid ${C.border}`,borderRadius:6,background:editMode?'#000':'transparent',color:editMode?'#fff':'#6E6E73',fontSize:12,fontWeight:600,cursor:'pointer'}}>
             {editMode?'Modo vista':'Modo edición'}
           </button>
+          <button onClick={()=>setQrModal('all')} style={{padding:'8px 14px',border:`1px solid ${C.border}`,borderRadius:6,background:'transparent',color:'#6E6E73',fontSize:12,fontWeight:600,cursor:'pointer'}}>Imprimir QR</button>
           <Btn onClick={()=>{setForm({number:'',capacity:'4',zona:'salon',shape:'square'});setFormModal({mode:'add'});}}>+ Nueva mesa</Btn>
         </div>
       </div>
@@ -1664,9 +1667,14 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
           onOpenEdit={openEdit}
           onOpenDetail={(t,order)=>setModal({table:t,order})}
           onOpenReservation={(t,resv,order)=>setResvInfo({table:t,info:resv,order})}
+          onOpenQR={t=>setQrModal(t)}
           db={db}
         />
       ))}
+
+      {/* Modal QR de mesa */}
+      {qrModal&&qrModal!=='all'&&<QrModal table={qrModal} restaurant={restaurant} onClose={()=>setQrModal(null)} />}
+      {qrModal==='all'&&<QrAllModal tables={tables} restaurant={restaurant} onClose={()=>setQrModal(null)} />}
 
       {/* Modal de info de reserva */}
       {resvInfo&&(()=>{
@@ -1776,6 +1784,106 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
         </Modal>
       )}
     </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   QR MODALS
+══════════════════════════════════════════════ */
+function _buildQrUrl(table) {
+  const origin = window.location.protocol + '//' + window.location.host;
+  return `${origin}/?t=${encodeURIComponent(table.qr_token)}`;
+}
+
+function QrModal({table, restaurant, onClose}) {
+  const [session, setSession] = React.useState(null);
+  const tableUrl = _buildQrUrl(table);
+  const qrImg    = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(tableUrl)}&margin=10`;
+
+  React.useEffect(()=>{
+    if(!db) return;
+    db.from('table_scan_sessions')
+      .select('scan_count,max_scans,started_at')
+      .eq('table_id', table.id)
+      .is('ended_at', null)
+      .order('started_at',{ascending:false})
+      .limit(1)
+      .maybeSingle()
+      .then(({data})=>setSession(data));
+  },[table.id]);
+
+  function printQR() {
+    const w = window.open('','_blank','width=520,height=680');
+    if(!w) return;
+    const restName = restaurant?.name || 'La Huaca';
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR Mesa ${table.number}</title><style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:system-ui,sans-serif;background:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:32px;}div.card{text-align:center;border:1.5px solid #E5E5E7;border-radius:16px;padding:32px;max-width:320px;width:100%;}img{border-radius:8px;margin-bottom:20px;}h1{font-size:32px;font-weight:900;color:#000;margin-bottom:4px;}p.rest{font-size:14px;color:#86868B;margin-bottom:8px;}p.cap{font-size:12px;color:#C0C0C0;margin-top:8px;}@media print{body{padding:0;}div.card{border:none;border-radius:0;}}</style></head><body><div class="card"><img src="${qrImg}" width="260" height="260"/><h1>Mesa ${table.number}</h1><p class="rest">${restName}</p><p class="cap">${table.capacity||4} personas &middot; Escaneá para ver el menú</p></div><script>window.onload=function(){window.print();}<\/script></body></html>`);
+    w.document.close();
+  }
+
+  const cap = table.capacity || 4;
+  const sessionFull = session && session.scan_count >= session.max_scans;
+
+  return (
+    <Modal title={`QR · Mesa ${table.number}`} onClose={onClose} width={380}>
+      <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:14}}>
+        <img src={qrImg} width={220} height={220} style={{borderRadius:12,border:`1px solid ${C.border}`}} alt="QR" />
+        <div style={{width:'100%',background:'#F5F5F7',borderRadius:8,padding:'9px 12px'}}>
+          <div style={{fontSize:10,color:'#86868B',fontWeight:700,marginBottom:3}}>URL</div>
+          <div style={{fontSize:10,color:'#1D1D1F',wordBreak:'break-all',fontFamily:"'SF Mono',ui-monospace,monospace"}}>{tableUrl}</div>
+        </div>
+        <div style={{display:'flex',gap:10,width:'100%'}}>
+          <div style={{flex:1,background:'#F5F5F7',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
+            <div style={{fontWeight:800,fontSize:20}}>{table.number}</div>
+            <div style={{color:'#86868B',fontSize:10,marginTop:2}}>Mesa</div>
+          </div>
+          <div style={{flex:1,background:'#F5F5F7',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
+            <div style={{fontWeight:800,fontSize:20}}>{cap}</div>
+            <div style={{color:'#86868B',fontSize:10,marginTop:2}}>Lugares</div>
+          </div>
+          {session ? (
+            <div style={{flex:1,background:sessionFull?'#FEE2E2':'#DCFCE7',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
+              <div style={{fontWeight:800,fontSize:20,color:sessionFull?'#DC2626':'#16A34A'}}>{session.scan_count}/{session.max_scans}</div>
+              <div style={{color:'#86868B',fontSize:10,marginTop:2}}>Sesión</div>
+            </div>
+          ) : (
+            <div style={{flex:1,background:'#F5F5F7',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
+              <div style={{fontWeight:800,fontSize:20,color:'#C0C0C0'}}>—</div>
+              <div style={{color:'#86868B',fontSize:10,marginTop:2}}>Sin sesión</div>
+            </div>
+          )}
+        </div>
+        <Btn onClick={printQR} style={{width:'100%'}}>Imprimir QR</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function QrAllModal({tables, restaurant, onClose}) {
+  function printAll() {
+    const restName = restaurant?.name || 'La Huaca';
+    const cards = tables.map(t => {
+      const url = _buildQrUrl(t);
+      const img = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(url)}&margin=8`;
+      return `<div class="card"><img src="${img}" width="200" height="200"/><h2>Mesa ${t.number}</h2><p>${t.capacity||4} personas</p></div>`;
+    }).join('');
+    const w = window.open('','_blank','width=900,height=700');
+    if(!w) return;
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR Mesas — ${restName}</title><style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:system-ui,sans-serif;background:#fff;padding:24px;}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;}.card{text-align:center;border:1.5px solid #E5E5E7;border-radius:12px;padding:20px;}img{border-radius:6px;margin-bottom:12px;}h2{font-size:22px;font-weight:900;color:#000;margin-bottom:4px;}p{font-size:11px;color:#86868B;}h1.title{font-size:18px;font-weight:700;color:#000;margin-bottom:20px;}@media print{body{padding:0;}.card{border:1px solid #ccc;break-inside:avoid;}}</style></head><body><h1 class="title">${restName} — QR de mesas</h1><div class="grid">${cards}</div><script>window.onload=function(){window.print();}<\/script></body></html>`);
+    w.document.close();
+  }
+
+  return (
+    <Modal title="Imprimir QR de todas las mesas" onClose={onClose} width={400}>
+      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        <div style={{fontSize:13,color:'#6E6E73',lineHeight:1.6}}>
+          Se abrirá una página lista para imprimir con los QR de las <strong>{tables.length} mesas</strong>. Cada QR apunta directamente a la mesa correspondiente y respeta el límite de escaneos.
+        </div>
+        <div style={{background:'#F5F5F7',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#86868B'}}>
+          También podés imprimir mesa por mesa haciendo click en <strong>QR</strong> sobre cada mesa del plano.
+        </div>
+        <Btn onClick={printAll}>Abrir página de impresión</Btn>
+      </div>
+    </Modal>
   );
 }
 
