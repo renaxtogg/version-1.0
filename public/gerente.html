@@ -1619,6 +1619,422 @@ function NewTicketModal({onClose, onCreate, userName, role, email, restaurantNam
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   SOLICITUDES DE PERSONAL
+   ════════════════════════════════════════════════════════════════════════════ */
+const STAFF_ROLES = ['mozo','cajero','cocina','rider','supervisor_local'];
+const ROLE_LABEL  = {mozo:'Mozo',cajero:'Cajero',cocina:'Cocina',rider:'Rider',supervisor_local:'Supervisor / Gerente'};
+const SR_STATUS   = {pending:'Pendiente',approved:'Aprobado',rejected:'Rechazado'};
+const SR_COLOR    = {pending:C.orange,approved:C.green,rejected:C.red};
+
+function SolicitudPersonal({user, userName}) {
+  const [list, setList]       = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving]   = useState(false);
+  const blank = {full_name:'',username:'',role:'mozo',dni:'',phone:'',email:'',notes:''};
+  const [form, setForm]       = useState(blank);
+
+  async function load() {
+    if (!db) return;
+    setLoading(true);
+    const {data} = await db.from('staff_requests')
+      .select('*').eq('restaurant_id',RID)
+      .order('created_at',{ascending:false});
+    setList(data||[]);
+    setLoading(false);
+  }
+
+  useEffect(()=>{ load(); },[]);
+
+  async function save() {
+    if (!form.full_name.trim()) { toast('Ingresá el nombre completo',false); return; }
+    if (!form.username.trim())  { toast('Ingresá el usuario propuesto',false); return; }
+    setSaving(true);
+    const {error} = await db.from('staff_requests').insert({
+      restaurant_id: RID,
+      requested_by: user.id,
+      requested_by_name: userName||'—',
+      full_name: form.full_name.trim(),
+      username: form.username.trim().toLowerCase(),
+      role: form.role,
+      dni: form.dni.trim(),
+      phone: form.phone.trim(),
+      email: form.email.trim(),
+      notes: form.notes.trim(),
+    });
+    setSaving(false);
+    if (error) { toast('Error: '+error.message, false); return; }
+    toast('Solicitud enviada al administrador');
+    setForm(blank);
+    setShowForm(false);
+    load();
+  }
+
+  const pendientes = list.filter(x=>x.status==='pending').length;
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:800,color:C.ink}}>Solicitudes de personal</h1>
+          <div style={{fontSize:12,color:C.mid,marginTop:2}}>El administrador revisará y dará de alta al nuevo empleado</div>
+        </div>
+        <Btn onClick={()=>setShowForm(true)}>+ Nueva solicitud</Btn>
+      </div>
+
+      {pendientes>0 && (
+        <div style={{marginBottom:14,padding:'10px 14px',background:'#FFF9F0',border:'1px solid #FFDDA3',borderRadius:8,fontSize:13,color:C.orange,fontWeight:600}}>
+          {pendientes} solicitud{pendientes>1?'es':''} pendiente{pendientes>1?'s':''} de revisión por el administrador
+        </div>
+      )}
+
+      {loading && <div style={{display:'flex',gap:10,alignItems:'center',color:C.mid,fontSize:13}}><span className="spin"/>Cargando…</div>}
+      {!loading && (
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead>
+              <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                <Th>Nombre completo</Th><Th>Usuario</Th><Th>Rol</Th><Th>DNI/CI</Th><Th>Teléfono</Th><Th>Estado</Th><Th>Fecha</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map(r => (
+                <tr key={r.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                  <Td>{r.full_name}</Td>
+                  <Td mono>{r.username||'—'}</Td>
+                  <Td><span style={{background:(SR_COLOR[r.status]||C.mid)+'18',color:SR_COLOR[r.status]||C.mid,border:`1px solid ${(SR_COLOR[r.status]||C.mid)}33`,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{ROLE_LABEL[r.role]||r.role}</span></Td>
+                  <Td dim>{r.dni||'—'}</Td>
+                  <Td dim>{r.phone||'—'}</Td>
+                  <Td>
+                    <span style={{background:(SR_COLOR[r.status]||C.mid)+'18',color:SR_COLOR[r.status]||C.mid,border:`1px solid ${(SR_COLOR[r.status]||C.mid)}33`,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>
+                      {SR_STATUS[r.status]||r.status}
+                    </span>
+                    {r.review_notes && <div style={{fontSize:11,color:C.mid,marginTop:3}}>{r.review_notes}</div>}
+                  </Td>
+                  <Td mono dim>{fmtDate(r.created_at)}</Td>
+                </tr>
+              ))}
+              {list.length===0 && <Empty cols={7} label="Sin solicitudes. Usá + Nueva solicitud para enviar una al administrador."/>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {showForm && (
+        <Modal title="Nueva solicitud de incorporación" onClose={()=>setShowForm(false)} width={520}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 16px'}}>
+            <div style={{gridColumn:'1/-1'}}>
+              <Lbl>Nombre completo *</Lbl>
+              <Inp value={form.full_name} onChange={e=>setForm(f=>({...f,full_name:e.target.value}))} placeholder="ej: Juan García" autoFocus/>
+            </div>
+            <div>
+              <Lbl>Usuario propuesto *</Lbl>
+              <Inp value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} placeholder="ej: juanmozo"/>
+            </div>
+            <div>
+              <Lbl>Rol</Lbl>
+              <Sel value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+                {STAFF_ROLES.map(r=><option key={r} value={r}>{ROLE_LABEL[r]||r}</option>)}
+              </Sel>
+            </div>
+            <div>
+              <Lbl>DNI / Cédula</Lbl>
+              <Inp value={form.dni} onChange={e=>setForm(f=>({...f,dni:e.target.value}))} placeholder="ej: 4.123.456"/>
+            </div>
+            <div>
+              <Lbl>Teléfono</Lbl>
+              <Inp value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="ej: 0981 123456"/>
+            </div>
+            <div style={{gridColumn:'1/-1'}}>
+              <Lbl>Email</Lbl>
+              <Inp value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} placeholder="ej: juan@email.com" type="email"/>
+            </div>
+            <div style={{gridColumn:'1/-1'}}>
+              <Lbl>Notas / observaciones</Lbl>
+              <Txt value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Experiencia previa, referencia, horario preferido…"/>
+            </div>
+          </div>
+          <div style={{marginTop:14,padding:'8px 12px',background:'#F5F5F7',borderRadius:8,fontSize:12,color:C.mid}}>
+            El administrador recibirá esta solicitud y luego de una entrevista dará de alta al empleado.
+          </div>
+          <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:16}}>
+            <Btn variant="ghost" onClick={()=>setShowForm(false)} disabled={saving}>Cancelar</Btn>
+            <Btn onClick={save} disabled={saving}>{saving?'Enviando…':'Enviar solicitud'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   CALENDARIO
+   ════════════════════════════════════════════════════════════════════════════ */
+const G_CAL_TYPES = {
+  holiday: {label:'Feriado',    color:'#FF3B30', icon:'🏖'},
+  event:   {label:'Evento',     color:'#007AFF', icon:'🎉'},
+  sport:   {label:'Deportivo',  color:'#34C759', icon:'⚽'},
+  special: {label:'Especial',   color:'#AF52DE', icon:'🎊'},
+  promo:   {label:'Promoción',  color:'#FF9500', icon:'📢'},
+};
+const G_CAL_CROWD = {
+  low:    {label:'Afluencia baja',  color:'#34C759', dot:'🟢'},
+  medium: {label:'Afluencia media', color:'#FF9500', dot:'🟡'},
+  high:   {label:'Afluencia alta',  color:'#FF3B30', dot:'🔴'},
+};
+const G_WEEK   = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+const G_MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+function gCalGridDays(year, month) {
+  const first    = new Date(year, month, 1);
+  const last     = new Date(year, month + 1, 0);
+  const startDow = (first.getDay() + 6) % 7;
+  const days = [];
+  for (let i = 0; i < startDow; i++) days.push(null);
+  for (let d = 1; d <= last.getDate(); d++) days.push(d);
+  return days;
+}
+
+function CalendarioGerente({user, userName}) {
+  const now = new Date();
+  const [year,  setYear]  = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [form, setForm] = useState({title:'', type:'event', end_date:'', expected_crowd:'medium', notes:''});
+  const [editId, setEditId] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const loadEvents = useCallback(async () => {
+    if (!db) return;
+    setLoading(true);
+    const mm   = String(month + 1).padStart(2,'0');
+    const days = new Date(year, month + 1, 0).getDate();
+    const {data} = await db.from('calendar_events')
+      .select('*')
+      .or(`restaurant_id.eq.${RID},is_global.eq.true`)
+      .gte('date', `${year}-${mm}-01`)
+      .lte('date', `${year}-${mm}-${days}`)
+      .order('date');
+    setEvents(data || []);
+    setLoading(false);
+  }, [year, month]);
+
+  useEffect(() => { loadEvents(); }, [loadEvents]);
+
+  const prevMonth = () => { if (month===0){setYear(y=>y-1);setMonth(11);}else setMonth(m=>m-1); setSelected(null); };
+  const nextMonth = () => { if (month===11){setYear(y=>y+1);setMonth(0);}else setMonth(m=>m+1); setSelected(null); };
+
+  const days    = gCalGridDays(year, month);
+  const today   = new Date();
+  const isToday = d => d===today.getDate() && month===today.getMonth() && year===today.getFullYear();
+
+  const evtsForDay = d => {
+    if (!d) return [];
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    return events.filter(e => e.date <= ds && (e.end_date ? e.end_date >= ds : e.date === ds));
+  };
+
+  const selDate = selected ? `${year}-${String(month+1).padStart(2,'0')}-${String(selected).padStart(2,'0')}` : null;
+  const selEvts = selected ? evtsForDay(selected) : [];
+
+  const resetForm = () => { setForm({title:'', type:'event', end_date:'', expected_crowd:'medium', notes:''}); setEditId(null); };
+  const startEdit = e => { setForm({title:e.title, type:e.type, end_date:e.end_date||'', expected_crowd:e.expected_crowd||'medium', notes:e.notes||''}); setEditId(e.id); };
+
+  const save = async () => {
+    if (!form.title.trim() || !selDate || !db) return;
+    setSaving(true);
+    const payload = {
+      restaurant_id:  RID,
+      title:          form.title.trim(),
+      type:           form.type,
+      date:           selDate,
+      end_date:       form.end_date || null,
+      expected_crowd: form.expected_crowd,
+      notes:          form.notes || null,
+      color:          G_CAL_TYPES[form.type]?.color || '#007AFF',
+      is_global:      false,
+    };
+    if (editId) await db.from('calendar_events').update(payload).eq('id', editId);
+    else        await db.from('calendar_events').insert(payload);
+    setSaving(false);
+    resetForm();
+    loadEvents();
+  };
+
+  const del = async id => {
+    if (!db) return;
+    await db.from('calendar_events').delete().eq('id', id).eq('restaurant_id', RID);
+    loadEvents();
+  };
+
+  const highDays = [...new Set(events.filter(e => e.expected_crowd === 'high').map(e => e.date))].length;
+
+  const upcoming = [...events]
+    .filter(e => { const d = new Date(); d.setHours(0,0,0,0); return new Date(e.date + 'T12:00:00') >= d; })
+    .sort((a,b) => a.date.localeCompare(b.date))
+    .slice(0, 5);
+
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:20,gap:12,flexWrap:'wrap'}}>
+        <div>
+          <h2 style={{fontSize:20,fontWeight:800,color:C.ink,margin:0}}>Calendario de Eventos</h2>
+          <div style={{fontSize:12,color:C.mid,marginTop:3}}>Eventos, feriados y alertas de afluencia del local</div>
+        </div>
+        {highDays > 0 && (
+          <div style={{background:'#FFF4E0',border:'1px solid #FFD580',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#8A4B00'}}>
+            🔴 {highDays} día{highDays>1?'s':''} de alta afluencia este mes
+          </div>
+        )}
+      </div>
+
+      <div style={{display:'flex',gap:20,alignItems:'flex-start',flexWrap:'wrap'}}>
+        {/* Grilla */}
+        <div style={{flex:'1 1 0',minWidth:280}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+            <button onClick={prevMonth} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,width:32,height:32,fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>
+            <div style={{flex:1,textAlign:'center',fontWeight:800,fontSize:15,color:C.ink}}>{G_MONTHS[month]} {year}</div>
+            <button onClick={nextMonth} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,width:32,height:32,fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>
+            <button onClick={()=>{setYear(today.getFullYear());setMonth(today.getMonth());setSelected(null);}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:'4px 9px',fontSize:11,fontWeight:700,cursor:'pointer',color:C.mid}}>Hoy</button>
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:2}}>
+            {G_WEEK.map(d => <div key={d} style={{textAlign:'center',fontSize:10,fontWeight:800,color:C.mid,padding:'3px 0',textTransform:'uppercase',letterSpacing:.4}}>{d}</div>)}
+          </div>
+
+          {loading ? <div style={{textAlign:'center',padding:40}}><span className="spin"/></div> : (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
+              {days.map((d, i) => {
+                const dayEvts = evtsForDay(d);
+                const sel     = d && selected === d;
+                const isTdy   = isToday(d);
+                const hasHigh = dayEvts.some(e => e.expected_crowd === 'high');
+                return (
+                  <div key={i}
+                    onClick={() => { if (d) { setSelected(sel ? null : d); resetForm(); } }}
+                    style={{
+                      minHeight:62, padding:'5px 6px', borderRadius:7, cursor:d?'pointer':'default',
+                      background: sel?'#000':isTdy?'#F0F6FF':hasHigh&&d?'#FFF4E0':d?C.surface:'transparent',
+                      border: sel?'1.5px solid #000':isTdy?'1.5px solid #007AFF':hasHigh&&d?'1px solid #FFD580':`1px solid ${C.border}`,
+                      transition:'all .1s',
+                    }}>
+                    {d && <>
+                      <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?'#fff':isTdy?'#007AFF':C.ink,lineHeight:1,marginBottom:3}}>{d}</div>
+                      <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
+                        {dayEvts.slice(0,3).map(e=>(
+                          <div key={e.id} style={{width:6,height:6,borderRadius:'50%',background:G_CAL_TYPES[e.type]?.color||'#007AFF',flexShrink:0}}/>
+                        ))}
+                        {dayEvts.length>3 && <div style={{fontSize:9,color:sel?'#ccc':C.mid}}>+{dayEvts.length-3}</div>}
+                      </div>
+                    </>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div style={{display:'flex',flexWrap:'wrap',gap:12,marginTop:12,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+            {Object.entries(G_CAL_TYPES).map(([k,v])=>(
+              <div key={k} style={{display:'flex',alignItems:'center',gap:4,fontSize:10,color:C.mid}}>
+                <div style={{width:7,height:7,borderRadius:'50%',background:v.color}}/>
+                {v.label}
+              </div>
+            ))}
+            <div style={{display:'flex',alignItems:'center',gap:4,fontSize:10,color:'#8A4B00'}}>
+              <div style={{width:7,height:7,borderRadius:2,background:'#FFD580'}}/>
+              Alta afluencia
+            </div>
+          </div>
+        </div>
+
+        {/* Panel lateral */}
+        <div style={{width:300,flexShrink:0}}>
+          {selected ? (
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+              <div style={{fontWeight:800,fontSize:13,marginBottom:10,color:C.ink,display:'flex',justifyContent:'space-between'}}>
+                <span>{String(selected).padStart(2,'0')} {G_MONTHS[month].substring(0,3)} {year}</span>
+                <span style={{fontSize:11,color:C.mid,fontWeight:400}}>{selEvts.length} evento{selEvts.length!==1?'s':''}</span>
+              </div>
+
+              {selEvts.map(e => (
+                <div key={e.id} style={{background:C.bg,borderRadius:7,padding:'9px 11px',marginBottom:6,borderLeft:`3px solid ${G_CAL_TYPES[e.type]?.color||'#007AFF'}`}}>
+                  <div style={{display:'flex',alignItems:'flex-start',gap:7}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:600,fontSize:12,color:C.ink,marginBottom:3}}>{G_CAL_TYPES[e.type]?.icon} {e.title}</div>
+                      <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                        <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:G_CAL_TYPES[e.type]?.color+'22',color:G_CAL_TYPES[e.type]?.color,fontWeight:700}}>{G_CAL_TYPES[e.type]?.label}</span>
+                        <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:G_CAL_CROWD[e.expected_crowd]?.color+'22',color:G_CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{G_CAL_CROWD[e.expected_crowd]?.dot} {G_CAL_CROWD[e.expected_crowd]?.label}</span>
+                        {e.is_global && <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:'#F0F0F5',color:'#8E8E93',fontWeight:700}}>Global</span>}
+                      </div>
+                      {e.notes && <div style={{fontSize:11,color:C.mid,marginTop:3}}>{e.notes}</div>}
+                    </div>
+                    {e.restaurant_id === RID && (
+                      <div style={{display:'flex',gap:3,flexShrink:0}}>
+                        <button onClick={()=>startEdit(e)} style={{background:'none',border:`1px solid ${C.border}`,borderRadius:5,padding:'2px 6px',fontSize:11,cursor:'pointer',color:C.mid}}>✎</button>
+                        <button onClick={()=>del(e.id)} style={{background:'none',border:`1px solid rgba(239,68,68,.3)`,borderRadius:5,padding:'2px 6px',fontSize:11,cursor:'pointer',color:C.red}}>✕</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              <div style={{borderTop:selEvts.length?`1px solid ${C.border}`:'none',paddingTop:selEvts.length?10:0,marginTop:selEvts.length?4:0}}>
+                <div style={{fontSize:10,fontWeight:800,color:C.mid,textTransform:'uppercase',letterSpacing:.5,marginBottom:7}}>
+                  {editId ? '✎ Editar' : '+ Nuevo evento'}
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:7}}>
+                  <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Título" style={{padding:'7px 9px',fontSize:12,borderRadius:7,border:`1px solid ${C.border}`,width:'100%'}}/>
+                  <select value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))} style={{padding:'7px 9px',fontSize:12,borderRadius:7,border:`1px solid ${C.border}`}}>
+                    {Object.entries(G_CAL_TYPES).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}
+                  </select>
+                  <select value={form.expected_crowd} onChange={e=>setForm(f=>({...f,expected_crowd:e.target.value}))} style={{padding:'7px 9px',fontSize:12,borderRadius:7,border:`1px solid ${C.border}`}}>
+                    {Object.entries(G_CAL_CROWD).map(([k,v])=><option key={k} value={k}>{v.dot} {v.label}</option>)}
+                  </select>
+                  <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notas" rows={2} style={{padding:'7px 9px',fontSize:12,borderRadius:7,border:`1px solid ${C.border}`,resize:'none',fontFamily:'inherit'}}/>
+                  <div style={{display:'flex',gap:6}}>
+                    {editId && <Btn variant="ghost" small onClick={resetForm} style={{flex:1}}>Cancelar</Btn>}
+                    <Btn small onClick={save} disabled={saving||!form.title.trim()} style={{flex:1}}>
+                      {saving ? 'Guardando…' : editId ? 'Guardar' : 'Agregar'}
+                    </Btn>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+              <div style={{fontWeight:800,fontSize:13,marginBottom:10,color:C.ink}}>Próximos eventos</div>
+              {upcoming.length === 0 ? (
+                <div style={{fontSize:12,color:C.mid,textAlign:'center',padding:'20px 0',lineHeight:1.6}}>
+                  Sin eventos próximos.<br/>
+                  <span style={{fontSize:11}}>Hacé clic en un día para agregar.</span>
+                </div>
+              ) : upcoming.map(e => {
+                const d = new Date(e.date + 'T12:00:00');
+                return (
+                  <div key={e.id} style={{display:'flex',gap:10,alignItems:'flex-start',padding:'7px 0',borderBottom:`1px solid ${C.border}`,cursor:'pointer'}}
+                    onClick={()=>{setSelected(d.getDate());resetForm();}}>
+                    <div style={{width:36,textAlign:'center',flexShrink:0}}>
+                      <div style={{fontSize:19,fontWeight:900,color:G_CAL_TYPES[e.type]?.color||C.ink,lineHeight:1}}>{String(d.getDate()).padStart(2,'0')}</div>
+                      <div style={{fontSize:9,color:C.mid,textTransform:'uppercase'}}>{G_MONTHS[d.getMonth()].substring(0,3)}</div>
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{G_CAL_TYPES[e.type]?.icon} {e.title}</div>
+                      <span style={{fontSize:10,color:G_CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{G_CAL_CROWD[e.expected_crowd]?.dot} {G_CAL_CROWD[e.expected_crowd]?.label}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    APP SHELL
    ════════════════════════════════════════════════════════════════════════════ */
 function App() {
@@ -1626,6 +2042,7 @@ function App() {
   const [section, setSection] = useState('dashboard');
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [unreadSupport, setUnreadSupport] = useState(0);
+  const [pendingStaffReqs, setPendingStaffReqs] = useState(0);
 
   useEffect(() => {
     if (!db || !auth.user) return;
@@ -1637,6 +2054,8 @@ function App() {
       const { data: tk } = await db.from('support_tickets')
         .select('unread_for_client').eq('restaurant_id',RID).neq('status','cerrado');
       setUnreadSupport((tk||[]).reduce((s,t)=>s+(t.unread_for_client||0),0));
+      const { count: srCount } = await db.from('staff_requests').select('id',{count:'exact',head:true}).eq('restaurant_id',RID).eq('status','pending');
+      setPendingStaffReqs(srCount||0);
     };
     tick();
     const id = setInterval(tick, 20000);
@@ -1655,8 +2074,10 @@ function App() {
     {key:'stock86',   label:'Stock / 86d', icon:'📦'},
     {key:'caja',      label:'Caja en vivo', icon:'💰'},
     {key:'reservas',  label:'Reservas', icon:'📅'},
+    {key:'calendario',label:'Calendario', icon:'📆'},
     {key:'bitacora',  label:'Bitácora', icon:'📝'},
     {key:'reportes',  label:'Reportes', icon:'📈'},
+    {key:'personal',  label:'Solicitudes personal', icon:'◎', badge: pendingStaffReqs},
     {key:'soporte',   label:'Soporte Mythos', icon:'💬', badge: unreadSupport},
   ];
 
@@ -1696,8 +2117,10 @@ function App() {
         {section==='stock86'      && <Stock86 user={auth.user} userName={auth.name}/>}
         {section==='caja'         && <CajaLive/>}
         {section==='reservas'     && <ReservasHoy/>}
+        {section==='calendario'   && <CalendarioGerente user={auth.user} userName={auth.name}/>}
         {section==='bitacora'     && <BitacoraTurno user={auth.user} userName={auth.name}/>}
         {section==='reportes'     && <ReportesDelDia/>}
+        {section==='personal'     && <SolicitudPersonal user={auth.user} userName={auth.name}/>}
         {section==='soporte'      && <Soporte user={auth.user} role={auth.role} userName={auth.name} userUsername={auth.username} userEmail={auth.email}/>}
       </main>
 

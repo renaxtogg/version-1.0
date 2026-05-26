@@ -322,6 +322,7 @@ const NAV = [
   {id:'menu',       label:'Menú',         icon:'⊞', group:'GESTIÓN'},
   {id:'mesas',      label:'Mesas',        icon:'⊡'},
   {id:'reservas',   label:'Reservas',     icon:'◷'},
+  {id:'calendario', label:'Calendario',   icon:'◈'},
   {id:'estaciones', label:'Estaciones',   icon:'▣'},
   {id:'personal',   label:'Personal',     icon:'◎'},
   {id:'stock',      label:'Stock',        icon:'▤'},
@@ -2030,7 +2031,7 @@ function PersonalPage() {
   const [editRole,setEditRole] = useState('');
   const [editActive,setEditActive] = useState(true);
   const [addModal,setAddModal] = useState(false);
-  const [addForm,setAddForm]   = useState({username:'',password:'',display_name:'',role:'mozo'});
+  const [addForm,setAddForm]   = useState({username:'',password:'',display_name:'',role:'mozo',_reqId:null});
   const [addLoading,setAddLoading] = useState(false);
 
   // Turnos
@@ -2039,6 +2040,14 @@ function PersonalPage() {
   const [shiftDate,setShiftDate]   = useState(new Date().toISOString().slice(0,10));
   const [shiftModal,setShiftModal] = useState(false);
   const [shiftEmp,setShiftEmp]     = useState('');
+
+  // Solicitudes de personal (desde gerente)
+  const [reqs,setReqs]             = useState([]);
+  const [loadingReqs,setLR]        = useState(false);
+  const [rejectModal,setRejectModal] = useState(null); // {id, name}
+  const [rejectNotes,setRejectNotes] = useState('');
+  const [rejectSaving,setRS]       = useState(false);
+  const [approvingId,setApprovingId] = useState(null);
 
   async function loadProfiles() {
     if(!db){setLoading(false);return;}
@@ -2064,8 +2073,17 @@ function PersonalPage() {
     setLS(false);
   }
 
+  async function loadReqs() {
+    if(!db) return;
+    setLR(true);
+    const{data}=await db.from('staff_requests').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false});
+    setReqs(data||[]);
+    setLR(false);
+  }
+
   useEffect(()=>{ loadProfiles(); },[]);
   useEffect(()=>{ if(tab==='turnos') loadShifts(); },[tab,shiftDate]);
+  useEffect(()=>{ if(tab==='solicitudes') loadReqs(); },[tab]);
 
   useEffect(()=>{
     if(!db) return;
@@ -2104,11 +2122,33 @@ function PersonalPage() {
       const result=await resp.json();
       if(!resp.ok) throw new Error(result.error||'Error desconocido');
       toast(`Empleado "${result.username}" creado`);
+      if(addForm._reqId){
+        const{data:{user:me}}=await db.auth.getUser();
+        await db.from('staff_requests').update({status:'approved',reviewed_by:me?.id,reviewed_at:new Date().toISOString()}).eq('id',addForm._reqId);
+        setReqs(r=>r.map(x=>x.id===addForm._reqId?{...x,status:'approved'}:x));
+      }
       setAddModal(false);
-      setAddForm({username:'',password:'',display_name:'',role:'mozo'});
+      setAddForm({username:'',password:'',display_name:'',role:'mozo',_reqId:null});
       loadProfiles();
     } catch(e){toast(e.message,false);}
     setAddLoading(false);
+  }
+
+  function openApprove(req) {
+    setAddForm({username:req.username||'',password:'',display_name:req.full_name||'',role:req.role||'mozo',_reqId:req.id});
+    setAddModal(true);
+  }
+
+  async function confirmReject() {
+    if(!rejectModal||!db) return;
+    setRS(true);
+    const{data:{user:me}}=await db.auth.getUser();
+    const{error}=await db.from('staff_requests').update({status:'rejected',reviewed_by:me?.id,reviewed_at:new Date().toISOString(),review_notes:rejectNotes.trim()}).eq('id',rejectModal.id);
+    setRS(false);
+    if(error){toast('Error: '+error.message,false);return;}
+    toast('Solicitud rechazada');
+    setReqs(r=>r.map(x=>x.id===rejectModal.id?{...x,status:'rejected',review_notes:rejectNotes.trim()}:x));
+    setRejectModal(null); setRejectNotes('');
   }
 
   async function clockIn() {
@@ -2148,7 +2188,7 @@ function PersonalPage() {
 
       {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
-        {[['empleados','Empleados'],['turnos','Turnos']].map(([id,lbl])=>(
+        {[['empleados','Empleados'],['turnos','Turnos'],['solicitudes',`Solicitudes${reqs.filter(r=>r.status==='pending').length>0?' ('+reqs.filter(r=>r.status==='pending').length+')':''}`]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
@@ -2157,7 +2197,7 @@ function PersonalPage() {
       {tab==='empleados'&&(<>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
           <div style={{fontSize:12,color:'#6E6E73'}}>Usuarios con acceso al sistema · restaurante {RID.slice(0,8)}…</div>
-          <Btn small onClick={()=>{setAddForm({username:'',password:'',display_name:'',role:'mozo'});setAddModal(true);}}>+ Nuevo empleado</Btn>
+          <Btn small onClick={()=>{setAddForm({username:'',password:'',display_name:'',role:'mozo',_reqId:null});setAddModal(true);}}>+ Nuevo empleado</Btn>
         </div>
         {loading&&<div style={{display:'flex',gap:10,alignItems:'center',color:'#6E6E73',fontSize:13}}><span className="spin"/>Cargando personal…</div>}
         {error&&<div style={{color:C.orange,fontSize:13,padding:16,background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.2)',borderRadius:8,marginBottom:14}}><div style={{fontWeight:700,marginBottom:4}}>Atención</div>{error}</div>}
@@ -2197,7 +2237,7 @@ function PersonalPage() {
         {profiles.length>0&&<div style={{marginTop:10,fontSize:11,color:'#86868B'}}>{profiles.filter(p=>p.is_active!==false).length} activos · {profiles.filter(p=>p.is_active===false).length} inactivos</div>}
 
         {addModal&&(
-          <Modal title="Nuevo empleado" onClose={()=>setAddModal(false)}>
+          <Modal title={addForm._reqId?'Aprobar solicitud — crear usuario':'Nuevo empleado'} onClose={()=>{setAddModal(false);setAddForm({username:'',password:'',display_name:'',role:'mozo',_reqId:null});}}>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
               <div>
                 <label style={{display:'block',fontSize:12,color:'#6E6E73',marginBottom:5}}>Usuario *</label>
@@ -2235,11 +2275,16 @@ function PersonalPage() {
                 {ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
               </Sel>
             </div>
+            {addForm._reqId&&(
+              <div style={{marginTop:14,padding:'8px 12px',background:'#FFF9F0',border:'1px solid #FFDDA3',borderRadius:8,fontSize:12,color:C.orange,fontWeight:600}}>
+                Al crear el usuario se marcará la solicitud como <strong>Aprobada</strong>.
+              </div>
+            )}
             <div style={{marginTop:14,padding:'8px 12px',background:'#F5F5F7',borderRadius:8,fontSize:12,color:'#86868B'}}>
               El empleado iniciará sesión con su usuario y contraseña en el panel correspondiente a su rol.
             </div>
             <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:16}}>
-              <Btn variant="ghost" onClick={()=>setAddModal(false)} disabled={addLoading}>Cancelar</Btn>
+              <Btn variant="ghost" onClick={()=>{setAddModal(false);setAddForm({username:'',password:'',display_name:'',role:'mozo',_reqId:null});}} disabled={addLoading}>Cancelar</Btn>
               <Btn onClick={addEmployee} disabled={addLoading}>{addLoading?'Creando…':'Crear empleado'}</Btn>
             </div>
           </Modal>
@@ -2301,6 +2346,78 @@ function PersonalPage() {
               </div>
               <div style={{fontSize:12,color:'#6E6E73'}}>Hora de entrada: {new Date().toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>
               <div style={{display:'flex',gap:8}}><Btn onClick={clockIn}>Registrar entrada</Btn><Btn variant="ghost" onClick={()=>setShiftModal(false)}>Cancelar</Btn></div>
+            </div>
+          </Modal>
+        )}
+      </>)}
+
+      {/* Tab Solicitudes de Personal */}
+      {tab==='solicitudes'&&(<>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+          <div style={{fontSize:12,color:'#6E6E73'}}>Solicitudes enviadas por gerentes · revisá la info y creá el usuario cuando estés listo</div>
+          <Btn small variant="secondary" onClick={loadReqs}>↺ Actualizar</Btn>
+        </div>
+        {loadingReqs&&<div style={{display:'flex',gap:10,alignItems:'center',color:'#6E6E73',fontSize:13}}><span className="spin"/>Cargando solicitudes…</div>}
+        {!loadingReqs&&(
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead>
+                <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                  <Th>Nombre completo</Th><Th>Usuario</Th><Th>Rol</Th><Th>DNI/CI</Th><Th>Tel.</Th><Th>Email</Th><Th>Solicitado por</Th><Th>Fecha</Th><Th>Estado</Th><Th>Acciones</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {reqs.map(r=>{
+                  const srCol={pending:C.orange,approved:C.green,rejected:C.red};
+                  const srLbl={pending:'Pendiente',approved:'Aprobado',rejected:'Rechazado'};
+                  return (
+                    <tr key={r.id} style={{borderBottom:`1px solid #F0F0F0`,opacity:r.status!=='pending'?0.65:1}}>
+                      <Td>{r.full_name}</Td>
+                      <Td mono>{r.username||'—'}</Td>
+                      <Td><span style={{background:(srCol[r.status]||'#86868B')+'18',color:srCol[r.status]||'#86868B',border:`1px solid ${(srCol[r.status]||'#86868B')}33`,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{r.role}</span></Td>
+                      <Td dim>{r.dni||'—'}</Td>
+                      <Td dim>{r.phone||'—'}</Td>
+                      <Td dim style={{fontSize:11}}>{r.email||'—'}</Td>
+                      <Td dim>{r.requested_by_name||'—'}</Td>
+                      <Td mono dim>{fmtDate(r.created_at)}</Td>
+                      <Td>
+                        <span style={{background:(srCol[r.status]||'#86868B')+'18',color:srCol[r.status]||'#86868B',border:`1px solid ${(srCol[r.status]||'#86868B')}33`,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>
+                          {srLbl[r.status]||r.status}
+                        </span>
+                        {r.review_notes&&<div style={{fontSize:11,color:'#86868B',marginTop:2}}>{r.review_notes}</div>}
+                        {r.notes&&r.status==='pending'&&<div style={{fontSize:11,color:'#6E6E73',marginTop:2,fontStyle:'italic'}}>"{r.notes}"</div>}
+                      </Td>
+                      <Td>
+                        {r.status==='pending'&&(
+                          <div style={{display:'flex',gap:6}}>
+                            <Btn small variant="success" onClick={()=>openApprove(r)}>✓ Aprobar y crear</Btn>
+                            <Btn small variant="danger" onClick={()=>{setRejectModal({id:r.id,name:r.full_name});setRejectNotes('');}}>✕ Rechazar</Btn>
+                          </div>
+                        )}
+                      </Td>
+                    </tr>
+                  );
+                })}
+                {reqs.length===0&&<EmptyRow cols={10} label="Sin solicitudes de personal recibidas"/>}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {rejectModal&&(
+          <Modal title={`Rechazar solicitud — ${rejectModal.name}`} onClose={()=>setRejectModal(null)} width={400}>
+            <div>
+              <label style={{display:'block',fontSize:12,color:'#6E6E73',marginBottom:5}}>Motivo del rechazo (opcional)</label>
+              <textarea
+                value={rejectNotes}
+                onChange={e=>setRejectNotes(e.target.value)}
+                placeholder="ej: No hay vacante disponible actualmente…"
+                rows={3}
+                style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,resize:'vertical',fontFamily:'inherit',boxSizing:'border-box'}}
+              />
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:16}}>
+              <Btn variant="ghost" onClick={()=>setRejectModal(null)} disabled={rejectSaving}>Cancelar</Btn>
+              <Btn variant="danger" onClick={confirmReject} disabled={rejectSaving}>{rejectSaving?'Rechazando…':'Confirmar rechazo'}</Btn>
             </div>
           </Modal>
         )}
@@ -8126,6 +8243,286 @@ function NewTicketModalAdmin({onClose, onCreate, userName, role, email, restaura
 }
 
 /* ══════════════════════════════════════════════
+   CALENDARIO
+══════════════════════════════════════════════ */
+const CAL_TYPES = {
+  holiday: {label:'Feriado',    color:'#FF3B30', icon:'🏖'},
+  event:   {label:'Evento',     color:'#007AFF', icon:'🎉'},
+  sport:   {label:'Deportivo',  color:'#34C759', icon:'⚽'},
+  special: {label:'Especial',   color:'#AF52DE', icon:'🎊'},
+  promo:   {label:'Promoción',  color:'#FF9500', icon:'📢'},
+};
+const CAL_CROWD = {
+  low:    {label:'Afluencia baja',  color:'#34C759', dot:'🟢'},
+  medium: {label:'Afluencia media', color:'#FF9500', dot:'🟡'},
+  high:   {label:'Afluencia alta',  color:'#FF3B30', dot:'🔴'},
+};
+const CAL_WEEK  = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+const CAL_MONTHS= ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+function calGridDays(year, month) {
+  const first   = new Date(year, month, 1);
+  const last    = new Date(year, month + 1, 0);
+  const startDow = (first.getDay() + 6) % 7; // Mon = 0
+  const days = [];
+  for (let i = 0; i < startDow; i++) days.push(null);
+  for (let d = 1; d <= last.getDate(); d++) days.push(d);
+  return days;
+}
+
+function CalendarioPage() {
+  const now = new Date();
+  const [year,  setYear]  = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [form, setForm] = useState({title:'', type:'event', end_date:'', expected_crowd:'medium', notes:''});
+  const [editId, setEditId] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const loadEvents = useCallback(async () => {
+    if (!db) return;
+    setLoading(true);
+    const mm   = String(month + 1).padStart(2,'0');
+    const days = new Date(year, month + 1, 0).getDate();
+    const {data} = await db.from('calendar_events')
+      .select('*')
+      .or(`restaurant_id.eq.${RID},is_global.eq.true`)
+      .gte('date', `${year}-${mm}-01`)
+      .lte('date', `${year}-${mm}-${days}`)
+      .order('date');
+    setEvents(data || []);
+    setLoading(false);
+  }, [year, month]);
+
+  useEffect(() => { loadEvents(); }, [loadEvents]);
+
+  const prevMonth = () => { if (month===0){setYear(y=>y-1);setMonth(11);}else setMonth(m=>m-1); setSelected(null); };
+  const nextMonth = () => { if (month===11){setYear(y=>y+1);setMonth(0);}else setMonth(m=>m+1); setSelected(null); };
+
+  const days   = calGridDays(year, month);
+  const today  = new Date();
+  const isToday = d => d===today.getDate() && month===today.getMonth() && year===today.getFullYear();
+
+  const evtsForDay = d => {
+    if (!d) return [];
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    return events.filter(e => e.date <= ds && (e.end_date ? e.end_date >= ds : e.date === ds));
+  };
+
+  const selDate = selected
+    ? `${year}-${String(month+1).padStart(2,'0')}-${String(selected).padStart(2,'0')}`
+    : null;
+  const selEvts = selected ? evtsForDay(selected) : [];
+
+  const resetForm = () => { setForm({title:'', type:'event', end_date:'', expected_crowd:'medium', notes:''}); setEditId(null); };
+  const startEdit = e => { setForm({title:e.title, type:e.type, end_date:e.end_date||'', expected_crowd:e.expected_crowd||'medium', notes:e.notes||''}); setEditId(e.id); };
+
+  const save = async () => {
+    if (!form.title.trim() || !selDate || !db) return;
+    setSaving(true);
+    const payload = {
+      restaurant_id:   RID,
+      title:           form.title.trim(),
+      type:            form.type,
+      date:            selDate,
+      end_date:        form.end_date || null,
+      expected_crowd:  form.expected_crowd,
+      notes:           form.notes || null,
+      color:           CAL_TYPES[form.type]?.color || '#007AFF',
+      is_global:       false,
+    };
+    if (editId) await db.from('calendar_events').update(payload).eq('id', editId);
+    else        await db.from('calendar_events').insert(payload);
+    setSaving(false);
+    resetForm();
+    loadEvents();
+  };
+
+  const del = async id => {
+    if (!db) return;
+    await db.from('calendar_events').delete().eq('id', id).eq('restaurant_id', RID);
+    loadEvents();
+  };
+
+  const upcoming = [...events]
+    .filter(e => e.date >= `${year}-${String(month+1).padStart(2,'0')}-01`)
+    .sort((a,b) => a.date.localeCompare(b.date))
+    .slice(0, 6);
+
+  // Conteo de afluencia alta este mes
+  const highCrowdCount = events.filter(e => e.expected_crowd === 'high').length;
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:20,gap:12}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#000000',margin:0}}>Calendario de Eventos</h1>
+          <div style={{fontSize:12,color:C.mid,marginTop:3}}>Planificá feriados, eventos y movimiento de público</div>
+        </div>
+        {highCrowdCount > 0 && (
+          <div style={{background:'#FFF4E0',border:'1px solid #FFD580',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#8A4B00',flexShrink:0}}>
+            🔴 {highCrowdCount} evento{highCrowdCount>1?'s':''} de alta afluencia este mes
+          </div>
+        )}
+      </div>
+
+      <div style={{display:'flex',gap:20,alignItems:'flex-start'}}>
+        {/* ── Grilla mensual ── */}
+        <div style={{flex:'1 1 0',minWidth:0}}>
+          {/* Navegación mes */}
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+            <button onClick={prevMonth} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:34,height:34,fontSize:17,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>‹</button>
+            <div style={{flex:1,textAlign:'center',fontWeight:800,fontSize:16,color:C.ink}}>{CAL_MONTHS[month]} {year}</div>
+            <button onClick={nextMonth} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,width:34,height:34,fontSize:17,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>›</button>
+            <button onClick={()=>{setYear(today.getFullYear());setMonth(today.getMonth());setSelected(null);}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:700,cursor:'pointer',color:C.mid,flexShrink:0}}>Hoy</button>
+          </div>
+
+          {/* Cabecera días semana */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:3}}>
+            {CAL_WEEK.map(d => <div key={d} style={{textAlign:'center',fontSize:10,fontWeight:800,color:C.mid,padding:'3px 0',textTransform:'uppercase',letterSpacing:.5}}>{d}</div>)}
+          </div>
+
+          {/* Celdas */}
+          {loading ? (
+            <div style={{textAlign:'center',padding:50}}><div className="spin"/></div>
+          ) : (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
+              {days.map((d, i) => {
+                const dayEvts = evtsForDay(d);
+                const sel     = d && selected === d;
+                const isTdy   = isToday(d);
+                return (
+                  <div key={i}
+                    onClick={() => { if (d) { setSelected(sel ? null : d); resetForm(); } }}
+                    style={{
+                      minHeight:68, padding:'6px 7px', borderRadius:8,
+                      cursor: d ? 'pointer' : 'default',
+                      background: sel ? '#000' : isTdy ? '#F0F6FF' : d ? C.surface : 'transparent',
+                      border: sel ? '1.5px solid #000' : isTdy ? '1.5px solid #007AFF' : `1px solid ${C.border}`,
+                      transition: 'all .1s',
+                    }}>
+                    {d && <>
+                      <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?'#fff':isTdy?'#007AFF':C.ink,lineHeight:1,marginBottom:4}}>{d}</div>
+                      <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
+                        {dayEvts.slice(0,3).map(e => (
+                          <div key={e.id} style={{width:7,height:7,borderRadius:'50%',background:CAL_TYPES[e.type]?.color||'#007AFF',opacity:sel?.85:1,flexShrink:0}}/>
+                        ))}
+                        {dayEvts.length > 3 && <div style={{fontSize:9,color:sel?'#ccc':C.mid,lineHeight:'7px'}}>+{dayEvts.length-3}</div>}
+                      </div>
+                    </>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Leyenda tipos */}
+          <div style={{display:'flex',flexWrap:'wrap',gap:14,marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+            {Object.entries(CAL_TYPES).map(([k,v]) => (
+              <div key={k} style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:C.mid}}>
+                <div style={{width:8,height:8,borderRadius:'50%',background:v.color}}/>
+                {v.label}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Panel lateral ── */}
+        <div style={{width:310,flexShrink:0}}>
+          {selected ? (
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+              <div style={{fontWeight:800,fontSize:13,marginBottom:12,color:C.ink,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <span>{String(selected).padStart(2,'0')} {CAL_MONTHS[month].substring(0,3)} {year}</span>
+                <span style={{fontSize:11,color:C.mid,fontWeight:400}}>{selEvts.length} evento{selEvts.length!==1?'s':''}</span>
+              </div>
+
+              {selEvts.map(e => (
+                <div key={e.id} style={{background:C.bg,borderRadius:8,padding:'10px 12px',marginBottom:6,borderLeft:`3px solid ${CAL_TYPES[e.type]?.color||'#007AFF'}`}}>
+                  <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:600,fontSize:13,color:C.ink,marginBottom:3}}>{CAL_TYPES[e.type]?.icon} {e.title}</div>
+                      <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:e.notes?3:0}}>
+                        <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:CAL_TYPES[e.type]?.color+'22',color:CAL_TYPES[e.type]?.color,fontWeight:700}}>{CAL_TYPES[e.type]?.label}</span>
+                        <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:CAL_CROWD[e.expected_crowd]?.color+'22',color:CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{CAL_CROWD[e.expected_crowd]?.dot} {CAL_CROWD[e.expected_crowd]?.label}</span>
+                        {e.is_global && <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:'#F0F0F5',color:'#8E8E93',fontWeight:700}}>Global</span>}
+                        {e.end_date && e.end_date !== e.date && <span style={{fontSize:10,color:C.mid}}>hasta {e.end_date}</span>}
+                      </div>
+                      {e.notes && <div style={{fontSize:11,color:C.mid,marginTop:2}}>{e.notes}</div>}
+                    </div>
+                    {e.restaurant_id === RID && (
+                      <div style={{display:'flex',gap:3,flexShrink:0}}>
+                        <button onClick={()=>startEdit(e)} style={{background:'none',border:`1px solid ${C.border}`,borderRadius:5,padding:'2px 7px',fontSize:11,cursor:'pointer',color:C.mid}}>✎</button>
+                        <button onClick={()=>del(e.id)} style={{background:'none',border:`1px solid rgba(239,68,68,.3)`,borderRadius:5,padding:'2px 7px',fontSize:11,cursor:'pointer',color:C.red}}>✕</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              <div style={{borderTop:selEvts.length?`1px solid ${C.border}`:'none',paddingTop:selEvts.length?12:0,marginTop:selEvts.length?4:0}}>
+                <div style={{fontSize:10,fontWeight:800,color:C.mid,textTransform:'uppercase',letterSpacing:.5,marginBottom:8}}>
+                  {editId ? '✎ Editar evento' : '+ Nuevo evento'}
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:7}}>
+                  <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Título del evento" style={{padding:'8px 10px',fontSize:13,borderRadius:7,border:`1px solid ${C.border}`,width:'100%'}}/>
+                  <select value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))} style={{padding:'8px 10px',fontSize:13,borderRadius:7,border:`1px solid ${C.border}`}}>
+                    {Object.entries(CAL_TYPES).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}
+                  </select>
+                  <select value={form.expected_crowd} onChange={e=>setForm(f=>({...f,expected_crowd:e.target.value}))} style={{padding:'8px 10px',fontSize:13,borderRadius:7,border:`1px solid ${C.border}`}}>
+                    {Object.entries(CAL_CROWD).map(([k,v])=><option key={k} value={k}>{v.dot} {v.label}</option>)}
+                  </select>
+                  <div>
+                    <div style={{fontSize:10,color:C.mid,marginBottom:3}}>Hasta (multi-día, opcional)</div>
+                    <input type="date" value={form.end_date} onChange={e=>setForm(f=>({...f,end_date:e.target.value}))} style={{padding:'7px 10px',fontSize:12,borderRadius:7,border:`1px solid ${C.border}`,width:'100%'}}/>
+                  </div>
+                  <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notas (opcional)" rows={2} style={{padding:'8px 10px',fontSize:12,borderRadius:7,border:`1px solid ${C.border}`,resize:'none',fontFamily:'inherit'}}/>
+                  <div style={{display:'flex',gap:6}}>
+                    {editId && <Btn variant="ghost" small onClick={resetForm} style={{flex:1}}>Cancelar</Btn>}
+                    <Btn small onClick={save} disabled={saving||!form.title.trim()} style={{flex:1}}>
+                      {saving ? 'Guardando…' : editId ? 'Guardar cambios' : 'Agregar evento'}
+                    </Btn>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+              <div style={{fontWeight:800,fontSize:13,marginBottom:12,color:C.ink}}>Próximos eventos — {CAL_MONTHS[month]}</div>
+              {upcoming.length === 0 ? (
+                <div style={{fontSize:12,color:C.mid,textAlign:'center',padding:'24px 0',lineHeight:1.6}}>
+                  Sin eventos este mes.<br/>
+                  <span style={{fontSize:11}}>Hacé clic en un día para agregar.</span>
+                </div>
+              ) : upcoming.map(e => {
+                const d = new Date(e.date + 'T12:00:00');
+                return (
+                  <div key={e.id} style={{display:'flex',gap:10,alignItems:'flex-start',padding:'8px 0',borderBottom:`1px solid ${C.border}`}}
+                    onClick={()=>{setSelected(d.getDate());resetForm();}}>
+                    <div style={{width:38,textAlign:'center',flexShrink:0,cursor:'pointer'}}>
+                      <div style={{fontSize:20,fontWeight:900,color:CAL_TYPES[e.type]?.color||C.ink,lineHeight:1}}>{String(d.getDate()).padStart(2,'0')}</div>
+                      <div style={{fontSize:9,color:C.mid,textTransform:'uppercase',letterSpacing:.3}}>{CAL_MONTHS[d.getMonth()].substring(0,3)}</div>
+                    </div>
+                    <div style={{flex:1,minWidth:0,cursor:'pointer'}}>
+                      <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{CAL_TYPES[e.type]?.icon} {e.title}</div>
+                      <div style={{display:'flex',gap:4,marginTop:2,alignItems:'center'}}>
+                        <span style={{fontSize:10,color:CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{CAL_CROWD[e.expected_crowd]?.dot} {CAL_CROWD[e.expected_crowd]?.label}</span>
+                        {e.is_global && <span style={{fontSize:9,color:'#8E8E93',background:'#F0F0F5',padding:'1px 5px',borderRadius:3,fontWeight:700}}>Global</span>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
    ROOT APP
 ══════════════════════════════════════════════ */
 function AdminApp() {
@@ -8231,6 +8628,7 @@ function AdminApp() {
       case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
       case 'mesas':     return <MesasPage tables={tables} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'reservas':  return <ReservasPage tables={tables}/>;
+      case 'calendario':return <CalendarioPage/>;
       case 'estaciones':return <EstacionesPage categories={categories} tables={tables}/>;
       case 'personal':  return <PersonalPage/>;
       case 'clientes':  return <ClientesPage orders={orders}/>;
