@@ -4330,6 +4330,17 @@ function StockPage() {
   const [autoDiscount, setAutoDiscount] = useState(false);
   const [savingToggle, setSavingToggle] = useState(false);
 
+  /* ── Toma de inventario ───── */
+  const [todaySessions, setTodaySessions]   = useState([]);
+  const [tomaView, setTomaView]             = useState('list'); // 'list'|'form'|'result'
+  const [tomaType, setTomaType]             = useState('apertura');
+  const [tomaSessionId, setTomaSessionId]   = useState(null);
+  const [tomaItems, setTomaItems]           = useState([]); // [{id,ingredient_id,name,unit,system_quantity}]
+  const [tomaCounts, setTomaCounts]         = useState({}); // {ingredient_id: {counted,adjust}}
+  const [tomaResult, setTomaResult]         = useState(null);
+  const [tomaLoading, setTomaLoading]       = useState(false);
+  const [tomaNotesForm, setTomaNotesForm]   = useState('');
+
   /* Cargar y guardar toggle auto_stock_discount */
   React.useEffect(()=>{
     if(!db) return;
@@ -4367,6 +4378,17 @@ function StockPage() {
   const stockColor = lvl => ({ok:C.green,bajo:C.yellow,critico:C.orange,sin_stock:C.red}[lvl]||C.mid);
   const stockLabel = lvl => ({ok:'OK',bajo:'Bajo',critico:'Crítico',sin_stock:'Sin stock'}[lvl]||lvl);
 
+  const loadTodaySessions = React.useCallback(async () => {
+    if(!db) return;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const {data} = await db.from('stock_sessions')
+      .select('id,session_type,status,created_at,completed_at,notes')
+      .eq('restaurant_id', RID)
+      .gte('created_at', today.toISOString())
+      .order('created_at', {ascending:false});
+    setTodaySessions(data||[]);
+  }, []);
+
   const loadData = React.useCallback(async () => {
     if (!db) return;
     setLoading(true);
@@ -4391,7 +4413,7 @@ function StockPage() {
     setLoading(false);
   }, []);
 
-  React.useEffect(()=>{ loadData(); },[loadData]);
+  React.useEffect(()=>{ loadData(); loadTodaySessions(); },[loadData, loadTodaySessions]);
 
   React.useEffect(()=>{
     if (!db) return;
@@ -4462,6 +4484,65 @@ function StockPage() {
     if (!error) loadData();
   };
 
+  /* ── Toma de inventario ─────────────────────── */
+  const iniciarToma = async (tipo) => {
+    if(ingredients.length===0){ toast('No hay ingredientes registrados para tomar inventario', false); return; }
+    setTomaLoading(true);
+    try {
+      const {data, error} = await db.rpc('admin_create_stock_session',{
+        p_restaurant_id: RID, p_session_type: tipo, p_notes: tomaNotesForm||null
+      });
+      if(error) throw error;
+      const sessionId = data;
+      // Cargar los items de la sesión recién creada
+      const {data: items, error: e2} = await db.from('stock_session_items')
+        .select('id,ingredient_id,system_quantity,ingredients(name,unit,category)')
+        .eq('session_id', sessionId)
+        .order('ingredients(name)');
+      if(e2) throw e2;
+      const mappedItems = (items||[]).map(it=>({
+        id: it.id,
+        ingredient_id: it.ingredient_id,
+        name: it.ingredients?.name||it.ingredient_id,
+        unit: it.ingredients?.unit||'unit',
+        category: it.ingredients?.category||'',
+        system_quantity: it.system_quantity,
+      }));
+      // Inicializar conteos vacíos
+      const initCounts = {};
+      mappedItems.forEach(it=>{ initCounts[it.ingredient_id]={counted:'',adjust:false}; });
+      setTomaSessionId(sessionId);
+      setTomaItems(mappedItems);
+      setTomaCounts(initCounts);
+      setTomaType(tipo);
+      setTomaView('form');
+      loadTodaySessions();
+    } catch(e){ toast('Error al iniciar toma: '+e.message, false); }
+    setTomaLoading(false);
+  };
+
+  const completarToma = async () => {
+    setTomaLoading(true);
+    try {
+      // Construir array de conteos — solo los que tienen valor ingresado
+      const counts = tomaItems
+        .filter(it => tomaCounts[it.ingredient_id]?.counted !== '')
+        .map(it => ({
+          ingredient_id: it.ingredient_id,
+          counted_quantity: parseFloat(tomaCounts[it.ingredient_id]?.counted)||0,
+          apply_adjustment: !!tomaCounts[it.ingredient_id]?.adjust,
+        }));
+      const {data, error} = await db.rpc('admin_complete_stock_session',{
+        p_session_id: tomaSessionId, p_counts: JSON.stringify(counts)
+      });
+      if(error) throw error;
+      setTomaResult({...data, items: tomaItems, counts: tomaCounts});
+      setTomaView('result');
+      loadData(); loadTodaySessions();
+    } catch(e){ toast('Error al completar toma: '+e.message, false); }
+    setTomaLoading(false);
+  };
+
   const ingName  = id => ingredients.find(i=>i.id===id)?.name||id;
   const itemName = id => menuItems.find(i=>i.id===parseInt(id))?.name||id;
   const mvtIcon  = t => ({load:'↑',deduct:'↓',adjustment:'≈',waste:'✕',expired:'⚠'}[t]||'•');
@@ -4470,8 +4551,11 @@ function StockPage() {
   const alertColor = t => ({low_stock:C.yellow,critical_stock:C.red,expiring_soon:C.orange,expired:C.red}[t]||C.mid);
   const alertLabel = t => ({low_stock:'Stock bajo',critical_stock:'Stock crítico',expiring_soon:'Por vencer',expired:'Vencido'}[t]||t);
 
-  const TabBtn = ({id,label}) => (
-    <button onClick={()=>setTab(id)} style={{padding:'6px 14px',borderRadius:6,border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',background:tab===id?C.white:'transparent',color:tab===id?'#000':C.mid,transition:'all .15s'}}>{label}</button>
+  const TabBtn = ({id,label,badge}) => (
+    <button onClick={()=>setTab(id)} style={{padding:'6px 14px',borderRadius:6,border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',background:tab===id?C.white:'transparent',color:tab===id?'#000':C.mid,transition:'all .15s',position:'relative'}}>
+      {label}
+      {badge&&<span style={{position:'absolute',top:2,right:2,width:7,height:7,borderRadius:4,background:C.red,display:'block'}}/>}
+    </button>
   );
 
   const FF = ({label,hint,children}) => (
@@ -4491,15 +4575,35 @@ function StockPage() {
     return exp <= in7d;
   }).sort((a,b)=>new Date(a.expiry_date)-new Date(b.expiry_date));
 
+  /* ¿Falta la toma de apertura hoy? */
+  const faltaApertura = ingredients.length>0 && !todaySessions.some(s=>s.session_type==='apertura'&&s.status==='completado');
+  const faltaCierre   = ingredients.length>0 && todaySessions.some(s=>s.session_type==='apertura'&&s.status==='completado')
+                        && !todaySessions.some(s=>s.session_type==='cierre'&&s.status==='completado');
+
   return (
     <div className="page">
       <h1 style={{fontSize:22,fontWeight:800,color:'#000000',marginBottom:12}}>Stock e Inventario</h1>
+
+      {/* Banner: falta toma de apertura */}
+      {faltaApertura&&tab!=='toma'&&(
+        <div onClick={()=>setTab('toma')} style={{cursor:'pointer',background:'#FFF9E0',border:'1px solid #FFD580',borderRadius:8,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:18}}>📋</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:13,color:'#8A4B00'}}>Toma de inventario de apertura pendiente</div>
+            <div style={{fontSize:11,color:'#8A4B00',opacity:.8}}>Realizá el conteo de stock al iniciar el día. Hacé clic aquí para comenzar.</div>
+          </div>
+          <span style={{fontSize:12,color:'#8A4B00',fontWeight:600}}>Ir →</span>
+        </div>
+      )}
 
       {/* Toggle descuento automático — prominente */}
       <div style={{background:'#fff',border:`2px solid ${autoDiscount?'#34C759':'#D2D2D7'}`,borderRadius:10,padding:'14px 18px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:16}}>
         <div>
           <div style={{fontSize:13,fontWeight:700,color:'#000',marginBottom:3}}>Descuento automático de stock al confirmar pedidos</div>
-          <div style={{fontSize:11,color:'#6E6E73'}}>Requiere tener recetas configuradas por producto. Si está OFF, el stock no se descuenta al recibir pedidos.</div>
+          <div style={{fontSize:11,color:'#6E6E73'}}>
+            Descuenta solo los ingredientes con receta configurada. Requiere stock cargado para descontar.
+            Si está OFF, el stock no se descuenta al recibir pedidos.
+          </div>
         </div>
         <button onClick={toggleAutoDiscount} disabled={savingToggle} style={{flexShrink:0,width:52,height:28,borderRadius:14,border:'none',background:autoDiscount?'#34C759':'#D2D2D7',cursor:savingToggle?'wait':'pointer',position:'relative',transition:'background .2s'}}>
           <span style={{position:'absolute',top:3,left:autoDiscount?26:3,width:22,height:22,borderRadius:11,background:'#fff',transition:'left .2s',display:'block',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
@@ -4513,8 +4617,9 @@ function StockPage() {
           <TabBtn id="cargar"      label="Cargar stock"/>
           <TabBtn id="recetas"     label="Recetas"/>
           <TabBtn id="movimientos" label="Movimientos"/>
+          <TabBtn id="toma"        label="Toma" badge={faltaApertura}/>
         </div>
-        <button onClick={loadData} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺ Actualizar</button>
+        <button onClick={()=>{ loadData(); loadTodaySessions(); }} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺ Actualizar</button>
       </div>
 
       {/* Alertas de vencimiento */}
@@ -4644,7 +4749,7 @@ function StockPage() {
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
                   <FF label="UNIDAD BASE"><Sel value={ingForm.unit} onChange={e=>setIngForm({...ingForm,unit:e.target.value})}>{Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
-                  <FF label="STOCK INICIAL"><Inp type="number" min="0" step="0.001" value={ingForm.stock_quantity} onChange={e=>setIngForm({...ingForm,stock_quantity:e.target.value})}/></FF>
+                  <FF label="STOCK INICIAL" hint="Podés dejar en 0 y cargar después"><Inp type="number" min="0" step="0.001" value={ingForm.stock_quantity} onChange={e=>setIngForm({...ingForm,stock_quantity:e.target.value})}/></FF>
                   <FF label="UMBRAL MÍN." hint="Alerta cuando baje de este nivel"><Inp type="number" min="0" step="0.001" value={ingForm.min_threshold} onChange={e=>setIngForm({...ingForm,min_threshold:e.target.value})}/></FF>
                 </div>
                 <Btn onClick={createIngredient} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Crear ingrediente'}</Btn>
@@ -4656,8 +4761,16 @@ function StockPage() {
         {/* ── RECETAS ── */}
         {tab==='recetas'&&(
           <div>
+            <div style={{marginBottom:12,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px'}}>
+              <div style={{fontWeight:700,fontSize:13,color:'#000',marginBottom:4}}>¿Cómo funciona?</div>
+              <div style={{fontSize:12,color:C.mid,lineHeight:1.5}}>
+                Vinculá ingredientes a ítems del menú. Cuando se venda ese ítem (y el descuento automático esté ON), el sistema descontará la cantidad indicada del stock del ingrediente.<br/>
+                <b>Si un ítem no tiene receta configurada, no se descuenta nada — sin problema.</b><br/>
+                Podés ir configurando de a poco según tu disponibilidad.
+              </div>
+            </div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-              <span style={{fontSize:13,color:C.mid}}>Vinculá ingredientes a ítems del menú para activar el descuento automático de stock</span>
+              <span style={{fontSize:13,color:C.mid}}>{recipes.length} vínculos configurados</span>
               <Btn small onClick={()=>setModal('new_recipe')}>+ Nueva receta</Btn>
             </div>
             {recipes.length===0 ? (
@@ -4712,6 +4825,217 @@ function StockPage() {
             )}
           </div>
         )}
+
+        {/* ── TOMA DE INVENTARIO ── */}
+        {tab==='toma'&&(
+          <div>
+
+            {/* Vista: lista de sesiones del día */}
+            {tomaView==='list'&&(
+              <div>
+                {/* Resumen del día */}
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
+                  {['apertura','cierre'].map(tipo=>{
+                    const sess = todaySessions.filter(s=>s.session_type===tipo&&s.status==='completado');
+                    const ultima = sess[0];
+                    const enCurso = todaySessions.find(s=>s.session_type===tipo&&s.status==='en_curso');
+                    const hecho = !!ultima;
+                    return (
+                      <div key={tipo} style={{background:C.surface,border:`2px solid ${hecho?C.green:enCurso?C.yellow:'#D2D2D7'}`,borderRadius:10,padding:'14px 16px'}}>
+                        <div style={{fontWeight:700,fontSize:14,color:'#000',marginBottom:4,textTransform:'capitalize'}}>
+                          Toma de {tipo}
+                        </div>
+                        {hecho ? (
+                          <>
+                            <div style={{fontSize:11,color:C.green,fontWeight:600,marginBottom:2}}>✓ Completada hoy</div>
+                            <div style={{fontSize:11,color:C.mid}}>{fmtDT(ultima.created_at)}</div>
+                          </>
+                        ) : enCurso ? (
+                          <div style={{fontSize:11,color:C.yellow,fontWeight:600}}>⚡ En curso…</div>
+                        ) : (
+                          <div style={{fontSize:11,color:'#C0190F',fontWeight:600}}>✗ Pendiente hoy</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Aviso obligatoriedad */}
+                {(faltaApertura||faltaCierre)&&(
+                  <div style={{background:'#1a1200',border:'1px solid #FFD58060',borderRadius:8,padding:'10px 14px',marginBottom:16,fontSize:12,color:'#FFD580'}}>
+                    <b>Control de turno obligatorio:</b> la toma de inventario de {faltaApertura?'apertura':'cierre'} del día está pendiente.
+                    Realizála antes de operar el turno.
+                  </div>
+                )}
+
+                {ingredients.length===0 ? (
+                  <div style={{textAlign:'center',padding:'40px 0',color:'#D2D2D7',fontSize:13}}>
+                    No hay ingredientes registrados.<br/>
+                    <span style={{fontSize:12}}>Primero agregá ingredientes en "Cargar stock".</span>
+                  </div>
+                ) : (
+                  <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                    {/* Botones de inicio */}
+                    <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+                      {[
+                        {tipo:'apertura',label:'Iniciar toma de apertura',disabled:todaySessions.some(s=>s.session_type==='apertura'&&s.status==='completado')},
+                        {tipo:'cierre',  label:'Iniciar toma de cierre',  disabled:!todaySessions.some(s=>s.session_type==='apertura'&&s.status==='completado')},
+                      ].map(({tipo,label,disabled})=>(
+                        <Btn key={tipo} onClick={()=>{ setTomaType(tipo); setTomaNotesForm(''); iniciarToma(tipo); }} disabled={disabled||tomaLoading}
+                          style={{opacity:disabled?.5:1}}>
+                          {tomaLoading?'Iniciando…':label}
+                        </Btn>
+                      ))}
+                    </div>
+                    {todaySessions.some(s=>s.session_type==='apertura'&&s.status==='completado')&&
+                      !todaySessions.some(s=>s.session_type==='cierre'&&s.status==='completado')&&(
+                      <div style={{fontSize:11,color:C.mid}}>La toma de cierre compara contra el stock actual del sistema.</div>
+                    )}
+
+                    {/* Historial del día */}
+                    {todaySessions.length>0&&(
+                      <div style={{marginTop:8,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                        <div style={{padding:'8px 14px',borderBottom:`1px solid ${C.border}`,fontSize:11,fontWeight:700,color:C.mid,letterSpacing:1}}>HISTORIAL DE HOY</div>
+                        {todaySessions.map(s=>(
+                          <div key={s.id} style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}30`,display:'flex',alignItems:'center',gap:10}}>
+                            <span style={{fontSize:16}}>{s.session_type==='apertura'?'🌅':'🌙'}</span>
+                            <div style={{flex:1}}>
+                              <span style={{fontWeight:600,fontSize:13,textTransform:'capitalize'}}>{s.session_type}</span>
+                              <span style={{marginLeft:8,padding:'1px 7px',borderRadius:10,fontSize:10,fontWeight:700,background:s.status==='completado'?C.green+'22':'#FFD58022',color:s.status==='completado'?C.green:'#8A4B00'}}>
+                                {s.status==='completado'?'Completada':'En curso'}
+                              </span>
+                            </div>
+                            <span style={{fontSize:11,color:C.mid}}>{fmtDT(s.created_at)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Vista: formulario de conteo */}
+            {tomaView==='form'&&(
+              <div>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+                  <button onClick={()=>setTomaView('list')} style={{background:'none',border:'none',cursor:'pointer',fontSize:18,color:C.mid}}>←</button>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:16,textTransform:'capitalize'}}>Toma de {tomaType}</div>
+                    <div style={{fontSize:11,color:C.mid}}>Ingresá la cantidad física contada. Dejá en blanco lo que no podés contar ahora.</div>
+                  </div>
+                </div>
+
+                <div style={{background:'#0a1a0a',border:'1px solid #1a3a1a',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:12,color:C.green}}>
+                  <b>Tip:</b> los ítems que no contés quedan sin diferencia registrada. Podés completar solo lo que tenés a mano y continuar después.
+                </div>
+
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginBottom:14}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 100px 100px 90px',padding:'8px 14px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:C.mid,letterSpacing:.5}}>
+                    <span>INGREDIENTE</span><span>SISTEMA</span><span>CONTADO</span><span>AJUSTAR</span>
+                  </div>
+                  {tomaItems.map(it=>{
+                    const cnt = tomaCounts[it.ingredient_id]||{counted:'',adjust:false};
+                    const diff = cnt.counted!=='' ? parseFloat(cnt.counted||0)-it.system_quantity : null;
+                    const hasDiff = diff!==null && Math.abs(diff)>0.001;
+                    return (
+                      <div key={it.ingredient_id} style={{display:'grid',gridTemplateColumns:'1fr 100px 100px 90px',padding:'10px 14px',borderBottom:`1px solid ${C.border}20`,alignItems:'center',background:hasDiff?'#1a0a0a':'transparent'}}>
+                        <div>
+                          <div style={{fontWeight:600,fontSize:13}}>{it.name}</div>
+                          {it.category&&<div style={{fontSize:10,color:C.dim}}>{it.category}</div>}
+                        </div>
+                        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,color:C.mid}}>
+                          {fmtStock(it.system_quantity, it.unit)}
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:4}}>
+                          <Inp type="number" min="0" step="0.001"
+                            value={cnt.counted}
+                            onChange={e=>setTomaCounts(prev=>({...prev,[it.ingredient_id]:{...prev[it.ingredient_id],counted:e.target.value}}))}
+                            placeholder="—"
+                            style={{width:70,textAlign:'right',fontFamily:"'SF Mono',ui-monospace,monospace",
+                              background: hasDiff ? (diff>0?'#0a1a0a':'#1a0a0a') : undefined,
+                              color: hasDiff ? (diff>0?C.green:C.red) : undefined,
+                            }}
+                          />
+                          <span style={{fontSize:10,color:C.dim}}>{UNIT_DISPLAY[it.unit]||it.unit}</span>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:6}}>
+                          {hasDiff&&(
+                            <>
+                              <span style={{fontSize:11,fontWeight:700,color:diff>0?C.green:C.red}}>
+                                {diff>0?'+':''}{diff.toFixed(2)}
+                              </span>
+                              <input type="checkbox" checked={!!cnt.adjust}
+                                onChange={e=>setTomaCounts(prev=>({...prev,[it.ingredient_id]:{...prev[it.ingredient_id],adjust:e.target.checked}}))}
+                                style={{width:16,height:16,cursor:'pointer'}}
+                                title="Aplicar ajuste al stock del sistema"
+                              />
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{fontSize:11,color:C.mid,marginBottom:10}}>
+                  Marcá ✓ en "Ajustar" para actualizar el stock del sistema con el valor contado.
+                </div>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <Btn variant="ghost" onClick={()=>setTomaView('list')}>Cancelar</Btn>
+                  <Btn onClick={completarToma} disabled={tomaLoading}>
+                    {tomaLoading?'Guardando…':'Completar toma'}
+                  </Btn>
+                </div>
+              </div>
+            )}
+
+            {/* Vista: resultado */}
+            {tomaView==='result'&&tomaResult&&(
+              <div>
+                <div style={{background:'#0a1a0a',border:'1px solid #1a3a1a',borderRadius:10,padding:'16px 20px',marginBottom:16,textAlign:'center'}}>
+                  <div style={{fontSize:24,marginBottom:6}}>✓</div>
+                  <div style={{fontWeight:700,fontSize:16,color:C.green,marginBottom:4,textTransform:'capitalize'}}>
+                    Toma de {tomaType} completada
+                  </div>
+                  <div style={{fontSize:13,color:C.mid}}>
+                    {tomaResult.discrepancy_count>0
+                      ? `${tomaResult.discrepancy_count} diferencia${tomaResult.discrepancy_count>1?'s':''} encontrada${tomaResult.discrepancy_count>1?'s':''} · ${tomaResult.adjusted_count} ajuste${tomaResult.adjusted_count!==1?'s':''} aplicado${tomaResult.adjusted_count!==1?'s':''}`
+                      : 'Sin diferencias — el stock coincide con el sistema'}
+                  </div>
+                </div>
+
+                {/* Tabla de diferencias */}
+                {tomaResult.discrepancy_count>0&&(
+                  <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginBottom:14}}>
+                    <div style={{padding:'8px 14px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:C.mid,letterSpacing:.5}}>DIFERENCIAS DETECTADAS</div>
+                    {tomaResult.items
+                      .filter(it=>{ const cnt=tomaResult.counts[it.ingredient_id]; return cnt?.counted!=='' && Math.abs(parseFloat(cnt?.counted||0)-it.system_quantity)>0.001; })
+                      .map(it=>{
+                        const cnt = tomaResult.counts[it.ingredient_id];
+                        const diff = parseFloat(cnt.counted||0) - it.system_quantity;
+                        return (
+                          <div key={it.ingredient_id} style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}20`,display:'grid',gridTemplateColumns:'1fr 90px 90px 80px 60px',alignItems:'center',gap:8}}>
+                            <div style={{fontWeight:600,fontSize:13}}>{it.name}</div>
+                            <span style={{fontSize:12,color:C.mid,fontFamily:'monospace'}}>{fmtStock(it.system_quantity,it.unit)}</span>
+                            <span style={{fontSize:12,fontFamily:'monospace'}}>{fmtStock(parseFloat(cnt.counted),it.unit)}</span>
+                            <span style={{fontSize:12,fontWeight:700,color:diff>0?C.green:C.red,fontFamily:'monospace'}}>{diff>0?'+':''}{diff.toFixed(2)}</span>
+                            <span style={{fontSize:11,color:cnt.adjust?C.green:C.mid}}>{cnt.adjust?'Ajustado':'Sin ajuste'}</span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                )}
+
+                <div style={{display:'flex',gap:10,justifyContent:'center'}}>
+                  <Btn onClick={()=>{ setTomaView('list'); setTomaResult(null); }}>Volver al inicio</Btn>
+                  <Btn variant="ghost" onClick={()=>setTab('inventario')}>Ver inventario actualizado</Btn>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
       </>)}
 
       {/* Modal: nueva receta */}
