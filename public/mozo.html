@@ -3068,7 +3068,8 @@ function App() {
       {/* ─── DIALOG: MESA ─── */}
       {mesaDialog && (
         <div className="dialog-overlay open">
-          <div className="dialog">
+          <div className="dialog" style={{position:'relative'}}>
+            <button onClick={() => setMesaDialog(null)} style={{position:'absolute',top:10,right:12,background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#666',lineHeight:1}}>✕</button>
             <div className="dialog-title">{mesaDialog.title}</div>
             <div className="dialog-body">{mesaDialog.body}</div>
             <div className="dialog-actions">
