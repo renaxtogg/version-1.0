@@ -1392,7 +1392,7 @@ function App() {
     }
     await db.from('order_status_history').insert({ order_id: order.id, status: 'confirmed', changed_by: 'mozo' });
     // Fix is_occupied: trigger may be slow, update directly
-    await db.from('tables').update({ is_occupied: true, occupied_since: order.created_at }).eq('id', tableId);
+    await db.from('tables').update({ is_occupied: true, occupied_since: order.created_at, assigned_waiter_name: mozoSession?.mozo_name || currentSession.user.email }).eq('id', tableId);
     await loadData();
     openOrderView(tableId);
     showToast('Orden creada — Mesa ' + tableNum);
@@ -1426,7 +1426,7 @@ function App() {
         : '¿Confirmar que el servicio concluyó y la mesa quedó libre?',
       danger: hayDeuda,
       onOk: async () => {
-        await db.from('tables').update({ is_occupied: false, occupied_since: null }).eq('id', tableId);
+        await db.from('tables').update({ is_occupied: false, occupied_since: null, assigned_waiter_name: null }).eq('id', tableId);
         await loadData();
         setTableOrders([]);
         setActiveTableId(null);
@@ -2472,7 +2472,7 @@ function App() {
                         .select('id').eq('restaurant_id', RID).eq('is_occupied', true);
                       for (const t of (allOccupied || [])) {
                         if (!tablasConDeuda.has(t.id)) {
-                          await db.from('tables').update({ is_occupied: false, occupied_since: null }).eq('id', t.id);
+                          await db.from('tables').update({ is_occupied: false, occupied_since: null, assigned_waiter_name: null }).eq('id', t.id);
                         }
                       }
                       localStorage.removeItem('mozo_session');

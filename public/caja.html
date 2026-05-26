@@ -2145,7 +2145,7 @@ function SalonPanel({profile}){
   async function load(){
     const todayStr=new Date().toISOString().slice(0,10);
     const[{data:tbl},{data:ord},{data:resv},{data:rest}]=await Promise.all([
-      db.from('tables').select('id,number,capacity,is_occupied,occupied_since,zona,shape,pos_x,pos_y').eq('restaurant_id',RID).order('number'),
+      db.from('tables').select('id,number,capacity,is_occupied,occupied_since,zona,shape,pos_x,pos_y,assigned_waiter_name').eq('restaurant_id',RID).order('number'),
       db.from('orders')
         .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,tables(number)')
         .eq('restaurant_id',RID).in('status',ACTIVE)
@@ -2240,6 +2240,7 @@ function SalonPanel({profile}){
             {order&&<div style={{marginTop:10}}><Badge txt={SL[order.status]} color={SC[order.status]||'#6E6E73'}/></div>}
             {!order&&<div style={{marginTop:10}}><Badge txt="Servicio activo" color={C.green}/></div>}
             {order&&<div style={{fontSize:11,color:'#AAAAAA',marginTop:8}}>⏱ {espera}m · #{order.order_number}</div>}
+            {table.assigned_waiter_name&&<div style={{fontSize:11,color:'#AAAAAA',marginTop:4}}>👤 {table.assigned_waiter_name}</div>}
           </>
         ):(
           <div style={{color:'#6E6E73',fontSize:13,marginTop:12,fontWeight:700,letterSpacing:'0.05em'}}>LIBRE</div>
@@ -2451,8 +2452,8 @@ function SalonPanel({profile}){
               {selTable.table.occupied_since&&(
                 <span style={{fontSize:12,color:'#6E6E73'}}>Desde {fmtTime(selTable.table.occupied_since)}</span>
               )}
-              {selTable.orders[0]?.waiter_name?(
-                <span style={{fontSize:12,color:'#1D1D1F',fontWeight:600}}>👤 Mozo: {selTable.orders[0].waiter_name}</span>
+              {(selTable.table.assigned_waiter_name||selTable.orders[0]?.waiter_name)?(
+                <span style={{fontSize:12,color:'#1D1D1F',fontWeight:600}}>👤 Mozo: {selTable.table.assigned_waiter_name||selTable.orders[0].waiter_name}</span>
               ):(
                 <span style={{fontSize:12,color:'#6E6E73'}}>👤 Sin mozo asignado</span>
               )}

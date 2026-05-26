@@ -194,6 +194,18 @@ async function _initTableUUID() {
 }
 _initTableUUID();
 
+async function dbLoadTableAssignment() {
+  if (!db) return null;
+  try {
+    let q = db.from('tables').select('assigned_waiter_name').eq('restaurant_id', RESTAURANT_ID);
+    if (TABLE_TOKEN) q = q.eq('qr_token', TABLE_TOKEN);
+    else if (TABLE_NUM) q = q.eq('number', TABLE_NUM);
+    else return null;
+    const { data } = await q.maybeSingle();
+    return data?.assigned_waiter_name || null;
+  } catch(e) { return null; }
+}
+
 async function dbCallWaiter(tableId, orderId) {
   if (!db) return;
   // Usar el UUID de mesa real si está disponible
@@ -390,7 +402,7 @@ function QRScreen({ onScan }) {
 }
 
 /* ══ SCREEN: PERFIL ══════════════════════ */
-function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCallWaiter, onReserve }) {
+function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCallWaiter, onReserve, assignedWaiterName }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
   const [showHours, setShowHours] = useState(false);
@@ -517,7 +529,7 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
               </div>}
             </div>
             <button onClick={onCallWaiter} style={{ flex: 1, height: 40, border: `1.5px solid ${T.border}`, borderRadius: 10, background: 'transparent', color: T.mid, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Icon name="bell" size={14} color={T.silver} />{tx.waiter}
+              <Icon name="bell" size={14} color={T.silver} />{assignedWaiterName || tx.waiter}
             </button>
           </div>
         </div>
@@ -535,7 +547,7 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
 }
 
 /* ══ SCREEN: MENÚ ════════════════════════ */
-function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWaiter, orderMode }) {
+function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWaiter, orderMode, assignedWaiterName }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
   const liveMenu = useContext(MenuCtx) || MENU_STATIC;
@@ -568,7 +580,7 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWait
             <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.menuTitleSz, color: T.hdrText, lineHeight: 1.1 }}>{restName}</div>
           </div>
           <button onClick={onCallWaiter} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.13)', borderRadius: 9999, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: T.hdrText, fontSize: 12, fontWeight: 700, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
-            <Icon name="bell" size={13} color={T.hdrText} />Mozo
+            <Icon name="bell" size={13} color={T.hdrText} />{assignedWaiterName || 'Mozo'}
           </button>
         </div>
         <div style={{ position: 'relative' }}>
@@ -1083,7 +1095,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
 }
 
 /* ══ SCREEN: SEGUIMIENTO ════════════════ */
-function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaiter }) {
+function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaiter, assignedWaiterName }) {
   const T = useContext(ThemeCtx);
   const readyLabel = orderMode === 'take' ? 'Listo para retirar' : 'Listo — el mozo lo lleva';
   const readySub   = orderMode === 'take' ? 'Pasá a buscar tu pedido en caja' : 'El mozo está en camino a tu mesa';
@@ -1179,7 +1191,7 @@ function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaite
       <div style={{ padding: '12px 24px 40px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {onCallWaiter && active < STEPS.length - 1 && (
           <button onClick={onCallWaiter} style={{ width: '100%', height: 46, background: 'transparent', color: T.trackText, border: `1.5px solid ${T.trackText}30`, borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            <Icon name="bell" size={15} color={T.trackText} />Llamar al mozo
+            <Icon name="bell" size={15} color={T.trackText} />{assignedWaiterName ? `Llamar a ${assignedWaiterName}` : 'Llamar al mozo'}
           </button>
         )}
         {active === STEPS.length - 1 && (
@@ -1738,10 +1750,12 @@ function App() {
   const [restaurant, setRestaurant] = useState(null);
   const [lastWaiterCall, setLastWaiterCall] = useState(0);
   const [payMethod, setPayMethod]   = useState('efectivo');
+  const [assignedWaiterName, setAssignedWaiterName] = useState(null);
 
   useEffect(() => {
     dbLoadMenu().then(menu => { if (menu) setLiveMenu(menu); });
     dbLoadRestaurant().then(r => { if (r) setRestaurant(r); });
+    dbLoadTableAssignment().then(name => { if (name) setAssignedWaiterName(name); });
     if (!db) return;
     const reload = async () => {
       const m = await dbLoadMenu();
@@ -1810,12 +1824,12 @@ function App() {
                 {selItem && <ProductModal item={selItem} onClose={() => setSelItem(null)} onAdd={addToCart} />}
                 {showSplit && <SplitBillModal items={cartItems} total={cartTotal} onClose={() => setShowSplit(false)} />}
                 {screen === 'qr'      && <QRScreen onScan={() => setScreen('profile')} />}
-                {screen === 'profile' && <ProfileScreen onEnter={() => setScreen('menu')} orderMode={orderMode} setOrderMode={setOrderMode} lang={lang} setLang={setLang} onCallWaiter={handleCallWaiter} onReserve={() => setScreen('reserve')} />}
+                {screen === 'profile' && <ProfileScreen onEnter={() => setScreen('menu')} orderMode={orderMode} setOrderMode={setOrderMode} lang={lang} setLang={setLang} onCallWaiter={handleCallWaiter} onReserve={() => setScreen('reserve')} assignedWaiterName={assignedWaiterName} />}
                 {screen === 'reserve' && <ReservationScreen onBack={() => setScreen('profile')} onDone={() => setScreen('qr')} />}
-                {screen === 'menu'    && <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} onCallWaiter={handleCallWaiter} orderMode={orderMode} />}
+                {screen === 'menu'    && <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} onCallWaiter={handleCallWaiter} orderMode={orderMode} assignedWaiterName={assignedWaiterName} />}
                 {screen === 'cart'    && <CartScreen items={cartItems} onBack={() => setScreen('menu')} onPay={(t, sub, disc, code) => { setPayTotal(t); setPaySubtotal(sub); setPayDiscount(disc); setPayCoupon(code); setScreen('pay'); }} onRemove={removeItem} onQty={updateQty} onCouponApplied={() => {}} onSplit={() => setShowSplit(true)} />}
                 {screen === 'pay'     && <PayScreen total={payTotal} subtotal={paySubtotal} discountAmount={payDiscount} couponCode={payCoupon} cartItems={cartItems} orderMode={orderMode} lang={lang} onBack={() => setScreen('cart')} onDone={(ordNum, method) => { setCurrentOrderNum(ordNum); if (method) setPayMethod(method); setScreen('track'); }} />}
-                {screen === 'track'   && <TrackingScreen onRate={() => setScreen('rate')} orderNumber={currentOrderNum} orderMode={orderMode} cartItems={cartItems} onCallWaiter={handleCallWaiter} />}
+                {screen === 'track'   && <TrackingScreen onRate={() => setScreen('rate')} orderNumber={currentOrderNum} orderMode={orderMode} cartItems={cartItems} onCallWaiter={handleCallWaiter} assignedWaiterName={assignedWaiterName} />}
                 {screen === 'rate'    && <RatingScreen onDone={clearSession} orderId={null} tableId={null} />}
                 </>}
               </div>
