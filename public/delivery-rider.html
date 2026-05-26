@@ -657,6 +657,8 @@ function App() {
     setActiveOrders(data || []);
   }
 
+  const pollRef = useRef(null);
+
   function handleLogin(riderData) {
     sessionStorage.setItem('rider_id', riderData.id);
     setRider(riderData);
@@ -664,20 +666,23 @@ function App() {
     loadStats(riderData);
     loadActiveOrders(riderData);
 
-    // Suscripción Realtime: escucha todos los cambios en delivery_orders y
-    // re-fetcha las órdenes del rider. Sin filtro de columna para evitar el
-    // bug de Supabase donde UPDATE de NULL→valor no dispara el filtro
-    // (requeriría REPLICA IDENTITY FULL en la tabla).
     if (db) {
+      // Realtime: delivery_orders debe estar en supabase_realtime publication (migración 078).
+      // Sin filtro de columna para capturar el UPDATE rider_id NULL→UUID.
       db.channel('rider-orders-' + riderData.id)
         .on('postgres_changes', {
           event: '*', schema: 'public', table: 'delivery_orders'
         }, () => loadActiveOrders(riderData))
         .subscribe();
     }
+
+    // Polling de respaldo cada 30 s por si el realtime falla o se desconecta.
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => loadActiveOrders(riderData), 30000);
   }
 
   async function handleLogout() {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     sessionStorage.removeItem('rider_id');
     if (rider?.id && db) {
       await db.from('delivery_riders').update({ current_status: 'disponible' }).eq('id', rider.id);
