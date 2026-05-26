@@ -932,6 +932,7 @@ function App() {
 
   // Mapa de zonas
   const [mesaViewMode, setMesaViewMode] = useState(() => localStorage.getItem('mozo_mesa_view') || 'grid');
+  const [tableScope, setTableScope] = useState(() => localStorage.getItem('mozo_table_scope') || 'all');
   const [mapaEditMode, setMapaEditMode] = useState(false);
   const [mesaFormModal, setMesaFormModal] = useState(null);
 
@@ -1010,6 +1011,7 @@ function App() {
 
   useEffect(() => { localStorage.setItem('mozo_view', currentView); }, [currentView]);
   useEffect(() => { localStorage.setItem('mozo_mesa_view', mesaViewMode); }, [mesaViewMode]);
+  useEffect(() => { localStorage.setItem('mozo_table_scope', tableScope); }, [tableScope]);
   useEffect(() => {
     if (activeTableId) localStorage.setItem('mozo_tableId', activeTableId);
     else localStorage.removeItem('mozo_tableId');
@@ -2025,6 +2027,10 @@ function App() {
   const hasPendingCobro = tableOrders.some(o => o.payment_status !== 'paid' && (o.order_items || []).length > 0);
   const activeTableOccupied = activeTableId ? (tablesById[activeTableId]?.is_occupied ?? false) : false;
   const pendingAlerts = waiterCalls.length;
+  const myName = mozoSession?.mozo_name;
+  const displayTables = (tableScope === 'mine' && myName)
+    ? tables.filter(t => tablesById[t.id]?.assigned_waiter_name === myName || ordersMap[t.id]?.waiter_name === myName)
+    : tables;
   // Badge count: pedidos que el mozo debe retirar de cocina.
   // ready = cocina marcó listo (mozo aún no despachó manualmente)
   // pending_payment sin delivered_to_table_at = cocina despachó pero el mozo
@@ -2181,7 +2187,12 @@ function App() {
             <div className="section-header">
               <div>
                 <div className="section-title">Mesas</div>
-                <div className="section-sub">{tables.length} mesas · {Object.keys(ordersMap).length} activas</div>
+                <div className="section-sub">
+                  {tableScope === 'mine'
+                    ? `${displayTables.length} de ${tables.length} · ${displayTables.filter(t => ordersMap[t.id]).length} activas`
+                    : `${tables.length} mesas · ${Object.keys(ordersMap).length} activas`
+                  }
+                </div>
               </div>
               {/* Toggle vista */}
               <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}>
@@ -2194,6 +2205,25 @@ function App() {
                   🗺 Mapa
                 </button>
               </div>
+            </div>
+            {/* Toggle Mis mesas / Todas */}
+            <div style={{ display: 'flex', gap: 6, padding: '0 16px 12px', alignItems: 'center' }}>
+              <button
+                onClick={() => setTableScope('all')}
+                style={{ padding: '6px 14px', borderRadius: 20, border: '1.5px solid', borderColor: tableScope === 'all' ? '#000' : 'var(--border)', background: tableScope === 'all' ? '#000' : 'transparent', color: tableScope === 'all' ? '#fff' : 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}>
+                Todas
+              </button>
+              <button
+                onClick={() => setTableScope('mine')}
+                style={{ padding: '6px 14px', borderRadius: 20, border: '1.5px solid', borderColor: tableScope === 'mine' ? '#000' : 'var(--border)', background: tableScope === 'mine' ? '#000' : 'transparent', color: tableScope === 'mine' ? '#fff' : 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}>
+                Mis mesas
+              </button>
+              {tableScope === 'mine' && myName && (
+                <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 4 }}>{myName}</span>
+              )}
+              {tableScope === 'mine' && !myName && (
+                <span style={{ fontSize: 11, color: 'var(--red)' }}>Definí tu nombre en perfil</span>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px', alignItems: 'stretch' }}>
@@ -2247,7 +2277,7 @@ function App() {
             {mesaViewMode === 'grid' && (
               <>
                 <div className="table-grid">
-                  {tables.map(mesa => {
+                  {displayTables.map(mesa => {
                     const status = getMesaStatus(mesa.id, ordersMap, callsMap, tablesById);
                     const order = ordersMap[mesa.id];
                     const itemCount = order?.order_items?.length || 0;
@@ -2309,12 +2339,14 @@ function App() {
                     {mapaEditMode ? '✓ Editando' : '✎ Editar mesas'}
                   </button>
                 </div>
-                {tables.length === 0 && (
-                  <div style={{ padding: '40px 16px', textAlign: 'center', color: '#C0C0C0', fontSize: 13 }}>No hay mesas configuradas.</div>
+                {displayTables.length === 0 && (
+                  <div style={{ padding: '40px 16px', textAlign: 'center', color: '#C0C0C0', fontSize: 13 }}>
+                    {tableScope === 'mine' ? 'No tenés mesas asignadas.' : 'No hay mesas configuradas.'}
+                  </div>
                 )}
                 {(() => {
                   const zonaMap = {};
-                  tables.forEach(t => { const z = t.zona || 'salon'; if (!zonaMap[z]) zonaMap[z] = []; zonaMap[z].push(t); });
+                  displayTables.forEach(t => { const z = t.zona || 'salon'; if (!zonaMap[z]) zonaMap[z] = []; zonaMap[z].push(t); });
                   const zonasToShow = ZONAS_DEF_M.filter(z => zonaMap[z.value]?.length > 0);
                   return zonasToShow.map(z => (
                     <ZonaMozo key={z.value}
