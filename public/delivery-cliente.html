@@ -183,14 +183,14 @@ async function dbLoadDeliveryZones() {
   } catch(e) { return []; }
 }
 
-async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryFee, total, payMethod, customerData, zone, canal, cashAmount, requiresInvoice, custRuc, custEmail }) {
+async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryFee, total, payMethod, customerData, zone, canal, cashAmount, requiresInvoice, custRuc, custEmail, invoiceDeliveryMethod }) {
   const orderNum = 'D-' + String(Math.floor(Date.now() % 90000) + 10000);
   if (!db) return { id: null, order_number: orderNum };
 
   // order_type='delivery' para domicilio real; 'llevar' para retiro en local
   const dbOrderType = orderType === 'delivery' ? 'delivery' : 'llevar';
 
-  const { data: order, error: orderErr } = await db.from('orders').insert({
+  const baseInsert = {
     restaurant_id: RESTAURANT_ID,
     table_id: null,
     order_number: orderNum,
@@ -204,8 +204,17 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
     customer_ruc: custRuc || null,
     customer_email: custEmail || null,
     requires_invoice: requiresInvoice || false,
-  }).select().single();
-
+  };
+  const invoiceExtras = requiresInvoice ? {
+    invoice_delivery_method: invoiceDeliveryMethod || (custEmail ? 'email' : 'print'),
+    invoice_requested_at: new Date().toISOString(),
+    invoice_status: 'pending',
+  } : {};
+  let { data: order, error: orderErr } = await db.from('orders').insert({ ...baseInsert, ...invoiceExtras }).select().single();
+  if (orderErr) {
+    const r = await db.from('orders').insert(baseInsert).select().single();
+    order = r.data; orderErr = r.error;
+  }
   if (orderErr || !order) throw new Error(orderErr?.message || 'No se pudo crear el pedido');
 
   for (const ci of cartItems) {
@@ -1173,7 +1182,8 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
   const [submitError, setSubmitError] = useState(null);
   const [cashOption, setCashOption] = useState('exact'); // 'exact' | 'change'
   const [cashInput, setCashInput]   = useState('');
-  const [invoiceType, setInvoiceType] = useState('none'); // 'none'|'fiscal'
+  const [invoiceType, setInvoiceType] = useState('none'); // 'none'|'ticket'|'fiscal'
+  const [invoiceDelivery, setInvoiceDelivery] = useState('print'); // 'print' | 'email'
   const [invName, setInvName] = useState('');
   const [invRuc, setInvRuc] = useState('');
   const [invEmail, setInvEmail] = useState('');
@@ -1209,6 +1219,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
         requiresInvoice: invoiceType !== 'none',
         custRuc: invoiceType === 'fiscal' ? (invRuc || null) : null,
         custEmail: invoiceType === 'fiscal' ? (invEmail || null) : null,
+        invoiceDeliveryMethod: invoiceType !== 'none' ? invoiceDelivery : null,
       });
       setStep('form');
       onConfirmed(order);
@@ -1335,16 +1346,30 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
         {/* Comprobante */}
         <div style={{ background: T.white, borderRadius: 12, padding: '14px 16px', border: `1px solid ${T.border}`, marginTop: 8, marginBottom: 0 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Comprobante</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: invoiceType !== 'none' ? 12 : 0 }}>
-            {[['none','Sin comprobante'],['fiscal','Factura fiscal']].map(([v,lbl]) => (
-              <div key={v} onClick={() => setInvoiceType(v)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: T.white, border: `2px solid ${invoiceType === v ? T.black : T.border}`, borderRadius: 10, cursor: 'pointer', transition: 'border-color 150ms' }}>
-                <div style={{ width: 18, height: 18, borderRadius: '50%', border: `2px solid ${invoiceType === v ? T.black : T.border}`, background: invoiceType === v ? T.black : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  {invoiceType === v && <div style={{ width: 7, height: 7, borderRadius: '50%', background: T.white }} />}
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>{lbl}</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: invoiceType !== 'none' ? 12 : 0 }}>
+            {[['none','Sin comp.'],['ticket','Ticket'],['fiscal','Factura fiscal']].map(([v,lbl]) => (
+              <div key={v} onClick={() => setInvoiceType(v)} style={{ padding: '11px 6px', background: invoiceType === v ? T.black : T.white, border: `2px solid ${invoiceType === v ? T.black : T.border}`, borderRadius: 10, cursor: 'pointer', textAlign: 'center', transition: 'border-color 150ms' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: invoiceType === v ? T.white : T.ink }}>{lbl}</span>
               </div>
             ))}
           </div>
+          {invoiceType !== 'none' && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>¿Cómo querés recibirlo?</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                {[['print','🖨 Lo recibís con el pedido'],['email','✉️ Por email']].map(([v, lbl]) => (
+                  <div key={v} onClick={() => setInvoiceDelivery(v)} style={{ padding: '10px 4px', background: invoiceDelivery === v ? T.black : T.white, border: `2px solid ${invoiceDelivery === v ? T.black : T.border}`, borderRadius: 9, cursor: 'pointer', textAlign: 'center' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: invoiceDelivery === v ? T.white : T.ink }}>{lbl}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {invoiceType === 'ticket' && (
+            <div style={{ padding: '10px 12px', background: T.offwhite, borderRadius: 8, fontSize: 12, color: T.gray, lineHeight: 1.5 }}>
+              {invoiceDelivery === 'email' ? 'Te enviaremos el ticket por email.' : 'El repartidor te trae el ticket impreso.'}
+            </div>
+          )}
           {invoiceType === 'fiscal' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <input value={invName} onChange={e => setInvName(e.target.value)} placeholder="Nombre o razón social" style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 9, padding: '0 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, outline: 'none', background: T.offwhite }} />

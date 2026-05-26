@@ -588,7 +588,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
   async function loadOrders(){
     setLoading(true);
     const{data,error}=await db.from('orders')
-      .select('id,order_number,status,payment_status,total,payment_method,order_type,customer_name,created_at,table_id,tables(number),order_items(id,quantity,unit_price)')
+      .select('id,order_number,status,payment_status,total,payment_method,order_type,customer_name,customer_ruc,customer_email,requires_invoice,invoice_delivery_method,invoice_status,created_at,table_id,tables(number),order_items(id,quantity,unit_price)')
       .eq('restaurant_id',RID)
       .in('status',['confirmed','paid','pending_payment','kitchen_received','cooking','ready','delivered'])
       .or('payment_status.neq.paid,payment_status.is.null')
@@ -666,6 +666,12 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                       <Badge txt={orderTypeLabel(o.order_type)} color={orderTypeColor(o.order_type)}/>
                       <span style={{fontSize:12,color:'#1D1D1F',fontWeight:600}}>{mesa}</span>
                     </div>
+                    {o.requires_invoice&&(o.invoice_status||'pending')==='pending'&&(
+                      <div style={{display:'inline-block',marginTop:6,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8}}>
+                        🧾 Factura solicitada{o.invoice_delivery_method==='email'?' — email':o.invoice_delivery_method==='print'?' — impresa':''}
+                        {o.customer_email?` · ${o.customer_email}`:''}
+                      </div>
+                    )}
                     <div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{origen}</div>
                   </div>
                   <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
@@ -724,10 +730,14 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [busy,setBusy]=useState(false);
   const [items,setItems]=useState([]);
   const [successTicket,setSuccessTicket]=useState(null);
-  const [invoiceType,setInvoiceType]=useState('none'); // 'none'|'ticket'|'fiscal'
-  const [invName,setInvName]=useState('');
-  const [invRuc,setInvRuc]=useState('');
-  const [invEmail,setInvEmail]=useState('');
+  const [invoiceType,setInvoiceType]=useState(()=>{
+    if(!order.requires_invoice) return 'none';
+    if(order.customer_ruc||order.customer_email) return 'fiscal';
+    return 'ticket';
+  });
+  const [invName,setInvName]=useState(order.customer_name||'');
+  const [invRuc,setInvRuc]=useState(order.customer_ruc||'');
+  const [invEmail,setInvEmail]=useState(order.customer_email||'');
   const movDataRef=React.useRef(null);
 
   useEffect(()=>{
@@ -763,6 +773,13 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           customer_name: invName || order.customer_name || null,
           customer_ruc: invRuc || null,
           customer_email: invEmail || null,
+          invoice_delivery_method: invEmail ? 'email' : 'print',
+          invoice_requested_at: new Date().toISOString(),
+          invoice_status: 'pending',
+        }),
+        ...(invoiceType === 'ticket' && {
+          invoice_delivery_method: 'print',
+          invoice_status: 'issued',
         }),
       };
       const cerrarOrden = order.status==='pending_payment' && yaEnMesa;
@@ -887,6 +904,14 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         </div>
       )}
 
+      {order.requires_invoice&&(order.invoice_status||'pending')==='pending'&&(
+        <div style={{background:'rgba(0,122,255,0.08)',border:'1px solid rgba(0,122,255,0.3)',borderRadius:9,padding:'10px 13px',marginBottom:12,fontSize:12,color:'#0040A0'}}>
+          🧾 <strong>Factura solicitada por el cliente</strong>
+          {order.invoice_delivery_method==='email'?' — entregar por email':order.invoice_delivery_method==='print'?' — entregar impresa':''}
+          {order.customer_email&&<div style={{fontSize:11,marginTop:2,color:'#0040A0'}}>Email: {order.customer_email}</div>}
+          {order.customer_ruc&&<div style={{fontSize:11,marginTop:2,color:'#0040A0'}}>RUC: {order.customer_ruc}</div>}
+        </div>
+      )}
       <div style={{marginBottom:16}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
           <span style={{fontSize:12,color:'#6E6E73'}}>{mesa}</span>
@@ -1546,6 +1571,10 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
   const [successTicket,setSuccessTicket]=useState(null);
+  const [invoiceType,setInvoiceType]=useState('none'); // 'none'|'ticket'|'fiscal'
+  const [invName,setInvName]=useState('');
+  const [invRuc,setInvRuc]=useState('');
+  const [invEmail,setInvEmail]=useState('');
   const movDataRef=React.useRef(null);
   const orderRef=React.useRef(null);
 
@@ -1563,16 +1592,37 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
       /* 1. crear order */
       const dbOrderType=orderType==='dine_in'?'local':orderType==='delivery'?'delivery':'llevar';
       const orderNum='C-'+String(Math.floor(Date.now()%90000)+10000);
-      const{data:order,error:e1}=await db.from('orders').insert({
+      const invoiceFields = {
+        requires_invoice: invoiceType !== 'none',
+        ...(invoiceType === 'fiscal' && {
+          customer_name: invName || customerName || null,
+          customer_ruc: invRuc || null,
+          customer_email: invEmail || null,
+          invoice_delivery_method: invEmail ? 'email' : 'print',
+          invoice_requested_at: new Date().toISOString(),
+          invoice_status: 'pending',
+        }),
+        ...(invoiceType === 'ticket' && {
+          invoice_delivery_method: 'print',
+          invoice_status: 'issued',
+        }),
+      };
+      const baseInsert = {
         restaurant_id:RID,
         table_id:orderType==='dine_in'&&tableId&&tableId!=='sin_mesa'?tableId:null,
         order_number:orderNum,order_type:dbOrderType,
         status:'paid',
         payment_status:'paid',
-        customer_name:customerName||null,
+        customer_name:invoiceType==='fiscal'?(invName||customerName||null):(customerName||null),
         subtotal,discount_amount:0,total:subtotal,
         payment_method:metodo,
-      }).select().single();
+      };
+      let{data:order,error:e1}=await db.from('orders').insert({...baseInsert,...invoiceFields}).select().single();
+      if(e1){
+        // Fallback si la migración de invoice no está aplicada
+        const r=await db.from('orders').insert(baseInsert).select().single();
+        order=r.data;e1=r.error;
+      }
       if(e1)throw e1;
 
       /* 2. order_items */
@@ -1617,7 +1667,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         cambio:Math.max(0,cambio),
       };
       setSuccessTicket(ticket);
-      if(metodo==='efectivo') printTicket(ticket);
+      if(invoiceType==='ticket' || metodo==='efectivo') printTicket(ticket);
     }catch(e){toast('Error: '+e.message,false);}
     setBusy(false);
   }
@@ -1725,6 +1775,34 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
           </div>
         )}
       </div>
+
+      {/* Comprobante */}
+      <div style={{marginBottom:16}}>
+        <Lbl>COMPROBANTE</Lbl>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:invoiceType!=='none'?10:0}}>
+          {[['none','Sin comprobante'],['ticket','Ticket impreso'],['fiscal','Factura fiscal']].map(([v,lbl])=>(
+            <button key={v} onClick={()=>setInvoiceType(v)} style={{
+              padding:'9px 4px',borderRadius:7,border:`1px solid ${invoiceType===v?'#000000':C.border}`,
+              background:invoiceType===v?'#000000':'transparent',
+              color:invoiceType===v?'#FFFFFF':'#6E6E73',fontSize:11,fontWeight:700,cursor:'pointer',lineHeight:1.3,
+            }}>{lbl}</button>
+          ))}
+        </div>
+        {invoiceType==='ticket'&&(
+          <div style={{padding:'8px 12px',background:'rgba(52,199,89,0.08)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:7,fontSize:12,color:'#248A3D'}}>
+            🖨 El ticket se imprimirá automáticamente al cobrar.
+          </div>
+        )}
+        {invoiceType==='fiscal'&&(
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            <Inp value={invName} onChange={e=>setInvName(e.target.value)} placeholder="Nombre / razón social"/>
+            <Inp value={invRuc} onChange={e=>setInvRuc(e.target.value)} placeholder="RUC / Cédula"/>
+            <Inp type="email" value={invEmail} onChange={e=>setInvEmail(e.target.value)} placeholder="Email (opcional — para enviar la factura)"/>
+            <div style={{fontSize:11,color:'#6E6E73'}}>Si dejás email se enviará por correo, si no se imprime. e-Kuatia (SIFEN) próximamente.</div>
+          </div>
+        )}
+      </div>
+
       <div style={{display:'flex',gap:10}}>
         <Btn full onClick={confirmar} disabled={busy} variant="success">
           {busy?<><span className="spin"/> Procesando…</>:'✓ Cobrar y enviar a cocina'}
@@ -2405,7 +2483,7 @@ function SalonPanel({profile}){
     const[{data:tbl},{data:ord},{data:resv},{data:rest}]=await Promise.all([
       db.from('tables').select('id,number,capacity,is_occupied,occupied_since,zona,shape,pos_x,pos_y,assigned_waiter_name').eq('restaurant_id',RID).order('number'),
       db.from('orders')
-        .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,tables(number)')
+        .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,requires_invoice,invoice_delivery_method,invoice_status,tables(number)')
         .eq('restaurant_id',RID).in('status',ACTIVE)
         .order('created_at',{ascending:true}),
       db.from('reservations').select('*').eq('restaurant_id',RID).eq('reservation_date',todayStr).eq('status','confirmed'),
@@ -2481,6 +2559,7 @@ function SalonPanel({profile}){
     const accent=occ?(order?statusAccent(order.status):C.green):'#C8C8CC';
     const espera=order?Math.floor((Date.now()-new Date(order.created_at))/60000):0;
     const sesTotal=sessionTotals[table.id]||0;
+    const tableInvoiceReq=(orders||[]).some(o=>o.table_id===table.id && o.requires_invoice && (o.invoice_status||'pending')==='pending');
     return(
       <div onClick={()=>occ&&loadTableSession(table)} style={{
         background:occ?'#1D1D1F':C.surface,
@@ -2499,6 +2578,11 @@ function SalonPanel({profile}){
           </div>
         )}
         <div style={{fontSize:22,fontWeight:800,color:occ?'#FFFFFF':'#1D1D1F',letterSpacing:'-0.5px'}}>Mesa {table.number}</div>
+        {tableInvoiceReq&&(()=>{const m=(orders||[]).find(o=>o.table_id===table.id && o.requires_invoice && (o.invoice_status||'pending')==='pending')?.invoice_delivery_method;return(
+          <div style={{position:'absolute',top:8,right:8,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8,letterSpacing:'0.04em'}}>
+            🧾 {m==='email'?'EMAIL':'IMPRESA'}
+          </div>
+        );})()}
         {table.capacity&&<div style={{fontSize:12,color:occ?'#AAAAAA':'#6E6E73',marginTop:2}}>{table.capacity} pax</div>}
         {occ?(
           <>
@@ -2531,6 +2615,9 @@ function SalonPanel({profile}){
           <div style={{display:'flex',gap:6,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
             <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#6E6E73'}/>
             {tipo&&<Badge txt={tipo} color={orderTypeColor(order.order_type)}/>}
+            {order.requires_invoice&&(order.invoice_status||'pending')==='pending'&&(
+              <Badge txt={`🧾 ${order.invoice_delivery_method==='email'?'Factura email':'Factura impresa'}`} color={'#007AFF'}/>
+            )}
             <span style={{fontSize:10,color:'#6E6E73'}}>⏱ {espera}m</span>
           </div>
         </div>

@@ -928,6 +928,7 @@ function App() {
   const [productModal, setProductModal] = useState(false);
   const [cobroModal, setCobroModal] = useState(false);
   const [invoiceType, setInvoiceType] = useState('none'); // 'none'|'ticket'|'fiscal'
+  const [invoiceDelivery, setInvoiceDelivery] = useState('print'); // 'print' | 'email'
   const [invName, setInvName] = useState('');
   const [invRuc, setInvRuc] = useState('');
   const [invEmail, setInvEmail] = useState('');
@@ -1862,6 +1863,11 @@ function App() {
           customer_ruc: invRuc || null,
           customer_email: invEmail || null,
           ...(invName && { customer_name: invName }),
+        }),
+        ...(invoiceType !== 'none' && {
+          invoice_delivery_method: invoiceDelivery,
+          invoice_requested_at: nowIso,
+          invoice_status: 'pending',
         }),
       };
 
@@ -3265,9 +3271,19 @@ function App() {
                     <div key={v} className={`tip-chip ${invoiceType === v ? 'active' : ''}`} style={{ fontSize: 11, lineHeight: 1.3, padding: '8px 4px' }} onClick={() => setInvoiceType(v)}>{lbl}</div>
                   ))}
                 </div>
+                {invoiceType !== 'none' && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div className="section-label" style={{ fontSize: 11, marginBottom: 5 }}>¿Cómo recibe el cliente?</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                      {[['print','🖨 Impreso'],['email','✉️ Email']].map(([v,lbl]) => (
+                        <div key={v} className={`tip-chip ${invoiceDelivery === v ? 'active' : ''}`} style={{ fontSize: 11, padding: '8px 4px' }} onClick={() => setInvoiceDelivery(v)}>{lbl}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {invoiceType === 'ticket' && (
                   <div style={{ padding: '8px 12px', background: 'rgba(0,122,255,0.07)', border: '1px solid rgba(0,122,255,0.2)', borderRadius: 8, fontSize: 12, color: 'var(--text2)' }}>
-                    Indicá en caja que el cliente pidió ticket impreso.
+                    {invoiceDelivery === 'email' ? 'Caja enviará el ticket por email al cliente.' : 'Indicá en caja que el cliente pidió ticket impreso.'}
                   </div>
                 )}
                 {invoiceType === 'fiscal' && (
