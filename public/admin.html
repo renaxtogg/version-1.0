@@ -1194,8 +1194,6 @@ function MenuPage({categories,menuItems,onRefresh}) {
   const [itemModal,setItemModal] = useState(null); // null | {item: null|object}
   const [previewItem,setPreviewItem] = useState(null);
   const [newCat,setNewCat]       = useState('');
-  const [dragOver,setDragOver]   = useState(null);
-  const dragItem = useRef(null);
   const [allExtras,setAllExtras]       = useState([]);
   const [extrasLoading,setExtrasLoading] = useState(false);
   const [selected,setSelected]   = useState(new Set());
@@ -1264,17 +1262,6 @@ function MenuPage({categories,menuItems,onRefresh}) {
       .subscribe();
     return ()=>{ db.removeChannel(ch); };
   },[]);
-
-  function onDragStart(item) { dragItem.current = item; }
-  async function onDrop(targetItem) {
-    if(!dragItem.current||!db||dragItem.current.id===targetItem.id) return;
-    const from = dragItem.current; const to = targetItem;
-    await Promise.all([
-      db.from('menu_items').update({sort_order:to.sort_order}).eq('id',from.id),
-      db.from('menu_items').update({sort_order:from.sort_order}).eq('id',to.id),
-    ]);
-    setDragOver(null); dragItem.current=null; onRefresh();
-  }
 
   async function addCategory() {
     if(!db||!newCat.trim()) return;
@@ -1431,24 +1418,17 @@ function MenuPage({categories,menuItems,onRefresh}) {
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
                 <Th><input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} style={{cursor:'pointer',width:14,height:14}} title={allVisibleSelected?'Deseleccionar todos':'Seleccionar todos'}/></Th>
-                <Th></Th><Th>Foto</Th><Th>Nombre</Th><Th>Cat.</Th><Th right>Precio</Th><Th>Promo / Tipo</Th><Th>Estado</Th><Th>Acc.</Th>
+                <Th>Foto</Th><Th>Nombre</Th><Th>Cat.</Th><Th right>Precio</Th><Th>Promo / Tipo</Th><Th>Estado</Th><Th>Acc.</Th>
               </tr></thead>
               <tbody>
                 {visible.map(item=>{
                   const stockBajo=(item.stock_min>0)&&(item.stock!=null)&&(item.stock<=item.stock_min);
-                  const isDragTarget=dragOver===item.id;
                   const discountedPrice = item.discount_pct>0 ? Math.round(item.price_guarani*(100-item.discount_pct)/100) : null;
                   const isSelected=selected.has(item.id);
                   return (
                     <tr key={item.id}
-                      draggable={!isSelected}
-                      onDragStart={()=>!isSelected&&onDragStart(item)}
-                      onDragOver={e=>{e.preventDefault();if(!isSelected)setDragOver(item.id);}}
-                      onDragLeave={()=>setDragOver(null)}
-                      onDrop={()=>!isSelected&&onDrop(item)}
-                      style={{borderBottom:`1px solid #F0F0F0`,opacity:isDragTarget?0.5:1,background:isSelected?'#EFF6FF':isDragTarget?'#F0F0F0':'transparent',cursor:isSelected?'default':'grab'}}>
+                      style={{borderBottom:`1px solid #F0F0F0`,background:isSelected?'#EFF6FF':'transparent'}}>
                       <Td><input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(item.id)} style={{cursor:'pointer',width:14,height:14}} onClick={e=>e.stopPropagation()}/></Td>
-                      <Td><span style={{color:'#D2D2D7',fontSize:14,cursor:'grab'}}>⋮⋮</span></Td>
                       <Td>
                         {item.image_url
                           ?<img src={item.image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
@@ -1491,7 +1471,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                     </tr>
                   );
                 })}
-                {visible.length===0&&<EmptyRow cols={9} label="Sin items en esta categoría"/>}
+                {visible.length===0&&<EmptyRow cols={8} label="Sin items en esta categoría"/>}
               </tbody>
             </table>
           </div>
