@@ -958,16 +958,29 @@ function App() {
     try { return JSON.parse(localStorage.getItem('mozo_session') || 'null'); } catch(e) { return null; }
   });
 
+  const [transferNotifPopup, setTransferNotifPopup] = useState(null);
+
   const toastTimer = useRef(null);
   const alertTimer = useRef(null);
+  const transferAlertTimer = useRef(null);
   const loadDataRef = useRef(null);
   const loadTableOrdersRef = useRef(null);
   const activeTableIdRef = useRef(activeTableId);
   const knownCallIds = useRef(new Set());
+  const knownTransferCallIds = useRef(new Set());
   const knownReadyIds = useRef(new Set());
   const knownPendPayIds = useRef(new Set());
   const [itemEditId, setItemEditId] = useState(null);
   const [itemEditNote, setItemEditNote] = useState('');
+
+  // Transferencia de mesas
+  const [transferModal, setTransferModal] = useState(false);
+  const [transferSelectedTables, setTransferSelectedTables] = useState(new Set());
+  const [transferTargetMozo, setTransferTargetMozo] = useState(null);
+  const [transferMotivo, setTransferMotivo] = useState('');
+  const [otrosMozos, setOtrosMozos] = useState([]);
+  const [transferring, setTransferring] = useState(false);
+
   const pollingRef = useRef(null);
   const channelRef = useRef(null);
 
@@ -1156,7 +1169,10 @@ function App() {
 
       const newCalls = callsRes.data || [];
       const tableNumById = tblNumById;
-      const enrichedCalls = newCalls.map(c => ({
+      // Separar notificaciones de transferencia del resto de llamadas
+      const transferNotifCalls = newCalls.filter(c => c.type === 'table_transfer');
+      const regularCalls = newCalls.filter(c => c.type !== 'table_transfer');
+      const enrichedCalls = regularCalls.map(c => ({
         ...c,
         _tableNum: c.table_id ? (tableNumById[c.table_id] || '?') : null,
       }));
@@ -1165,7 +1181,7 @@ function App() {
       setCallsMap(cm);
       setWaiterCalls(enrichedCalls);
 
-      // Detect new waiter calls
+      // Detect new regular waiter calls
       const incoming = enrichedCalls.filter(c => !knownCallIds.current.has(c.id));
       if (incoming.length > 0 && knownCallIds.current.size > 0) {
         const last = incoming[incoming.length - 1];
@@ -1176,6 +1192,24 @@ function App() {
         alertTimer.current = setTimeout(() => setAlertPopup(null), 8000);
       }
       knownCallIds.current = new Set(enrichedCalls.map(c => c.id));
+
+      // Detect transfer notifications directed at the current mozo
+      const incomingTransfers = transferNotifCalls.filter(c => !knownTransferCallIds.current.has(c.id));
+      if (incomingTransfers.length > 0 && knownTransferCallIds.current.size > 0) {
+        const myName = mozoSession?.mozo_name;
+        const myId = mozoSession?.mozo_id;
+        incomingTransfers.forEach(c => {
+          const meta = c.metadata || {};
+          if (meta.target_name === myName || (myId && meta.target_id === myId)) {
+            playAlertSound();
+            vibrateDevice();
+            setTransferNotifPopup(meta);
+            clearTimeout(transferAlertTimer.current);
+            transferAlertTimer.current = setTimeout(() => setTransferNotifPopup(null), 20000);
+          }
+        });
+      }
+      knownTransferCallIds.current = new Set(transferNotifCalls.map(c => c.id));
 
       const items = [];
       const cats = [];
@@ -1250,6 +1284,99 @@ function App() {
       .order('created_at', { ascending: false });
     setTurnoOrders(data || []);
     setLoadingTurno(false);
+  }
+
+  async function loadOtrosMozos() {
+    if (!db) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: ordersData } = await db.from('orders')
+      .select('waiter_id, waiter_name')
+      .eq('restaurant_id', RID)
+      .gte('created_at', today)
+      .not('waiter_name', 'is', null);
+
+    const mozosMap = {};
+    (ordersData || []).forEach(o => {
+      if (!o.waiter_name) return;
+      if (o.waiter_id === mozoSession?.mozo_id) return;
+      if (o.waiter_name === mozoSession?.mozo_name) return;
+      const key = o.waiter_id || o.waiter_name;
+      mozosMap[key] = { id: o.waiter_id, name: o.waiter_name };
+    });
+    // También desde mesas ocupadas
+    tables.forEach(t => {
+      if (!t.assigned_waiter_name) return;
+      if (t.assigned_waiter_name === mozoSession?.mozo_name) return;
+      if (!mozosMap[t.assigned_waiter_name]) {
+        mozosMap[t.assigned_waiter_name] = { id: null, name: t.assigned_waiter_name };
+      }
+    });
+    setOtrosMozos(Object.values(mozosMap));
+  }
+
+  async function ejecutarTransferencia() {
+    if (transferSelectedTables.size === 0 || !transferTargetMozo || !transferMotivo.trim()) return;
+    setTransferring(true);
+    const tableIds = [...transferSelectedTables];
+    try {
+      await db.from('tables')
+        .update({ assigned_waiter_name: transferTargetMozo.name })
+        .in('id', tableIds);
+      for (const tid of tableIds) {
+        const upd = { waiter_name: transferTargetMozo.name };
+        if (transferTargetMozo.id) upd.waiter_id = transferTargetMozo.id;
+        await db.from('orders')
+          .update(upd)
+          .eq('table_id', tid)
+          .in('status', ['draft', 'confirmed', 'paid', 'kitchen_received', 'cooking', 'ready', 'pending_payment']);
+      }
+      // Notificar al mozo receptor vía waiter_calls con metadata
+      const mesaNums = tableIds.map(tid => {
+        const t = tables.find(x => x.id === tid);
+        return t ? t.number : '?';
+      });
+      await db.from('waiter_calls').insert({
+        restaurant_id: RID,
+        table_id: null,
+        type: 'table_transfer',
+        status: 'pending',
+        metadata: {
+          from_name: mozoSession?.mozo_name || 'Mozo',
+          from_id: mozoSession?.mozo_id,
+          target_name: transferTargetMozo.name,
+          target_id: transferTargetMozo.id,
+          tables: mesaNums,
+          motivo: transferMotivo.trim(),
+        },
+      });
+      setTransferModal(false);
+      setTransferSelectedTables(new Set());
+      setTransferTargetMozo(null);
+      setTransferMotivo('');
+      await loadData();
+      showToast(`${tableIds.length} mesa(s) transferida(s) a ${transferTargetMozo.name}`);
+    } catch(e) {
+      showToast('Error al transferir mesas');
+    } finally {
+      setTransferring(false);
+    }
+  }
+
+  function openTransferModal() {
+    // Pre-seleccionar mesas ocupadas del mozo actual
+    const misOcupadas = new Set(
+      tables
+        .filter(t => {
+          const st = getMesaStatus(t.id, ordersMap, callsMap, tablesById);
+          return st !== 'libre';
+        })
+        .map(t => t.id)
+    );
+    setTransferSelectedTables(misOcupadas);
+    setTransferTargetMozo(null);
+    setTransferMotivo('');
+    loadOtrosMozos();
+    setTransferModal(true);
   }
 
   function showToast(msg) {
@@ -2069,7 +2196,7 @@ function App() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px' }}>
+            <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px', alignItems: 'stretch' }}>
               <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
                 <div style={{ fontSize: 11, color: '#6E6E73', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600, marginBottom: 6 }}>Mesas a cobrar</div>
                 <div style={{ fontSize: 28, fontWeight: 800, color: '#000000', letterSpacing: '-0.5px' }}>{mesasACobrar}</div>
@@ -2078,6 +2205,14 @@ function App() {
                 <div style={{ fontSize: 11, color: '#6E6E73', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600, marginBottom: 6 }}>Monto a cobrar</div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: '#000000', letterSpacing: '-0.5px' }}>{fGsK(montoACobrar)}</div>
               </div>
+              <button
+                onClick={openTransferModal}
+                title="Transferir mesas a otro mozo"
+                style={{ flexShrink: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '10px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, color: 'var(--text2)', fontWeight: 700 }}
+              >
+                <span style={{ fontSize: 18 }}>⇄</span>
+                <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.3px', whiteSpace: 'nowrap' }}>Transferir</span>
+              </button>
             </div>
 
             {pendingPaymentTables.length > 0 && (
@@ -3066,6 +3201,143 @@ function App() {
         </div>
       )}
 
+      {/* ─── MODAL: TRANSFERIR MESAS ─── */}
+      {transferModal && (() => {
+        const mesasOcupadas = tables.filter(t => getMesaStatus(t.id, ordersMap, callsMap, tablesById) !== 'libre');
+        const allSelected = mesasOcupadas.length > 0 && mesasOcupadas.every(t => transferSelectedTables.has(t.id));
+        const canConfirm = transferSelectedTables.size > 0 && transferTargetMozo && transferMotivo.trim().length > 0 && !transferring;
+        function toggleTable(id) {
+          setTransferSelectedTables(prev => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+          });
+        }
+        function toggleAll() {
+          if (allSelected) {
+            setTransferSelectedTables(new Set());
+          } else {
+            setTransferSelectedTables(new Set(mesasOcupadas.map(t => t.id)));
+          }
+        }
+        return (
+          <div className="modal-overlay open" onClick={e => { if (e.target.classList.contains('modal-overlay')) setTransferModal(false); }}>
+            <div className="modal">
+              <div className="modal-handle"></div>
+              <div className="modal-header">
+                <div className="modal-title">Transferir mesas</div>
+                <div className="modal-close" onClick={() => setTransferModal(false)}>✕</div>
+              </div>
+              <div className="modal-body">
+
+                {/* Mesas a transferir */}
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div className="section-label">Mesas a transferir</div>
+                    <button onClick={toggleAll} style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)', background: 'none', border: '1px solid var(--border)', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}>
+                      {allSelected ? 'Deseleccionar todo' : 'Seleccionar todo'}
+                    </button>
+                  </div>
+                  {mesasOcupadas.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '16px', color: 'var(--text3)', fontSize: 13, background: 'var(--bg2)', borderRadius: 8 }}>
+                      No hay mesas ocupadas para transferir
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                      {mesasOcupadas.map(t => {
+                        const sel = transferSelectedTables.has(t.id);
+                        const st = getMesaStatus(t.id, ordersMap, callsMap, tablesById);
+                        const SC = SC_M[st] || SC_M.libre;
+                        return (
+                          <div key={t.id} onClick={() => toggleTable(t.id)}
+                            style={{
+                              aspectRatio: '1', borderRadius: 10, border: sel ? '2px solid #000' : '2px solid var(--border)',
+                              background: sel ? '#000' : SC.bg,
+                              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                              cursor: 'pointer', userSelect: 'none', transition: 'all .15s', position: 'relative',
+                            }}>
+                            {sel && (
+                              <div style={{ position: 'absolute', top: 3, right: 5, fontSize: 10, color: '#34C759', fontWeight: 800 }}>✓</div>
+                            )}
+                            <div style={{ fontSize: 16, fontWeight: 800, color: sel ? '#fff' : SC.tx }}>{t.number}</div>
+                            <div style={{ fontSize: 8, color: sel ? 'rgba(255,255,255,0.7)' : SC.tx==='#000000' ? '#86868B' : 'rgba(255,255,255,0.6)', marginTop: 2, fontWeight: 600 }}>{statusLabel(st)}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {transferSelectedTables.size > 0 && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text2)', textAlign: 'center' }}>
+                      {transferSelectedTables.size} mesa(s) seleccionada(s)
+                    </div>
+                  )}
+                </div>
+
+                {/* Seleccionar compañero mozo */}
+                <div style={{ marginBottom: 18 }}>
+                  <div className="section-label" style={{ marginBottom: 8 }}>Transferir a</div>
+                  {otrosMozos.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '14px', color: 'var(--text3)', fontSize: 13, background: 'var(--bg2)', borderRadius: 8 }}>
+                      No hay otros mozos activos hoy
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {otrosMozos.map((m, i) => {
+                        const sel = transferTargetMozo?.name === m.name;
+                        return (
+                          <div key={i} onClick={() => setTransferTargetMozo(m)}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 10,
+                              padding: '11px 14px', borderRadius: 10,
+                              border: sel ? '2px solid #000' : '1px solid var(--border)',
+                              background: sel ? '#000' : 'var(--surface)',
+                              cursor: 'pointer', transition: 'all .15s',
+                            }}>
+                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: sel ? 'rgba(255,255,255,0.15)' : 'var(--bg2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: sel ? '#fff' : '#000', flexShrink: 0 }}>
+                              {m.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: sel ? '#fff' : 'var(--text)' }}>{m.name}</div>
+                              <div style={{ fontSize: 11, color: sel ? 'rgba(255,255,255,0.6)' : 'var(--text3)', marginTop: 1 }}>Mozo activo</div>
+                            </div>
+                            {sel && <div style={{ fontSize: 16, color: '#34C759' }}>✓</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Motivo de transferencia */}
+                <div>
+                  <div className="section-label" style={{ marginBottom: 6 }}>Motivo de la transferencia</div>
+                  <textarea
+                    className="note-field"
+                    rows={3}
+                    placeholder="Ej: Fin de turno, atención a zona, enfermedad..."
+                    value={transferMotivo}
+                    onChange={e => setTransferMotivo(e.target.value)}
+                    maxLength={200}
+                    style={{ marginTop: 0 }}
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'right', marginTop: 3 }}>{transferMotivo.length}/200</div>
+                </div>
+
+              </div>
+              <div className="modal-footer">
+                <button
+                  className="btn btn-primary btn-full"
+                  onClick={ejecutarTransferencia}
+                  disabled={!canConfirm}
+                >
+                  {transferring ? 'Transfiriendo…' : `Transferir ${transferSelectedTables.size > 0 ? transferSelectedTables.size + ' mesa(s)' : ''} →`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ─── DIALOG: MESA ─── */}
       {mesaDialog && (
         <div className="dialog-overlay open">
@@ -3126,6 +3398,52 @@ function App() {
           </div>
         );
       })()}
+
+      {/* POPUP: NOTIFICACIÓN DE TRANSFERENCIA RECIBIDA */}
+      {transferNotifPopup && (
+        <div style={{
+          position: 'fixed', top: 70, left: 16, right: 16, maxWidth: 448,
+          margin: '0 auto', background: '#1D1D1F', color: 'white',
+          borderRadius: 'var(--radius)', padding: '14px 16px',
+          zIndex: 350, animation: 'slideDown 0.3s ease', boxShadow: 'var(--shadow-lg)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+            <div style={{ fontSize: 22, flexShrink: 0 }}>⇄</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 3 }}>
+                Mesas transferidas a vos
+              </div>
+              <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 2 }}>
+                <span style={{ fontWeight: 700 }}>{transferNotifPopup.from_name}</span> te transfirió{' '}
+                {transferNotifPopup.tables?.length === 1
+                  ? `la Mesa ${transferNotifPopup.tables[0]}`
+                  : `las Mesas ${(transferNotifPopup.tables || []).join(', ')}`}
+              </div>
+              {transferNotifPopup.motivo && (
+                <div style={{ fontSize: 12, opacity: 0.65, fontStyle: 'italic', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  "{transferNotifPopup.motivo}"
+                </div>
+              )}
+            </div>
+            <button
+              onClick={async () => {
+                setTransferNotifPopup(null);
+                clearTimeout(transferAlertTimer.current);
+                // Marcar la call como atendida para limpiarla
+                try {
+                  await db.from('waiter_calls')
+                    .update({ status: 'attended', attended_at: new Date().toISOString() })
+                    .eq('restaurant_id', RID)
+                    .eq('type', 'table_transfer')
+                    .eq('status', 'pending');
+                } catch(e) {}
+                await loadData();
+              }}
+              style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer', color: 'white', flexShrink: 0 }}
+            >OK</button>
+          </div>
+        </div>
+      )}
 
       {/* TOAST */}
       <div className={`toast ${toast ? 'show' : ''}`}>
