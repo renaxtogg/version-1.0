@@ -1298,7 +1298,8 @@ function App() {
         title: `⚠ Mesa ${mesa.number} — Reserva próxima`,
         body: `Esta mesa tiene una reserva a las ${horaTxt} (${mins > 0 ? 'en ' + mins + ' min' : 'pasada hace ' + Math.abs(mins) + ' min'}).\n${r.customer_name} · ${r.guests} personas · 📞 ${r.customer_phone}\n\nLa mesa sigue ocupada. Considerá pedir la cuenta al cliente actual.`,
         actions: [
-          { label: 'Ver orden actual', primary: true, action: () => openOrderView(tableId) },
+          { label: 'El cliente de la reserva ya llegó — Sentar', primary: true, action: async () => { await markReservationSeated(r.id); showToast('Reserva marcada como sentada ✓'); } },
+          { label: 'Ver orden actual', action: () => openOrderView(tableId) },
           { label: 'Llamar al cliente reservado', action: () => { try { window.open('tel:' + r.customer_phone, '_self'); } catch(e) {} } },
           { label: 'Cancelar', action: null },
         ],
