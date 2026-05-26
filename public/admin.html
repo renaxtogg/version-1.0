@@ -1198,10 +1198,47 @@ function MenuPage({categories,menuItems,onRefresh}) {
   const dragItem = useRef(null);
   const [allExtras,setAllExtras]       = useState([]);
   const [extrasLoading,setExtrasLoading] = useState(false);
+  const [selected,setSelected]   = useState(new Set());
 
   const visible = catFilter==='all'?menuItems:menuItems.filter(i=>i.category_id===catFilter);
   const catName = id => categories.find(c=>c.id===id)?.name||'—';
   const itemName = id => menuItems.find(i=>i.id===id)?.name||'—';
+
+  const allVisibleSelected = visible.length>0 && visible.every(i=>selected.has(i.id));
+  const someSelected = selected.size>0;
+
+  useEffect(()=>{ setSelected(new Set()); },[catFilter]);
+
+  function toggleSelect(id) {
+    setSelected(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+  }
+  function toggleSelectAll() {
+    if(allVisibleSelected) setSelected(prev=>{ const n=new Set(prev); visible.forEach(i=>n.delete(i.id)); return n; });
+    else setSelected(prev=>{ const n=new Set(prev); visible.forEach(i=>n.add(i.id)); return n; });
+  }
+  async function bulkToggleAvail(enable) {
+    if(!db||selected.size===0) return;
+    const ids=[...selected];
+    const{error}=await db.from('menu_items').update({is_available:enable}).in('id',ids);
+    if(error){toast('Error: '+error.message,false);return;}
+    toast(`${ids.length} item(s) ${enable?'activados':'desactivados'}`);
+    setSelected(new Set()); onRefresh();
+  }
+  async function bulkDelete() {
+    if(!db||selected.size===0) return;
+    if(!confirm(`¿Eliminar ${selected.size} item(s) seleccionados? Esta acción no se puede deshacer.`)) return;
+    const ids=[...selected];
+    const{data,error}=await db.from('menu_items').delete().in('id',ids).select('id');
+    if(error){
+      const msg=error.message.includes('foreign key')||error.message.includes('order_items')
+        ?'Uno o más items tienen pedidos históricos y no pueden eliminarse.'
+        :'Error: '+error.message;
+      toast(msg,false);
+    } else {
+      toast(`${(data||[]).length} item(s) eliminados`);
+      setSelected(new Set()); onRefresh();
+    }
+  }
 
   async function loadAllExtras() {
     if(!db||!menuItems.length) return;
@@ -1381,22 +1418,36 @@ function MenuPage({categories,menuItems,onRefresh}) {
 
         {/* Tabla de productos */}
         <div style={{flex:1}}>
+          {someSelected&&(
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,padding:'8px 12px',background:'#F0F0F0',borderRadius:8,border:`1px solid ${C.border}`}}>
+              <span style={{fontSize:13,fontWeight:600,color:'#1D1D1F',flex:1}}>{selected.size} item(s) seleccionados</span>
+              <Btn small variant="secondary" onClick={()=>bulkToggleAvail(true)}>✓ Activar</Btn>
+              <Btn small variant="secondary" onClick={()=>bulkToggleAvail(false)}>✕ Desactivar</Btn>
+              <Btn small variant="danger" onClick={bulkDelete}>Eliminar</Btn>
+              <button onClick={()=>setSelected(new Set())} style={{background:'none',border:'none',color:'#86868B',cursor:'pointer',fontSize:18,lineHeight:1,padding:'0 4px'}}>×</button>
+            </div>
+          )}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th></Th><Th>Foto</Th><Th>Nombre</Th><Th>Cat.</Th><Th right>Precio</Th><Th>Promo / Tipo</Th><Th>Estado</Th><Th>Acc.</Th></tr></thead>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
+                <Th><input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} style={{cursor:'pointer',width:14,height:14}} title={allVisibleSelected?'Deseleccionar todos':'Seleccionar todos'}/></Th>
+                <Th></Th><Th>Foto</Th><Th>Nombre</Th><Th>Cat.</Th><Th right>Precio</Th><Th>Promo / Tipo</Th><Th>Estado</Th><Th>Acc.</Th>
+              </tr></thead>
               <tbody>
                 {visible.map(item=>{
                   const stockBajo=(item.stock_min>0)&&(item.stock!=null)&&(item.stock<=item.stock_min);
                   const isDragTarget=dragOver===item.id;
                   const discountedPrice = item.discount_pct>0 ? Math.round(item.price_guarani*(100-item.discount_pct)/100) : null;
+                  const isSelected=selected.has(item.id);
                   return (
                     <tr key={item.id}
-                      draggable
-                      onDragStart={()=>onDragStart(item)}
-                      onDragOver={e=>{e.preventDefault();setDragOver(item.id);}}
+                      draggable={!isSelected}
+                      onDragStart={()=>!isSelected&&onDragStart(item)}
+                      onDragOver={e=>{e.preventDefault();if(!isSelected)setDragOver(item.id);}}
                       onDragLeave={()=>setDragOver(null)}
-                      onDrop={()=>onDrop(item)}
-                      style={{borderBottom:`1px solid #F0F0F0`,opacity:isDragTarget?0.5:1,background:isDragTarget?'#F0F0F0':'transparent',cursor:'grab'}}>
+                      onDrop={()=>!isSelected&&onDrop(item)}
+                      style={{borderBottom:`1px solid #F0F0F0`,opacity:isDragTarget?0.5:1,background:isSelected?'#EFF6FF':isDragTarget?'#F0F0F0':'transparent',cursor:isSelected?'default':'grab'}}>
+                      <Td><input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(item.id)} style={{cursor:'pointer',width:14,height:14}} onClick={e=>e.stopPropagation()}/></Td>
                       <Td><span style={{color:'#D2D2D7',fontSize:14,cursor:'grab'}}>⋮⋮</span></Td>
                       <Td>
                         {item.image_url
@@ -1440,7 +1491,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                     </tr>
                   );
                 })}
-                {visible.length===0&&<EmptyRow cols={8} label="Sin items en esta categoría"/>}
+                {visible.length===0&&<EmptyRow cols={9} label="Sin items en esta categoría"/>}
               </tbody>
             </table>
           </div>
