@@ -77,10 +77,10 @@ function _shouldPause() {
 // ── Demo data ────────────────────────────────────────────────
 const DEMO = {
   restaurants:[
-    {id:'r1',name:'La Huaca',city:'Asunción',country:'Paraguay',status:'active',address:'Mcal. Estigarribia 1234',phone:'+595 21 555 0100',email:'contacto@lahuaca.com.py',owner_name:'Carlos Gómez',owner_email:'carlos@lahuaca.com.py',owner_phone:'+595 981 123 456',onboarding_date:'2026-01-15',notes:'Cliente ancla',ruc:'80000001-1',legal_name:'La Huaca S.A.',maintenance_mode:false,maintenance_message:''},
-    {id:'r2',name:'El Mercado',city:'Lambaré',country:'Paraguay',status:'active',address:'Av. Santa Teresa 1230',phone:'+595 21 555 0200',email:'info@elmercadopy.com',owner_name:'Sofía Benítez',owner_email:'sofia@elmercadopy.com',owner_phone:'+595 982 200 100',onboarding_date:'2026-02-10',notes:null,ruc:'80000002-2',legal_name:null,maintenance_mode:false,maintenance_message:''},
-    {id:'r3',name:'Don Julio Parrilla',city:'Asunción',country:'Paraguay',status:'trial',address:'Mcal. López 4590',phone:'+595 21 600 8800',email:'julio@donjulio.com.py',owner_name:'Julio Fernández',owner_email:'julio@donjulio.com.py',owner_phone:'+595 991 330 220',onboarding_date:'2026-04-20',notes:'Trial 14 días',ruc:null,legal_name:null,maintenance_mode:false,maintenance_message:''},
-    {id:'r4',name:'Café Central',city:'Ciudad del Este',country:'Paraguay',status:'suspended',address:'Palma 580',phone:'+595 61 777 3300',email:'andrea@cafecentral.py',owner_name:'Andrea Sosa',owner_email:'andrea@cafecentral.py',owner_phone:'+595 985 440 330',onboarding_date:'2025-11-01',notes:'Suspendido por falta de pago',ruc:'80000004-4',legal_name:'Café Central EIRL',maintenance_mode:false,maintenance_message:''},
+    {id:'r1',name:'La Huaca',city:'Asunción',country:'Paraguay',status:'active',address:'Mcal. Estigarribia 1234',phone:'+595 21 555 0100',email:'contacto@lahuaca.com.py',owner_name:'Carlos Gómez',owner_email:'carlos@lahuaca.com.py',owner_phone:'+595 981 123 456',onboarding_date:'2026-01-15',notes:'Cliente ancla',ruc:'80000001-1',legal_name:'La Huaca S.A.',maintenance_mode:false,maintenance_message:'',is_open:true,opening_hours:[{day:'Lun–Vie',hours:'12:00–15:00 · 19:00–23:00'},{day:'Sábados',hours:'12:00–23:30'},{day:'Domingos',hours:'12:00–16:00'}]},
+    {id:'r2',name:'El Mercado',city:'Lambaré',country:'Paraguay',status:'active',address:'Av. Santa Teresa 1230',phone:'+595 21 555 0200',email:'info@elmercadopy.com',owner_name:'Sofía Benítez',owner_email:'sofia@elmercadopy.com',owner_phone:'+595 982 200 100',onboarding_date:'2026-02-10',notes:null,ruc:'80000002-2',legal_name:null,maintenance_mode:false,maintenance_message:'',is_open:false,opening_hours:[{day:'Lun–Sáb',hours:'11:00–22:00'},{day:'Domingos',hours:'Cerrado'}]},
+    {id:'r3',name:'Don Julio Parrilla',city:'Asunción',country:'Paraguay',status:'trial',address:'Mcal. López 4590',phone:'+595 21 600 8800',email:'julio@donjulio.com.py',owner_name:'Julio Fernández',owner_email:'julio@donjulio.com.py',owner_phone:'+595 991 330 220',onboarding_date:'2026-04-20',notes:'Trial 14 días',ruc:null,legal_name:null,maintenance_mode:false,maintenance_message:'',is_open:true,opening_hours:[{day:'Martes–Dom',hours:'19:00–00:00'}]},
+    {id:'r4',name:'Café Central',city:'Ciudad del Este',country:'Paraguay',status:'suspended',address:'Palma 580',phone:'+595 61 777 3300',email:'andrea@cafecentral.py',owner_name:'Andrea Sosa',owner_email:'andrea@cafecentral.py',owner_phone:'+595 985 440 330',onboarding_date:'2025-11-01',notes:'Suspendido por falta de pago',ruc:'80000004-4',legal_name:'Café Central EIRL',maintenance_mode:false,maintenance_message:'',is_open:false,opening_hours:[]},
   ],
   plans:[
     {id:'p1',name:'Starter',price_usd:29,billing_cycle:'monthly',max_tables:5,max_menu_items:30,features:['Pedidos QR','KDS cocina','Analytics básico'],is_active:true},
@@ -1786,6 +1786,7 @@ const NAV = [
   {id:'soporte',        label:'Soporte'},
   {id:'reportes',       label:'Reportes'},
   {id:'actividad',      label:'Actividad'},
+  {id:'horarios',       label:'Horarios'},
   {id:'calendario',     label:'Calendario'},
   {id:'configuracion',  label:'Configuración'},
 ];
@@ -2204,6 +2205,138 @@ function saCalGridDays(year, month) {
   for (let i = 0; i < startDow; i++) days.push(null);
   for (let d = 1; d <= last.getDate(); d++) days.push(d);
   return days;
+}
+
+// ── Horarios & Estado — vista de apertura/cierre por restaurante ─
+function PageHorarios({restaurants, setFlash, reload}) {
+  const [toggling, setToggling] = useState(null);
+
+  const toggleOpen = async (r) => {
+    if (!db) { setFlash({type:'warn', text:'Sin conexión — operación demo'}); return; }
+    setToggling(r.id);
+    const next = !r.is_open;
+    const {error} = await db.from('restaurants').update({is_open: next}).eq('id', r.id);
+    setToggling(null);
+    if (error) { setFlash({type:'error', text:'Error: '+error.message}); return; }
+    setFlash({type:'ok', text:`${r.name} marcado como ${next ? 'abierto' : 'cerrado'}`});
+    reload();
+  };
+
+  const openCount   = restaurants.filter(r => r.is_open).length;
+  const closedCount = restaurants.length - openCount;
+  const allClosed   = openCount === 0 && restaurants.length > 0;
+
+  // Extrae texto de horarios del campo opening_hours (JSONB: [{day,hours}])
+  const renderHours = (oh) => {
+    if (!oh || (Array.isArray(oh) && oh.length === 0)) return <span style={{color:C.mid,fontSize:12}}>Sin horario cargado</span>;
+    const arr = Array.isArray(oh) ? oh : (typeof oh === 'string' ? JSON.parse(oh) : []);
+    return (
+      <div style={{fontSize:12,lineHeight:1.6}}>
+        {arr.map((h,i) => (
+          <div key={i}><span style={{color:C.mid}}>{h.day}:</span> {h.hours}</div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{marginBottom:24}}>
+        <div style={{fontSize:22,fontWeight:800,color:C.ink,letterSpacing:'-0.5px'}}>Horarios y estados</div>
+        <div style={{fontSize:13,color:C.mid,marginTop:4}}>Estado de apertura en tiempo real y ventana de mantenimiento</div>
+      </div>
+
+      {/* Tarjetas resumen */}
+      <div style={{display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'}}>
+        <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
+          <div style={{fontSize:28,fontWeight:800,color:'#34C759'}}>{openCount}</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:2}}>Abiertos ahora</div>
+        </div>
+        <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
+          <div style={{fontSize:28,fontWeight:800,color:C.red}}>{closedCount}</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:2}}>Cerrados ahora</div>
+        </div>
+        <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
+          <div style={{fontSize:28,fontWeight:800,color:C.ink}}>{restaurants.length}</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:2}}>Total restaurantes</div>
+        </div>
+        <div style={{
+          background: allClosed ? '#34C75915' : '#FF3B3015',
+          border: `1px solid ${allClosed ? '#34C759' : C.red}`,
+          borderRadius:12,padding:'16px 24px',flex:1,minWidth:200,display:'flex',alignItems:'center',gap:12
+        }}>
+          <div style={{fontSize:20}}>{allClosed ? '✅' : '⏳'}</div>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color: allClosed ? '#1a7a3a' : '#b02020'}}>
+              {allClosed ? 'Ventana disponible' : 'Aún hay restaurantes abiertos'}
+            </div>
+            <div style={{fontSize:11,color:C.mid,marginTop:2}}>
+              {allClosed
+                ? 'Todos los restaurantes están cerrados — momento ideal para actualizaciones'
+                : `${openCount} restaurante${openCount > 1 ? 's' : ''} en operación — esperá a que cierren todos`}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabla de restaurantes */}
+      <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden'}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead>
+            <tr style={{background:'#F5F5F7'}}>
+              <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Restaurante</th>
+              <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Ciudad</th>
+              <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Horarios</th>
+              <th style={{padding:'10px 16px',textAlign:'center',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Estado</th>
+              <th style={{padding:'10px 16px',textAlign:'center',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Toggle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {restaurants.length === 0 && (
+              <tr><td colSpan={5} style={{padding:32,textAlign:'center',color:C.mid,fontSize:13}}>Sin restaurantes</td></tr>
+            )}
+            {restaurants.map((r, i) => (
+              <tr key={r.id} style={{borderTop: i > 0 ? `1px solid ${C.border}` : 'none', background: r.is_open ? '#34C75908' : 'transparent'}}>
+                <td style={{padding:'12px 16px'}}>
+                  <div style={{fontWeight:600,fontSize:13,color:C.ink}}>{r.name}</div>
+                  <div style={{fontSize:11,color:C.mid}}>{r.status === 'active' ? 'Activo' : r.status === 'trial' ? 'Trial' : r.status === 'suspended' ? 'Suspendido' : r.status}</div>
+                </td>
+                <td style={{padding:'12px 16px',fontSize:13,color:C.mid}}>{r.city || '—'}</td>
+                <td style={{padding:'12px 16px'}}>{renderHours(r.opening_hours)}</td>
+                <td style={{padding:'12px 16px',textAlign:'center'}}>
+                  <span style={{
+                    display:'inline-block',padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,
+                    background: r.is_open ? '#34C75920' : '#F5F5F7',
+                    color: r.is_open ? '#1a7a3a' : C.mid
+                  }}>
+                    {r.is_open ? 'Abierto' : 'Cerrado'}
+                  </span>
+                </td>
+                <td style={{padding:'12px 16px',textAlign:'center'}}>
+                  <button
+                    disabled={toggling === r.id}
+                    onClick={() => toggleOpen(r)}
+                    style={{
+                      padding:'5px 14px',borderRadius:6,border:'none',cursor:'pointer',fontSize:12,fontWeight:600,
+                      background: r.is_open ? C.red : '#34C759',
+                      color:'#fff',opacity: toggling === r.id ? .5 : 1,
+                      transition:'all .15s'
+                    }}
+                  >
+                    {toggling === r.id ? '…' : r.is_open ? 'Marcar cerrado' : 'Marcar abierto'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{marginTop:16,fontSize:11,color:C.mid}}>
+        El estado se actualiza manualmente. Los horarios mostrados son los cargados en cada restaurante desde el panel admin.
+      </div>
+    </div>
+  );
 }
 
 function PageCalendario({restaurants}) {
@@ -2667,6 +2800,7 @@ function App() {
               {page==='soporte'       && <PageSoporte      setFlash={setFlash}/>}
               {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='horarios'      && <PageHorarios     restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='calendario'    && <PageCalendario   restaurants={restaurants}/>}
               {page==='configuracion' && <PageConfiguracion restaurants={restaurants} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
             </>
