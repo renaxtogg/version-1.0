@@ -32,6 +32,9 @@
 <body>
 <div id="root"></div>
 <script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
 document.documentElement.setAttribute('data-theme', 'light');
 localStorage.setItem('mesa_theme', 'light');
 </script>
@@ -75,6 +78,86 @@ const DELIVERY_PLATS = ['Rappi','PedidosYa','UberEats','Otro'];
 const QUEJA_CATS     = ['Tiempo de espera','Calidad de la comida','Temperatura incorrecta','Error en el pedido','Trato del personal','Limpieza','Precio o cobro incorrecto','Otro'];
 const CORTESIA_MOTIVOS = ['Error de cocina','Cliente VIP','Evento especial','Compensación por queja','Otro'];
 const FONDO_MINIMO   = 50000; // ₲ 50.000 mínimo recomendado
+
+/* ── PRINT TICKET ── */
+function printTicket({orderNumber,mesa,items,total,metodo,cambio,isOffline}){
+  const fecha=new Date().toLocaleString('es-PY',{dateStyle:'short',timeStyle:'short'});
+  const metodos={efectivo:'Efectivo',tarjeta_credito:'Tarjeta Crédito',tarjeta_debito:'Tarjeta Débito',qr:'QR / Transferencia',mixto:'Mixto'};
+  const restName=window._restaurantName||'La Huaca';
+  const w=window.open('','_blank','width=340,height=720,menubar=no,toolbar=no,scrollbars=yes');
+  if(!w){toast('Permití ventanas emergentes para imprimir',false);return;}
+  const rows=(items||[]).map(it=>{
+    const precio=(it.unit_price||it.price_guarani||0);
+    const qty=it.quantity||1;
+    return `<tr><td>${qty}× ${it.item_name||it.name||''}</td><td style="text-align:right;white-space:nowrap">${fmt(precio*qty)}</td></tr>`;
+  }).join('');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ticket #${orderNumber}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Courier New',Courier,monospace;font-size:12px;width:72mm;margin:0 auto;padding:4mm;background:#fff;color:#000}
+.c{text-align:center}.b{font-weight:bold}.big{font-size:15px;font-weight:bold}
+hr{border:none;border-top:1px dashed #000;margin:5px 0}
+table{width:100%}td{padding:1px 0;vertical-align:top}
+.tot td{font-weight:bold;font-size:14px;border-top:1px solid #000;padding-top:3px;margin-top:2px}
+.vuelto{font-size:13px;font-weight:bold;margin-top:3px}
+@media print{body{width:72mm;margin:0;padding:2mm}}
+</style></head><body>
+<div class="c big">${restName}</div>
+<div class="c" style="font-size:10px;margin:2px 0">${fecha}</div>
+<hr>
+<div class="c b">Pedido #${orderNumber}${isOffline?' <span style="font-size:10px">(LOCAL)</span>':''}</div>
+<div class="c" style="font-size:10px">${mesa}</div>
+<hr>
+<table>${rows}<tr class="tot"><td>TOTAL</td><td style="text-align:right">${fmt(total)}</td></tr></table>
+<hr>
+<div>Método: ${metodos[metodo]||metodo}</div>
+${cambio>0?`<div class="vuelto">Vuelto: ${fmt(cambio)}</div>`:''}
+<hr>
+<div class="c" style="font-size:10px;margin-top:4px">¡Gracias por su visita!</div>
+<script>window.onload=function(){window.print();}<\/script>
+</body></html>`);
+  w.document.close();
+}
+
+/* ── MENU CACHE (localStorage) ── */
+const menuCache={
+  save(cats,items,tables){
+    try{
+      localStorage.setItem('mythos_menu_cats',JSON.stringify(cats));
+      localStorage.setItem('mythos_menu_items',JSON.stringify(items));
+      localStorage.setItem('mythos_menu_tables',JSON.stringify(tables));
+    }catch(e){}
+  },
+  load(){
+    try{
+      return{
+        cats:JSON.parse(localStorage.getItem('mythos_menu_cats')||'[]'),
+        items:JSON.parse(localStorage.getItem('mythos_menu_items')||'[]'),
+        tables:JSON.parse(localStorage.getItem('mythos_menu_tables')||'[]'),
+      };
+    }catch{return{cats:[],items:[],tables:[]};}
+  },
+};
+
+/* ── OFFLINE QUEUE (localStorage) ── */
+const offlineQ={
+  _key:'mythos_offline_orders',
+  _cntKey:'mythos_order_counter',
+  getAll(){try{return JSON.parse(localStorage.getItem(this._key)||'[]');}catch{return[];}},
+  _save(orders){localStorage.setItem(this._key,JSON.stringify(orders));},
+  add(order){const all=this.getAll();all.push(order);this._save(all);},
+  remove(localId){this._save(this.getAll().filter(o=>o.local_id!==localId));},
+  nextNum(){
+    const n=(parseInt(localStorage.getItem(this._cntKey)||'0')+1);
+    localStorage.setItem(this._cntKey,String(n));
+    return n;
+  },
+  pending(){return this.getAll().filter(o=>!o.synced);},
+  markSynced(localId){
+    const all=this.getAll().map(o=>o.local_id===localId?{...o,synced:true}:o);
+    this._save(all);
+  },
+};
 
 /* ── UTILS ── */
 const fmt    = n => '₲ ' + (n||0).toLocaleString('es-PY');
@@ -349,7 +432,7 @@ async function cerrarSesion(){
   window.location.replace('login.html');
 }
 
-function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggleTheme,paymentCalls=0,onClickCalls}){
+function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggleTheme,paymentCalls=0,onClickCalls,isOnline=true,pendingOffline=0}){
   const [hora,setHora]=useState(new Date());
   useEffect(()=>{const t=setInterval(()=>setHora(new Date()),30000);return()=>clearInterval(t);},[]);
 
@@ -366,6 +449,7 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
     {id:'salon',   icon:'',  lbl:'Vista del salón'},
     {id:'pedido',  icon:'',  lbl:'Tomar pedido'},
     {id:'cobros',  icon:'',  lbl:'Cobrar pedidos'},
+    {id:'facturas', icon:'🧾', lbl:'Facturas del turno'},
     {id:'historial',icon:'≡', lbl:'Historial'},
     {id:'reservas',icon:'◷', lbl:'Reservas'},
     {id:'retiro',  icon:'',  lbl:'Retiro de efectivo'},
@@ -440,6 +524,15 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
           );
         })}
       </nav>
+
+      {/* Indicador offline */}
+      {!isOnline&&(
+        <div style={{margin:'0 8px 6px',background:'rgba(255,59,48,0.1)',border:'1px solid rgba(255,59,48,0.3)',borderRadius:8,padding:'8px 10px'}}>
+          <div style={{fontSize:11,fontWeight:700,color:'#FF3B30',marginBottom:2}}>⚡ MODO OFFLINE</div>
+          <div style={{fontSize:10,color:'#86868B'}}>Menú desde caché local</div>
+          {pendingOffline>0&&<div style={{fontSize:10,color:'#FF9500',marginTop:2,fontWeight:600}}>{pendingOffline} pedido{pendingOffline>1?'s':''} pendiente{pendingOffline>1?'s':''} de sync</div>}
+        </div>
+      )}
 
       <div style={{padding:'10px 8px',borderTop:`1px solid ${C.border}`}}>
         <button onClick={()=>window.location.href='admin.html'} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'7px 10px',borderRadius:6,border:'none',background:'transparent',color:'#6E6E73',fontSize:11,cursor:'pointer'}}>
@@ -628,6 +721,8 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
   const [items,setItems]=useState([]);
+  const [successTicket,setSuccessTicket]=useState(null);
+  const movDataRef=React.useRef(null);
 
   useEffect(()=>{
     db.from('order_items').select('id,item_name,quantity,unit_price').eq('order_id',order.id)
@@ -685,15 +780,62 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
             .eq('status','pending').eq('type','payment_request');
         }catch(e){}
       }
-      onSuccess(movData);
+      movDataRef.current=movData;
+      setSuccessTicket({
+        orderNumber:order.order_number,
+        mesa,
+        items,
+        total:totalReal,
+        metodo,
+        cambio:Math.max(0,cambio),
+      });
     }catch(e){toast('Error al cobrar: '+e.message,false);}
     setBusy(false);
+  }
+
+  function cerrarTrasExito(){
+    if(movDataRef.current)onSuccess(movDataRef.current);
   }
 
   const isDeliveryOrder = order.order_type==='delivery';
   const deliveryFeeNum  = deliveryInfo?.delivery_fee||0;
   const cashAmountNum   = deliveryInfo?.cash_amount||0;
   const cashChangeNum   = cashAmountNum>0 ? cashAmountNum-(totalReal+deliveryFeeNum) : 0;
+
+  if(successTicket){
+    return(
+      <Modal title="Pedido cobrado" onClose={cerrarTrasExito} width={420}>
+        <div style={{textAlign:'center',padding:'20px 0 8px'}}>
+          <div style={{fontSize:48,marginBottom:8}}>✓</div>
+          <div style={{fontSize:18,fontWeight:800,color:'#34C759',marginBottom:4}}>¡Cobrado!</div>
+          <div style={{fontSize:13,color:'#6E6E73',marginBottom:2}}>Pedido #{successTicket.orderNumber}</div>
+          <div style={{fontSize:12,color:'#6E6E73'}}>{successTicket.mesa}</div>
+        </div>
+        <div style={{background:'#F5F5F7',borderRadius:10,padding:'12px 14px',marginTop:12,marginBottom:16}}>
+          {successTicket.items.map((it,i)=>(
+            <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:3}}>
+              <span>{it.quantity}× {it.item_name}</span>
+              <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt((it.unit_price||0)*it.quantity)}</span>
+            </div>
+          ))}
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:15,fontWeight:800,borderTop:'1px solid #D2D2D7',paddingTop:8,marginTop:6}}>
+            <span>TOTAL</span>
+            <span style={{fontFamily:"'SF Mono',monospace",color:'#34C759'}}>{fmt(successTicket.total)}</span>
+          </div>
+          {successTicket.cambio>0&&(
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#6E6E73',marginTop:4}}>
+              <span>Vuelto</span>
+              <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt(successTicket.cambio)}</span>
+            </div>
+          )}
+        </div>
+        <div style={{display:'flex',gap:10}}>
+          <Btn full onClick={()=>printTicket(successTicket)} variant="secondary">🖨 Imprimir ticket</Btn>
+          <Btn full onClick={cerrarTrasExito} variant="success">Cerrar</Btn>
+        </div>
+      </Modal>
+    );
+  }
 
   return(
     <Modal title={`Cobrar pedido #${order.order_number}`} onClose={onClose} width={480}>
@@ -1511,14 +1653,24 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
   useEffect(()=>{localStorage.setItem('caja_customer_name',customerName);},[customerName]);
 
   async function load(){
-    const[{data:catData},{data:itemData},{data:tblData}]=await Promise.all([
-      db.from('menu_categories').select('id,name,sort_order').eq('restaurant_id',RID).eq('is_active',true).order('sort_order'),
-      db.from('menu_items').select('id,name,price_guarani,description,image_url,category_id,menu_item_extras(id,name,price_guarani)').eq('restaurant_id',RID).eq('is_available',true).order('sort_order'),
-      db.from('tables').select('id,number').eq('restaurant_id',RID).order('number'),
-    ]);
-    const cs=catData||[];
-    setCats(cs);setItems(itemData||[]);setTables(tblData||[]);
-    if(cs.length>0)setSelCat(cs[0].id);
+    try{
+      const[{data:catData},{data:itemData},{data:tblData}]=await Promise.all([
+        db.from('menu_categories').select('id,name,sort_order').eq('restaurant_id',RID).eq('is_active',true).order('sort_order'),
+        db.from('menu_items').select('id,name,price_guarani,description,image_url,category_id,menu_item_extras(id,name,price_guarani)').eq('restaurant_id',RID).eq('is_available',true).order('sort_order'),
+        db.from('tables').select('id,number').eq('restaurant_id',RID).order('number'),
+      ]);
+      const cs=catData||[];
+      setCats(cs);setItems(itemData||[]);setTables(tblData||[]);
+      if(cs.length>0)setSelCat(cs[0].id);
+      menuCache.save(cs,itemData||[],tblData||[]);
+    }catch(e){
+      const cached=menuCache.load();
+      if(cached.cats.length>0){
+        setCats(cached.cats);setItems(cached.items);setTables(cached.tables);
+        setSelCat(cached.cats[0].id);
+        toast('Menú cargado desde caché (sin conexión)');
+      }
+    }
     setLoading(false);
   }
 
@@ -3171,6 +3323,95 @@ function ReservasPanel(){
 }
 
 /* ═══════════════════════════════════════════
+   PANEL: FACTURAS DEL TURNO
+═══════════════════════════════════════════ */
+function FacturasCajaPanel({turno}){
+  const [cobros,setCobros]=useState([]);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    if(!db)return;
+    db.from('movimientos_caja')
+      .select('id,created_at,monto,metodo_pago,descripcion,pedido_id,metadata')
+      .eq('turno_id',turno.id).eq('tipo','cobro')
+      .order('created_at',{ascending:false})
+      .then(({data})=>{setCobros(data||[]);setLoading(false);});
+  },[turno.id]);
+
+  const total=cobros.reduce((s,m)=>s+Number(m.monto||0),0);
+  const MET={efectivo:'Efectivo',tarjeta_credito:'T.Crédito',tarjeta_debito:'T.Débito',qr:'QR',mixto:'Mixto'};
+
+  async function reimprimir(c){
+    const meta=c.metadata||{};
+    let items=[];
+    if(c.pedido_id){
+      const{data}=await db.from('order_items').select('item_name,quantity,unit_price').eq('order_id',c.pedido_id);
+      items=data||[];
+    }
+    printTicket({
+      orderNumber:meta.orden_numero||'—',
+      mesa:meta.mesa||c.descripcion||'—',
+      items,
+      total:Number(c.monto||0),
+      metodo:c.metodo_pago,
+      cambio:Number(meta.cambio||0),
+    });
+  }
+
+  return(
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,gap:10,flexWrap:'wrap'}}>
+        <h1 style={{fontSize:20,fontWeight:800}}>Facturas del turno</h1>
+        <div style={{fontFamily:"'SF Mono',monospace",fontSize:16,fontWeight:800,color:'#34C759'}}>{fmt(total)}</div>
+      </div>
+
+      {/* Placeholder facturación electrónica */}
+      <div style={{background:'rgba(0,122,255,0.06)',border:'1px solid rgba(0,122,255,0.2)',borderRadius:10,padding:'12px 16px',marginBottom:20,display:'flex',alignItems:'center',gap:12}}>
+        <span style={{fontSize:22}}>🇵🇾</span>
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:'#007AFF'}}>Facturación electrónica SET (SIFEN)</div>
+          <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>Próximamente — integración con la SET de Paraguay para emisión de facturas electrónicas (e-Kuatia).</div>
+        </div>
+        <span style={{marginLeft:'auto',fontSize:10,fontWeight:700,color:'#007AFF',background:'rgba(0,122,255,0.1)',padding:'3px 8px',borderRadius:10,whiteSpace:'nowrap'}}>PRÓX.</span>
+      </div>
+
+      {loading&&<div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
+
+      {!loading&&cobros.length===0&&(
+        <div style={{textAlign:'center',padding:'60px 0',color:'#6E6E73'}}>
+          <div style={{fontSize:36,marginBottom:12}}>🧾</div>
+          <div style={{fontSize:14,fontWeight:700}}>Sin facturas en este turno</div>
+          <div style={{fontSize:12,marginTop:4}}>Aparecen aquí al cobrar pedidos</div>
+        </div>
+      )}
+
+      {!loading&&cobros.length>0&&(
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {cobros.map(c=>{
+            const meta=c.metadata||{};
+            const hora=new Date(c.created_at).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'});
+            return(
+              <div key={c.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'12px 14px',display:'flex',alignItems:'center',gap:12}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
+                    <span style={{fontSize:13,fontWeight:800}}>#{meta.orden_numero||'—'}</span>
+                    <span style={{fontSize:11,color:'#6E6E73'}}>{meta.mesa||'—'}</span>
+                    <span style={{fontSize:10,background:'#F0F0F0',borderRadius:6,padding:'1px 6px',color:'#6E6E73',fontWeight:600}}>{MET[c.metodo_pago]||c.metodo_pago}</span>
+                  </div>
+                  <div style={{fontSize:11,color:'#86868B'}}>{hora}</div>
+                </div>
+                <div style={{fontFamily:"'SF Mono',monospace",fontSize:16,fontWeight:800,color:'#34C759',flexShrink:0}}>{fmt(c.monto)}</div>
+                <button onClick={()=>reimprimir(c)} title="Reimprimir ticket" style={{padding:'6px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#6E6E73',fontSize:13,cursor:'pointer',flexShrink:0}}>🖨</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
    PANEL: HISTORIAL DE PEDIDOS
 ═══════════════════════════════════════════ */
 function HistorialPanel(){
@@ -3333,8 +3574,45 @@ function DashboardCaja({turno,profile,onCierre}){
   const [panel,setPanel]=useState(()=>localStorage.getItem('caja_panel')||'salon');
   const [movimientos,setMovimientos]=useState([]);
   const [paymentCalls,setPaymentCalls]=useState([]);
+  const [isOnline,setIsOnline]=useState(navigator.onLine);
+  const [pendingOffline,setPendingOffline]=useState(()=>offlineQ.pending().length);
   const [,forceRender]=useReducer(x=>x+1,0);
   function changePanel(p){localStorage.setItem('caja_panel',p);setPanel(p);}
+
+  useEffect(()=>{
+    const onOn=()=>{setIsOnline(true);syncOfflineOrders();};
+    const onOff=()=>setIsOnline(false);
+    window.addEventListener('online',onOn);
+    window.addEventListener('offline',onOff);
+    return()=>{window.removeEventListener('online',onOn);window.removeEventListener('offline',onOff);};
+  },[]);
+
+  async function syncOfflineOrders(){
+    const pending=offlineQ.pending();
+    if(!pending.length)return;
+    for(const o of pending){
+      try{
+        const{data:ord,error:e1}=await db.from('orders').insert({
+          restaurant_id:RID,order_type:o.order_type,table_id:o.table_id||null,
+          customer_name:o.customer_name||null,status:'paid',payment_status:'paid',
+          payment_method:o.metodo,total:o.total,created_by:profile.id,
+          notes:'Pedido offline sincronizado',
+        }).select().single();
+        if(e1)throw e1;
+        if(o.items?.length){
+          await db.from('order_items').insert(o.items.map(it=>({
+            order_id:ord.id,item_id:it.item?.id||null,item_name:it.item?.name||it.item_name,
+            quantity:it.quantity,unit_price:it.item?.price_guarani||it.unit_price||0,
+          })));
+        }
+        offlineQ.markSynced(o.local_id);
+        setPendingOffline(offlineQ.pending().length);
+        toast(`Pedido LOCAL-${o.local_num} sincronizado ✓`);
+      }catch(err){
+        toast(`Error al sincronizar pedido offline: ${err.message}`,false);
+      }
+    }
+  }
 
   // Escuchar solicitudes de cobro del mozo (waiter_calls type=payment_request)
   useEffect(()=>{
@@ -3420,6 +3698,7 @@ function DashboardCaja({turno,profile,onCierre}){
       case 'salon':            return <SalonPanel         profile={profile}/>;
       case 'pedido':           return <TomarPedidoPanel   turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
       case 'cobros':           return <CobrosPanel       turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
+      case 'facturas':         return <FacturasCajaPanel  turno={turno}/>;
       case 'historial':        return <HistorialPanel/>;
       case 'cancelaciones':    return <CancelacionesPanel turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
       case 'ingresos_egresos': return <IngresosEgresosPanel turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
@@ -3433,7 +3712,7 @@ function DashboardCaja({turno,profile,onCierre}){
 
   return(
     <div style={{display:'flex',minHeight:'100vh'}}>
-      <SidebarTurno turno={turno} movimientos={movimientos} panel={panel} setPanel={changePanel} profile={profile} onToggleTheme={toggleTheme} paymentCalls={paymentCalls.length} onClickCalls={()=>changePanel('cobros')}/>
+      <SidebarTurno turno={turno} movimientos={movimientos} panel={panel} setPanel={changePanel} profile={profile} onToggleTheme={toggleTheme} paymentCalls={paymentCalls.length} onClickCalls={()=>changePanel('cobros')} isOnline={isOnline} pendingOffline={pendingOffline}/>
       <main style={{flex:1,padding:24,overflowY:'auto',minWidth:0}}>
         {paymentCalls.length>0&&(
           <div style={{background:'rgba(255,149,0,0.12)',border:'1px solid rgba(255,149,0,0.5)',borderRadius:10,padding:'12px 16px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
@@ -3525,6 +3804,10 @@ async function initApp(session){
   if(!profile.id){profile.id=session.user.id;}
   if(profile.restaurant_id) RID = profile.restaurant_id;
   window._userProfile=profile;
+  try{
+    const{data:r}=await db.from('restaurants').select('name').eq('id',RID).maybeSingle();
+    window._restaurantName=r?.name||'La Huaca';
+  }catch(e){window._restaurantName='La Huaca';}
   ReactDOM.createRoot(document.getElementById('root')).render(
     <><CajaApp profile={profile}/><ToastContainer/></>
   );

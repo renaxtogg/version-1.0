@@ -330,6 +330,7 @@ const NAV = [
   null,
   {id:'clientes',  label:'Clientes',     icon:'♦', group:'ANÁLISIS'},
   {id:'reportes',  label:'Reportes',     icon:'≈'},
+  {id:'facturas',  label:'Facturas',     icon:'🧾'},
   {id:'finanzas',  label:'Finanzas',     icon:'₲'},
   {id:'caja',      label:'Caja',         icon:'🖥'},
   null,
@@ -8958,6 +8959,7 @@ function AdminApp() {
       case 'clientes':  return <ClientesPage orders={orders}/>;
       case 'caja':      return <CajaAdminPage/>;
       case 'reportes':  return <ReportesPage orders={orders}/>;
+      case 'facturas':  return <FacturasAdminPage/>;
       case 'finanzas':  return <FinanzasPage orders={orders}/>;
       case 'marketing': return <MarketingPage coupons={coupons} orders={orders} onRefresh={loadAll}/>;
       case 'ratings':   return <RatingsPage ratings={ratings}/>;
@@ -8977,6 +8979,133 @@ function AdminApp() {
         {renderPage()}
       </main>
       <ToastContainer/>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   PAGE: FACTURAS
+═══════════════════════════════════════════ */
+function FacturasAdminPage(){
+  const [cobros,setCobros]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [rango,setRango]=useState('hoy');
+  const [metodoFlt,setMetodoFlt]=useState('todos');
+  const [searchQ,setSearchQ]=useState('');
+
+  useEffect(()=>{load();},[rango]);
+
+  async function load(){
+    setLoading(true);
+    const now=new Date();
+    let desde=null;
+    if(rango==='hoy'){desde=new Date(now.getFullYear(),now.getMonth(),now.getDate()).toISOString();}
+    else if(rango==='7d'){desde=new Date(Date.now()-7*86400000).toISOString();}
+    else if(rango==='30d'){desde=new Date(Date.now()-30*86400000).toISOString();}
+
+    let q=db.from('movimientos_caja')
+      .select('id,created_at,monto,metodo_pago,descripcion,pedido_id,metadata,turnos_caja(cajero_id,fecha_apertura)')
+      .eq('restaurant_id',RID).eq('tipo','cobro')
+      .order('created_at',{ascending:false}).limit(300);
+    if(desde)q=q.gte('created_at',desde);
+    const{data}=await q;
+    setCobros(data||[]);
+    setLoading(false);
+  }
+
+  const MET={efectivo:'Efectivo',tarjeta_credito:'T.Crédito',tarjeta_debito:'T.Débito',qr:'QR',mixto:'Mixto'};
+
+  const display=cobros.filter(c=>{
+    if(metodoFlt!=='todos'&&c.metodo_pago!==metodoFlt)return false;
+    if(searchQ){
+      const q=searchQ.toLowerCase();
+      const meta=c.metadata||{};
+      if(!String(meta.orden_numero||'').includes(q)&&!(meta.mesa||'').toLowerCase().includes(q))return false;
+    }
+    return true;
+  });
+
+  const totalDisplay=display.reduce((s,c)=>s+Number(c.monto||0),0);
+  const byMetodo={};
+  display.forEach(c=>{byMetodo[c.metodo_pago]=(byMetodo[c.metodo_pago]||0)+Number(c.monto||0);});
+
+  return(
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,gap:10,flexWrap:'wrap'}}>
+        <h1 style={{fontSize:20,fontWeight:800}}>Facturas</h1>
+        <div style={{fontFamily:"'SF Mono',monospace",fontSize:18,fontWeight:800,color:C.green}}>{fmt(totalDisplay)}</div>
+      </div>
+
+      {/* Placeholder facturación electrónica */}
+      <div style={{background:'rgba(0,122,255,0.06)',border:'1px solid rgba(0,122,255,0.2)',borderRadius:10,padding:'14px 18px',marginBottom:20,display:'flex',alignItems:'center',gap:14}}>
+        <span style={{fontSize:24}}>🇵🇾</span>
+        <div style={{flex:1}}>
+          <div style={{fontSize:14,fontWeight:700,color:'#007AFF'}}>Facturación electrónica SET (SIFEN)</div>
+          <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>Próximamente — integración con la SET de Paraguay para emisión de e-Kuatia. Las facturas listadas aquí son comprobantes internos del sistema.</div>
+        </div>
+        <span style={{fontSize:11,fontWeight:700,color:'#007AFF',background:'rgba(0,122,255,0.1)',padding:'4px 10px',borderRadius:10,whiteSpace:'nowrap',flexShrink:0}}>PRÓXIMAMENTE</span>
+      </div>
+
+      {/* KPIs por método */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10,marginBottom:20}}>
+        {Object.entries(byMetodo).map(([m,tot])=>(
+          <div key={m} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:4,textTransform:'uppercase'}}>{MET[m]||m}</div>
+            <div style={{fontFamily:"'SF Mono',monospace",fontSize:16,fontWeight:800,color:C.ink}}>{fmt(tot)}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filtros */}
+      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
+        <div style={{display:'flex',gap:0,background:'#F0F0F0',borderRadius:8,padding:3}}>
+          {[['hoy','Hoy'],['7d','7 días'],['30d','30 días'],['todo','Todo']].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setRango(id)} style={{
+              padding:'5px 12px',borderRadius:6,border:'none',fontSize:12,fontWeight:rango===id?700:500,
+              background:rango===id?'#FFFFFF':'transparent',color:rango===id?'#000000':'#6E6E73',
+              cursor:'pointer',boxShadow:rango===id?'0 1px 4px rgba(0,0,0,0.15)':'none',
+            }}>{lbl}</button>
+          ))}
+        </div>
+        <select value={metodoFlt} onChange={e=>setMetodoFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#FFF',color:'#1D1D1F'}}>
+          <option value="todos">Todos los métodos</option>
+          {Object.entries(MET).map(([id,lbl])=><option key={id} value={id}>{lbl}</option>)}
+        </select>
+        <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Buscar #pedido o mesa…"
+          style={{padding:'6px 11px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:200,color:'#1D1D1F'}}/>
+      </div>
+
+      {loading&&<div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
+
+      {!loading&&display.length===0&&(
+        <div style={{textAlign:'center',padding:'60px 0',color:'#6E6E73'}}>
+          <div style={{fontSize:36,marginBottom:12}}>🧾</div>
+          <div style={{fontSize:14,fontWeight:700}}>Sin facturas en el período</div>
+        </div>
+      )}
+
+      {!loading&&display.length>0&&(
+        <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 120px 1fr 110px',padding:'8px 14px',background:'#F5F5F7',fontSize:10,fontWeight:700,color:'#6E6E73',textTransform:'uppercase',gap:8}}>
+            <span>Pedido</span><span>Mesa / Cliente</span><span>Método</span><span>Fecha / hora</span><span style={{textAlign:'right'}}>Total</span>
+          </div>
+          {display.map((c,i)=>{
+            const meta=c.metadata||{};
+            const dt=new Date(c.created_at);
+            const fecha=dt.toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit'});
+            const hora=dt.toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'});
+            return(
+              <div key={c.id} style={{display:'grid',gridTemplateColumns:'1fr 1fr 120px 1fr 110px',padding:'10px 14px',borderTop:i===0?'none':`1px solid ${C.border}`,alignItems:'center',gap:8,fontSize:13}}>
+                <span style={{fontWeight:700,fontFamily:"'SF Mono',monospace"}}>#{meta.orden_numero||'—'}</span>
+                <span style={{color:'#6E6E73'}}>{meta.mesa||'—'}</span>
+                <span style={{fontSize:11,background:'#F0F0F0',borderRadius:6,padding:'2px 7px',color:'#6E6E73',fontWeight:600,width:'fit-content'}}>{MET[c.metodo_pago]||c.metodo_pago}</span>
+                <span style={{fontSize:11,color:'#86868B'}}>{fecha} {hora}</span>
+                <span style={{textAlign:'right',fontFamily:"'SF Mono',monospace",fontWeight:800,color:C.green}}>{fmt(c.monto)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
