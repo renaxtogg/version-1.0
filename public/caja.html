@@ -1535,6 +1535,9 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   const [metodo,setMetodo]=useState('efectivo');
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
+  const [successTicket,setSuccessTicket]=useState(null);
+  const movDataRef=React.useRef(null);
+  const orderRef=React.useRef(null);
 
   const subtotal=cart.reduce((s,c)=>s+c.linePrice*c.quantity,0);
   const montoNum=parseInt(montoPagado)||0;
@@ -1593,9 +1596,59 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
       const{data:movData,error:e4}=await db.from('movimientos_caja').insert(mov).select().single();
       if(e4)throw e4;
 
-      onConfirmed(movData,order);
+      movDataRef.current=movData;
+      orderRef.current=order;
+      const ticket={
+        orderNumber:order.order_number,
+        mesa:origen,
+        items:cart.map(c=>({item_name:c.item.name,quantity:c.quantity,unit_price:c.linePrice})),
+        total:subtotal,
+        metodo,
+        cambio:Math.max(0,cambio),
+      };
+      setSuccessTicket(ticket);
+      if(metodo==='efectivo') printTicket(ticket);
     }catch(e){toast('Error: '+e.message,false);}
     setBusy(false);
+  }
+
+  function cerrarTrasExito(){
+    if(movDataRef.current&&orderRef.current) onConfirmed(movDataRef.current,orderRef.current);
+  }
+
+  if(successTicket){
+    return(
+      <Modal title="Pedido cobrado" onClose={cerrarTrasExito} width={420}>
+        <div style={{textAlign:'center',padding:'20px 0 8px'}}>
+          <div style={{fontSize:48,marginBottom:8}}>✓</div>
+          <div style={{fontSize:18,fontWeight:800,color:'#34C759',marginBottom:4}}>¡Cobrado!</div>
+          <div style={{fontSize:13,color:'#6E6E73',marginBottom:2}}>Pedido #{successTicket.orderNumber}</div>
+          <div style={{fontSize:12,color:'#6E6E73'}}>{successTicket.mesa}</div>
+        </div>
+        <div style={{background:'#F5F5F7',borderRadius:10,padding:'12px 14px',marginTop:12,marginBottom:16}}>
+          {successTicket.items.map((it,i)=>(
+            <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:3}}>
+              <span>{it.quantity}× {it.item_name}</span>
+              <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
+            </div>
+          ))}
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:15,fontWeight:800,borderTop:'1px solid #D2D2D7',paddingTop:8,marginTop:6}}>
+            <span>TOTAL</span>
+            <span style={{fontFamily:"'SF Mono',monospace",color:'#34C759'}}>{fmt(successTicket.total)}</span>
+          </div>
+          {successTicket.cambio>0&&(
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#6E6E73',marginTop:4}}>
+              <span>Vuelto</span>
+              <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt(successTicket.cambio)}</span>
+            </div>
+          )}
+        </div>
+        <div style={{display:'flex',gap:10}}>
+          <Btn full onClick={()=>printTicket(successTicket)} variant="secondary">🖨 Imprimir ticket</Btn>
+          <Btn full onClick={cerrarTrasExito} variant="success">Cerrar</Btn>
+        </div>
+      </Modal>
+    );
   }
 
   return(
@@ -2344,7 +2397,6 @@ function SalonPanel({profile}){
       db.from('orders')
         .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,tables(number)')
         .eq('restaurant_id',RID).in('status',ACTIVE)
-        .or('payment_status.neq.paid,payment_status.is.null')
         .order('created_at',{ascending:true}),
       db.from('reservations').select('*').eq('restaurant_id',RID).eq('reservation_date',todayStr).eq('status','confirmed'),
       db.from('restaurants').select('reservation_window_hours,reservation_alert_minutes').eq('id',RID).maybeSingle(),
@@ -2373,6 +2425,14 @@ function SalonPanel({profile}){
     if(!window.confirm(`¿Confirmar que el servicio de Mesa ${tableNum} concluyó y la mesa está libre?`))return;
     await db.from('tables').update({is_occupied:false,occupied_since:null}).eq('id',tableId);
     toast(`Mesa ${tableNum} liberada`);
+    setSelTable(null);
+    load();
+  }
+
+  async function ocuparMesa(tableId,tableNum){
+    if(!db)return;
+    await db.from('tables').update({is_occupied:true,occupied_since:new Date().toISOString()}).eq('id',tableId);
+    toast(`Mesa ${tableNum} marcada como ocupada`);
     setSelTable(null);
     load();
   }
@@ -2547,6 +2607,7 @@ function SalonPanel({profile}){
                     const r=reservationByTable[t.id];
                     if(r&&!t.is_occupied&&!order){setResvInfo({table:t,info:r});return;}
                     if(r&&(t.is_occupied||order)){setResvInfo({table:t,info:r,alsoOccupied:true});}
+                    if(!t.is_occupied&&!order){setSelTable({table:t,orders:[]});return;}
                     loadTableSession(t);
                   }}
                   onEditTable={t=>setMesaEdit(t)}
@@ -2636,13 +2697,15 @@ function SalonPanel({profile}){
         />
       )}
 
-      {/* Modal de sesión de mesa — historial + liberar */}
-      {selTable&&(
-        <Modal title={`Mesa ${selTable.table.number} — Servicio activo`} onClose={()=>setSelTable(null)} width={540}>
+      {/* Modal de sesión de mesa — historial + liberar/ocupar */}
+      {selTable&&(()=>{
+        const esLibre=!selTable.table.is_occupied;
+        return(
+        <Modal title={`Mesa ${selTable.table.number} — ${esLibre?'Libre':'Servicio activo'}`} onClose={()=>setSelTable(null)} width={540}>
           <div style={{marginBottom:16}}>
             {/* Info de mesa */}
             <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:14,padding:'10px 14px',background:'#F5F5F7',borderRadius:8}}>
-              <Badge txt="Ocupada" color={C.green}/>
+              <Badge txt={esLibre?'Libre':'Ocupada'} color={esLibre?'#6E6E73':C.green}/>
               {selTable.table.capacity&&<span style={{fontSize:12,color:'#1D1D1F',fontWeight:600}}>{selTable.table.capacity} pax</span>}
               {selTable.table.occupied_since&&(
                 <span style={{fontSize:12,color:'#6E6E73'}}>Desde {fmtTime(selTable.table.occupied_since)}</span>
@@ -2681,7 +2744,7 @@ function SalonPanel({profile}){
               );
             })()}
 
-            {selTable.orders.length===0&&<div style={{textAlign:'center',padding:20,color:'#6E6E73',fontWeight:500}}>Sin órdenes registradas en esta sesión</div>}
+            {selTable.orders.length===0&&<div style={{textAlign:'center',padding:20,color:'#6E6E73',fontWeight:500}}>{esLibre?'Mesa libre — sin servicio activo':'Sin órdenes registradas en esta sesión'}</div>}
             {selTable.orders.map((ord,idx)=>{
               const esPagado=ord.payment_status==='paid';
               return(
@@ -2708,13 +2771,20 @@ function SalonPanel({profile}){
             })}
           </div>
           <div style={{display:'flex',gap:10}}>
-            <Btn full variant="success" onClick={()=>liberarMesa(selTable.table.id,selTable.table.number)}>
-              Liberar mesa
-            </Btn>
+            {esLibre?(
+              <Btn full variant="primary" onClick={()=>ocuparMesa(selTable.table.id,selTable.table.number)}>
+                Ocupar mesa
+              </Btn>
+            ):(
+              <Btn full variant="success" onClick={()=>liberarMesa(selTable.table.id,selTable.table.number)}>
+                Liberar mesa
+              </Btn>
+            )}
             <Btn variant="ghost" onClick={()=>setSelTable(null)}>Cerrar</Btn>
           </div>
         </Modal>
-      )}
+        );
+      })()}
     </div>
   );
 }
