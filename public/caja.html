@@ -2059,7 +2059,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
 /* ═══════════════════════════════════════════
    MODAL: DETALLE DE PEDIDO (Vista salón)
 ═══════════════════════════════════════════ */
-function OrderDetailModal({order,onClose}){
+function OrderDetailModal({order,onClose,onMarcarRetirado}){
   const [items,setItems]=useState([]);
   const [dInfo,setDInfo]=useState(null);
   useEffect(()=>{
@@ -2136,7 +2136,21 @@ function OrderDetailModal({order,onClose}){
         <span style={{fontSize:13,fontWeight:700,color:C.mid}}>TOTAL</span>
         <span style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(order.total)}</span>
       </div>
-      <Btn variant="ghost" full onClick={onClose}>Cerrar</Btn>
+      {(()=>{
+        const esPickupPagado = !order.table_id
+          && (order.order_type==='takeaway'||order.order_type==='llevar')
+          && order.payment_status==='paid'
+          && order.status!=='delivered' && order.status!=='cancelled';
+        if(esPickupPagado&&onMarcarRetirado){
+          return(
+            <div style={{display:'flex',gap:8}}>
+              <Btn variant="ghost" onClick={onClose}>Cerrar</Btn>
+              <Btn variant="success" full onClick={()=>onMarcarRetirado(order)}>🥡 Marcar retirado · enviar al historial</Btn>
+            </div>
+          );
+        }
+        return <Btn variant="ghost" full onClick={onClose}>Cerrar</Btn>;
+      })()}
     </Modal>
   );
 }
@@ -2525,6 +2539,19 @@ function SalonPanel({profile}){
     load();
   }
 
+  async function marcarRetirado(order){
+    if(!db)return;
+    if(!window.confirm(`¿Confirmar que el cliente retiró el pedido #${order.order_number}?`))return;
+    const{error}=await db.from('orders').update({
+      status:'delivered',
+      completed_at:new Date().toISOString(),
+    }).eq('id',order.id);
+    if(error){toast('Error al marcar retirado: '+error.message,false);return;}
+    try{await db.from('order_status_history').insert({order_id:order.id,status:'delivered',notes:'Cliente retiró el pedido'});}catch(e){}
+    toast(`Pedido #${order.order_number} entregado al cliente ✓`);
+    load();
+  }
+
   async function loadTableSession(table){
     if(!db)return;
     let q=db.from('orders')
@@ -2544,6 +2571,10 @@ function SalonPanel({profile}){
   const takeawayOrders=orders.filter(o=>!o.table_id&&o.order_type==='takeaway');
   const deliveryOrders=orders.filter(o=>!o.table_id&&o.order_type==='delivery');
   const otherOrders   =orders.filter(o=>!o.table_id&&o.order_type!=='takeaway'&&o.order_type!=='delivery');
+  // Pickup paid vs unpaid: ya cobrados esperan retiro del cliente; sin cobrar requieren cobro en caja.
+  const pickupAll     =[...takeawayOrders,...otherOrders];
+  const pickupACobrar =pickupAll.filter(o=>o.payment_status!=='paid');
+  const pickupRetiro  =pickupAll.filter(o=>o.payment_status==='paid');
   const kitchenCount  =orders.filter(o=>['kitchen_received','cooking'].includes(o.status)).length;
   const readyCount    =orders.filter(o=>o.status==='ready').length;
   const totalEnProceso=Object.values(sessionTotals).reduce((s,v)=>s+v,0)||orders.reduce((s,o)=>s+Number(o.total),0);
@@ -2598,35 +2629,49 @@ function SalonPanel({profile}){
     );
   }
 
-  function OrderRow({order}){
+  function OrderRow({order,mode}){
     const espera=Math.floor((Date.now()-new Date(order.created_at))/60000);
     const name=order.customer_name?` — ${order.customer_name}`:'';
     const tipo=orderTypeLabel(order.order_type);
+    const esRetiro=mode==='pickup-paid';
+    // En modo retiro, evitamos el badge engañoso "A cobrar" — ya está cobrado.
+    const statusLbl=esRetiro?'✓ Cobrado · pasa a buscar':(SL[order.status]||order.status);
+    const statusCol=esRetiro?C.green:(SC[order.status]||'#6E6E73');
     return(
-      <div onClick={()=>setSelOrder(order)} style={{
-        background:C.surface,border:`1px solid ${(SC[order.status]||'#D2D2D7')}44`,
-        borderRadius:8,padding:'10px 14px',cursor:'pointer',
-        display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,
+      <div style={{
+        background:C.surface,border:`1px solid ${statusCol}44`,
+        borderRadius:8,padding:'10px 14px',
+        display:'flex',flexDirection:'column',gap:8,
       }}>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:13,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace",overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-            #{order.order_number}{name}
+        <div onClick={()=>setSelOrder(order)} style={{cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace",overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+              #{order.order_number}{name}
+            </div>
+            <div style={{display:'flex',gap:6,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
+              <Badge txt={statusLbl} color={statusCol}/>
+              {tipo&&!esRetiro&&<Badge txt={tipo} color={orderTypeColor(order.order_type)}/>}
+              {order.requires_invoice&&(order.invoice_status||'pending')==='pending'&&(
+                <Badge txt={`🧾 ${order.invoice_delivery_method==='email'?'Factura email':'Factura impresa'}`} color={'#007AFF'}/>
+              )}
+              <span style={{fontSize:10,color:'#6E6E73'}}>⏱ {espera}m</span>
+            </div>
           </div>
-          <div style={{display:'flex',gap:6,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
-            <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#6E6E73'}/>
-            {tipo&&<Badge txt={tipo} color={orderTypeColor(order.order_type)}/>}
-            {order.requires_invoice&&(order.invoice_status||'pending')==='pending'&&(
-              <Badge txt={`🧾 ${order.invoice_delivery_method==='email'?'Factura email':'Factura impresa'}`} color={'#007AFF'}/>
-            )}
-            <span style={{fontSize:10,color:'#6E6E73'}}>⏱ {espera}m</span>
-          </div>
+          <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:800,color:C.green,whiteSpace:'nowrap'}}>{fmt(order.total)}</div>
         </div>
-        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:800,color:C.green,whiteSpace:'nowrap'}}>{fmt(order.total)}</div>
+        {esRetiro&&(
+          <button onClick={()=>marcarRetirado(order)} style={{
+            padding:'7px 10px',borderRadius:6,border:'none',background:C.green,color:'#fff',
+            fontSize:12,fontWeight:700,cursor:'pointer',letterSpacing:'0.02em',
+          }}>
+            🥡 Marcar retirado
+          </button>
+        )}
       </div>
     );
   }
 
-  const SideSection=({title,list,emptyMsg,accent,desc})=>(
+  const SideSection=({title,list,emptyMsg,accent,desc,mode})=>(
     <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
       <div style={{marginBottom:10}}>
         <div style={{fontSize:11,color:accent||'#1D1D1F',fontWeight:800,letterSpacing:'0.05em'}}>
@@ -2638,7 +2683,7 @@ function SalonPanel({profile}){
         <div style={{color:'#6E6E73',fontSize:12,padding:'8px 0',fontWeight:500}}>{emptyMsg}</div>
       ):(
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          {list.map(o=><OrderRow key={o.id} order={o}/>)}
+          {list.map(o=><OrderRow key={o.id} order={o} mode={mode}/>)}
         </div>
       )}
     </div>
@@ -2726,11 +2771,19 @@ function SalonPanel({profile}){
           {/* Columna derecha: para llevar + delivery */}
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             <SideSection
-              title="PARA LLEVAR / SIN MESA"
-              desc="Pedidos caja sin mesa asignada"
-              list={[...takeawayOrders,...otherOrders]}
-              emptyMsg="Sin pedidos para llevar en este momento"
+              title="PARA LLEVAR · A COBRAR"
+              desc="Pedidos sin mesa que aún no fueron cobrados"
+              list={pickupACobrar}
+              emptyMsg="Sin pedidos pendientes de cobro"
               accent={'#FF9500'}
+            />
+            <SideSection
+              title="ESPERANDO RETIRO"
+              desc="Ya cobrados — el cliente pasa a buscar"
+              list={pickupRetiro}
+              emptyMsg="Sin pedidos esperando retiro"
+              accent={'#34C759'}
+              mode="pickup-paid"
             />
             <SideSection
               title="DELIVERY A DOMICILIO"
@@ -2743,7 +2796,7 @@ function SalonPanel({profile}){
         </div>
       )}
 
-      {selOrder&&<OrderDetailModal order={selOrder} onClose={()=>setSelOrder(null)}/>}
+      {selOrder&&<OrderDetailModal order={selOrder} onClose={()=>setSelOrder(null)} onMarcarRetirado={async(o)=>{await marcarRetirado(o);setSelOrder(null);}}/>}
 
       {/* Modal de info de reserva */}
       {resvInfo&&(()=>{

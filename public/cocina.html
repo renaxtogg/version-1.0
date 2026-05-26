@@ -441,12 +441,16 @@ async function dbAdvanceTicket(supabaseId, currentKitchenStatus) {
 async function dbDismissTicket(supabaseId) {
   if (!db || !supabaseId) return;
   try {
-    // Cocina despacha el pedido: siempre pasa a 'pending_payment'. Aunque el
-    // cliente ya haya pagado, el mozo todavía debe retirar la comida y
-    // entregarla físicamente a la mesa (eso lo marca delivered_to_table_at).
-    // No saltamos a 'delivered' acá para no perder ese paso intermedio.
-    await db.from('orders').update({ status: 'pending_payment' }).eq('id', supabaseId);
-    await db.from('order_status_history').insert({ order_id: supabaseId, status: 'pending_payment', changed_by: 'kitchen' });
+    // Para dine-in (mesa) o sin pagar: pending_payment (el mozo retira y/o cobra).
+    // Para takeaway/llevar YA pagado: ready (cliente lo retira en mostrador; caja
+    // confirma entrega con "Marcar retirado"). Evita el falso "A cobrar" en el
+    // panel de caja cuando ya está cobrado.
+    const { data: row } = await db.from('orders')
+      .select('order_type,payment_status,table_id').eq('id', supabaseId).maybeSingle();
+    const isPickup = row && !row.table_id && (row.order_type === 'takeaway' || row.order_type === 'llevar');
+    const newStatus = (isPickup && row.payment_status === 'paid') ? 'ready' : 'pending_payment';
+    await db.from('orders').update({ status: newStatus }).eq('id', supabaseId);
+    await db.from('order_status_history').insert({ order_id: supabaseId, status: newStatus, changed_by: 'kitchen' });
   } catch(e) { console.warn('Dismiss error:', e); }
 }
 
