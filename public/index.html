@@ -94,6 +94,11 @@ async function dbValidateCoupon(code) {
 }
 
 async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmount, couponCode, total, payMethod, custName, custRuc, custEmail, language }) {
+  if (!items || items.length === 0) throw new Error('El carrito está vacío');
+  const safeTotal = total > 0 ? total : items.reduce((s, ci) => s + (ci.total || 0), 0);
+  if (safeTotal <= 0) throw new Error('El total del pedido es inválido (₲0)');
+  total = safeTotal;
+  subtotal = subtotal > 0 ? subtotal : safeTotal;
   const orderNum = 'T-' + String(Math.floor(Date.now() % 90000) + 10000);
   if (!db) return { id: null, order_number: orderNum };
   const { data: order, error: orderErr } = await db.from('orders').insert({
@@ -951,13 +956,16 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   const currentMethod = METHODS.find(m => m.id === method);
 
   const handleConfirm = async () => {
-    setStep('proc');
     setSubmitError(null);
+    if (!cartItems || cartItems.length === 0) { setSubmitError('Tu carrito está vacío'); return; }
+    const effectiveTotal = total > 0 ? total : cartItems.reduce((s, ci) => s + (ci.total || 0), 0);
+    if (effectiveTotal <= 0) { setSubmitError('El total del pedido es inválido. Volvé al carrito y revisá los precios.'); return; }
+    setStep('proc');
     try {
       const order = await dbSubmitOrder({
         tableId: null, orderType: orderMode === 'take' ? 'llevar' : 'local',
-        items: cartItems, subtotal: subtotal || total, discountAmount: discountAmount || 0,
-        couponCode: couponCode || null, total, payMethod: method,
+        items: cartItems, subtotal: subtotal || effectiveTotal, discountAmount: discountAmount || 0,
+        couponCode: couponCode || null, total: effectiveTotal, payMethod: method,
         custName: (needsInvoice && name) ? name : null,
         custRuc: (needsInvoice && ruc) ? ruc : null,
         custEmail: (needsInvoice && email) ? email : null,
@@ -1697,10 +1705,23 @@ function App() {
   useEffect(() => { try { localStorage.setItem('app_screen', screen); } catch {} }, [screen]);
   useEffect(() => { try { localStorage.setItem('app_cart', JSON.stringify(cartItems)); } catch {} }, [cartItems]);
   useEffect(() => { try { if (currentOrderNum) localStorage.setItem('app_order_num', currentOrderNum); } catch {} }, [currentOrderNum]);
+  useEffect(() => { try { localStorage.setItem('app_pay_total', payTotal); } catch {} }, [payTotal]);
+  useEffect(() => { try { localStorage.setItem('app_pay_sub', paySubtotal); } catch {} }, [paySubtotal]);
+  useEffect(() => { try { localStorage.setItem('app_pay_disc', payDiscount); } catch {} }, [payDiscount]);
+  useEffect(() => { try { localStorage.setItem('app_pay_coupon', payCoupon); } catch {} }, [payCoupon]);
+
+  // Si el cliente recarga en pantalla de pago con total=0, volvemos al carrito de forma segura.
+  useEffect(() => {
+    if (screen === 'pay' && (payTotal <= 0 || !cartItems.length)) setScreen('cart');
+  }, []);
 
   const clearSession = () => {
-    try { localStorage.removeItem('app_screen'); localStorage.removeItem('app_cart'); localStorage.removeItem('app_order_num'); } catch {}
-    setCartItems([]); setCurrentOrderNum(null); setScreen('qr');
+    try {
+      localStorage.removeItem('app_screen'); localStorage.removeItem('app_cart'); localStorage.removeItem('app_order_num');
+      localStorage.removeItem('app_pay_total'); localStorage.removeItem('app_pay_sub');
+      localStorage.removeItem('app_pay_disc'); localStorage.removeItem('app_pay_coupon');
+    } catch {}
+    setCartItems([]); setCurrentOrderNum(null); setPayTotal(0); setPaySubtotal(0); setPayDiscount(0); setPayCoupon(''); setScreen('qr');
   };
 
   // ── Estado UI ──
@@ -1708,10 +1729,10 @@ function App() {
   const [lang, setLang]             = useState('es');
   const [selItem, setSelItem]       = useState(null);
   const [showSplit, setShowSplit]   = useState(false);
-  const [payTotal, setPayTotal]     = useState(0);
-  const [paySubtotal, setPaySubtotal] = useState(0);
-  const [payDiscount, setPayDiscount] = useState(0);
-  const [payCoupon, setPayCoupon]   = useState('');
+  const [payTotal, setPayTotal]     = useState(() => { try { return Number(localStorage.getItem('app_pay_total') || 0); } catch { return 0; } });
+  const [paySubtotal, setPaySubtotal] = useState(() => { try { return Number(localStorage.getItem('app_pay_sub') || 0); } catch { return 0; } });
+  const [payDiscount, setPayDiscount] = useState(() => { try { return Number(localStorage.getItem('app_pay_disc') || 0); } catch { return 0; } });
+  const [payCoupon, setPayCoupon]   = useState(() => { try { return localStorage.getItem('app_pay_coupon') || ''; } catch { return ''; } });
   const [toast, setToast]           = useState(null);
   const [liveMenu, setLiveMenu]     = useState(null);
   const [restaurant, setRestaurant] = useState(null);
