@@ -568,7 +568,9 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
       .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>loadOrders())
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},(payload)=>{
         const o=payload.new;
-        if(['delivered','cancelled'].includes(o.status)||o.payment_status==='paid'){
+        // Solo sacar de la lista si ya está cobrado o cancelado
+        // NUNCA sacar por status='delivered' solo — delivery entregado != cobrado
+        if(o.status==='cancelled'||o.payment_status==='paid'){
           setOrders(p=>p.filter(x=>x.id!==o.id));
         } else {
           setOrders(p=>p.some(x=>x.id===o.id)
@@ -588,7 +590,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
     const{data,error}=await db.from('orders')
       .select('id,order_number,status,payment_status,total,payment_method,order_type,customer_name,created_at,table_id,tables(number),order_items(id,quantity,unit_price)')
       .eq('restaurant_id',RID)
-      .in('status',['confirmed','paid','pending_payment','kitchen_received','cooking','ready'])
+      .in('status',['confirmed','paid','pending_payment','kitchen_received','cooking','ready','delivered'])
       .or('payment_status.neq.paid,payment_status.is.null')
       .order('created_at',{ascending:true});
     if(!error){
@@ -674,7 +676,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                     {dInfo.customer_phone&&<div style={{color:'#6E6E73',marginBottom:1}}>📞 {dInfo.customer_phone}</div>}
                     {dInfo.delivery_address&&<div style={{color:'#6E6E73',marginBottom:1}}>📍 {dInfo.delivery_address}</div>}
                     {dInfo.rider_name
-                      ? <div style={{color:'#34C759',fontWeight:700,marginTop:2}}>🛵 Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':''}</div>
+                      ? <div style={{color:dInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:2}}>🛵 Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':dInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
                       : <div style={{color:'#FF9500',fontWeight:600,marginTop:2}}>⏳ Sin rider asignado aún</div>
                     }
                   </div>
@@ -860,7 +862,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           {deliveryInfo.customer_phone&&<div style={{color:'#6E6E73',marginBottom:2}}>📞 {deliveryInfo.customer_phone}</div>}
           {deliveryInfo.delivery_address&&<div style={{color:'#6E6E73',marginBottom:2}}>📍 {deliveryInfo.delivery_address}</div>}
           {deliveryInfo.rider_name
-            ?<div style={{color:'#34C759',fontWeight:700,marginTop:3}}>🛵 Rider: {deliveryInfo.rider_name}{deliveryInfo.rider_status==='on_way'?' — En camino':deliveryInfo.rider_status==='confirmed'?' — Esperando retiro':''}</div>
+            ?<div style={{color:deliveryInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:3}}>🛵 Rider: {deliveryInfo.rider_name}{deliveryInfo.rider_status==='on_way'?' — En camino':deliveryInfo.rider_status==='confirmed'?' — Esperando retiro':deliveryInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
             :<div style={{color:'#FF9500',fontWeight:600,marginTop:3}}>⏳ Sin rider asignado</div>
           }
           {cashAmountNum>0&&cashChangeNum>=0&&(
@@ -1952,7 +1954,7 @@ function OrderDetailModal({order,onClose}){
           {dInfo.customer_phone&&<div style={{color:'#6E6E73',marginBottom:2}}>📞 {dInfo.customer_phone}</div>}
           {dInfo.delivery_address&&<div style={{color:'#6E6E73',marginBottom:2}}>📍 {dInfo.delivery_address}</div>}
           {dInfo.rider_name
-            ?<div style={{color:'#34C759',fontWeight:700,marginTop:3}}>🛵 Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':''}</div>
+            ?<div style={{color:dInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:3}}>🛵 Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':dInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
             :<div style={{color:'#FF9500',fontWeight:600,marginTop:3}}>⏳ Sin rider asignado</div>
           }
           {cashAmt>0&&cashChg>=0&&(
@@ -3455,13 +3457,14 @@ function FacturasCajaPanel({turno}){
 /* ═══════════════════════════════════════════
    PANEL: HISTORIAL DE PEDIDOS
 ═══════════════════════════════════════════ */
-function HistorialPanel(){
+function HistorialPanel({onGoCobros}){
   const [orders,setOrders]=useState([]);
   const [loading,setLoading]=useState(true);
   const [rango,setRango]=useState('hoy');
   const [statusFlt,setStatusFlt]=useState('todos');
   const [tipoFlt,setTipoFlt]=useState('todos');
   const [searchQ,setSearchQ]=useState('');
+  const [alertaPendientes,setAlertaPendientes]=useState(0);
 
   useEffect(()=>{load();},[rango]);
 
@@ -3479,7 +3482,13 @@ function HistorialPanel(){
       .gte('created_at',from.toISOString())
       .order('created_at',{ascending:false})
       .limit(300);
-    if(!error)setOrders(data||[]);
+    if(!error){
+      const rows=data||[];
+      setOrders(rows);
+      // Alerta: pedidos que llegaron al historial sin cobrar (no cancelados, payment_status != paid)
+      const pendCount=rows.filter(o=>o.status!=='cancelled'&&o.payment_status!=='paid'&&Number(o.total||0)>=0).length;
+      setAlertaPendientes(pendCount);
+    }
     setLoading(false);
   }
 
@@ -3525,6 +3534,16 @@ function HistorialPanel(){
         <h1 style={{fontSize:20,fontWeight:800}}>Historial de pedidos</h1>
         <Btn small variant="secondary" onClick={load}>↻ Actualizar</Btn>
       </div>
+
+      {alertaPendientes>0&&(
+        <div style={{background:'rgba(255,59,48,0.08)',border:'2px solid rgba(255,59,48,0.5)',borderRadius:10,padding:'12px 16px',marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <div>
+            <div style={{fontWeight:800,color:'#FF3B30',fontSize:14}}>⚠ {alertaPendientes} pedido{alertaPendientes>1?'s':''} sin cobrar en el historial</div>
+            <div style={{fontSize:12,color:'#6E6E73',marginTop:2}}>Estos pedidos no deberían estar aquí sin cobrar. Ir a cobrar para resolverlos.</div>
+          </div>
+          {onGoCobros&&<button onClick={onGoCobros} style={{background:'#FF3B30',color:'#fff',border:'none',padding:'8px 16px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>Ir a cobrar →</button>}
+        </div>
+      )}
 
       {/* Filtros */}
       <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
@@ -3740,7 +3759,7 @@ function DashboardCaja({turno,profile,onCierre}){
       case 'pedido':           return <TomarPedidoPanel   turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
       case 'cobros':           return <CobrosPanel       turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
       case 'facturas':         return <FacturasCajaPanel  turno={turno}/>;
-      case 'historial':        return <HistorialPanel/>;
+      case 'historial':        return <HistorialPanel onGoCobros={()=>changePanel('cobros')}/>;
       case 'cancelaciones':    return <CancelacionesPanel turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
       case 'ingresos_egresos': return <IngresosEgresosPanel turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
       case 'reservas':          return <ReservasPanel/>;
