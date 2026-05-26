@@ -1829,35 +1829,47 @@ function App() {
     const total = Math.round(base * (1 + tipPct / 100));
     const pm = payMethod || 'efectivo';
 
-    // Cobrar órdenes activas:
-    //   - pending_payment + delivered_to_table_at seteado = comida en la mesa, se puede cerrar a delivered.
-    //   - pending_payment sin delivered_to_table_at = cocina despachó pero el mozo aún no
-    //     llevó la comida; se marca paid pero el status sigue pending_payment para que la mesa
-    //     siga marcada como "retirar" hasta entrega física.
-    //   - ready / cooking / kitchen_received / paid = cocina sigue trabajando; sólo registramos
-    //     el cobro y dejamos que la cocina avance — caso contrario el KDS pierde el ticket.
-    const { data: pendingOrders } = await db.from('orders')
-      .select('id, status, delivered_to_table_at')
-      .eq('restaurant_id', RID)
-      .eq('table_id', activeTableId)
-      .not('status', 'in', '("cancelled","delivered")');
+    try {
+      // Cobrar órdenes activas:
+      //   - pending_payment + delivered_to_table_at seteado = comida en la mesa, se puede cerrar a delivered.
+      //   - pending_payment sin delivered_to_table_at = cocina despachó pero el mozo aún no
+      //     llevó la comida; se marca paid pero el status sigue pending_payment para que la mesa
+      //     siga marcada como "retirar" hasta entrega física.
+      //   - ready / cooking / kitchen_received / paid = cocina sigue trabajando; sólo registramos
+      //     el cobro y dejamos que la cocina avance — caso contrario el KDS pierde el ticket.
+      const { data: pendingOrders, error: qErr } = await db.from('orders')
+        .select('id, status, delivered_to_table_at')
+        .eq('restaurant_id', RID)
+        .eq('table_id', activeTableId)
+        .not('status', 'in', '("cancelled","delivered")');
 
-    if (pendingOrders && pendingOrders.length > 0) {
-      const { data: { session: paySession } } = await db.auth.getSession();
+      if (qErr) { showToast('Error al obtener órdenes: ' + qErr.message); return; }
+      if (!pendingOrders || pendingOrders.length === 0) {
+        showToast('No hay órdenes pendientes para cobrar');
+        setCobroModal(false);
+        return;
+      }
+
+      const authRes = await db.auth.getSession();
+      const paySession = authRes?.data?.session || null;
       const payerId = paySession?.user?.id || null;
       const payerName = mozoSession?.mozo_name || paySession?.user?.email || 'mozo';
       const nowIso = new Date().toISOString();
+
+      const invoiceFields = {
+        requires_invoice: invoiceType !== 'none',
+        ...(invoiceType === 'fiscal' && {
+          customer_ruc: invRuc || null,
+          customer_email: invEmail || null,
+          ...(invName && { customer_name: invName }),
+        }),
+      };
+
       for (const ord of pendingOrders) {
         const yaEnMesa = !!ord.delivered_to_table_at;
         const cerrarOrden = ord.status === 'pending_payment' && yaEnMesa;
-        const invoiceFields = {
-          requires_invoice: invoiceType !== 'none',
-          ...(invoiceType === 'fiscal' && {
-            customer_ruc: invRuc || null,
-            customer_email: invEmail || null,
-            ...(invName && { customer_name: invName }),
-          }),
-        };
+
+        // Update completo con campos de auditoría + facturación
         const update = {
           payment_status: 'paid',
           payment_method: pm,
@@ -1871,28 +1883,38 @@ function App() {
           update.status = 'delivered';
           update.completed_at = nowIso;
         }
-        // Intentar con campos de auditoría (requieren migración 044)
+
         let { error: updErr } = await db.from('orders').update(update).eq('id', ord.id);
-        // Fallback sin campos de auditoría si la migración no está aplicada
-        if (updErr && (updErr.message?.includes('paid_by') || updErr.message?.includes('schema cache'))) {
-          const fallback = { payment_status: 'paid', payment_method: pm, total: total, ...invoiceFields };
+
+        if (updErr) {
+          // Fallback mínimo: solo los campos esenciales del cobro, sin auditoría ni facturación
+          // (protege contra migraciones 039/044 no aplicadas en prod)
+          const fallback = { payment_status: 'paid', payment_method: pm, total: total };
           if (cerrarOrden) { fallback.status = 'delivered'; fallback.completed_at = nowIso; }
-          await db.from('orders').update(fallback).eq('id', ord.id);
+          const { error: fallErr } = await db.from('orders').update(fallback).eq('id', ord.id);
+          if (fallErr) {
+            showToast('Error al registrar cobro: ' + fallErr.message);
+            return;
+          }
         }
+
         await db.from('order_status_history').insert({
           order_id: ord.id,
           status: cerrarOrden ? 'delivered' : 'paid_in_kitchen',
           changed_by: payerName,
         });
       }
-    }
 
-    await loadData();
-    setCobroModal(false);
-    setTableOrders([]);
-    setActiveTableId(null);
-    setCurrentView('mesas');
-    showToast('Cobro registrado — ' + fGs(total));
+      await loadData();
+      setCobroModal(false);
+      setTableOrders([]);
+      setActiveTableId(null);
+      setCurrentView('mesas');
+      showToast('Cobro registrado — ' + fGs(total));
+    } catch(e) {
+      console.error('processPay error:', e);
+      showToast('Error inesperado al cobrar: ' + (e?.message || e));
+    }
   }
 
   /* ── FINALIZAR / CONFIRMAR ENTREGA ──
@@ -3142,7 +3164,7 @@ function App() {
 
       {/* ─── MODAL: COBRO ─── */}
       {cobroModal && (
-        <div className="modal-overlay open" onClick={e => { if (e.target.classList.contains('modal-overlay')) setCobroModal(false); }}>
+        <div className="modal-overlay open">
           <div className="modal">
             <div className="modal-handle"></div>
             <div className="modal-header">
