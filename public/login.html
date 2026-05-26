@@ -89,11 +89,13 @@
   });
 
   function redirectByRole(role) {
-    if (role === 'superadmin') window.location.replace('superadmin.html');
-    else if (role === 'admin')  window.location.replace('admin.html');
-    else if (role === 'cajero') window.location.replace('caja.html');
-    else if (role === 'mozo')   window.location.replace('mozo.html');
-    else                        window.location.replace('cocina.html');
+    if (role === 'superadmin')           window.location.replace('superadmin.html');
+    else if (role === 'admin')           window.location.replace('admin.html');
+    else if (role === 'supervisor_local')window.location.replace('gerente.html');
+    else if (role === 'cajero')          window.location.replace('caja.html');
+    else if (role === 'mozo')            window.location.replace('mozo.html');
+    else if (role === 'rider')           window.location.replace('delivery-rider.html');
+    else                                 window.location.replace('cocina.html');
   }
 
   document.getElementById('loginForm').addEventListener('submit', async (e) => {

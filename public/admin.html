@@ -325,6 +325,7 @@ const NAV = [
   {id:'estaciones', label:'Estaciones',   icon:'▣'},
   {id:'personal',   label:'Personal',     icon:'◎'},
   {id:'stock',      label:'Stock',        icon:'▤'},
+  {id:'proveedores',label:'Proveedores',  icon:'▥'},
   null,
   {id:'clientes',  label:'Clientes',     icon:'♦', group:'ANÁLISIS'},
   {id:'reportes',  label:'Reportes',     icon:'≈'},
@@ -7021,6 +7022,506 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
 }
 
 /* ══════════════════════════════════════════════
+   PROVEEDORES
+══════════════════════════════════════════════ */
+const SUPPLIER_CATS = ['bebidas','carnes','verdulería','panadería','almacén','lácteos','limpieza','descartables','servicios','otros'];
+
+function ProveedoresPage() {
+  const [tab, setTab] = useState('lista'); // lista | compras | estadisticas
+  const [suppliers, setSuppliers] = useState([]);
+  const [purchases, setPurchases] = useState([]);
+  const [search, setSearch] = useState('');
+  const [filterCat, setFilterCat] = useState('');
+  const [filterActive, setFilterActive] = useState('activos'); // activos | inactivos | todos
+  const [editing, setEditing] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [showPurchaseForm, setShowPurchaseForm] = useState(false);
+  const [editingPurchase, setEditingPurchase] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    if (!db) return;
+    setLoading(true);
+    const [s, p] = await Promise.all([
+      db.from('suppliers').select('*').eq('restaurant_id',RID).order('name'),
+      db.from('supplier_purchases').select('*').eq('restaurant_id',RID).order('purchase_date',{ascending:false}).limit(120)
+    ]);
+    setSuppliers(s.data||[]);
+    setPurchases(p.data||[]);
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = useMemo(() => suppliers.filter(s => {
+    if (filterActive === 'activos' && !s.is_active) return false;
+    if (filterActive === 'inactivos' && s.is_active) return false;
+    if (filterCat && s.category !== filterCat) return false;
+    if (search && !((s.name||'')+' '+(s.contact_name||'')+' '+(s.ruc||'')).toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  }), [suppliers, search, filterCat, filterActive]);
+
+  const removeSupplier = async (id) => {
+    if (!confirm('¿Desactivar este proveedor? (Podrás reactivarlo después)')) return;
+    const { error } = await db.from('suppliers').update({is_active:false, updated_at: new Date().toISOString()}).eq('id', id);
+    if (error) toast(error.message, false); else { toast('Proveedor desactivado'); load(); }
+  };
+
+  const reactivate = async (id) => {
+    const { error } = await db.from('suppliers').update({is_active:true, updated_at: new Date().toISOString()}).eq('id', id);
+    if (error) toast(error.message, false); else { toast('Proveedor reactivado'); load(); }
+  };
+
+  if (loading) return <div style={{padding:40,textAlign:'center'}}><span className="spin"/></div>;
+
+  /* Estadísticas básicas */
+  const stats = {
+    total: suppliers.filter(s => s.is_active).length,
+    pendientes: purchases.filter(p => p.status === 'pendiente').reduce((s,p) => s + Number(p.total||0) - Number(p.paid_amount||0), 0),
+    mesActual: purchases.filter(p => {
+      const d = new Date(p.purchase_date); const now = new Date();
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).reduce((s,p) => s + Number(p.total||0), 0)
+  };
+
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,flexWrap:'wrap',gap:10}}>
+        <div>
+          <h2 style={{fontSize:22,fontWeight:800}}>Proveedores</h2>
+          <div style={{fontSize:12,color:'#86868B',marginTop:2}}>Agenda y registro de proveedores · compras y deudas</div>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          {tab === 'lista' && <button onClick={() => { setEditing(null); setShowForm(true); }} style={{background:'#000',color:'#fff',border:'none',padding:'9px 16px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>+ Nuevo proveedor</button>}
+          {tab === 'compras' && <button onClick={() => { setEditingPurchase(null); setShowPurchaseForm(true); }} style={{background:'#000',color:'#fff',border:'none',padding:'9px 16px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>+ Registrar compra</button>}
+        </div>
+      </div>
+
+      <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:18}}>
+        <KpiCard label="Proveedores activos" value={stats.total}/>
+        <KpiCard label="Compras este mes" value={'₲ ' + (Math.round(stats.mesActual)||0).toLocaleString('es-PY')} accent="#34C759"/>
+        <KpiCard label="A pagar" value={'₲ ' + (Math.round(stats.pendientes)||0).toLocaleString('es-PY')} sub={`${purchases.filter(p=>p.status==='pendiente').length} facturas`} accent={stats.pendientes>0?'#FF9500':'#86868B'}/>
+      </div>
+
+      <div style={{display:'flex',gap:6,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
+        {[['lista','Proveedores'],['compras','Compras / Facturas'],['estadisticas','Estadísticas']].map(([k,l]) => (
+          <button key={k} onClick={() => setTab(k)} style={{
+            padding:'10px 16px',background:'none',border:'none',borderBottom:`2px solid ${tab===k?'#000':'transparent'}`,
+            color:tab===k?'#000':'#6E6E73',fontSize:13,fontWeight:tab===k?700:500,cursor:'pointer',marginBottom:-1
+          }}>{l}</button>
+        ))}
+      </div>
+
+      {tab === 'lista' && (
+        <>
+          <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar nombre, contacto o RUC…" style={{flex:1,minWidth:200,padding:'8px 12px',fontSize:13,borderRadius:6}}/>
+            <select value={filterCat} onChange={e=>setFilterCat(e.target.value)} style={{padding:'8px 12px',fontSize:13,borderRadius:6,minWidth:150}}>
+              <option value="">Todas las categorías</option>
+              {SUPPLIER_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={filterActive} onChange={e=>setFilterActive(e.target.value)} style={{padding:'8px 12px',fontSize:13,borderRadius:6,minWidth:130}}>
+              <option value="activos">Activos</option>
+              <option value="inactivos">Inactivos</option>
+              <option value="todos">Todos</option>
+            </select>
+          </div>
+
+          <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead style={{background:'#F5F5F7'}}>
+                <tr>
+                  <Th>Proveedor</Th>
+                  <Th>Categoría</Th>
+                  <Th>Contacto</Th>
+                  <Th>Teléfono</Th>
+                  <Th>Términos</Th>
+                  <Th>Entrega</Th>
+                  <Th right>Acciones</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0
+                  ? <tr><td colSpan={7} style={{padding:36,textAlign:'center',color:'#86868B',fontSize:13}}>Sin proveedores</td></tr>
+                  : filtered.map(s => (
+                      <tr key={s.id} style={{borderTop:`1px solid ${C.border}`,opacity:s.is_active?1:.5}}>
+                        <Td>
+                          <div style={{display:'flex',flexDirection:'column'}}>
+                            <strong>{s.name}</strong>
+                            {s.legal_name && <span style={{fontSize:11,color:'#86868B'}}>{s.legal_name}</span>}
+                            {s.ruc && <span style={{fontSize:11,color:'#86868B',fontFamily:"'SF Mono',ui-monospace,monospace"}}>RUC: {s.ruc}</span>}
+                          </div>
+                        </Td>
+                        <Td dim>{s.category||'—'}</Td>
+                        <Td>{s.contact_name||'—'}</Td>
+                        <Td mono dim>{s.phone||'—'}</Td>
+                        <Td dim>{s.payment_terms||'—'}</Td>
+                        <Td dim>{s.delivery_days||'—'}</Td>
+                        <Td right>
+                          <div style={{display:'flex',gap:6,justifyContent:'flex-end'}}>
+                            <button onClick={() => { setEditing(s); setShowForm(true); }} style={{background:'#F5F5F7',border:`1px solid ${C.border}`,padding:'5px 10px',fontSize:12,fontWeight:600,borderRadius:5,cursor:'pointer'}}>Editar</button>
+                            {s.is_active
+                              ? <button onClick={() => removeSupplier(s.id)} style={{background:'#FFF1F0',color:'#C0190F',border:'1px solid #FFB3AD',padding:'5px 10px',fontSize:12,fontWeight:600,borderRadius:5,cursor:'pointer'}}>Desactivar</button>
+                              : <button onClick={() => reactivate(s.id)} style={{background:'#F0FAF3',color:'#1A7E37',border:'1px solid #A3D9B1',padding:'5px 10px',fontSize:12,fontWeight:600,borderRadius:5,cursor:'pointer'}}>Reactivar</button>}
+                          </div>
+                        </Td>
+                      </tr>
+                    ))
+                }
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {tab === 'compras' && (
+        <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead style={{background:'#F5F5F7'}}>
+              <tr>
+                <Th>Fecha</Th>
+                <Th>Proveedor</Th>
+                <Th>Factura</Th>
+                <Th>Estado</Th>
+                <Th right>Total</Th>
+                <Th right>Pagado</Th>
+                <Th right>Saldo</Th>
+                <Th right>Acciones</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {purchases.length === 0
+                ? <tr><td colSpan={8} style={{padding:36,textAlign:'center',color:'#86868B',fontSize:13}}>Sin compras registradas</td></tr>
+                : purchases.map(p => {
+                    const supp = suppliers.find(s => s.id === p.supplier_id);
+                    const saldo = Number(p.total||0) - Number(p.paid_amount||0);
+                    return (
+                      <tr key={p.id} style={{borderTop:`1px solid ${C.border}`}}>
+                        <Td mono>{p.purchase_date}</Td>
+                        <Td><strong>{supp?.name || p.supplier_name || '—'}</strong></Td>
+                        <Td mono dim>{p.invoice_number||'—'}</Td>
+                        <Td>
+                          <span style={{
+                            padding:'3px 8px',fontSize:11,fontWeight:700,borderRadius:5,
+                            background: p.status==='pagada'?'#34C75922':p.status==='parcial'?'#FF950022':p.status==='anulada'?'#86868B22':'#FF3B3022',
+                            color: p.status==='pagada'?'#1A7E37':p.status==='parcial'?'#FF9500':p.status==='anulada'?'#86868B':'#C0190F'
+                          }}>{p.status}</span>
+                        </Td>
+                        <Td right mono><strong>{'₲ '+(Math.round(p.total)||0).toLocaleString('es-PY')}</strong></Td>
+                        <Td right mono>{'₲ '+(Math.round(p.paid_amount)||0).toLocaleString('es-PY')}</Td>
+                        <Td right mono style={{color:saldo>0?'#C0190F':'#86868B'}}>{'₲ '+(Math.round(saldo)||0).toLocaleString('es-PY')}</Td>
+                        <Td right>
+                          <button onClick={() => { setEditingPurchase(p); setShowPurchaseForm(true); }} style={{background:'#F5F5F7',border:`1px solid ${C.border}`,padding:'5px 10px',fontSize:12,fontWeight:600,borderRadius:5,cursor:'pointer'}}>Ver / Editar</button>
+                        </Td>
+                      </tr>
+                    );
+                  })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'estadisticas' && (
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+          <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Top proveedores por gasto (mes actual)</div>
+            {(() => {
+              const now = new Date();
+              const monthly = {};
+              purchases.filter(p => {
+                const d = new Date(p.purchase_date);
+                return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+              }).forEach(p => {
+                const k = p.supplier_id || p.supplier_name || 'desconocido';
+                const name = suppliers.find(s => s.id === p.supplier_id)?.name || p.supplier_name || '—';
+                if (!monthly[k]) monthly[k] = {name, total:0, count:0};
+                monthly[k].total += Number(p.total||0);
+                monthly[k].count++;
+              });
+              const sorted = Object.values(monthly).sort((a,b) => b.total - a.total).slice(0,10);
+              return sorted.length === 0
+                ? <div style={{padding:18,textAlign:'center',color:'#86868B',fontSize:13}}>Sin compras este mes</div>
+                : (
+                  <table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Proveedor</Th><Th right>Facturas</Th><Th right>Total</Th></tr></thead>
+                    <tbody>{sorted.map((m,i) => (
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+                        <Td><strong>{m.name}</strong></Td>
+                        <Td right mono>{m.count}</Td>
+                        <Td right mono><strong>{'₲ '+(Math.round(m.total)||0).toLocaleString('es-PY')}</strong></Td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                );
+            })()}
+          </div>
+
+          <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Por categoría (mes actual)</div>
+            {(() => {
+              const now = new Date();
+              const byCat = {};
+              purchases.filter(p => {
+                const d = new Date(p.purchase_date);
+                return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+              }).forEach(p => {
+                const cat = suppliers.find(s => s.id === p.supplier_id)?.category || 'sin categoría';
+                byCat[cat] = (byCat[cat]||0) + Number(p.total||0);
+              });
+              const sorted = Object.entries(byCat).sort((a,b) => b[1] - a[1]);
+              const total = sorted.reduce((s,[,v]) => s + v, 0);
+              return sorted.length === 0
+                ? <div style={{padding:18,textAlign:'center',color:'#86868B',fontSize:13}}>Sin datos</div>
+                : <div style={{display:'flex',flexDirection:'column',gap:8}}>{sorted.map(([cat,val]) => {
+                    const pct = total ? (val/total*100) : 0;
+                    return (
+                      <div key={cat}>
+                        <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:3}}>
+                          <span style={{fontWeight:600}}>{cat}</span>
+                          <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{'₲ '+(Math.round(val)||0).toLocaleString('es-PY')} <span style={{color:'#86868B'}}>({pct.toFixed(0)}%)</span></span>
+                        </div>
+                        <div style={{height:6,background:'#F5F5F7',borderRadius:3}}>
+                          <div style={{width:`${pct}%`,height:'100%',background:'#000',borderRadius:3}}/>
+                        </div>
+                      </div>
+                    );
+                  })}</div>;
+            })()}
+          </div>
+        </div>
+      )}
+
+      {showForm && <SupplierFormModal supplier={editing} onClose={() => { setShowForm(false); setEditing(null); }} onSaved={() => { setShowForm(false); setEditing(null); load(); }}/>}
+      {showPurchaseForm && <PurchaseFormModal purchase={editingPurchase} suppliers={suppliers} onClose={() => { setShowPurchaseForm(false); setEditingPurchase(null); }} onSaved={() => { setShowPurchaseForm(false); setEditingPurchase(null); load(); }}/>}
+    </div>
+  );
+}
+
+function SupplierFormModal({supplier, onClose, onSaved}) {
+  const isNew = !supplier;
+  const [f, setF] = useState({
+    name: supplier?.name || '',
+    ruc: supplier?.ruc || '',
+    legal_name: supplier?.legal_name || '',
+    category: supplier?.category || '',
+    phone: supplier?.phone || '',
+    email: supplier?.email || '',
+    address: supplier?.address || '',
+    city: supplier?.city || '',
+    contact_name: supplier?.contact_name || '',
+    payment_terms: supplier?.payment_terms || '',
+    delivery_days: supplier?.delivery_days || '',
+    min_order: supplier?.min_order || '',
+    notes: supplier?.notes || '',
+    rating: supplier?.rating || ''
+  });
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!f.name.trim()) { toast('Indicá el nombre del proveedor', false); return; }
+    setSaving(true);
+    const payload = {
+      ...f, restaurant_id: RID,
+      min_order: f.min_order ? Number(f.min_order) : null,
+      rating: f.rating ? Number(f.rating) : null,
+      updated_at: new Date().toISOString()
+    };
+    Object.keys(payload).forEach(k => { if (payload[k] === '') payload[k] = null; });
+    const q = isNew ? db.from('suppliers').insert(payload) : db.from('suppliers').update(payload).eq('id', supplier.id);
+    const { error } = await q;
+    setSaving(false);
+    if (error) toast(error.message, false); else { toast(isNew?'Proveedor creado':'Proveedor actualizado'); onSaved(); }
+  };
+
+  useEffect(() => { _modalCount++; return () => { _modalCount = Math.max(0, _modalCount-1); }; }, []);
+
+  return (
+    <div onClick={e => e.target===e.currentTarget && onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:'100%',maxWidth:580,maxHeight:'92vh',overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+          <div style={{fontSize:15,fontWeight:700}}>{isNew?'Nuevo proveedor':'Editar proveedor'}</div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#6E6E73',fontSize:22,lineHeight:1,padding:0,cursor:'pointer'}}>×</button>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10,marginBottom:10}}>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Nombre comercial *</div>
+            <input value={f.name} onChange={e=>setF({...f, name:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>RUC</div>
+            <input value={f.ruc} onChange={e=>setF({...f, ruc:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10,marginBottom:10}}>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Razón social</div>
+            <input value={f.legal_name} onChange={e=>setF({...f, legal_name:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Categoría</div>
+            <select value={f.category} onChange={e=>setF({...f, category:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}>
+              <option value="">— Elegir —</option>
+              {SUPPLIER_CATS.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Contacto principal</div>
+            <input value={f.contact_name} onChange={e=>setF({...f, contact_name:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Teléfono</div>
+            <input value={f.phone} onChange={e=>setF({...f, phone:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Email</div>
+            <input type="email" value={f.email} onChange={e=>setF({...f, email:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Ciudad</div>
+            <input value={f.city} onChange={e=>setF({...f, city:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
+        </div>
+
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Dirección</div>
+          <input value={f.address} onChange={e=>setF({...f, address:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:10}}>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Términos de pago</div>
+            <input value={f.payment_terms} onChange={e=>setF({...f, payment_terms:e.target.value})} placeholder="ej: 30 días" style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Días de entrega</div>
+            <input value={f.delivery_days} onChange={e=>setF({...f, delivery_days:e.target.value})} placeholder="ej: lun, mié, vie" style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Pedido mínimo (₲)</div>
+            <input type="number" value={f.min_order} onChange={e=>setF({...f, min_order:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
+        </div>
+
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Valoración (1-5)</div>
+          <select value={f.rating} onChange={e=>setF({...f, rating:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}>
+            <option value="">— Sin valorar —</option>
+            {[1,2,3,4,5].map(n => <option key={n} value={n}>{'★'.repeat(n)} ({n})</option>)}
+          </select>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Notas</div>
+          <textarea value={f.notes} onChange={e=>setF({...f, notes:e.target.value})} rows={3} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:'inherit',resize:'vertical'}}/>
+        </div>
+
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:8}}>
+          <button onClick={onClose} style={{padding:'9px 16px',border:`1px solid ${C.border}`,borderRadius:8,background:'transparent',color:'#6E6E73',fontSize:13,fontWeight:600,cursor:'pointer'}}>Cancelar</button>
+          <button onClick={save} disabled={saving} style={{padding:'9px 18px',border:'none',borderRadius:8,background:'#000',color:'#fff',fontSize:13,fontWeight:700,cursor:saving?'not-allowed':'pointer',opacity:saving?.5:1}}>
+            {saving?'Guardando…':(isNew?'Crear proveedor':'Guardar cambios')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PurchaseFormModal({purchase, suppliers, onClose, onSaved}) {
+  const isNew = !purchase;
+  const [f, setF] = useState({
+    supplier_id: purchase?.supplier_id || '',
+    invoice_number: purchase?.invoice_number || '',
+    purchase_date: purchase?.purchase_date || new Date().toISOString().slice(0,10),
+    total: purchase?.total || '',
+    paid_amount: purchase?.paid_amount || 0,
+    status: purchase?.status || 'pendiente',
+    payment_method: purchase?.payment_method || '',
+    due_date: purchase?.due_date || '',
+    notes: purchase?.notes || ''
+  });
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!f.total || Number(f.total) <= 0) { toast('Indicá el total', false); return; }
+    setSaving(true);
+    const supp = suppliers.find(s => s.id === f.supplier_id);
+    const payload = {
+      ...f, restaurant_id: RID,
+      supplier_id: f.supplier_id || null,
+      supplier_name: supp?.name || null,
+      total: Number(f.total),
+      paid_amount: Number(f.paid_amount||0),
+      due_date: f.due_date || null,
+      payment_method: f.payment_method || null
+    };
+    if (f.status === 'pagada' && !purchase?.paid_at) payload.paid_at = new Date().toISOString();
+    Object.keys(payload).forEach(k => { if (payload[k] === '') payload[k] = null; });
+    const q = isNew ? db.from('supplier_purchases').insert(payload) : db.from('supplier_purchases').update(payload).eq('id', purchase.id);
+    const { error } = await q;
+    setSaving(false);
+    if (error) toast(error.message, false); else { toast(isNew?'Compra registrada':'Compra actualizada'); onSaved(); }
+  };
+
+  useEffect(() => { _modalCount++; return () => { _modalCount = Math.max(0, _modalCount-1); }; }, []);
+
+  return (
+    <div onClick={e => e.target===e.currentTarget && onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+      <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:'100%',maxWidth:500,maxHeight:'92vh',overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+          <div style={{fontSize:15,fontWeight:700}}>{isNew?'Registrar compra':'Editar compra'}</div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#6E6E73',fontSize:22,lineHeight:1,padding:0,cursor:'pointer'}}>×</button>
+        </div>
+
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Proveedor</div>
+          <select value={f.supplier_id} onChange={e=>setF({...f, supplier_id:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}>
+            <option value="">— Elegir —</option>
+            {suppliers.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Nº factura</div>
+            <input value={f.invoice_number} onChange={e=>setF({...f, invoice_number:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Fecha compra</div>
+            <input type="date" value={f.purchase_date} onChange={e=>setF({...f, purchase_date:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Total (₲) *</div>
+            <input type="number" value={f.total} onChange={e=>setF({...f, total:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Pagado (₲)</div>
+            <input type="number" value={f.paid_amount} onChange={e=>setF({...f, paid_amount:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Estado</div>
+            <select value={f.status} onChange={e=>setF({...f, status:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}>
+              <option value="pendiente">Pendiente</option>
+              <option value="parcial">Parcial</option>
+              <option value="pagada">Pagada</option>
+              <option value="anulada">Anulada</option>
+            </select>
+          </div>
+          <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Vencimiento</div>
+            <input type="date" value={f.due_date} onChange={e=>setF({...f, due_date:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
+        </div>
+
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Método de pago</div>
+          <select value={f.payment_method} onChange={e=>setF({...f, payment_method:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}>
+            <option value="">— Elegir —</option>
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="cheque">Cheque</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="otro">Otro</option>
+          </select>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Notas</div>
+          <textarea value={f.notes} onChange={e=>setF({...f, notes:e.target.value})} rows={3} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:'inherit',resize:'vertical'}}/>
+        </div>
+
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+          <button onClick={onClose} style={{padding:'9px 16px',border:`1px solid ${C.border}`,borderRadius:8,background:'transparent',color:'#6E6E73',fontSize:13,fontWeight:600,cursor:'pointer'}}>Cancelar</button>
+          <button onClick={save} disabled={saving} style={{padding:'9px 18px',border:'none',borderRadius:8,background:'#000',color:'#fff',fontSize:13,fontWeight:700,cursor:saving?'not-allowed':'pointer',opacity:saving?.5:1}}>
+            {saving?'Guardando…':(isNew?'Registrar':'Guardar cambios')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
    ROOT APP
 ══════════════════════════════════════════════ */
 function AdminApp() {
@@ -7120,6 +7621,7 @@ function AdminApp() {
       case 'marketing': return <MarketingPage coupons={coupons} orders={orders} onRefresh={loadAll}/>;
       case 'ratings':   return <RatingsPage ratings={ratings}/>;
       case 'stock':     return <StockPage/>;
+      case 'proveedores': return <ProveedoresPage/>;
       case 'delivery':  return <DeliveryModule/>;
       case 'config':    return <ConfigPage restaurant={restaurant} onRefresh={loadAll}/>;
       default: return null;
