@@ -38,10 +38,15 @@ CREATE INDEX IF NOT EXISTS idx_stock_session_items       ON public.stock_session
 ALTER TABLE public.stock_sessions      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stock_session_items ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "auth_all_stock_sessions"
-  ON public.stock_sessions FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_stock_session_items"
-  ON public.stock_session_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  CREATE POLICY "auth_all_stock_sessions"
+    ON public.stock_sessions FOR ALL TO authenticated USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "auth_all_stock_session_items"
+    ON public.stock_session_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ── RPC: crear toma de inventario ────────────────────────────
 -- Crea la sesión y registra el stock actual de todos los ingredientes activos.
