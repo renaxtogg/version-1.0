@@ -2557,13 +2557,22 @@ function SalonPanel({profile}){
   const SIX_MIN=6*60*1000;
   const isRecentDeliveredPickup=o=>o.status==='delivered'&&o.completed_at&&(nowTick-new Date(o.completed_at).getTime()<SIX_MIN);
   const dineInOrders  =orders.filter(o=>o.table_id&&o.status!=='delivered');
-  const takeawayOrders=orders.filter(o=>!o.table_id&&o.order_type==='takeaway');
-  const deliveryOrders=orders.filter(o=>!o.table_id&&o.order_type==='delivery'&&o.status!=='delivered');
-  const otherOrders   =orders.filter(o=>!o.table_id&&o.order_type!=='takeaway'&&o.order_type!=='delivery');
-  // Pickup: pendientes de cobro + pagados (online o ya entregados por cocina los últimos 6min).
-  const pickupAll     =[...takeawayOrders,...otherOrders];
-  const pickupACobrar =pickupAll.filter(o=>o.payment_status!=='paid');
-  const pickupPagado  =pickupAll.filter(o=>o.payment_status==='paid'&&(o.status!=='delivered'||isRecentDeliveredPickup(o)));
+  const deliveryOrders =orders.filter(o=>!o.table_id&&o.order_type==='delivery'&&o.status!=='delivered');
+  // Salón sin mesa: mostrador, local, dine_in sin table_id, etc.
+  const salonOrders   =orders.filter(o=>!o.table_id&&!['takeaway','llevar','delivery','pickup'].includes(o.order_type));
+  // Para llevar: el cliente retira y se va
+  const llevarOrders  =orders.filter(o=>!o.table_id&&(o.order_type==='takeaway'||o.order_type==='llevar'));
+  // Para retirar: pagó online y viene a buscar
+  const retirarOrders =orders.filter(o=>!o.table_id&&o.order_type==='pickup');
+  const pickupAll     =[...salonOrders,...llevarOrders,...retirarOrders]; // para KPI total
+  const _paid=o=>o.payment_status==='paid'&&(o.status!=='delivered'||isRecentDeliveredPickup(o));
+  const _unpaid=o=>o.payment_status!=='paid';
+  const salonACobrar  =salonOrders.filter(_unpaid);
+  const salonPagado   =salonOrders.filter(_paid);
+  const llevarACobrar =llevarOrders.filter(_unpaid);
+  const llevarPagado  =llevarOrders.filter(_paid);
+  const retirarACobrar=retirarOrders.filter(_unpaid);
+  const retirarPagado =retirarOrders.filter(_paid);
   const kitchenCount  =orders.filter(o=>['kitchen_received','cooking'].includes(o.status)).length;
   const readyCount    =orders.filter(o=>o.status==='ready').length;
   const totalEnProceso=Object.values(sessionTotals).reduce((s,v)=>s+v,0)||orders.reduce((s,o)=>s+Number(o.total),0);
@@ -2622,7 +2631,7 @@ function SalonPanel({profile}){
     const espera=Math.floor((Date.now()-new Date(order.created_at))/60000);
     const name=order.customer_name?` — ${order.customer_name}`:'';
     const tipo=orderTypeLabel(order.order_type);
-    const esPickupPagado=!order.table_id&&order.payment_status==='paid'&&(order.order_type==='takeaway'||order.order_type==='llevar'||!order.order_type);
+    const esPickupPagado=!order.table_id&&order.payment_status==='paid';
     const entregadoHace=esPickupPagado&&order.status==='delivered'&&order.completed_at
       ?Math.max(0,6-Math.floor((nowTick-new Date(order.completed_at).getTime())/60000))
       :null;
@@ -2686,7 +2695,7 @@ function SalonPanel({profile}){
         <KpiMini label="Mesas ocupadas"   value={`${ocupadas} / ${tables.length}`} accent={ocupadas>0?C.orange:C.mid}/>
         <KpiMini label="En cocina"        value={kitchenCount} accent={C.yellow}/>
         <KpiMini label="Listos"           value={readyCount}   accent={C.green}/>
-        <KpiMini label="Para llevar"      value={takeawayOrders.length+otherOrders.length} accent={'#FF9500'}/>
+        <KpiMini label="Sin mesa"          value={pickupAll.length} accent={'#FF9500'}/>
         <KpiMini label="Delivery"         value={deliveryOrders.length} accent={'#FF3B30'}/>
         <KpiMini label="Total en proceso" value={fmt(totalEnProceso)} accent={C.cyan}/>
       </div>
@@ -2753,22 +2762,65 @@ function SalonPanel({profile}){
             )}
           </div>
 
-          {/* Columna derecha: para llevar + delivery */}
+          {/* Columna derecha: salón sin mesa + para llevar + para retirar + delivery */}
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
-            <SideSection
-              title="PARA LLEVAR · A COBRAR"
-              desc="El cliente pasa por caja, paga y retira. Al cobrar, el pedido va al historial."
-              list={pickupACobrar}
-              emptyMsg="Sin pedidos pendientes de cobro"
-              accent={'#FF9500'}
-            />
-            <SideSection
-              title="PARA LLEVAR · PAGADOS"
-              desc="Pagados online (tarjeta/QR). Se ocultan a los 6 min de entregados por cocina."
-              list={pickupPagado}
-              emptyMsg="Sin pedidos pagados online"
-              accent={'#34C759'}
-            />
+            {(salonACobrar.length>0||salonPagado.length>0)&&<div style={{fontSize:10,fontWeight:800,letterSpacing:'0.08em',color:'#6E6E73',paddingLeft:2}}>SALÓN</div>}
+            {salonACobrar.length>0&&(
+              <SideSection
+                title="SALÓN · SIN PAGAR"
+                desc="Pedidos del salón sin número de mesa, pendientes de cobro."
+                list={salonACobrar}
+                emptyMsg="Sin pedidos"
+                accent={'#FF9500'}
+              />
+            )}
+            {salonPagado.length>0&&(
+              <SideSection
+                title="SALÓN · PAGADOS"
+                desc="Pedidos del salón ya cobrados (se ocultan al entregarse)."
+                list={salonPagado}
+                emptyMsg="Sin pedidos"
+                accent={'#34C759'}
+              />
+            )}
+            {(llevarACobrar.length>0||llevarPagado.length>0)&&<div style={{fontSize:10,fontWeight:800,letterSpacing:'0.08em',color:'#6E6E73',paddingLeft:2,marginTop:4}}>PARA LLEVAR</div>}
+            {llevarACobrar.length>0&&(
+              <SideSection
+                title="PARA LLEVAR · SIN PAGAR"
+                desc="El cliente pasa por caja, paga y retira."
+                list={llevarACobrar}
+                emptyMsg="Sin pedidos"
+                accent={'#FF9500'}
+              />
+            )}
+            {llevarPagado.length>0&&(
+              <SideSection
+                title="PARA LLEVAR · PAGADOS"
+                desc="Pagados online. Se ocultan a los 6 min de entregados por cocina."
+                list={llevarPagado}
+                emptyMsg="Sin pedidos"
+                accent={'#34C759'}
+              />
+            )}
+            {(retirarACobrar.length>0||retirarPagado.length>0)&&<div style={{fontSize:10,fontWeight:800,letterSpacing:'0.08em',color:'#6E6E73',paddingLeft:2,marginTop:4}}>PARA RETIRAR</div>}
+            {retirarACobrar.length>0&&(
+              <SideSection
+                title="PARA RETIRAR · SIN PAGAR"
+                desc="El cliente viene a retirar y paga en caja."
+                list={retirarACobrar}
+                emptyMsg="Sin pedidos"
+                accent={'#FF9500'}
+              />
+            )}
+            {retirarPagado.length>0&&(
+              <SideSection
+                title="PARA RETIRAR · PAGADOS"
+                desc="Pagados online. Se ocultan a los 6 min de entregados por cocina."
+                list={retirarPagado}
+                emptyMsg="Sin pedidos"
+                accent={'#34C759'}
+              />
+            )}
             <SideSection
               title="DELIVERY A DOMICILIO"
               desc="Pedidos de delivery pendientes"
