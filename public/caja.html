@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mythos · Caja</title>
 <link rel="stylesheet" href="design-system.css">
+<script src="mythos-theme.js"></script>
+<script src="mythos-icons.js"></script>
+<script>MythosTheme.init('light');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -12,13 +15,13 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{background:#F5F5F7;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:#1D1D1F;-webkit-font-smoothing:antialiased}
-  .ds-product-price{color:#000000!important;font-weight:700!important}
+  body{background:var(--bg-subtle);font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:var(--text-primary);-webkit-font-smoothing:antialiased;transition:background var(--transition),color var(--transition)}
+  .ds-product-price{color:var(--text-primary)!important;font-weight:700!important}
   ::-webkit-scrollbar{width:4px;height:4px}
-  ::-webkit-scrollbar-track{background:#F5F5F7}
-  ::-webkit-scrollbar-thumb{background:#D2D2D7;border-radius:4px}
-  input,textarea,select{font-family:inherit;background:#FFFFFF;border:1px solid #D2D2D7;color:#1D1D1F;outline:none;border-radius:8px}
-  input:focus,textarea:focus,select:focus{border-color:#000000}
+  ::-webkit-scrollbar-track{background:var(--bg-subtle)}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+  input,textarea,select{font-family:inherit;background:var(--surface);border:1px solid var(--border);color:var(--text-primary);outline:none;border-radius:8px}
+  input:focus,textarea:focus,select:focus{border-color:var(--text-primary)}
   button{font-family:inherit;cursor:pointer}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
   @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
@@ -35,8 +38,6 @@
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
-document.documentElement.setAttribute('data-theme', 'light');
-localStorage.setItem('mesa_theme', 'light');
 </script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
@@ -173,15 +174,20 @@ const fmtDur = (from,to=new Date()) => {
 const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',pending_payment:'A cobrar',kitchen_received:'En cocina',cooking:'Preparando',ready:'Listo',delivered:'Entregado',cancelled:'Cancelado'};
 const SC = {paid:'#FF9500',pending_payment:'#FF9500',kitchen_received:'#007AFF',cooking:'#FF9500',ready:'#34C759',delivered:'#86868B',cancelled:'#FF3B30'};
 
-/* ── PALETA ── */
+/* ── PALETA — reactiva al tema MythosTheme ── */
 const C_LIGHT = {
   bg:'#F5F5F7',sidebar:'#FFFFFF',surface:'#FFFFFF',card:'#FFFFFF',
   border:'#D2D2D7',bs:'#86868B',
   white:'#FFFFFF',ink:'#1D1D1F',mid:'#6E6E73',dim:'#86868B',
   green:'#34C759',orange:'#FF9500',red:'#FF3B30',yellow:'#FF9500',blue:'#007AFF',purple:'#000000',cyan:'#007AFF',
 };
-const C_DARK = C_LIGHT;
-const C = {...C_LIGHT};
+const C_DARK = {
+  bg:'#000000',sidebar:'#1C1C1E',surface:'#1C1C1E',card:'#2C2C2E',
+  border:'#38383A',bs:'#636366',
+  white:'#1C1C1E',ink:'#F5F5F7',mid:'#AEAEB2',dim:'#636366',
+  green:'#34C759',orange:'#FF9500',red:'#FF3B30',yellow:'#FF9500',blue:'#0A84FF',purple:'#F5F5F7',cyan:'#0A84FF',
+};
+const C = {...(window.MythosTheme && window.MythosTheme.get()==='dark' ? C_DARK : C_LIGHT)};
 
 /* ── TOAST ── */
 const _toast = {fn:null};
@@ -4023,13 +4029,12 @@ function DashboardCaja({turno,profile,onCierre}){
     await db.from('waiter_calls').update({status:'attended',attended_at:new Date().toISOString()}).eq('id',callId);
     setPaymentCalls(p=>p.filter(c=>c.id!==callId));
   }
-  function toggleTheme(){
-    const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
-    Object.assign(C,next==='dark'?C_DARK:C_LIGHT);
-    document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('mesa_theme',next);
-    forceRender();
-  }
+  function toggleTheme(){ if (window.MythosTheme) window.MythosTheme.toggle(); }
+  useEffect(() => {
+    const onTheme = e => { Object.assign(C, e.detail.mode==='dark'?C_DARK:C_LIGHT); forceRender(); };
+    document.addEventListener('mythos:themechange', onTheme);
+    return () => document.removeEventListener('mythos:themechange', onTheme);
+  }, []);
 
   useEffect(()=>{loadMovimientos();},[turno.id]);
   useEffect(()=>{

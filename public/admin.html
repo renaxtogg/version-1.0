@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mythos · Admin</title>
 <link rel="stylesheet" href="design-system.css">
+<script src="mythos-theme.js"></script>
+<script src="mythos-icons.js"></script>
+<script>MythosTheme.init('light');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -15,35 +18,23 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{background:#F5F5F7;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:#1D1D1F;-webkit-font-smoothing:antialiased}
+  body{background:var(--bg-subtle);font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:var(--text-primary);-webkit-font-smoothing:antialiased;transition:background var(--transition),color var(--transition)}
   ::-webkit-scrollbar{width:4px;height:4px}
-  ::-webkit-scrollbar-track{background:#F5F5F7}
-  ::-webkit-scrollbar-thumb{background:#D2D2D7;border-radius:4px}
-  input,textarea,select{font-family:inherit;background:#FFFFFF;border:1px solid #D2D2D7;color:#1D1D1F;outline:none;border-radius:8px}
-  input:focus,textarea:focus,select:focus{border-color:#000000}
+  ::-webkit-scrollbar-track{background:var(--bg-subtle)}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+  input,textarea,select{font-family:inherit;background:var(--surface);border:1px solid var(--border);color:var(--text-primary);outline:none;border-radius:8px}
+  input:focus,textarea:focus,select:focus{border-color:var(--text-primary)}
   button{font-family:inherit;cursor:pointer}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
   @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   .page{animation:fadeIn .15s ease}
-  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #D2D2D7;border-top-color:#1D1D1F;border-radius:50%;vertical-align:middle}
+  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--text-primary);border-radius:50%;vertical-align:middle}
   @media print{aside,nav,.no-print{display:none!important}main{padding:0!important}body{background:#fff}}
 </style>
 </head>
 <body>
 <div id="root"></div>
-<script>
-function initTheme() {
-  document.documentElement.setAttribute('data-theme','light');
-}
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  const next = current === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('mesa_theme', next);
-}
-initTheme();
-</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
 
@@ -101,15 +92,31 @@ const ROLES = ['cocina','admin','superadmin','waiter','cajero'];
 /* Roles que el Admin puede asignar (no puede crear admins ni superadmins) */
 const ADMIN_ALLOWED_ROLES = ['cajero','mozo','cocina','rider','supervisor_local'];
 
-/* ── PALETTE ── */
+/* ── PALETTE ── reactiva al tema MythosTheme */
 const C_LIGHT = {
   bg:'#F5F5F7',sidebar:'#FFFFFF',surface:'#FFFFFF',card:'#FFFFFF',
   border:'#D2D2D7',bs:'#86868B',
   white:'#FFFFFF',ink:'#1D1D1F',mid:'#6E6E73',dim:'#86868B',
   green:'#34C759',orange:'#FF9500',red:'#FF3B30',yellow:'#FF9500',blue:'#007AFF',purple:'#000000',
 };
-const C_DARK = C_LIGHT;
-const C = {...C_LIGHT};
+const C_DARK = {
+  bg:'#000000',sidebar:'#1C1C1E',surface:'#1C1C1E',card:'#2C2C2E',
+  border:'#38383A',bs:'#636366',
+  white:'#1C1C1E',ink:'#F5F5F7',mid:'#AEAEB2',dim:'#636366',
+  green:'#34C759',orange:'#FF9500',red:'#FF3B30',yellow:'#FF9500',blue:'#0A84FF',purple:'#F5F5F7',
+};
+const C = {...(window.MythosTheme && window.MythosTheme.get()==='dark' ? C_DARK : C_LIGHT)};
+if (window.MythosTheme) {
+  document.addEventListener('mythos:themechange', function(e){
+    Object.assign(C, e.detail.mode==='dark' ? C_DARK : C_LIGHT);
+  });
+}
+
+/* ── Icon helper ──────────────────────────────────────────── */
+const Icon = ({name, size=14, style}) => (
+  <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',lineHeight:0,...(style||{})}}
+        dangerouslySetInnerHTML={{__html: window.MythosIcons ? window.MythosIcons.html(name, {size}) : ''}}/>
+);
 
 /* ── TOAST ── */
 const _toast = { fn: null };
@@ -314,44 +321,50 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
 
 /* ── SIDEBAR ── */
 const NAV = [
-  {id:'dashboard', label:'Dashboard',    icon:'◆'},
-  {id:'pedidos',   label:'Pedidos',      icon:'≡'},
+  {id:'dashboard', label:'Dashboard',    icon:'dashboard'},
+  {id:'pedidos',   label:'Pedidos',      icon:'menu'},
   null,
-  {id:'delivery',  label:'Delivery',     icon:'→', group:'DELIVERY'},
+  {id:'delivery',  label:'Delivery',     icon:'truck', group:'DELIVERY'},
   null,
-  {id:'menu',       label:'Menú',         icon:'⊞', group:'GESTIÓN'},
-  {id:'mesas',      label:'Mesas',        icon:'⊡'},
-  {id:'reservas',   label:'Reservas',     icon:'◷'},
-  {id:'calendario', label:'Calendario',   icon:'◈'},
-  {id:'estaciones', label:'Estaciones',   icon:'▣'},
-  {id:'personal',   label:'Personal',     icon:'◎'},
-  {id:'stock',      label:'Stock',        icon:'▤'},
-  {id:'proveedores',label:'Proveedores',  icon:'▥'},
+  {id:'menu',       label:'Menú',         icon:'book', group:'GESTIÓN'},
+  {id:'mesas',      label:'Mesas',        icon:'table'},
+  {id:'reservas',   label:'Reservas',     icon:'calendar'},
+  {id:'calendario', label:'Calendario',   icon:'layout'},
+  {id:'estaciones', label:'Estaciones',   icon:'boxes'},
+  {id:'personal',   label:'Personal',     icon:'users'},
+  {id:'stock',      label:'Stock',        icon:'package'},
+  {id:'proveedores',label:'Proveedores',  icon:'building'},
   null,
-  {id:'clientes',  label:'Clientes',     icon:'♦', group:'ANÁLISIS'},
-  {id:'reportes',  label:'Reportes',     icon:'≈'},
-  {id:'facturas',  label:'Facturas',     icon:'🧾'},
-  {id:'finanzas',  label:'Finanzas',     icon:'₲'},
-  {id:'caja',      label:'Caja',         icon:'🖥'},
+  {id:'clientes',  label:'Clientes',     icon:'user', group:'ANÁLISIS'},
+  {id:'reportes',  label:'Reportes',     icon:'chart'},
+  {id:'facturas',  label:'Facturas',     icon:'receipt'},
+  {id:'finanzas',  label:'Finanzas',     icon:'money'},
+  {id:'caja',      label:'Caja',         icon:'creditCard'},
   null,
-  {id:'marketing', label:'Marketing',    icon:'%', group:'ACCIONES'},
-  {id:'ratings',   label:'Calificaciones',icon:'★'},
+  {id:'marketing', label:'Marketing',    icon:'megaphone', group:'ACCIONES'},
+  {id:'ratings',   label:'Calificaciones',icon:'star'},
   null,
-  {id:'avisos',    label:'Avisos personal', icon:'🔔', group:'SISTEMA'},
-  {id:'soporte',   label:'Soporte',      icon:'💬'},
-  {id:'config',    label:'Config',       icon:'⚙'},
+  {id:'avisos',    label:'Avisos personal', icon:'bell', group:'SISTEMA'},
+  {id:'soporte',   label:'Soporte',      icon:'chat'},
+  {id:'config',    label:'Config',       icon:'settings'},
 ];
 
-function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={}}) {
+function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={},themeMode='light'}) {
   return (
     <aside style={{width:200,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
-      <div style={{padding:'18px 16px 14px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontFamily:'inherit',fontSize:20,fontWeight:800,letterSpacing:'-0.5px',color:'#000000'}}>Mythos</div>
-        <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>{restaurant?.name||'La Huaca'} · Admin</div>
-        <div style={{display:'flex',alignItems:'center',gap:6,marginTop:8}}>
-          <div style={{width:6,height:6,borderRadius:'50%',background:dbOk?C.green:C.red,flexShrink:0}}/>
-          <span style={{fontSize:10,color:dbOk?'#86868B':C.red,fontWeight:600}}>{dbOk?'Supabase OK':'Sin DB'}</span>
+      <div style={{padding:'18px 16px 14px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:'inherit',fontSize:20,fontWeight:800,letterSpacing:'-0.5px',color:C.ink}}>Mythos</div>
+          <div style={{fontSize:11,color:C.mid,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{restaurant?.name||'La Huaca'} · Admin</div>
+          <div style={{display:'flex',alignItems:'center',gap:6,marginTop:8}}>
+            <div style={{width:6,height:6,borderRadius:'50%',background:dbOk?C.green:C.red,flexShrink:0}}/>
+            <span style={{fontSize:10,color:dbOk?C.mid:C.red,fontWeight:600}}>{dbOk?'Supabase OK':'Sin DB'}</span>
+          </div>
         </div>
+        <button onClick={onToggleTheme} title={themeMode==='dark'?'Cambiar a claro':'Cambiar a oscuro'}
+          style={{width:28,height:28,borderRadius:'50%',background:'transparent',border:`1px solid ${C.border}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.ink,flexShrink:0}}>
+          <Icon name={themeMode==='dark'?'sun':'moon'} size={13}/>
+        </button>
       </div>
       <nav style={{padding:'6px 0',flex:1}}>
         {NAV.map((n,i) => {
@@ -360,19 +373,19 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={}}) {
           const badge = badges[n.id]||0;
           return (
             <div key={n.id}>
-              {n.group && <div style={{padding:'8px 16px 3px',fontSize:9,color:'#6E6E73',fontWeight:800,letterSpacing:'0.14em',textTransform:'uppercase'}}>{n.group}</div>}
-              <button onClick={() => setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 16px',background:active?'#000000':'none',border:'none',color:active?'#FFFFFF':'#1D1D1F',textAlign:'left',fontSize:13,fontWeight:active?700:400,cursor:'pointer',borderLeft:active?`2px solid ${C.ink}`:'2px solid transparent'}}>
-                <span style={{fontSize:12,width:14,textAlign:'center',flexShrink:0,fontFamily:'monospace'}}>{n.icon}</span>
+              {n.group && <div style={{padding:'8px 16px 3px',fontSize:9,color:C.mid,fontWeight:800,letterSpacing:'0.14em',textTransform:'uppercase'}}>{n.group}</div>}
+              <button onClick={() => setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 16px',background:active?C.ink:'none',border:'none',color:active?C.sidebar:C.ink,textAlign:'left',fontSize:13,fontWeight:active?600:500,cursor:'pointer',borderLeft:active?`2px solid ${C.ink}`:'2px solid transparent'}}>
+                <span style={{width:16,textAlign:'center',flexShrink:0,display:'inline-flex',alignItems:'center',justifyContent:'center'}}><Icon name={n.icon} size={15}/></span>
                 <span style={{flex:1}}>{n.label}</span>
-                {badge > 0 && <span style={{background:active?'#fff':C.red,color:active?C.red:'#fff',fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,minWidth:16,textAlign:'center'}}>{badge}</span>}
+                {badge > 0 && <span style={{background:active?C.sidebar:C.red,color:active?C.red:C.sidebar,fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,minWidth:16,textAlign:'center'}}>{badge}</span>}
               </button>
             </div>
           );
         })}
       </nav>
       <div style={{padding:'12px 16px',borderTop:`1px solid ${C.border}`}}>
-        <a href="cocina.html" style={{display:'block',color:'#6E6E73',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ Cocina (KDS)</a>
-        <a href="index.html"  style={{display:'block',color:'#6E6E73',fontSize:11,textDecoration:'none',padding:'4px 0'}}>→ App Cliente</a>
+        <a href="cocina.html" style={{display:'flex',alignItems:'center',gap:6,color:C.mid,fontSize:11,textDecoration:'none',padding:'4px 0'}}><Icon name="arrowRight" size={11}/> Cocina (KDS)</a>
+        <a href="index.html"  style={{display:'flex',alignItems:'center',gap:6,color:C.mid,fontSize:11,textDecoration:'none',padding:'4px 0'}}><Icon name="arrowRight" size={11}/> App Cliente</a>
 {db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{marginTop:6,background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'4px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
       </div>
     </aside>
@@ -484,63 +497,63 @@ function DashboardPage({orders, ratings, setPage}) {
   return (
     <div className="page">
       <div style={{marginBottom:20}}>
-        <h1 style={{fontSize:22,fontWeight:800,color:'#000000'}}>Dashboard</h1>
-        <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{now.toLocaleDateString('es-PY',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
+        <h1 style={{fontSize:24,fontWeight:800,color:C.ink,letterSpacing:'-0.5px'}}>Dashboard</h1>
+        <div style={{fontSize:13,color:C.mid,marginTop:3}}>{now.toLocaleDateString('es-PY',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>
       </div>
 
       {/* Fila 1 — 4 KPIs principales */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:12}}>
         <div style={{background:'#F0FAF3',border:'1px solid #A3D9B1',borderLeft:'4px solid #34C759',borderRadius:8,padding:'18px 20px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
-          <div style={{fontSize:11,color:'#1A7E37',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>💰 Ventas hoy</div>
-          <div style={{fontSize:26,fontWeight:800,color:'#1A7E37',lineHeight:1,letterSpacing:'-0.5px'}}>{fmt(ventasHoy)}</div>
+          <div style={{fontSize:11,color:'#1A7E37',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5,display:'flex',alignItems:'center',gap:6}}><Icon name="money" size={13}/> Ventas hoy</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#1A7E37',lineHeight:1,letterSpacing:'-0.5px'}}>{fmt(ventasHoy)}</div>
           <div style={{marginTop:6}}><Delta val={ventasHoy} ayer={ventasAyer}/></div>
         </div>
         <div style={{background:'#F0F6FF',border:'1px solid #A8C8FF',borderLeft:'4px solid #007AFF',borderRadius:8,padding:'18px 20px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
-          <div style={{fontSize:11,color:'#0051A8',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>📦 Pedidos hoy</div>
-          <div style={{fontSize:26,fontWeight:800,color:'#0051A8',lineHeight:1,letterSpacing:'-0.5px'}}>{pedidosHoy}</div>
+          <div style={{fontSize:11,color:'#0051A8',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5,display:'flex',alignItems:'center',gap:6}}><Icon name="package" size={13}/> Pedidos hoy</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#0051A8',lineHeight:1,letterSpacing:'-0.5px'}}>{pedidosHoy}</div>
           <div style={{marginTop:6}}><Delta val={pedidosHoy} ayer={pedidosAyer}/></div>
         </div>
         <div style={{background:'#F5F0FF',border:'1px solid #C4B8FF',borderLeft:'4px solid #5856D6',borderRadius:8,padding:'18px 20px'}}>
-          <div style={{fontSize:11,color:'#3E3A9B',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>🧾 Ticket promedio</div>
-          <div style={{fontSize:26,fontWeight:800,color:'#3E3A9B',lineHeight:1,letterSpacing:'-0.5px'}}>{pedidosHoy>0?fmt(ticketHoy):'—'}</div>
-          <div style={{marginTop:6}}>{ticketAyer>0?<Delta val={ticketHoy} ayer={ticketAyer}/>:<span style={{fontSize:11,color:'#86868B'}}>sin datos ayer</span>}</div>
+          <div style={{fontSize:11,color:'#3E3A9B',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5,display:'flex',alignItems:'center',gap:6}}><Icon name="receipt" size={13}/> Ticket promedio</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#3E3A9B',lineHeight:1,letterSpacing:'-0.5px'}}>{pedidosHoy>0?fmt(ticketHoy):'—'}</div>
+          <div style={{marginTop:6}}>{ticketAyer>0?<Delta val={ticketHoy} ayer={ticketAyer}/>:<span style={{fontSize:11,color:C.mid}}>sin datos ayer</span>}</div>
         </div>
         <div style={{background:'#FFF4E0',border:'1px solid #FFD580',borderLeft:'4px solid #FF9500',borderRadius:8,padding:'18px 20px'}}>
-          <div style={{fontSize:11,color:'#8A4B00',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>🔥 Mesa más activa</div>
-          <div style={{fontSize:26,fontWeight:800,color:'#8A4B00',lineHeight:1,letterSpacing:'-0.5px'}}>{mesaActiva?`Mesa ${mesaActiva[0]}`:'—'}</div>
-          <div style={{marginTop:6,fontSize:11,color:'#86868B'}}>{mesaActiva?`${mesaActiva[1]} pedidos hoy`:mesaActivaAyer?`ayer: Mesa ${mesaActivaAyer[0]}`:''}</div>
+          <div style={{fontSize:11,color:'#8A4B00',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5,display:'flex',alignItems:'center',gap:6}}><Icon name="flame" size={13}/> Mesa más activa</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#8A4B00',lineHeight:1,letterSpacing:'-0.5px'}}>{mesaActiva?`Mesa ${mesaActiva[0]}`:'—'}</div>
+          <div style={{marginTop:6,fontSize:11,color:C.mid}}>{mesaActiva?`${mesaActiva[1]} pedidos hoy`:mesaActivaAyer?`ayer: Mesa ${mesaActivaAyer[0]}`:''}</div>
         </div>
       </div>
 
       {/* Fila 2 — Estado en tiempo real + Rating + Métodos de pago */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
         {/* Activos en cocina */}
-        <div style={{background:activosCocina>0?'#FFF4E0':'#F9F9FA',border:`1px solid ${activosCocina>0?'#FFD580':'#E5E5EA'}`,borderRadius:8,padding:'14px 18px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
-          <div style={{fontSize:11,color:'#6E6E73',fontWeight:600,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>En cocina ahora</div>
-          <div style={{fontSize:32,fontWeight:800,color:activosCocina>0?'#8A4B00':'#1D1D1F',lineHeight:1}}>{activosCocina}</div>
-          <div style={{marginTop:5,fontSize:11,color:'#86868B'}}>{activosCocina===1?'pedido preparándose':'pedidos preparándose'}</div>
+        <div style={{background:activosCocina>0?'#FFF4E0':C.bg,border:`1px solid ${activosCocina>0?'#FFD580':C.border}`,borderRadius:8,padding:'14px 18px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
+          <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>En cocina ahora</div>
+          <div style={{fontSize:32,fontWeight:800,color:activosCocina>0?'#8A4B00':C.ink,lineHeight:1,letterSpacing:'-0.5px'}}>{activosCocina}</div>
+          <div style={{marginTop:5,fontSize:11,color:C.mid}}>{activosCocina===1?'pedido preparándose':'pedidos preparándose'}</div>
         </div>
         {/* Listos para entregar */}
-        <div style={{background:activosListos>0?'#F0FAF3':'#F9F9FA',border:`1px solid ${activosListos>0?'#A3D9B1':'#E5E5EA'}`,borderRadius:8,padding:'14px 18px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
-          <div style={{fontSize:11,color:'#6E6E73',fontWeight:600,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>Listos para entregar</div>
-          <div style={{fontSize:32,fontWeight:800,color:activosListos>0?'#1A7E37':'#1D1D1F',lineHeight:1}}>{activosListos}</div>
-          <div style={{marginTop:5,fontSize:11,color:'#86868B'}}>{activosListos===1?'pedido esperando':'pedidos esperando'}</div>
+        <div style={{background:activosListos>0?'#F0FAF3':C.bg,border:`1px solid ${activosListos>0?'#A3D9B1':C.border}`,borderRadius:8,padding:'14px 18px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
+          <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>Listos para entregar</div>
+          <div style={{fontSize:32,fontWeight:800,color:activosListos>0?'#1A7E37':C.ink,lineHeight:1,letterSpacing:'-0.5px'}}>{activosListos}</div>
+          <div style={{marginTop:5,fontSize:11,color:C.mid}}>{activosListos===1?'pedido esperando':'pedidos esperando'}</div>
         </div>
         {/* Rating 7 días */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',cursor:'pointer'}} onClick={()=>setPage('ratings')}>
-          <div style={{fontSize:11,color:'#6E6E73',fontWeight:600,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>Rating últimos 7 días</div>
-          <div style={{fontSize:32,fontWeight:800,color:'#1D1D1F',lineHeight:1}}>{ratingProm||'—'} {ratingProm&&<span style={{fontSize:16}}>★</span>}</div>
-          <div style={{marginTop:5,fontSize:11,color:'#86868B'}}>{ratings7d.length} calificaciones</div>
+          <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>Rating últimos 7 días</div>
+          <div style={{fontSize:32,fontWeight:800,color:C.ink,lineHeight:1,letterSpacing:'-0.5px',display:'inline-flex',alignItems:'center',gap:6}}>{ratingProm||'—'} {ratingProm&&<Icon name="star" size={20} style={{color:'#FF9500'}}/>}</div>
+          <div style={{marginTop:5,fontSize:11,color:C.mid}}>{ratings7d.length} calificaciones</div>
         </div>
         {/* Métodos de pago hoy */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px'}}>
-          <div style={{fontSize:11,color:'#6E6E73',fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Cobros hoy por método</div>
+          <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Cobros hoy por método</div>
           {pagosOrdenados.length===0
-            ?<div style={{fontSize:12,color:'#D2D2D7',paddingTop:4}}>Sin datos de pago</div>
+            ?<div style={{fontSize:12,color:C.dim,paddingTop:4}}>Sin datos de pago</div>
             :pagosOrdenados.map(([met,total])=>(
               <div key={met} style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-                <span style={{fontSize:12,color:'#6E6E73',textTransform:'capitalize'}}>{PL[met]||met}</span>
-                <span style={{fontSize:12,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F'}}>{fmt(total)}</span>
+                <span style={{fontSize:12,color:C.mid,textTransform:'capitalize'}}>{PL[met]||met}</span>
+                <span style={{fontSize:12,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>{fmt(total)}</span>
               </div>
             ))
           }
@@ -8954,13 +8967,13 @@ function AdminApp() {
   const [loading,setLoading] = useState(true);
   const [unreadSupport,setUnreadSupport] = useState(0);
   const [,forceRender] = useReducer(x=>x+1,0);
-  function toggleTheme(){
-    const next=document.documentElement.getAttribute('data-theme')==='dark'?'light':'dark';
-    Object.assign(C,next==='dark'?C_DARK:C_LIGHT);
-    document.documentElement.setAttribute('data-theme',next);
-    localStorage.setItem('mesa_theme',next);
-    forceRender();
-  }
+  const [themeMode, setThemeMode] = useState(window.MythosTheme ? window.MythosTheme.get() : 'light');
+  useEffect(() => {
+    const onTheme = e => { setThemeMode(e.detail.mode); forceRender(); };
+    document.addEventListener('mythos:themechange', onTheme);
+    return () => document.removeEventListener('mythos:themechange', onTheme);
+  }, []);
+  function toggleTheme(){ if (window.MythosTheme) window.MythosTheme.toggle(); }
   const [orders,setOrders] = useState([]);
   const [categories,setCategories] = useState([]);
   const [menuItems,setMenuItems] = useState([]);
@@ -9074,7 +9087,7 @@ function AdminApp() {
 
   return (
     <div style={{display:'flex',minHeight:'100vh'}}>
-      <Sidebar page={page} setPage={setPage} restaurant={restaurant} dbOk={!!db} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}}/>
+      <Sidebar page={page} setPage={setPage} restaurant={restaurant} dbOk={!!db} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}} themeMode={themeMode}/>
       <main style={{flex:1,padding:26,overflowY:'auto',minWidth:0}}>
         {renderPage()}
       </main>

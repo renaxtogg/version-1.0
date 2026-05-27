@@ -1,10 +1,13 @@
 <!DOCTYPE html>
-<html lang="es" data-theme="light">
+<html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Mythos · Mozo</title>
 <link rel="stylesheet" href="design-system.css">
+<script src="mythos-theme.js"></script>
+<script src="mythos-icons.js"></script>
+<script>MythosTheme.init('light');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -521,9 +524,6 @@ body {
 </head>
 <body>
 <div id="root"></div>
-<script>
-document.documentElement.setAttribute('data-theme', 'light');
-</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
@@ -907,7 +907,12 @@ function App() {
 
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
-  const [dark, setDark] = useState(() => (localStorage.getItem('mesa_theme') || 'dark') === 'dark');
+  const [dark, setDark] = useState(() => (window.MythosTheme ? window.MythosTheme.get() : 'light') === 'dark');
+  useEffect(() => {
+    const onTheme = e => setDark(e.detail.mode === 'dark');
+    document.addEventListener('mythos:themechange', onTheme);
+    return () => document.removeEventListener('mythos:themechange', onTheme);
+  }, []);
   const [alertPopup, setAlertPopup] = useState(null);
   const [sessionTotals, setSessionTotals] = useState({});
   const [historialModal, setHistorialModal] = useState(false);
@@ -1415,10 +1420,7 @@ function App() {
   }
 
   function toggleDark() {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.setAttribute('data-theme', next ? 'dark' : 'light');
-    localStorage.setItem('mesa_theme', next ? 'dark' : 'light');
+    if (window.MythosTheme) window.MythosTheme.toggle();
   }
 
   /* ── MESA ACTIONS ── */

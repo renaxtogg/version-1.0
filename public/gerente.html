@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mythos · Gerente</title>
 <link rel="stylesheet" href="design-system.css">
+<script src="mythos-theme.js"></script>
+<script src="mythos-icons.js"></script>
+<script>MythosTheme.init('light');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -12,12 +15,12 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{background:#F5F5F7;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:#1D1D1F;-webkit-font-smoothing:antialiased}
+  body{background:var(--bg-subtle);font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:var(--text-primary);-webkit-font-smoothing:antialiased;transition:background var(--transition),color var(--transition)}
   ::-webkit-scrollbar{width:6px;height:6px}
-  ::-webkit-scrollbar-track{background:#F5F5F7}
-  ::-webkit-scrollbar-thumb{background:#D2D2D7;border-radius:4px}
-  input,textarea,select{font-family:inherit;background:#fff;border:1px solid #D2D2D7;color:#1D1D1F;outline:none;border-radius:8px}
-  input:focus,textarea:focus,select:focus{border-color:#000}
+  ::-webkit-scrollbar-track{background:var(--bg-subtle)}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+  input,textarea,select{font-family:inherit;background:var(--surface);border:1px solid var(--border);color:var(--text-primary);outline:none;border-radius:8px}
+  input:focus,textarea:focus,select:focus{border-color:var(--text-primary)}
   button{font-family:inherit;cursor:pointer;border:none}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
   @keyframes slideUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
@@ -63,12 +66,32 @@ const APPROVAL_LABEL = {
 const CAT_LOG = {nota:'Nota',incidencia:'Incidencia',tarea:'Tarea',traspaso:'Traspaso',cliente:'Cliente',personal:'Personal',equipo:'Equipo',limpieza:'Limpieza'};
 const PRIO_COL = {baja:'#86868B', normal:'#007AFF', alta:'#FF9500', urgente:'#FF3B30'};
 
-const C = {
-  bg:'#F5F5F7', surface:'#FFFFFF', sidebar:'#FFFFFF',
-  border:'#D2D2D7', bs:'#86868B',
-  ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
-  green:'#34C759', orange:'#FF9500', red:'#FF3B30', blue:'#007AFF', yellow:'#FFCC00'
+const PALETTES = {
+  light: {
+    bg:'#F5F5F7', surface:'#FFFFFF', sidebar:'#FFFFFF', white:'#FFFFFF',
+    border:'#D2D2D7', bs:'#86868B',
+    ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
+    green:'#34C759', orange:'#FF9500', red:'#FF3B30', blue:'#007AFF', yellow:'#FFCC00'
+  },
+  dark: {
+    bg:'#000000', surface:'#1C1C1E', sidebar:'#1C1C1E', white:'#1C1C1E',
+    border:'#38383A', bs:'#636366',
+    ink:'#F5F5F7', mid:'#AEAEB2', dim:'#636366',
+    green:'#34C759', orange:'#FF9500', red:'#FF3B30', blue:'#0A84FF', yellow:'#FFCC00'
+  },
 };
+const C = Object.assign({}, PALETTES[window.MythosTheme ? window.MythosTheme.get() : 'light']);
+if (window.MythosTheme) {
+  document.addEventListener('mythos:themechange', function(e){
+    Object.assign(C, PALETTES[e.detail.mode] || PALETTES.light);
+  });
+}
+
+/* ── Icon helper ──────────────────────────────────────────── */
+const Icon = ({name, size=14, style}) => (
+  <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',lineHeight:0,...(style||{})}}
+        dangerouslySetInnerHTML={{__html: window.MythosIcons ? window.MythosIcons.html(name, {size}) : ''}}/>
+);
 
 function mesaLabel(o) {
   if (!o) return '—';
@@ -2142,6 +2165,12 @@ function App() {
   const [pendingStaffReqs, setPendingStaffReqs] = useState(0);
   const [unreadBroadcasts, setUnreadBroadcasts] = useState(0);
   const lastSeenBroadcasts = useRef(parseInt(localStorage.getItem('gerente_bc_seen') || '0'));
+  const [themeMode, setThemeMode] = useState(window.MythosTheme ? window.MythosTheme.get() : 'light');
+  useEffect(() => {
+    const onTheme = e => setThemeMode(e.detail.mode);
+    document.addEventListener('mythos:themechange', onTheme);
+    return () => document.removeEventListener('mythos:themechange', onTheme);
+  }, []);
 
   useEffect(() => {
     if (!db || !auth.user) return;
@@ -2184,38 +2213,44 @@ function App() {
   if (!db) return <div style={{padding:40,textAlign:'center'}}>Sin conexión a Supabase. Verificá <code>config.js</code>.</div>;
 
   const sections = [
-    {key:'dashboard', label:'Dashboard', icon:'📊'},
-    {key:'turno',     label:'Supervisión', icon:'👥'},
-    {key:'aprobaciones', label:'Aprobaciones', icon:'✓', badge: pendingApprovals},
-    {key:'quejas',    label:'Quejas y ratings', icon:'⚠'},
-    {key:'stock86',   label:'Stock / 86d', icon:'📦'},
-    {key:'caja',      label:'Caja en vivo', icon:'💰'},
-    {key:'reservas',  label:'Reservas', icon:'📅'},
-    {key:'calendario',label:'Calendario', icon:'📆'},
-    {key:'bitacora',  label:'Bitácora', icon:'📝'},
-    {key:'reportes',  label:'Reportes', icon:'📈'},
-    {key:'personal',  label:'Solicitudes personal', icon:'◎', badge: pendingStaffReqs},
-    {key:'avisos',    label:'Avisos al personal',  icon:'🔔', badge: unreadBroadcasts},
-    {key:'soporte',   label:'Soporte Mythos', icon:'💬', badge: unreadSupport},
+    {key:'dashboard', label:'Dashboard', icon:'dashboard'},
+    {key:'turno',     label:'Supervisión', icon:'users'},
+    {key:'aprobaciones', label:'Aprobaciones', icon:'checkCircle', badge: pendingApprovals},
+    {key:'quejas',    label:'Quejas y ratings', icon:'alert'},
+    {key:'stock86',   label:'Stock / 86d', icon:'package'},
+    {key:'caja',      label:'Caja en vivo', icon:'money'},
+    {key:'reservas',  label:'Reservas', icon:'calendar'},
+    {key:'calendario',label:'Calendario', icon:'layout'},
+    {key:'bitacora',  label:'Bitácora', icon:'fileText'},
+    {key:'reportes',  label:'Reportes', icon:'chart'},
+    {key:'personal',  label:'Solicitudes personal', icon:'user', badge: pendingStaffReqs},
+    {key:'avisos',    label:'Avisos al personal',  icon:'bell', badge: unreadBroadcasts},
+    {key:'soporte',   label:'Soporte Mythos', icon:'chat', badge: unreadSupport},
   ];
 
   return (
     <div style={{display:'flex',minHeight:'100vh',background:C.bg}}>
       {/* Sidebar */}
       <aside style={{width:220,background:C.sidebar,borderRight:`1px solid ${C.border}`,padding:'20px 0',display:'flex',flexDirection:'column',flexShrink:0}}>
-        <div style={{padding:'0 20px 18px',borderBottom:`1px solid ${C.border}`}}>
-          <div style={{fontSize:18,fontWeight:800,letterSpacing:-0.5}}>Mythos</div>
-          <div style={{fontSize:11,color:C.mid,fontWeight:600,marginTop:2}}>Panel Gerente</div>
+        <div style={{padding:'0 20px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
+          <div>
+            <div style={{fontSize:20,fontWeight:800,letterSpacing:'-0.5px',color:C.ink}}>Mythos</div>
+            <div style={{fontSize:11,color:C.mid,fontWeight:600,marginTop:2}}>Panel Gerente</div>
+          </div>
+          <button onClick={()=>window.MythosTheme && window.MythosTheme.toggle()} title={themeMode==='dark'?'Cambiar a claro':'Cambiar a oscuro'}
+            style={{width:28,height:28,borderRadius:'50%',background:'transparent',border:`1px solid ${C.border}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.ink,flexShrink:0}}>
+            <Icon name={themeMode==='dark'?'sun':'moon'} size={13}/>
+          </button>
         </div>
         <nav style={{flex:1,padding:'12px 10px',display:'flex',flexDirection:'column',gap:2}}>
           {sections.map(s => (
             <button key={s.key} onClick={() => { setSection(s.key); if(s.key==='avisos'){const now=Date.now();localStorage.setItem('gerente_bc_seen',now);lastSeenBroadcasts.current=now;setUnreadBroadcasts(0);} }} style={{
-              display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:section===s.key?'#000':'transparent',color:section===s.key?'#fff':C.ink,
-              border:'none',borderRadius:8,fontSize:13,fontWeight:600,textAlign:'left',transition:'background .15s',position:'relative'
+              display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:section===s.key?C.ink:'transparent',color:section===s.key?C.sidebar:C.ink,
+              border:'none',borderRadius:8,fontSize:13,fontWeight:section===s.key?600:500,textAlign:'left',transition:'background .15s',position:'relative',cursor:'pointer'
             }}>
-              <span style={{fontSize:14}}>{s.icon}</span>
+              <span style={{display:'inline-flex',alignItems:'center',width:16,justifyContent:'center'}}><Icon name={s.icon} size={15}/></span>
               <span style={{flex:1}}>{s.label}</span>
-              {s.badge>0 && <span style={{background:section===s.key?'#fff':C.red,color:section===s.key?C.red:'#fff',fontSize:10,fontWeight:800,padding:'2px 7px',borderRadius:10,minWidth:18,textAlign:'center'}}>{s.badge}</span>}
+              {s.badge>0 && <span style={{background:section===s.key?C.sidebar:C.red,color:section===s.key?C.red:C.sidebar,fontSize:10,fontWeight:800,padding:'2px 7px',borderRadius:10,minWidth:18,textAlign:'center'}}>{s.badge}</span>}
             </button>
           ))}
         </nav>

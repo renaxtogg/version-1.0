@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mythos · Cocina</title>
 <link rel="stylesheet" href="design-system.css">
+<script src="mythos-theme.js"></script>
+<script src="mythos-icons.js"></script>
+<script>MythosTheme.init('dark');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
@@ -12,12 +15,12 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{background:#000000;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:#F5F5F7;-webkit-font-smoothing:antialiased}
+  body{background:var(--bg);font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;color:var(--text-primary);-webkit-font-smoothing:antialiased;transition:background var(--transition),color var(--transition)}
   ::-webkit-scrollbar{width:4px;height:4px}
-  ::-webkit-scrollbar-track{background:#1C1C1E}
-  ::-webkit-scrollbar-thumb{background:#38383A;border-radius:4px}
-  input,textarea,select{font-family:inherit;background:#1C1C1E;border:1px solid #38383A;color:#F5F5F7;outline:none;border-radius:8px}
-  input:focus,textarea:focus,select:focus{border-color:#FFFFFF}
+  ::-webkit-scrollbar-track{background:var(--bg-subtle)}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+  input,textarea,select{font-family:inherit;background:var(--surface);border:1px solid var(--border);color:var(--text-primary);outline:none;border-radius:8px}
+  input:focus,textarea:focus,select:focus{border-color:var(--text-primary)}
   button{font-family:inherit;cursor:pointer}
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
@@ -32,7 +35,7 @@
   .card-critical{animation:blink 1s ease infinite}
 </style>
 </head>
-<body data-theme="dark">
+<body>
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback, useReducer } = React;
@@ -560,12 +563,27 @@ async function dbLoadRatings() {
   return data || [];
 }
 
-/* ── COLORES ─── */
-const C = {
-  bg:'#000000', surface:'#1C1C1E', card:'#2C2C2E',
-  border:'#38383A', borderStrong:'#636366',
-  white:'#F5F5F7', ink:'#F5F5F7', mid:'#AEAEB2', dim:'#636366',
+/* ── COLORES ───
+   Reactivo al tema: cambia con MythosTheme.toggle() y dispara re-render
+   en App() vía listener de 'mythos:themechange'. */
+const PALETTES = {
+  dark: {
+    bg:'#000000', surface:'#1C1C1E', card:'#2C2C2E',
+    border:'#38383A', borderStrong:'#636366',
+    white:'#F5F5F7', ink:'#F5F5F7', mid:'#AEAEB2', dim:'#636366',
+  },
+  light: {
+    bg:'#FFFFFF', surface:'#F5F5F7', card:'#FFFFFF',
+    border:'#D2D2D7', borderStrong:'#86868B',
+    white:'#1D1D1F', ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
+  },
 };
+const C = Object.assign({}, PALETTES[window.MythosTheme ? window.MythosTheme.get() : 'dark']);
+if (window.MythosTheme) {
+  document.addEventListener('mythos:themechange', function(e){
+    Object.assign(C, PALETTES[e.detail.mode] || PALETTES.dark);
+  });
+}
 
 const COL_COLOR = {
   nuevo:     '#60a5fa',
@@ -1266,6 +1284,12 @@ function App() {
   const [restaurant, setRestaurant]         = useState(null);
   const [stockAlerts, setStockAlerts]       = useState([]);
   const [,forceRender]                      = useReducer(x => x + 1, 0);
+  const [themeMode, setThemeMode]           = useState(window.MythosTheme ? window.MythosTheme.get() : 'dark');
+  useEffect(() => {
+    function onTheme(e){ setThemeMode(e.detail.mode); forceRender(); }
+    document.addEventListener('mythos:themechange', onTheme);
+    return () => document.removeEventListener('mythos:themechange', onTheme);
+  }, []);
   const [kitchenMsgs, setKitchenMsgs]       = useState([]);
   const [msgFrequency, setMsgFrequency]     = useState(10);
   const [completedCount, setCompletedCount] = useState(0);
@@ -1686,6 +1710,9 @@ function App() {
               <IconSplit />
             </Btn>
             <Btn onClick={toggleFullscreen} title={isFullscreen ? 'Salir pantalla completa' : 'Pantalla completa'}>{isFullscreen ? '⊡' : '⛶'}</Btn>
+            <Btn onClick={() => window.MythosTheme && window.MythosTheme.toggle()} title={themeMode === 'dark' ? 'Cambiar a claro' : 'Cambiar a oscuro'}>
+              <span dangerouslySetInnerHTML={{__html: window.MythosIcons ? window.MythosIcons.html(themeMode === 'dark' ? 'sun' : 'moon', {size:14}) : ''}}/>
+            </Btn>
             <Btn active={showConfig} onClick={() => setShowConfig(v => !v)} title="Configuracion KDS">
               <IconGear />
             </Btn>

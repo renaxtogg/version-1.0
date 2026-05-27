@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mythos · Superadmin</title>
   <link rel="stylesheet" href="design-system.css">
+  <script src="mythos-theme.js"></script>
+  <script src="mythos-icons.js"></script>
+  <script>MythosTheme.init('light');</script>
   <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
@@ -13,12 +16,12 @@
   <style>
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     html,body,#root{height:100%}
-    body{background:#F5F5F7;color:#1D1D1F;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
+    body{background:var(--bg-subtle);color:var(--text-primary);font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;transition:background var(--transition),color var(--transition)}
     ::-webkit-scrollbar{width:6px;height:6px}
-    ::-webkit-scrollbar-track{background:#F5F5F7}
-    ::-webkit-scrollbar-thumb{background:#D2D2D7;border-radius:4px}
-    input,select,textarea{background:#FFFFFF;border:1px solid #D2D2D7;color:#1D1D1F;padding:8px 12px;border-radius:8px;font-size:14px;width:100%;outline:none;font-family:inherit;transition:border-color .15s}
-    input:focus,select:focus,textarea:focus{border-color:#000}
+    ::-webkit-scrollbar-track{background:var(--bg-subtle)}
+    ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+    input,select,textarea{background:var(--surface);border:1px solid var(--border);color:var(--text-primary);padding:8px 12px;border-radius:8px;font-size:14px;width:100%;outline:none;font-family:inherit;transition:border-color .15s}
+    input:focus,select:focus,textarea:focus{border-color:var(--text-primary)}
     button{cursor:pointer;border:none;font-family:inherit}
     @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -33,25 +36,39 @@
 </head>
 <body>
 <div id="root"></div>
-<script>
-function initTheme() {
-  document.documentElement.setAttribute('data-theme', 'light');
-  localStorage.setItem('mesa_theme', 'light');
-}
-initTheme();
-</script>
 <script src="config.js"></script>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef, useReducer } = React;
 
-// ── Paleta ───────────────────────────────────────────────────
-const C = {
-  bg:'#F5F5F7', sidebar:'#FFFFFF', surface:'#FFFFFF', card:'#FFFFFF',
-  border:'#D2D2D7', bStrong:'#86868B',
-  white:'#FFFFFF', ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
-  blue:'#000000', blueDim:'#F5F5F7',
-  green:'#34C759', orange:'#FF9500', red:'#FF3B30',
+// ── Paleta — reactiva al tema ────────────────────────────────
+const PALETTES = {
+  light: {
+    bg:'#F5F5F7', sidebar:'#FFFFFF', surface:'#FFFFFF', card:'#FFFFFF',
+    border:'#D2D2D7', bStrong:'#86868B',
+    white:'#FFFFFF', ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
+    blue:'#000000', blueDim:'#F5F5F7',
+    green:'#34C759', orange:'#FF9500', red:'#FF3B30',
+  },
+  dark: {
+    bg:'#000000', sidebar:'#1C1C1E', surface:'#1C1C1E', card:'#2C2C2E',
+    border:'#38383A', bStrong:'#636366',
+    white:'#1C1C1E', ink:'#F5F5F7', mid:'#AEAEB2', dim:'#636366',
+    blue:'#F5F5F7', blueDim:'#2C2C2E',
+    green:'#34C759', orange:'#FF9500', red:'#FF3B30',
+  },
 };
+const C = Object.assign({}, PALETTES[window.MythosTheme ? window.MythosTheme.get() : 'light']);
+if (window.MythosTheme) {
+  document.addEventListener('mythos:themechange', function(e){
+    Object.assign(C, PALETTES[e.detail.mode] || PALETTES.light);
+  });
+}
+
+// ── Icon helper ──────────────────────────────────────────────
+const Icon = ({name, size=14, style}) => (
+  <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',lineHeight:0,...(style||{})}}
+        dangerouslySetInnerHTML={{__html: window.MythosIcons ? window.MythosIcons.html(name, {size}) : ''}}/>
+);
 
 // ── Supabase ─────────────────────────────────────────────────
 const _initDB = () => {
@@ -1264,7 +1281,7 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             {/* Borrar */}
             <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16,background:'#FFF8F7'}}>
-              <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:6}}>🗑 Borrar base operativa</div>
+              <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:6,display:'flex',alignItems:'center',gap:6}}><Icon name="trash" size={15}/> Borrar base operativa</div>
               <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.4}}>
                 Vacía pedidos, items, historial, llamadas, ratings, caja y delivery. Libera todas las mesas.
               </div>
@@ -1289,7 +1306,7 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
 
             {/* Simular */}
             <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16,background:'#F4FBF6'}}>
-              <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:6}}>🎬 Generar ambiente simulado</div>
+              <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:6,display:'flex',alignItems:'center',gap:6}}><Icon name="sparkles" size={15}/> Generar ambiente simulado</div>
               <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.4}}>
                 Crea ~15 pedidos en distintos estados (cocina, listo, cobro pendiente, entregado) simulando un día laboral pesado. Limpia antes la base.
               </div>
@@ -1621,13 +1638,13 @@ function PageReportes({enriched, orders, ratings, subscriptions, plans, events})
         {/* Botones */}
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
           <button onClick={generate} disabled={loading} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 18px',background:'#1D1D1F',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',opacity:loading?.7:1}}>
-            {loading&&<span className="spin" style={{borderTopColor:'#fff',borderColor:'rgba(255,255,255,.3)'}}/>}{loading?'Generando…':'≡ Generar reporte'}
+            {loading&&<span className="spin" style={{borderTopColor:'#fff',borderColor:'rgba(255,255,255,.3)'}}/>}{loading?'Generando…':(<><Icon name="fileText" size={13}/> Generar reporte</>)}
           </button>
           {rows&&<>
-            <button onClick={exportPDF} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#FF3B30',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ PDF</button>
-            <button onClick={exportXLS} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#34C759',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Excel</button>
-            <button onClick={exportCSV} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#6E6E73',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ CSV</button>
-            <button onClick={limpiar} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 14px',background:'transparent',color:C.mid,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:'pointer'}}>✕ Limpiar</button>
+            <button onClick={exportPDF} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#FF3B30',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}><Icon name="download" size={13}/> PDF</button>
+            <button onClick={exportXLS} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#34C759',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}><Icon name="download" size={13}/> Excel</button>
+            <button onClick={exportCSV} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#6E6E73',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}><Icon name="download" size={13}/> CSV</button>
+            <button onClick={limpiar} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 14px',background:'transparent',color:C.mid,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:'pointer'}}><Icon name="x" size={13}/> Limpiar</button>
           </>}
         </div>
 
@@ -2036,7 +2053,7 @@ function PageSoporte({setFlash}) {
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,display:'flex',flexDirection:'column',overflow:'hidden'}}>
           {!selected ? (
             <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:12,padding:40,color:C.dim}}>
-              <div style={{fontSize:36,opacity:.4}}>💬</div>
+              <div style={{opacity:.3,color:C.mid}}><Icon name="chat" size={36}/></div>
               <div style={{fontSize:14,fontWeight:600,color:C.mid}}>Seleccioná un ticket para ver la conversación</div>
               <div style={{fontSize:12,maxWidth:380,textAlign:'center'}}>Vas a ver toda la información del restaurante y del usuario que abrió el ticket, junto con la conversación completa.</div>
             </div>
@@ -2265,7 +2282,7 @@ function PageHorarios({restaurants, setFlash, reload}) {
           border: `1px solid ${allClosed ? '#34C759' : C.red}`,
           borderRadius:12,padding:'16px 24px',flex:1,minWidth:200,display:'flex',alignItems:'center',gap:12
         }}>
-          <div style={{fontSize:20}}>{allClosed ? '✅' : '⏳'}</div>
+          <div style={{color:allClosed ? C.green : C.orange}}><Icon name={allClosed ? 'checkCircle' : 'clock'} size={20}/></div>
           <div>
             <div style={{fontSize:13,fontWeight:700,color: allClosed ? '#1a7a3a' : '#b02020'}}>
               {allClosed ? 'Ventana disponible' : 'Aún hay restaurantes abiertos'}
@@ -2539,23 +2556,23 @@ function PageCalendario({restaurants}) {
                         <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:SA_CAL_TYPES[e.type]?.color+'22',color:SA_CAL_TYPES[e.type]?.color,fontWeight:700}}>{SA_CAL_TYPES[e.type]?.label}</span>
                         <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:SA_CAL_CROWD[e.expected_crowd]?.color+'22',color:SA_CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{SA_CAL_CROWD[e.expected_crowd]?.dot} {SA_CAL_CROWD[e.expected_crowd]?.label}</span>
                         {e.is_global
-                          ? <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:'#F5EDFF',color:'#6B21A8',fontWeight:700}}>🌐 Global</span>
+                          ? <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:'#F5EDFF',color:'#6B21A8',fontWeight:700,display:'inline-flex',alignItems:'center',gap:3}}><Icon name="sparkles" size={10}/> Global</span>
                           : <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:'#F0F0F5',color:C.mid,fontWeight:700}}>{e.restaurant?.name||'Local'}</span>
                         }
                       </div>
                       {e.notes && <div style={{fontSize:11,color:C.mid,marginTop:3}}>{e.notes}</div>}
                     </div>
                     <div style={{display:'flex',gap:3,flexShrink:0}}>
-                      <button onClick={()=>startEdit(e)} style={{background:'none',border:`1px solid ${C.border}`,borderRadius:5,padding:'2px 7px',fontSize:11,cursor:'pointer',color:C.mid}}>✎</button>
-                      <button onClick={()=>del(e.id)} style={{background:'none',border:`1px solid rgba(239,68,68,.3)`,borderRadius:5,padding:'2px 7px',fontSize:11,cursor:'pointer',color:C.red}}>✕</button>
+                      <button onClick={()=>startEdit(e)} title="Editar" style={{background:'none',border:`1px solid ${C.border}`,borderRadius:5,padding:'3px 7px',fontSize:11,cursor:'pointer',color:C.mid,display:'inline-flex',alignItems:'center'}}><Icon name="edit" size={12}/></button>
+                      <button onClick={()=>del(e.id)} title="Eliminar" style={{background:'none',border:`1px solid rgba(239,68,68,.3)`,borderRadius:5,padding:'3px 7px',fontSize:11,cursor:'pointer',color:C.red,display:'inline-flex',alignItems:'center'}}><Icon name="trash" size={12}/></button>
                     </div>
                   </div>
                 </div>
               ))}
 
               <div style={{borderTop:selEvts.length?`1px solid ${C.border}`:'none',paddingTop:selEvts.length?12:0,marginTop:selEvts.length?4:0}}>
-                <div style={{fontSize:10,fontWeight:800,color:C.mid,textTransform:'uppercase',letterSpacing:.5,marginBottom:8}}>
-                  {editId ? '✎ Editar evento' : '+ Nuevo evento'}
+                <div style={{fontSize:10,fontWeight:800,color:C.mid,textTransform:'uppercase',letterSpacing:.5,marginBottom:8,display:'flex',alignItems:'center',gap:5}}>
+                  <Icon name={editId ? 'edit' : 'plus'} size={11}/> {editId ? 'Editar evento' : 'Nuevo evento'}
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:7}}>
                   <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Título del evento" style={{padding:'8px 10px',fontSize:13,borderRadius:7,border:`1px solid ${C.border}`,width:'100%'}}/>
@@ -2571,7 +2588,7 @@ function PageCalendario({restaurants}) {
                     <div style={{fontSize:10,fontWeight:800,color:C.mid,marginBottom:6,textTransform:'uppercase',letterSpacing:.4}}>Alcance</div>
                     <label style={{display:'flex',alignItems:'center',gap:7,cursor:'pointer',marginBottom:6}}>
                       <input type="radio" checked={form.is_global} onChange={()=>setForm(f=>({...f,is_global:true,restaurant_id:''}))}/>
-                      <span style={{fontSize:12,fontWeight:600,color:C.ink}}>🌐 Global — visible en todos los restaurantes</span>
+                      <span style={{fontSize:12,fontWeight:600,color:C.ink,display:'inline-flex',alignItems:'center',gap:5}}><Icon name="sparkles" size={12}/> Global — visible en todos los restaurantes</span>
                     </label>
                     <label style={{display:'flex',alignItems:'center',gap:7,cursor:'pointer'}}>
                       <input type="radio" checked={!form.is_global} onChange={()=>setForm(f=>({...f,is_global:false}))}/>
@@ -2638,7 +2655,7 @@ function PageCalendario({restaurants}) {
   );
 }
 
-function Sidebar({page, setPage, badges={}}) {
+function Sidebar({page, setPage, badges={}, themeMode, onToggleTheme}) {
   const signOut = async () => {
     if (db) { try { await db.auth.signOut(); } catch(e){} }
     localStorage.removeItem('mesa_session');
@@ -2646,30 +2663,36 @@ function Sidebar({page, setPage, badges={}}) {
   };
   return (
     <div style={{width:220,background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',height:'100%',flexShrink:0,overflowY:'auto'}}>
-      <div style={{padding:'20px 18px 16px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-        <div style={{fontWeight:800,fontSize:18,color:'#000000',letterSpacing:'-1px'}}>Mythos</div>
-        <div style={{fontSize:11,fontWeight:600,color:'#6E6E73',marginTop:2,letterSpacing:.3}}>Superadmin</div>
+      <div style={{padding:'20px 18px 16px',borderBottom:`1px solid ${C.border}`,flexShrink:0,display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:18,color:C.ink,letterSpacing:'-1px'}}>Mythos</div>
+          <div style={{fontSize:11,fontWeight:600,color:C.mid,marginTop:2,letterSpacing:.3}}>Superadmin</div>
+        </div>
+        <button onClick={onToggleTheme} title={themeMode==='dark'?'Cambiar a claro':'Cambiar a oscuro'}
+          style={{width:30,height:30,borderRadius:'50%',background:'transparent',border:`1px solid ${C.border}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.ink,flexShrink:0}}>
+          <Icon name={themeMode==='dark'?'sun':'moon'} size={14}/>
+        </button>
       </div>
       <nav style={{padding:'10px',flex:1}}>
         {NAV.map(n=>{
           const active = page===n.id;
           const badge = badges[n.id]||0;
           return (
-            <button key={n.id} onClick={()=>setPage(n.id)} style={{display:'flex',alignItems:'center',padding:'9px 12px',borderRadius:8,width:'100%',border:'none',background:active?'#000000':'transparent',color:active?'#FFFFFF':'#1D1D1F',fontWeight:active?600:400,fontSize:13,cursor:'pointer',transition:'all .15s',marginBottom:2,textAlign:'left'}}>
+            <button key={n.id} onClick={()=>setPage(n.id)} style={{display:'flex',alignItems:'center',padding:'9px 12px',borderRadius:8,width:'100%',border:'none',background:active?C.ink:'transparent',color:active?C.sidebar:C.ink,fontWeight:active?600:400,fontSize:13,cursor:'pointer',transition:'all .15s',marginBottom:2,textAlign:'left'}}>
               <span style={{flex:1}}>{n.label}</span>
-              {badge > 0 && <span style={{background:active?'#fff':C.red,color:active?C.red:'#fff',fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,minWidth:16,textAlign:'center'}}>{badge}</span>}
+              {badge > 0 && <span style={{background:active?C.sidebar:C.red,color:active?C.red:C.sidebar,fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,minWidth:16,textAlign:'center'}}>{badge}</span>}
             </button>
           );
         })}
       </nav>
       <div style={{padding:'14px 16px',borderTop:`1px solid ${C.border}`,flexShrink:0}}>
-        <div style={{fontSize:10,color:'#6E6E73',marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Links rápidos</div>
+        <div style={{fontSize:10,color:C.mid,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Links rápidos</div>
         {[['admin.html','Admin local'],['cocina.html','KDS cocina'],['caja.html','Panel caja'],['index.html','App cliente']].map(([href,label])=>(
           <a key={href} href={href} target="_blank" rel="noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'space-between',fontSize:12,color:C.mid,textDecoration:'none',padding:'5px 0',transition:'color .1s'}} onMouseEnter={e=>e.currentTarget.style.color=C.ink} onMouseLeave={e=>e.currentTarget.style.color=C.mid}>
-            <span>{label}</span><span style={{fontSize:10,opacity:.5}}>↗</span>
+            <span>{label}</span><span style={{fontSize:10,opacity:.5,display:'inline-flex'}}><Icon name="arrowRight" size={10}/></span>
           </a>
         ))}
-        <button onClick={signOut} style={{marginTop:10,width:'100%',background:'#000000',border:'none',borderRadius:6,color:'#FFFFFF',fontSize:12,padding:'7px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+        <button onClick={signOut} style={{marginTop:10,width:'100%',background:C.ink,border:'none',borderRadius:6,color:C.sidebar,fontSize:12,padding:'7px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
           Cerrar sesión
         </button>
       </div>
@@ -2688,6 +2711,13 @@ function App() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [unreadSupport, setUnreadSupport] = useState(0);
   const [rawData, setRawData] = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[],platformConfig:[]});
+  const [themeMode, setThemeMode] = useState(window.MythosTheme ? window.MythosTheme.get() : 'light');
+  useEffect(() => {
+    const onTheme = e => setThemeMode(e.detail.mode);
+    document.addEventListener('mythos:themechange', onTheme);
+    return () => document.removeEventListener('mythos:themechange', onTheme);
+  }, []);
+  const handleToggleTheme = () => window.MythosTheme && window.MythosTheme.toggle();
 
   // Polling de tickets de soporte sin leer
   useEffect(()=>{
@@ -2765,7 +2795,7 @@ function App() {
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
-      <Sidebar page={page} setPage={setPage} badges={{soporte:unreadSupport}}/>
+      <Sidebar page={page} setPage={setPage} badges={{soporte:unreadSupport}} themeMode={themeMode} onToggleTheme={handleToggleTheme}/>
       <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
         {/* Banner global */}
         {bannerActive&&!bannerDismissed&&(
