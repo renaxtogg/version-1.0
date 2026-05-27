@@ -180,7 +180,7 @@ function KpiCard({label,value,sub,accent,icon,onClick}) {
 function Stars({n}) { return <span style={{color:C.yellow,letterSpacing:2,fontSize:14}}>{'★'.repeat(n)}{'☆'.repeat(5-n)}</span>; }
 function Th({children,right}) { return <th style={{padding:'9px 14px',textAlign:right?'right':'left',fontSize:10,color:C.ink,fontWeight:700,letterSpacing:1,whiteSpace:'nowrap',textTransform:'uppercase'}}>{children}</th>; }
 function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?'#6E6E73':'#000000',textAlign:right?'right':'left',...sx}}>{children}</td>; }
-function EmptyRow({cols,label}) { return <tr><td colSpan={cols} style={{padding:40,textAlign:'center',color:'#D2D2D7',fontSize:13}}>{label||'Sin datos'}</td></tr>; }
+function EmptyRow({cols,label}) { return <tr><td colSpan={cols} style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>{label||'Sin datos'}</td></tr>; }
 function Lbl({children}) { return <label style={{fontSize:10,color:C.mid,display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}</label>; }
 function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}) {
   return <input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'8px 10px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',borderRadius:6,...(rest.style||{})}}/>;
@@ -274,7 +274,7 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
       <div style={{display:'flex',alignItems:'center',gap:6}}>
         {value
           ? <img src={value} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:5,flexShrink:0,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
-          : <div style={{width:36,height:36,background:'#FFFFFF',borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>🍽</div>}
+          : <div style={{width:36,height:36,background:C.white,borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>🍽</div>}
         <div style={{display:'flex',flexDirection:'column',gap:3}}>
           <button onClick={()=>ref.current.click()} disabled={busy} style={{background:'transparent',border:`1px solid ${C.border}`,color:C.mid,padding:'2px 8px',fontSize:10,fontWeight:600,borderRadius:4,cursor:'pointer',whiteSpace:'nowrap'}}>
             {busy?'⏳':value?'Cambiar':'Subir foto'}
@@ -312,7 +312,7 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
         : <>
           <div style={{fontSize:28,marginBottom:6}}>🖼</div>
           <div style={{fontSize:12,color:C.mid}}>Arrastrá una imagen o hacé clic para subir</div>
-          <div style={{fontSize:10,color:'#D2D2D7',marginTop:4}}>JPG · PNG · WebP · máx 5 MB · se comprime automáticamente</div>
+          <div style={{fontSize:10,color:C.dim,marginTop:4}}>JPG · PNG · WebP · máx 5 MB · se comprime automáticamente</div>
         </>}
       <input ref={ref} type="file" accept=".jpg,.jpeg,.png,.webp" style={{display:'none'}} onClick={e=>e.stopPropagation()} onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value='';}}/>
     </div>
@@ -593,7 +593,7 @@ function DashboardPage({orders, ratings, setPage}) {
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>TOP 5 PRODUCTOS — HOY</div>
           {top5.length===0
-            ?<div style={{color:'#D2D2D7',fontSize:12,textAlign:'center',paddingTop:20}}>Sin ventas hoy</div>
+            ?<div style={{color:C.dim,fontSize:12,textAlign:'center',paddingTop:20}}>Sin ventas hoy</div>
             :top5.map((p,i)=>{
               const rankBg = i===0?'#FFD700':i===1?'#C0C0C0':i===2?'#CD7F32':'#E5E5EA';
               const rankColor = i<3?'#fff':'#6E6E73';
@@ -880,7 +880,7 @@ function PedidosPage({orders, tables, onRefresh}) {
               style={{display:'flex',alignItems:'center',gap:7,padding:'8px 16px',borderRadius:8,border:`2px solid ${active?t.color:C.border}`,background:active?t.color+'18':'#fff',color:active?t.color:C.mid,fontSize:13,fontWeight:active?700:500,cursor:'pointer',transition:'all .15s'}}>
               <span>{t.icon}</span>
               <span>{t.label}</span>
-              <span style={{background:active?t.color:'#D2D2D7',color:'#fff',fontSize:10,fontWeight:800,padding:'1px 7px',borderRadius:10,minWidth:20,textAlign:'center'}}>{count}</span>
+              <span style={{background:active?t.color:C.dim,color:'#fff',fontSize:10,fontWeight:800,padding:'1px 7px',borderRadius:10,minWidth:20,textAlign:'center'}}>{count}</span>
             </button>
           );
         })}
@@ -1187,7 +1187,7 @@ function ItemModal({item, categories, onClose, onSaved}) {
                 <button onClick={()=>removeExtra(i)} style={{background:'none',border:'none',color:'#FF3B30',fontSize:20,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
               </div>
             ))}
-            {extras.length===0&&<div style={{color:'#D2D2D7',fontSize:12,padding:'4px 0 10px'}}>Sin extras — agregá el primero abajo</div>}
+            {extras.length===0&&<div style={{color:C.dim,fontSize:12,padding:'4px 0 10px'}}>Sin extras — agregá el primero abajo</div>}
             <Btn variant="secondary" small onClick={addExtra}>+ Agregar extra</Btn>
           </>)}
         </div>
@@ -1448,7 +1448,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                       <Td>
                         {item.image_url
                           ?<img src={item.image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
-                          :<div style={{width:36,height:36,background:C.bg,borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,color:'#D2D2D7'}}>🍽</div>}
+                          :<div style={{width:36,height:36,background:C.bg,borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,color:C.dim}}>🍽</div>}
                       </Td>
                       <Td>
                         <div style={{color:item.is_available?C.ink:C.dim,fontWeight:500}}>{item.name}</div>
@@ -1669,7 +1669,7 @@ function ZonaCanvas({zona, tables, activeOrders, reservationByTable, editMode, d
               <div style={{fontSize:shape==='rectangle'?13:16,fontWeight:800,color:isAlert?C.red:C.ink,lineHeight:1}}>{t.number}</div>
               <div style={{fontSize:8,color:lblCol,textAlign:'center',marginTop:3,lineHeight:1.3,fontWeight:isAlert?800:500}}>{lblTxt}</div>
               {resv&&<div style={{fontSize:7,color:lblCol,marginTop:1,fontWeight:700}}>{resv.reservation.reservation_time?.slice(0,5)} · {resv.reservation.guests}p</div>}
-              {busy&&!resv&&<div style={{width:5,height:5,borderRadius:'50%',background:'#000',marginTop:3}}/>}
+              {busy&&!resv&&<div style={{width:5,height:5,borderRadius:'50%',background:C.ink,marginTop:3}}/>}
               {editMode&&<div style={{fontSize:6,color:'#999',marginTop:2,textTransform:'uppercase',letterSpacing:'0.3px'}}>{t.capacity||4}p</div>}
               {!editMode&&onOpenQR&&<button onClick={e=>{e.stopPropagation();onOpenQR(t);}} style={{position:'absolute',top:2,right:2,padding:'1px 4px',background:'rgba(0,0,0,0.08)',border:'none',borderRadius:3,cursor:'pointer',fontSize:7,color:'#444',lineHeight:'12px',fontWeight:700}}>QR</button>}
             </div>
@@ -2975,7 +2975,7 @@ function ClientesPage({orders}) {
 
   const CanalBar = ({canalCount}) => {
     const canales = Object.entries(canalCount).sort((a,b)=>b[1]-a[1]);
-    if(!canales.length) return <span style={{color:'#D2D2D7',fontSize:11}}>—</span>;
+    if(!canales.length) return <span style={{color:C.dim,fontSize:11}}>—</span>;
     return <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
       {canales.map(([k,v])=>(
         <span key={k} style={{background:CANAL_COLOR[k]||'#8E8E93',color:'#fff',padding:'1px 6px',borderRadius:10,fontSize:9,fontWeight:700,whiteSpace:'nowrap'}}>
@@ -3026,10 +3026,10 @@ function ClientesPage({orders}) {
                 <div style={{fontSize:18}}>{CANAL_ICON[k]}</div>
                 <div style={{fontSize:11,fontWeight:700,color:CANAL_COLOR[k]}}>{count}</div>
                 <div style={{fontSize:10,color:C.mid,textAlign:'center',lineHeight:1.2}}>{v}</div>
-                <div style={{width:60,height:4,background:'#F0F0F0',borderRadius:2}}>
+                <div style={{width:60,height:4,background:C.card,borderRadius:2}}>
                   <div style={{width:`${pct}%`,height:'100%',background:CANAL_COLOR[k],borderRadius:2}}/>
                 </div>
-                <div style={{fontSize:9,color:'#D2D2D7'}}>{pct}%</div>
+                <div style={{fontSize:9,color:C.dim}}>{pct}%</div>
               </div>
             );
           })}
@@ -3046,8 +3046,8 @@ function ClientesPage({orders}) {
               {top.phone&&<div style={{fontSize:11,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace",marginTop:1}}>{top.phone}</div>}
               {top.email&&<div style={{fontSize:10,color:C.dim,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{top.email}</div>}
               <div style={{fontSize:12,color:C.orange,marginTop:4,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{fmt(top.total)}</div>
-              <div style={{fontSize:10,color:'#D2D2D7'}}>{top.orders} pedido{top.orders!==1?'s':''} · {CANAL_ICON[top.canal]||''} {ORDER_TYPES[top.canal]||top.canal||'—'}</div>
-            </>:<div style={{fontSize:12,color:'#D2D2D7'}}>Sin datos</div>}
+              <div style={{fontSize:10,color:C.dim}}>{top.orders} pedido{top.orders!==1?'s':''} · {CANAL_ICON[top.canal]||''} {ORDER_TYPES[top.canal]||top.canal||'—'}</div>
+            </>:<div style={{fontSize:12,color:C.dim}}>Sin datos</div>}
           </div>
         ))}
       </div>
@@ -3200,12 +3200,12 @@ function ClientesPage({orders}) {
                   <Td>
                     {c.addresses.length>0
                       ?<div style={{fontSize:11,color:'#FF9500',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={c.addresses.join(' | ')}>🛵 {c.addresses[0]}{c.addresses.length>1?` +${c.addresses.length-1}`:''}</div>
-                      :<span style={{color:'#D2D2D7',fontSize:11}}>—</span>
+                      :<span style={{color:C.dim,fontSize:11}}>—</span>
                     }
                   </Td>
                   <Td>
                     <span style={{color:diasInactivo>30?C.orange:C.mid,fontSize:12}}>{fmtDate(c.lastDate)}</span>
-                    {diasInactivo>0&&<div style={{color:'#D2D2D7',fontSize:10}}>{diasInactivo}d atrás</div>}
+                    {diasInactivo>0&&<div style={{color:C.dim,fontSize:10}}>{diasInactivo}d atrás</div>}
                   </Td>
                 </tr>
               );
@@ -3245,11 +3245,11 @@ function ClientesPage({orders}) {
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
                 <div>
                   <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Teléfono</div>
-                  <div style={{fontSize:13,fontWeight:600,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{detalle.phone||<span style={{color:'#D2D2D7'}}>—</span>}</div>
+                  <div style={{fontSize:13,fontWeight:600,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{detalle.phone||<span style={{color:C.dim}}>—</span>}</div>
                 </div>
                 <div>
                   <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Email</div>
-                  <div style={{fontSize:13,fontWeight:600,wordBreak:'break-all'}}>{detalle.email||<span style={{color:'#D2D2D7'}}>—</span>}</div>
+                  <div style={{fontSize:13,fontWeight:600,wordBreak:'break-all'}}>{detalle.email||<span style={{color:C.dim}}>—</span>}</div>
                 </div>
                 {detalle.addresses.length>0&&(
                   <div style={{gridColumn:'1/-1'}}>
@@ -3302,11 +3302,11 @@ function ClientesPage({orders}) {
                       <div style={{fontSize:20,marginBottom:2}}>{CANAL_ICON[k]||'📦'}</div>
                       <div style={{fontSize:12,fontWeight:700,color:CANAL_COLOR[k]||'#000'}}>{v} pedido{v!==1?'s':''}</div>
                       <div style={{fontSize:10,color:C.dim}}>{ORDER_TYPES[k]||k}</div>
-                      <div style={{fontSize:10,color:'#D2D2D7'}}>{pct}%</div>
+                      <div style={{fontSize:10,color:C.dim}}>{pct}%</div>
                     </div>
                   );
                 })}
-                {!Object.keys(detalle.canalCount).length&&<span style={{color:'#D2D2D7',fontSize:12}}>Sin datos</span>}
+                {!Object.keys(detalle.canalCount).length&&<span style={{color:C.dim,fontSize:12}}>Sin datos</span>}
               </div>
             </div>
 
@@ -3315,7 +3315,7 @@ function ClientesPage({orders}) {
               <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>ACTIVIDAD</div>
               <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
                 <div><div style={{fontSize:10,color:C.dim}}>Primer pedido</div><div style={{fontSize:13,fontWeight:600}}>{fmtDate(detalle.firstDate)}</div></div>
-                <div><div style={{fontSize:10,color:C.dim}}>Último pedido</div><div style={{fontSize:13,fontWeight:600}}>{fmtDate(detalle.lastDate)} <span style={{fontSize:11,color:'#D2D2D7'}}>({Math.floor((now-new Date(detalle.lastDate).getTime())/864e5)}d)</span></div></div>
+                <div><div style={{fontSize:10,color:C.dim}}>Último pedido</div><div style={{fontSize:13,fontWeight:600}}>{fmtDate(detalle.lastDate)} <span style={{fontSize:11,color:C.dim}}>({Math.floor((now-new Date(detalle.lastDate).getTime())/864e5)}d)</span></div></div>
                 {detalle.pideFactura&&<div><div style={{fontSize:10,color:C.dim}}>Facturas solicitadas</div><div style={{fontSize:13,fontWeight:600,color:'#007AFF'}}>{detalle.facturaCount}×</div></div>}
               </div>
             </div>
@@ -3502,7 +3502,7 @@ function CajaAdminPage() {
                   <div style={{width:8,height:8,borderRadius:'50%',background:C.green}} className="pulse"/>
                   <span style={{fontWeight:700,color:C.green}}>TURNO ABIERTO</span>
                   <span style={{fontSize:12,color:C.mid}}>Cajero: {turnoActivo.cajero_nombre||'—'}</span>
-                  <span style={{fontSize:12,color:'#D2D2D7'}}>Desde: {fmtTime(turnoActivo.fecha_apertura)}</span>
+                  <span style={{fontSize:12,color:C.dim}}>Desde: {fmtTime(turnoActivo.fecha_apertura)}</span>
                 </div>
               ) : (
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
@@ -3613,12 +3613,12 @@ function CajaAdminPage() {
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
                         <span style={{background:(quejaCols[q.tipo]||'#6E6E73')+'22',color:quejaCols[q.tipo]||'#6E6E73',padding:'1px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>{q.tipo}</span>
                         {q.urgencia==='alta'&&<span style={{background:C.red+'22',color:C.red,padding:'1px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>⚠ ALTA</span>}
-                        <span style={{fontSize:10,color:'#D2D2D7'}}>{fmtDate(q.created_at)}</span>
+                        <span style={{fontSize:10,color:C.dim}}>{fmtDate(q.created_at)}</span>
                       </div>
                       <div style={{fontSize:11,color:C.mid,marginTop:2,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{q.descripcion}</div>
                     </div>
                   ))}
-                  {quejas.length===0&&<div style={{padding:20,textAlign:'center',color:'#D2D2D7',fontSize:12}}>Sin quejas registradas</div>}
+                  {quejas.length===0&&<div style={{padding:20,textAlign:'center',color:C.dim,fontSize:12}}>Sin quejas registradas</div>}
                 </div>
               </div>
             </div>
@@ -3862,7 +3862,7 @@ function FinanzasPage({orders}) {
           {/* Distribución por categoría */}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>EGRESOS POR CATEGORIA</div>
-            {egByCat.length===0&&<div style={{color:'#D2D2D7',fontSize:12}}>Sin egresos este periodo</div>}
+            {egByCat.length===0&&<div style={{color:C.dim,fontSize:12}}>Sin egresos este periodo</div>}
             {egByCat.map(({cat,total})=>(
               <div key={cat} style={{marginBottom:12}}>
                 <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4}}>
@@ -4690,7 +4690,7 @@ function StockPage() {
               <Btn small onClick={()=>setModal('new_ing')}>+ Nuevo ingrediente</Btn>
             </div>
             {ingredients.length===0 ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:'#D2D2D7',fontSize:14}}>No hay ingredientes.<br/><span style={{fontSize:12}}>Creá uno y vinculalo al menú con "Recetas".</span></div>
+              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>No hay ingredientes.<br/><span style={{fontSize:12}}>Creá uno y vinculalo al menú con "Recetas".</span></div>
             ) : (
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -4789,7 +4789,7 @@ function StockPage() {
               <Btn small onClick={()=>setModal('new_recipe')}>+ Nueva receta</Btn>
             </div>
             {recipes.length===0 ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:'#D2D2D7',fontSize:14}}>No hay recetas.<br/><span style={{fontSize:12}}>Sin receta, el stock no se descuenta automáticamente.</span></div>
+              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>No hay recetas.<br/><span style={{fontSize:12}}>Sin receta, el stock no se descuenta automáticamente.</span></div>
             ) : (
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -4816,7 +4816,7 @@ function StockPage() {
           <div>
             <div style={{marginBottom:12,fontSize:13,color:C.mid}}>Últimos 100 movimientos de stock</div>
             {movements.length===0 ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:'#D2D2D7',fontSize:14}}>No hay movimientos registrados aún.</div>
+              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>No hay movimientos registrados aún.</div>
             ) : (
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -4884,7 +4884,7 @@ function StockPage() {
                 )}
 
                 {ingredients.length===0 ? (
-                  <div style={{textAlign:'center',padding:'40px 0',color:'#D2D2D7',fontSize:13}}>
+                  <div style={{textAlign:'center',padding:'40px 0',color:C.dim,fontSize:13}}>
                     No hay ingredientes registrados.<br/>
                     <span style={{fontSize:12}}>Primero agregá ingredientes en "Cargar stock".</span>
                   </div>
@@ -5506,7 +5506,7 @@ function ReportesPage({orders}) {
               {catReps.map(r=>(
                 <button key={r.id} onClick={()=>{setRType(r.id);setRows(null);setSummary(null);window.scrollTo({top:0,behavior:'smooth'});}} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',marginBottom:4,background:'transparent',border:'1px solid transparent',borderRadius:7,cursor:'pointer'}}>
                   <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
-                    <span style={{fontSize:11,color:'#D2D2D7',marginTop:2,flexShrink:0}}>≡</span>
+                    <span style={{fontSize:11,color:C.dim,marginTop:2,flexShrink:0}}>≡</span>
                     <div>
                       <div style={{fontSize:13,fontWeight:600,color:C.ink}}>{r.label}</div>
                       <div style={{fontSize:11,color:C.dim,marginTop:1}}>{r.desc}</div>
@@ -6037,7 +6037,7 @@ function ConfigPage({restaurant,onRefresh}) {
               onChange={url=>setForm({...form,cover_image_url:url})}
               bucket="restaurant-images"
             />
-            <div style={{fontSize:10,color:'#D2D2D7',marginTop:8}}>Aparece en la pantalla de bienvenida de los clientes. Recomendado: imagen horizontal 1200×600 px.</div>
+            <div style={{fontSize:10,color:C.dim,marginTop:8}}>Aparece en la pantalla de bienvenida de los clientes. Recomendado: imagen horizontal 1200×600 px.</div>
           </div>
 
           {/* Logo */}
@@ -6050,7 +6050,7 @@ function ConfigPage({restaurant,onRefresh}) {
                       <img src={form.logo_url} alt="" style={{width:72,height:72,objectFit:'cover',borderRadius:'50%',border:`2px solid ${C.bs}`}} onError={e=>{e.target.style.display='none';}}/>
                       <button onClick={()=>setForm({...form,logo_url:''})} title="Eliminar logo" style={{position:'absolute',top:-4,right:-4,width:18,height:18,borderRadius:'50%',background:'#FF3B30',border:'none',color:'#fff',fontSize:10,lineHeight:'18px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>✕</button>
                     </div>
-                  : <div style={{width:72,height:72,borderRadius:'50%',background:'#FFFFFF',border:`2px dashed ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,color:'#D2D2D7'}}>
+                  : <div style={{width:72,height:72,borderRadius:'50%',background:C.white,border:`2px dashed ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,color:C.dim}}>
                       {form.logo_initials||'?'}
                     </div>}
               </div>
@@ -6123,7 +6123,7 @@ function ConfigPage({restaurant,onRefresh}) {
             ))}
           </div>
           <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
-            <div style={{fontSize:9,color:'#D2D2D7',fontWeight:700,marginBottom:5,letterSpacing:1}}>RESTAURANT ID</div>
+            <div style={{fontSize:9,color:C.dim,fontWeight:700,marginBottom:5,letterSpacing:1}}>RESTAURANT ID</div>
             <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#F5F5F7',wordBreak:'break-all'}}>{RID}</div>
           </div>
         </div>
@@ -6179,7 +6179,7 @@ function DelivDashboard({deliveryOrders, channels}) {
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:16}}>INGRESOS POR CANAL — ÚLTIMOS 7 DÍAS</div>
           {channelData.length===0
-            ? <div style={{color:'#D2D2D7',fontSize:13,textAlign:'center',padding:'20px 0'}}>Sin datos de canal esta semana</div>
+            ? <div style={{color:C.dim,fontSize:13,textAlign:'center',padding:'20px 0'}}>Sin datos de canal esta semana</div>
             : channelData.map(ch=>(
               <div key={ch.id} style={{marginBottom:14}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
@@ -6189,7 +6189,7 @@ function DelivDashboard({deliveryOrders, channels}) {
                   </div>
                   <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,fontWeight:700}}>{fmt(ch.monto)}</span>
                 </div>
-                <div style={{height:4,background:'#F0F0F0',borderRadius:4,overflow:'hidden'}}>
+                <div style={{height:4,background:C.card,borderRadius:4,overflow:'hidden'}}>
                   <div style={{height:'100%',background:ch.color,borderRadius:4,width:`${Math.round(ch.monto/maxMonto*100)}%`,transition:'width .3s'}}/>
                 </div>
                 <div style={{display:'flex',justifyContent:'space-between',marginTop:4}}>
@@ -6203,7 +6203,7 @@ function DelivDashboard({deliveryOrders, channels}) {
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
           <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:C.mid,letterSpacing:1}}>PEDIDOS ACTIVOS EN CURSO</div>
           {activeOrds.length===0
-            ? <div style={{padding:40,textAlign:'center',color:'#D2D2D7',fontSize:13}}>Sin pedidos activos</div>
+            ? <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>Sin pedidos activos</div>
             : <div style={{overflowY:'auto',maxHeight:340}}>
                 {activeOrds.map(o=>{
                   const addr = o.delivery_address?(o.delivery_address.length>32?o.delivery_address.slice(0,32)+'…':o.delivery_address):'—';
@@ -6598,7 +6598,7 @@ function DelivRiders({riders, onRefresh}) {
         <Btn onClick={openNew}>+ Nuevo Rider</Btn>
       </div>
       {riders.length===0
-        ? <div style={{textAlign:'center',padding:60,color:'#D2D2D7',fontSize:14}}>No hay riders — creá el primero</div>
+        ? <div style={{textAlign:'center',padding:60,color:C.dim,fontSize:14}}>No hay riders — creá el primero</div>
         : <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}}>
             {riders.map(r=>{
               const offline = r.active===false;
@@ -6611,7 +6611,7 @@ function DelivRiders({riders, onRefresh}) {
                   <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
                     {r.photo_url
                       ? <img src={r.photo_url} alt="" style={{width:44,height:44,borderRadius:'50%',objectFit:'cover',border:`1px solid ${C.border}`}}/>
-                      : <div style={{width:44,height:44,borderRadius:'50%',background:'#F0F0F0',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:800,color:C.mid,flexShrink:0}}>{initials}</div>
+                      : <div style={{width:44,height:44,borderRadius:'50%',background:C.card,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:800,color:C.mid,flexShrink:0}}>{initials}</div>
                     }
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:14,fontWeight:700,color:C.ink,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{r.name}</div>
@@ -6946,7 +6946,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
               {!searching&&(
                 gmapsReady
                   ?<span style={{fontSize:10,fontWeight:700,color:'#1A7E37',background:'#F0FAF3',border:'1px solid #A3D9B1',borderRadius:5,padding:'2px 6px',flexShrink:0,whiteSpace:'nowrap'}}>Google ✓</span>
-                  :<span style={{fontSize:10,fontWeight:600,color:C.dim,background:'#F0F0F0',borderRadius:5,padding:'2px 6px',flexShrink:0,whiteSpace:'nowrap'}}>OSM</span>
+                  :<span style={{fontSize:10,fontWeight:600,color:C.dim,background:C.card,borderRadius:5,padding:'2px 6px',flexShrink:0,whiteSpace:'nowrap'}}>OSM</span>
               )}
               {searchQ&&!searching&&(
                 <button onClick={()=>{setSearchQ('');setSearchRes([]);}} style={{background:'none',border:'none',color:C.dim,cursor:'pointer',fontSize:17,lineHeight:1,padding:0,flexShrink:0}}>×</button>
@@ -7076,7 +7076,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
   const [chanModal,setChanModal] = useState(null);
   const [mapOpen,setMapOpen] = useState(false);
   const [zForm,setZForm] = useState({name:'',radius:'',price:0,time:30,active:true,color:'red'});
-  const [cForm,setCForm] = useState({name:'',commission:0,color:'#000000',active:true});
+  const [cForm,setCForm] = useState({name:'',commission:0,color:C.ink,active:true});
 
   function saveZone() {
     if(!zForm.name.trim()){toast('El nombre es obligatorio',false);return;}
@@ -7112,7 +7112,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
           </div>
         </div>
         {zones.length===0
-          ? <div style={{padding:32,textAlign:'center',color:'#D2D2D7',fontSize:13}}>Sin zonas configuradas</div>
+          ? <div style={{padding:32,textAlign:'center',color:C.dim,fontSize:13}}>Sin zonas configuradas</div>
           : <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'#F9F9FA'}}><Th>Zona</Th><Th>Radio</Th><Th right>Precio delivery</Th><Th right>Tiempo est.</Th><Th>Activa</Th><Th/></tr></thead>
               <tbody>
@@ -7150,7 +7150,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
         <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>CANALES EXTERNOS</div>
-          <Btn small onClick={()=>{setCForm({name:'',commission:0,color:'#000000',active:true});setChanModal('new');}}>+ Canal</Btn>
+          <Btn small onClick={()=>{setCForm({name:'',commission:0,color:C.ink,active:true});setChanModal('new');}}>+ Canal</Btn>
         </div>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
           <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'#F9F9FA'}}><Th>Canal</Th><Th right>Comisión %</Th><Th>Color</Th><Th>Estado</Th><Th/></tr></thead>
@@ -7263,7 +7263,7 @@ function DeliveryModule() {
   const [restaurant,setRestaurant] = useState(null);
   const [zones,setZonesState] = useState(()=>LS.get(`deliv_zones_${RID}`,[]) );
   const [channels,setChannelsState] = useState(()=>LS.get(`deliv_channels_${RID}`,[
-    {id:'propio',    name:'Propio',     commission:0,  color:'#000000', active:true},
+    {id:'propio',    name:'Propio',     commission:0,  color:C.ink, active:true},
     {id:'pedidosya', name:'PedidosYa',  commission:18, color:'#FF6000', active:true},
     {id:'monchis',   name:'Monchis',    commission:15, color:'#00B04F', active:true},
   ]));
@@ -7978,7 +7978,7 @@ function ProveedoresPage() {
                           <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{'₲ '+(Math.round(val)||0).toLocaleString('es-PY')} <span style={{color:C.dim}}>({pct.toFixed(0)}%)</span></span>
                         </div>
                         <div style={{height:6,background:C.bg,borderRadius:3}}>
-                          <div style={{width:`${pct}%`,height:'100%',background:'#000',borderRadius:3}}/>
+                          <div style={{width:`${pct}%`,height:'100%',background:C.ink,borderRadius:3}}/>
                         </div>
                       </div>
                     );
@@ -8639,7 +8639,7 @@ function NewTicketModalAdmin({onClose, onCreate, userName, role, email, restaura
   return (
     <Modal title="Nueva consulta a Mythos" onClose={onClose} width={560}>
       <div style={{display:'flex',flexDirection:'column',gap:14}}>
-        <div style={{background:'#FFFFFF',border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',fontSize:11,color:C.mid,lineHeight:1.6}}>
+        <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',fontSize:11,color:C.mid,lineHeight:1.6}}>
           <div style={{fontWeight:700,color:C.ink,marginBottom:4,fontSize:11,textTransform:'uppercase',letterSpacing:.5}}>Datos que se envían automáticamente</div>
           <div>Restaurante: <strong style={{color:C.ink}}>{restaurantName||'—'}</strong></div>
           <div>Usuario: <strong style={{color:C.ink}}>{userName}</strong> ({role})</div>
@@ -9053,7 +9053,7 @@ function AdminApp() {
     if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,flexDirection:'column',gap:14}}><span className="spin"/><div style={{fontSize:12,color:C.dim}}>Cargando datos…</div></div>;
     if(!db) return (
       <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,flexDirection:'column',gap:12}}>
-        <div style={{fontSize:32,color:'#D2D2D7'}}>⚠</div>
+        <div style={{fontSize:32,color:C.dim}}>⚠</div>
         <div style={{fontSize:15,fontWeight:700}}>Sin conexión a la base de datos</div>
         <div style={{fontSize:13,color:C.mid,maxWidth:340,textAlign:'center'}}>Configurá las credenciales en <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.mid}}>config.js</code> o en variables de entorno de Vercel.</div>
         <a href="diag.html" style={{fontSize:13,color:C.mid,marginTop:8}}>→ Ver diagnóstico</a>
@@ -9171,7 +9171,7 @@ function FacturasAdminPage(){
 
       {/* Filtros */}
       <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
-        <div style={{display:'flex',gap:0,background:'#F0F0F0',borderRadius:8,padding:3}}>
+        <div style={{display:'flex',gap:0,background:C.card,borderRadius:8,padding:3}}>
           {[['hoy','Hoy'],['7d','7 días'],['30d','30 días'],['todo','Todo']].map(([id,lbl])=>(
             <button key={id} onClick={()=>setRango(id)} style={{
               padding:'5px 12px',borderRadius:6,border:'none',fontSize:12,fontWeight:rango===id?700:500,
@@ -9211,7 +9211,7 @@ function FacturasAdminPage(){
               <div key={c.id} style={{display:'grid',gridTemplateColumns:'1fr 1fr 120px 1fr 110px',padding:'10px 14px',borderTop:i===0?'none':`1px solid ${C.border}`,alignItems:'center',gap:8,fontSize:13}}>
                 <span style={{fontWeight:700,fontFamily:"'SF Mono',monospace"}}>#{meta.orden_numero||'—'}</span>
                 <span style={{color:C.mid}}>{meta.mesa||'—'}</span>
-                <span style={{fontSize:11,background:'#F0F0F0',borderRadius:6,padding:'2px 7px',color:C.mid,fontWeight:600,width:'fit-content'}}>{MET[c.metodo_pago]||c.metodo_pago}</span>
+                <span style={{fontSize:11,background:C.card,borderRadius:6,padding:'2px 7px',color:C.mid,fontWeight:600,width:'fit-content'}}>{MET[c.metodo_pago]||c.metodo_pago}</span>
                 <span style={{fontSize:11,color:C.dim}}>{fecha} {hora}</span>
                 <span style={{textAlign:'right',fontFamily:"'SF Mono',monospace",fontWeight:800,color:C.green}}>{fmt(c.monto)}</span>
               </div>

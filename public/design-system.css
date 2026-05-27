@@ -419,3 +419,92 @@ label {
   font-size: 16px; transition: background 0.15s, border-color 0.15s; flex-shrink: 0;
 }
 .ds-theme-btn:hover { background: var(--bg-hover); border-color: var(--border-strong); }
+
+/* ══════════════════════════════════════════════
+   DARK MODE — OVERRIDE GLOBAL DE INLINE STYLES
+   Atrapa los colores hex hardcodeados que React
+   serializa como rgb() en el atributo style.
+   Browsers normalizan: #86868B → rgb(134, 134, 139)
+   Estos selectores capturan TODAS las ocurrencias.
+═══════════════════════════════════════════════ */
+
+/* Texto negro / casi negro → blanco vívido */
+[data-theme="dark"] [style*="color: rgb(0, 0, 0)"],
+[data-theme="dark"] [style*="color:rgb(0,0,0)"],
+[data-theme="dark"] [style*="color: rgb(29, 29, 31)"],
+[data-theme="dark"] [style*="color:rgb(29,29,31)"],
+[data-theme="dark"] [style*="color: rgb(75, 75, 75)"],
+[data-theme="dark"] [style*="color:rgb(75,75,75)"],
+[data-theme="dark"] [style*="color: rgb(61, 61, 61)"],
+[data-theme="dark"] [style*="color:rgb(61,61,61)"] {
+  color: #F5F5F7 !important;
+}
+
+/* Gris medio (mid) → gris dark visible */
+[data-theme="dark"] [style*="color: rgb(110, 110, 115)"],
+[data-theme="dark"] [style*="color:rgb(110,110,115)"],
+[data-theme="dark"] [style*="color: rgb(134, 134, 139)"],
+[data-theme="dark"] [style*="color:rgb(134,134,139)"] {
+  color: #AEAEB2 !important;
+}
+
+/* Gris claro (placeholder/disabled) → gris dark medio */
+[data-theme="dark"] [style*="color: rgb(210, 210, 215)"],
+[data-theme="dark"] [style*="color:rgb(210,210,215)"] {
+  color: #636366 !important;
+}
+
+/* Fondos blancos → superficie oscura */
+[data-theme="dark"] [style*="background: rgb(255, 255, 255)"],
+[data-theme="dark"] [style*="background:rgb(255,255,255)"],
+[data-theme="dark"] [style*="background-color: rgb(255, 255, 255)"],
+[data-theme="dark"] [style*="background-color:rgb(255,255,255)"] {
+  background-color: #1C1C1E !important;
+}
+
+/* Fondos gris muy claro #F0F0F0 / #F5F5F7 → card dark */
+[data-theme="dark"] [style*="background: rgb(240, 240, 240)"],
+[data-theme="dark"] [style*="background:rgb(240,240,240)"],
+[data-theme="dark"] [style*="background: rgb(245, 245, 247)"],
+[data-theme="dark"] [style*="background:rgb(245,245,247)"] {
+  background-color: #2C2C2E !important;
+}
+
+/* Fondos negros que quedan negros, pero si el texto encima usa color:white queda bien */
+/* (no se sobreescribe, ya es el bg correcto) */
+
+/* Bordes claros #D2D2D7 / #F0F0F0 → border dark */
+[data-theme="dark"] [style*="border: 1px solid rgb(210, 210, 215)"],
+[data-theme="dark"] [style*="border:1px solid rgb(210,210,215)"],
+[data-theme="dark"] [style*="border-color: rgb(210, 210, 215)"],
+[data-theme="dark"] [style*="border-color:rgb(210,210,215)"],
+[data-theme="dark"] [style*="border-bottom: 1px solid rgb(240, 240, 240)"],
+[data-theme="dark"] [style*="border-bottom:1px solid rgb(240,240,240)"],
+[data-theme="dark"] [style*="border-top: 1px solid rgb(240, 240, 240)"],
+[data-theme="dark"] [style*="border-top:1px solid rgb(240,240,240)"] {
+  border-color: #38383A !important;
+}
+
+/* Selects nativos en dark mode — no heredan vars automáticamente */
+[data-theme="dark"] select,
+[data-theme="dark"] input[type="text"]:not(.input-keep),
+[data-theme="dark"] input[type="number"],
+[data-theme="dark"] input[type="email"],
+[data-theme="dark"] input[type="tel"],
+[data-theme="dark"] input[type="date"],
+[data-theme="dark"] input[type="time"],
+[data-theme="dark"] input[type="password"],
+[data-theme="dark"] textarea {
+  background-color: #1C1C1E !important;
+  color: #F5F5F7 !important;
+  border-color: #38383A !important;
+}
+[data-theme="dark"] select option { background-color: #1C1C1E; color: #F5F5F7; }
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder { color: #8E8E93 !important; }
+
+/* Mozo: arregla btn-indigo y tip-chip activos (texto invisible blanco/blanco) */
+[data-theme="dark"] .btn-indigo,
+[data-theme="dark"] .tip-chip.active { color: #000000 !important; }
+[data-theme="dark"] .ready-count-badge { background: #F5F5F7 !important; color: #000000 !important; }
+
