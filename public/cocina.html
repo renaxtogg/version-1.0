@@ -157,7 +157,13 @@ function urgencyLevel(min, status) {
   return 0;
 }
 const URGENCY_BORDER = ['#38383A','#FF9500','#FF3B30','#FF3B30'];
-const URGENCY_HEADER = ['#1C1C1E','rgba(255,149,0,0.12)','rgba(255,59,48,0.16)','rgba(255,59,48,0.22)'];
+function urgencyHeader(level){
+  if (level === 0) return (window.MythosTheme && window.MythosTheme.get()==='dark') ? '#1C1C1E' : '#F5F5F7';
+  if (level === 1) return 'rgba(255,149,0,0.18)';
+  if (level === 2) return 'rgba(255,59,48,0.20)';
+  return 'rgba(255,59,48,0.28)';
+}
+const URGENCY_HEADER = new Proxy([], { get: (_,k) => urgencyHeader(Number(k)) });
 const URGENCY_LABEL  = [null,'DEMORADO','URGENTE','CRITICO'];
 
 /* ── TIMER COLOR ─── */
@@ -689,7 +695,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
 
       {/* Header */}
       <div style={{
-        background: isEntregado ? '#111' : URGENCY_HEADER[urgency],
+        background: isEntregado ? (C.surface) : URGENCY_HEADER[urgency],
         padding: '10px 16px',
         display: 'flex',
         alignItems: 'center',
@@ -781,11 +787,11 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
             return (
               <div key={item.id} style={{
                 padding: '8px 16px',
-                borderBottom: '1px solid rgba(255,255,255,0.1)',
-                background: allergyItem ? 'rgba(255,59,48,0.04)' : 'transparent',
+                borderBottom: `1px solid ${C.border}`,
+                background: allergyItem ? 'rgba(255,59,48,0.06)' : 'transparent',
               }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
-                  <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 15, fontWeight: 700, color: isDone ? C.dim : '#FFFFFF', minWidth: 28, flexShrink: 0, lineHeight: 1.1, marginTop: 1 }}>x{item.cant}</span>
+                  <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 15, fontWeight: 700, color: isDone ? C.dim : C.ink, minWidth: 28, flexShrink: 0, lineHeight: 1.1, marginTop: 1 }}>x{item.cant}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 15, fontWeight: 600, color: isDone ? C.mid : C.ink, textDecoration: isDone ? 'line-through' : 'none', lineHeight: 1.25 }}>{item.nombre}</span>
@@ -803,7 +809,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
                     {item.extras.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
                         {item.extras.map(e => (
-                          <span key={e} style={{ fontSize: 10, fontWeight: 600, color: '#AAA', background: 'rgba(255,255,255,0.06)', border: `1px solid ${C.borderStrong}`, borderRadius: 4, padding: '1px 5px' }}>+ {e}</span>
+                          <span key={e} style={{ fontSize: 10, fontWeight: 600, color: C.mid, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: '1px 5px' }}>+ {e}</span>
                         ))}
                       </div>
                     )}
@@ -812,13 +818,13 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
                         marginTop: allergyItem ? 5 : 4,
                         fontSize: 13,
                         fontWeight: allergyItem ? 700 : 400,
-                        color: allergyItem ? '#FCA5A5' : '#A1A1A6',
+                        color: allergyItem ? '#DC2626' : C.mid,
                         fontStyle: 'italic',
                         lineHeight: 1.4,
                         display: 'flex',
                         alignItems: 'flex-start',
                         gap: 5,
-                        background: allergyItem ? 'rgba(255,59,48,0.1)' : 'rgba(255,255,255,0.02)',
+                        background: allergyItem ? 'rgba(255,59,48,0.10)' : C.surface,
                         borderLeft: allergyItem ? '2px solid rgba(255,59,48,0.5)' : `2px solid ${C.border}`,
                         borderRadius: '0 5px 5px 0',
                         padding: '4px 7px',

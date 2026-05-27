@@ -76,8 +76,8 @@ const PALETTES = {
   dark: {
     bg:'#000000', surface:'#1C1C1E', sidebar:'#1C1C1E', white:'#1C1C1E',
     border:'#38383A', bs:'#636366',
-    ink:'#F5F5F7', mid:'#AEAEB2', dim:'#636366',
-    green:'#34C759', orange:'#FF9500', red:'#FF3B30', blue:'#0A84FF', yellow:'#FFCC00'
+    ink:'#F5F5F7', mid:'#AEAEB2', dim:'#8E8E93',
+    green:'#30D158', orange:'#FF9F0A', red:'#FF453A', blue:'#0A84FF', yellow:'#FFD60A'
   },
 };
 const C = Object.assign({}, PALETTES[window.MythosTheme ? window.MythosTheme.get() : 'light']);
@@ -141,7 +141,7 @@ function Modal({title, onClose, children, width=460}) {
   }, [onClose]);
   return (
     <div onClick={e => e.target===e.currentTarget && onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
-      <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:'100%',maxWidth:width,maxHeight:'92vh',overflowY:'auto',animation:'slideUp .2s ease'}}>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:'100%',maxWidth:width,maxHeight:'92vh',overflowY:'auto',animation:'slideUp .2s ease'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
           <div style={{fontSize:15,fontWeight:700}}>{title}</div>
           <button onClick={onClose} style={{background:'none',color:C.mid,fontSize:22,lineHeight:1,padding:0}}>×</button>
@@ -174,9 +174,9 @@ function Th({children,right,width}) { return <th style={{padding:'9px 14px',text
 function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?C.mid:C.ink,textAlign:right?'right':'left',...sx}}>{children}</td>; }
 function Empty({cols, label}) { return <tr><td colSpan={cols} style={{padding:36,textAlign:'center',color:C.dim,fontSize:13}}>{label||'Sin datos'}</td></tr>; }
 function Btn({children,onClick,variant='primary',disabled,small,style:sx,full}) {
-  const bg = variant==='primary'?'#000':variant==='danger'?'#FFF1F0':variant==='success'?'#F0FAF3':variant==='ghost'?'transparent':'#F5F5F7';
-  const color = variant==='primary'?'#fff':variant==='danger'?C.red:variant==='success'?C.green:C.ink;
-  const border = variant==='primary'?'#000':variant==='danger'?'#FFB3AD':variant==='success'?'#A3D9B1':`1px solid ${C.border}`;
+  const bg = variant==='primary'?C.ink:variant==='danger'?C.red+'1E':variant==='success'?C.green+'1E':variant==='ghost'?'transparent':C.bg;
+  const color = variant==='primary'?C.sidebar:variant==='danger'?C.red:variant==='success'?C.green:C.ink;
+  const border = variant==='primary'?C.ink:variant==='danger'?C.red+'55':variant==='success'?C.green+'55':C.border;
   return <button onClick={onClick} disabled={disabled} style={{background:bg,color,border:`1px solid ${border}`,padding:small?'6px 10px':'9px 14px',fontSize:small?12:13,fontWeight:600,borderRadius:8,opacity:disabled?.45:1,cursor:disabled?'not-allowed':'pointer',width:full?'100%':'auto',transition:'opacity .15s',...sx}}>{children}</button>;
 }
 function Lbl({children}) { return <label style={{fontSize:10,color:C.mid,display:'block',marginBottom:5,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>{children}</label>; }
@@ -290,10 +290,10 @@ function Dashboard({onJump}) {
       {(data.approvals.length>0 || data.waiterCalls.length>0 || kpis.delayed.length>0 || data.complaints.filter(c=>c.urgencia==='alta').length>0) && (
         <div style={{background:'#FFF1F0',border:`1px solid #FFB3AD`,borderRadius:10,padding:14,marginBottom:16,display:'flex',flexWrap:'wrap',gap:10}}>
           <span style={{fontSize:13,fontWeight:700,color:C.red,marginRight:6}}>⚠ Atención inmediata:</span>
-          {data.approvals.length>0 && <button onClick={() => onJump('aprobaciones')} style={{background:'#fff',border:`1px solid ${C.red}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.red}}>{data.approvals.length} aprobación{data.approvals.length>1?'es':''} pendiente{data.approvals.length>1?'s':''}</button>}
-          {data.waiterCalls.length>0 && <button onClick={() => onJump('dashboard')} style={{background:'#fff',border:`1px solid ${C.orange}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.orange}}>{data.waiterCalls.length} llamada{data.waiterCalls.length>1?'s':''} mozo</button>}
-          {kpis.delayed.length>0 && <button onClick={() => onJump('dashboard')} style={{background:'#fff',border:`1px solid ${C.orange}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.orange}}>{kpis.delayed.length} pedido{kpis.delayed.length>1?'s':''} demorado{kpis.delayed.length>1?'s':''}</button>}
-          {data.complaints.filter(c=>c.urgencia==='alta').length>0 && <button onClick={() => onJump('quejas')} style={{background:'#fff',border:`1px solid ${C.red}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.red}}>{data.complaints.filter(c=>c.urgencia==='alta').length} queja{data.complaints.filter(c=>c.urgencia==='alta').length>1?'s':''} urgente{data.complaints.filter(c=>c.urgencia==='alta').length>1?'s':''}</button>}
+          {data.approvals.length>0 && <button onClick={() => onJump('aprobaciones')} style={{background:C.surface,border:`1px solid ${C.red}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.red}}>{data.approvals.length} aprobación{data.approvals.length>1?'es':''} pendiente{data.approvals.length>1?'s':''}</button>}
+          {data.waiterCalls.length>0 && <button onClick={() => onJump('dashboard')} style={{background:C.surface,border:`1px solid ${C.orange}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.orange}}>{data.waiterCalls.length} llamada{data.waiterCalls.length>1?'s':''} mozo</button>}
+          {kpis.delayed.length>0 && <button onClick={() => onJump('dashboard')} style={{background:C.surface,border:`1px solid ${C.orange}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.orange}}>{kpis.delayed.length} pedido{kpis.delayed.length>1?'s':''} demorado{kpis.delayed.length>1?'s':''}</button>}
+          {data.complaints.filter(c=>c.urgencia==='alta').length>0 && <button onClick={() => onJump('quejas')} style={{background:C.surface,border:`1px solid ${C.red}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.red}}>{data.complaints.filter(c=>c.urgencia==='alta').length} queja{data.complaints.filter(c=>c.urgencia==='alta').length>1?'s':''} urgente{data.complaints.filter(c=>c.urgencia==='alta').length>1?'s':''}</button>}
         </div>
       )}
 
@@ -332,7 +332,7 @@ function Dashboard({onJump}) {
             ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>Nadie con turno abierto</div>
             : <div style={{display:'flex',flexDirection:'column',gap:8}}>
                 {data.shiftEmps.map(e => (
-                  <div key={e.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:'#F5F5F7',borderRadius:6}}>
+                  <div key={e.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:C.bg,borderRadius:6}}>
                     <div>
                       <div style={{fontSize:13,fontWeight:700}}>{e.employee_name||'—'}</div>
                       <div style={{fontSize:11,color:C.mid}}>{e.role||'sin rol'}</div>
@@ -349,7 +349,7 @@ function Dashboard({onJump}) {
               {data.waiterCalls.map(w => {
                 const mesa = data.tables.find(t => t.id === w.table_id);
                 return (
-                  <div key={w.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:'#fff',borderRadius:6,border:`1px solid #FFD8A8`}}>
+                  <div key={w.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:C.surface,borderRadius:6,border:`1px solid #FFD8A8`}}>
                     <div style={{fontSize:13,fontWeight:700,color:C.orange}}>Mesa {mesa?.number||'?'}</div>
                     <div style={{fontSize:11,color:C.mid}}>hace {minsAgo(w.created_at)} min</div>
                   </div>
@@ -639,7 +639,7 @@ function QuejasYRatings({user, userName}) {
         <div>
           <div style={{display:'flex',gap:8,marginBottom:12}}>
             {['abierto','en_revision','resuelto','escalado','todos'].map(f => (
-              <button key={f} onClick={() => setFilter(f)} style={{padding:'6px 12px',fontSize:12,fontWeight:700,borderRadius:6,border:`1px solid ${filter===f?'#000':C.border}`,background:filter===f?'#000':'#fff',color:filter===f?'#fff':C.ink,textTransform:'capitalize'}}>{f.replace('_',' ')}</button>
+              <button key={f} onClick={() => setFilter(f)} style={{padding:'6px 12px',fontSize:12,fontWeight:700,borderRadius:6,border:`1px solid ${filter===f?C.ink:C.border}`,background:filter===f?C.ink:C.surface,color:filter===f?C.sidebar:C.ink,textTransform:'capitalize'}}>{f.replace('_',' ')}</button>
             ))}
           </div>
 
@@ -688,7 +688,7 @@ function QuejasYRatings({user, userName}) {
                 return (
                   <div key={s} style={{display:'flex',alignItems:'center',gap:8,fontSize:12}}>
                     <span style={{width:30,color:C.mid}}>{s} ★</span>
-                    <div style={{flex:1,height:6,background:'#F5F5F7',borderRadius:3,overflow:'hidden'}}>
+                    <div style={{flex:1,height:6,background:C.bg,borderRadius:3,overflow:'hidden'}}>
                       <div style={{width:`${pct}%`,height:'100%',background:s>=4?C.green:s>=3?C.orange:C.red}}/>
                     </div>
                     <span style={{width:30,textAlign:'right',color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{ratingCount[s-1]}</span>
@@ -701,7 +701,7 @@ function QuejasYRatings({user, userName}) {
                 <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8,textTransform:'uppercase'}}>Comentarios</div>
                 <div style={{display:'flex',flexDirection:'column',gap:8,maxHeight:300,overflowY:'auto'}}>
                   {ratings.filter(r => r.comment).map(r => (
-                    <div key={r.id} style={{padding:'8px 10px',background:'#F5F5F7',borderRadius:6,fontSize:12}}>
+                    <div key={r.id} style={{padding:'8px 10px',background:C.bg,borderRadius:6,fontSize:12}}>
                       <div style={{color:r.stars>=4?C.green:r.stars>=3?C.orange:C.red,fontWeight:700,marginBottom:3}}>{'★'.repeat(r.stars)}{'☆'.repeat(5-r.stars)}</div>
                       <div style={{color:C.ink}}>{r.comment}</div>
                       <div style={{fontSize:10,color:C.dim,marginTop:3}}>{fmtTime(r.created_at)}</div>
@@ -1603,7 +1603,7 @@ function NewTicketModal({onClose, onCreate, userName, role, email, restaurantNam
   return (
     <Modal title="Nueva consulta a Mythos" onClose={onClose} width={560}>
       <div style={{display:'flex',flexDirection:'column',gap:12}}>
-        <div style={{background:'#F5F5F7',border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px',fontSize:11,color:C.mid,lineHeight:1.5}}>
+        <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px',fontSize:11,color:C.mid,lineHeight:1.5}}>
           <div style={{fontWeight:700,color:C.ink,marginBottom:4}}>Estos datos se envían automáticamente:</div>
           <div>• Restaurante: <strong style={{color:C.ink}}>{restaurantName||'—'}</strong></div>
           <div>• Usuario: <strong style={{color:C.ink}}>{userName}</strong> ({role})</div>
@@ -1779,7 +1779,7 @@ function SolicitudPersonal({user, userName}) {
               <Txt value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Experiencia previa, referencia, horario preferido…"/>
             </div>
           </div>
-          <div style={{marginTop:14,padding:'8px 12px',background:'#F5F5F7',borderRadius:8,fontSize:12,color:C.mid}}>
+          <div style={{marginTop:14,padding:'8px 12px',background:C.bg,borderRadius:8,fontSize:12,color:C.mid}}>
             El administrador recibirá esta solicitud y luego de una entrevista dará de alta al empleado.
           </div>
           <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:16}}>
@@ -2121,11 +2121,11 @@ function AvisosGerente({user,userName}) {
         <textarea
           value={msg} onChange={e=>setMsg(e.target.value)} rows={3}
           placeholder="Escribí el aviso..."
-          style={{width:'100%',padding:'10px 12px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,marginBottom:12,resize:'vertical',background:'#F5F5F7',color:C.ink,boxSizing:'border-box'}}
+          style={{width:'100%',padding:'10px 12px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,marginBottom:12,resize:'vertical',background:C.bg,color:C.ink,boxSizing:'border-box'}}
         />
         <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
           <select value={target} onChange={e=>setTarget(e.target.value)}
-            style={{padding:'8px 12px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,background:'#F5F5F7',color:C.ink}}>
+            style={{padding:'8px 12px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,background:C.bg,color:C.ink}}>
             {TARGETS.map(t=><option key={t.v} value={t.v}>{t.lbl}</option>)}
           </select>
           <Btn onClick={enviar} disabled={!msg.trim()||sending}>{sending?'Enviando…':'Enviar aviso'}</Btn>

@@ -184,8 +184,8 @@ const C_LIGHT = {
 const C_DARK = {
   bg:'#000000',sidebar:'#1C1C1E',surface:'#1C1C1E',card:'#2C2C2E',
   border:'#38383A',bs:'#636366',
-  white:'#1C1C1E',ink:'#F5F5F7',mid:'#AEAEB2',dim:'#636366',
-  green:'#34C759',orange:'#FF9500',red:'#FF3B30',yellow:'#FF9500',blue:'#0A84FF',purple:'#F5F5F7',cyan:'#0A84FF',
+  white:'#1C1C1E',ink:'#F5F5F7',mid:'#AEAEB2',dim:'#8E8E93',
+  green:'#30D158',orange:'#FF9F0A',red:'#FF453A',yellow:'#FFD60A',blue:'#0A84FF',purple:'#F5F5F7',cyan:'#0A84FF',
 };
 const C = {...(window.MythosTheme && window.MythosTheme.get()==='dark' ? C_DARK : C_LIGHT)};
 
@@ -214,10 +214,10 @@ function Modal({title,onClose,children,width=460}){
   useEffect(()=>{const fn=e=>e.key==='Escape'&&onClose();window.addEventListener('keydown',fn);return()=>window.removeEventListener('keydown',fn);},[onClose]);
   return(
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.88)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
-      <div style={{background:'#F5F5F7',border:`1px solid ${C.bs}`,borderRadius:12,padding:28,width:'100%',maxWidth:width,maxHeight:'92vh',overflowY:'auto',animation:'slideUp 200ms ease'}}>
+      <div style={{background:C.bg,border:`1px solid ${C.bs}`,borderRadius:12,padding:28,width:'100%',maxWidth:width,maxHeight:'92vh',overflowY:'auto',animation:'slideUp 200ms ease'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
           <div style={{fontSize:16,fontWeight:700}}>{title}</div>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'#6E6E73',fontSize:24,lineHeight:1,padding:0}}>×</button>
+          <button onClick={onClose} style={{background:'none',border:'none',color:C.mid,fontSize:24,lineHeight:1,padding:0}}>×</button>
         </div>
         {children}
       </div>
@@ -226,7 +226,7 @@ function Modal({title,onClose,children,width=460}){
 }
 
 /* ── SHARED COMPONENTS ── */
-function Lbl({children,required}){return<label style={{fontSize:10,color:'#6E6E73',display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}{required&&<span style={{color:C.red,marginLeft:3}}>*</span>}</label>;}
+function Lbl({children,required}){return<label style={{fontSize:10,color:C.mid,display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}{required&&<span style={{color:C.red,marginLeft:3}}>*</span>}</label>;}
 function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}){return<input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'9px 11px',fontSize:14,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',borderRadius:6,...(rest.style||{})}}/>;}
 function Sel({value,onChange,children,...rest}){return<select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,...(rest.style||{})}}>{children}</select>;}
 function Textarea({value,onChange,placeholder,rows=3}){return<textarea value={value} onChange={onChange} placeholder={placeholder} rows={rows} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,resize:'vertical'}}/>;}
@@ -240,9 +240,9 @@ function Divider(){return<div style={{height:1,background:C.border,margin:'8px 0
 function KpiMini({label,value,accent,sub}){
   return(
     <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px'}}>
-      <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:4}}>{label}</div>
+      <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:4}}>{label}</div>
       <div style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||C.ink,lineHeight:1}}>{value}</div>
-      {sub&&<div style={{fontSize:11,color:'#86868B',marginTop:4}}>{sub}</div>}
+      {sub&&<div style={{fontSize:11,color:C.dim,marginTop:4}}>{sub}</div>}
     </div>
   );
 }
@@ -275,12 +275,12 @@ function DenomGrid({values,onChange,label=''}){
   const total=calcDenomTotal(values);
   return(
     <div>
-      {label&&<div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:10}}>{label}</div>}
+      {label&&<div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:10}}>{label}</div>}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
         {DENOMS.map(d=>(
           <div key={d.v} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px',display:'flex',alignItems:'center',gap:8}}>
             <div style={{flex:1}}>
-              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:2}}>{d.t==='moneda'?'🪙':'💵'} {d.lbl}</div>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:2}}>{d.t==='moneda'?'🪙':'💵'} {d.lbl}</div>
               <input
                 type="number" min="0" step="1"
                 value={values[d.v]||''}
@@ -289,14 +289,14 @@ function DenomGrid({values,onChange,label=''}){
                 style={{width:'100%',background:'transparent',border:'none',color:C.white,fontSize:18,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,outline:'none',padding:0}}
               />
             </div>
-            <div style={{fontSize:11,color:'#86868B',fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'right',whiteSpace:'nowrap'}}>
+            <div style={{fontSize:11,color:C.dim,fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'right',whiteSpace:'nowrap'}}>
               {(values[d.v]||0)>0?fmt((values[d.v]||0)*d.v):''}
             </div>
           </div>
         ))}
       </div>
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <div style={{fontSize:13,color:'#6E6E73',fontWeight:700}}>TOTAL CONTADO</div>
+        <div style={{fontSize:13,color:C.mid,fontWeight:700}}>TOTAL CONTADO</div>
         <div style={{fontSize:28,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(total)}</div>
       </div>
     </div>
@@ -369,8 +369,8 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
       <div style={{width:'100%',maxWidth:600,animation:'fadeIn .2s ease'}}>
         <div style={{textAlign:'center',marginBottom:28}}>
           <div style={{fontFamily:'DM Serif Display',fontSize:28,marginBottom:6}}>Apertura de Turno</div>
-          <div style={{fontSize:13,color:'#6E6E73'}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
-          <div style={{fontSize:13,color:'#86868B',marginTop:4}}>Cajero: <span style={{color:C.white,fontWeight:700}}>{profile.display_name||profile.username}</span></div>
+          <div style={{fontSize:13,color:C.mid}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
+          <div style={{fontSize:13,color:C.dim,marginTop:4}}>Cajero: <span style={{color:C.white,fontWeight:700}}>{profile.display_name||profile.username}</span></div>
         </div>
 
         {turnoAbierto&&(
@@ -387,8 +387,8 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
         {cfgLoaded&&cfg.cash_fondo_fijo>0&&(
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'14px 18px',marginBottom:12,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
             <div>
-              <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:4}}>MODO DE APERTURA</div>
-              <div style={{fontSize:12,color:'#86868B'}}>{modo==='fijo'?`Fondo fijo definido por admin: ${fmt(cfg.cash_fondo_fijo)}`:'Cajero define el fondo libremente'}</div>
+              <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>MODO DE APERTURA</div>
+              <div style={{fontSize:12,color:C.dim}}>{modo==='fijo'?`Fondo fijo definido por admin: ${fmt(cfg.cash_fondo_fijo)}`:'Cajero define el fondo libremente'}</div>
             </div>
             <div style={{display:'flex',gap:6}}>
               {[['libre','Libre'],['fijo','Fondo fijo']].map(([v,lbl])=>(
@@ -402,9 +402,9 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
 
         {modo==='fijo'&&(
           <div style={{background:matchOk?'rgba(52,199,89,0.06)':'rgba(255,149,0,0.08)',border:`1px solid ${matchOk?'rgba(52,199,89,0.25)':'rgba(255,149,0,0.3)'}`,borderRadius:10,padding:'12px 16px',marginBottom:12,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,fontFamily:"'SF Mono',ui-monospace,monospace"}}>
-            <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:2}}>OBJETIVO</div><div style={{fontSize:16,fontWeight:800,color:C.ink}}>{fmt(objetivo)}</div></div>
-            <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:2}}>CONTADO</div><div style={{fontSize:16,fontWeight:800,color:C.ink}}>{fmt(total)}</div></div>
-            <div><div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:2}}>DIFERENCIA</div><div style={{fontSize:16,fontWeight:800,color:Math.abs(diffFijo)===0?'#34C759':Math.abs(diffFijo)<=umbral?'#FF9500':'#FF3B30'}}>{diffFijo>=0?'+':''}{fmt(diffFijo)}</div></div>
+            <div><div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:2}}>OBJETIVO</div><div style={{fontSize:16,fontWeight:800,color:C.ink}}>{fmt(objetivo)}</div></div>
+            <div><div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:2}}>CONTADO</div><div style={{fontSize:16,fontWeight:800,color:C.ink}}>{fmt(total)}</div></div>
+            <div><div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:2}}>DIFERENCIA</div><div style={{fontSize:16,fontWeight:800,color:Math.abs(diffFijo)===0?'#34C759':Math.abs(diffFijo)<=umbral?'#FF9500':'#FF3B30'}}>{diffFijo>=0?'+':''}{fmt(diffFijo)}</div></div>
           </div>
         )}
 
@@ -466,41 +466,50 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
     {id:'cierre',  icon:'',  lbl:'Cierre de caja'},
   ];
 
+  const themeDark = (window.MythosTheme && window.MythosTheme.get()==='dark');
   return(
     <aside style={{width:220,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
-      <div style={{padding:'16px 14px 12px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontFamily:'inherit',fontWeight:800,fontSize:18,color:'#000000',letterSpacing:'-1px',marginBottom:2}}>Mythos</div>
-        <div style={{fontSize:11,fontWeight:500,color:'#6E6E73'}}>Caja · {profile?.display_name||profile?.username}</div>
-        <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>Desde {fmtTime(turno.fecha_apertura)}</div>
+      <div style={{padding:'16px 14px 12px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:'inherit',fontWeight:800,fontSize:18,color:C.ink,letterSpacing:'-1px',marginBottom:2}}>Mythos</div>
+          <div style={{fontSize:11,fontWeight:500,color:C.mid}}>Caja · {profile?.display_name||profile?.username}</div>
+          <div style={{fontSize:11,color:C.mid,marginTop:2}}>Desde {fmtTime(turno.fecha_apertura)}</div>
+        </div>
+        <button onClick={onToggleTheme} title={themeDark?'Cambiar a claro':'Cambiar a oscuro'}
+          style={{width:28,height:28,borderRadius:'50%',background:'transparent',border:`1px solid ${C.border}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.ink,flexShrink:0,padding:0}}>
+          {themeDark
+            ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+            : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>}
+        </button>
       </div>
 
       {/* Reloj y duración */}
       <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:22,fontWeight:800,color:'#000000'}}>{hora.toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>
-        <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>Turno: {fmtDur(turno.fecha_apertura)}</div>
+        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:22,fontWeight:800,color:C.ink}}>{hora.toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>
+        <div style={{fontSize:11,color:C.mid,marginTop:2}}>Turno: {fmtDur(turno.fecha_apertura)}</div>
       </div>
 
       {/* Saldo estimado */}
       <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontSize:9,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>EFECTIVO EN CAJA (est.)</div>
-        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:18,fontWeight:700,color:'#000000'}}>{fmt(saldoEstimado)}</div>
-        <div style={{fontSize:9,color:'#86868B',marginTop:4}}>
+        <div style={{fontSize:9,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>EFECTIVO EN CAJA (est.)</div>
+        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:18,fontWeight:700,color:C.ink}}>{fmt(saldoEstimado)}</div>
+        <div style={{fontSize:9,color:C.dim,marginTop:4}}>
           Fondo {fmt(fondoApertura)} + cobros {fmt(efectivoCobros)}
         </div>
       </div>
 
       {/* Stats del turno */}
       <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`}}>
-        <div style={{fontSize:11,fontWeight:700,color:'#6E6E73',letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>RESUMEN DEL TURNO</div>
+        <div style={{fontSize:11,fontWeight:700,color:C.mid,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>RESUMEN DEL TURNO</div>
         <div style={{display:'flex',flexDirection:'column',gap:0}}>
           {[
             {lbl:'Pedidos cobrados',val:cobros.length},
             {lbl:'Total cobrado',val:fmt(totalCobrado)},
             {lbl:'Egresos',val:fmt(totalEgresos)},
           ].map(({lbl,val})=>(
-            <div key={lbl} style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingBottom:8,borderBottom:'1px solid #F0F0F0'}}>
-              <span style={{fontSize:12,color:'#6E6E73',fontWeight:500}}>{lbl}</span>
-              <span style={{fontSize:lbl==='Total cobrado'?20:16,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:lbl==='Total cobrado'?800:700,color:'#000000'}}>{val}</span>
+            <div key={lbl} style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>
+              <span style={{fontSize:12,color:C.mid,fontWeight:500}}>{lbl}</span>
+              <span style={{fontSize:lbl==='Total cobrado'?20:16,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:lbl==='Total cobrado'?800:700,color:C.ink}}>{val}</span>
             </div>
           ))}
         </div>
@@ -512,13 +521,13 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
           const badge = n.id==='cobros' ? paymentCalls : (n.badge||0);
           return(
           <button key={n.id} onClick={()=>setPanel(n.id)}
-            onMouseEnter={e=>{if(panel!==n.id)e.currentTarget.style.background='#F5F5F7';}}
+            onMouseEnter={e=>{if(panel!==n.id)e.currentTarget.style.background=C.bg;}}
             onMouseLeave={e=>{if(panel!==n.id)e.currentTarget.style.background='transparent';}}
             style={{
               display:'flex',alignItems:'center',gap:10,width:'100%',
               padding:'8px 12px',borderRadius:8,border:'none',textAlign:'left',cursor:'pointer',marginBottom:2,
-              background:panel===n.id?'#000000':'transparent',
-              color:panel===n.id?'#FFFFFF':'#1D1D1F',fontWeight:panel===n.id?700:500,fontSize:13,
+              background:panel===n.id?C.ink:'transparent',
+              color:panel===n.id?C.sidebar:C.ink,fontWeight:panel===n.id?700:500,fontSize:13,
           }}>
             {n.icon&&<span style={{width:18,textAlign:'center',fontSize:14}}>{n.icon}</span>}
             <span style={{flex:1}}>{n.lbl}</span>
@@ -536,13 +545,13 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
       {!isOnline&&(
         <div style={{margin:'0 8px 6px',background:'rgba(255,59,48,0.1)',border:'1px solid rgba(255,59,48,0.3)',borderRadius:8,padding:'8px 10px'}}>
           <div style={{fontSize:11,fontWeight:700,color:'#FF3B30',marginBottom:2}}>⚡ MODO OFFLINE</div>
-          <div style={{fontSize:10,color:'#86868B'}}>Menú desde caché local</div>
+          <div style={{fontSize:10,color:C.dim}}>Menú desde caché local</div>
           {pendingOffline>0&&<div style={{fontSize:10,color:'#FF9500',marginTop:2,fontWeight:600}}>{pendingOffline} pedido{pendingOffline>1?'s':''} pendiente{pendingOffline>1?'s':''} de sync</div>}
         </div>
       )}
 
       <div style={{padding:'10px 8px',borderTop:`1px solid ${C.border}`}}>
-        <button onClick={()=>window.location.href='admin.html'} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'7px 10px',borderRadius:6,border:'none',background:'transparent',color:'#6E6E73',fontSize:11,cursor:'pointer'}}>
+        <button onClick={()=>window.location.href='admin.html'} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'7px 10px',borderRadius:6,border:'none',background:'transparent',color:C.mid,fontSize:11,cursor:'pointer'}}>
           ← Admin
         </button>
         <button
@@ -640,10 +649,10 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
 
       {loading&&<div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
       {!loading&&display.length===0&&(
-        <div style={{textAlign:'center',padding:'60px 0',color:'#6E6E73'}}>
+        <div style={{textAlign:'center',padding:'60px 0',color:C.mid}}>
           <div style={{fontSize:36,marginBottom:12}}>✓</div>
-          <div style={{fontSize:14,fontWeight:700,color:'#1D1D1F'}}>No hay pedidos pendientes de cobro</div>
-          <div style={{fontSize:12,color:'#6E6E73',marginTop:6}}>Aparecen aquí pedidos de todos los canales: QR mesa, caja, delivery, para llevar</div>
+          <div style={{fontSize:14,fontWeight:700,color:C.ink}}>No hay pedidos pendientes de cobro</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:6}}>Aparecen aquí pedidos de todos los canales: QR mesa, caja, delivery, para llevar</div>
         </div>
       )}
       {!loading&&display.length>0&&(
@@ -671,7 +680,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                     <div style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace"}}>#{o.order_number}</div>
                     <div style={{display:'flex',gap:6,alignItems:'center',marginTop:4,flexWrap:'wrap'}}>
                       <Badge txt={orderTypeLabel(o.order_type)} color={orderTypeColor(o.order_type)}/>
-                      <span style={{fontSize:12,color:'#1D1D1F',fontWeight:600}}>{mesa}</span>
+                      <span style={{fontSize:12,color:C.ink,fontWeight:600}}>{mesa}</span>
                     </div>
                     {o.requires_invoice&&(o.invoice_status||'pending')==='pending'&&(
                       <div style={{display:'inline-block',marginTop:6,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8}}>
@@ -679,15 +688,15 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                         {o.customer_email?` · ${o.customer_email}`:''}
                       </div>
                     )}
-                    <div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{origen}</div>
+                    <div style={{fontSize:10,color:C.mid,marginTop:2}}>{origen}</div>
                   </div>
                   <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
                 </div>
                 {dInfo&&(
                   <div style={{background:'rgba(255,59,48,0.05)',border:'1px solid rgba(255,59,48,0.15)',borderRadius:7,padding:'7px 10px',marginBottom:8,fontSize:11}}>
-                    {(dInfo.customer_name||o.customer_name)&&<div style={{fontWeight:700,color:'#1D1D1F',marginBottom:2}}>👤 {dInfo.customer_name||o.customer_name}</div>}
-                    {dInfo.customer_phone&&<div style={{color:'#6E6E73',marginBottom:1}}>📞 {dInfo.customer_phone}</div>}
-                    {dInfo.delivery_address&&<div style={{color:'#6E6E73',marginBottom:1}}>📍 {dInfo.delivery_address}</div>}
+                    {(dInfo.customer_name||o.customer_name)&&<div style={{fontWeight:700,color:C.ink,marginBottom:2}}>👤 {dInfo.customer_name||o.customer_name}</div>}
+                    {dInfo.customer_phone&&<div style={{color:C.mid,marginBottom:1}}>📞 {dInfo.customer_phone}</div>}
+                    {dInfo.delivery_address&&<div style={{color:C.mid,marginBottom:1}}>📍 {dInfo.delivery_address}</div>}
                     {dInfo.rider_name
                       ? <div style={{color:dInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:2}}>🛵 Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':dInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
                       : <div style={{color:'#FF9500',fontWeight:600,marginTop:2}}>⏳ Sin rider asignado aún</div>
@@ -858,10 +867,10 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         <div style={{textAlign:'center',padding:'20px 0 8px'}}>
           <div style={{fontSize:48,marginBottom:8}}>✓</div>
           <div style={{fontSize:18,fontWeight:800,color:'#34C759',marginBottom:4}}>¡Cobrado!</div>
-          <div style={{fontSize:13,color:'#6E6E73',marginBottom:2}}>Pedido #{successTicket.orderNumber}</div>
-          <div style={{fontSize:12,color:'#6E6E73'}}>{successTicket.mesa}</div>
+          <div style={{fontSize:13,color:C.mid,marginBottom:2}}>Pedido #{successTicket.orderNumber}</div>
+          <div style={{fontSize:12,color:C.mid}}>{successTicket.mesa}</div>
         </div>
-        <div style={{background:'#F5F5F7',borderRadius:10,padding:'12px 14px',marginTop:12,marginBottom:16}}>
+        <div style={{background:C.bg,borderRadius:10,padding:'12px 14px',marginTop:12,marginBottom:16}}>
           {successTicket.items.map((it,i)=>(
             <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:3}}>
               <span>{it.quantity}× {it.item_name}</span>
@@ -873,7 +882,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
             <span style={{fontFamily:"'SF Mono',monospace",color:'#34C759'}}>{fmt(successTicket.total)}</span>
           </div>
           {successTicket.cambio>0&&(
-            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#6E6E73',marginTop:4}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:C.mid,marginTop:4}}>
               <span>Vuelto</span>
               <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt(successTicket.cambio)}</span>
             </div>
@@ -892,9 +901,9 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       {/* Info delivery */}
       {isDeliveryOrder&&deliveryInfo&&(
         <div style={{background:'rgba(255,59,48,0.05)',border:'1px solid rgba(255,59,48,0.18)',borderRadius:9,padding:'10px 13px',marginBottom:14,fontSize:12}}>
-          {(deliveryInfo.customer_name||order.customer_name)&&<div style={{fontWeight:700,color:'#1D1D1F',marginBottom:3}}>👤 {deliveryInfo.customer_name||order.customer_name}</div>}
-          {deliveryInfo.customer_phone&&<div style={{color:'#6E6E73',marginBottom:2}}>📞 {deliveryInfo.customer_phone}</div>}
-          {deliveryInfo.delivery_address&&<div style={{color:'#6E6E73',marginBottom:2}}>📍 {deliveryInfo.delivery_address}</div>}
+          {(deliveryInfo.customer_name||order.customer_name)&&<div style={{fontWeight:700,color:C.ink,marginBottom:3}}>👤 {deliveryInfo.customer_name||order.customer_name}</div>}
+          {deliveryInfo.customer_phone&&<div style={{color:C.mid,marginBottom:2}}>📞 {deliveryInfo.customer_phone}</div>}
+          {deliveryInfo.delivery_address&&<div style={{color:C.mid,marginBottom:2}}>📍 {deliveryInfo.delivery_address}</div>}
           {deliveryInfo.rider_name
             ?<div style={{color:deliveryInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:3}}>🛵 Rider: {deliveryInfo.rider_name}{deliveryInfo.rider_status==='on_way'?' — En camino':deliveryInfo.rider_status==='confirmed'?' — Esperando retiro':deliveryInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
             :<div style={{color:'#FF9500',fontWeight:600,marginTop:3}}>⏳ Sin rider asignado</div>
@@ -905,7 +914,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
                 <span style={{color:'#15803D',fontWeight:700}}>💵 Vuelto a llevar</span>
                 <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,fontSize:15,color:'#16A34A'}}>{fmt(cashChangeNum)}</span>
               </div>
-              <div style={{fontSize:10,color:'#6E6E73',marginTop:1}}>Cliente paga {fmt(cashAmountNum)} · total {fmt(totalReal+deliveryFeeNum)}</div>
+              <div style={{fontSize:10,color:C.mid,marginTop:1}}>Cliente paga {fmt(cashAmountNum)} · total {fmt(totalReal+deliveryFeeNum)}</div>
             </div>
           )}
         </div>
@@ -921,7 +930,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       )}
       <div style={{marginBottom:16}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
-          <span style={{fontSize:12,color:'#6E6E73'}}>{mesa}</span>
+          <span style={{fontSize:12,color:C.mid}}>{mesa}</span>
           <Badge txt={SL[order.status]} color={SC[order.status]||'#6E6E73'}/>
         </div>
         {items.length>0&&(
@@ -935,7 +944,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           </div>
         )}
         {isDeliveryOrder&&deliveryFeeNum>0&&(
-          <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#6E6E73',marginBottom:6}}>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:C.mid,marginBottom:6}}>
             <span>Costo delivery</span>
             <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(deliveryFeeNum)}</span>
           </div>
@@ -984,7 +993,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
               <Lbl required>MONTO RECIBIDO (₲)</Lbl>
               <Inp type="number" mono value={montoPagado} onChange={e=>setMontoPagado(e.target.value)} placeholder={String(totalReal)}/>
             </div>
-            <button onClick={()=>setMontoPagado('0')} title="Limpiar" style={{marginTop:18,padding:'9px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#86868B',fontSize:13,cursor:'pointer'}}>✕</button>
+            <button onClick={()=>setMontoPagado('0')} title="Limpiar" style={{marginTop:18,padding:'9px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.dim,fontSize:13,cursor:'pointer'}}>✕</button>
           </div>
           {/* Vuelto */}
           {montoNum>0&&(
@@ -994,7 +1003,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
                   <span style={{fontSize:13,color:'#86efac',fontWeight:700}}>Vuelto a devolver</span>
                   <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:26,fontWeight:800,color:cambio>0?C.green:'#6E6E73'}}>{cambio>0?fmt(cambio):'Sin vuelto'}</span>
                 </div>
-                {cambio>0&&<div style={{fontSize:11,color:'#6E6E73',marginTop:4}}>Recibido {fmt(montoNum)} − Total {fmt(totalReal)}</div>}
+                {cambio>0&&<div style={{fontSize:11,color:C.mid,marginTop:4}}>Recibido {fmt(montoNum)} − Total {fmt(totalReal)}</div>}
               </div>
             ):(
               <div style={{padding:'10px 14px',background:'rgba(239,68,68,0.08)',border:`1px solid rgba(239,68,68,0.3)`,borderRadius:7}}>
@@ -1098,9 +1107,9 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
       <AlertBox type="warn">Las cancelaciones quedan registradas con usuario, motivo y timestamp. No se pueden borrar del historial.</AlertBox>
       <div style={{display:'grid',gridTemplateColumns:'1fr 360px',gap:16}}>
         <div>
-          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>SELECCIONAR PEDIDO A CANCELAR</div>
+          <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>SELECCIONAR PEDIDO A CANCELAR</div>
           {loading&&<span className="spin"/>}
-          {!loading&&orders.length===0&&<div style={{color:'#6E6E73',fontSize:13,padding:20,fontWeight:500}}>No hay pedidos activos para cancelar.</div>}
+          {!loading&&orders.length===0&&<div style={{color:C.mid,fontSize:13,padding:20,fontWeight:500}}>No hay pedidos activos para cancelar.</div>}
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
             {orders.map(o=>{
               const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.customer_name||'Sin mesa';
@@ -1109,8 +1118,8 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
                 <div key={o.id} onClick={()=>setSelected(o)}
                   style={{background:selected?.id===o.id?'#EBEBEB':C.surface,border:`2px solid ${selected?.id===o.id?'#000000':C.border}`,borderRadius:8,padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
-                    <div style={{fontSize:14,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F'}}>#{o.order_number}</div>
-                    <div style={{fontSize:12,color:'#1D1D1F',marginTop:2,fontWeight:600}}>{mesa}</div>
+                    <div style={{fontSize:14,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>#{o.order_number}</div>
+                    <div style={{fontSize:12,color:C.ink,marginTop:2,fontWeight:600}}>{mesa}</div>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>
                     <Badge txt={SL[o.status]} color={SC[o.status]||'#6E6E73'}/>
@@ -1124,12 +1133,12 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
         </div>
 
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,height:'fit-content'}}>
-          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>MOTIVO DE CANCELACIÓN</div>
+          <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>MOTIVO DE CANCELACIÓN</div>
           {selected?(
             <>
               <div style={{marginBottom:14,padding:'10px 14px',background:'#F0F0F0',borderRadius:7,border:`1px solid ${C.border}`}}>
-                <div style={{fontSize:14,fontWeight:800,color:'#1D1D1F'}}>#{selected.order_number}</div>
-                <div style={{fontSize:13,color:'#1D1D1F',marginTop:2,fontWeight:600}}>{fmt(selected.total)}</div>
+                <div style={{fontSize:14,fontWeight:800,color:C.ink}}>#{selected.order_number}</div>
+                <div style={{fontSize:13,color:C.ink,marginTop:2,fontWeight:600}}>{fmt(selected.total)}</div>
               </div>
               {['kitchen_received','cooking','ready'].includes(selected.status)&&(
                 <AlertBox type="error">⚠ Pedido ya enviado a cocina. Solo {['admin','superadmin'].includes(profile?.role)?'podés cancelar':'puede cancelarlo un supervisor'}.</AlertBox>
@@ -1156,7 +1165,7 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
               </Btn>
             </>
           ):(
-            <div style={{color:'#6E6E73',fontSize:13,padding:'20px 0',textAlign:'center',fontWeight:500}}>← Seleccioná un pedido de la lista</div>
+            <div style={{color:C.mid,fontSize:13,padding:'20px 0',textAlign:'center',fontWeight:500}}>← Seleccioná un pedido de la lista</div>
           )}
         </div>
       </div>
@@ -1209,14 +1218,14 @@ function IngresosEgresosPanel({turno,profile,movimientos,onMovimiento}){
             ))}
           </div>
           {historial.length===0?(
-            <div style={{color:'#6E6E73',fontSize:13,padding:20,textAlign:'center',fontWeight:500}}>Sin registros en este turno</div>
+            <div style={{color:C.mid,fontSize:13,padding:20,textAlign:'center',fontWeight:500}}>Sin registros en este turno</div>
           ):(
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
               {historial.map(m=>(
                 <div key={m.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
-                    <div style={{fontSize:13,fontWeight:700,color:'#1D1D1F'}}>{m.descripcion}</div>
-                    <div style={{fontSize:12,color:'#6E6E73',marginTop:2,fontWeight:500}}>{m.categoria} · {fmtTime(m.created_at)}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:C.ink}}>{m.descripcion}</div>
+                    <div style={{fontSize:12,color:C.mid,marginTop:2,fontWeight:500}}>{m.categoria} · {fmtTime(m.created_at)}</div>
                   </div>
                   <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:16,fontWeight:800,color:tipo==='egreso'?C.red:C.green}}>{tipo==='egreso'?'− ':''}{fmt(m.monto)}</div>
                 </div>
@@ -1227,7 +1236,7 @@ function IngresosEgresosPanel({turno,profile,movimientos,onMovimiento}){
 
         {/* Formulario */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,height:'fit-content'}}>
-          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>
+          <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>
             {tipo==='egreso'?'REGISTRAR EGRESO':'REGISTRAR INGRESO MANUAL'}
           </div>
           <div style={{marginBottom:12}}>
@@ -1389,7 +1398,7 @@ function QuejasPanel({turno,profile}){
       )}
 
       {loading&&<span className="spin"/>}
-      {!loading&&quejas.length===0&&<div style={{color:'#6E6E73',fontSize:13,padding:20,textAlign:'center',fontWeight:500}}>Sin registros en este turno</div>}
+      {!loading&&quejas.length===0&&<div style={{color:C.mid,fontSize:13,padding:20,textAlign:'center',fontWeight:500}}>Sin registros en este turno</div>}
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
         {quejas.map(q=>(
           <div key={q.id} style={{background:C.surface,border:`1px solid ${tipoColor[q.tipo]||'#D2D2D7'}44`,borderRadius:8,padding:'12px 14px'}}>
@@ -1399,7 +1408,7 @@ function QuejasPanel({turno,profile}){
                 {q.urgencia&&<Badge txt={q.urgencia} color={urgColor[q.urgencia]||'#6E6E73'}/>}
                 {q.categoria&&<Badge txt={q.categoria} color="#6E6E73"/>}
               </div>
-              <span style={{fontSize:11,color:'#6E6E73',fontWeight:500}}>{fmtTime(q.created_at)}</span>
+              <span style={{fontSize:11,color:C.mid,fontWeight:500}}>{fmtTime(q.created_at)}</span>
             </div>
             <div style={{fontSize:13,color:C.ink,marginBottom:q.compensacion_ofrecida?6:0}}>{q.descripcion}</div>
             {q.compensacion_ofrecida&&(
@@ -1469,27 +1478,27 @@ function RetiroPanel({turno,profile,movimientos,onMovimiento}){
       <div style={{display:'grid',gridTemplateColumns:'1fr 380px',gap:16,alignItems:'start'}}>
         {/* Historial de retiros del turno */}
         <div>
-          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>RETIROS DE ESTE TURNO</div>
+          <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>RETIROS DE ESTE TURNO</div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:14}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
-              <span style={{fontSize:11,color:'#6E6E73'}}>Efectivo disponible (est.)</span>
+              <span style={{fontSize:11,color:C.mid}}>Efectivo disponible (est.)</span>
               <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:16,fontWeight:700,color:C.green}}>{fmt(saldoEfectivo)}</span>
             </div>
             <div style={{display:'flex',justifyContent:'space-between'}}>
-              <span style={{fontSize:11,color:'#6E6E73'}}>Total retirado hoy</span>
+              <span style={{fontSize:11,color:C.mid}}>Total retirado hoy</span>
               <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:14,fontWeight:700,color:C.orange}}>{fmt(retirosYa)}</span>
             </div>
           </div>
           {retirosMov.length===0?(
-            <div style={{color:'#6E6E73',fontSize:13,padding:20,textAlign:'center',fontWeight:500}}>Sin retiros en este turno</div>
+            <div style={{color:C.mid,fontSize:13,padding:20,textAlign:'center',fontWeight:500}}>Sin retiros en este turno</div>
           ):(
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
               {retirosMov.map(m=>(
                 <div key={m.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:600}}>{m.descripcion}</div>
-                    <div style={{fontSize:11,color:'#86868B',marginTop:2}}>{m.usuario_nombre} · {fmtTime(m.created_at)}</div>
-                    {m.motivo&&<div style={{fontSize:11,color:'#6E6E73',marginTop:1}}>📝 {m.motivo}</div>}
+                    <div style={{fontSize:11,color:C.dim,marginTop:2}}>{m.usuario_nombre} · {fmtTime(m.created_at)}</div>
+                    {m.motivo&&<div style={{fontSize:11,color:C.mid,marginTop:1}}>📝 {m.motivo}</div>}
                   </div>
                   <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:700,color:C.orange}}>- {fmt(m.monto)}</div>
                 </div>
@@ -1500,7 +1509,7 @@ function RetiroPanel({turno,profile,movimientos,onMovimiento}){
 
         {/* Formulario */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,height:'fit-content'}}>
-          <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:14}}>NUEVO RETIRO</div>
+          <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>NUEVO RETIRO</div>
           <div style={{marginBottom:12}}>
             <Lbl required>MONTO A RETIRAR (₲)</Lbl>
             <Inp type="number" mono value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})} placeholder="0"/>
@@ -1543,7 +1552,7 @@ function ExtrasModal({item,extras,onClose,onConfirm}){
     <Modal title={item.name} onClose={onClose} width={420}>
       <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:22,fontWeight:800,color:C.green,marginBottom:16}}>{fmt(item.price_guarani)}</div>
       <div style={{marginBottom:14}}>
-        <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>EXTRAS</div>
+        <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>EXTRAS</div>
         <div style={{display:'flex',flexDirection:'column',gap:6}}>
           {extras.map(ex=>(
             <label key={ex.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',background:sel.includes(ex.id)?'rgba(255,255,255,0.05)':C.card,border:`1px solid ${sel.includes(ex.id)?C.white:C.border}`,borderRadius:7,cursor:'pointer'}}>
@@ -1689,10 +1698,10 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         <div style={{textAlign:'center',padding:'20px 0 8px'}}>
           <div style={{fontSize:48,marginBottom:8}}>✓</div>
           <div style={{fontSize:18,fontWeight:800,color:'#34C759',marginBottom:4}}>¡Cobrado!</div>
-          <div style={{fontSize:13,color:'#6E6E73',marginBottom:2}}>Pedido #{successTicket.orderNumber}</div>
-          <div style={{fontSize:12,color:'#6E6E73'}}>{successTicket.mesa}</div>
+          <div style={{fontSize:13,color:C.mid,marginBottom:2}}>Pedido #{successTicket.orderNumber}</div>
+          <div style={{fontSize:12,color:C.mid}}>{successTicket.mesa}</div>
         </div>
-        <div style={{background:'#F5F5F7',borderRadius:10,padding:'12px 14px',marginTop:12,marginBottom:16}}>
+        <div style={{background:C.bg,borderRadius:10,padding:'12px 14px',marginTop:12,marginBottom:16}}>
           {successTicket.items.map((it,i)=>(
             <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:3}}>
               <span>{it.quantity}× {it.item_name}</span>
@@ -1704,7 +1713,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
             <span style={{fontFamily:"'SF Mono',monospace",color:'#34C759'}}>{fmt(successTicket.total)}</span>
           </div>
           {successTicket.cambio>0&&(
-            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#6E6E73',marginTop:4}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:C.mid,marginTop:4}}>
               <span>Vuelto</span>
               <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt(successTicket.cambio)}</span>
             </div>
@@ -1721,18 +1730,18 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   return(
     <Modal title="Cobrar antes de enviar a cocina" onClose={onClose} width={500}>
       <div style={{marginBottom:16}}>
-        <div style={{background:'#F5F5F7',borderRadius:8,padding:'10px 14px',marginBottom:14}}>
-          <div style={{fontSize:12,color:'#6E6E73',marginBottom:4}}>{origen} {customerName?`— ${customerName}`:''}</div>
+        <div style={{background:C.bg,borderRadius:8,padding:'10px 14px',marginBottom:14}}>
+          <div style={{fontSize:12,color:C.mid,marginBottom:4}}>{origen} {customerName?`— ${customerName}`:''}</div>
           <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
             {cart.map(c=>(
-              <div key={c.cartId} style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#1D1D1F'}}>
+              <div key={c.cartId} style={{display:'flex',justifyContent:'space-between',fontSize:13,color:C.ink}}>
                 <span style={{fontWeight:500}}>{c.quantity}× {c.item.name}</span>
                 <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{fmt(c.linePrice*c.quantity)}</span>
               </div>
             ))}
           </div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',borderTop:'1px solid #D2D2D7',paddingTop:10}}>
-            <span style={{fontSize:14,fontWeight:800,color:'#1D1D1F'}}>TOTAL A COBRAR</span>
+            <span style={{fontSize:14,fontWeight:800,color:C.ink}}>TOTAL A COBRAR</span>
             <span style={{fontSize:26,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(subtotal)}</span>
           </div>
         </div>
@@ -1757,7 +1766,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
               {BILLETES.map(v=>(
                 <button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{
                   padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,
-                  background:'#F5F5F7',color:'#1D1D1F',fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer',
+                  background:C.bg,color:C.ink,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer',
                 }}>{v>=1000?`${v/1000}k`:v}</button>
               ))}
               <button onClick={()=>setMontoPagado(String(subtotal))} style={{
@@ -1805,7 +1814,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
             <Inp value={invName} onChange={e=>setInvName(e.target.value)} placeholder="Nombre / razón social"/>
             <Inp value={invRuc} onChange={e=>setInvRuc(e.target.value)} placeholder="RUC / Cédula"/>
             <Inp type="email" value={invEmail} onChange={e=>setInvEmail(e.target.value)} placeholder="Email (opcional — para enviar la factura)"/>
-            <div style={{fontSize:11,color:'#6E6E73'}}>Si dejás email se enviará por correo, si no se imprime. e-Kuatia (SIFEN) próximamente.</div>
+            <div style={{fontSize:11,color:C.mid}}>Si dejás email se enviará por correo, si no se imprime. e-Kuatia (SIFEN) próximamente.</div>
           </div>
         )}
       </div>
@@ -1940,7 +1949,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
             {/* Grid de productos — estilo POS con imágenes */}
             <div style={{flex:1,overflowY:'auto',paddingRight:4}}>
               {displayItems.length===0?(
-                <div style={{color:'#6E6E73',fontSize:13,padding:20}}>Sin productos disponibles</div>
+                <div style={{color:C.mid,fontSize:13,padding:20}}>Sin productos disponibles</div>
               ):(
                 <div className="ds-product-grid">
                   {displayItems.map(item=>{
@@ -1969,7 +1978,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,display:'flex',flexDirection:'column',minHeight:0,overflow:'hidden'}}>
             {/* Config del pedido */}
             <div style={{padding:'14px 16px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>PEDIDO ACTUAL</div>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>PEDIDO ACTUAL</div>
               {orderType==='dine_in'?(
                 <>
                   <Lbl required>MESA</Lbl>
@@ -1990,7 +1999,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
             {/* Ítems */}
             <div style={{flex:1,overflowY:'auto',padding:'10px 14px'}}>
               {cart.length===0?(
-                <div style={{textAlign:'center',padding:'28px 0',color:'#6E6E73'}}>
+                <div style={{textAlign:'center',padding:'28px 0',color:C.mid}}>
                   <div style={{fontSize:30,marginBottom:8}}>🛒</div>
                   <div style={{fontSize:11,fontWeight:500}}>Tocá un producto para agregarlo</div>
                 </div>
@@ -2001,7 +2010,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:13,fontWeight:600,lineHeight:1.3}}>{c.item.name}</div>
-                          {c.extras.length>0&&<div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{c.extras.map(e=>e.name).join(', ')}</div>}
+                          {c.extras.length>0&&<div style={{fontSize:10,color:C.mid,marginTop:2}}>{c.extras.map(e=>e.name).join(', ')}</div>}
                           {c.observations&&<div style={{fontSize:10,color:C.yellow,marginTop:2}}>📝 {c.observations}</div>}
                         </div>
                         <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,color:C.green,whiteSpace:'nowrap'}}>{fmt(c.linePrice*c.quantity)}</div>
@@ -2010,7 +2019,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
                         <button onClick={()=>setQty(c.cartId,c.quantity-1)} style={{width:26,height:26,borderRadius:5,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:16,cursor:'pointer',lineHeight:1}}>−</button>
                         <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,fontSize:14,minWidth:20,textAlign:'center'}}>{c.quantity}</span>
                         <button onClick={()=>setQty(c.cartId,c.quantity+1)} style={{width:26,height:26,borderRadius:5,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:16,cursor:'pointer',lineHeight:1}}>+</button>
-                        <button onClick={()=>removeFromCart(c.cartId)} style={{marginLeft:'auto',background:'none',border:'none',color:'#86868B',cursor:'pointer',fontSize:15,padding:0}}>✕</button>
+                        <button onClick={()=>removeFromCart(c.cartId)} style={{marginLeft:'auto',background:'none',border:'none',color:C.dim,cursor:'pointer',fontSize:15,padding:0}}>✕</button>
                       </div>
                     </div>
                   ))}
@@ -2029,7 +2038,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
                   {'💳 Cobrar y enviar →'}
                 </Btn>
                 {cart.length>0&&(
-                  <button onClick={()=>setCart([])} style={{background:'none',border:`1px solid ${C.border}`,color:'#86868B',borderRadius:6,padding:'0 10px',cursor:'pointer',fontSize:11,flexShrink:0}}>Limpiar</button>
+                  <button onClick={()=>setCart([])} style={{background:'none',border:`1px solid ${C.border}`,color:C.dim,borderRadius:6,padding:'0 10px',cursor:'pointer',fontSize:11,flexShrink:0}}>Limpiar</button>
                 )}
               </div>
             </div>
@@ -2091,16 +2100,16 @@ function OrderDetailModal({order,onClose}){
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:14}}>
         <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#6E6E73'}/>
         {order.order_type&&<Badge txt={orderTypeLabel(order.order_type)} color={orderTypeColor(order.order_type)}/>}
-        <span style={{fontSize:12,color:'#6E6E73'}}>{mesa}</span>
-        <span style={{fontSize:11,color:'#86868B'}}>⏱ {espera}m</span>
+        <span style={{fontSize:12,color:C.mid}}>{mesa}</span>
+        <span style={{fontSize:11,color:C.dim}}>⏱ {espera}m</span>
       </div>
 
       {/* Info delivery */}
       {isDelivery&&dInfo&&(
         <div style={{background:'rgba(255,59,48,0.05)',border:'1px solid rgba(255,59,48,0.18)',borderRadius:9,padding:'10px 13px',marginBottom:14,fontSize:12}}>
-          {(dInfo.customer_name||order.customer_name)&&<div style={{fontWeight:700,color:'#1D1D1F',marginBottom:3}}>👤 {dInfo.customer_name||order.customer_name}</div>}
-          {dInfo.customer_phone&&<div style={{color:'#6E6E73',marginBottom:2}}>📞 {dInfo.customer_phone}</div>}
-          {dInfo.delivery_address&&<div style={{color:'#6E6E73',marginBottom:2}}>📍 {dInfo.delivery_address}</div>}
+          {(dInfo.customer_name||order.customer_name)&&<div style={{fontWeight:700,color:C.ink,marginBottom:3}}>👤 {dInfo.customer_name||order.customer_name}</div>}
+          {dInfo.customer_phone&&<div style={{color:C.mid,marginBottom:2}}>📞 {dInfo.customer_phone}</div>}
+          {dInfo.delivery_address&&<div style={{color:C.mid,marginBottom:2}}>📍 {dInfo.delivery_address}</div>}
           {dInfo.rider_name
             ?<div style={{color:dInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:3}}>🛵 Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':dInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
             :<div style={{color:'#FF9500',fontWeight:600,marginTop:3}}>⏳ Sin rider asignado</div>
@@ -2111,15 +2120,15 @@ function OrderDetailModal({order,onClose}){
                 <span style={{color:'#15803D',fontWeight:700}}>💵 Vuelto a llevar</span>
                 <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,fontSize:14,color:'#16A34A'}}>{fmt(cashChg)}</span>
               </div>
-              <div style={{fontSize:10,color:'#6E6E73',marginTop:1}}>Cliente paga {fmt(cashAmt)} · total {fmt(orderTot)}</div>
+              <div style={{fontSize:10,color:C.mid,marginTop:1}}>Cliente paga {fmt(cashAmt)} · total {fmt(orderTot)}</div>
             </div>
           )}
         </div>
       )}
-      {isDelivery&&!dInfo&&<div style={{fontSize:11,color:'#86868B',marginBottom:12}}>Cargando info delivery…</div>}
+      {isDelivery&&!dInfo&&<div style={{fontSize:11,color:C.dim,marginBottom:12}}>Cargando info delivery…</div>}
 
       <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:12,minHeight:60}}>
-        {items.length===0&&<div style={{color:'#86868B',fontSize:12,textAlign:'center',padding:8}}>Cargando ítems…</div>}
+        {items.length===0&&<div style={{color:C.dim,fontSize:12,textAlign:'center',padding:8}}>Cargando ítems…</div>}
         {items.map(it=>(
           <div key={it.id} style={{marginBottom:8}}>
             <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}>
@@ -2128,13 +2137,13 @@ function OrderDetailModal({order,onClose}){
             </div>
             {it.observations&&<div style={{fontSize:11,color:C.yellow,marginLeft:12}}>📝 {it.observations}</div>}
             {(it.order_item_extras||[]).map(ex=>(
-              <div key={ex.extra_name} style={{fontSize:11,color:'#6E6E73',marginLeft:12}}>+ {ex.extra_name}{ex.extra_price>0?` (${fmt(ex.extra_price)})`:''}</div>
+              <div key={ex.extra_name} style={{fontSize:11,color:C.mid,marginLeft:12}}>+ {ex.extra_name}{ex.extra_price>0?` (${fmt(ex.extra_price)})`:''}</div>
             ))}
           </div>
         ))}
       </div>
       {isDelivery&&deliveryFee>0&&(
-        <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#6E6E73',marginBottom:6}}>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:C.mid,marginBottom:6}}>
           <span>Costo delivery</span>
           <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(deliveryFee)}</span>
         </div>
@@ -2274,7 +2283,7 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,reservationByTable,ed
       <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
         <div style={{width:8,height:8,borderRadius:'50%',background:zd.dot}}/>
         <div style={{fontSize:12,fontWeight:700,color:'#3D3D3D',textTransform:'uppercase',letterSpacing:'0.5px'}}>{zd.label}</div>
-        <div style={{fontSize:11,color:'#86868B'}}>· {tables.length} {tables.length===1?'mesa':'mesas'}</div>
+        <div style={{fontSize:11,color:C.dim}}>· {tables.length} {tables.length===1?'mesa':'mesas'}</div>
       </div>
       <div ref={canvasRef} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
         style={{position:'relative',width:'100%',height:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,borderRadius:10,overflow:'hidden',touchAction:editMode?'none':'auto'}}>
@@ -2306,7 +2315,7 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,reservationByTable,ed
               {sesTotal>0&&<div style={{fontSize:8,color:sc.tx==='#FFFFFF'?'rgba(255,255,255,0.85)':'#22C55E',fontWeight:700,lineHeight:1,marginBottom:2,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(sesTotal)}</div>}
               <div style={{fontSize:shape==='rectangle'?13:16,fontWeight:800,color:sc.tx,lineHeight:1}}>{t.number}</div>
               {status==='libre'
-                ?<div style={{fontSize:8,color:'#86868B',marginTop:2,fontWeight:500}}>Libre</div>
+                ?<div style={{fontSize:8,color:C.dim,marginTop:2,fontWeight:500}}>Libre</div>
                 :<div style={{fontSize:8,color:sc.tx,marginTop:2,fontWeight:status==='alerta_reserva'?800:500}}>
                   {status==='cocina'?'Cocina':status==='lista'?'Lista':status==='cobro'?'A cobrar':status==='reservada'?'Reservada':status==='alerta_reserva'?'¡Liberar!':'Ocupada'}
                 </div>
@@ -2315,7 +2324,7 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,reservationByTable,ed
                 ?<div style={{fontSize:8,color:sc.tx,marginTop:1,fontWeight:700}}>{reservationByTable[t.id].reservation.reservation_time?.slice(0,5)} · {reservationByTable[t.id].reservation.guests}p</div>
                 :<div style={{fontSize:8,color:sc.tx==='#FFFFFF'?'rgba(255,255,255,0.5)':'#86868B',marginTop:2}}>{t.capacity||4} pax</div>
               }
-              {editMode&&<div style={{position:'absolute',top:3,right:5,fontSize:9,color:'#86868B'}}>✎</div>}
+              {editMode&&<div style={{position:'absolute',top:3,right:5,fontSize:9,color:C.dim}}>✎</div>}
             </div>
           );
         })}
@@ -2428,7 +2437,7 @@ function MesaEditModalC({table,onSave,onClose}){
           </div>
         </div>
         {table.zona!==form.zona&&(
-          <div style={{fontSize:11,color:'#86868B',background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:6,padding:'8px 10px'}}>
+          <div style={{fontSize:11,color:C.dim,background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:6,padding:'8px 10px'}}>
             Al cambiar de zona, la mesa se reposicionará automáticamente.
           </div>
         )}
@@ -2627,7 +2636,7 @@ function SalonPanel({profile}){
             {table.assigned_waiter_name&&<div style={{fontSize:11,color:'#AAAAAA',marginTop:4}}>👤 {table.assigned_waiter_name}</div>}
           </>
         ):(
-          <div style={{color:'#6E6E73',fontSize:13,marginTop:12,fontWeight:700,letterSpacing:'0.05em'}}>LIBRE</div>
+          <div style={{color:C.mid,fontSize:13,marginTop:12,fontWeight:700,letterSpacing:'0.05em'}}>LIBRE</div>
         )}
       </div>
     );
@@ -2662,7 +2671,7 @@ function SalonPanel({profile}){
               {order.requires_invoice&&(order.invoice_status||'pending')==='pending'&&(
                 <Badge txt={`🧾 ${order.invoice_delivery_method==='email'?'Factura email':'Factura impresa'}`} color={'#007AFF'}/>
               )}
-              <span style={{fontSize:10,color:'#6E6E73'}}>⏱ {espera}m</span>
+              <span style={{fontSize:10,color:C.mid}}>⏱ {espera}m</span>
             </div>
           </div>
           <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:800,color:C.green,whiteSpace:'nowrap'}}>{fmt(order.total)}</div>
@@ -2677,10 +2686,10 @@ function SalonPanel({profile}){
         <div style={{fontSize:11,color:accent||'#1D1D1F',fontWeight:800,letterSpacing:'0.05em'}}>
           {title} <span style={{background:accent+'22',color:accent,border:`1px solid ${accent}44`,padding:'1px 7px',fontSize:10,borderRadius:10,fontWeight:700,marginLeft:4}}>{list.length}</span>
         </div>
-        {desc&&<div style={{fontSize:11,color:'#6E6E73',marginTop:3}}>{desc}</div>}
+        {desc&&<div style={{fontSize:11,color:C.mid,marginTop:3}}>{desc}</div>}
       </div>
       {list.length===0?(
-        <div style={{color:'#6E6E73',fontSize:12,padding:'8px 0',fontWeight:500}}>{emptyMsg}</div>
+        <div style={{color:C.mid,fontSize:12,padding:'8px 0',fontWeight:500}}>{emptyMsg}</div>
       ):(
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
           {list.map(o=><OrderRow key={o.id} order={o}/>)}
@@ -2713,9 +2722,9 @@ function SalonPanel({profile}){
           {/* Mapa de zonas */}
           <div>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
-              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1}}>MAPA DEL SALÓN</div>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>MAPA DEL SALÓN</div>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                {editMode&&<div style={{fontSize:11,color:'#86868B'}}>Arrastrá para posicionar · click para editar</div>}
+                {editMode&&<div style={{fontSize:11,color:C.dim}}>Arrastrá para posicionar · click para editar</div>}
                 <button type="button" onClick={()=>setNewMesa(true)}
                   style={{padding:'5px 14px',borderRadius:6,border:'none',background:'#000',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>
                   + Nueva mesa
@@ -2727,7 +2736,7 @@ function SalonPanel({profile}){
               </div>
             </div>
             {tables.length===0?(
-              <div style={{color:'#6E6E73',fontSize:13,padding:20,fontWeight:500}}>No hay mesas configuradas para este restaurante.</div>
+              <div style={{color:C.mid,fontSize:13,padding:20,fontWeight:500}}>No hay mesas configuradas para este restaurante.</div>
             ):(()=>{
               const zonaMap={};
               tables.forEach(t=>{const z=t.zona||'salon';if(!zonaMap[z])zonaMap[z]=[];zonaMap[z].push(t);});
@@ -2770,7 +2779,7 @@ function SalonPanel({profile}){
 
           {/* Columna derecha: salón sin mesa + para llevar + para retirar + delivery */}
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
-            {(salonACobrar.length>0||salonPagado.length>0)&&<div style={{fontSize:10,fontWeight:800,letterSpacing:'0.08em',color:'#6E6E73',paddingLeft:2}}>SALÓN</div>}
+            {(salonACobrar.length>0||salonPagado.length>0)&&<div style={{fontSize:10,fontWeight:800,letterSpacing:'0.08em',color:C.mid,paddingLeft:2}}>SALÓN</div>}
             {salonACobrar.length>0&&(
               <SideSection
                 title="SALÓN · SIN PAGAR"
@@ -2789,7 +2798,7 @@ function SalonPanel({profile}){
                 accent={'#34C759'}
               />
             )}
-            {(llevarACobrar.length>0||llevarPagado.length>0)&&<div style={{fontSize:10,fontWeight:800,letterSpacing:'0.08em',color:'#6E6E73',paddingLeft:2,marginTop:4}}>PARA LLEVAR</div>}
+            {(llevarACobrar.length>0||llevarPagado.length>0)&&<div style={{fontSize:10,fontWeight:800,letterSpacing:'0.08em',color:C.mid,paddingLeft:2,marginTop:4}}>PARA LLEVAR</div>}
             {llevarACobrar.length>0&&(
               <SideSection
                 title="PARA LLEVAR · SIN PAGAR"
@@ -2808,7 +2817,7 @@ function SalonPanel({profile}){
                 accent={'#34C759'}
               />
             )}
-            {(retirarACobrar.length>0||retirarPagado.length>0)&&<div style={{fontSize:10,fontWeight:800,letterSpacing:'0.08em',color:'#6E6E73',paddingLeft:2,marginTop:4}}>PARA RETIRAR</div>}
+            {(retirarACobrar.length>0||retirarPagado.length>0)&&<div style={{fontSize:10,fontWeight:800,letterSpacing:'0.08em',color:C.mid,paddingLeft:2,marginTop:4}}>PARA RETIRAR</div>}
             {retirarACobrar.length>0&&(
               <SideSection
                 title="PARA RETIRAR · SIN PAGAR"
@@ -2855,14 +2864,14 @@ function SalonPanel({profile}){
                 </div>
               )}
               <div style={{background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:8,padding:'12px 14px'}}>
-                <div style={{fontSize:16,fontWeight:800,color:'#1D1D1F',marginBottom:6}}>{r.customer_name}</div>
+                <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:6}}>{r.customer_name}</div>
                 <div style={{fontSize:13,color:'#3D3D3D',lineHeight:1.7}}>
                   📞 {r.customer_phone}<br/>
                   🕐 Hora reservada: <strong>{horaTxt}</strong> ({tiempoTxt})<br/>
                   👥 {r.guests} personas{r.occasion?<><br/>🎉 Motivo: {r.occasion}</>:null}
                   {r.notes?<><br/>📝 {r.notes}</>:null}
                 </div>
-                <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#86868B',marginTop:8}}>Confirmación {r.confirm_num}</div>
+                <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:C.dim,marginTop:8}}>Confirmación {r.confirm_num}</div>
               </div>
               <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:6}}>
                 <Btn variant="ghost" onClick={()=>setResvInfo(null)}>Cerrar</Btn>
@@ -2896,16 +2905,16 @@ function SalonPanel({profile}){
         <Modal title={`Mesa ${selTable.table.number} — ${esLibre?'Libre':'Servicio activo'}`} onClose={()=>setSelTable(null)} width={540}>
           <div style={{marginBottom:16}}>
             {/* Info de mesa */}
-            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:14,padding:'10px 14px',background:'#F5F5F7',borderRadius:8}}>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:14,padding:'10px 14px',background:C.bg,borderRadius:8}}>
               <Badge txt={esLibre?'Libre':'Ocupada'} color={esLibre?'#6E6E73':C.green}/>
-              {selTable.table.capacity&&<span style={{fontSize:12,color:'#1D1D1F',fontWeight:600}}>{selTable.table.capacity} pax</span>}
+              {selTable.table.capacity&&<span style={{fontSize:12,color:C.ink,fontWeight:600}}>{selTable.table.capacity} pax</span>}
               {selTable.table.occupied_since&&(
-                <span style={{fontSize:12,color:'#6E6E73'}}>Desde {fmtTime(selTable.table.occupied_since)}</span>
+                <span style={{fontSize:12,color:C.mid}}>Desde {fmtTime(selTable.table.occupied_since)}</span>
               )}
               {(selTable.table.assigned_waiter_name||selTable.orders[0]?.waiter_name)?(
-                <span style={{fontSize:12,color:'#1D1D1F',fontWeight:600}}>👤 Mozo: {selTable.table.assigned_waiter_name||selTable.orders[0].waiter_name}</span>
+                <span style={{fontSize:12,color:C.ink,fontWeight:600}}>👤 Mozo: {selTable.table.assigned_waiter_name||selTable.orders[0].waiter_name}</span>
               ):(
-                <span style={{fontSize:12,color:'#6E6E73'}}>👤 Sin mozo asignado</span>
+                <span style={{fontSize:12,color:C.mid}}>👤 Sin mozo asignado</span>
               )}
             </div>
 
@@ -2920,42 +2929,42 @@ function SalonPanel({profile}){
                   <div style={{background:'rgba(52,199,89,0.1)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
                     <div style={{fontSize:10,color:'#1A7E37',fontWeight:700,marginBottom:4}}>PAGADO</div>
                     <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1A7E37'}}>{fmt(totalPagado)}</div>
-                    <div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{pagados.length} pedido{pagados.length!==1?'s':''}</div>
+                    <div style={{fontSize:10,color:C.mid,marginTop:2}}>{pagados.length} pedido{pagados.length!==1?'s':''}</div>
                   </div>
                   <div style={{background:totalSinCobrar>0?'rgba(255,59,48,0.1)':'rgba(52,199,89,0.05)',border:`1px solid ${totalSinCobrar>0?'rgba(255,59,48,0.3)':'rgba(52,199,89,0.2)'}`,borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
                     <div style={{fontSize:10,color:totalSinCobrar>0?'#C0190F':'#6E6E73',fontWeight:700,marginBottom:4}}>SIN COBRAR</div>
                     <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:totalSinCobrar>0?C.red:'#6E6E73'}}>{fmt(totalSinCobrar)}</div>
-                    <div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{sinCobrar.length} pedido{sinCobrar.length!==1?'s':''}</div>
+                    <div style={{fontSize:10,color:C.mid,marginTop:2}}>{sinCobrar.length} pedido{sinCobrar.length!==1?'s':''}</div>
                   </div>
                   <div style={{background:'rgba(0,0,0,0.05)',border:'1px solid rgba(0,0,0,0.1)',borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
-                    <div style={{fontSize:10,color:'#1D1D1F',fontWeight:700,marginBottom:4}}>TOTAL SERVICIO</div>
-                    <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F'}}>{fmt(selTable.orders.reduce((s,o)=>s+Number(o.total||0),0))}</div>
-                    <div style={{fontSize:10,color:'#6E6E73',marginTop:2}}>{selTable.orders.length} pedido{selTable.orders.length!==1?'s':''}</div>
+                    <div style={{fontSize:10,color:C.ink,fontWeight:700,marginBottom:4}}>TOTAL SERVICIO</div>
+                    <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>{fmt(selTable.orders.reduce((s,o)=>s+Number(o.total||0),0))}</div>
+                    <div style={{fontSize:10,color:C.mid,marginTop:2}}>{selTable.orders.length} pedido{selTable.orders.length!==1?'s':''}</div>
                   </div>
                 </div>
               );
             })()}
 
-            {selTable.orders.length===0&&<div style={{textAlign:'center',padding:20,color:'#6E6E73',fontWeight:500}}>{esLibre?'Mesa libre — sin servicio activo':'Sin órdenes registradas en esta sesión'}</div>}
+            {selTable.orders.length===0&&<div style={{textAlign:'center',padding:20,color:C.mid,fontWeight:500}}>{esLibre?'Mesa libre — sin servicio activo':'Sin órdenes registradas en esta sesión'}</div>}
             {selTable.orders.map((ord,idx)=>{
               const esPagado=ord.payment_status==='paid';
               return(
                 <div key={ord.id} style={{marginBottom:14,border:`1px solid ${esPagado?'rgba(52,199,89,0.3)':'rgba(255,59,48,0.3)'}`,borderRadius:8,padding:12,background:esPagado?'rgba(52,199,89,0.04)':'rgba(255,59,48,0.04)'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                     <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                      <span style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F'}}>#{ord.order_number}</span>
+                      <span style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>#{ord.order_number}</span>
                       {!(ord.status==='pending_payment'&&esPagado)&&<Badge txt={SL[ord.status]||ord.status} color={SC[ord.status]||'#6E6E73'} />}
                       {esPagado?<span style={{fontSize:10,color:C.green,fontWeight:700}}>✓ Cobrado</span>:<span style={{fontSize:10,color:C.red,fontWeight:700}}>⚠ Sin cobrar</span>}
                     </div>
                     <div style={{textAlign:'right'}}>
                       <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:16,fontWeight:800,color:esPagado?C.green:C.red}}>{fmt(ord.total)}</div>
-                      <div style={{fontSize:10,color:'#6E6E73'}}>{fmtTime(ord.created_at)}</div>
+                      <div style={{fontSize:10,color:C.mid}}>{fmtTime(ord.created_at)}</div>
                     </div>
                   </div>
                   {(ord.order_items||[]).map(it=>(
-                    <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:12,padding:'3px 8px',background:'rgba(0,0,0,0.04)',borderRadius:5,marginBottom:2,color:'#1D1D1F'}}>
-                      <span style={{fontWeight:500}}>{it.quantity}× {it.item_name}{it.observations?<span style={{color:'#6E6E73',fontSize:11}}> — {it.observations}</span>:null}</span>
-                      <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F',fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
+                    <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:12,padding:'3px 8px',background:'rgba(0,0,0,0.04)',borderRadius:5,marginBottom:2,color:C.ink}}>
+                      <span style={{fontWeight:500}}>{it.quantity}× {it.item_name}{it.observations?<span style={{color:C.mid,fontSize:11}}> — {it.observations}</span>:null}</span>
+                      <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink,fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
                     </div>
                   ))}
                 </div>
@@ -3136,7 +3145,7 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
             </div>
           )}
           <div style={{display:'flex',gap:8}}>
-            <div style={{marginRight:'auto',fontSize:12,color:'#6E6E73',alignSelf:'center'}}>
+            <div style={{marginRight:'auto',fontSize:12,color:C.mid,alignSelf:'center'}}>
               Turno activo desde {fmtDT(turno.fecha_apertura)} · {fmtDur(turno.fecha_apertura)}
             </div>
             <div>
@@ -3177,7 +3186,7 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
 
           {modoFijo&&(
             <div style={{background:autoRetiro?'rgba(0,122,255,0.06)':'rgba(255,149,0,0.06)',border:`1px solid ${autoRetiro?'rgba(0,122,255,0.25)':'rgba(255,149,0,0.25)'}`,borderRadius:10,padding:20,marginBottom:16}}>
-              <div style={{fontSize:11,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:10}}>CIERRE CON FONDO FIJO</div>
+              <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>CIERRE CON FONDO FIJO</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:12}}>
                 <KpiMini label="Fondo fijo a dejar" value={fmt(fondoFijoObj)} accent={C.mid}/>
                 <KpiMini label="Efectivo contado" value={fmt(contado)} accent={C.ink}/>
@@ -3293,12 +3302,12 @@ function CalculadoraFlotante(){
       {open&&(
         <div style={{
           position:'fixed',bottom:80,right:24,zIndex:1001,
-          background:'#F5F5F7',border:`1px solid ${C.bs}`,
+          background:C.bg,border:`1px solid ${C.bs}`,
           borderRadius:12,padding:12,width:238,
           boxShadow:'0 8px 32px rgba(0,0,0,0.7)',animation:'slideUp 150ms ease',
         }}>
           <div style={{textAlign:'right',marginBottom:8,padding:'8px 10px',background:C.card,borderRadius:8,minHeight:60}}>
-            {expr&&<div style={{fontSize:10,color:'#6E6E73',fontFamily:"'SF Mono',ui-monospace,monospace",marginBottom:2}}>{expr}</div>}
+            {expr&&<div style={{fontSize:10,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace",marginBottom:2}}>{expr}</div>}
             <div style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{display}</div>
             {fmtCalc&&<div style={{fontSize:11,color:C.green,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmtCalc}</div>}
           </div>
@@ -3514,7 +3523,7 @@ function ReservasPanel(){
     pending:   {label:'Pendiente', color:'#FF9500', bg:'rgba(255,149,0,.12)'},
     confirmed: {label:'Confirmada',color:'#34C759', bg:'rgba(52,199,89,.12)'},
     seated:    {label:'En mesa',   color:'#007AFF', bg:'rgba(0,122,255,.12)'},
-    no_show:   {label:'No llegó',  color:'#6E6E73', bg:'rgba(110,110,115,.12)'},
+    no_show:   {label:'No llegó',  color:C.mid, bg:'rgba(110,110,115,.12)'},
     cancelled: {label:'Cancelada', color:'#FF3B30', bg:'rgba(255,59,48,.12)'},
   };
 
@@ -3544,7 +3553,7 @@ function ReservasPanel(){
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:10}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:800,color:'#000000',margin:0}}>Reservas</h1>
-          <div style={{fontSize:12,color:'#6E6E73',marginTop:3}}>{reservas.filter(r=>['pending','confirmed'].includes(r.status)).length} activas para esta fecha</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:3}}>{reservas.filter(r=>['pending','confirmed'].includes(r.status)).length} activas para esta fecha</div>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <input type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}
@@ -3583,7 +3592,7 @@ function ReservasPanel(){
                     </div>
                     <div style={{fontSize:12,color:C.mid,marginTop:4}}>
                       {r.customer_phone}
-                      <span style={{marginLeft:12,color:'#86868B',fontFamily:'monospace',fontSize:11}}>{r.confirm_num}</span>
+                      <span style={{marginLeft:12,color:C.dim,fontFamily:'monospace',fontSize:11}}>{r.confirm_num}</span>
                     </div>
                     {r.notes&&<div style={{fontSize:11,color:C.mid,marginTop:6,fontStyle:'italic',borderTop:`1px solid ${C.border}`,paddingTop:6}}>{r.notes}</div>}
                   </div>
@@ -3675,7 +3684,7 @@ function FacturasCajaPanel({turno}){
         <span style={{fontSize:22}}>🇵🇾</span>
         <div>
           <div style={{fontSize:13,fontWeight:700,color:'#007AFF'}}>Facturación electrónica SET (SIFEN)</div>
-          <div style={{fontSize:11,color:'#6E6E73',marginTop:2}}>Próximamente — integración con la SET de Paraguay para emisión de facturas electrónicas (e-Kuatia).</div>
+          <div style={{fontSize:11,color:C.mid,marginTop:2}}>Próximamente — integración con la SET de Paraguay para emisión de facturas electrónicas (e-Kuatia).</div>
         </div>
         <span style={{marginLeft:'auto',fontSize:10,fontWeight:700,color:'#007AFF',background:'rgba(0,122,255,0.1)',padding:'3px 8px',borderRadius:10,whiteSpace:'nowrap'}}>PRÓX.</span>
       </div>
@@ -3683,7 +3692,7 @@ function FacturasCajaPanel({turno}){
       {loading&&<div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
 
       {!loading&&cobros.length===0&&(
-        <div style={{textAlign:'center',padding:'60px 0',color:'#6E6E73'}}>
+        <div style={{textAlign:'center',padding:'60px 0',color:C.mid}}>
           <div style={{fontSize:36,marginBottom:12}}>🧾</div>
           <div style={{fontSize:14,fontWeight:700}}>Sin facturas en este turno</div>
           <div style={{fontSize:12,marginTop:4}}>Aparecen aquí al cobrar pedidos</div>
@@ -3700,13 +3709,13 @@ function FacturasCajaPanel({turno}){
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
                     <span style={{fontSize:13,fontWeight:800}}>#{meta.orden_numero||'—'}</span>
-                    <span style={{fontSize:11,color:'#6E6E73'}}>{meta.mesa||'—'}</span>
-                    <span style={{fontSize:10,background:'#F0F0F0',borderRadius:6,padding:'1px 6px',color:'#6E6E73',fontWeight:600}}>{MET[c.metodo_pago]||c.metodo_pago}</span>
+                    <span style={{fontSize:11,color:C.mid}}>{meta.mesa||'—'}</span>
+                    <span style={{fontSize:10,background:'#F0F0F0',borderRadius:6,padding:'1px 6px',color:C.mid,fontWeight:600}}>{MET[c.metodo_pago]||c.metodo_pago}</span>
                   </div>
-                  <div style={{fontSize:11,color:'#86868B'}}>{hora}</div>
+                  <div style={{fontSize:11,color:C.dim}}>{hora}</div>
                 </div>
                 <div style={{fontFamily:"'SF Mono',monospace",fontSize:16,fontWeight:800,color:'#34C759',flexShrink:0}}>{fmt(c.monto)}</div>
-                <button onClick={()=>reimprimir(c)} title="Reimprimir ticket" style={{padding:'6px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:'#6E6E73',fontSize:13,cursor:'pointer',flexShrink:0}}>🖨</button>
+                <button onClick={()=>reimprimir(c)} title="Reimprimir ticket" style={{padding:'6px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:13,cursor:'pointer',flexShrink:0}}>🖨</button>
               </div>
             );
           })}
@@ -3801,7 +3810,7 @@ function HistorialPanel({onGoCobros}){
         <div style={{background:'rgba(255,59,48,0.08)',border:'2px solid rgba(255,59,48,0.5)',borderRadius:10,padding:'12px 16px',marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
           <div>
             <div style={{fontWeight:800,color:'#FF3B30',fontSize:14}}>⚠ {alertaPendientes} pedido{alertaPendientes>1?'s':''} sin cobrar en el historial</div>
-            <div style={{fontSize:12,color:'#6E6E73',marginTop:2}}>Estos pedidos no deberían estar aquí sin cobrar. Ir a cobrar para resolverlos.</div>
+            <div style={{fontSize:12,color:C.mid,marginTop:2}}>Estos pedidos no deberían estar aquí sin cobrar. Ir a cobrar para resolverlos.</div>
           </div>
           {onGoCobros&&<button onClick={onGoCobros} style={{background:'#FF3B30',color:'#fff',border:'none',padding:'8px 16px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>Ir a cobrar →</button>}
         </div>
@@ -3821,18 +3830,18 @@ function HistorialPanel({onGoCobros}){
         </div>
 
         {/* Status filter */}
-        <select value={statusFlt} onChange={e=>setStatusFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#FFF',color:'#1D1D1F',fontWeight:600}}>
+        <select value={statusFlt} onChange={e=>setStatusFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#FFF',color:C.ink,fontWeight:600}}>
           {STATUS_OPTIONS.map(s=><option key={s.id} value={s.id}>{s.lbl}</option>)}
         </select>
 
         {/* Tipo filter */}
-        <select value={tipoFlt} onChange={e=>setTipoFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#FFF',color:'#1D1D1F',fontWeight:600}}>
+        <select value={tipoFlt} onChange={e=>setTipoFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#FFF',color:C.ink,fontWeight:600}}>
           {TIPO_OPTIONS.map(t=><option key={t.id} value={t.id}>{t.lbl}</option>)}
         </select>
 
         {/* Búsqueda */}
         <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Buscar #nro, mesa, cliente…"
-          style={{padding:'6px 11px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:200,color:'#1D1D1F'}}/>
+          style={{padding:'6px 11px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:200,color:C.ink}}/>
       </div>
 
       {/* KPIs */}
@@ -3846,9 +3855,9 @@ function HistorialPanel({onGoCobros}){
       {loading&&<div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
 
       {!loading&&display.length===0&&(
-        <div style={{textAlign:'center',padding:'60px 0',color:'#6E6E73'}}>
+        <div style={{textAlign:'center',padding:'60px 0',color:C.mid}}>
           <div style={{fontSize:32,marginBottom:10}}>≡</div>
-          <div style={{fontSize:14,fontWeight:600,color:'#1D1D1F'}}>Sin pedidos en este período</div>
+          <div style={{fontSize:14,fontWeight:600,color:C.ink}}>Sin pedidos en este período</div>
         </div>
       )}
 
@@ -3866,12 +3875,12 @@ function HistorialPanel({onGoCobros}){
               <div key={o.id} style={{background:C.surface,border:`1px solid ${borderColor}`,borderRadius:8,padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
                 <div style={{minWidth:0,flex:1}}>
                   <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-                    <span style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1D1D1F'}}>#{o.order_number}</span>
+                    <span style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>#{o.order_number}</span>
                     <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
-                    <span style={{fontSize:11,color:'#6E6E73',fontWeight:500}}>{tipo}</span>
-                    <span style={{fontSize:11,color:'#6E6E73'}}>{mesa}</span>
+                    <span style={{fontSize:11,color:C.mid,fontWeight:500}}>{tipo}</span>
+                    <span style={{fontSize:11,color:C.mid}}>{mesa}</span>
                   </div>
-                  <div style={{fontSize:11,color:'#6E6E73',marginTop:4,display:'flex',gap:12}}>
+                  <div style={{fontSize:11,color:C.mid,marginTop:4,display:'flex',gap:12}}>
                     <span>{fmtDT(o.created_at)}</span>
                     {o.payment_method&&<span>💳 {metodo}</span>}
                   </div>
@@ -3904,8 +3913,8 @@ function AvisosCajaPanel({broadcasts=[]}){
         {broadcasts.map(b=>(
           <div key={b.id} style={{background:C.white,border:`1px solid ${C.border}`,borderLeft:'4px solid #007AFF',borderRadius:10,padding:'14px 16px'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-              <span style={{fontSize:12,fontWeight:700,color:'#86868B'}}>{b.sender_name}</span>
-              <span style={{fontSize:11,color:'#86868B'}}>{new Date(b.created_at).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})} · {new Date(b.created_at).toLocaleDateString('es',{day:'2-digit',month:'2-digit'})}</span>
+              <span style={{fontSize:12,fontWeight:700,color:C.dim}}>{b.sender_name}</span>
+              <span style={{fontSize:11,color:C.dim}}>{new Date(b.created_at).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})} · {new Date(b.created_at).toLocaleDateString('es',{day:'2-digit',month:'2-digit'})}</span>
             </div>
             <div style={{fontSize:14,color:C.ink,lineHeight:1.5}}>{b.message}</div>
           </div>
@@ -4085,7 +4094,7 @@ function DashboardCaja({turno,profile,onCierre}){
           <div style={{background:'rgba(255,149,0,0.12)',border:'1px solid rgba(255,149,0,0.5)',borderRadius:10,padding:'12px 16px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
             <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
               <span style={{fontSize:18}}>💰</span>
-              <span style={{fontSize:13,fontWeight:700,color:'#1D1D1F'}}>
+              <span style={{fontSize:13,fontWeight:700,color:C.ink}}>
                 {paymentCalls.length===1?'1 mesa solicita cobro':`${paymentCalls.length} mesas solicitan cobro`}
               </span>
               <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
@@ -4098,7 +4107,7 @@ function DashboardCaja({turno,profile,onCierre}){
             </div>
             <div style={{display:'flex',gap:6}}>
               <button onClick={()=>changePanel('cobros')} style={{background:'#FF9500',color:'#fff',border:'none',padding:'6px 14px',borderRadius:6,fontSize:12,fontWeight:700,cursor:'pointer'}}>Ir a cobrar</button>
-              <button onClick={()=>paymentCalls.forEach(c=>attendPaymentCall(c.id))} style={{background:'rgba(0,0,0,0.06)',color:'#1D1D1F',border:'1px solid rgba(0,0,0,0.1)',padding:'6px 12px',borderRadius:6,fontSize:12,fontWeight:600,cursor:'pointer'}}>Atender todas</button>
+              <button onClick={()=>paymentCalls.forEach(c=>attendPaymentCall(c.id))} style={{background:'rgba(0,0,0,0.06)',color:C.ink,border:'1px solid rgba(0,0,0,0.1)',padding:'6px 12px',borderRadius:6,fontSize:12,fontWeight:600,cursor:'pointer'}}>Atender todas</button>
             </div>
           </div>
         )}
@@ -4140,7 +4149,7 @@ function CajaApp({profile}){
   if(loading)return(
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:14}}>
       <span className="spin"/>
-      <div style={{fontSize:12,color:'#86868B'}}>Verificando turno activo…</div>
+      <div style={{fontSize:12,color:C.dim}}>Verificando turno activo…</div>
     </div>
   );
 
@@ -4148,7 +4157,7 @@ function CajaApp({profile}){
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16,padding:20}}>
       <div style={{fontSize:40}}>✓</div>
       <div style={{fontFamily:'DM Serif Display',fontSize:24}}>Turno cerrado</div>
-      <div style={{fontSize:13,color:'#6E6E73'}}>El arqueo quedó registrado correctamente.</div>
+      <div style={{fontSize:13,color:C.mid}}>El arqueo quedó registrado correctamente.</div>
       <div style={{display:'flex',gap:10}}>
         <Btn onClick={()=>{setCerrado(false);setTurno(null);checkTurno();}}>Abrir nuevo turno</Btn>
         <Btn variant="ghost" onClick={()=>window.location.href='admin.html'}>Ir al Admin</Btn>

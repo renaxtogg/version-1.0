@@ -54,7 +54,7 @@ const PALETTES = {
     border:'#38383A', bStrong:'#636366',
     white:'#1C1C1E', ink:'#F5F5F7', mid:'#AEAEB2', dim:'#636366',
     blue:'#F5F5F7', blueDim:'#2C2C2E',
-    green:'#34C759', orange:'#FF9500', red:'#FF3B30',
+    green:'#30D158', orange:'#FF9F0A', red:'#FF453A',
   },
 };
 const C = Object.assign({}, PALETTES[window.MythosTheme ? window.MythosTheme.get() : 'light']);
@@ -170,9 +170,9 @@ const statusMeta = {
   active:    {label:'Activo',     color:'#1A7E37', bg:'#E8F9ED'},
   trial:     {label:'Trial',      color:'#1D4ED8', bg:'#EEF4FF'},
   suspended: {label:'Suspendido', color:'#C0190F', bg:'#FFEDEC'},
-  inactive:  {label:'Inactivo',   color:'#6E6E73', bg:'#F5F5F7'},
+  inactive:  {label:'Inactivo',   color:C.mid, bg:'#F5F5F7'},
   expired:   {label:'Vencido',    color:'#C0190F', bg:'#FFEDEC'},
-  cancelled: {label:'Cancelado',  color:'#6E6E73', bg:'#F5F5F7'},
+  cancelled: {label:'Cancelado',  color:C.mid, bg:'#F5F5F7'},
   past_due:  {label:'Mora',       color:'#8A4B00', bg:'#FFF4E0'},
 };
 
@@ -208,11 +208,11 @@ const Btn = ({children,onClick,variant='primary',size='md',disabled,style:sx={},
   const base = {border:'none',borderRadius:6,fontWeight:600,cursor:disabled?'not-allowed':'pointer',opacity:disabled?.5:1,transition:'all .15s',...sx};
   const sz = size==='sm'?{padding:'4px 10px',fontSize:12}:{padding:'8px 16px',fontSize:14};
   const vars = {
-    primary: {background:'#000000',color:'#fff'},
+    primary: {background:C.ink,color:C.sidebar},
     ghost:   {background:'transparent',color:C.mid,border:`1px solid ${C.border}`},
-    danger:  {background:'#FFEDEC',color:C.red,border:`1px solid #FFB3AD`},
-    success: {background:'#E8F9ED',color:'#1A7E37',border:`1px solid #A3D9B1`},
-    warn:    {background:'#FFF4E0',color:'#8A4B00',border:`1px solid #FFD580`},
+    danger:  {background:C.red+'1E',color:C.red,border:`1px solid ${C.red}55`},
+    success: {background:C.green+'1E',color:C.green,border:`1px solid ${C.green}55`},
+    warn:    {background:C.orange+'1E',color:C.orange,border:`1px solid ${C.orange}55`},
   };
   return <button title={title} style={{...base,...sz,...vars[variant]}} onClick={disabled?undefined:onClick}>{children}</button>;
 };
@@ -224,14 +224,14 @@ const Badge = ({status}) => {
 
 const PlanBadge = ({name}) => {
   if (!name) return <span style={{color:C.dim,fontSize:11}}>—</span>;
-  return <span style={{padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:'#F5F5F7',color:C.ink,whiteSpace:'nowrap'}}>{name}</span>;
+  return <span style={{padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:C.bg,color:C.ink,whiteSpace:'nowrap'}}>{name}</span>;
 };
 
 const Kpi = ({label,value,sub}) => (
   <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'20px 22px',flex:'1 1 180px',minWidth:160}}>
-    <div style={{fontSize:12,color:'#6E6E73',fontWeight:500,marginBottom:8,textTransform:'uppercase',letterSpacing:.4}}>{label}</div>
-    <div style={{fontSize:28,fontWeight:800,color:'#000000',lineHeight:1,letterSpacing:'-0.5px'}}>{value}</div>
-    {sub && <div style={{fontSize:11,color:'#6E6E73',marginTop:6}}>{sub}</div>}
+    <div style={{fontSize:12,color:C.mid,fontWeight:500,marginBottom:8,textTransform:'uppercase',letterSpacing:.4}}>{label}</div>
+    <div style={{fontSize:28,fontWeight:800,color:C.ink,lineHeight:1,letterSpacing:'-0.5px'}}>{value}</div>
+    {sub && <div style={{fontSize:11,color:C.mid,marginTop:6}}>{sub}</div>}
   </div>
 );
 
@@ -317,9 +317,9 @@ const MRRChart = ({subscriptions}) => {
         const pct = maxVal>0 ? Math.max((m.total/maxVal)*100, m.total>0?4:1) : 1;
         return (
           <div key={m.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4,height:'100%',justifyContent:'flex-end'}}>
-            {m.total>0 && <div style={{fontSize:9,fontWeight:700,color:'#000000',textAlign:'center',lineHeight:1.2}}>{fmtGuarani(m.total)}</div>}
+            {m.total>0 && <div style={{fontSize:9,fontWeight:700,color:C.ink,textAlign:'center',lineHeight:1.2}}>{fmtGuarani(m.total)}</div>}
             <div style={{width:'100%',background:'#000000',borderRadius:'3px 3px 0 0',height:`${pct}%`,minHeight:m.total>0?6:2,transition:'height .5s ease',opacity:m.total>0?1:.2}}/>
-            <div style={{fontSize:10,color:'#6E6E73',textTransform:'capitalize',whiteSpace:'nowrap'}}>{m.label}</div>
+            <div style={{fontSize:10,color:C.mid,textTransform:'capitalize',whiteSpace:'nowrap'}}>{m.label}</div>
           </div>
         );
       })}
@@ -381,10 +381,10 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
   return (
     <div className="animate-in">
       {expirando.length>0&&(
-        <div style={{background:'#FFF1F0',border:'1px solid #FFCDD0',borderRadius:12,padding:'14px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-          <span style={{color:'#C0190F',fontWeight:600,fontSize:13}}>Suscripciones por vencer</span>
+        <div style={{background:C.red+'1E',border:`1px solid ${C.red}55`,borderRadius:12,padding:'14px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <span style={{color:C.red,fontWeight:700,fontSize:13}}>Suscripciones por vencer</span>
           {expirando.map(r=>(
-            <span key={r.id} style={{background:'#FFEDEC',color:'#C0190F',borderRadius:6,padding:'3px 10px',fontSize:12}}>
+            <span key={r.id} style={{background:C.red,color:'#FFFFFF',borderRadius:6,padding:'3px 10px',fontSize:12,fontWeight:700}}>
               {r.name} — {r.daysLeft===0?'hoy':`${r.daysLeft}d`}
             </span>
           ))}
@@ -535,15 +535,15 @@ function PageRestaurantes({enriched, plans, setFlash, reload}) {
               <div style={{display:'flex',gap:0,margin:'10px 0',padding:'12px 0',borderTop:`1px solid #F5F5F7`,borderBottom:`1px solid #F5F5F7`}}>
                 <div style={{flex:1,textAlign:'center'}}>
                   <div style={{fontSize:11,color:C.mid,marginBottom:2}}>Pedidos hoy</div>
-                  <div style={{fontSize:18,fontWeight:700,color:'#000000'}}>{r.ordersToday}</div>
+                  <div style={{fontSize:18,fontWeight:700,color:C.ink}}>{r.ordersToday}</div>
                 </div>
                 <div style={{flex:1,textAlign:'center',borderLeft:`1px solid #F5F5F7`}}>
                   <div style={{fontSize:11,color:C.mid,marginBottom:2}}>MRR</div>
-                  <div style={{fontSize:14,fontWeight:700,color:'#000000'}}>{fmtGuarani(r.subscription?.monthly_amount||0)}</div>
+                  <div style={{fontSize:14,fontWeight:700,color:C.ink}}>{fmtGuarani(r.subscription?.monthly_amount||0)}</div>
                 </div>
                 <div style={{flex:1,textAlign:'center',borderLeft:`1px solid #F5F5F7`}}>
                   <div style={{fontSize:11,color:C.mid,marginBottom:2}}>Rating</div>
-                  <div style={{fontSize:18,fontWeight:700,color:'#000000'}}>{r.avgRating||'—'}</div>
+                  <div style={{fontSize:18,fontWeight:700,color:C.ink}}>{r.avgRating||'—'}</div>
                 </div>
               </div>
               <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
@@ -712,7 +712,7 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
                 <div style={{position:'absolute',top:12,right:12,background:'#000000',color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:.5}}>POPULAR</div>
               )}
               <PlanBadge name={p.name}/>
-              <div style={{fontSize:22,fontWeight:800,margin:'10px 0 4px',color:'#000000'}}>{fmtUSD(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
+              <div style={{fontSize:22,fontWeight:800,margin:'10px 0 4px',color:C.ink}}>{fmtUSD(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
               <div style={{display:'flex',gap:8,marginBottom:14}}>
                 <div style={{background:C.bg,borderRadius:6,padding:'6px 10px',textAlign:'center',flex:1}}>
                   <div style={{fontSize:15,fontWeight:700,color:C.ink}}>{p.max_tables??'∞'}</div>
@@ -740,7 +740,7 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
       <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 20px',flex:'none'}}>
           <div style={{fontSize:11,color:C.mid,marginBottom:4}}>MRR Total</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#000000'}}>{fmtUSD(mrrTotal)}<span style={{fontSize:12,fontWeight:400,color:C.mid}}>/mes</span></div>
+          <div style={{fontSize:28,fontWeight:800,color:C.ink}}>{fmtUSD(mrrTotal)}<span style={{fontSize:12,fontWeight:400,color:C.mid}}>/mes</span></div>
         </div>
       </div>
 
@@ -766,8 +766,8 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
                     <Td style={{fontSize:12,whiteSpace:'nowrap'}}>
                       <div style={{display:'flex',flexDirection:'column',gap:3}}>
                         <span>{fmtDate(s?.end_date)}</span>
-                        {vencePronto&&<span style={{padding:'1px 6px',borderRadius:4,background:'#FFF4E0',color:'#8A4B00',fontSize:10,fontWeight:700,alignSelf:'flex-start'}}>POR VENCER</span>}
-                        {vencido&&<span style={{padding:'1px 6px',borderRadius:4,background:'#FFEDEC',color:'#C0190F',fontSize:10,fontWeight:700,alignSelf:'flex-start'}}>VENCIDO</span>}
+                        {vencePronto&&<span style={{padding:'2px 8px',borderRadius:4,background:C.orange,color:'#FFFFFF',fontSize:10,fontWeight:800,alignSelf:'flex-start',letterSpacing:'0.04em'}}>POR VENCER</span>}
+                        {vencido&&<span style={{padding:'2px 8px',borderRadius:4,background:C.red,color:'#FFFFFF',fontSize:10,fontWeight:800,alignSelf:'flex-start',letterSpacing:'0.04em'}}>VENCIDO</span>}
                       </div>
                     </Td>
                     <Td><Badge status={s?.status||'inactive'}/></Td>
@@ -1007,7 +1007,7 @@ function PageUsuarios({restaurants, setFlash}) {
                       </Td>
                       <Td style={{fontWeight:500}}>{u.display_name||'—'}</Td>
                       <Td>
-                        <span style={{padding:'2px 8px',borderRadius:12,fontSize:11,fontWeight:700,background:'#F5F5F7',color:C.mid}}>{u.role}</span>
+                        <span style={{padding:'2px 8px',borderRadius:12,fontSize:11,fontWeight:700,background:C.bg,color:C.mid}}>{u.role}</span>
                       </Td>
                       <Td>
                         <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,fontWeight:600,color:u.is_active?C.ink:C.dim}}>
@@ -1073,7 +1073,7 @@ function PageUsuarios({restaurants, setFlash}) {
               </select>
             </FormField>
           </div>
-          <div style={{padding:'10px 14px',background:'#F5F5F7',borderRadius:8,fontSize:12,color:C.mid,marginTop:4}}>
+          <div style={{padding:'10px 14px',background:C.bg,borderRadius:8,fontSize:12,color:C.mid,marginTop:4}}>
             El usuario iniciará sesión con su nombre de usuario y contraseña. El email asignado es interno.
           </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
@@ -1220,7 +1220,7 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
                   <div>
                     <span style={{fontWeight:600,fontSize:14,color:C.ink}}>{r.name}</span>
                     <span style={{fontSize:12,color:C.mid,marginLeft:8}}>{r.city}</span>
-                    {cfg.maintenance_mode&&<span style={{marginLeft:8,padding:'1px 6px',borderRadius:4,background:'#FFF4E0',color:'#8A4B00',fontSize:10,fontWeight:700}}>EN MANTENIMIENTO</span>}
+                    {cfg.maintenance_mode&&<span style={{marginLeft:8,padding:'2px 8px',borderRadius:4,background:C.orange,color:'#FFFFFF',fontSize:10,fontWeight:800,letterSpacing:'0.04em'}}>EN MANTENIMIENTO</span>}
                   </div>
                   <Toggle checked={cfg.maintenance_mode} onChange={v=>toggleMaintenance(r,v)}/>
                 </div>
@@ -1280,14 +1280,14 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
 
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             {/* Borrar */}
-            <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16,background:'#FFF8F7'}}>
+            <div style={{border:`1px solid ${C.red}55`,borderRadius:10,padding:16,background:C.card}}>
               <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:6,display:'flex',alignItems:'center',gap:6}}><Icon name="trash" size={15}/> Borrar base operativa</div>
               <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.4}}>
                 Vacía pedidos, items, historial, llamadas, ratings, caja y delivery. Libera todas las mesas.
               </div>
               {!confirmReset ? (
                 <button onClick={()=>setConfirmReset(true)} disabled={resetting||simulating}
-                  style={{width:'100%',background:'#FFFFFF',border:`1px solid ${C.red}`,color:C.red,padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                  style={{width:'100%',background:'transparent',border:`1px solid ${C.red}`,color:C.red,padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer'}}>
                   Borrar todos los pedidos
                 </button>
               ) : (
@@ -1305,7 +1305,7 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
             </div>
 
             {/* Simular */}
-            <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:16,background:'#F4FBF6'}}>
+            <div style={{border:`1px solid ${C.green}55`,borderRadius:10,padding:16,background:C.card}}>
               <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:6,display:'flex',alignItems:'center',gap:6}}><Icon name="sparkles" size={15}/> Generar ambiente simulado</div>
               <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.4}}>
                 Crea ~15 pedidos en distintos estados (cocina, listo, cobro pendiente, entregado) simulando un día laboral pesado. Limpia antes la base.
@@ -1652,7 +1652,7 @@ function PageReportes({enriched, orders, ratings, subscriptions, plans, events})
         {summary&&(
           <div style={{marginTop:20,display:'flex',gap:12,flexWrap:'wrap'}}>
             {summary.map((s,i)=>(
-              <div key={i} style={{flex:'1 1 160px',background:'#fff',border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',borderLeft:`3px solid ${s.color}`}}>
+              <div key={i} style={{flex:'1 1 160px',background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',borderLeft:`3px solid ${s.color}`}}>
                 <div style={{fontSize:11,color:C.mid,marginBottom:4,textTransform:'uppercase',letterSpacing:.5,fontWeight:600}}>{s.label}</div>
                 <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.value}</div>
               </div>
@@ -1820,12 +1820,12 @@ const SUPPORT_CATS = {
 const SUPPORT_STATUS = {
   abierto:           {label:'Abierto',              color:'#1D4ED8', bg:'#EEF4FF'},
   en_curso:          {label:'En curso',             color:'#8A4B00', bg:'#FFF4E0'},
-  esperando_cliente: {label:'Esperando cliente',    color:'#6E6E73', bg:'#F5F5F7'},
+  esperando_cliente: {label:'Esperando cliente',    color:C.mid, bg:'#F5F5F7'},
   resuelto:          {label:'Resuelto',             color:'#1A7E37', bg:'#E8F9ED'},
-  cerrado:           {label:'Cerrado',              color:'#6E6E73', bg:'#F5F5F7'}
+  cerrado:           {label:'Cerrado',              color:C.mid, bg:'#F5F5F7'}
 };
 const SUPPORT_PRIO = {
-  baja:    {label:'Baja',    color:'#6E6E73'},
+  baja:    {label:'Baja',    color:C.mid},
   normal:  {label:'Normal',  color:'#1D4ED8'},
   alta:    {label:'Alta',    color:'#FF9500'},
   urgente: {label:'Urgente', color:'#FF3B30'}
@@ -2265,15 +2265,15 @@ function PageHorarios({restaurants, setFlash, reload}) {
 
       {/* Tarjetas resumen */}
       <div style={{display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'}}>
-        <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
           <div style={{fontSize:28,fontWeight:800,color:'#34C759'}}>{openCount}</div>
           <div style={{fontSize:12,color:C.mid,marginTop:2}}>Abiertos ahora</div>
         </div>
-        <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
           <div style={{fontSize:28,fontWeight:800,color:C.red}}>{closedCount}</div>
           <div style={{fontSize:12,color:C.mid,marginTop:2}}>Cerrados ahora</div>
         </div>
-        <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
           <div style={{fontSize:28,fontWeight:800,color:C.ink}}>{restaurants.length}</div>
           <div style={{fontSize:12,color:C.mid,marginTop:2}}>Total restaurantes</div>
         </div>
@@ -2297,10 +2297,10 @@ function PageHorarios({restaurants, setFlash, reload}) {
       </div>
 
       {/* Tabla de restaurantes */}
-      <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden'}}>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden'}}>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
           <thead>
-            <tr style={{background:'#F5F5F7'}}>
+            <tr style={{background:C.bg}}>
               <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Restaurante</th>
               <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Ciudad</th>
               <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Horarios</th>
@@ -2808,7 +2808,7 @@ function App() {
         <div style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,zIndex:10}}>
           <div style={{fontWeight:700,fontSize:15,color:C.ink}}>{pageTitles[page]||page}</div>
           <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
-            {offline&&<span style={{fontSize:11,color:'#86868B',fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Demo offline</span>}
+            {offline&&<span style={{fontSize:11,color:C.dim,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Demo offline</span>}
             {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:'#E8F9ED',padding:'3px 10px',borderRadius:12}} className="pulse">En vivo</span>}
             {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Conectado</span>}
             {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
