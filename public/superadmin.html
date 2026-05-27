@@ -2687,7 +2687,7 @@ function Sidebar({page, setPage, badges={}, themeMode, onToggleTheme}) {
       </nav>
       <div style={{padding:'14px 16px',borderTop:`1px solid ${C.border}`,flexShrink:0}}>
         <div style={{fontSize:10,color:C.mid,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Links rápidos</div>
-        {[['admin.html','Admin local'],['cocina.html','KDS cocina'],['caja.html','Panel caja'],['index.html','App cliente']].map(([href,label])=>(
+        {[['admin.html','Admin local'],['gerente.html','Gerente'],['caja.html','Panel caja'],['cocina.html','KDS cocina'],['mozo.html','Mozo'],['delivery-rider.html','Rider delivery'],['delivery-cliente.html','Delivery cliente'],['index.html','App cliente']].map(([href,label])=>(
           <a key={href} href={href} target="_blank" rel="noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'space-between',fontSize:12,color:C.mid,textDecoration:'none',padding:'5px 0',transition:'color .1s'}} onMouseEnter={e=>e.currentTarget.style.color=C.ink} onMouseLeave={e=>e.currentTarget.style.color=C.mid}>
             <span>{label}</span><span style={{fontSize:10,opacity:.5,display:'inline-flex'}}><Icon name="arrowRight" size={10}/></span>
           </a>

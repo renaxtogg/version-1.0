@@ -33,6 +33,14 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+/* ── Guardia de seguridad — redirige si no hay sesión activa ── */
+(function(){
+  var rid  = localStorage.getItem('mythos_restaurant_id');
+  var role = localStorage.getItem('mythos_role');
+  if (!rid && role !== 'superadmin') { window.location.replace('login.html?next=gerente.html'); }
+})();
+</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
@@ -210,9 +218,9 @@ function useAuth() {
     if (!db) { setState({loading:false, user:null, role:null, name:null, username:null, email:null}); return; }
     (async () => {
       const { data: { session } } = await db.auth.getSession();
-      if (!session) { window.location.replace('login.html'); return; }
+      if (!session) { window.location.replace('login.html?next=gerente.html'); return; }
       const { data: profile } = await db.rpc('get_my_profile');
-      if (!profile) { window.location.replace('login.html'); return; }
+      if (!profile) { window.location.replace('login.html?next=gerente.html'); return; }
       const allowed = ['supervisor_local','admin','superadmin'];
       if (!allowed.includes(profile.role)) {
         toast('Acceso denegado: rol no autorizado para este panel', false);

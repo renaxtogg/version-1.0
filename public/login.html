@@ -80,23 +80,69 @@
       : 'Ingresar';
   }
 
-  // Redirect si ya hay sesión activa
-  db.auth.getSession().then(({ data: { session } }) => {
-    if (!session) return;
-    db.rpc('get_my_profile').then(({ data }) => {
-      if (data) redirectByRole(data.role);
-    });
-  });
+  function saveSession(profile) {
+    try {
+      localStorage.setItem('mythos_role',          profile.role          || '');
+      localStorage.setItem('mythos_restaurant_id', profile.restaurant_id || '');
+      localStorage.setItem('mythos_user_id',       profile.id            || '');
+      localStorage.setItem('mythos_display_name',  profile.display_name  || profile.username || '');
+    } catch(_) {}
+  }
+
+  // Qué roles pueden entrar a cada panel (superadmin entra a todos)
+  const PANEL_ACCESS = {
+    'superadmin.html':     ['superadmin'],
+    'admin.html':          ['admin','superadmin'],
+    'gerente.html':        ['supervisor_local','admin','superadmin'],
+    'caja.html':           ['cajero','admin','superadmin','cocina'],
+    'cocina.html':         ['cocina','admin','superadmin'],
+    'mozo.html':           ['mozo','admin','superadmin'],
+    'delivery-rider.html': ['rider','admin','superadmin'],
+  };
+
+  function homeForRole(role) {
+    if (role === 'superadmin')            return 'superadmin.html';
+    if (role === 'admin')                 return 'admin.html';
+    if (role === 'supervisor_local')      return 'gerente.html';
+    if (role === 'cajero')                return 'caja.html';
+    if (role === 'mozo')                  return 'mozo.html';
+    if (role === 'rider')                 return 'delivery-rider.html';
+    return 'cocina.html';
+  }
+
+  // Lee ?next= sólo si apunta a una página local .html (anti open-redirect)
+  function getNextParam() {
+    try {
+      const n = new URLSearchParams(location.search).get('next');
+      if (!n || !/^[a-z0-9_-]+\.html$/i.test(n)) return null;
+      return n;
+    } catch(_) { return null; }
+  }
+
+  function destinationFor(role) {
+    const next = getNextParam();
+    if (next) {
+      const allowed = PANEL_ACCESS[next];
+      // superadmin entra a todo; si el panel no está en el mapa (público), también
+      if (role === 'superadmin' || !allowed || allowed.includes(role)) return next;
+    }
+    return homeForRole(role);
+  }
 
   function redirectByRole(role) {
-    if (role === 'superadmin')           window.location.replace('superadmin.html');
-    else if (role === 'admin')           window.location.replace('admin.html');
-    else if (role === 'supervisor_local')window.location.replace('gerente.html');
-    else if (role === 'cajero')          window.location.replace('caja.html');
-    else if (role === 'mozo')            window.location.replace('mozo.html');
-    else if (role === 'rider')           window.location.replace('delivery-rider.html');
-    else                                 window.location.replace('cocina.html');
+    window.location.replace(destinationFor(role));
   }
+
+  // Redirect si ya hay sesión activa con localStorage válido
+  db.auth.getSession().then(({ data: { session } }) => {
+    if (!session) return;
+    const cachedRole = localStorage.getItem('mythos_role');
+    const cachedRid  = localStorage.getItem('mythos_restaurant_id');
+    if (cachedRole && cachedRid) { redirectByRole(cachedRole); return; }
+    db.rpc('get_my_profile').then(({ data }) => {
+      if (data) { saveSession(data); redirectByRole(data.role); }
+    });
+  });
 
   document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -120,10 +166,14 @@
         throw new Error(authErr.message);
       }
 
-      // 3. Obtener perfil y redirigir
+      // 3. Obtener perfil, guardar en localStorage y redirigir
       const { data: profile } = await db.rpc('get_my_profile');
       if (!profile || !profile.role) throw new Error('Usuario sin rol asignado. Contactá al administrador.');
+      // superadmin no requiere restaurant_id (opera a nivel SaaS)
+      if (!profile.restaurant_id && profile.role !== 'superadmin')
+        throw new Error('Usuario sin restaurante asignado. Contactá al administrador.');
 
+      saveSession(profile);
       redirectByRole(profile.role);
     } catch(err) {
       showErr(err.message);

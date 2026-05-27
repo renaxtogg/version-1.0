@@ -37,6 +37,14 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+/* ── Guardia de seguridad — redirige si no hay sesión activa ── */
+(function(){
+  var rid  = localStorage.getItem('mythos_restaurant_id');
+  var role = localStorage.getItem('mythos_role');
+  if (!rid && role !== 'superadmin') { window.location.replace('login.html?next=cocina.html'); }
+})();
+</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback, useReducer } = React;
 
@@ -1847,7 +1855,7 @@ function Clock() {
 
 /* ── AUTH GUARD ─── */
 async function bootstrap() {
-  if (!db) { window.location.replace('login.html'); return; }
+  if (!db) { window.location.replace('login.html?next=cocina.html'); return; }
 
   // Modo estación: acceso por token (sin login) — para pantallas de cocina/bar/café.
   if (STATION_TOKEN) {
@@ -1867,7 +1875,7 @@ async function bootstrap() {
   }
 
   const { data: { session } } = await db.auth.getSession();
-  if (!session) { window.location.replace('login.html'); return; }
+  if (!session) { window.location.replace('login.html?next=cocina.html'); return; }
   const { data: profile } = await db.rpc('get_my_profile');
   if (!profile || !['cocina', 'admin', 'superadmin'].includes(profile.role)) {
     await db.auth.signOut();

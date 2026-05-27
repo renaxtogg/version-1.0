@@ -44,7 +44,7 @@ if('serviceWorker' in navigator){
 (function(){
   var rid  = localStorage.getItem('mythos_restaurant_id');
   var role = localStorage.getItem('mythos_role');
-  if (!rid && role !== 'superadmin') { window.location.replace('login.html'); }
+  if (!rid && role !== 'superadmin') { window.location.replace('login.html?next=caja.html'); }
 })();
 </script>
 <script type="text/babel">
@@ -4307,17 +4307,17 @@ async function initApp(session){
 }
 
 async function bootstrap(){
-  if(!db){window.location.replace('login.html');return;}
+  if(!db){window.location.replace('login.html?next=caja.html');return;}
   const{data:{session}}=await db.auth.getSession();
   if(session){await initApp(session);return;}
   /* Token vencido pero refresh token válido — esperamos el refresh automático */
   await new Promise(resolve=>{
     const{data:{subscription}}=db.auth.onAuthStateChange(async(event,s)=>{
       subscription.unsubscribe();
-      if(s){await initApp(s);}else{window.location.replace('login.html');}
+      if(s){await initApp(s);}else{window.location.replace('login.html?next=caja.html');}
       resolve();
     });
-    setTimeout(()=>{subscription.unsubscribe();window.location.replace('login.html');resolve();},3000);
+    setTimeout(()=>{subscription.unsubscribe();window.location.replace('login.html?next=caja.html');resolve();},3000);
   });
 }
 bootstrap();

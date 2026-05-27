@@ -40,7 +40,7 @@
 (function(){
   var rid  = localStorage.getItem('mythos_restaurant_id');
   var role = localStorage.getItem('mythos_role');
-  if (!rid && role !== 'superadmin') { window.location.replace('login.html'); }
+  if (!rid && role !== 'superadmin') { window.location.replace('login.html?next=admin.html'); }
 })();
 </script>
 <script type="text/babel">
@@ -9237,9 +9237,9 @@ function FacturasAdminPage(){
 
 /* ── AUTH GUARD ── */
 async function bootstrap() {
-  if(!db){window.location.replace('login.html');return;}
+  if(!db){window.location.replace('login.html?next=admin.html');return;}
   const{data:{session}}=await db.auth.getSession();
-  if(!session){window.location.replace('login.html');return;}
+  if(!session){window.location.replace('login.html?next=admin.html');return;}
   const{data:profile}=await db.rpc('get_my_profile');
   if(!profile||!['admin','superadmin'].includes(profile.role)){await db.auth.signOut();window.location.replace('login.html');return;}
   window._userProfile=profile;

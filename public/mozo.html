@@ -542,6 +542,14 @@ body {
 </head>
 <body>
 <div id="root"></div>
+<script>
+/* ── Guardia de seguridad — redirige si no hay sesión activa ── */
+(function(){
+  var rid  = localStorage.getItem('mythos_restaurant_id');
+  var role = localStorage.getItem('mythos_role');
+  if (!rid && role !== 'superadmin') { window.location.replace('login.html?next=mozo.html'); }
+})();
+</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
@@ -959,6 +967,7 @@ function App() {
   const [invEmail, setInvEmail] = useState('');
   const [mesaDialog, setMesaDialog] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
+  const [showBancardMozoToast, setShowBancardMozoToast] = useState(false);
 
   // Mapa de zonas
   const [mesaViewMode, setMesaViewMode] = useState(() => localStorage.getItem('mozo_mesa_view') || 'grid');
@@ -1017,10 +1026,10 @@ function App() {
 
   // Auth check: if no Supabase session, redirect to login
   useEffect(() => {
-    if (!db) { window.location.replace('login.html'); return; }
+    if (!db) { window.location.replace('login.html?next=mozo.html'); return; }
     db.auth.getSession()
       .then(async ({ data: { session } }) => {
-        if (!session) { window.location.replace('login.html'); return; }
+        if (!session) { window.location.replace('login.html?next=mozo.html'); return; }
         if (mozoSession) return;
         let mozo_name = session.user.email;
         try {
@@ -2501,6 +2510,9 @@ function App() {
                       {hasPendingCobro && (
                         <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">$</button>
                       )}
+                      {hasPendingCobro && (
+                        <button className="order-action-btn" onClick={() => setShowBancardMozoToast(true)} title="Cobrar Mesa con QR Digital" style={{fontSize:15}}>📲</button>
+                      )}
                       {activeOrder && (
                         // Mostrar ✓ sólo cuando hay acción real:
                         //  - ready / pending_payment sin delivered_to_table_at → confirmar entrega física
@@ -3624,6 +3636,25 @@ function App() {
       <div className={`toast ${toast ? 'show' : ''}`}>
         {toast && <span>{toast}</span>}
       </div>
+
+      {/* BANCARD PRÓXIMAMENTE */}
+      {showBancardMozoToast && (() => {
+        const dismiss = () => setShowBancardMozoToast(false);
+        setTimeout(dismiss, 4000);
+        return (
+          <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',zIndex:9999,
+            background:'#1C1C1E',color:'#F5F5F7',borderRadius:14,padding:'14px 20px',
+            maxWidth:340,width:'calc(100% - 40px)',boxShadow:'0 8px 32px rgba(0,0,0,0.4)',
+            display:'flex',alignItems:'flex-start',gap:12,animation:'slideUp .25s ease',cursor:'pointer'}}
+            onClick={dismiss}>
+            <span style={{fontSize:22,flexShrink:0}}>🏦</span>
+            <div>
+              <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>Módulo Bancard / SIFEN en fase de certificación</div>
+              <div style={{fontSize:11,color:'#AEAEB2',lineHeight:1.4}}>Esta pasarela se activará automáticamente al concluir los trámites del comercio.</div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }
