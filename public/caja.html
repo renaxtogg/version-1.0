@@ -455,7 +455,7 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
     {id:'salon',   icon:'',  lbl:'Vista del salón'},
     {id:'pedido',  icon:'',  lbl:'Tomar pedido'},
     {id:'cobros',  icon:'',  lbl:'Cobrar pedidos'},
-    {id:'avisos',  icon:'🔔', lbl:'Avisos', badge: broadcastCount},
+    {id:'avisos',  icon:'', lbl:'Avisos', badge: broadcastCount},
     {id:'facturas', icon:'🧾', lbl:'Facturas del turno'},
     {id:'historial',icon:'≡', lbl:'Historial'},
     {id:'reservas',icon:'◷', lbl:'Reservas'},
@@ -1020,9 +1020,9 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:invoiceType!=='none'?10:0}}>
           {[['none','Sin comprobante'],['ticket','Ticket impreso'],['fiscal','Factura fiscal']].map(([v,lbl])=>(
             <button key={v} onClick={()=>setInvoiceType(v)} style={{
-              padding:'9px 4px',borderRadius:7,border:`1px solid ${invoiceType===v?'#000000':C.border}`,
-              background:invoiceType===v?'#000000':'transparent',
-              color:invoiceType===v?'#FFFFFF':C.mid,fontSize:11,fontWeight:700,cursor:'pointer',lineHeight:1.3,
+              padding:'9px 4px',borderRadius:7,border:`1px solid ${invoiceType===v?C.ink:C.border}`,
+              background:invoiceType===v?C.ink:'transparent',
+              color:invoiceType===v?C.sidebar:C.mid,fontSize:11,fontWeight:700,cursor:'pointer',lineHeight:1.3,
             }}>{lbl}</button>
           ))}
         </div>
@@ -1798,9 +1798,9 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:invoiceType!=='none'?10:0}}>
           {[['none','Sin comprobante'],['ticket','Ticket impreso'],['fiscal','Factura fiscal']].map(([v,lbl])=>(
             <button key={v} onClick={()=>setInvoiceType(v)} style={{
-              padding:'9px 4px',borderRadius:7,border:`1px solid ${invoiceType===v?'#000000':C.border}`,
-              background:invoiceType===v?'#000000':'transparent',
-              color:invoiceType===v?'#FFFFFF':'#6E6E73',fontSize:11,fontWeight:700,cursor:'pointer',lineHeight:1.3,
+              padding:'9px 4px',borderRadius:7,border:`1px solid ${invoiceType===v?C.ink:C.border}`,
+              background:invoiceType===v?C.ink:'transparent',
+              color:invoiceType===v?C.sidebar:C.mid,fontSize:11,fontWeight:700,cursor:'pointer',lineHeight:1.3,
             }}>{lbl}</button>
           ))}
         </div>
@@ -3901,7 +3901,7 @@ function HistorialPanel({onGoCobros}){
 function AvisosCajaPanel({broadcasts=[]}){
   if(broadcasts.length===0) return(
     <div style={{padding:40,textAlign:'center',color:C.mid}}>
-      <div style={{fontSize:32,marginBottom:12}}>🔔</div>
+      <div style={{fontSize:32,marginBottom:12,color:C.dim}}>—</div>
       <div style={{fontSize:15,fontWeight:600}}>Sin avisos del personal</div>
       <div style={{fontSize:12,marginTop:4}}>Los avisos del admin o gerente aparecerán aquí</div>
     </div>

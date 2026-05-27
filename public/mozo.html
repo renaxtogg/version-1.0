@@ -533,6 +533,11 @@ body {
 .turno-stat.highlight { background: #000; border-color: #000; }
 .turno-stat.highlight .turno-stat-label { color: rgba(255,255,255,0.65); }
 .turno-stat.highlight .turno-stat-value { color: #fff; }
+[data-theme="dark"] .btn-indigo { color: var(--bg); }
+[data-theme="dark"] .tip-chip.active { color: var(--bg); }
+[data-theme="dark"] .ready-count-badge { background: var(--text); color: var(--bg); }
+[data-theme="dark"] .turno-stat.highlight { background: var(--bg3); border-color: var(--border-strong, #636366); }
+[data-theme="dark"] .mesa-card.cocina { background: #48484A; border-color: #48484A; }
 </style>
 </head>
 <body>
@@ -819,43 +824,43 @@ function MesaEditModalM({table,onSave,onClose}){
   }
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={onClose}>
-      <div style={{background:'#FFFFFF',borderRadius:'16px 16px 0 0',padding:24,width:'100%',maxWidth:480}} onClick={e=>e.stopPropagation()}>
-        <div style={{fontSize:16,fontWeight:800,marginBottom:20,color:'#000'}}>Editar Mesa {table.number}</div>
+      <div style={{background:'var(--surface)',borderRadius:'16px 16px 0 0',padding:24,width:'100%',maxWidth:480}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:800,marginBottom:20,color:'var(--text)'}}>Editar Mesa {table.number}</div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
           <div>
-            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5}}>NÚMERO</div>
-            <input type="number" value={form.number} onChange={e=>setForm(f=>({...f,number:e.target.value}))} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,border:'1px solid #D2D2D7'}}/>
+            <div style={{fontSize:10,color:'var(--text2)',fontWeight:700,marginBottom:5}}>NÚMERO</div>
+            <input type="number" value={form.number} onChange={e=>setForm(f=>({...f,number:e.target.value}))} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text)'}}/>
           </div>
           <div>
-            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:5}}>CAPACIDAD (pax)</div>
-            <input type="number" value={form.capacity} onChange={e=>setForm(f=>({...f,capacity:e.target.value}))} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,border:'1px solid #D2D2D7'}}/>
+            <div style={{fontSize:10,color:'var(--text2)',fontWeight:700,marginBottom:5}}>CAPACIDAD (pax)</div>
+            <input type="number" value={form.capacity} onChange={e=>setForm(f=>({...f,capacity:e.target.value}))} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text)'}}/>
           </div>
         </div>
         <div style={{marginBottom:14}}>
-          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:6}}>ZONA</div>
+          <div style={{fontSize:10,color:'var(--text2)',fontWeight:700,marginBottom:6}}>ZONA</div>
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
             {ZONAS_DEF_M.map(z=>(
               <button key={z.value} type="button" onClick={()=>setForm(prev=>({...prev,zona:z.value}))}
-                style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'#000':'#D2D2D7'}`,background:form.zona===z.value?'#000':'transparent',color:form.zona===z.value?'#fff':'#3D3D3D',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400}}>
+                style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'var(--accent)':'var(--border)'}`,background:form.zona===z.value?'var(--accent)':'transparent',color:form.zona===z.value?'var(--bg)':'var(--text)',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400}}>
                 {z.label}
               </button>
             ))}
           </div>
         </div>
         <div style={{marginBottom:20}}>
-          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,marginBottom:6}}>FORMA</div>
+          <div style={{fontSize:10,color:'var(--text2)',fontWeight:700,marginBottom:6}}>FORMA</div>
           <div style={{display:'flex',gap:8}}>
             {SHAPES_DEF_M.map(s=>(
               <button key={s.value} type="button" onClick={()=>setForm(prev=>({...prev,shape:s.value}))}
-                style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'#000':'#D2D2D7'}`,background:form.shape===s.value?'#000':'transparent',color:form.shape===s.value?'#fff':'#3D3D3D',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'var(--accent)':'var(--border)'}`,background:form.shape===s.value?'var(--accent)':'transparent',color:form.shape===s.value?'var(--bg)':'var(--text)',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
                 <span style={{fontSize:18,pointerEvents:'none'}}>{s.icon}</span><span style={{pointerEvents:'none'}}>{s.label}</span>
               </button>
             ))}
           </div>
         </div>
         <div style={{display:'flex',gap:8}}>
-          <button onClick={save} disabled={saving} style={{flex:1,padding:'12px',background:'#000',color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer'}}>{saving?'Guardando…':'Guardar'}</button>
-          <button onClick={onClose} style={{padding:'12px 18px',background:'transparent',color:'#6E6E73',border:'1px solid #D2D2D7',borderRadius:8,fontSize:14,fontWeight:600,cursor:'pointer'}}>Cancelar</button>
+          <button onClick={save} disabled={saving} style={{flex:1,padding:'12px',background:'var(--accent)',color:'var(--bg)',border:'none',borderRadius:8,fontSize:14,fontWeight:700,cursor:'pointer'}}>{saving?'Guardando…':'Guardar'}</button>
+          <button onClick={onClose} style={{padding:'12px 18px',background:'transparent',color:'var(--text2)',border:'1px solid var(--border)',borderRadius:8,fontSize:14,fontWeight:600,cursor:'pointer'}}>Cancelar</button>
           <button onClick={del} style={{padding:'12px 18px',background:'rgba(239,68,68,0.1)',color:'#FF3B30',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,fontSize:14,fontWeight:600,cursor:'pointer'}}>Eliminar</button>
         </div>
       </div>
@@ -2318,12 +2323,12 @@ function App() {
 
             <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px', alignItems: 'stretch' }}>
               <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-                <div style={{ fontSize: 11, color: '#6E6E73', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600, marginBottom: 6 }}>Mesas a cobrar</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: '#000000', letterSpacing: '-0.5px' }}>{mesasACobrar}</div>
+                <div style={{ fontSize: 11, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600, marginBottom: 6 }}>Mesas a cobrar</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>{mesasACobrar}</div>
               </div>
               <div style={{ flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-                <div style={{ fontSize: 11, color: '#6E6E73', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600, marginBottom: 6 }}>Monto a cobrar</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#000000', letterSpacing: '-0.5px' }}>{fGsK(montoACobrar)}</div>
+                <div style={{ fontSize: 11, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600, marginBottom: 6 }}>Monto a cobrar</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.5px' }}>{fGsK(montoACobrar)}</div>
               </div>
               <button
                 onClick={openTransferModal}
@@ -2357,7 +2362,7 @@ function App() {
 
             {!db && (
               <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text3)' }}>
-                <div style={{ fontSize: 36, marginBottom: 12, color: '#86868B' }}>○</div>
+                <div style={{ fontSize: 36, marginBottom: 12, color: 'var(--text3)' }}>○</div>
                 <div style={{ fontWeight: 700, marginBottom: 8 }}>Sin conexión a Supabase</div>
                 <div style={{ fontSize: 13 }}>Verificá las credenciales en config.js</div>
               </div>
@@ -2421,11 +2426,11 @@ function App() {
               <div style={{ paddingBottom: 20 }}>
                 {/* Barra de acciones del mapa */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 14px' }}>
-                  <div style={{ fontSize: 11, color: '#86868B' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text2)' }}>
                     {mapaEditMode ? 'Tocá una mesa para editarla' : 'Tocá una mesa para ver su estado'}
                   </div>
                   <button onClick={() => setMapaEditMode(e => !e)}
-                    style={{ padding: '6px 14px', borderRadius: 20, border: '1.5px solid #D2D2D7', background: mapaEditMode ? '#000' : 'transparent', color: mapaEditMode ? '#fff' : '#3D3D3D', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                    style={{ padding: '6px 14px', borderRadius: 20, border: '1.5px solid var(--border)', background: mapaEditMode ? 'var(--accent)' : 'transparent', color: mapaEditMode ? 'var(--bg)' : 'var(--text)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                     {mapaEditMode ? '✓ Editando' : '✎ Editar mesas'}
                   </button>
                 </div>
@@ -3293,7 +3298,7 @@ function App() {
                 </div>
                 {dividirPersonas > 1 && (
                   <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '10px 12px', fontSize: 14 }}>
-                    Cada persona paga: <span style={{ fontWeight: 800, color: '#000', fontSize: 16 }}>{fGs(Math.round(cobroBase / dividirPersonas))}</span>
+                    Cada persona paga: <span style={{ fontWeight: 800, color: 'var(--text)', fontSize: 16 }}>{fGs(Math.round(cobroBase / dividirPersonas))}</span>
                   </div>
                 )}
               </div>
@@ -3359,7 +3364,7 @@ function App() {
               <div className="pay-summary">
                 <div className="pay-row"><span>Subtotal</span><span>{fGs(cobroBase)}</span></div>
                 <div className="pay-row"><span>Propina ({tipPct}%)</span><span>{fGs(Math.round(cobroBase * tipPct / 100))}</span></div>
-                <div className="pay-row total"><span>Total a pagar</span><span style={{ fontSize: 24, fontWeight: 800, color: '#000000' }}>{fGs(Math.round(cobroBase * (1 + tipPct/100)))}</span></div>
+                <div className="pay-row total"><span>Total a pagar</span><span style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)' }}>{fGs(Math.round(cobroBase * (1 + tipPct/100)))}</span></div>
               </div>
             </div>
             <div className="modal-footer">
@@ -3421,16 +3426,16 @@ function App() {
                         return (
                           <div key={t.id} onClick={() => toggleTable(t.id)}
                             style={{
-                              aspectRatio: '1', borderRadius: 10, border: sel ? '2px solid #000' : '2px solid var(--border)',
-                              background: sel ? '#000' : SC.bg,
+                              aspectRatio: '1', borderRadius: 10, border: sel ? '2px solid var(--accent)' : '2px solid var(--border)',
+                              background: sel ? 'var(--accent)' : SC.bg,
                               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                               cursor: 'pointer', userSelect: 'none', transition: 'all .15s', position: 'relative',
                             }}>
                             {sel && (
                               <div style={{ position: 'absolute', top: 3, right: 5, fontSize: 10, color: '#34C759', fontWeight: 800 }}>✓</div>
                             )}
-                            <div style={{ fontSize: 16, fontWeight: 800, color: sel ? '#fff' : SC.tx }}>{t.number}</div>
-                            <div style={{ fontSize: 8, color: sel ? 'rgba(255,255,255,0.7)' : SC.tx==='#000000' ? '#86868B' : 'rgba(255,255,255,0.6)', marginTop: 2, fontWeight: 600 }}>{statusLabel(st)}</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: sel ? 'var(--bg)' : SC.tx }}>{t.number}</div>
+                            <div style={{ fontSize: 8, color: sel ? 'rgba(0,0,0,0.5)' : SC.tx==='#000000' ? 'var(--text2)' : 'rgba(255,255,255,0.6)', marginTop: 2, fontWeight: 600 }}>{statusLabel(st)}</div>
                           </div>
                         );
                       })}
@@ -3463,7 +3468,7 @@ function App() {
                               background: sel ? '#000' : 'var(--surface)',
                               cursor: 'pointer', transition: 'all .15s',
                             }}>
-                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: sel ? 'rgba(255,255,255,0.15)' : 'var(--bg2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: sel ? '#fff' : '#000', flexShrink: 0 }}>
+                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: sel ? 'rgba(255,255,255,0.15)' : 'var(--bg2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: sel ? 'var(--bg)' : 'var(--text)', flexShrink: 0 }}>
                               {m.name.charAt(0).toUpperCase()}
                             </div>
                             <div style={{ flex: 1 }}>

@@ -604,7 +604,7 @@ function DashboardPage({orders, ratings, setPage}) {
                     <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
                     <div style={{fontSize:10,color:C.dim}}>{fmt(p.total)}</div>
                   </div>
-                  <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:18,fontWeight:800,color:i===0?'#FF9500':'#000',marginLeft:4}}>{p.qty}</div>
+                  <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:18,fontWeight:800,color:i===0?'#FF9500':C.ink,marginLeft:4}}>{p.qty}</div>
                 </div>
               );
             })
@@ -855,7 +855,7 @@ function PedidosPage({orders, tables, onRefresh}) {
       <div style={{display:'flex',gap:8,marginBottom:14,alignItems:'center',flexWrap:'wrap'}}>
         <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
           {['hoy','7d','30d','custom'].map((p,i,a)=>(
-            <button key={p} onClick={()=>setPeriod(p)} style={{padding:'6px 14px',fontSize:12,fontWeight:period===p?700:400,background:period===p?'#000':'#fff',color:period===p?'#fff':'#6E6E73',border:'none',cursor:'pointer',borderRight:i<a.length-1?`1px solid ${C.border}`:'none'}}>
+            <button key={p} onClick={()=>setPeriod(p)} style={{padding:'6px 14px',fontSize:12,fontWeight:period===p?700:400,background:period===p?C.ink:C.white,color:period===p?C.sidebar:C.dim,border:'none',cursor:'pointer',borderRight:i<a.length-1?`1px solid ${C.border}`:'none'}}>
               {p==='hoy'?'Hoy':p==='7d'?'7 días':p==='30d'?'30 días':'Personalizado'}
             </button>
           ))}
@@ -895,7 +895,7 @@ function PedidosPage({orders, tables, onRefresh}) {
             <button key={s.id} onClick={()=>setStatusFilter(s.id)}
               style={{background:'none',border:'none',color:active?s.color:C.dim,padding:'9px 14px',fontSize:12,fontWeight:active?700:400,borderBottom:active?`3px solid ${s.color}`:'3px solid transparent',cursor:'pointer',marginBottom:-2,display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap',transition:'color .15s'}}>
               {s.label}
-              {count>0&&<span style={{background:active?s.color+'22':'#F0F0F0',color:active?s.color:C.dim,fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:8}}>{count}</span>}
+              {count>0&&<span style={{background:active?s.color+'22':C.card,color:active?s.color:C.dim,fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:8}}>{count}</span>}
             </button>
           );
         })}
@@ -1321,7 +1321,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
       {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
         {[['productos','Productos'],['extras','Extras / Modificadores']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setMenuTab(id)} style={{background:'none',border:'none',color:menuTab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:menuTab===id?700:400,borderBottom:menuTab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+          <button key={id} onClick={()=>setMenuTab(id)} style={{background:'none',border:'none',color:menuTab===id?C.ink:C.dim,padding:'8px 16px',fontSize:13,fontWeight:menuTab===id?700:400,borderBottom:menuTab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
 
@@ -1407,8 +1407,8 @@ function MenuPage({categories,menuItems,onRefresh}) {
             <div style={{padding:'8px 12px',fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,borderBottom:`1px solid ${C.border}`}}>CATEGORÍAS</div>
             {[{id:'all',name:'Todas',cnt:menuItems.length},...categories.map(c=>({id:c.id,name:c.name,cnt:menuItems.filter(i=>i.category_id===c.id).length}))].map(c=>{
               const active=catFilter===c.id;
-              return <button key={c.id} onClick={()=>setCatFilter(c.id)} style={{display:'flex',justifyContent:'space-between',width:'100%',textAlign:'left',padding:'8px 12px',background:active?'#F0F0F0':'none',border:'none',color:active?'#000':'#6E6E73',fontSize:13,cursor:'pointer',borderBottom:`1px solid #F0F0F0`,borderLeft:active?'2px solid #000':'2px solid transparent'}}>
-                <span>{c.name}</span><span style={{color:'#D2D2D7',fontSize:11}}>{c.cnt}</span>
+              return <button key={c.id} onClick={()=>setCatFilter(c.id)} style={{display:'flex',justifyContent:'space-between',width:'100%',textAlign:'left',padding:'8px 12px',background:active?C.card:'none',border:'none',color:active?C.ink:C.dim,fontSize:13,cursor:'pointer',borderBottom:`1px solid ${C.border}`,borderLeft:active?'2px solid '+C.ink:'2px solid transparent'}}>
+                <span>{c.name}</span><span style={{color:C.bs,fontSize:11}}>{c.cnt}</span>
               </button>;
             })}
           </div>
@@ -1422,7 +1422,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
         {/* Tabla de productos */}
         <div style={{flex:1}}>
           {someSelected&&(
-            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,padding:'8px 12px',background:'#F0F0F0',borderRadius:8,border:`1px solid ${C.border}`}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,padding:'8px 12px',background:C.card,borderRadius:8,border:`1px solid ${C.border}`}}>
               <span style={{fontSize:13,fontWeight:600,color:C.ink,flex:1}}>{selected.size} item(s) seleccionados</span>
               <Btn small variant="secondary" onClick={()=>bulkToggleAvail(true)}>✓ Activar</Btn>
               <Btn small variant="secondary" onClick={()=>bulkToggleAvail(false)}>✕ Desactivar</Btn>
@@ -1451,7 +1451,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                           :<div style={{width:36,height:36,background:C.bg,borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,color:'#D2D2D7'}}>🍽</div>}
                       </Td>
                       <Td>
-                        <div style={{color:item.is_available?'#1D1D1F':'#86868B',fontWeight:500}}>{item.name}</div>
+                        <div style={{color:item.is_available?C.ink:C.dim,fontWeight:500}}>{item.name}</div>
                         {item.description&&<div style={{fontSize:11,color:C.dim,marginTop:1,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>}
                         {item.dine_in_only&&<span style={{fontSize:9,color:'#166534',background:'#F0FDF4',border:'1px solid #BBF7D0',padding:'1px 5px',borderRadius:3,marginTop:2,display:'inline-block'}}>Solo local</span>}
                       </Td>
@@ -1666,7 +1666,7 @@ function ZonaCanvas({zona, tables, activeOrders, reservationByTable, editMode, d
                 boxShadow:isDrag?'0 8px 24px rgba(0,0,0,0.22)':'0 1px 3px rgba(0,0,0,0.06)',
                 zIndex:isDrag?10:1,
               }}>
-              <div style={{fontSize:shape==='rectangle'?13:16,fontWeight:800,color:isAlert?'#991B1B':'#000',lineHeight:1}}>{t.number}</div>
+              <div style={{fontSize:shape==='rectangle'?13:16,fontWeight:800,color:isAlert?C.red:C.ink,lineHeight:1}}>{t.number}</div>
               <div style={{fontSize:8,color:lblCol,textAlign:'center',marginTop:3,lineHeight:1.3,fontWeight:isAlert?800:500}}>{lblTxt}</div>
               {resv&&<div style={{fontSize:7,color:lblCol,marginTop:1,fontWeight:700}}>{resv.reservation.reservation_time?.slice(0,5)} · {resv.reservation.guests}p</div>}
               {busy&&!resv&&<div style={{width:5,height:5,borderRadius:'50%',background:'#000',marginTop:3}}/>}
@@ -1787,7 +1787,7 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
           <div style={{fontSize:12,color:C.mid,marginTop:2}}>{activeOrders.length} con pedidos activos · {tables.length} mesas</div>
         </div>
         <div style={{display:'flex',gap:8}}>
-          <button onClick={()=>setEditMode(e=>!e)} style={{padding:'8px 16px',border:`1px solid ${C.border}`,borderRadius:6,background:editMode?'#000':'transparent',color:editMode?'#fff':'#6E6E73',fontSize:12,fontWeight:600,cursor:'pointer'}}>
+          <button onClick={()=>setEditMode(e=>!e)} style={{padding:'8px 16px',border:`1px solid ${C.border}`,borderRadius:6,background:editMode?C.ink:'transparent',color:editMode?C.sidebar:C.dim,fontSize:12,fontWeight:600,cursor:'pointer'}}>
             {editMode?'Modo vista':'Modo edición'}
           </button>
           <button onClick={()=>setQrModal('all')} style={{padding:'8px 14px',border:`1px solid ${C.border}`,borderRadius:6,background:'transparent',color:C.mid,fontSize:12,fontWeight:600,cursor:'pointer'}}>Imprimir QR</button>
@@ -1893,7 +1893,7 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
               <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:4}}>
                 {ZONAS_DEF.map(z=>(
                   <button key={z.value} type="button" onClick={()=>setForm(prev=>({...prev,zona:z.value}))}
-                    style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'#000':'#D2D2D7'}`,background:form.zona===z.value?'#000':'transparent',color:form.zona===z.value?'#fff':'#3D3D3D',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400,transition:'all .1s'}}>
+                    style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?C.ink:C.border}`,background:form.zona===z.value?C.ink:'transparent',color:form.zona===z.value?C.sidebar:C.ink,fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400,transition:'all .1s'}}>
                     {z.label}
                   </button>
                 ))}
@@ -1904,7 +1904,7 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
               <div style={{display:'flex',gap:8,marginTop:4}}>
                 {SHAPES_DEF.map(s=>(
                   <button key={s.value} type="button" onClick={()=>setForm(prev=>({...prev,shape:s.value}))}
-                    style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'#000':'#D2D2D7'}`,background:form.shape===s.value?'#000':'transparent',color:form.shape===s.value?'#fff':'#3D3D3D',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',transition:'all .1s',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                    style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?C.ink:C.border}`,background:form.shape===s.value?C.ink:'transparent',color:form.shape===s.value?C.sidebar:C.ink,fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',transition:'all .1s',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
                     <span style={{fontSize:20,pointerEvents:'none'}}>{s.icon}</span>
                     <span style={{pointerEvents:'none'}}>{s.label}</span>
                   </button>
@@ -2205,7 +2205,7 @@ function PersonalPage() {
       {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
         {[['empleados','Empleados'],['turnos','Turnos'],['solicitudes',`Solicitudes${reqs.filter(r=>r.status==='pending').length>0?' ('+reqs.filter(r=>r.status==='pending').length+')':''}`]].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:C.dim,padding:'8px 16px',fontSize:13,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
 
@@ -2223,7 +2223,7 @@ function PersonalPage() {
               <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Usuario</Th><Th>Nombre</Th><Th>Email</Th><Th>Rol</Th><Th>Estado</Th><Th>Desde</Th><Th>Acc.</Th></tr></thead>
               <tbody>
                 {profiles.map(p=>(
-                  <tr key={p.id} style={{borderBottom:`1px solid #F0F0F0`,opacity:p.is_active===false?0.5:1}}>
+                  <tr key={p.id} style={{borderBottom:`1px solid ${C.border}`,opacity:p.is_active===false?0.5:1}}>
                     <Td mono>{p.username||'—'}</Td>
                     <Td>{p.display_name||'—'}</Td>
                     <Td dim style={{fontSize:11}}>{p.email||'—'}</Td>
@@ -2329,7 +2329,7 @@ function PersonalPage() {
                     <Td mono dim>{fmtTime(s.clock_in)}</Td>
                     <Td mono dim>{s.clock_out?fmtTime(s.clock_out):'—'}</Td>
                     <Td mono dim>{duracion(s)}</Td>
-                    <Td><span style={{padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4,background:activo?'#E8F9ED':'#F0F0F0',color:activo?'#1A7E37':'#86868B'}}>{activo?'ACTIVO':'CERRADO'}</span></Td>
+                    <Td><span style={{padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4,background:activo?'rgba(52,199,89,0.15)':C.card,color:activo?C.green:C.dim}}>{activo?'ACTIVO':'CERRADO'}</span></Td>
                     <Td>{activo&&<Btn small variant="secondary" onClick={()=>clockOut(s)}>Registrar salida</Btn>}</Td>
                   </tr>
                 );
@@ -3128,9 +3128,9 @@ function ClientesPage({orders}) {
         {!reportRows&&(
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:10,marginTop:4}}>
             {REPORT_DEFS.map(r=>(
-              <button key={r.id} onClick={()=>{setRType(r.id);setReportRows(null);setReportSummary(null);}} style={{textAlign:'left',padding:'12px 14px',background:rType===r.id?'#000':'#fff',border:`1px solid ${rType===r.id?'#000':C.border}`,borderRadius:8,cursor:'pointer'}}>
-                <div style={{fontSize:13,fontWeight:600,color:rType===r.id?'#fff':'#1D1D1F',marginBottom:3}}>{r.label}</div>
-                <div style={{fontSize:11,color:rType===r.id?'rgba(255,255,255,0.65)':'#86868B',lineHeight:1.3}}>{r.desc}</div>
+              <button key={r.id} onClick={()=>{setRType(r.id);setReportRows(null);setReportSummary(null);}} style={{textAlign:'left',padding:'12px 14px',background:rType===r.id?C.ink:C.white,border:`1px solid ${rType===r.id?C.ink:C.border}`,borderRadius:8,cursor:'pointer'}}>
+                <div style={{fontSize:13,fontWeight:600,color:rType===r.id?C.sidebar:C.ink,marginBottom:3}}>{r.label}</div>
+                <div style={{fontSize:11,color:rType===r.id?'rgba(255,255,255,0.55)':C.dim,lineHeight:1.3}}>{r.desc}</div>
               </button>
             ))}
           </div>
@@ -3141,7 +3141,7 @@ function ClientesPage({orders}) {
       <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
         <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,overflowX:'auto'}}>
           {[['todos','Todos'],['frecuentes','Frecuentes'],['vip','VIP'],['inactivos','Inactivos'],['factura','Factura'],['anonimos','Anónimos'],['delivery','Delivery'],['mesa','QR Mesa'],['llevar','Para llevar']].map(([id,lbl])=>(
-            <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?'#000':'#86868B',padding:'7px 12px',fontSize:12,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1,whiteSpace:'nowrap'}}>{lbl}</button>
+            <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?C.ink:C.dim,padding:'7px 12px',fontSize:12,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1,whiteSpace:'nowrap'}}>{lbl}</button>
           ))}
         </div>
         <select value={canalF} onChange={e=>setCanalF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
@@ -3797,7 +3797,7 @@ function FinanzasPage({orders}) {
       {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:18}}>
         {[['resumen','Resumen del mes'],['movimientos','Movimientos'],['alertas','Alertas contables'],['exportar','Exportar para contador']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setFinTab(id)} style={{background:'none',border:'none',color:finTab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:finTab===id?700:400,borderBottom:finTab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+          <button key={id} onClick={()=>setFinTab(id)} style={{background:'none',border:'none',color:finTab===id?C.ink:C.dim,padding:'8px 16px',fontSize:13,fontWeight:finTab===id?700:400,borderBottom:finTab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
 
@@ -3805,7 +3805,7 @@ function FinanzasPage({orders}) {
       {finTab==='resumen'&&(<>
         <div style={{display:'flex',gap:6,marginBottom:14}}>
           {['hoy','semana','mes'].map(p=>(
-            <button key={p} onClick={()=>setPeriod(p)} style={{background:period===p?'#000':'transparent',border:`1px solid ${period===p?'#000':C.border}`,color:period===p?'#fff':C.mid,padding:'6px 14px',fontSize:12,fontWeight:period===p?700:400,borderRadius:6,cursor:'pointer',textTransform:'capitalize'}}>{p}</button>
+            <button key={p} onClick={()=>setPeriod(p)} style={{background:period===p?C.ink:'transparent',border:`1px solid ${period===p?C.ink:C.border}`,color:period===p?C.sidebar:C.mid,padding:'6px 14px',fontSize:12,fontWeight:period===p?700:400,borderRadius:6,cursor:'pointer',textTransform:'capitalize'}}>{p}</button>
           ))}
         </div>
         <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
@@ -3890,7 +3890,7 @@ function FinanzasPage({orders}) {
           <div style={{display:'flex',gap:8,marginBottom:14,alignItems:'center'}}>
             <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:6,overflow:'hidden'}}>
               {[['todos','Todos'],['egresos','Egresos']].map(([id,lbl])=>(
-                <button key={id} onClick={()=>setMovFilter(id)} style={{padding:'5px 12px',fontSize:12,fontWeight:movFilter===id?700:400,background:movFilter===id?'#000':'#fff',color:movFilter===id?'#fff':'#6E6E73',border:'none',cursor:'pointer'}}>
+                <button key={id} onClick={()=>setMovFilter(id)} style={{padding:'5px 12px',fontSize:12,fontWeight:movFilter===id?700:400,background:movFilter===id?C.ink:C.white,color:movFilter===id?C.sidebar:C.dim,border:'none',cursor:'pointer'}}>
                   {lbl}
                 </button>
               ))}
@@ -4036,7 +4036,7 @@ function MarketingPage({coupons,orders,onRefresh}) {
       <h1 style={{fontSize:22,fontWeight:800,color:C.ink,marginBottom:16}}>Marketing</h1>
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
         {[['cupones','Cupones'],['whatsapp','WhatsApp'],['inactivos','Clientes inactivos']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:'#86868B',padding:'8px 14px',fontSize:12,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:C.dim,padding:'8px 14px',fontSize:12,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
 
@@ -4212,7 +4212,7 @@ function RatingsPage({ratings}) {
       {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
         {[['ratings','Calificaciones'],['mensajes','Mensajes de cocina']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?'#000':'#86868B',padding:'8px 16px',fontSize:13,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:C.dim,padding:'8px 16px',fontSize:13,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
 
@@ -4234,7 +4234,7 @@ function RatingsPage({ratings}) {
         {/* Filtro por canal */}
         <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
           {Object.entries(ORIGINS).map(([k,lbl])=>(
-            <button key={k} onClick={()=>setOriginF(k)} style={{background:'none',border:'none',color:originF===k?'#000':'#86868B',padding:'6px 12px',fontSize:12,fontWeight:originF===k?700:400,borderBottom:originF===k?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+            <button key={k} onClick={()=>setOriginF(k)} style={{background:'none',border:'none',color:originF===k?C.ink:C.dim,padding:'6px 12px',fontSize:12,fontWeight:originF===k?700:400,borderBottom:originF===k?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
           ))}
         </div>
 
@@ -4567,7 +4567,7 @@ function StockPage() {
   const alertLabel = t => ({low_stock:'Stock bajo',critical_stock:'Stock crítico',expiring_soon:'Por vencer',expired:'Vencido'}[t]||t);
 
   const TabBtn = ({id,label,badge}) => (
-    <button onClick={()=>setTab(id)} style={{padding:'6px 14px',borderRadius:6,border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',background:tab===id?C.white:'transparent',color:tab===id?'#000':C.mid,transition:'all .15s',position:'relative'}}>
+    <button onClick={()=>setTab(id)} style={{padding:'6px 14px',borderRadius:6,border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',background:tab===id?C.white:'transparent',color:tab===id?C.ink:C.mid,transition:'all .15s',position:'relative'}}>
       {label}
       {badge&&<span style={{position:'absolute',top:2,right:2,width:7,height:7,borderRadius:4,background:C.red,display:'block'}}/>}
     </button>
@@ -5689,7 +5689,7 @@ function EstacionesPage({categories, tables}) {
   if (loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:300,gap:12}}><span className="spin"/><span style={{fontSize:13,color:C.dim}}>Cargando estaciones…</span></div>;
 
   const TabBtn = ({id,label}) => (
-    <button onClick={()=>setTab(id)} style={{padding:'6px 14px',borderRadius:6,border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',background:tab===id?C.white:'transparent',color:tab===id?'#000':C.mid,transition:'all .15s'}}>{label}</button>
+    <button onClick={()=>setTab(id)} style={{padding:'6px 14px',borderRadius:6,border:'none',fontFamily:'inherit',fontSize:12,fontWeight:600,cursor:'pointer',background:tab===id?C.white:'transparent',color:tab===id?C.ink:C.mid,transition:'all .15s'}}>{label}</button>
   );
 
   return (
@@ -7347,7 +7347,7 @@ function DeliveryModule() {
       </div>
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:24}}>
         {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{background:'none',border:'none',borderBottom:tab===t.id?'2px solid #000000':'2px solid transparent',color:tab===t.id?'#000000':'#6E6E73',padding:'10px 20px',fontSize:13,fontWeight:tab===t.id?700:400,cursor:'pointer',transition:'color .15s',marginBottom:'-1px'}}>
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{background:'none',border:'none',borderBottom:tab===t.id?'2px solid '+C.ink:'2px solid transparent',color:tab===t.id?C.ink:C.dim,padding:'10px 20px',fontSize:13,fontWeight:tab===t.id?700:400,cursor:'pointer',transition:'color .15s',marginBottom:'-1px'}}>
             {t.label}
           </button>
         ))}
@@ -7803,8 +7803,8 @@ function ProveedoresPage() {
       <div style={{display:'flex',gap:6,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
         {[['lista','Proveedores'],['compras','Compras / Facturas'],['estadisticas','Estadísticas']].map(([k,l]) => (
           <button key={k} onClick={() => setTab(k)} style={{
-            padding:'10px 16px',background:'none',border:'none',borderBottom:`2px solid ${tab===k?'#000':'transparent'}`,
-            color:tab===k?'#000':'#6E6E73',fontSize:13,fontWeight:tab===k?700:500,cursor:'pointer',marginBottom:-1
+            padding:'10px 16px',background:'none',border:'none',borderBottom:`2px solid ${tab===k?C.ink:'transparent'}`,
+            color:tab===k?C.ink:C.dim,fontSize:13,fontWeight:tab===k?700:500,cursor:'pointer',marginBottom:-1
           }}>{l}</button>
         ))}
       </div>
