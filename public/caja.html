@@ -12,6 +12,7 @@
 <script src="config.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="mythos-gating.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -781,6 +782,11 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [invRuc,setInvRuc]=useState(order.customer_ruc||'');
   const [invEmail,setInvEmail]=useState(order.customer_email||'');
   const movDataRef=React.useRef(null);
+  // Omni-Gating: pasarelas digitales (Bancard) y SIFEN según plan del comercio
+  const _MG=window.MythosGating;
+  const hasFeat=k=>!_MG||_MG.hasFeature(k);
+  const [lockFeat,setLockFeat]=useState(null);
+  const gate=(k,fn)=>()=>hasFeat(k)?fn():setLockFeat(k);
 
   useEffect(()=>{
     db.from('order_items').select('id,item_name,quantity,unit_price').eq('order_id',order.id)
@@ -996,14 +1002,14 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${C.border}`}}>
           <div style={{fontSize:10,color:C.dim,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:6}}>Pago digital (próximamente)</div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-            <button onClick={()=>setShowBancardToast(true)} style={{
+            <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
               padding:'10px 6px',borderRadius:7,border:`1px solid rgba(255,149,0,0.35)`,
               background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
               display:'flex',alignItems:'center',justifyContent:'center',gap:5,
             }}>
               <span style={{fontSize:14}}>📲</span> QR Bancard
             </button>
-            <button onClick={()=>setShowBancardToast(true)} style={{
+            <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
               padding:'10px 6px',borderRadius:7,border:`1px solid rgba(255,149,0,0.35)`,
               background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
               display:'flex',alignItems:'center',justifyContent:'center',gap:5,
@@ -1061,7 +1067,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       )}
 
       {/* Toggle SIFEN */}
-      <div onClick={()=>setInvoiceType(v=>v==='fiscal'?'none':'fiscal')} style={{
+      <div onClick={gate('caja:sifen',()=>setInvoiceType(v=>v==='fiscal'?'none':'fiscal'))} style={{
         display:'flex',alignItems:'center',justifyContent:'space-between',
         padding:'11px 14px',marginBottom:12,borderRadius:9,cursor:'pointer',
         background:invoiceType==='fiscal'?'rgba(0,122,255,0.07)':'transparent',
@@ -1082,7 +1088,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         <Lbl>COMPROBANTE</Lbl>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:invoiceType!=='none'?10:0}}>
           {[['none','Sin comprobante'],['ticket','Ticket impreso'],['fiscal','Factura fiscal']].map(([v,lbl])=>(
-            <button key={v} onClick={()=>setInvoiceType(v)} style={{
+            <button key={v} onClick={v==='fiscal'?gate('caja:sifen',()=>setInvoiceType('fiscal')):()=>setInvoiceType(v)} style={{
               padding:'9px 4px',borderRadius:7,border:`1px solid ${invoiceType===v?C.ink:C.border}`,
               background:invoiceType===v?C.ink:'transparent',
               color:invoiceType===v?C.sidebar:C.mid,fontSize:11,fontWeight:700,cursor:'pointer',lineHeight:1.3,
@@ -1112,7 +1118,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           <div style={{fontSize:12,fontWeight:700,color:'#0040A0'}}>🧾 Factura Electrónica SIFEN</div>
           <div style={{fontSize:10,color:C.dim,marginTop:2}}>e-Kuatia — en proceso de certificación SET</div>
         </div>
-        <button onClick={()=>setShowBancardToast(true)} style={{
+        <button onClick={gate('caja:sifen',()=>setShowBancardToast(true))} style={{
           padding:'6px 12px',borderRadius:6,border:'1px solid rgba(0,122,255,0.4)',
           background:'rgba(0,122,255,0.08)',color:'#004AAD',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0,
         }}>Activar</button>
@@ -1125,6 +1131,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
       </div>
       {showBancardToast&&<BancardProximamente onDismiss={()=>setShowBancardToast(false)}/>}
+      {lockFeat&&_MG&&<_MG.FeatureLock featureKey={lockFeat} onClose={()=>setLockFeat(null)}/>}
     </Modal>
   );
 }
@@ -1672,6 +1679,11 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   const movDataRef=React.useRef(null);
   const orderRef=React.useRef(null);
   const [showBancardToast,setShowBancardToast]=useState(false);
+  // Omni-Gating: pasarelas digitales (Bancard) y SIFEN según plan del comercio
+  const _MG=window.MythosGating;
+  const hasFeat=k=>!_MG||_MG.hasFeature(k);
+  const [lockFeat,setLockFeat]=useState(null);
+  const gate=(k,fn)=>()=>hasFeat(k)?fn():setLockFeat(k);
 
   const subtotal=cart.reduce((s,c)=>s+c.linePrice*c.quantity,0);
   const montoNum=parseInt(montoPagado)||0;
@@ -1840,14 +1852,14 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
           <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${C.border}`}}>
             <div style={{fontSize:10,color:C.dim,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:8}}>Pago digital (próximamente)</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-              <button onClick={()=>setShowBancardToast(true)} style={{
+              <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
                 padding:'10px 6px',borderRadius:7,border:'1px solid rgba(255,149,0,0.35)',
                 background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
                 display:'flex',alignItems:'center',justifyContent:'center',gap:5,
               }}>
                 <span style={{fontSize:14}}>📲</span> QR Bancard
               </button>
-              <button onClick={()=>setShowBancardToast(true)} style={{
+              <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
                 padding:'10px 6px',borderRadius:7,border:'1px solid rgba(255,149,0,0.35)',
                 background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
                 display:'flex',alignItems:'center',justifyContent:'center',gap:5,
@@ -1892,7 +1904,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
       </div>
 
       {/* Toggle SIFEN */}
-      <div onClick={()=>setInvoiceType(v=>v==='fiscal'?'none':'fiscal')} style={{
+      <div onClick={gate('caja:sifen',()=>setInvoiceType(v=>v==='fiscal'?'none':'fiscal'))} style={{
         display:'flex',alignItems:'center',justifyContent:'space-between',
         padding:'11px 14px',marginBottom:12,borderRadius:9,cursor:'pointer',
         background:invoiceType==='fiscal'?'rgba(0,122,255,0.07)':'transparent',
@@ -1913,7 +1925,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         <Lbl>COMPROBANTE</Lbl>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:invoiceType!=='none'?10:0}}>
           {[['none','Sin comprobante'],['ticket','Ticket impreso'],['fiscal','Factura fiscal']].map(([v,lbl])=>(
-            <button key={v} onClick={()=>setInvoiceType(v)} style={{
+            <button key={v} onClick={v==='fiscal'?gate('caja:sifen',()=>setInvoiceType('fiscal')):()=>setInvoiceType(v)} style={{
               padding:'9px 4px',borderRadius:7,border:`1px solid ${invoiceType===v?C.ink:C.border}`,
               background:invoiceType===v?C.ink:'transparent',
               color:invoiceType===v?C.sidebar:C.mid,fontSize:11,fontWeight:700,cursor:'pointer',lineHeight:1.3,
@@ -1942,6 +1954,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
       </div>
       {showBancardToast&&<BancardProximamente onDismiss={()=>setShowBancardToast(false)}/>}
+      {lockFeat&&_MG&&<_MG.FeatureLock featureKey={lockFeat} onClose={()=>setLockFeat(null)}/>}
     </Modal>
   );
 }
@@ -4244,6 +4257,8 @@ function CajaApp({profile}){
   const [turnoConflicto,setTurnoConflicto]=useState(null);
   const [loading,setLoading]=useState(true);
   const [cerrado,setCerrado]=useState(false);
+  // Capacidades del plan (Omni-Gating por feature) — carga única + re-render
+  if(window.MythosGating) window.MythosGating.useCapabilities(db, RID);
 
   useEffect(()=>{checkTurno();},[]);
 

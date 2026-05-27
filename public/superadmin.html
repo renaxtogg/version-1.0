@@ -218,6 +218,24 @@ const LIMIT_ROLES = [
   {key:'cocina', label:'Máx. Cocineros'},
 ];
 
+// Omni-Gating por feature: sub-módulos vendibles DENTRO de un panel.
+// key "panel:feature" = misma string que lee el frontend (mythos-gating.js).
+// Se persisten en subscription_plans.allowed_features (migración 091).
+const FEATURE_GROUPS = [
+  {group:'Admin', icon:'⚙️', items:[
+    {key:'admin:delivery_zones', label:'Gestión de Mapas',     desc:'Zonas y tarifas de delivery'},
+    {key:'admin:inventory',      label:'Control de Insumos',   desc:'Stock, recetas y toma'},
+    {key:'admin:crm',            label:'CRM de Clientes',      desc:'Base y segmentación'},
+  ]},
+  {group:'Caja', icon:'💳', items:[
+    {key:'caja:sifen',            label:'Facturación SIFEN',   desc:'e-Kuatia electrónica'},
+    {key:'caja:digital_payments', label:'Pasarelas Bancard',   desc:'QR / VPos digital'},
+  ]},
+  {group:'Mozo', icon:'🍽️', items:[
+    {key:'mozo:digital_qr_pay',   label:'Cobro Mesa por QR',   desc:'Pago digital en mesa'},
+  ]},
+];
+
 // Add-ons por defecto (fallback si plan_addons aún no está migrado)
 const DEFAULT_ADDONS = [
   {key:'delivery_cliente', name:'Delivery Cliente', panel:'delivery-cliente', price_usd:15},
@@ -776,7 +794,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 // MÓDULO 3 — FACTURACIÓN (planes + suscripciones)
 // ══════════════════════════════════════════════════════════════
 function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
-  const EMPTY_PLAN = {name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true,max_mozo:'',max_cajero:'',max_cocina:'',panels:[]};
+  const EMPTY_PLAN = {name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true,max_mozo:'',max_cajero:'',max_cocina:'',panels:[],allowed_features:[]};
   const [planModal, setPlanModal]   = useState(null);
   const [subModal,  setSubModal]    = useState(null);
   const [planForm,  setPlanForm]    = useState(EMPTY_PLAN);
@@ -826,6 +844,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
       is_active:p.is_active!==false,
       max_mozo:mubr.mozo??'',max_cajero:mubr.cajero??'',max_cocina:mubr.cocina??'',
       panels:asArr(p.allowed_panels),
+      allowed_features:asArr(p.allowed_features),
     });
     setPlanModal({edit:p});
   };
@@ -840,16 +859,22 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
       if (planForm.max_mozo!=='' && planForm.max_mozo!=null)     mubr.mozo   = parseInt(planForm.max_mozo);
       if (planForm.max_cajero!=='' && planForm.max_cajero!=null) mubr.cajero = parseInt(planForm.max_cajero);
       if (planForm.max_cocina!=='' && planForm.max_cocina!=null) mubr.cocina = parseInt(planForm.max_cocina);
-      const payload = {name:planForm.name.trim(),price_usd:parseFloat(planForm.price_usd)||0,billing_cycle:planForm.billing_cycle,max_tables:parseInt(planForm.max_tables)||null,max_menu_items:parseInt(planForm.max_menu_items)||null,features:JSON.stringify(feats),is_active:planForm.is_active,max_users_by_role:mubr,allowed_panels:planForm.panels||[]};
-      if (planModal==='create') {
-        const {error} = await db.from('subscription_plans').insert(payload);
-        if (error) throw error;
-        setFlash({type:'ok',text:`Plan "${planForm.name}" creado`});
-      } else {
-        const {error} = await db.from('subscription_plans').update(payload).eq('id',planModal.edit.id);
-        if (error) throw error;
-        setFlash({type:'ok',text:`Plan "${planForm.name}" actualizado`});
+      const payload = {name:planForm.name.trim(),price_usd:parseFloat(planForm.price_usd)||0,billing_cycle:planForm.billing_cycle,max_tables:parseInt(planForm.max_tables)||null,max_menu_items:parseInt(planForm.max_menu_items)||null,features:JSON.stringify(feats),is_active:planForm.is_active,max_users_by_role:mubr,allowed_panels:planForm.panels||[],allowed_features:planForm.allowed_features||[]};
+      // Degrada con gracia si la migración 091 (columna allowed_features) aún no corrió.
+      const writePlan = async pl => planModal==='create'
+        ? db.from('subscription_plans').insert(pl)
+        : db.from('subscription_plans').update(pl).eq('id',planModal.edit.id);
+      let degraded = false;
+      let {error} = await writePlan(payload);
+      if (error && /allowed_features/.test(error.message||'')) {
+        const {allowed_features, ...legacy} = payload;
+        ({error} = await writePlan(legacy));
+        degraded = !error;
       }
+      if (error) throw error;
+      setFlash(degraded
+        ? {type:'warn',text:'Plan guardado, pero las características granulares requieren la migración 091.'}
+        : {type:'ok',text:`Plan "${planForm.name}" ${planModal==='create'?'creado':'actualizado'}`});
       setPlanModal(null); reload();
     } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
     setSaving(false);
@@ -904,6 +929,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
   const spf = v => e => setPlanForm(f=>({...f,[v]:e.target.value}));
   const ssf = v => e => setSubForm(f=>({...f,[v]:e.target.value}));
   const togglePanel = key => setPlanForm(f=>({...f,panels:(f.panels||[]).includes(key)?f.panels.filter(p=>p!==key):[...(f.panels||[]),key]}));
+  const toggleFeature = key => setPlanForm(f=>({...f,allowed_features:(f.allowed_features||[]).includes(key)?f.allowed_features.filter(k=>k!==key):[...(f.allowed_features||[]),key]}));
   const toggleSubAddon = key => setSubForm(f=>{const cur=f.addonKeys||[];return {...f,addonKeys:cur.includes(key)?cur.filter(k=>k!==key):[...cur,key]};});
 
   return (
@@ -942,13 +968,20 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
               </div>
               {(() => {
                 const pnls = asArr(p.allowed_panels);
+                const feats = asArr(p.allowed_features);
                 const mubr = asObj(p.max_users_by_role);
                 const limStr = LIMIT_ROLES.map(lr=>mubr[lr.key]!=null?`${mubr[lr.key]} ${lr.key}`:null).filter(Boolean).join(' · ');
+                const featLabel = k=>{ for(const g of FEATURE_GROUPS){ const it=g.items.find(i=>i.key===k); if(it) return it.label; } return k; };
                 return (
                   <div style={{marginBottom:14}}>
                     {pnls.length>0&&(
                       <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:6}}>
                         {pnls.map(pk=><span key={pk} style={{fontSize:10,fontWeight:600,background:C.bg,color:C.mid,padding:'2px 7px',borderRadius:5}}>{(PANEL_OPTIONS.find(o=>o.key===pk)?.label)||pk}</span>)}
+                      </div>
+                    )}
+                    {feats.length>0&&(
+                      <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:6}}>
+                        {feats.map(fk=><span key={fk} style={{fontSize:9,fontWeight:700,background:C.ink,color:C.sidebar,padding:'2px 7px',borderRadius:5,letterSpacing:.2}}>{featLabel(fk)}</span>)}
                       </div>
                     )}
                     <div style={{fontSize:10,color:C.dim}}>{limStr?`Límites: ${limStr}`:'Usuarios ilimitados'}</div>
@@ -1084,6 +1117,31 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Características y módulos granulares (Omni-Gating por feature) */}
+          <div style={{borderTop:`1px solid ${C.border}`,margin:'4px 0 0',paddingTop:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Características y módulos granulares</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:12}}>Sub-módulos vendibles dentro de cada panel. Lo no marcado se bloquea con paywall y se ofrece como upgrade al comercio.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              {FEATURE_GROUPS.map(g=>(
+                <div key={g.group}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.mid,marginBottom:7,display:'flex',alignItems:'center',gap:6}}>
+                    <span style={{fontSize:13}}>{g.icon}</span>{g.group}
+                  </div>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+                    {g.items.map(it=>{
+                      const on = (planForm.allowed_features||[]).includes(it.key);
+                      return (
+                        <div key={it.key} onClick={()=>toggleFeature(it.key)} title={it.desc} style={{display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,cursor:'pointer',userSelect:'none',fontSize:12,fontWeight:600,border:`1px solid ${on?C.ink:C.border}`,background:on?C.ink:'transparent',color:on?C.sidebar:C.mid}}>
+                          <span style={{fontSize:11}}>{on?'✓':'+'}</span>{it.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

@@ -12,6 +12,7 @@
 <script src="config.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="mythos-gating.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -8993,6 +8994,8 @@ function AdminApp() {
   const [coupons,setCoupons] = useState([]);
   const [ratings,setRatings] = useState([]);
   const [restaurant,setRestaurant] = useState(null);
+  // Capacidades del plan (Omni-Gating por feature) — re-renderiza al resolver
+  const caps = window.MythosGating ? window.MythosGating.useCapabilities(db, RID) : {hasFeature:()=>true};
 
   useEffect(()=>{ loadAll(); },[]);
 
@@ -9080,16 +9083,16 @@ function AdminApp() {
       case 'calendario':return <CalendarioPage/>;
       case 'estaciones':return <EstacionesPage categories={categories} tables={tables}/>;
       case 'personal':  return <PersonalPage/>;
-      case 'clientes':  return <ClientesPage orders={orders}/>;
+      case 'clientes':  return caps.hasFeature('admin:crm') ? <ClientesPage orders={orders}/> : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;
       case 'caja':      return <CajaAdminPage/>;
       case 'reportes':  return <ReportesPage orders={orders}/>;
       case 'facturas':  return <FacturasAdminPage/>;
       case 'finanzas':  return <FinanzasPage orders={orders}/>;
       case 'marketing': return <MarketingPage coupons={coupons} orders={orders} onRefresh={loadAll}/>;
       case 'ratings':   return <RatingsPage ratings={ratings}/>;
-      case 'stock':     return <StockPage/>;
+      case 'stock':     return caps.hasFeature('admin:inventory') ? <StockPage/> : <window.MythosGating.FeatureLock featureKey="admin:inventory" variant="inline"/>;
       case 'proveedores': return <ProveedoresPage/>;
-      case 'delivery':  return <DeliveryModule/>;
+      case 'delivery':  return caps.hasFeature('admin:delivery_zones') ? <DeliveryModule/> : <window.MythosGating.FeatureLock featureKey="admin:delivery_zones" variant="inline"/>;
       case 'avisos':    return <AvisosAdmin restaurant={restaurant}/>;
       case 'soporte':   return <SoportePage restaurant={restaurant}/>;
       case 'config':    return <ConfigPage restaurant={restaurant} onRefresh={loadAll}/>;

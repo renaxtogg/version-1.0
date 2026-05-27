@@ -12,6 +12,7 @@
 <script src="config.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="mythos-gating.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>
 :root {
@@ -968,6 +969,9 @@ function App() {
   const [mesaDialog, setMesaDialog] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   const [showBancardMozoToast, setShowBancardMozoToast] = useState(false);
+  const [showQrPaywall, setShowQrPaywall] = useState(false);
+  // Omni-Gating: cobro de mesa por QR digital según plan del comercio
+  const _caps = window.MythosGating ? window.MythosGating.useCapabilities(db, RID) : { hasFeature: () => true };
 
   // Mapa de zonas
   const [mesaViewMode, setMesaViewMode] = useState(() => localStorage.getItem('mozo_mesa_view') || 'grid');
@@ -2511,7 +2515,7 @@ function App() {
                         <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">$</button>
                       )}
                       {hasPendingCobro && (
-                        <button className="order-action-btn" onClick={() => setShowBancardMozoToast(true)} title="Cobrar Mesa con QR Digital" style={{fontSize:15}}>📲</button>
+                        <button className="order-action-btn" onClick={() => _caps.hasFeature('mozo:digital_qr_pay') ? setShowBancardMozoToast(true) : setShowQrPaywall(true)} title="Cobrar Mesa con QR Digital" style={{fontSize:15}}>📲</button>
                       )}
                       {activeOrder && (
                         // Mostrar ✓ sólo cuando hay acción real:
@@ -3636,6 +3640,9 @@ function App() {
       <div className={`toast ${toast ? 'show' : ''}`}>
         {toast && <span>{toast}</span>}
       </div>
+
+      {/* Paywall — Cobro de Mesa por QR Digital (módulo premium) */}
+      {showQrPaywall && window.MythosGating && <window.MythosGating.FeatureLock featureKey="mozo:digital_qr_pay" onClose={() => setShowQrPaywall(false)}/>}
 
       {/* BANCARD PRÓXIMAMENTE */}
       {showBancardMozoToast && (() => {
