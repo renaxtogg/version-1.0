@@ -1270,6 +1270,9 @@ function App() {
   const [msgFrequency, setMsgFrequency]     = useState(10);
   const [completedCount, setCompletedCount] = useState(0);
   const [shownMessage, setShownMessage]     = useState(null);
+  const [broadcasts, setBroadcasts]         = useState([]);
+  const [showBroadcasts, setShowBroadcasts] = useState(false);
+  const lastSeenBroadcasts                  = useRef(parseInt(localStorage.getItem('cocina_bc_seen') || '0'));
 
   const soundRef          = useRef(soundOn);
   soundRef.current        = soundOn;
@@ -1298,6 +1301,23 @@ function App() {
     const handler = () => { ensureAudioCtx(); document.removeEventListener('click', handler); };
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
+  }, []);
+
+  /* Avisos del personal */
+  useEffect(() => {
+    if (!db) return;
+    const load = async () => {
+      const { data } = await db.from('staff_broadcasts')
+        .select('*').eq('restaurant_id', RESTAURANT_ID)
+        .overlaps('target_roles', ['cocina', 'todos', 'trabajadores'])
+        .order('created_at', { ascending: false }).limit(30);
+      setBroadcasts(data || []);
+    };
+    load();
+    const ch = db.channel('bc-cocina')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'staff_broadcasts' }, () => load())
+      .subscribe();
+    return () => db.removeChannel(ch);
   }, []);
 
   /* Demo: pedido entrante */
@@ -1621,6 +1641,41 @@ function App() {
           {loading && <div style={{ width: 13, height: 13, border: '2px solid #333', borderTopColor: '#888', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
           <span style={{ fontSize: 11, color: C.mid }}><span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 14, fontWeight: 700, color: C.white }}>{total}</span> activos</span>
           <Clock />
+          {/* Campana avisos */}
+          {(() => {
+            const unread = broadcasts.filter(b => new Date(b.created_at).getTime() > lastSeenBroadcasts.current).length;
+            return (
+              <div style={{ position: 'relative' }}>
+                <button onClick={() => { setShowBroadcasts(v => !v); const now = Date.now(); localStorage.setItem('cocina_bc_seen', now); lastSeenBroadcasts.current = now; }}
+                  style={{ background: 'transparent', border: `1px solid ${unread > 0 ? '#FF9500' : '#333'}`, borderRadius: 6, color: unread > 0 ? '#FF9500' : '#888', padding: '5px 9px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}
+                  title="Avisos del personal">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                  {unread > 0 && <span style={{ fontSize: 10, fontWeight: 800 }}>{unread}</span>}
+                </button>
+                {showBroadcasts && (
+                  <div style={{ position: 'absolute', top: '110%', right: 0, width: 300, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.5)', zIndex: 300, overflow: 'hidden' }}>
+                    <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.white }}>Avisos del personal</span>
+                      <button onClick={() => setShowBroadcasts(false)} style={{ background: 'none', border: 'none', color: C.dim, cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>×</button>
+                    </div>
+                    {broadcasts.length === 0
+                      ? <div style={{ padding: 20, textAlign: 'center', color: C.dim, fontSize: 12 }}>Sin avisos recientes</div>
+                      : <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                          {broadcasts.map(b => (
+                            <div key={b.id} style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}` }}>
+                              <div style={{ fontSize: 10, color: C.dim, marginBottom: 3 }}>
+                                {b.sender_name} · {new Date(b.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                              <div style={{ fontSize: 13, color: C.white, lineHeight: 1.4 }}>{b.message}</div>
+                            </div>
+                          ))}
+                        </div>
+                    }
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <div style={{ display: 'flex', gap: 4 }}>
             <Btn active={showStats}  onClick={() => setShowStats(v => !v)}  title="Estadisticas del dia">STATS</Btn>
             <Btn active={showFelicitaciones} onClick={() => setShowFelicitaciones(v => !v)} title="Felicitaciones">Felic.</Btn>

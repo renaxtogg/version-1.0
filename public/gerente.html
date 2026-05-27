@@ -1283,9 +1283,11 @@ function Soporte({user, role, userName, userUsername, userEmail}) {
 
   const loadTickets = useCallback(async () => {
     if (!db) return;
+    // El gerente solo ve sus propios tickets — no los del admin (privacidad jerárquica)
     const { data } = await db.from('support_tickets')
       .select('*')
       .eq('restaurant_id', RID)
+      .eq('created_by_role', 'supervisor_local')
       .order('last_message_at', {ascending:false})
       .limit(80);
     setTickets(data||[]);
@@ -2035,6 +2037,101 @@ function CalendarioGerente({user, userName}) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   AVISOS DEL PERSONAL
+   ════════════════════════════════════════════════════════════════════════════ */
+function AvisosGerente({user,userName}) {
+  const [received,    setReceived]    = useState([]);
+  const [msg,         setMsg]         = useState('');
+  const [target,      setTarget]      = useState('trabajadores');
+  const [sending,     setSending]     = useState(false);
+  const [sent,        setSent]        = useState(null); // mensaje de confirmación
+
+  const TARGETS = [
+    {v:'trabajadores', lbl:'Todos los trabajadores (cocina, mozo, caja, riders)'},
+    {v:'cocina',       lbl:'Solo Cocina'},
+    {v:'mozo',         lbl:'Solo Mozos'},
+    {v:'cajero',       lbl:'Solo Caja'},
+    {v:'rider',        lbl:'Solo Delivery riders'},
+  ];
+
+  useEffect(() => {
+    if (!db) return;
+    const load = async () => {
+      const { data } = await db.from('staff_broadcasts')
+        .select('*').eq('restaurant_id', RID)
+        .overlaps('target_roles', ['supervisor_local', 'todos'])
+        .order('created_at', { ascending: false }).limit(30);
+      setReceived(data || []);
+    };
+    load();
+    const ch = db.channel('bc-gerente')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'staff_broadcasts' }, () => load())
+      .subscribe();
+    return () => db.removeChannel(ch);
+  }, []);
+
+  async function enviar() {
+    if (!msg.trim() || !db) return;
+    setSending(true);
+    const { error } = await db.from('staff_broadcasts').insert({
+      restaurant_id: RID,
+      sender_name: userName || 'Gerente',
+      sender_role: 'supervisor_local',
+      target_roles: [target],
+      message: msg.trim(),
+    });
+    setSending(false);
+    if (error) { toast('Error al enviar: ' + error.message, false); return; }
+    setSent('Aviso enviado');
+    setMsg('');
+    setTimeout(() => setSent(null), 3000);
+  }
+
+  return (
+    <div>
+      <h2 style={{fontSize:20,fontWeight:800,marginBottom:4}}>Avisos al personal</h2>
+      <p style={{fontSize:12,color:C.mid,marginBottom:20}}>Enviá un aviso a los trabajadores. No podés enviar avisos al admin.</p>
+
+      {/* Formulario de envío */}
+      <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:24}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.mid,marginBottom:8,textTransform:'uppercase',letterSpacing:'0.07em'}}>Nuevo aviso</div>
+        <textarea
+          value={msg} onChange={e=>setMsg(e.target.value)} rows={3}
+          placeholder="Escribí el aviso..."
+          style={{width:'100%',padding:'10px 12px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:14,marginBottom:12,resize:'vertical',background:'#F5F5F7',color:C.ink,boxSizing:'border-box'}}
+        />
+        <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+          <select value={target} onChange={e=>setTarget(e.target.value)}
+            style={{padding:'8px 12px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,background:'#F5F5F7',color:C.ink}}>
+            {TARGETS.map(t=><option key={t.v} value={t.v}>{t.lbl}</option>)}
+          </select>
+          <Btn onClick={enviar} disabled={!msg.trim()||sending}>{sending?'Enviando…':'Enviar aviso'}</Btn>
+          {sent && <span style={{fontSize:12,color:C.green,fontWeight:600}}>{sent}</span>}
+        </div>
+      </div>
+
+      {/* Avisos recibidos del admin */}
+      {received.length > 0 && (
+        <div>
+          <div style={{fontSize:12,fontWeight:700,color:C.mid,marginBottom:10,textTransform:'uppercase',letterSpacing:'0.07em'}}>Avisos recibidos del admin</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {received.map(b=>(
+              <div key={b.id} style={{background:C.white,border:`1px solid ${C.border}`,borderLeft:'4px solid #007AFF',borderRadius:10,padding:'12px 16px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+                  <span style={{fontSize:12,fontWeight:700,color:'#86868B'}}>{b.sender_name}</span>
+                  <span style={{fontSize:11,color:'#86868B'}}>{new Date(b.created_at).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}</span>
+                </div>
+                <div style={{fontSize:14,color:C.ink,lineHeight:1.5}}>{b.message}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    APP SHELL
    ════════════════════════════════════════════════════════════════════════════ */
 function App() {
@@ -2043,6 +2140,8 @@ function App() {
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [unreadSupport, setUnreadSupport] = useState(0);
   const [pendingStaffReqs, setPendingStaffReqs] = useState(0);
+  const [unreadBroadcasts, setUnreadBroadcasts] = useState(0);
+  const lastSeenBroadcasts = useRef(parseInt(localStorage.getItem('gerente_bc_seen') || '0'));
 
   useEffect(() => {
     if (!db || !auth.user) return;
@@ -2050,9 +2149,9 @@ function App() {
       if (_shouldPause()) return;
       const { count } = await db.from('manager_approvals').select('id',{count:'exact', head:true}).eq('restaurant_id',RID).eq('status','pendiente');
       setPendingApprovals(count||0);
-      // unread soporte: suma de unread_for_client de tickets no cerrados
+      // unread soporte: solo tickets del gerente (no los del admin)
       const { data: tk } = await db.from('support_tickets')
-        .select('unread_for_client').eq('restaurant_id',RID).neq('status','cerrado');
+        .select('unread_for_client').eq('restaurant_id',RID).eq('created_by_role','supervisor_local').neq('status','cerrado');
       setUnreadSupport((tk||[]).reduce((s,t)=>s+(t.unread_for_client||0),0));
       const { count: srCount } = await db.from('staff_requests').select('id',{count:'exact',head:true}).eq('restaurant_id',RID).eq('status','pending');
       setPendingStaffReqs(srCount||0);
@@ -2060,6 +2159,24 @@ function App() {
     tick();
     const id = setInterval(tick, 20000);
     return () => clearInterval(id);
+  }, [auth.user]);
+
+  /* Contador de avisos no leídos */
+  useEffect(() => {
+    if (!db || !auth.user) return;
+    const load = async () => {
+      const { data } = await db.from('staff_broadcasts')
+        .select('created_at').eq('restaurant_id', RID)
+        .overlaps('target_roles', ['supervisor_local', 'todos'])
+        .order('created_at', { ascending: false }).limit(30);
+      const unread = (data || []).filter(b => new Date(b.created_at).getTime() > lastSeenBroadcasts.current).length;
+      setUnreadBroadcasts(unread);
+    };
+    load();
+    const ch = db.channel('bc-gerente-count')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'staff_broadcasts' }, () => load())
+      .subscribe();
+    return () => db.removeChannel(ch);
   }, [auth.user]);
 
   if (auth.loading) return <div style={{height:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><div className="spin"/></div>;
@@ -2078,6 +2195,7 @@ function App() {
     {key:'bitacora',  label:'Bitácora', icon:'📝'},
     {key:'reportes',  label:'Reportes', icon:'📈'},
     {key:'personal',  label:'Solicitudes personal', icon:'◎', badge: pendingStaffReqs},
+    {key:'avisos',    label:'Avisos al personal',  icon:'🔔', badge: unreadBroadcasts},
     {key:'soporte',   label:'Soporte Mythos', icon:'💬', badge: unreadSupport},
   ];
 
@@ -2091,7 +2209,7 @@ function App() {
         </div>
         <nav style={{flex:1,padding:'12px 10px',display:'flex',flexDirection:'column',gap:2}}>
           {sections.map(s => (
-            <button key={s.key} onClick={() => setSection(s.key)} style={{
+            <button key={s.key} onClick={() => { setSection(s.key); if(s.key==='avisos'){const now=Date.now();localStorage.setItem('gerente_bc_seen',now);lastSeenBroadcasts.current=now;setUnreadBroadcasts(0);} }} style={{
               display:'flex',alignItems:'center',gap:10,padding:'10px 12px',background:section===s.key?'#000':'transparent',color:section===s.key?'#fff':C.ink,
               border:'none',borderRadius:8,fontSize:13,fontWeight:600,textAlign:'left',transition:'background .15s',position:'relative'
             }}>
@@ -2121,6 +2239,7 @@ function App() {
         {section==='bitacora'     && <BitacoraTurno user={auth.user} userName={auth.name}/>}
         {section==='reportes'     && <ReportesDelDia/>}
         {section==='personal'     && <SolicitudPersonal user={auth.user} userName={auth.name}/>}
+        {section==='avisos'       && <AvisosGerente user={auth.user} userName={auth.name}/>}
         {section==='soporte'      && <Soporte user={auth.user} role={auth.role} userName={auth.name} userUsername={auth.username} userEmail={auth.email}/>}
       </main>
 

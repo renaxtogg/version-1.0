@@ -1481,7 +1481,12 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
       try {
         const { data: ord } = await db.from('orders')
           .select('status,id').eq('order_number', order.order_number).maybeSingle();
-        if (!ord) return;
+        if (!ord) {
+          // Orden ya no existe en DB (reset/limpieza): purgar localStorage y volver al inicio
+          ['dc_order','dc_order_type','dc_customer','dc_zone'].forEach(k => localStorage.removeItem(k));
+          if (typeof onNewOrder === 'function') onNewOrder();
+          return;
+        }
         orderId = ord.id;
 
         if (!isDelivery) {
@@ -1639,6 +1644,10 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
           <div style={{ fontSize: 12, color: T.gray, textAlign: 'center', lineHeight: 1.6 }}>
             {isDelivery ? 'El repartidor te contactará si hay algún inconveniente.' : 'Pasá a buscar tu pedido cuando recibas el aviso.'}
           </div>
+          <button onClick={onNewOrder}
+            style={{ display: 'block', margin: '14px auto 0', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: T.gray, textDecoration: 'underline', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", padding: '4px 8px' }}>
+            Hacer un nuevo pedido
+          </button>
         </div>
       )}
 
