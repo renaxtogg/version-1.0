@@ -2059,7 +2059,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
 /* ═══════════════════════════════════════════
    MODAL: DETALLE DE PEDIDO (Vista salón)
 ═══════════════════════════════════════════ */
-function OrderDetailModal({order,onClose,onMarcarRetirado}){
+function OrderDetailModal({order,onClose}){
   const [items,setItems]=useState([]);
   const [dInfo,setDInfo]=useState(null);
   useEffect(()=>{
@@ -2136,21 +2136,7 @@ function OrderDetailModal({order,onClose,onMarcarRetirado}){
         <span style={{fontSize:13,fontWeight:700,color:C.mid}}>TOTAL</span>
         <span style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(order.total)}</span>
       </div>
-      {(()=>{
-        const esPickupPagado = !order.table_id
-          && (order.order_type==='takeaway'||order.order_type==='llevar')
-          && order.payment_status==='paid'
-          && order.status!=='delivered' && order.status!=='cancelled';
-        if(esPickupPagado&&onMarcarRetirado){
-          return(
-            <div style={{display:'flex',gap:8}}>
-              <Btn variant="ghost" onClick={onClose}>Cerrar</Btn>
-              <Btn variant="success" full onClick={()=>onMarcarRetirado(order)}>🥡 Marcar retirado · enviar al historial</Btn>
-            </div>
-          );
-        }
-        return <Btn variant="ghost" full onClick={onClose}>Cerrar</Btn>;
-      })()}
+      <Btn variant="ghost" full onClick={onClose}>Cerrar</Btn>
     </Modal>
   );
 }
@@ -2494,17 +2480,28 @@ function SalonPanel({profile}){
 
   async function load(){
     const todayStr=new Date().toISOString().slice(0,10);
-    const[{data:tbl},{data:ord},{data:resv},{data:rest}]=await Promise.all([
+    // Pickup pagado entregado hace <10 min: lo mostramos en caja unos minutos
+    // luego cae al historial. (Filtro real visible es 6 min — la query trae
+    // 10 para evitar parpadeos por desfase de reloj.)
+    const sincePickupISO=new Date(Date.now()-10*60*1000).toISOString();
+    const[{data:tbl},{data:ord},{data:pickupDone},{data:resv},{data:rest}]=await Promise.all([
       db.from('tables').select('id,number,capacity,is_occupied,occupied_since,zona,shape,pos_x,pos_y,assigned_waiter_name').eq('restaurant_id',RID).order('number'),
       db.from('orders')
-        .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,requires_invoice,invoice_delivery_method,invoice_status,tables(number)')
+        .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,requires_invoice,invoice_delivery_method,invoice_status,completed_at,tables(number)')
         .eq('restaurant_id',RID).in('status',ACTIVE)
         .order('created_at',{ascending:true}),
+      db.from('orders')
+        .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,requires_invoice,invoice_delivery_method,invoice_status,completed_at')
+        .eq('restaurant_id',RID).eq('status','delivered').eq('payment_status','paid')
+        .is('table_id',null).gte('completed_at',sincePickupISO)
+        .order('completed_at',{ascending:false}),
       db.from('reservations').select('*').eq('restaurant_id',RID).eq('reservation_date',todayStr).eq('status','confirmed'),
       db.from('restaurants').select('reservation_window_hours,reservation_alert_minutes').eq('id',RID).maybeSingle(),
     ]);
     const allTables=tbl||[];
-    setTables(allTables);setOrders(ord||[]);
+    // Mergear pickup pagado entregado reciente con los activos
+    const ordsMerged=[...(ord||[]),...(pickupDone||[])];
+    setTables(allTables);setOrders(ordsMerged);
     setReservationsToday(resv||[]);
     if(rest)setResvConfig({window:Number(rest.reservation_window_hours??3),alertMin:Number(rest.reservation_alert_minutes??30)});
 
@@ -2539,19 +2536,6 @@ function SalonPanel({profile}){
     load();
   }
 
-  async function marcarRetirado(order){
-    if(!db)return;
-    if(!window.confirm(`¿Confirmar que el cliente retiró el pedido #${order.order_number}?`))return;
-    const{error}=await db.from('orders').update({
-      status:'delivered',
-      completed_at:new Date().toISOString(),
-    }).eq('id',order.id);
-    if(error){toast('Error al marcar retirado: '+error.message,false);return;}
-    try{await db.from('order_status_history').insert({order_id:order.id,status:'delivered',notes:'Cliente retiró el pedido'});}catch(e){}
-    toast(`Pedido #${order.order_number} entregado al cliente ✓`);
-    load();
-  }
-
   async function loadTableSession(table){
     if(!db)return;
     let q=db.from('orders')
@@ -2567,14 +2551,18 @@ function SalonPanel({profile}){
     const m={};(orders||[]).forEach(o=>{if(o.table_id)m[o.table_id]=o;});return m;
   },[orders]);
 
-  const dineInOrders  =orders.filter(o=>o.table_id);
+  // 'delivered' solo aplica a pickup pagado reciente (lo trae la query secundaria).
+  // Para dine-in/delivery filtramos para no mostrar entregados aunque aparezcan.
+  const SIX_MIN=6*60*1000;
+  const isRecentDeliveredPickup=o=>o.status==='delivered'&&o.completed_at&&(nowTick-new Date(o.completed_at).getTime()<SIX_MIN);
+  const dineInOrders  =orders.filter(o=>o.table_id&&o.status!=='delivered');
   const takeawayOrders=orders.filter(o=>!o.table_id&&o.order_type==='takeaway');
-  const deliveryOrders=orders.filter(o=>!o.table_id&&o.order_type==='delivery');
+  const deliveryOrders=orders.filter(o=>!o.table_id&&o.order_type==='delivery'&&o.status!=='delivered');
   const otherOrders   =orders.filter(o=>!o.table_id&&o.order_type!=='takeaway'&&o.order_type!=='delivery');
-  // Pickup paid vs unpaid: ya cobrados esperan retiro del cliente; sin cobrar requieren cobro en caja.
+  // Pickup: pendientes de cobro + pagados (online o ya entregados por cocina los últimos 6min).
   const pickupAll     =[...takeawayOrders,...otherOrders];
   const pickupACobrar =pickupAll.filter(o=>o.payment_status!=='paid');
-  const pickupRetiro  =pickupAll.filter(o=>o.payment_status==='paid');
+  const pickupPagado  =pickupAll.filter(o=>o.payment_status==='paid'&&(o.status!=='delivered'||isRecentDeliveredPickup(o)));
   const kitchenCount  =orders.filter(o=>['kitchen_received','cooking'].includes(o.status)).length;
   const readyCount    =orders.filter(o=>o.status==='ready').length;
   const totalEnProceso=Object.values(sessionTotals).reduce((s,v)=>s+v,0)||orders.reduce((s,o)=>s+Number(o.total),0);
@@ -2629,14 +2617,18 @@ function SalonPanel({profile}){
     );
   }
 
-  function OrderRow({order,mode}){
+  function OrderRow({order}){
     const espera=Math.floor((Date.now()-new Date(order.created_at))/60000);
     const name=order.customer_name?` — ${order.customer_name}`:'';
     const tipo=orderTypeLabel(order.order_type);
-    const esRetiro=mode==='pickup-paid';
-    // En modo retiro, evitamos el badge engañoso "A cobrar" — ya está cobrado.
-    const statusLbl=esRetiro?'✓ Cobrado · pasa a buscar':(SL[order.status]||order.status);
-    const statusCol=esRetiro?C.green:(SC[order.status]||'#6E6E73');
+    const esPickupPagado=!order.table_id&&order.payment_status==='paid'&&(order.order_type==='takeaway'||order.order_type==='llevar'||!order.order_type);
+    const entregadoHace=esPickupPagado&&order.status==='delivered'&&order.completed_at
+      ?Math.max(0,6-Math.floor((nowTick-new Date(order.completed_at).getTime())/60000))
+      :null;
+    const statusLbl=esPickupPagado
+      ?(order.status==='delivered'?`✓ Entregado · oculta en ${entregadoHace}m`:'✓ Pagado · en cocina')
+      :(SL[order.status]||order.status);
+    const statusCol=esPickupPagado?C.green:(SC[order.status]||'#6E6E73');
     return(
       <div style={{
         background:C.surface,border:`1px solid ${statusCol}44`,
@@ -2650,7 +2642,7 @@ function SalonPanel({profile}){
             </div>
             <div style={{display:'flex',gap:6,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
               <Badge txt={statusLbl} color={statusCol}/>
-              {tipo&&!esRetiro&&<Badge txt={tipo} color={orderTypeColor(order.order_type)}/>}
+              {tipo&&<Badge txt={tipo} color={orderTypeColor(order.order_type)}/>}
               {order.requires_invoice&&(order.invoice_status||'pending')==='pending'&&(
                 <Badge txt={`🧾 ${order.invoice_delivery_method==='email'?'Factura email':'Factura impresa'}`} color={'#007AFF'}/>
               )}
@@ -2659,19 +2651,11 @@ function SalonPanel({profile}){
           </div>
           <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:800,color:C.green,whiteSpace:'nowrap'}}>{fmt(order.total)}</div>
         </div>
-        {esRetiro&&(
-          <button onClick={()=>marcarRetirado(order)} style={{
-            padding:'7px 10px',borderRadius:6,border:'none',background:C.green,color:'#fff',
-            fontSize:12,fontWeight:700,cursor:'pointer',letterSpacing:'0.02em',
-          }}>
-            🥡 Marcar retirado
-          </button>
-        )}
       </div>
     );
   }
 
-  const SideSection=({title,list,emptyMsg,accent,desc,mode})=>(
+  const SideSection=({title,list,emptyMsg,accent,desc})=>(
     <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
       <div style={{marginBottom:10}}>
         <div style={{fontSize:11,color:accent||'#1D1D1F',fontWeight:800,letterSpacing:'0.05em'}}>
@@ -2683,7 +2667,7 @@ function SalonPanel({profile}){
         <div style={{color:'#6E6E73',fontSize:12,padding:'8px 0',fontWeight:500}}>{emptyMsg}</div>
       ):(
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          {list.map(o=><OrderRow key={o.id} order={o} mode={mode}/>)}
+          {list.map(o=><OrderRow key={o.id} order={o}/>)}
         </div>
       )}
     </div>
@@ -2772,18 +2756,17 @@ function SalonPanel({profile}){
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             <SideSection
               title="PARA LLEVAR · A COBRAR"
-              desc="Pedidos sin mesa que aún no fueron cobrados"
+              desc="El cliente pasa por caja, paga y retira. Al cobrar, el pedido va al historial."
               list={pickupACobrar}
               emptyMsg="Sin pedidos pendientes de cobro"
               accent={'#FF9500'}
             />
             <SideSection
-              title="ESPERANDO RETIRO"
-              desc="Ya cobrados — el cliente pasa a buscar"
-              list={pickupRetiro}
-              emptyMsg="Sin pedidos esperando retiro"
+              title="PARA LLEVAR · PAGADOS"
+              desc="Pagados online (tarjeta/QR). Se ocultan a los 6 min de entregados por cocina."
+              list={pickupPagado}
+              emptyMsg="Sin pedidos pagados online"
               accent={'#34C759'}
-              mode="pickup-paid"
             />
             <SideSection
               title="DELIVERY A DOMICILIO"
@@ -2796,7 +2779,7 @@ function SalonPanel({profile}){
         </div>
       )}
 
-      {selOrder&&<OrderDetailModal order={selOrder} onClose={()=>setSelOrder(null)} onMarcarRetirado={async(o)=>{await marcarRetirado(o);setSelOrder(null);}}/>}
+      {selOrder&&<OrderDetailModal order={selOrder} onClose={()=>setSelOrder(null)}/>}
 
       {/* Modal de info de reserva */}
       {resvInfo&&(()=>{
