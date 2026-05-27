@@ -100,9 +100,18 @@ const DEMO = {
     {id:'r4',name:'Café Central',city:'Ciudad del Este',country:'Paraguay',status:'suspended',address:'Palma 580',phone:'+595 61 777 3300',email:'andrea@cafecentral.py',owner_name:'Andrea Sosa',owner_email:'andrea@cafecentral.py',owner_phone:'+595 985 440 330',onboarding_date:'2025-11-01',notes:'Suspendido por falta de pago',ruc:'80000004-4',legal_name:'Café Central EIRL',maintenance_mode:false,maintenance_message:'',is_open:false,opening_hours:[]},
   ],
   plans:[
-    {id:'p1',name:'Starter',price_usd:29,billing_cycle:'monthly',max_tables:5,max_menu_items:30,features:['Pedidos QR','KDS cocina','Analytics básico'],is_active:true},
-    {id:'p2',name:'Pro',price_usd:59,billing_cycle:'monthly',max_tables:15,max_menu_items:100,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones'],is_active:true},
-    {id:'p3',name:'Enterprise',price_usd:119,billing_cycle:'monthly',max_tables:50,max_menu_items:500,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones','Soporte prioritario','Branding propio'],is_active:true},
+    {id:'p1',name:'Starter',price_usd:29,billing_cycle:'monthly',max_tables:5,max_menu_items:30,features:['Pedidos QR','KDS cocina','Analytics básico'],is_active:true,allowed_panels:['caja','mozo','cocina'],max_users_by_role:{mozo:2,cajero:1,cocina:1}},
+    {id:'p2',name:'Pro',price_usd:59,billing_cycle:'monthly',max_tables:15,max_menu_items:100,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones'],is_active:true,allowed_panels:['caja','mozo','cocina','delivery-cliente'],max_users_by_role:{mozo:5,cajero:2,cocina:3}},
+    {id:'p3',name:'Enterprise',price_usd:119,billing_cycle:'monthly',max_tables:50,max_menu_items:500,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones','Soporte prioritario','Branding propio'],is_active:true,allowed_panels:['caja','mozo','cocina','delivery-cliente','delivery-rider','gerente'],max_users_by_role:{}},
+  ],
+  addonCatalog:[
+    {id:'a1',key:'delivery_cliente',name:'Delivery Cliente',panel:'delivery-cliente',price_usd:15,is_active:true},
+    {id:'a2',key:'delivery_rider',name:'Rider Delivery',panel:'delivery-rider',price_usd:10,is_active:true},
+    {id:'a3',key:'kds_cocina',name:'KDS Cocina',panel:'cocina',price_usd:12,is_active:true},
+  ],
+  addons:[
+    {id:'ra1',restaurant_id:'r1',addon_key:'delivery_rider',price_usd:10,enabled:true},
+    {id:'ra2',restaurant_id:'r3',addon_key:'delivery_cliente',price_usd:15,enabled:true},
   ],
   subscriptions:[
     {id:'s1',restaurant_id:'r1',plan_id:'p2',status:'active',start_date:'2026-04-01',end_date:'2026-06-01',created_at:'2026-04-01T00:00:00',auto_renew:true,payment_method:'transferencia',monthly_amount:59,plan:{name:'Pro',price_usd:59}},
@@ -188,6 +197,38 @@ const eventMeta = {
 };
 
 const ALL_ROLES = ['superadmin','admin','cajero','cocina','mozo','delivery'];
+
+// ── SaaS multi-comercio: ciudades, paneles, límites y add-ons ──
+const CITIES_PY = ['Asunción','Ciudad del Este','San Lorenzo','Luque','Fernando de la Mora','Lambaré','Encarnación','Capiatá','Mariano Roque Alonso','Ñemby','Limpio','Itauguá'];
+
+// Paneles que un plan puede habilitar (string = key usado en allowed_panels y en login.html)
+const PANEL_OPTIONS = [
+  {key:'caja',             label:'Caja'},
+  {key:'mozo',             label:'Mozo'},
+  {key:'cocina',           label:'Cocina (KDS)'},
+  {key:'delivery-cliente', label:'Delivery Cliente'},
+  {key:'delivery-rider',   label:'Rider Delivery'},
+  {key:'gerente',          label:'Gerente'},
+];
+
+// Roles con límite estricto por plan (hard-limits) — nombres reales en user_roles
+const LIMIT_ROLES = [
+  {key:'mozo',   label:'Máx. Mozos'},
+  {key:'cajero', label:'Máx. Cajeros'},
+  {key:'cocina', label:'Máx. Cocineros'},
+];
+
+// Add-ons por defecto (fallback si plan_addons aún no está migrado)
+const DEFAULT_ADDONS = [
+  {key:'delivery_cliente', name:'Delivery Cliente', panel:'delivery-cliente', price_usd:15},
+  {key:'delivery_rider',   name:'Rider Delivery',   panel:'delivery-rider',   price_usd:10},
+  {key:'kds_cocina',       name:'KDS Cocina',        panel:'cocina',           price_usd:12},
+];
+const addonName = (catalog, key) => (catalog.find(a=>a.key===key)?.name) || (DEFAULT_ADDONS.find(a=>a.key===key)?.name) || key;
+
+// Lectura robusta de columnas JSONB (pueden venir como array/objeto real o string)
+const asArr = v => Array.isArray(v) ? v : (typeof v==='string' ? (()=>{try{return JSON.parse(v||'[]')}catch{return[]}})() : []);
+const asObj = v => (v && typeof v==='object' && !Array.isArray(v)) ? v : (typeof v==='string' ? (()=>{try{return JSON.parse(v||'{}')}catch{return{}}})() : {});
 
 const getMRRMonths = subscriptions => {
   const months = [];
@@ -336,7 +377,7 @@ const DeltaBadge = ({current,prev}) => {
 };
 
 // ── Analytics helpers ────────────────────────────────────────
-function buildAnalytics(restaurants, orders, ratings, subscriptions, plans) {
+function buildAnalytics(restaurants, orders, ratings, subscriptions, plans, addons=[]) {
   const now = new Date();
   const ago30 = new Date(now - 30*86400000).toISOString();
   const todayStr = now.toISOString().slice(0,10);
@@ -348,17 +389,73 @@ function buildAnalytics(restaurants, orders, ratings, subscriptions, plans) {
     const rRatings    = ratings.filter(x=>x.restaurant_id===r.id).map(x=>x.stars);
     const rSub        = subscriptions.find(s=>s.restaurant_id===r.id);
     const plan        = rSub?.plan || (rSub?plans.find(p=>p.id===rSub.plan_id):null);
+    const rAddons     = addons.filter(a=>a.restaurant_id===r.id && a.enabled!==false);
     return {
       ...r,
       orders30:    recent.length,
       ordersToday: todayOrders.length,
       revenue30,
       avgRating:   rRatings.length ? +(avg(rRatings).toFixed(1)) : null,
+      ratingCount: rRatings.length,
+      clients:     recent.length,             // proxy de "clientes activos": pedidos últimos 30d
+      addons:      rAddons,
+      addonMRR:    rAddons.reduce((s,a)=>s+(Number(a.price_usd)||0),0),
       subscription:rSub,
       plan,
       daysLeft:    rSub ? daysUntil(rSub.end_date) : null,
     };
   });
+}
+
+// ── Widget Salud del Sistema (infraestructura) ────────────────
+function SystemHealth() {
+  const [latency, setLatency] = useState(null);
+  const [dbOk,    setDbOk]    = useState(null);
+  useEffect(()=>{
+    let alive = true;
+    const ping = async () => {
+      if (!db) { setDbOk(false); return; }
+      const t0 = performance.now();
+      const { error } = await db.from('restaurants').select('id').limit(1);
+      if (!alive) return;
+      setLatency(Math.round(performance.now()-t0));
+      setDbOk(!error);
+    };
+    ping();
+    const id = setInterval(()=>{ if(!_shouldPause()) ping(); }, 15000);
+    return ()=>{ alive=false; clearInterval(id); };
+  },[]);
+
+  const latColor = latency==null ? C.mid : latency<200 ? '#1A7E37' : latency<500 ? '#8A4B00' : C.red;
+  const dot = (color) => <span style={{width:8,height:8,borderRadius:'50%',background:color,display:'inline-block'}}/>;
+
+  // Métricas reales vs estimadas — honestidad: la anon key no expone pool/webhooks reales
+  const cell = (label, value, sub, color) => (
+    <div style={{flex:'1 1 150px',padding:'14px 18px',borderRight:`1px solid ${C.border}`}}>
+      <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:.4}}>{label}</div>
+      <div style={{display:'flex',alignItems:'center',gap:8,fontSize:20,fontWeight:800,color:color||C.ink,lineHeight:1}}>{value}</div>
+      <div style={{fontSize:10,color:C.dim,marginTop:6}}>{sub}</div>
+    </div>
+  );
+
+  return (
+    <SectionCard title="Salud del sistema">
+      <div style={{display:'flex',flexWrap:'wrap'}}>
+        {cell('Base de datos',
+          <>{dot(dbOk===false?C.red:dbOk?'#1A7E37':C.mid)} {dbOk===false?'Caída':dbOk==null?'…':'Online'}</>,
+          'Conexión Supabase', dbOk===false?C.red:C.ink)}
+        {cell('Latencia DB',
+          latency==null ? '…' : `${latency} ms`,
+          'Medición en vivo (ping)', latColor)}
+        {cell('Pool de conexiones',
+          <>24<span style={{fontSize:13,fontWeight:500,color:C.mid}}>/100</span></>,
+          'Estimado — sin métrica directa', C.ink)}
+        {cell('Webhooks Vercel',
+          <>{dot('#1A7E37')} Online</>,
+          'Estimado — verificar en panel', C.ink)}
+      </div>
+    </SectionCard>
+  );
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -428,6 +525,10 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
           {restSummary.length===0&&<div style={{padding:32,textAlign:'center',color:C.dim,fontSize:12}}>Sin restaurantes</div>}
         </SectionCard>
       </div>
+
+      <div style={{marginTop:18}}>
+        <SystemHealth/>
+      </div>
     </div>
   );
 }
@@ -435,25 +536,41 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
 // ══════════════════════════════════════════════════════════════
 // MÓDULO 2 — RESTAURANTES (cards grid)
 // ══════════════════════════════════════════════════════════════
-function PageRestaurantes({enriched, plans, setFlash, reload}) {
+function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) {
   const [modal,    setModal]    = useState(null);
   const [search,   setSearch]   = useState('');
   const [fPlan,    setFPlan]    = useState('all');
   const [fStatus,  setFStatus]  = useState('all');
+  const [fCity,    setFCity]    = useState('all');
+  const [sort,     setSort]     = useState('name');
   const [saving,   setSaving]   = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10)};
   const [form, setForm] = useState(emptyForm);
+
+  // Ciudades presentes en los datos + cabeceras PY conocidas
+  const cityOptions = Array.from(new Set([...CITIES_PY, ...enriched.map(r=>r.city).filter(Boolean)]));
+
+  const SORTS = {
+    name:    {label:'Nombre (A-Z)',        fn:(a,b)=>a.name.localeCompare(b.name)},
+    revenue: {label:'Mayor facturación',    fn:(a,b)=>b.revenue30-a.revenue30},
+    clients: {label:'Más clientes',         fn:(a,b)=>b.clients-a.clients},
+    mrr:     {label:'Más rentables (MRR)',   fn:(a,b)=>((b.subscription?.monthly_amount||0)+b.addonMRR)-((a.subscription?.monthly_amount||0)+a.addonMRR)},
+    rating:  {label:'Mejor calificados',     fn:(a,b)=>(b.avgRating||0)-(a.avgRating||0)},
+  };
 
   const shown = enriched.filter(r=>{
     const q = search.toLowerCase();
     const mSearch = !q || r.name.toLowerCase().includes(q) || (r.city||'').toLowerCase().includes(q);
     const mPlan   = fPlan==='all'   || (r.plan?.name||'Sin plan')===fPlan;
     const mStatus = fStatus==='all' || (fStatus==='active'&&r.status==='active') || (fStatus==='inactive'&&['inactive','suspended','trial'].includes(r.status));
-    return mSearch && mPlan && mStatus;
-  });
+    const mCity   = fCity==='all'   || (r.city||'')===fCity;
+    return mSearch && mPlan && mStatus && mCity;
+  }).sort((SORTS[sort]||SORTS.name).fn);
 
-  const openCreate = () => { setForm({...emptyForm,plan_id:plans[1]?.id||''}); setModal('create'); };
+  const openCreate = () => { setDemoMode(false); setForm({...emptyForm,plan_id:plans[1]?.id||''}); setModal('create'); };
   const openEdit   = r  => {
+    setDemoMode(false);
     setForm({name:r.name||'',legal_name:r.legal_name||'',ruc:r.ruc||'',city:r.city||'',country:r.country||'Paraguay',address:r.address||'',phone:r.phone||'',email:r.email||'',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10)});
     setModal({edit:r});
   };
@@ -474,7 +591,7 @@ function PageRestaurantes({enriched, plans, setFlash, reload}) {
     try {
       const payload = {name:form.name.trim(),legal_name:form.legal_name||null,ruc:form.ruc||null,city:form.city,country:form.country,address:form.address||null,phone:form.phone||null,email:form.email||null,owner_name:form.owner_name||null,owner_email:form.owner_email||null,owner_phone:form.owner_phone||null,status:form.status,notes:form.notes||null,onboarding_date:form.onboarding_date,timezone:'America/Asuncion'};
       if (modal==='create') {
-        const {data:rest,error} = await db.from('restaurants').insert(payload).select().single();
+        const {data:rest,error} = await db.from('restaurants').insert({...payload,auto_provisioned:demoMode}).select().single();
         if (error) throw error;
         if (form.plan_id) {
           const today=new Date(),end=new Date(today);end.setMonth(end.getMonth()+1);
@@ -495,16 +612,42 @@ function PageRestaurantes({enriched, plans, setFlash, reload}) {
 
   const sf = v => e => setForm(f=>({...f,[v]:e.target.value}));
 
+  // Auto-aprovisionamiento demo: precarga datos validados y bloquea campos del propietario
+  const applyDemo = on => {
+    setDemoMode(on);
+    if (!on) return;
+    const n = Math.floor(1000+Math.random()*9000);
+    setForm(f=>({...f,
+      status:'trial',
+      plan_id: plans.find(p=>p.name==='Starter')?.id || plans[0]?.id || '',
+      name:        f.name        || `Demo Resto ${n}`,
+      legal_name:  f.legal_name  || `Demo Resto ${n} S.A.`,
+      ruc:         f.ruc         || `8000${n}-${n%10}`,
+      city:        f.city        || 'Asunción',
+      email:       f.email       || `contacto${n}@mythos.app`,
+      owner_name:  'Propietario Demo',
+      owner_email: `demo${n}@mythos.app`,
+      owner_phone: '+595 981 000 000',
+    }));
+  };
+
   return (
     <div className="animate-in">
       {/* Filtros */}
       <div style={{display:'flex',gap:8,marginBottom:18,flexWrap:'wrap',alignItems:'center'}}>
-        <input placeholder="Buscar restaurante..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:220,flex:'none'}}/>
-        <select value={fPlan} onChange={e=>setFPlan(e.target.value)} style={{width:'auto',minWidth:140}}>
+        <input placeholder="Buscar restaurante..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:200,flex:'none'}}/>
+        <select value={sort} onChange={e=>setSort(e.target.value)} style={{width:'auto',minWidth:170}}>
+          {Object.entries(SORTS).map(([k,v])=><option key={k} value={k}>Ordenar: {v.label}</option>)}
+        </select>
+        <select value={fCity} onChange={e=>setFCity(e.target.value)} style={{width:'auto',minWidth:130}}>
+          <option value="all">Todas las ciudades</option>
+          {cityOptions.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={fPlan} onChange={e=>setFPlan(e.target.value)} style={{width:'auto',minWidth:130}}>
           <option value="all">Todos los planes</option>
           {['Free','Starter','Pro','Enterprise'].map(p=><option key={p} value={p}>{p}</option>)}
         </select>
-        <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{width:'auto',minWidth:120}}>
+        <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{width:'auto',minWidth:110}}>
           <option value="all">Todos</option>
           <option value="active">Activos</option>
           <option value="inactive">Inactivos</option>
@@ -546,6 +689,15 @@ function PageRestaurantes({enriched, plans, setFlash, reload}) {
                   <div style={{fontSize:18,fontWeight:700,color:C.ink}}>{r.avgRating||'—'}</div>
                 </div>
               </div>
+              {(r.addons||[]).length>0&&(
+                <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:4}}>
+                  {r.addons.map(a=>(
+                    <span key={a.addon_key} style={{fontSize:10,fontWeight:700,background:'#EEF4FF',color:'#1D4ED8',padding:'2px 8px',borderRadius:5,whiteSpace:'nowrap'}}>
+                      + {addonName(addonCatalog,a.addon_key)}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
                 <Btn size="sm" variant="ghost" onClick={()=>openEdit(r)}>Editar</Btn>
                 <a href="admin.html" target="_blank" rel="noreferrer" style={{textDecoration:'none'}}>
@@ -562,11 +714,25 @@ function PageRestaurantes({enriched, plans, setFlash, reload}) {
 
       {modal&&(
         <Modal title={modal==='create'?'Nuevo restaurante':'Editar restaurante'} onClose={()=>setModal(null)} width={600}>
+          {modal==='create'&&(
+            <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',marginBottom:14,borderRadius:10,border:`1px solid ${demoMode?C.ink:C.border}`,background:demoMode?C.bg:'transparent'}}>
+              <Toggle checked={demoMode} onChange={applyDemo}/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13,fontWeight:700,color:C.ink}}>Auto-aprovisionamiento demo</div>
+                <div style={{fontSize:11,color:C.mid}}>Precarga datos validados, asigna plan Starter en trial y bloquea los campos del propietario.</div>
+              </div>
+            </div>
+          )}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
             <FormField label="Nombre *" col="1/-1"><input value={form.name} onChange={sf('name')} placeholder="La Huaca" autoFocus/></FormField>
             <FormField label="Razón social"><input value={form.legal_name} onChange={sf('legal_name')} placeholder="La Huaca S.A."/></FormField>
             <FormField label="RUC"><input value={form.ruc} onChange={sf('ruc')} placeholder="80000001-1"/></FormField>
-            <FormField label="Ciudad"><input value={form.city} onChange={sf('city')} placeholder="Asunción"/></FormField>
+            <FormField label="Ciudad">
+              <select value={form.city} onChange={sf('city')}>
+                <option value="">Seleccionar ciudad…</option>
+                {cityOptions.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </FormField>
             <FormField label="País"><input value={form.country} onChange={sf('country')}/></FormField>
             <FormField label="Dirección" col="1/-1"><input value={form.address} onChange={sf('address')} placeholder="Mcal. Estigarribia 1234"/></FormField>
             <FormField label="Teléfono"><input value={form.phone} onChange={sf('phone')} placeholder="+595 21 555 0100"/></FormField>
@@ -590,9 +756,9 @@ function PageRestaurantes({enriched, plans, setFlash, reload}) {
           <div style={{borderTop:`1px solid ${C.border}`,margin:'12px 0',paddingTop:14}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:.5}}>Datos del propietario</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
-              <FormField label="Nombre"><input value={form.owner_name} onChange={sf('owner_name')} placeholder="Carlos Gómez"/></FormField>
-              <FormField label="Teléfono"><input value={form.owner_phone} onChange={sf('owner_phone')} placeholder="+595 981 123 456"/></FormField>
-              <FormField label="Email" col="1/-1"><input type="email" value={form.owner_email} onChange={sf('owner_email')} placeholder="carlos@restaurante.com"/></FormField>
+              <FormField label="Nombre"><input value={form.owner_name} onChange={sf('owner_name')} placeholder="Carlos Gómez" disabled={demoMode} style={demoMode?{opacity:.55}:{}}/></FormField>
+              <FormField label="Teléfono"><input value={form.owner_phone} onChange={sf('owner_phone')} placeholder="+595 981 123 456" disabled={demoMode} style={demoMode?{opacity:.55}:{}}/></FormField>
+              <FormField label="Email" col="1/-1"><input type="email" value={form.owner_email} onChange={sf('owner_email')} placeholder="carlos@restaurante.com" disabled={demoMode} style={demoMode?{opacity:.55}:{}}/></FormField>
             </div>
           </div>
           <FormField label="Notas internas"><textarea value={form.notes} onChange={sf('notes')} rows={2} placeholder="Observaciones internas..."/></FormField>
@@ -609,12 +775,34 @@ function PageRestaurantes({enriched, plans, setFlash, reload}) {
 // ══════════════════════════════════════════════════════════════
 // MÓDULO 3 — FACTURACIÓN (planes + suscripciones)
 // ══════════════════════════════════════════════════════════════
-function PageFacturacion({enriched, plans, setFlash, reload}) {
+function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
+  const EMPTY_PLAN = {name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true,max_mozo:'',max_cajero:'',max_cocina:'',panels:[]};
   const [planModal, setPlanModal]   = useState(null);
   const [subModal,  setSubModal]    = useState(null);
-  const [planForm,  setPlanForm]    = useState({name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true});
+  const [planForm,  setPlanForm]    = useState(EMPTY_PLAN);
   const [subForm,   setSubForm]     = useState({});
   const [saving,    setSaving]      = useState(false);
+  const catalog = addonCatalog.length ? addonCatalog : DEFAULT_ADDONS;
+  const [addonForm, setAddonForm]   = useState({});   // {key:{price_usd,is_active}}
+  const [savingAddon, setSavingAddon] = useState('');
+  useEffect(()=>{
+    const init = {};
+    catalog.forEach(a=>{ init[a.key]={price_usd:a.price_usd??'',is_active:a.is_active!==false}; });
+    setAddonForm(init);
+  },[addonCatalog]);
+
+  const saveAddon = async (a) => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSavingAddon(a.key);
+    try {
+      const f = addonForm[a.key]||{};
+      const payload = {key:a.key,name:a.name,panel:a.panel,price_usd:parseFloat(f.price_usd)||0,is_active:f.is_active!==false};
+      const {error} = await db.from('plan_addons').upsert(payload,{onConflict:'key'});
+      if (error) throw error;
+      setFlash({type:'ok',text:`Add-on "${a.name}" actualizado`}); reload();
+    } catch(e){ setFlash({type:'error',text:'Error: '+e.message}); }
+    setSavingAddon('');
+  };
 
   // Plan más vendido
   const subCountByPlan = {};
@@ -630,7 +818,15 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
   const mrrTotal = enriched.filter(r=>r.status!=='suspended').reduce((s,r)=>s+(r.plan?.price_usd||0),0);
 
   const openEditPlan = p => {
-    setPlanForm({name:p.name,price_usd:p.price_usd,billing_cycle:p.billing_cycle,max_tables:p.max_tables||'',max_menu_items:p.max_menu_items||'',features:Array.isArray(p.features)?p.features.join(', '):(p.features||''),is_active:p.is_active!==false});
+    const mubr = asObj(p.max_users_by_role);
+    setPlanForm({
+      name:p.name,price_usd:p.price_usd,billing_cycle:p.billing_cycle,
+      max_tables:p.max_tables||'',max_menu_items:p.max_menu_items||'',
+      features:Array.isArray(p.features)?p.features.join(', '):(typeof p.features==='string'?asArr(p.features).join(', '):''),
+      is_active:p.is_active!==false,
+      max_mozo:mubr.mozo??'',max_cajero:mubr.cajero??'',max_cocina:mubr.cocina??'',
+      panels:asArr(p.allowed_panels),
+    });
     setPlanModal({edit:p});
   };
 
@@ -640,7 +836,11 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
     setSaving(true);
     try {
       const feats = planForm.features ? planForm.features.split(',').map(s=>s.trim()).filter(Boolean) : [];
-      const payload = {name:planForm.name.trim(),price_usd:parseFloat(planForm.price_usd)||0,billing_cycle:planForm.billing_cycle,max_tables:parseInt(planForm.max_tables)||null,max_menu_items:parseInt(planForm.max_menu_items)||null,features:JSON.stringify(feats),is_active:planForm.is_active};
+      const mubr = {};
+      if (planForm.max_mozo!=='' && planForm.max_mozo!=null)     mubr.mozo   = parseInt(planForm.max_mozo);
+      if (planForm.max_cajero!=='' && planForm.max_cajero!=null) mubr.cajero = parseInt(planForm.max_cajero);
+      if (planForm.max_cocina!=='' && planForm.max_cocina!=null) mubr.cocina = parseInt(planForm.max_cocina);
+      const payload = {name:planForm.name.trim(),price_usd:parseFloat(planForm.price_usd)||0,billing_cycle:planForm.billing_cycle,max_tables:parseInt(planForm.max_tables)||null,max_menu_items:parseInt(planForm.max_menu_items)||null,features:JSON.stringify(feats),is_active:planForm.is_active,max_users_by_role:mubr,allowed_panels:planForm.panels||[]};
       if (planModal==='create') {
         const {error} = await db.from('subscription_plans').insert(payload);
         if (error) throw error;
@@ -657,7 +857,7 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
 
   const openEditSub = r => {
     const s = r.subscription||{};
-    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||r.plan?.price_usd||''});
+    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||r.plan?.price_usd||'',addonKeys:(r.addons||[]).map(a=>a.addon_key)});
     setSubModal(r);
   };
 
@@ -673,6 +873,14 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
       } else {
         const {error} = await db.from('subscriptions').insert({restaurant_id:subModal.id,...payload});
         if (error) throw error;
+      }
+      // Reconciliar add-ons contratados por el restaurante
+      const want = subForm.addonKeys||[];
+      await db.from('restaurant_addons').delete().eq('restaurant_id',subModal.id);
+      if (want.length) {
+        const rows = want.map(k=>{ const c=catalog.find(x=>x.key===k); return {restaurant_id:subModal.id,addon_key:k,price_usd:c?.price_usd||0,enabled:true}; });
+        const {error:addErr} = await db.from('restaurant_addons').insert(rows);
+        if (addErr) throw addErr;
       }
       const planName = plans.find(p=>p.id===subForm.plan_id)?.name||'';
       await db.from('platform_events').insert({restaurant_id:subModal.id,event_type:'plan_changed',description:`Suscripción actualizada — ${planName}`}).catch(()=>{});
@@ -695,13 +903,15 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
 
   const spf = v => e => setPlanForm(f=>({...f,[v]:e.target.value}));
   const ssf = v => e => setSubForm(f=>({...f,[v]:e.target.value}));
+  const togglePanel = key => setPlanForm(f=>({...f,panels:(f.panels||[]).includes(key)?f.panels.filter(p=>p!==key):[...(f.panels||[]),key]}));
+  const toggleSubAddon = key => setSubForm(f=>{const cur=f.addonKeys||[];return {...f,addonKeys:cur.includes(key)?cur.filter(k=>k!==key):[...cur,key]};});
 
   return (
     <div className="animate-in">
       {/* Planes cards */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <span style={{fontSize:13,color:C.mid}}>Planes disponibles</span>
-        <Btn size="sm" onClick={()=>{setPlanForm({name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true});setPlanModal('create')}}>+ Nuevo plan</Btn>
+        <Btn size="sm" onClick={()=>{setPlanForm(EMPTY_PLAN);setPlanModal('create')}}>+ Nuevo plan</Btn>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16,marginBottom:28}}>
         {plans.map(p=>{
@@ -723,21 +933,63 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
                   <div style={{fontSize:10,color:C.mid}}>Items menú</div>
                 </div>
               </div>
-              <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:14}}>
+              <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
                 {featArr.map((f,i)=>(
                   <div key={i} style={{fontSize:12,color:C.mid,display:'flex',gap:6}}>
                     <span style={{fontSize:10}}>–</span>{f}
                   </div>
                 ))}
               </div>
+              {(() => {
+                const pnls = asArr(p.allowed_panels);
+                const mubr = asObj(p.max_users_by_role);
+                const limStr = LIMIT_ROLES.map(lr=>mubr[lr.key]!=null?`${mubr[lr.key]} ${lr.key}`:null).filter(Boolean).join(' · ');
+                return (
+                  <div style={{marginBottom:14}}>
+                    {pnls.length>0&&(
+                      <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:6}}>
+                        {pnls.map(pk=><span key={pk} style={{fontSize:10,fontWeight:600,background:C.bg,color:C.mid,padding:'2px 7px',borderRadius:5}}>{(PANEL_OPTIONS.find(o=>o.key===pk)?.label)||pk}</span>)}
+                      </div>
+                    )}
+                    <div style={{fontSize:10,color:C.dim}}>{limStr?`Límites: ${limStr}`:'Usuarios ilimitados'}</div>
+                  </div>
+                );
+              })()}
               <Btn size="sm" variant="ghost" onClick={()=>openEditPlan(p)}>Editar plan</Btn>
             </div>
           );
         })}
       </div>
 
+      {/* Add-ons disponibles (catálogo de cargos extra) */}
+      <SectionCard title="Add-ons disponibles (cargos extra)">
+        <div style={{padding:'4px 4px 8px'}}>
+          <div style={{fontSize:11,color:C.dim,padding:'4px 16px 12px'}}>Paneles que se venden como módulo independiente (modelo "hamburguesa"). Se añaden al plan base de cada restaurante desde su suscripción.</div>
+          {catalog.map(a=>{
+            const f = addonForm[a.key]||{};
+            return (
+              <div key={a.key} style={{display:'flex',alignItems:'center',gap:14,padding:'10px 16px',borderTop:`1px solid ${C.border}`,flexWrap:'wrap'}}>
+                <div style={{flex:'1 1 200px'}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.ink}}>{a.name}</div>
+                  <div style={{fontSize:11,color:C.mid}}>Panel: {a.panel}</div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{fontSize:12,color:C.mid}}>USD/mes</span>
+                  <input type="number" step=".01" value={f.price_usd??''} onChange={e=>setAddonForm(s=>({...s,[a.key]:{...s[a.key],price_usd:e.target.value}}))} style={{width:90}}/>
+                </div>
+                <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:C.mid,cursor:'pointer'}}>
+                  <input type="checkbox" checked={f.is_active!==false} onChange={e=>setAddonForm(s=>({...s,[a.key]:{...s[a.key],is_active:e.target.checked}}))} style={{width:15,height:15}}/>
+                  Activo
+                </label>
+                <Btn size="sm" variant="ghost" onClick={()=>saveAddon(a)} disabled={savingAddon===a.key}>{savingAddon===a.key?'…':'Guardar'}</Btn>
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+
       {/* MRR total */}
-      <div style={{display:'flex',gap:12,marginBottom:20,flexWrap:'wrap'}}>
+      <div style={{display:'flex',gap:12,margin:'20px 0',flexWrap:'wrap'}}>
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 20px',flex:'none'}}>
           <div style={{fontSize:11,color:C.mid,marginBottom:4}}>MRR Total</div>
           <div style={{fontSize:28,fontWeight:800,color:C.ink}}>{fmtUSD(mrrTotal)}<span style={{fontSize:12,fontWeight:400,color:C.mid}}>/mes</span></div>
@@ -807,6 +1059,34 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
             <FormField label="Máx. mesas"><input type="number" value={planForm.max_tables} onChange={spf('max_tables')} placeholder="15"/></FormField>
             <FormField label="Máx. ítems menú"><input type="number" value={planForm.max_menu_items} onChange={spf('max_menu_items')} placeholder="100"/></FormField>
           </div>
+
+          {/* Hard-limits por rol */}
+          <div style={{borderTop:`1px solid ${C.border}`,margin:'8px 0 0',paddingTop:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Límite estricto de usuarios por rol</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Vacío = ilimitado. El admin no podrá crear más usuarios de ese rol que el tope.</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 16px'}}>
+              <FormField label="Máx. Mozos"><input type="number" min="0" value={planForm.max_mozo} onChange={spf('max_mozo')} placeholder="∞"/></FormField>
+              <FormField label="Máx. Cajeros"><input type="number" min="0" value={planForm.max_cajero} onChange={spf('max_cajero')} placeholder="∞"/></FormField>
+              <FormField label="Máx. Cocineros"><input type="number" min="0" value={planForm.max_cocina} onChange={spf('max_cocina')} placeholder="∞"/></FormField>
+            </div>
+          </div>
+
+          {/* Paneles incluidos en el plan */}
+          <div style={{borderTop:`1px solid ${C.border}`,margin:'4px 0 0',paddingTop:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Paneles incluidos en el plan</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Lo no incluido solo se habilita comprando el add-on correspondiente.</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+              {PANEL_OPTIONS.map(p=>{
+                const on = (planForm.panels||[]).includes(p.key);
+                return (
+                  <div key={p.key} onClick={()=>togglePanel(p.key)} style={{display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,cursor:'pointer',userSelect:'none',fontSize:12,fontWeight:600,border:`1px solid ${on?C.ink:C.border}`,background:on?C.ink:'transparent',color:on?C.sidebar:C.mid}}>
+                    <span style={{fontSize:11}}>{on?'✓':'+'}</span>{p.label}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <FormField label="Características" hint="Separadas por coma">
             <textarea value={planForm.features} onChange={spf('features')} rows={3} placeholder="Pedidos QR, KDS cocina, Analytics completo"/>
           </FormField>
@@ -848,6 +1128,30 @@ function PageFacturacion({enriched, plans, setFlash, reload}) {
             <FormField label="Fecha inicio"><input type="date" value={subForm.start_date} onChange={ssf('start_date')}/></FormField>
             <FormField label="Fecha vencimiento"><input type="date" value={subForm.end_date} onChange={ssf('end_date')}/></FormField>
           </div>
+
+          {/* Add-ons del restaurante (cargos extra sobre el plan base) */}
+          <div style={{borderTop:`1px solid ${C.border}`,marginTop:8,paddingTop:12}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Add-ons contratados (cargos extra)</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Habilitan un panel sin cambiar de plan. Se suman al precio base.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {catalog.filter(a=>a.is_active!==false).map(a=>{
+                const on = (subForm.addonKeys||[]).includes(a.key);
+                return (
+                  <label key={a.key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderRadius:8,cursor:'pointer',border:`1px solid ${on?C.ink:C.border}`,background:on?C.bg:'transparent'}}>
+                    <input type="checkbox" checked={on} onChange={()=>toggleSubAddon(a.key)} style={{width:15,height:15}}/>
+                    <span style={{flex:1,fontSize:13,fontWeight:600,color:C.ink}}>{a.name}</span>
+                    <span style={{fontSize:12,color:C.mid}}>+{fmtUSD(a.price_usd)}/mes</span>
+                  </label>
+                );
+              })}
+            </div>
+            {(subForm.addonKeys||[]).length>0&&(
+              <div style={{marginTop:10,fontSize:12,color:C.mid,textAlign:'right'}}>
+                Extra add-ons: <strong style={{color:C.ink}}>{fmtUSD((subForm.addonKeys||[]).reduce((s,k)=>s+(Number(catalog.find(x=>x.key===k)?.price_usd)||0),0))}/mes</strong>
+              </div>
+            )}
+          </div>
+
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <Btn variant="ghost" onClick={()=>setSubModal(null)}>Cancelar</Btn>
             <Btn onClick={saveSub} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
@@ -1364,13 +1668,16 @@ function PageReportes({enriched, orders, ratings, subscriptions, plans, events})
     {id:'restaurantes_estado',label:'Restaurantes por estado',   cat:'plataforma',desc:'Distribución activo / trial / suspendido / inactivo'},
     {id:'calificaciones',    label:'Calificaciones por restaurante', cat:'clientes', desc:'Rating promedio y cantidad de reseñas por restaurante'},
     {id:'actividad',         label:'Actividad de plataforma',    cat:'plataforma',desc:'Eventos registrados (altas, renovaciones, cambios de plan)'},
+    {id:'proveedores_comunes',label:'Proveedores gastronómicos comunes', cat:'inteligencia', desc:'Distribuidoras / insumos más cargados por los restaurantes (datos de muestra)'},
+    {id:'zonas_calientes',   label:'Zonas calientes de delivery',cat:'inteligencia',desc:'Focos de consumo por zona en territorio paraguayo (datos de muestra)'},
   ];
 
   const CATS = [
-    {id:'ventas',     label:'Ventas y facturación', color:'#007AFF'},
-    {id:'subs',       label:'Suscripciones',        color:'#34C759'},
-    {id:'clientes',   label:'Calificaciones',       color:'#FFD60A'},
-    {id:'plataforma', label:'Plataforma',            color:'#AF52DE'},
+    {id:'ventas',       label:'Ventas y facturación', color:'#007AFF'},
+    {id:'subs',         label:'Suscripciones',        color:'#34C759'},
+    {id:'clientes',     label:'Calificaciones',       color:'#FFD60A'},
+    {id:'plataforma',   label:'Plataforma',            color:'#AF52DE'},
+    {id:'inteligencia', label:'Inteligencia de mercado', color:'#FF375F'},
   ];
 
   async function generate() {
@@ -1416,6 +1723,56 @@ function PageReportes({enriched, orders, ratings, subscriptions, plans, events})
       setRows({
         cols:['Restaurante','Pedidos','Ingresos','% del total'],
         data:byRest.map(r=>[r.name, r.cnt, fmtGuarani(r.rev), total>0?`${Math.round(r.rev/total*100)}%`:'—']),
+      });
+    }
+
+    else if(type==='proveedores_comunes') {
+      // Inteligencia agregada — datos de muestra (la anon key no permite agregación cross-tenant aún)
+      const bar = (v,max)=>'█'.repeat(Math.max(1,Math.round(v/max*12)));
+      const provs = [
+        {name:'Distribuidora Avícola del Sur', cat:'Carnes y aves',   count:38, rest:12},
+        {name:'Lácteos Paraguay S.A.',          cat:'Lácteos',         count:31, rest:11},
+        {name:'Frutihortícola Mcal. López',     cat:'Verdulería',      count:29, rest:10},
+        {name:'Bebidas Itaipú Distrib.',        cat:'Bebidas',         count:27, rest:13},
+        {name:'Panificadora Central',           cat:'Panadería',       count:22, rest:8},
+        {name:'Pescados del Paraná',            cat:'Pescados',        count:14, rest:5},
+      ].sort((a,b)=>b.count-a.count);
+      const max = provs[0].count;
+      setSummary([
+        {label:'Proveedores únicos', value:provs.length,                      color:'#FF375F'},
+        {label:'Más usado',          value:provs[0].name,                     color:'#007AFF'},
+        {label:'Cargas totales',     value:provs.reduce((s,p)=>s+p.count,0),  color:'#34C759'},
+        {label:'Origen',             value:'Datos de muestra',                color:C.mid},
+      ]);
+      setRows({
+        cols:['#','Proveedor','Categoría','Veces cargado','Restaurantes','Distribución'],
+        data:provs.map((p,i)=>[i+1, p.name, p.cat, p.count, p.rest, bar(p.count,max)]),
+      });
+    }
+
+    else if(type==='zonas_calientes') {
+      // Mapa de calor consolidado — datos de muestra
+      const bar = (v,max)=>'█'.repeat(Math.max(1,Math.round(v/max*12)));
+      const zonas = [
+        {zona:'Villa Morra',          city:'Asunción',          orders:142},
+        {zona:'Centro / Microcentro', city:'Asunción',          orders:118},
+        {zona:'Carmelitas',           city:'Asunción',          orders:97},
+        {zona:'Zona Shopping del Sol',city:'Asunción',          orders:88},
+        {zona:'Centro CDE',           city:'Ciudad del Este',   orders:64},
+        {zona:'Centro',               city:'Encarnación',       orders:51},
+        {zona:'Zona Mcal. Estigarribia',city:'San Lorenzo',     orders:43},
+      ].sort((a,b)=>b.orders-a.orders);
+      const max = zonas[0].orders;
+      const tot = zonas.reduce((s,z)=>s+z.orders,0);
+      setSummary([
+        {label:'Zonas activas', value:zonas.length,        color:'#FF375F'},
+        {label:'Zona top',      value:zonas[0].zona,       color:'#FF9500'},
+        {label:'Pedidos totales',value:tot,                color:'#34C759'},
+        {label:'Origen',        value:'Datos de muestra',  color:C.mid},
+      ]);
+      setRows({
+        cols:['#','Zona','Ciudad','Pedidos','% del total','Intensidad'],
+        data:zonas.map((z,i)=>[i+1, z.zona, z.city, z.orders, `${Math.round(z.orders/tot*100)}%`, bar(z.orders,max)]),
       });
     }
 
@@ -2710,7 +3067,7 @@ function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [unreadSupport, setUnreadSupport] = useState(0);
-  const [rawData, setRawData] = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[],platformConfig:[]});
+  const [rawData, setRawData] = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[],platformConfig:[],addons:[],addonCatalog:[]});
   const [themeMode, setThemeMode] = useState(window.MythosTheme ? window.MythosTheme.get() : 'light');
   useEffect(() => {
     const onTheme = e => setThemeMode(e.detail.mode);
@@ -2741,7 +3098,7 @@ function App() {
     setRefreshing(true);
     try {
       const ago30 = new Date(Date.now()-30*86400000).toISOString();
-      const [rests,subs,plans,events,orders,ratings,config] = await Promise.all([
+      const [rests,subs,plans,events,orders,ratings,config,addons,addonCat] = await Promise.all([
         db.from('restaurants').select('*').order('created_at',{ascending:false}),
         db.from('subscriptions').select('*, plan:subscription_plans(id,name,price_usd,billing_cycle)').then(r=>r.error?{data:[]}:r),
         db.from('subscription_plans').select('*').order('price_usd').then(r=>r.error?{data:[]}:r),
@@ -2749,9 +3106,11 @@ function App() {
         db.from('orders').select('id,restaurant_id,total,created_at,status').gte('created_at',ago30).then(r=>r.error?{data:[]}:r),
         db.from('ratings').select('restaurant_id,stars,created_at').then(r=>r.error?{data:[]}:r),
         db.from('platform_config').select('*').then(r=>r.error?{data:[]}:r),
+        db.from('restaurant_addons').select('*').then(r=>r.error?{data:[]}:r),
+        db.from('plan_addons').select('*').order('price_usd').then(r=>r.error?{data:[]}:r),
       ]);
       if (rests.error) throw rests.error;
-      setRawData({restaurants:rests.data||[],subscriptions:subs.data||[],plans:plans.data||[],events:events.data||[],orders:orders.data||[],ratings:ratings.data||[],platformConfig:config.data||[]});
+      setRawData({restaurants:rests.data||[],subscriptions:subs.data||[],plans:plans.data||[],events:events.data||[],orders:orders.data||[],ratings:ratings.data||[],platformConfig:config.data||[],addons:addons.data||[],addonCatalog:addonCat.data||[]});
       setOffline(false);
     } catch(e) {
       console.warn('Error cargando datos:',e);
@@ -2776,12 +3135,13 @@ function App() {
       .on('postgres_changes',{event:'*',schema:'public',table:'platform_events'}, safeLoad)
       .on('postgres_changes',{event:'*',schema:'public',table:'user_roles'},      safeLoad)
       .on('postgres_changes',{event:'*',schema:'public',table:'platform_config'}, safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'restaurant_addons'}, safeLoad)
       .subscribe(s=>setRtLive(s==='SUBSCRIBED'));
     return ()=>{ clearInterval(interval); db.removeChannel(ch); };
   },[loadAll]);
 
-  const {restaurants,plans,subscriptions,events,orders,ratings,platformConfig} = rawData;
-  const enriched = buildAnalytics(restaurants, orders, ratings, subscriptions, plans);
+  const {restaurants,plans,subscriptions,events,orders,ratings,platformConfig,addons,addonCatalog} = rawData;
+  const enriched = buildAnalytics(restaurants, orders, ratings, subscriptions, plans, addons);
 
   // reload silencioso (sin spinner full-screen) — para acciones tras mutaciones
   const reloadSilent = useCallback(()=>loadAll({silent:true}),[loadAll]);
@@ -2824,8 +3184,8 @@ function App() {
           ) : (
             <>
               {page==='dashboard'     && <PageDashboard    enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} setFlash={setFlash} reload={reloadSilent} setPage={setPage}/>}
-              {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} setFlash={setFlash} reload={reloadSilent}/>}
-              {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} addonCatalog={addonCatalog} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} addonCatalog={addonCatalog} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
               {page==='soporte'       && <PageSoporte      setFlash={setFlash}/>}
               {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}

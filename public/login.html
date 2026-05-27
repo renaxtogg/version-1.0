@@ -119,18 +119,45 @@
     } catch(_) { return null; }
   }
 
-  function destinationFor(role) {
+  // Panel → capacidad de plan (allowed_panels). Lo no listado no se gatea por plan.
+  const PANEL_CAP = {
+    'caja.html':            'caja',
+    'mozo.html':            'mozo',
+    'cocina.html':          'cocina',
+    'delivery-rider.html':  'delivery-rider',
+    'delivery-cliente.html':'delivery-cliente',
+  };
+
+  // ¿El plan (∪ add-ons) del restaurante incluye este panel? Falla abierto ante error de red.
+  async function panelAllowedByPlan(panel, restaurantId) {
+    const cap = PANEL_CAP[panel];
+    if (!cap || !restaurantId) return true;
+    try {
+      const { data } = await db.rpc('get_restaurant_capabilities', { p_restaurant_id: restaurantId });
+      const panels = (data && data.allowed_panels) || null;
+      if (!Array.isArray(panels)) return true;   // RPC ausente/legacy → no bloquear
+      return panels.includes(cap);
+    } catch(_) { return true; }
+  }
+
+  async function destinationFor(profile) {
+    const role = profile.role;
+    const rid  = profile.restaurant_id;
     const next = getNextParam();
     if (next) {
       const allowed = PANEL_ACCESS[next];
-      // superadmin entra a todo; si el panel no está en el mapa (público), también
-      if (role === 'superadmin' || !allowed || allowed.includes(role)) return next;
+      const roleOk  = role === 'superadmin' || !allowed || allowed.includes(role);
+      // superadmin entra a todo; el resto necesita rol permitido Y que el plan incluya el panel
+      if (roleOk && (role === 'superadmin' || await panelAllowedByPlan(next, rid))) return next;
     }
     return homeForRole(role);
   }
 
-  function redirectByRole(role) {
-    window.location.replace(destinationFor(role));
+  async function redirectByRole(profile) {
+    const p = typeof profile === 'string'
+      ? { role: profile, restaurant_id: localStorage.getItem('mythos_restaurant_id') }
+      : profile;
+    window.location.replace(await destinationFor(p));
   }
 
   // Redirect si ya hay sesión activa con localStorage válido
@@ -138,9 +165,9 @@
     if (!session) return;
     const cachedRole = localStorage.getItem('mythos_role');
     const cachedRid  = localStorage.getItem('mythos_restaurant_id');
-    if (cachedRole && cachedRid) { redirectByRole(cachedRole); return; }
+    if (cachedRole && cachedRid) { redirectByRole({ role: cachedRole, restaurant_id: cachedRid }); return; }
     db.rpc('get_my_profile').then(({ data }) => {
-      if (data) { saveSession(data); redirectByRole(data.role); }
+      if (data) { saveSession(data); redirectByRole(data); }
     });
   });
 
@@ -174,7 +201,7 @@
         throw new Error('Usuario sin restaurante asignado. Contactá al administrador.');
 
       saveSession(profile);
-      redirectByRole(profile.role);
+      await redirectByRole(profile);
     } catch(err) {
       showErr(err.message);
       setLoading(false);

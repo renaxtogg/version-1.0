@@ -118,6 +118,31 @@ module.exports = async function handler(req, res) {
       res.status(403).json({ error: 'Sin permisos para crear usuarios' }); return;
     }
 
+    const finalRestaurantId = callerRole.role === 'admin' ? callerRole.restaurant_id : (restaurant_id || null);
+
+    // Hard-limit por plan: rechazar antes de crear el usuario auth (evita huérfanos).
+    // El trigger DB enforce_role_user_limit es el respaldo final.
+    const LIMITED_ROLES = ['mozo', 'cajero', 'cocina', 'rider'];
+    if (finalRestaurantId && LIMITED_ROLES.includes(role)) {
+      const subResp = await httpsGet(
+        `${SUPABASE_URL}/rest/v1/subscriptions?restaurant_id=eq.${finalRestaurantId}&select=plan:subscription_plans(max_users_by_role)&order=created_at.desc&limit=1`,
+        { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY }
+      );
+      const limitsMap = (Array.isArray(subResp.data) && subResp.data[0]?.plan?.max_users_by_role) || {};
+      const roleLimit = limitsMap[role];
+      if (typeof roleLimit === 'number') {
+        const countResp = await httpsGet(
+          `${SUPABASE_URL}/rest/v1/user_roles?restaurant_id=eq.${finalRestaurantId}&role=eq.${role}&is_active=eq.true&select=id`,
+          { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY, 'Prefer': 'count=exact' }
+        );
+        const current = Array.isArray(countResp.data) ? countResp.data.length : 0;
+        if (current >= roleLimit) {
+          res.status(403).json({ error: `Límite de puestos alcanzado: el plan permite ${roleLimit} ${role}(s). Ampliá el plan o contratá un add-on.` });
+          return;
+        }
+      }
+    }
+
     const usernameClean = username.trim().toLowerCase();
     const email = `${usernameClean.replace(/[^a-z0-9._-]/g, '')}@mythos.internal`;
 
@@ -133,7 +158,6 @@ module.exports = async function handler(req, res) {
     }
 
     const newUserId = createResp.data.id;
-    const finalRestaurantId = callerRole.role === 'admin' ? callerRole.restaurant_id : (restaurant_id || null);
 
     // Insertar en user_roles
     const roleInsertResp = await httpsPost(
