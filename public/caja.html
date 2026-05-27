@@ -39,6 +39,14 @@ if('serviceWorker' in navigator){
   window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 }
 </script>
+<script>
+/* ── Guardia de seguridad — redirige si no hay sesión activa ── */
+(function(){
+  var rid  = localStorage.getItem('mythos_restaurant_id');
+  var role = localStorage.getItem('mythos_role');
+  if (!rid && role !== 'superadmin') { window.location.replace('login.html'); }
+})();
+</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
 
@@ -740,12 +748,30 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
 }
 
 /* ─── MODAL: COBRO ────────────────────────────── */
+/* Toast reutilizable dentro del modal de cobro */
+function BancardProximamente({onDismiss}){
+  useEffect(()=>{const t=setTimeout(onDismiss,4000);return()=>clearTimeout(t);},[]);
+  return(
+    <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',zIndex:9999,
+      background:'#1C1C1E',color:'#F5F5F7',borderRadius:14,padding:'14px 20px',
+      maxWidth:340,width:'calc(100% - 40px)',boxShadow:'0 8px 32px rgba(0,0,0,0.4)',
+      display:'flex',alignItems:'flex-start',gap:12,animation:'slideUp .25s ease'}}>
+      <span style={{fontSize:22,flexShrink:0}}>🏦</span>
+      <div>
+        <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>Módulo Bancard / SIFEN en fase de certificación</div>
+        <div style={{fontSize:11,color:'#AEAEB2',lineHeight:1.4}}>Esta pasarela se activará automáticamente al concluir los trámites del comercio.</div>
+      </div>
+    </div>
+  );
+}
+
 function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [metodo,setMetodo]=useState('efectivo');
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
   const [items,setItems]=useState([]);
   const [successTicket,setSuccessTicket]=useState(null);
+  const [showBancardToast,setShowBancardToast]=useState(false);
   const [invoiceType,setInvoiceType]=useState(()=>{
     if(!order.requires_invoice) return 'none';
     if(order.customer_ruc||order.customer_email) return 'fiscal';
@@ -824,7 +850,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         monto:totalReal,metodo_pago:metodo,pedido_id:order.id,
         descripcion:`Cobro pedido #${order.order_number} — ${mesa}`,
         usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
-        metadata:{orden_numero:order.order_number,mesa,monto_pagado:montoNum||totalReal,cambio:Math.max(0,cambio)},
+        metadata:{orden_numero:order.order_number,mesa,monto_pagado:montoNum||totalReal,cambio:Math.max(0,cambio),transaction_id:null,auth_code:null,raw_response:null},
       };
       const{data:movData,error:e2}=await db.from('movimientos_caja').insert(mov).select().single();
       if(e2)throw e2;
@@ -966,6 +992,26 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
             }}>{m.lbl}</button>
           ))}
         </div>
+        {/* ── Pago digital — Próximamente ── */}
+        <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${C.border}`}}>
+          <div style={{fontSize:10,color:C.dim,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:6}}>Pago digital (próximamente)</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            <button onClick={()=>setShowBancardToast(true)} style={{
+              padding:'10px 6px',borderRadius:7,border:`1px solid rgba(255,149,0,0.35)`,
+              background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
+              display:'flex',alignItems:'center',justifyContent:'center',gap:5,
+            }}>
+              <span style={{fontSize:14}}>📲</span> QR Bancard
+            </button>
+            <button onClick={()=>setShowBancardToast(true)} style={{
+              padding:'10px 6px',borderRadius:7,border:`1px solid rgba(255,149,0,0.35)`,
+              background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
+              display:'flex',alignItems:'center',justifyContent:'center',gap:5,
+            }}>
+              <span style={{fontSize:14}}>💳</span> Tarjeta (VPos)
+            </button>
+          </div>
+        </div>
       </div>
 
       {metodo==='efectivo'&&(
@@ -1014,6 +1060,23 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         </div>
       )}
 
+      {/* Toggle SIFEN */}
+      <div onClick={()=>setInvoiceType(v=>v==='fiscal'?'none':'fiscal')} style={{
+        display:'flex',alignItems:'center',justifyContent:'space-between',
+        padding:'11px 14px',marginBottom:12,borderRadius:9,cursor:'pointer',
+        background:invoiceType==='fiscal'?'rgba(0,122,255,0.07)':'transparent',
+        border:`1px solid ${invoiceType==='fiscal'?'rgba(0,122,255,0.3)':C.border}`,
+        transition:'all .15s',
+      }}>
+        <div>
+          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?'#0040A0':C.ink}}>🧾 Emitir Factura Electrónica (SIFEN)</div>
+          <div style={{fontSize:10,color:C.mid,marginTop:2}}>e-Kuatia · Certificación en proceso</div>
+        </div>
+        <div style={{width:42,height:24,borderRadius:12,background:invoiceType==='fiscal'?'#007AFF':'#D1D1D6',transition:'background .2s',position:'relative',flexShrink:0}}>
+          <div style={{position:'absolute',top:2,left:invoiceType==='fiscal'?'18px':'2px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
+        </div>
+      </div>
+
       {/* Comprobante */}
       <div style={{marginBottom:16}}>
         <Lbl>COMPROBANTE</Lbl>
@@ -1041,12 +1104,27 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         )}
       </div>
 
+      {/* ── SIFEN / Factura electrónica — Próximamente ── */}
+      <div style={{marginBottom:16,padding:'10px 12px',borderRadius:8,
+        border:'1px dashed rgba(0,122,255,0.3)',background:'rgba(0,122,255,0.04)',
+        display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+        <div>
+          <div style={{fontSize:12,fontWeight:700,color:'#0040A0'}}>🧾 Factura Electrónica SIFEN</div>
+          <div style={{fontSize:10,color:C.dim,marginTop:2}}>e-Kuatia — en proceso de certificación SET</div>
+        </div>
+        <button onClick={()=>setShowBancardToast(true)} style={{
+          padding:'6px 12px',borderRadius:6,border:'1px solid rgba(0,122,255,0.4)',
+          background:'rgba(0,122,255,0.08)',color:'#004AAD',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0,
+        }}>Activar</button>
+      </div>
+
       <div style={{display:'flex',gap:10}}>
         <Btn full onClick={confirmar} disabled={busy} variant="success">
           {busy?<><span className="spin"/> Procesando…</>:'✓ Confirmar cobro'}
         </Btn>
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
       </div>
+      {showBancardToast&&<BancardProximamente onDismiss={()=>setShowBancardToast(false)}/>}
     </Modal>
   );
 }
@@ -1193,7 +1271,7 @@ function IngresosEgresosPanel({turno,profile,movimientos,onMovimiento}){
         monto:parseInt(form.monto),metodo_pago:form.metodo,
         descripcion:form.desc,categoria:form.categoria,
         usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
-        metadata:{plataforma:form.plataforma||null,notas:form.notas||null},
+        metadata:{plataforma:form.plataforma||null,notas:form.notas||null,transaction_id:null,auth_code:null,raw_response:null},
       };
       const{data,error}=await db.from('movimientos_caja').insert(mov).select().single();
       if(error)throw error;
@@ -1456,7 +1534,7 @@ function RetiroPanel({turno,profile,movimientos,onMovimiento}){
         descripcion:`Retiro parcial → ${form.destino}`,
         motivo:form.notas,
         usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
-        metadata:{destino:form.destino},
+        metadata:{destino:form.destino,transaction_id:null,auth_code:null,raw_response:null},
       };
       const{data,error}=await db.from('movimientos_caja').insert(mov).select().single();
       if(error)throw error;
@@ -1593,6 +1671,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   const [invEmail,setInvEmail]=useState('');
   const movDataRef=React.useRef(null);
   const orderRef=React.useRef(null);
+  const [showBancardToast,setShowBancardToast]=useState(false);
 
   const subtotal=cart.reduce((s,c)=>s+c.linePrice*c.quantity,0);
   const montoNum=parseInt(montoPagado)||0;
@@ -1667,7 +1746,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         monto:subtotal,metodo_pago:metodo,pedido_id:order.id,
         descripcion:`Cobro pedido #${orderNum} — ${origen}`,
         usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
-        metadata:{orden_numero:orderNum,mesa:origen,monto_pagado:montoNum||subtotal,cambio:Math.max(0,cambio)},
+        metadata:{orden_numero:orderNum,mesa:origen,monto_pagado:montoNum||subtotal,cambio:Math.max(0,cambio),transaction_id:null,auth_code:null,raw_response:null},
       };
       const{data:movData,error:e4}=await db.from('movimientos_caja').insert(mov).select().single();
       if(e4)throw e4;
@@ -1757,6 +1836,26 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
               }}>{m.lbl}</button>
             ))}
           </div>
+          {/* ── Pago digital — Próximamente ── */}
+          <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${C.border}`}}>
+            <div style={{fontSize:10,color:C.dim,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:8}}>Pago digital (próximamente)</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              <button onClick={()=>setShowBancardToast(true)} style={{
+                padding:'10px 6px',borderRadius:7,border:'1px solid rgba(255,149,0,0.35)',
+                background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:5,
+              }}>
+                <span style={{fontSize:14}}>📲</span> QR Bancard
+              </button>
+              <button onClick={()=>setShowBancardToast(true)} style={{
+                padding:'10px 6px',borderRadius:7,border:'1px solid rgba(255,149,0,0.35)',
+                background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
+                display:'flex',alignItems:'center',justifyContent:'center',gap:5,
+              }}>
+                <span style={{fontSize:14}}>💳</span> Tarjeta (VPos Bancard)
+              </button>
+            </div>
+          </div>
         </div>
 
         {metodo==='efectivo'&&(
@@ -1792,6 +1891,23 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         )}
       </div>
 
+      {/* Toggle SIFEN */}
+      <div onClick={()=>setInvoiceType(v=>v==='fiscal'?'none':'fiscal')} style={{
+        display:'flex',alignItems:'center',justifyContent:'space-between',
+        padding:'11px 14px',marginBottom:12,borderRadius:9,cursor:'pointer',
+        background:invoiceType==='fiscal'?'rgba(0,122,255,0.07)':'transparent',
+        border:`1px solid ${invoiceType==='fiscal'?'rgba(0,122,255,0.3)':C.border}`,
+        transition:'all .15s',
+      }}>
+        <div>
+          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?'#0040A0':C.ink}}>🧾 Emitir Factura Electrónica (SIFEN)</div>
+          <div style={{fontSize:10,color:C.mid,marginTop:2}}>e-Kuatia · Certificación en proceso</div>
+        </div>
+        <div style={{width:42,height:24,borderRadius:12,background:invoiceType==='fiscal'?'#007AFF':'#D1D1D6',transition:'background .2s',position:'relative',flexShrink:0}}>
+          <div style={{position:'absolute',top:2,left:invoiceType==='fiscal'?'18px':'2px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
+        </div>
+      </div>
+
       {/* Comprobante */}
       <div style={{marginBottom:16}}>
         <Lbl>COMPROBANTE</Lbl>
@@ -1825,6 +1941,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         </Btn>
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
       </div>
+      {showBancardToast&&<BancardProximamente onDismiss={()=>setShowBancardToast(false)}/>}
     </Modal>
   );
 }

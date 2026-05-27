@@ -35,6 +35,14 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+/* ── Guardia de seguridad — redirige si no hay sesión activa ── */
+(function(){
+  var rid  = localStorage.getItem('mythos_restaurant_id');
+  var role = localStorage.getItem('mythos_role');
+  if (!rid && role !== 'superadmin') { window.location.replace('login.html'); }
+})();
+</script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
 
@@ -6953,11 +6961,15 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
               )}
             </div>
 
-            {/* Aviso cuando no hay Google API key */}
+            {/* Aviso Maps — siempre visible en modo demo */}
+            <div style={{marginTop:6,padding:'7px 10px',background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:7,fontSize:11,color:'#92400E',display:'flex',gap:6,alignItems:'center'}}>
+              <span style={{flexShrink:0}}>🗺️</span>
+              <span>Usando cálculo estimado por zonas (Google Maps en modo demostración)</span>
+            </div>
             {!GKEY&&(
-              <div style={{marginTop:6,padding:'7px 10px',background:'#FFF4E0',border:'1px solid #FFD580',borderRadius:7,fontSize:11,color:'#8A4B00',display:'flex',gap:6,alignItems:'flex-start'}}>
+              <div style={{marginTop:4,padding:'7px 10px',background:'#FFF4E0',border:'1px solid #FFD580',borderRadius:7,fontSize:10,color:'#8A4B00',display:'flex',gap:6,alignItems:'flex-start'}}>
                 <span style={{flexShrink:0}}>⚠</span>
-                <span>Para buscar por nombre de negocio (como Google Maps) agregá <code style={{fontFamily:"'SF Mono',monospace",fontSize:10}}>googleMapsKey: 'AIza…'</code> en tu <strong>config.js</strong>. Habilitá <em>Maps JavaScript API</em> y <em>Places API</em> en Google Cloud Console.</span>
+                <span>Para activar búsqueda por nombre de negocio agregá <code style={{fontFamily:"'SF Mono',monospace",fontSize:10}}>googleMapsKey: 'AIza…'</code> en <strong>config.js</strong> y habilitá <em>Maps JS API + Places API</em> en Google Cloud Console.</span>
               </div>
             )}
 
