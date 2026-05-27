@@ -89,7 +89,45 @@
   --shadow: 0 1px 4px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.04);
 }
 
-/* Dark mode deshabilitado temporalmente — solo modo claro */
+/* Dark mode — habilitado SOLO en paneles que llaman MythosTheme.init('dark')
+   Actualmente: cocina.html (KDS, mejor con fondo oscuro para uso prolongado).
+   El resto de paneles queda en light. No hay toggle global por ahora. */
+[data-theme="dark"] {
+  --bg:          #000000;
+  --bg-subtle:   #1C1C1E;
+  --bg-hover:    #2C2C2E;
+  --surface:     #1C1C1E;
+  --border:      #38383A;
+  --border-strong: #636366;
+
+  --text-primary:   #F5F5F7;
+  --text-secondary: #AEAEB2;
+  --text-tertiary:  #8E8E93;
+  --text-disabled:  #48484A;
+  --text-inverse:   #000000;
+
+  --error:   #FF453A;
+  --success: #30D158;
+  --warning: #FF9F0A;
+  --info:    #0A84FF;
+
+  --bg-primary: #000000;
+  --bg-secondary: #1C1C1E;
+  --bg-card: #1C1C1E;
+  --bg-card-hover: #2C2C2E;
+  --accent: #FFFFFF;
+  --accent-secondary: #F5F5F7;
+  --text-muted: #8E8E93;
+  --border-hover: #636366;
+  --danger: #FF453A;
+  --badge-bg: #FF453A;
+
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,0.5), 0 0 1px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.6), 0 0 1px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.7), 0 0 1px rgba(0,0,0,0.3);
+  --shadow:    0 1px 4px rgba(0,0,0,0.5), 0 0 1px rgba(0,0,0,0.3);
+}
 
 /* ── RESET BASE ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

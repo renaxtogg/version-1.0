@@ -1,31 +1,35 @@
 /* ═══════════════════════════════════════════
-   MYTHOS THEME — DESHABILITADO temporalmente
-   Solo modo claro. El dark mode quedó con muchas
-   fallas de contraste; se reintentará más adelante.
-   API conservada para no romper paneles existentes.
+   MYTHOS THEME — modo fijo por panel
+   El toggle global está deshabilitado por ahora.
+   Cada panel decide su modo via MythosTheme.init('light'|'dark').
+   No se persiste en localStorage ni hay botón de toggle.
 ═══════════════════════════════════════════ */
 (function () {
   'use strict';
 
   var ATTR = 'data-theme';
+  var current = 'light';
 
-  function applyLight() {
+  function apply(mode) {
+    current = (mode === 'dark') ? 'dark' : 'light';
     var root = document.documentElement;
-    root.setAttribute(ATTR, 'light');
-    root.style.colorScheme = 'light';
+    root.setAttribute(ATTR, current);
+    root.style.colorScheme = current;
     try {
       localStorage.removeItem('mythos_theme');
       localStorage.removeItem('mesa_theme');
     } catch (e) {}
+    try {
+      var ev = new CustomEvent('mythos:themechange', { detail: { mode: current } });
+      document.dispatchEvent(ev);
+    } catch (e) {}
   }
 
-  applyLight();
-
   var Theme = {
-    init: function () { applyLight(); return 'light'; },
-    get: function () { return 'light'; },
-    set: function () { applyLight(); },
-    toggle: function () { applyLight(); return 'light'; },
+    init: function (mode) { apply(mode); return current; },
+    get: function () { return current; },
+    set: function () { /* deshabilitado */ },
+    toggle: function () { return current; },
     onChange: function () { /* noop */ },
     mountButton: function () { return null; },
   };
