@@ -61,7 +61,9 @@ const _initDB = () => {
   try { return window.supabase.createClient(url, key); } catch(e) { return null; }
 };
 const db = _initDB();
-let RID = ((window.SUPABASE_CONFIG?.restaurantId)||'00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
+// Multi-tenant Engine: el comercio se resuelve desde la sesión activa (localStorage), sin UUID hardcodeado.
+const RESTAURANT_ID = localStorage.getItem('mythos_restaurant_id');
+let RID = RESTAURANT_ID; // alias retro-compatible; initApp lo reafirma con profile.restaurant_id
 
 /* ── DENOMINACIONES GUARANÍES ── */
 const DENOMS = [
@@ -4259,6 +4261,14 @@ function CajaApp({profile}){
   const [cerrado,setCerrado]=useState(false);
   // Capacidades del plan (Omni-Gating por feature) — carga única + re-render
   if(window.MythosGating) window.MythosGating.useCapabilities(db, RID);
+
+  // Multi-tenant Engine: fail-safe — sin tenant en sesión, limpia y expulsa al login (salvo superadmin).
+  useEffect(()=>{
+    if((!RESTAURANT_ID||!RESTAURANT_ID.trim())&&localStorage.getItem('mythos_role')!=='superadmin'){
+      localStorage.clear();
+      window.location.href='/login.html';
+    }
+  },[]);
 
   useEffect(()=>{checkTurno();},[]);
 

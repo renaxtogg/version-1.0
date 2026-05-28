@@ -55,7 +55,9 @@ const _initDB = () => {
   try { return window.supabase.createClient(url, key); } catch(e) { return null; }
 };
 const db = _initDB();
-const RID = ((window.SUPABASE_CONFIG?.restaurantId)||'00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
+// Multi-tenant Engine: el comercio se resuelve desde la sesión activa (localStorage), sin UUID hardcodeado.
+const RESTAURANT_ID = localStorage.getItem('mythos_restaurant_id');
+const RID = RESTAURANT_ID; // alias retro-compatible con consultas/suscripciones existentes
 
 /* ── UTILS ── */
 const fmt = n => '₲ ' + (n||0).toLocaleString('es-PY');
@@ -623,6 +625,14 @@ function App() {
   const [rider, setRider]         = useState(null);
   const [activeOrders, setActiveOrders] = useState([]);
   const [stats, setStats]         = useState({ count:0, earned:0, avgMin:0 });
+
+  // Multi-tenant Engine: fail-safe — sin tenant en sesión, limpia y expulsa al login (salvo superadmin).
+  useEffect(() => {
+    if ((!RESTAURANT_ID || !RESTAURANT_ID.trim()) && localStorage.getItem('mythos_role') !== 'superadmin') {
+      localStorage.clear();
+      window.location.href = '/login.html';
+    }
+  }, []);
 
   // Al montar: si la página se recargó mientras un rider estaba activo, limpiar su sesión en DB
   useEffect(() => {
