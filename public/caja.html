@@ -1139,6 +1139,102 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
 }
 
 /* ═══════════════════════════════════════════
+   MODAL: AUTORIZACIÓN POR PIN (admin/gerente)
+   Cierre solo con ESC o botón X (NUNCA por overlay-click → evita
+   pérdida de datos al seleccionar texto).
+═══════════════════════════════════════════ */
+function PinAuthModal({title,subtitle,onCancel,onAuthorized,verifying=false}){
+  const [pin,setPin]=useState('');
+  const [error,setError]=useState('');
+  const [busy,setBusy]=useState(false);
+  const inputRef=useRef(null);
+
+  useEffect(()=>{
+    const fn=e=>e.key==='Escape'&&!busy&&onCancel();
+    window.addEventListener('keydown',fn);
+    setTimeout(()=>{inputRef.current&&inputRef.current.focus();},50);
+    return()=>window.removeEventListener('keydown',fn);
+  },[busy,onCancel]);
+
+  async function submit(){
+    if(busy)return;
+    if(!/^\d{4}$/.test(pin)){setError('El PIN debe tener 4 dígitos.');return;}
+    setBusy(true);setError('');
+    try{
+      const{data,error:e}=await db.from('user_profiles')
+        .select('id,full_name,role,restaurant_id,pin')
+        .eq('restaurant_id',RID)
+        .eq('pin',pin)
+        .in('role',['admin','gerente','superadmin'])
+        .limit(1);
+      if(e)throw e;
+      const auth=(data||[])[0];
+      if(!auth){
+        setError('PIN Incorrecto o Sin Permisos.');
+        setPin('');
+        setBusy(false);
+        return;
+      }
+      await onAuthorized(auth);
+    }catch(err){
+      setError('PIN Incorrecto o Sin Permisos.');
+      setPin('');
+      setBusy(false);
+    }
+  }
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.86)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1100,padding:20,backdropFilter:'blur(4px)'}}>
+      <div style={{background:'#FFFFFF',border:'1px solid #000000',borderRadius:14,padding:28,width:'100%',maxWidth:420,boxShadow:'0 24px 60px rgba(0,0,0,0.45)',animation:'slideUp 200ms ease'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+          <div style={{fontFamily:'DM Serif Display',fontSize:20,color:'#000'}}>🔒 {title||'Autorización Requerida'}</div>
+          <button onClick={()=>!busy&&onCancel()} disabled={busy} style={{background:'none',border:'none',color:'#000',fontSize:24,lineHeight:1,padding:0,cursor:busy?'default':'pointer',opacity:busy?0.4:1}} aria-label="Cerrar">×</button>
+        </div>
+        <div style={{fontSize:13,color:'#3A3A3C',lineHeight:1.5,marginBottom:18}}>
+          {subtitle||'Ingresá el PIN de un Administrador o Gerente para confirmar la cancelación de este pedido.'}
+        </div>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>PIN (4 DÍGITOS)</div>
+          <input
+            ref={inputRef}
+            type="password"
+            inputMode="numeric"
+            autoComplete="off"
+            value={pin}
+            disabled={busy||verifying}
+            onChange={e=>{
+              const v=e.target.value.replace(/\D/g,'').slice(0,4);
+              setPin(v);
+              if(error)setError('');
+            }}
+            onKeyDown={e=>{if(e.key==='Enter'&&pin.length===4)submit();}}
+            placeholder="••••"
+            maxLength={4}
+            style={{width:'100%',padding:'14px 16px',fontSize:26,fontWeight:800,letterSpacing:12,textAlign:'center',fontFamily:"'SF Mono',ui-monospace,monospace",background:'#F5F5F7',border:`1.5px solid ${error?'#000000':'#D2D2D7'}`,borderRadius:10,color:'#000',outline:'none'}}
+          />
+        </div>
+        {error&&(
+          <div style={{background:'#000000',color:'#FFFFFF',padding:'10px 14px',borderRadius:8,fontSize:12,fontWeight:600,marginBottom:14,textAlign:'center',letterSpacing:0.3}}>
+            {error}
+          </div>
+        )}
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={()=>!busy&&onCancel()} disabled={busy} style={{flex:1,padding:'12px 16px',background:'transparent',color:'#000',border:'1px solid #D2D2D7',borderRadius:8,fontSize:13,fontWeight:600,cursor:busy?'default':'pointer',opacity:busy?0.5:1}}>
+            Cancelar
+          </button>
+          <button onClick={submit} disabled={busy||pin.length!==4} style={{flex:1.2,padding:'12px 16px',background:'#000',color:'#FFF',border:'1px solid #000',borderRadius:8,fontSize:13,fontWeight:700,cursor:(busy||pin.length!==4)?'default':'pointer',opacity:(busy||pin.length!==4)?0.55:1}}>
+            {busy?'Verificando…':verifying?'Procesando…':'Autorizar'}
+          </button>
+        </div>
+        <div style={{marginTop:14,fontSize:11,color:'#86868B',textAlign:'center'}}>
+          La autorización queda registrada con el ID del usuario que aprueba.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
    PANEL: CANCELACIONES
 ═══════════════════════════════════════════ */
 function CancelacionesPanel({turno,profile,onMovimiento}){
@@ -1147,6 +1243,11 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
   const [selected,setSelected]=useState(null);
   const [form,setForm]=useState({tipo:'total',motivo:'',descripcion:'',perdida:false});
   const [busy,setBusy]=useState(false);
+  const [pinModalOpen,setPinModalOpen]=useState(false);
+
+  // Roles que pueden cancelar sin autorización extra.
+  const ROLES_SIN_PIN=['admin','gerente','superadmin'];
+  const requierePin=!ROLES_SIN_PIN.includes((profile?.role||'').toLowerCase());
 
   useEffect(()=>{loadOrders();},[]);
 
@@ -1160,29 +1261,49 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
     setOrders(data||[]);setLoading(false);
   }
 
-  async function cancelar(){
+  // Valida el formulario y dispara el flujo correcto: directo o vía PIN.
+  function intentarCancelar(){
     if(!selected){toast('Seleccioná un pedido',false);return;}
     if(!form.motivo){toast('Seleccioná un motivo',false);return;}
     if(form.motivo==='Otro'&&!form.descripcion){toast('Descripción obligatoria para "Otro"',false);return;}
-    const necesitaSupervisor=['kitchen_received','cooking','ready'].includes(selected.status);
-    if(necesitaSupervisor&&!['admin','superadmin'].includes(profile?.role)){
-      toast('Este pedido ya está en cocina. Requiere aprobación de supervisor.',false);return;
-    }
+    if(requierePin){setPinModalOpen(true);return;}
+    ejecutarCancelacion(null);
+  }
+
+  // Ejecuta la cancelación. `supervisor` viene del PIN modal cuando aplica.
+  // Nota: cancelaciones_caja.supervisor_id FK → auth.users(id), pero el PIN
+  // se valida contra user_profiles (sin user_id). Por eso registramos al
+  // autorizante en items_cancelados.auth_supervisor (audit trail JSONB).
+  async function ejecutarCancelacion(supervisor){
     setBusy(true);
     try{
       const{error:e1}=await db.from('orders').update({status:'cancelled'}).eq('id',selected.id);
       if(e1)throw e1;
+      const descripcionFinal=supervisor
+        ?`${form.descripcion||''}${form.descripcion?' · ':''}Autorizado por ${supervisor.full_name} (${supervisor.role}) — ID ${supervisor.id}`
+        :(form.descripcion||null);
+      const auditPayload=supervisor?[{
+        auth_supervisor:{
+          id:supervisor.id,
+          full_name:supervisor.full_name,
+          role:supervisor.role,
+          at:new Date().toISOString(),
+        }
+      }]:[];
       const{error:e2}=await db.from('cancelaciones_caja').insert({
         turno_id:turno.id,restaurant_id:RID,pedido_id:selected.id,
         pedido_numero:selected.order_number,tipo:form.tipo,
-        items_cancelados:[],monto_cancelado:selected.total,
-        motivo:form.motivo,descripcion:form.descripcion||null,
+        items_cancelados:auditPayload,monto_cancelado:selected.total,
+        motivo:form.motivo,descripcion:descripcionFinal,
         estado_pedido_cancelar:selected.status,perdida_insumos:form.perdida,
         usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
       });
       if(e2)throw e2;
-      toast(`Pedido #${selected.order_number} cancelado`);
-      setSelected(null);setForm({tipo:'total',motivo:'',descripcion:'',perdida:false});
+      const sufijo=supervisor?` (autorizado por ${supervisor.full_name})`:'';
+      toast(`Pedido #${selected.order_number} cancelado${sufijo}`);
+      setSelected(null);
+      setForm({tipo:'total',motivo:'',descripcion:'',perdida:false});
+      setPinModalOpen(false);
       loadOrders();
     }catch(e){toast('Error: '+e.message,false);}
     setBusy(false);
@@ -1227,8 +1348,8 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
                 <div style={{fontSize:14,fontWeight:800,color:C.ink}}>#{selected.order_number}</div>
                 <div style={{fontSize:13,color:C.ink,marginTop:2,fontWeight:600}}>{fmt(selected.total)}</div>
               </div>
-              {['kitchen_received','cooking','ready'].includes(selected.status)&&(
-                <AlertBox type="error">⚠ Pedido ya enviado a cocina. Solo {['admin','superadmin'].includes(profile?.role)?'podés cancelar':'puede cancelarlo un supervisor'}.</AlertBox>
+              {requierePin&&(
+                <AlertBox type="info">🔒 Esta acción requerirá el PIN de un Administrador o Gerente al confirmar.</AlertBox>
               )}
               <div style={{marginBottom:12}}>
                 <Lbl required>MOTIVO</Lbl>
@@ -1247,8 +1368,8 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
                 <input type="checkbox" id="perdida" checked={form.perdida} onChange={e=>setForm({...form,perdida:e.target.checked})} style={{width:14,height:14}}/>
                 <label htmlFor="perdida" style={{fontSize:12,color:C.mid,cursor:'pointer'}}>Generó pérdida de insumos</label>
               </div>
-              <Btn full variant="danger" onClick={cancelar} disabled={busy||!form.motivo}>
-                {busy?<><span className="spin"/> Cancelando…</>:'Confirmar cancelación'}
+              <Btn full variant="danger" onClick={intentarCancelar} disabled={busy||!form.motivo}>
+                {busy?<><span className="spin"/> Cancelando…</>:requierePin?'Confirmar cancelación 🔒':'Confirmar cancelación'}
               </Btn>
             </>
           ):(
@@ -1256,6 +1377,16 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
           )}
         </div>
       </div>
+
+      {pinModalOpen&&(
+        <PinAuthModal
+          title="Autorización Requerida"
+          subtitle={`Ingresá el PIN de un Administrador o Gerente para confirmar la cancelación del pedido #${selected?.order_number}.`}
+          verifying={busy}
+          onCancel={()=>{if(!busy)setPinModalOpen(false);}}
+          onAuthorized={async(supervisor)=>{await ejecutarCancelacion(supervisor);}}
+        />
+      )}
     </div>
   );
 }
@@ -3123,240 +3254,109 @@ function SalonPanel({profile}){
 }
 
 /* ═══════════════════════════════════════════
-   PANEL: CIERRE DE CAJA / ARQUEO
+   PANEL: CIERRE DE CAJA — ARQUEO CIEGO
+   El cajero declara su conteo físico SIN ver totales del sistema.
+   La diferencia se registra en DB (monto_declarado vs monto_sistema)
+   pero NO se muestra al cajero. Mensaje neutro + redirect a /login.html.
 ═══════════════════════════════════════════ */
 function CierreCajaPanel({turno,movimientos,profile,onCierre}){
-  const [step,setStep]=useState(1); // 1=resumen, 2=conteo, 3=diferencia, 4=confirmar
   const [denoms,setDenoms]=useState(emptyDenoms());
-  const [justif,setJustif]=useState('');
-  const [tipoReporte,setTipoReporte]=useState('Z');
+  const [vouchersTxt,setVouchersTxt]=useState('');
+  const [transferTxt,setTransferTxt]=useState('');
+  const [obs,setObs]=useState('');
   const [busy,setBusy]=useState(false);
-  const [deliveryByRider,setDeliveryByRider]=useState([]);
-  const [cfg,setCfg]=useState({cash_auto_retiro_excedente:false,cash_diff_umbral:50000});
 
-  useEffect(()=>{
-    db.from('restaurants').select('cash_auto_retiro_excedente,cash_diff_umbral').eq('id',RID).maybeSingle().then(({data})=>{
-      if(data) setCfg({
-        cash_auto_retiro_excedente:!!data.cash_auto_retiro_excedente,
-        cash_diff_umbral:Number(data.cash_diff_umbral)||50000,
-      });
-    });
-  },[]);
+  const contadoEfectivo=calcDenomTotal(denoms);
+  const vouchersTarjeta=Math.max(0,parseInt(vouchersTxt)||0);
+  const transferenciasQR=Math.max(0,parseInt(transferTxt)||0);
+  const totalDeclarado=contadoEfectivo+vouchersTarjeta+transferenciasQR;
 
-  useEffect(()=>{
-    const cobros=movimientos.filter(m=>m.tipo==='cobro'&&m.pedido_id);
-    if(!cobros.length||!db){setDeliveryByRider([]);return;}
-    const pedidoIds=cobros.map(m=>m.pedido_id);
-    db.from('delivery_orders')
-      .select('order_id,rider_name,order_total,delivery_fee')
-      .in('order_id',pedidoIds)
-      .then(({data})=>{
-        if(!data?.length){setDeliveryByRider([]);return;}
-        const byRider={};
-        for(const d of data){
-          const rider=d.rider_name||'Sin asignar';
-          if(!byRider[rider])byRider[rider]={rider,pedidos:0,total:0,fee:0};
-          byRider[rider].pedidos++;
-          byRider[rider].total+=d.order_total||0;
-          byRider[rider].fee+=d.delivery_fee||0;
-        }
-        setDeliveryByRider(Object.values(byRider).sort((a,b)=>b.total-a.total));
-      });
-  },[movimientos]);
-
+  // Cálculo SILENCIOSO del sistema — nunca se renderiza al cajero.
   const cobros=movimientos.filter(m=>m.tipo==='cobro');
-  const totalCobrado=cobros.reduce((s,m)=>s+Number(m.monto),0);
-  const totalEfectivo=cobros.filter(m=>m.metodo_pago==='efectivo').reduce((s,m)=>s+Number(m.monto),0);
-  const totalTarjeta=cobros.filter(m=>['tarjeta_credito','tarjeta_debito'].includes(m.metodo_pago)).reduce((s,m)=>s+Number(m.monto),0);
-  const totalQR=cobros.filter(m=>m.metodo_pago==='qr').reduce((s,m)=>s+Number(m.monto),0);
-  const totalEgresos=movimientos.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+Number(m.monto),0);
-  const totalRetiros=movimientos.filter(m=>m.tipo==='retiro_parcial').reduce((s,m)=>s+Number(m.monto),0);
-  const totalIngresosMan=movimientos.filter(m=>m.tipo==='ingreso_manual').reduce((s,m)=>s+Number(m.monto),0);
-  const fondoApertura=turno.fondo_apertura?.total||0;
-  const esperado=fondoApertura+totalEfectivo+totalIngresosMan-totalEgresos-totalRetiros;
-  const contado=calcDenomTotal(denoms);
-  const diferencia=contado-esperado;
-  const difAbs=Math.abs(diferencia);
-  const UMBRAL_DIFF=cfg.cash_diff_umbral||50000;
-
-  // Modo fijo: el cajero deja un fondo fijo objetivo en caja para mañana
-  const modoFijo=turno.modo_apertura==='fijo';
-  const fondoFijoObj=Number(turno.fondo_fijo_objetivo)||0;
-  const excedente=modoFijo?Math.max(0,contado-fondoFijoObj):0;
-  const autoRetiro=modoFijo&&cfg.cash_auto_retiro_excedente&&excedente>0&&tipoReporte==='Z';
+  const sysEfectivo=cobros.filter(m=>m.metodo_pago==='efectivo').reduce((s,m)=>s+Number(m.monto),0);
+  const sysTarjeta=cobros.filter(m=>['tarjeta_credito','tarjeta_debito'].includes(m.metodo_pago)).reduce((s,m)=>s+Number(m.monto),0);
+  const sysQR=cobros.filter(m=>m.metodo_pago==='qr').reduce((s,m)=>s+Number(m.monto),0);
+  const sysEgresos=movimientos.filter(m=>m.tipo==='egreso').reduce((s,m)=>s+Number(m.monto),0);
+  const sysRetiros=movimientos.filter(m=>m.tipo==='retiro_parcial').reduce((s,m)=>s+Number(m.monto),0);
+  const sysIngresosMan=movimientos.filter(m=>m.tipo==='ingreso_manual').reduce((s,m)=>s+Number(m.monto),0);
+  const fondoApertura=Number(turno.fondo_apertura?.total)||0;
+  const sysEfectivoEsperado=fondoApertura+sysEfectivo+sysIngresosMan-sysEgresos-sysRetiros;
+  const montoSistema=sysEfectivoEsperado+sysTarjeta+sysQR;
+  const diferencia=totalDeclarado-montoSistema;
 
   async function cerrar(){
-    if(tipoReporte==='Z'&&difAbs>UMBRAL_DIFF&&!justif){
-      toast(`Diferencia > ${fmt(UMBRAL_DIFF)}. Justificación obligatoria.`,false);return;
+    if(busy)return;
+    if(totalDeclarado===0){
+      toast('Ingresá el conteo físico antes de confirmar el cierre.',false);return;
     }
     setBusy(true);
     try{
-      // Si modo fijo + auto retiro: registrar primero el retiro del excedente
-      if(autoRetiro){
-        const{error:errMov}=await db.from('movimientos_caja').insert({
-          turno_id:turno.id,restaurant_id:RID,tipo:'retiro_parcial',
-          monto:excedente,metodo_pago:'efectivo',
-          descripcion:`Cierre fijo — entrega a administración (deja ${fmt(fondoFijoObj)} en caja)`,
-          usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
-        });
-        if(errMov)throw errMov;
-      }
-      // Recalcular esperado y diferencia considerando el retiro automático
-      const esperadoFinal=esperado-(autoRetiro?excedente:0);
-      const diffFinal=contado-(autoRetiro?excedente:0)-esperadoFinal;
       const payload={
-        estado:'cerrado',fecha_cierre:new Date().toISOString(),
-        fondo_cierre_contado:{denominaciones:denoms,total:contado},
-        fondo_cierre_esperado:esperadoFinal,diferencia:diffFinal,
-        justificacion_diff:justif||null,tipo_reporte:tipoReporte,
+        estado:'cerrado',
+        fecha_cierre:new Date().toISOString(),
+        fondo_cierre_contado:{
+          denominaciones:denoms,
+          total:contadoEfectivo,
+          vouchers_tarjeta:vouchersTarjeta,
+          transferencias_qr:transferenciasQR,
+          monto_declarado:totalDeclarado,
+          monto_sistema:montoSistema,
+          modo:'arqueo_ciego',
+        },
+        fondo_cierre_esperado:montoSistema,
+        diferencia,
+        justificacion_diff:obs||null,
+        tipo_reporte:'Z',
       };
       const{error}=await db.from('turnos_caja').update(payload).eq('id',turno.id);
       if(error)throw error;
-      toast(autoRetiro?`Turno cerrado — ${fmt(excedente)} entregado a administración`:`Turno cerrado — Reporte ${tipoReporte}`);
-      onCierre();
-    }catch(e){toast('Error al cerrar: '+e.message,false);}
-    setBusy(false);
+      // Mensaje neutro — NUNCA mencionar diferencia/sobrante/faltante al cajero.
+      toast('Cierre registrado correctamente. Gracias por tu turno.');
+      try{localStorage.removeItem('caja_panel');localStorage.removeItem('caja_cart');}catch{}
+      try{await db.auth.signOut();}catch{}
+      setTimeout(()=>{window.location.replace('login.html?cierre=ok');},900);
+    }catch(e){
+      toast('No se pudo registrar el cierre: '+e.message,false);
+      setBusy(false);
+    }
   }
 
   return(
     <div className="page">
-      <h1 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Cierre de Caja — Arqueo</h1>
+      <div style={{maxWidth:640,margin:'0 auto'}}>
+        <div style={{textAlign:'center',marginBottom:22}}>
+          <div style={{fontFamily:'DM Serif Display',fontSize:26,marginBottom:6,color:C.ink}}>Cierre de Caja</div>
+          <div style={{fontSize:13,color:C.mid}}>Cajero: <strong style={{color:C.ink}}>{profile.display_name||profile.username}</strong> · Apertura {fmtDT(turno.fecha_apertura)}</div>
+        </div>
 
-      {/* Steps */}
-      <div style={{display:'flex',gap:0,borderBottom:`2px solid ${C.border}`,marginBottom:20}}>
-        {[['1','Resumen'],['2','Conteo'],['3','Confirmar']].map(([n,lbl])=>(
-          <button key={n} onClick={()=>setStep(parseInt(n))} style={{padding:'10px 18px',fontSize:13,fontWeight:step>=parseInt(n)?800:500,color:step===parseInt(n)?'#000000':step>parseInt(n)?'#1D1D1F':'#6E6E73',background:step===parseInt(n)?'#F0F0F0':'none',border:'none',borderBottom:step===parseInt(n)?'2px solid #000000':'2px solid transparent',cursor:'pointer',marginBottom:-2,borderRadius:'6px 6px 0 0'}}>
-            {n}. {lbl}
-          </button>
-        ))}
+        <AlertBox type="info">
+          Ingresá el conteo físico de tu caja. El sistema registra el arqueo y cierra tu turno; no verás totales del sistema en pantalla.
+        </AlertBox>
+
+        <DenomGrid values={denoms} onChange={setDenoms} label="Conteo físico de efectivo en caja"/>
+
+        <div style={{marginTop:16}}>
+          <Lbl>TOTAL VOUCHERS TARJETA (GS.)</Lbl>
+          <Inp type="number" mono value={vouchersTxt} onChange={e=>setVouchersTxt(e.target.value)} placeholder="0" min="0" step="1"/>
+        </div>
+        <div style={{marginTop:12}}>
+          <Lbl>TOTAL TRANSFERENCIAS / QR BANCARD (GS.)</Lbl>
+          <Inp type="number" mono value={transferTxt} onChange={e=>setTransferTxt(e.target.value)} placeholder="0" min="0" step="1"/>
+        </div>
+        <div style={{marginTop:12,marginBottom:20}}>
+          <Lbl>OBSERVACIONES DE CIERRE</Lbl>
+          <Textarea value={obs} onChange={e=>setObs(e.target.value)} placeholder="Novedades, incidentes o aclaraciones del turno…" rows={3}/>
+        </div>
+
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+          <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1}}>TOTAL DECLARADO</div>
+          <div style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>{fmt(totalDeclarado)}</div>
+        </div>
+
+        <Btn full variant="primary" onClick={cerrar} disabled={busy||totalDeclarado===0}>
+          {busy?<><span className="spin"/> Registrando cierre…</>:'Confirmar Cierre de Caja'}
+        </Btn>
       </div>
-
-      {step===1&&(
-        <div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:10,marginBottom:20}}>
-            {[
-              {lbl:'Pedidos cobrados',val:cobros.length,color:C.green},
-              {lbl:'Total cobrado',val:fmt(totalCobrado),color:C.green},
-              {lbl:'Efectivo cobrado',val:fmt(totalEfectivo),color:C.cyan},
-              {lbl:'Tarjeta cobrado',val:fmt(totalTarjeta),color:C.blue},
-              {lbl:'QR cobrado',val:fmt(totalQR),color:C.purple},
-              {lbl:'Egresos del turno',val:fmt(totalEgresos),color:C.red},
-              {lbl:'Retiros parciales',val:fmt(totalRetiros),color:C.orange},
-              {lbl:'Ingresos manuales',val:fmt(totalIngresosMan),color:C.yellow},
-              {lbl:'Fondo de apertura',val:fmt(fondoApertura),color:C.mid},
-              {lbl:'Efectivo esperado',val:fmt(esperado),color:C.ink},
-            ].map(({lbl,val,color})=>(
-              <KpiMini key={lbl} label={lbl} value={val} accent={color}/>
-            ))}
-          </div>
-          {deliveryByRider.length>0&&(
-            <div style={{marginBottom:16}}>
-              <div style={{fontSize:13,fontWeight:700,color:C.ink,marginBottom:8}}>🛵 Deliveries del turno — por rider</div>
-              <div style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-                  <thead>
-                    <tr style={{background:C.surface}}>
-                      <th style={{padding:'8px 12px',textAlign:'left',fontWeight:700,color:C.mid,borderBottom:`1px solid ${C.border}`}}>Rider</th>
-                      <th style={{padding:'8px 12px',textAlign:'center',fontWeight:700,color:C.mid,borderBottom:`1px solid ${C.border}`}}>Pedidos</th>
-                      <th style={{padding:'8px 12px',textAlign:'right',fontWeight:700,color:C.mid,borderBottom:`1px solid ${C.border}`}}>Total</th>
-                      <th style={{padding:'8px 12px',textAlign:'right',fontWeight:700,color:C.mid,borderBottom:`1px solid ${C.border}`}}>Fee entrega</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {deliveryByRider.map((r,i)=>(
-                      <tr key={r.rider} style={{background:i%2===0?'transparent':C.surface}}>
-                        <td style={{padding:'8px 12px',fontWeight:600,color:C.ink}}>🛵 {r.rider}</td>
-                        <td style={{padding:'8px 12px',textAlign:'center',color:C.mid}}>{r.pedidos}</td>
-                        <td style={{padding:'8px 12px',textAlign:'right',color:C.ink,fontWeight:600}}>{fmt(r.total)}</td>
-                        <td style={{padding:'8px 12px',textAlign:'right',color:'#34C759',fontWeight:600}}>{fmt(r.fee)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-          <div style={{display:'flex',gap:8}}>
-            <div style={{marginRight:'auto',fontSize:12,color:C.mid,alignSelf:'center'}}>
-              Turno activo desde {fmtDT(turno.fecha_apertura)} · {fmtDur(turno.fecha_apertura)}
-            </div>
-            <div>
-              <Lbl>TIPO DE REPORTE</Lbl>
-              <div style={{display:'flex',gap:8}}>
-                {[['Z','Reporte Z (cierre definitivo)'],['X','Reporte X (corte sin cerrar)']].map(([t,lbl])=>(
-                  <button key={t} onClick={()=>setTipoReporte(t)} style={{padding:'8px 14px',fontSize:12,borderRadius:6,border:`1px solid ${tipoReporte===t?'#000000':C.border}`,background:tipoReporte===t?'#000000':'transparent',color:tipoReporte===t?'#FFFFFF':C.mid,fontWeight:tipoReporte===t?700:400,cursor:'pointer'}}>{lbl}</button>
-                ))}
-              </div>
-            </div>
-            <Btn onClick={()=>setStep(2)}>Continuar →</Btn>
-          </div>
-        </div>
-      )}
-
-      {step===2&&(
-        <div>
-          <DenomGrid values={denoms} onChange={setDenoms} label="Conteo físico — ingresá cuántos billetes/monedas hay en caja"/>
-          <div style={{display:'flex',gap:8,marginTop:16}}>
-            <Btn variant="ghost" onClick={()=>setStep(1)}>← Atrás</Btn>
-            <Btn onClick={()=>setStep(3)} disabled={contado===0}>Ver diferencia →</Btn>
-          </div>
-        </div>
-      )}
-
-      {step===3&&(
-        <div>
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,marginBottom:16}}>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
-              <KpiMini label="Efectivo esperado" value={fmt(esperado)} accent={C.mid}/>
-              <KpiMini label="Efectivo contado"  value={fmt(contado)}  accent={C.ink}/>
-              <KpiMini label="Diferencia" value={`${diferencia>=0?'+':''}${fmt(diferencia)}`} accent={difAbs===0?C.green:difAbs<UMBRAL_DIFF?C.yellow:C.red}/>
-            </div>
-            {difAbs===0&&<AlertBox type="success" style={{marginTop:12}}>Sin diferencia. Arqueo correcto.</AlertBox>}
-            {difAbs>0&&difAbs<=UMBRAL_DIFF&&<AlertBox type="warn">Diferencia de {fmt(difAbs)} dentro del umbral permitido ({fmt(UMBRAL_DIFF)}).</AlertBox>}
-            {difAbs>UMBRAL_DIFF&&<AlertBox type="error">Diferencia de {fmt(difAbs)} supera el umbral. Se requiere justificación.</AlertBox>}
-          </div>
-
-          {modoFijo&&(
-            <div style={{background:autoRetiro?'rgba(0,122,255,0.06)':'rgba(255,149,0,0.06)',border:`1px solid ${autoRetiro?'rgba(0,122,255,0.25)':'rgba(255,149,0,0.25)'}`,borderRadius:10,padding:20,marginBottom:16}}>
-              <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>CIERRE CON FONDO FIJO</div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:12}}>
-                <KpiMini label="Fondo fijo a dejar" value={fmt(fondoFijoObj)} accent={C.mid}/>
-                <KpiMini label="Efectivo contado" value={fmt(contado)} accent={C.ink}/>
-                <KpiMini label="Excedente" value={fmt(excedente)} accent={excedente>0?C.blue:C.mid}/>
-              </div>
-              {autoRetiro&&tipoReporte==='Z'&&(
-                <AlertBox type="info">
-                  Al cerrar se registrará automáticamente un retiro de <strong>{fmt(excedente)}</strong> como entrega a administración. Quedan <strong>{fmt(fondoFijoObj)}</strong> en caja para el próximo turno.
-                </AlertBox>
-              )}
-              {modoFijo&&!cfg.cash_auto_retiro_excedente&&excedente>0&&(
-                <AlertBox type="warn">
-                  Hay un excedente de {fmt(excedente)} sobre el fondo fijo. El retiro automático está deshabilitado; podés registrarlo manualmente desde "Retiro de efectivo" antes de cerrar.
-                </AlertBox>
-              )}
-              {modoFijo&&excedente===0&&contado<fondoFijoObj&&(
-                <AlertBox type="error">
-                  Faltan {fmt(fondoFijoObj-contado)} para completar el fondo fijo. Revisá el conteo.
-                </AlertBox>
-              )}
-            </div>
-          )}
-
-          {(difAbs>0)&&(
-            <div style={{marginBottom:16}}>
-              <Lbl required={difAbs>UMBRAL_DIFF}>JUSTIFICACIÓN DE DIFERENCIA</Lbl>
-              <Textarea value={justif} onChange={e=>setJustif(e.target.value)} placeholder="Explicá la diferencia encontrada…" rows={3}/>
-            </div>
-          )}
-
-          <div style={{display:'flex',gap:8}}>
-            <Btn variant="ghost" onClick={()=>setStep(2)}>← Atrás</Btn>
-            <Btn variant={difAbs>UMBRAL_DIFF?'danger':'primary'} onClick={cerrar} disabled={busy}>
-              {busy?<><span className="spin"/> Cerrando…</> :tipoReporte==='Z'?'Cerrar turno definitivamente':'Generar Reporte X'}
-            </Btn>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
