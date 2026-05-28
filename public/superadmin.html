@@ -241,6 +241,7 @@ const DEFAULT_ADDONS = [
   {key:'delivery_cliente', name:'Delivery Cliente', panel:'delivery-cliente', price_usd:15},
   {key:'delivery_rider',   name:'Rider Delivery',   panel:'delivery-rider',   price_usd:10},
   {key:'kds_cocina',       name:'KDS Cocina',        panel:'cocina',           price_usd:12},
+  {key:'sucursal_extra',   name:'Sucursal Adicional (Multi-local)', panel:'admin', price_usd:25},
 ];
 const addonName = (catalog, key) => (catalog.find(a=>a.key===key)?.name) || (DEFAULT_ADDONS.find(a=>a.key===key)?.name) || key;
 
@@ -565,6 +566,9 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   const [demoMode, setDemoMode] = useState(false);
   const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10)};
   const [form, setForm] = useState(emptyForm);
+  // Multi-sucursal: modal de alta de Sucursal Hija anclada a una Casa Central
+  const [branchModal, setBranchModal] = useState(null);   // {parent} | null
+  const [branchForm,  setBranchForm]  = useState({name:'',phone:'',city:'Asunción'});
 
   // Ciudades presentes en los datos + cabeceras PY conocidas
   const cityOptions = Array.from(new Set([...CITIES_PY, ...enriched.map(r=>r.city).filter(Boolean)]));
@@ -628,7 +632,59 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
     setSaving(false);
   };
 
+  // ── Multi-sucursal: alta de Sucursal Hija ──────────────────────
+  const isRoot = r => !r.parent_company_id || r.parent_company_id === r.id;
+  const rootIdOf = r => r.parent_company_id || r.id;
+  const parentName = r => (enriched.find(x=>x.id===r.parent_company_id)?.name) || '—';
+
+  const openBranch = parent => {
+    setBranchForm({name:'',phone:'',city:parent.city||'Asunción'});
+    setBranchModal({parent});
+  };
+
+  const saveBranch = async () => {
+    const parent = branchModal?.parent;
+    if (!parent) return;
+    if (!branchForm.name.trim()) { setFlash({type:'error',text:'El nombre de la sucursal es requerido'}); return; }
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSaving(true);
+    try {
+      const rootId = rootIdOf(parent);
+      // 1) Registrar/incrementar el add-on 'sucursal_extra' en la cuenta raíz (facturable)
+      const {data:exist} = await db.from('restaurant_addons')
+        .select('id,quantity').eq('restaurant_id',rootId).eq('addon_key','sucursal_extra').maybeSingle();
+      const extraPrice = (addonCatalog.find(a=>a.key==='sucursal_extra')||{}).price_usd ?? 25;
+      if (exist) {
+        await db.from('restaurant_addons').update({quantity:(exist.quantity||1)+1,enabled:true}).eq('id',exist.id);
+      } else {
+        await db.from('restaurant_addons').insert({restaurant_id:rootId,addon_key:'sucursal_extra',price_usd:extraPrice,quantity:1,enabled:true}).catch(()=>{});
+      }
+      // 2) Crear la sucursal hija vinculada a la cuenta corporativa raíz
+      const payload = {
+        name:branchForm.name.trim(), parent_company_id:rootId,
+        city:branchForm.city||parent.city||null, country:parent.country||'Paraguay',
+        phone:branchForm.phone||null, status:'active', timezone:'America/Asuncion',
+        owner_name:parent.owner_name||null, owner_email:parent.owner_email||null, owner_phone:parent.owner_phone||null,
+        onboarding_date:new Date().toISOString().slice(0,10),
+      };
+      const {data:branch,error} = await db.from('restaurants').insert(payload).select().single();
+      if (error) throw error;
+      // 3) Heredar el plan base del padre (suscripción propia con mismo plan_id)
+      const planId = parent.subscription?.plan_id;
+      if (planId) {
+        const today=new Date(),end=new Date(today);end.setMonth(end.getMonth()+1);
+        const plan=plans.find(p=>p.id===planId);
+        await db.from('subscriptions').insert({restaurant_id:branch.id,plan_id:planId,status:'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10),monthly_amount:plan?.price_usd||0}).catch(()=>{});
+      }
+      await db.from('platform_events').insert({restaurant_id:branch.id,event_type:'onboarding',description:`Alta de sucursal — cuenta de ${parent.name}`}).catch(()=>{});
+      setFlash({type:'ok',text:`Sucursal "${branchForm.name}" creada bajo ${parent.name}`});
+      setBranchModal(null); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
   const sf = v => e => setForm(f=>({...f,[v]:e.target.value}));
+  const bf = v => e => setBranchForm(f=>({...f,[v]:e.target.value}));
 
   // Auto-aprovisionamiento demo: precarga datos validados y bloquea campos del propietario
   const applyDemo = on => {
@@ -685,8 +741,12 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
             <div key={r.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20,display:'flex',flexDirection:'column',gap:0}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
                 <div>
-                  <div style={{fontSize:16,fontWeight:700,color:C.ink,marginBottom:3}}>{r.name}</div>
+                  <div style={{fontSize:16,fontWeight:700,color:C.ink,marginBottom:3,display:'flex',alignItems:'center',gap:6}}>
+                    {r.name}
+                    {!isRoot(r)&&<span title={`Sucursal de ${parentName(r)}`} style={{fontSize:9,fontWeight:800,background:C.ink,color:C.card,padding:'2px 7px',borderRadius:5,letterSpacing:.3,textTransform:'uppercase'}}>Sucursal</span>}
+                  </div>
                   <div style={{fontSize:12,color:C.mid}}>{r.address||r.city}{r.city&&r.address?`, ${r.city}`:''}</div>
+                  {!isRoot(r)&&<div style={{fontSize:11,color:C.dim,marginTop:2}}>↳ {parentName(r)}</div>}
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}>
                   <PlanBadge name={r.plan?.name||'Sin plan'}/>
@@ -721,6 +781,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
                 <a href="admin.html" target="_blank" rel="noreferrer" style={{textDecoration:'none'}}>
                   <Btn size="sm" variant="ghost">Ver Admin</Btn>
                 </a>
+                {isRoot(r)&&<Btn size="sm" variant="ghost" onClick={()=>openBranch(r)}>➕ Añadir Sucursal Hija</Btn>}
                 <Btn size="sm" variant={r.status==='active'?'danger':'success'} onClick={()=>toggleStatus(r)}>
                   {r.status==='active'?'Desactivar':'Activar'}
                 </Btn>
@@ -783,6 +844,32 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
             <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
             <Btn onClick={saveRestaurant} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {branchModal&&(
+        <Modal title="Añadir Sucursal Hija" onClose={()=>setBranchModal(null)} width={520}>
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',marginBottom:16,borderRadius:10,border:`1px solid ${C.ink}`,background:C.bg}}>
+            <div style={{fontSize:22}}>🏢</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.ink}}>Cuenta corporativa: {branchModal.parent.name}</div>
+              <div style={{fontSize:11,color:C.mid}}>Hereda el plan <strong>{branchModal.parent.plan?.name||'base'}</strong> del local raíz y se factura como add-on “Sucursal Adicional”.</div>
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Nombre de la sucursal *" col="1/-1"><input value={branchForm.name} onChange={bf('name')} placeholder={`${branchModal.parent.name} — Centro`} autoFocus/></FormField>
+            <FormField label="Ciudad">
+              <select value={branchForm.city} onChange={bf('city')}>
+                <option value="">Seleccionar ciudad…</option>
+                {Array.from(new Set([...CITIES_PY, branchForm.city].filter(Boolean))).map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Teléfono"><input value={branchForm.phone} onChange={bf('phone')} placeholder="+595 21 555 0200"/></FormField>
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:16}}>
+            <Btn variant="ghost" onClick={()=>setBranchModal(null)}>Cancelar</Btn>
+            <Btn onClick={saveBranch} disabled={saving}>{saving?'Creando…':'Crear sucursal'}</Btn>
           </div>
         </Modal>
       )}

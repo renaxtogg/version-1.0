@@ -57,7 +57,10 @@ const _initDB = () => {
   try { return window.supabase.createClient(url, key); } catch(e) { return null; }
 };
 const db = _initDB();
-const RID = ((window.SUPABASE_CONFIG?.restaurantId)||'00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
+/* RID = sucursal activa de la sesión (multi-sucursal). El dueño la conmuta vía
+   localStorage.mythos_restaurant_id; fallback a config.js para superadmin/demo. */
+const RID = (localStorage.getItem('mythos_restaurant_id') || (window.SUPABASE_CONFIG?.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
+const MY_ROLE = (localStorage.getItem('mythos_role')||'').trim();
 
 /* contador global — pausa el polling cuando hay modal abierto o input con foco */
 let _modalCount = 0;
@@ -398,6 +401,59 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={},themeMode
 {db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{marginTop:6,background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'4px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
       </div>
     </aside>
+  );
+}
+
+/* ── SELECTOR DE SUCURSAL (Multi-local, solo dueño) ──
+   Dropdown B&W. Cambia mythos_restaurant_id y recarga la sesión para
+   que el dueño audite menú/mesas/ventas de la sucursal sin re-login.
+   Los roles operativos (mozo/cajero/cocina) NO lo ven → anclados. */
+function SucursalSwitcher({caps}) {
+  const [open,setOpen] = useState(false);
+  if (!['admin','gerente','owner'].includes(MY_ROLE)) return null;
+  const branches = (caps && Array.isArray(caps.branches)) ? caps.branches : [];
+  if (branches.length <= 1) return null;
+  const maxB    = caps.max_branches || branches.length;
+  const current = branches.find(b=>b.id===RID) || branches[0];
+  const switchTo = (b, locked) => {
+    if (locked || b.id===RID) { setOpen(false); return; }
+    localStorage.setItem('mythos_restaurant_id', b.id);
+    window.location.reload();   // recarga suave: re-ejecuta hooks con el nuevo RID, sin cerrar sesión
+  };
+  return (
+    <div style={{position:'relative',marginBottom:18}}>
+      <button onClick={()=>setOpen(o=>!o)}
+        style={{display:'inline-flex',alignItems:'center',gap:8,background:C.surface,border:`1px solid ${C.ink}`,color:C.ink,borderRadius:10,padding:'8px 14px',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+        <span>📍 Sucursal:</span>
+        <span style={{fontWeight:800}}>{current?.name||'—'}</span>
+        <span style={{fontSize:10,opacity:.7,transform:open?'rotate(180deg)':'none',transition:'transform .12s'}}>▼</span>
+      </button>
+      {open && (
+        <React.Fragment>
+          <div onClick={()=>setOpen(false)} style={{position:'fixed',inset:0,zIndex:40}}/>
+          <div style={{position:'absolute',top:'calc(100% + 6px)',left:0,zIndex:41,minWidth:280,background:C.surface,border:`1px solid ${C.ink}`,borderRadius:12,boxShadow:'0 14px 40px rgba(0,0,0,0.22)',overflow:'hidden'}}>
+            <div style={{padding:'9px 14px',fontSize:10,fontWeight:800,letterSpacing:'.12em',textTransform:'uppercase',color:C.mid,borderBottom:`1px solid ${C.border}`}}>
+              Locales de la cuenta · {maxB} habilitada{maxB!==1?'s':''}
+            </div>
+            {branches.map((b,i)=>{
+              const locked = i >= maxB && b.id!==RID;
+              const active = b.id===RID;
+              return (
+                <button key={b.id} onClick={()=>switchTo(b,locked)} disabled={locked}
+                  title={locked?'Sucursal no incluida en tu plan — contrata el add-on Sucursal Adicional':''}
+                  style={{display:'flex',alignItems:'center',gap:10,width:'100%',textAlign:'left',padding:'10px 14px',background:active?C.ink:'transparent',color:locked?C.dim:(active?C.surface:C.ink),border:'none',borderTop:i?`1px solid ${C.border}`:'none',fontSize:13,fontWeight:active?700:500,cursor:locked?'not-allowed':'pointer',opacity:locked?.6:1}}>
+                  <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                    {b.name}{b.is_root?'  ·  Casa Central':''}{b.city?`  ·  ${b.city}`:''}
+                  </span>
+                  {active && <span style={{fontSize:11}}>✓</span>}
+                  {locked && <span style={{fontSize:11}}>🔒</span>}
+                </button>
+              );
+            })}
+          </div>
+        </React.Fragment>
+      )}
+    </div>
   );
 }
 
@@ -9104,6 +9160,7 @@ function AdminApp() {
     <div style={{display:'flex',minHeight:'100vh'}}>
       <Sidebar page={page} setPage={setPage} restaurant={restaurant} dbOk={!!db} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}} themeMode={themeMode}/>
       <main style={{flex:1,padding:26,overflowY:'auto',minWidth:0}}>
+        <SucursalSwitcher caps={caps.caps}/>
         {renderPage()}
       </main>
       <ToastContainer/>
