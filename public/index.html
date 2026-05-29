@@ -53,8 +53,11 @@ const _initDB = () => {
   try { return window.supabase.createClient(url, key); } catch(e) { return null; }
 };
 const db = _initDB();
-const RESTAURANT_ID = ((window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
 const _urlParams = new URLSearchParams(window.location.search);
+// Restaurante: prioridad al parámetro URL (QR / link de admin) → multi-restaurante.
+// Fallback a config.js sólo para el deploy demo de un solo local.
+const _ridParam = (_urlParams.get('r') || _urlParams.get('rest') || _urlParams.get('restaurant') || '').replace(/^﻿/, '').trim();
+const RESTAURANT_ID = (_ridParam || (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
 let TABLE_NUM = parseInt(_urlParams.get('mesa') || '0', 10);
 const TABLE_TOKEN = _urlParams.get('t') || _urlParams.get('token') || null;
 
@@ -967,6 +970,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   const [email, setEmail] = useState('');
   const [ordNum, setOrdNum] = useState('');
   const [submitError, setSubmitError] = useState(null);
+  const [showBancardToast, setShowBancardToast] = useState(false);
 
   const METHODS = [
     { id: 'efectivo', label: 'Efectivo', sub: 'Se cobra en mesa o caja', info: 'El pago se realiza en mesa o caja. El mozo te asistirá.' },
@@ -1064,6 +1068,17 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
             </div>
           </div>
         ))}
+        {/* ── Pago digital — Próximamente ── */}
+        <div onClick={() => setShowBancardToast(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'rgba(255,149,0,0.05)', border: `2px dashed rgba(255,149,0,0.35)`, borderRadius: 12, marginBottom: 8, cursor: 'pointer' }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#92400E', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>📲</span> Pagar desde el celular
+              <span style={{ fontSize: 9, fontWeight: 800, background: '#FF9500', color: '#fff', borderRadius: 4, padding: '2px 5px', letterSpacing: '0.05em' }}>PRÓXIMAMENTE</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#B45309', marginTop: 1 }}>Tarjeta / QR Bancard</div>
+          </div>
+          <div style={{ fontSize: 18, opacity: 0.5 }}>›</div>
+        </div>
         {/* Texto contextual por método */}
         {currentMethod && (
           <div style={{ background: method === 'qr' ? '#FFF7ED' : T.light, border: `1px solid ${method === 'qr' ? '#FDE68A' : T.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: method === 'qr' ? '#92400E' : T.mid, lineHeight: 1.5 }}>
@@ -1119,6 +1134,18 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
           {method === 'efectivo' || method === 'pos' ? 'Confirmar pedido' : `Confirmar y pagar ${fmt(total)}`}
         </button>
       </div>
+      {showBancardToast && (() => {
+        setTimeout(() => setShowBancardToast(false), 4000);
+        return (
+          <div onClick={() => setShowBancardToast(false)} style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 9999, background: '#1C1C1E', color: '#F5F5F7', borderRadius: 14, padding: '14px 20px', maxWidth: 340, width: 'calc(100% - 40px)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
+            <span style={{ fontSize: 22, flexShrink: 0 }}>🏦</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3 }}>Módulo Bancard / SIFEN en fase de certificación</div>
+              <div style={{ fontSize: 11, color: '#AEAEB2', lineHeight: 1.4 }}>Esta pasarela se activará automáticamente al concluir los trámites del comercio.</div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

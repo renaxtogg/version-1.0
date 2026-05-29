@@ -407,11 +407,15 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={},themeMode
             {l:'Delivery',h:'delivery-cliente.html',ic:'package'},
             {l:'Rider',h:'delivery-rider.html',ic:'bike'},
             {l:'Diagnóstico',h:'diag.html',ic:'activity'},
-          ].map(p=>(
-            <a key={p.h} href={p.h} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',gap:6,color:C.mid,fontSize:11,textDecoration:'none',padding:'5px 6px',border:`1px solid ${C.border}`,borderRadius:6}}>
+          ].map(p=>{
+            // Apps de cliente (index/delivery) no leen localStorage → necesitan el restaurante en la URL.
+            const isClient = p.h==='index.html'||p.h==='delivery-cliente.html';
+            const href = isClient ? `${p.h}?r=${encodeURIComponent(RID)}` : p.h;
+            return (
+            <a key={p.h} href={href} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',gap:6,color:C.mid,fontSize:11,textDecoration:'none',padding:'5px 6px',border:`1px solid ${C.border}`,borderRadius:6}}>
               <Icon name={p.ic} size={12}/><span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.l}</span>
             </a>
-          ))}
+          );})}
         </div>
 {db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'5px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
       </div>
@@ -1140,9 +1144,9 @@ function ItemModal({item, categories, onClose, onSaved}) {
     };
     let itemId = item?.id;
     if(isNew){
-      const{data:mx}=await db.from('menu_items').select('id').order('id',{ascending:false}).limit(1);
-      const nextId=(mx&&mx.length>0?mx[0].id:0)+1;
-      const{data,error}=await db.from('menu_items').insert({id:nextId,...payload}).select('id');
+      // id es SERIAL: dejar que Postgres lo asigne. Asignarlo a mano rompía
+      // multi-restaurante (RLS limita el SELECT al propio local → nextId=1 → choque pkey).
+      const{data,error}=await db.from('menu_items').insert(payload).select('id');
       if(error||!data?.length){toast('Error: '+(error?.message||'verificá RLS'),false);setSaving(false);return;}
       itemId=data[0].id;
     } else {
@@ -1393,7 +1397,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
         <h1 style={{fontSize:22,fontWeight:800,color:C.ink}}>Menú</h1>
         <div style={{display:'flex',gap:8}}>
-          <a href="index.html" target="_blank" style={{fontSize:12,color:C.mid,padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:6,textDecoration:'none'}}>Ver app →</a>
+          <a href={`index.html?r=${encodeURIComponent(RID)}`} target="_blank" style={{fontSize:12,color:C.mid,padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:6,textDecoration:'none'}}>Ver app →</a>
           {menuTab==='productos'&&<Btn onClick={()=>setItemModal({item:null})}>+ Nuevo producto</Btn>}
         </div>
       </div>
@@ -2019,7 +2023,8 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
 ══════════════════════════════════════════════ */
 function _buildQrUrl(table) {
   const origin = window.location.protocol + '//' + window.location.host;
-  return `${origin}/?t=${encodeURIComponent(table.qr_token)}`;
+  // Incluir restaurante: el QR lo escanea un cliente externo (sin localStorage) → debe llevar el local.
+  return `${origin}/?r=${encodeURIComponent(RID)}&t=${encodeURIComponent(table.qr_token)}`;
 }
 
 function QrModal({table, restaurant, onClose}) {
@@ -6198,9 +6203,12 @@ function ConfigPage({restaurant,onRefresh}) {
 
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:12}}>ACCESOS RÁPIDOS</div>
-            {[{l:'Caja',h:'caja.html'},{l:'Cocina (KDS)',h:'cocina.html'},{l:'Mozo',h:'mozo.html'},{l:'Gerente',h:'gerente.html'},{l:'App Cliente',h:'index.html'},{l:'Delivery Cliente',h:'delivery-cliente.html'},{l:'Rider Delivery',h:'delivery-rider.html'},{l:'Diagnóstico DB',h:'diag.html'}].map(a=>(
-              <a key={a.h} href={a.h} target="_blank" rel="noopener" style={{display:'block',padding:'9px 0',color:C.mid,fontSize:13,textDecoration:'none',borderBottom:`1px solid #0d0d0d`}}>→ {a.l}</a>
-            ))}
+            {[{l:'Caja',h:'caja.html'},{l:'Cocina (KDS)',h:'cocina.html'},{l:'Mozo',h:'mozo.html'},{l:'Gerente',h:'gerente.html'},{l:'App Cliente',h:'index.html'},{l:'Delivery Cliente',h:'delivery-cliente.html'},{l:'Rider Delivery',h:'delivery-rider.html'},{l:'Diagnóstico DB',h:'diag.html'}].map(a=>{
+              const isClient = a.h==='index.html'||a.h==='delivery-cliente.html';
+              const href = isClient ? `${a.h}?r=${encodeURIComponent(RID)}` : a.h;
+              return (
+              <a key={a.h} href={href} target="_blank" rel="noopener" style={{display:'block',padding:'9px 0',color:C.mid,fontSize:13,textDecoration:'none',borderBottom:`1px solid #0d0d0d`}}>→ {a.l}</a>
+            );})}
           </div>
           <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
             <div style={{fontSize:9,color:C.dim,fontWeight:700,marginBottom:5,letterSpacing:1}}>RESTAURANT ID</div>
