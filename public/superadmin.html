@@ -602,7 +602,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
     if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
     const {error} = await db.from('restaurants').update({status:next}).eq('id',r.id);
     if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
-    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'status_changed',description:`Estado cambiado a ${next}`}).catch(()=>{});
+    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'status_changed',description:`Estado cambiado a ${next}`}).then(()=>{},()=>{});
     setFlash({type:'ok',text:`${r.name} → ${next}`}); reload();
   };
 
@@ -618,9 +618,9 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
         if (form.plan_id) {
           const today=new Date(),end=new Date(today);end.setMonth(end.getMonth()+1);
           const plan=plans.find(p=>p.id===form.plan_id);
-          await db.from('subscriptions').insert({restaurant_id:rest.id,plan_id:form.plan_id,status:form.status==='trial'?'trial':'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10),monthly_amount:plan?.price_usd||0}).catch(()=>{});
+          await db.from('subscriptions').insert({restaurant_id:rest.id,plan_id:form.plan_id,status:form.status==='trial'?'trial':'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10),monthly_amount:plan?.price_usd||0}).then(()=>{},()=>{});
         }
-        await db.from('platform_events').insert({restaurant_id:rest.id,event_type:'onboarding',description:`Alta — ${form.status}`}).catch(()=>{});
+        await db.from('platform_events').insert({restaurant_id:rest.id,event_type:'onboarding',description:`Alta — ${form.status}`}).then(()=>{},()=>{});
         setFlash({type:'ok',text:`${form.name} dado de alta`});
       } else {
         const {error} = await db.from('restaurants').update(payload).eq('id',modal.edit.id);
@@ -657,7 +657,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
       if (exist) {
         await db.from('restaurant_addons').update({quantity:(exist.quantity||1)+1,enabled:true}).eq('id',exist.id);
       } else {
-        await db.from('restaurant_addons').insert({restaurant_id:rootId,addon_key:'sucursal_extra',price_usd:extraPrice,quantity:1,enabled:true}).catch(()=>{});
+        await db.from('restaurant_addons').insert({restaurant_id:rootId,addon_key:'sucursal_extra',price_usd:extraPrice,quantity:1,enabled:true}).then(()=>{},()=>{});
       }
       // 2) Crear la sucursal hija vinculada a la cuenta corporativa raíz
       const payload = {
@@ -674,9 +674,9 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
       if (planId) {
         const today=new Date(),end=new Date(today);end.setMonth(end.getMonth()+1);
         const plan=plans.find(p=>p.id===planId);
-        await db.from('subscriptions').insert({restaurant_id:branch.id,plan_id:planId,status:'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10),monthly_amount:plan?.price_usd||0}).catch(()=>{});
+        await db.from('subscriptions').insert({restaurant_id:branch.id,plan_id:planId,status:'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10),monthly_amount:plan?.price_usd||0}).then(()=>{},()=>{});
       }
-      await db.from('platform_events').insert({restaurant_id:branch.id,event_type:'onboarding',description:`Alta de sucursal — cuenta de ${parent.name}`}).catch(()=>{});
+      await db.from('platform_events').insert({restaurant_id:branch.id,event_type:'onboarding',description:`Alta de sucursal — cuenta de ${parent.name}`}).then(()=>{},()=>{});
       setFlash({type:'ok',text:`Sucursal "${branchForm.name}" creada bajo ${parent.name}`});
       setBranchModal(null); reload();
     } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
@@ -995,7 +995,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
         if (addErr) throw addErr;
       }
       const planName = plans.find(p=>p.id===subForm.plan_id)?.name||'';
-      await db.from('platform_events').insert({restaurant_id:subModal.id,event_type:'plan_changed',description:`Suscripción actualizada — ${planName}`}).catch(()=>{});
+      await db.from('platform_events').insert({restaurant_id:subModal.id,event_type:'plan_changed',description:`Suscripción actualizada — ${planName}`}).then(()=>{},()=>{});
       setFlash({type:'ok',text:`Suscripción de ${subModal.name} actualizada`});
       setSubModal(null); reload();
     } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
@@ -1009,7 +1009,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
     const end = new Date(base); end.setMonth(end.getMonth()+1);
     const {error} = await db.from('subscriptions').update({status:'active',end_date:end.toISOString().slice(0,10)}).eq('id',r.subscription.id);
     if (error) { setFlash({type:'error',text:error.message}); return; }
-    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'subscription_renewed',description:`Renovación manual — ${r.plan?.name}`}).catch(()=>{});
+    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'subscription_renewed',description:`Renovación manual — ${r.plan?.name}`}).then(()=>{},()=>{});
     setFlash({type:'ok',text:`${r.name} renovado hasta ${fmtDate(end.toISOString())}`}); reload();
   };
 
