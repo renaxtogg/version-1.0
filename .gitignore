@@ -23,3 +23,7 @@ supabase/.temp/
 Thumbs.db
 .vscode/settings.json
 *.code-workspace
+
+# Respaldos de migraciones y helpers de copy-paste a Supabase (no versionar)
+supabase/migrations/*.bak
+EJECUTAR_EN_SUPABASE.sql
