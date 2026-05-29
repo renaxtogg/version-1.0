@@ -8102,7 +8102,7 @@ function SupplierFormModal({supplier, onClose, onSaved}) {
   useEffect(() => { _modalCount++; return () => { _modalCount = Math.max(0, _modalCount-1); }; }, []);
 
   return (
-    <div onClick={e => e.target===e.currentTarget && onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:'100%',maxWidth:580,maxHeight:'92vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
           <div style={{fontSize:15,fontWeight:700}}>{isNew?'Nuevo proveedor':'Editar proveedor'}</div>
@@ -8218,7 +8218,7 @@ function PurchaseFormModal({purchase, suppliers, onClose, onSaved}) {
   useEffect(() => { _modalCount++; return () => { _modalCount = Math.max(0, _modalCount-1); }; }, []);
 
   return (
-    <div onClick={e => e.target===e.currentTarget && onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:'100%',maxWidth:500,maxHeight:'92vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
           <div style={{fontSize:15,fontWeight:700}}>{isNew?'Registrar compra':'Editar compra'}</div>

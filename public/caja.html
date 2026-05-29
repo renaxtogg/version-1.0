@@ -224,7 +224,7 @@ function ToastContainer(){
 function Modal({title,onClose,children,width=460}){
   useEffect(()=>{const fn=e=>e.key==='Escape'&&onClose();window.addEventListener('keydown',fn);return()=>window.removeEventListener('keydown',fn);},[onClose]);
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.88)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.88)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}>
       <div style={{background:C.bg,border:`1px solid ${C.bs}`,borderRadius:12,padding:28,width:'100%',maxWidth:width,maxHeight:'92vh',overflowY:'auto',animation:'slideUp 200ms ease'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
           <div style={{fontSize:16,fontWeight:700}}>{title}</div>
