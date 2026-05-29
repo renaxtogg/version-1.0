@@ -1723,23 +1723,60 @@ function App() {
     const order = ordersMap[activeTableId];
     if (!order) { showToast('Sin orden activa'); return; }
 
-    const items = Object.entries(selectedProducts)
-      .filter(([, qty]) => qty > 0)
-      .map(([id, qty]) => {
-        const p = menu.find(m => m.id === parseInt(id));
-        const unit = effectivePrice(p);
-        return {
-          order_id: order.id,
-          item_id: p.id,
-          item_name: p.name,
-          quantity: qty,
-          unit_price: unit,
-          total_price: unit * qty,
-          observations: itemNotes[id] || null,
-        };
-      });
+    const selected = Object.entries(selectedProducts).filter(([, qty]) => qty > 0);
+    if (selected.length === 0) { showToast('Seleccioná al menos un ítem'); return; }
 
-    if (items.length === 0) { showToast('Seleccioná al menos un ítem'); return; }
+    // Si la orden activa sigue editable (no enviada a cocina ni cobrada), se agregan los
+    // ítems a la misma orden. Si ya avanzó (kitchen_received/cooking/ready/pending_payment/
+    // delivered o pagada), los nuevos ítems NO deben heredar ese estado —si no, aparecen
+    // como "Entregado · cobro pte." sin pasar por cocina. En ese caso se crea una orden nueva
+    // que entra a la cocina como ticket aparte.
+    const editable = ['draft', 'confirmed'].includes(order.status) && order.payment_status !== 'paid';
+    let targetOrder = order;
+
+    if (!editable) {
+      const tableNum = activeTable?.number || order.table_id;
+      const ts = Date.now().toString(36).toUpperCase().slice(-4);
+      const rnd = Math.random().toString(36).slice(-2).toUpperCase();
+      const orderNum = 'W-' + tableNum + '-' + ts + rnd;
+      const { data: { session: currentSession } } = await db.auth.getSession();
+      if (!currentSession) { window.location.replace('login.html'); return; }
+      const insertPayload = {
+        restaurant_id: RID,
+        table_id: activeTableId,
+        order_number: orderNum,
+        order_type: 'local',
+        status: 'kitchen_received',
+        subtotal: 0,
+        discount_amount: 0,
+        total: 0,
+        waiter_id: currentSession.user.id,
+        waiter_name: mozoSession?.mozo_name || currentSession.user.email,
+      };
+      let { data: newOrder, error: newErr } = await db.from('orders').insert(insertPayload).select().single();
+      if (newErr && (newErr.message?.includes('waiter_id') || newErr.message?.includes('waiter_name') || newErr.message?.includes('schema cache'))) {
+        const safePayload = { restaurant_id: RID, table_id: activeTableId, order_number: orderNum, order_type: 'local', status: 'kitchen_received', subtotal: 0, discount_amount: 0, total: 0 };
+        const retry = await db.from('orders').insert(safePayload).select().single();
+        newOrder = retry.data; newErr = retry.error;
+      }
+      if (newErr || !newOrder) { showToast('Error al crear orden'); console.error(newErr); return; }
+      await db.from('order_status_history').insert({ order_id: newOrder.id, status: 'kitchen_received', changed_by: 'mozo_pedir_mas' });
+      targetOrder = newOrder;
+    }
+
+    const items = selected.map(([id, qty]) => {
+      const p = menu.find(m => m.id === parseInt(id));
+      const unit = effectivePrice(p);
+      return {
+        order_id: targetOrder.id,
+        item_id: p.id,
+        item_name: p.name,
+        quantity: qty,
+        unit_price: unit,
+        total_price: unit * qty,
+        observations: itemNotes[id] || null,
+      };
+    });
 
     const { data: insertedItems, error } = await db.from('order_items').insert(items).select();
     if (error) { showToast('Error al agregar'); console.error(error); return; }
@@ -1762,14 +1799,14 @@ function App() {
 
     const addedTotal = items.reduce((s, i) => s + i.total_price, 0);
     const extrasTotal = extrasToInsert.reduce((s, e) => s + e.extra_price, 0);
-    const newTotal = (order.subtotal || 0) + addedTotal + extrasTotal;
-    await db.from('orders').update({ subtotal: newTotal, total: newTotal }).eq('id', order.id);
+    const newTotal = (targetOrder.subtotal || 0) + addedTotal + extrasTotal;
+    await db.from('orders').update({ subtotal: newTotal, total: newTotal }).eq('id', targetOrder.id);
 
     await loadData();
     setProductModal(false);
     setItemNotes({});
     setItemExtras({});
-    showToast(`${items.length} ítem(s) agregado(s)`);
+    showToast(editable ? `${items.length} ítem(s) agregado(s)` : `${items.length} ítem(s) enviado(s) a cocina`);
   }
 
   /* ── SAVE ITEM NOTE ── */
