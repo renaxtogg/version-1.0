@@ -2,8 +2,8 @@
 // Simula la respuesta exitosa de un webhook post-cobro de Bancard.
 // Latencia artificial de 1.5 s para emular red real.
 // NO procesa cobros reales — solo simulación para certificación.
-
-export const config = { runtime: 'nodejs18.x' };
+// Runtime Node.js por defecto (api/*.js). No declarar `config.runtime`
+// con una versión tipo 'nodejs18.x' aquí: rompe el build de Vercel.
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
