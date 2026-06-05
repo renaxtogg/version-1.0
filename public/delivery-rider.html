@@ -10,6 +10,8 @@
 <script>MythosTheme.init('light');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
+<script>window.MYTHOS_PRESENCE_MANUAL = true;</script>
+<script src="mythos-presence.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
@@ -682,6 +684,13 @@ function App() {
 
   function handleLogin(riderData) {
     sessionStorage.setItem('rider_id', riderData.id);
+    // Registrar conexión del rider (login por PIN) para el módulo Personal del admin.
+    try {
+      window.MythosPresence?.start({
+        restaurant_id: RID, role: 'rider', panel: 'delivery-rider',
+        rider_id: riderData.id, name: riderData.name || null
+      });
+    } catch(_) {}
     setRider(riderData);
     setScreen('home');
     loadStats(riderData);
@@ -704,6 +713,7 @@ function App() {
 
   async function handleLogout() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    try { await window.MythosPresence?.stop('manual'); } catch(_) {}
     sessionStorage.removeItem('rider_id');
     if (rider?.id && db) {
       await db.from('delivery_riders').update({ current_status: 'disponible' }).eq('id', rider.id);

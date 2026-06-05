@@ -10,6 +10,7 @@
 <script>MythosTheme.init('light');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
+<script src="mythos-presence.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="mythos-gating.js"></script>
@@ -98,7 +99,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 function printTicket({orderNumber,mesa,items,total,metodo,cambio,isOffline}){
   const fecha=new Date().toLocaleString('es-PY',{dateStyle:'short',timeStyle:'short'});
   const metodos={efectivo:'Efectivo',tarjeta_credito:'Tarjeta Crédito',tarjeta_debito:'Tarjeta Débito',qr:'QR / Transferencia',mixto:'Mixto'};
-  const restName=window._restaurantName||'La Huaca';
+  const restName=window._restaurantName||'Restaurante';
   const w=window.open('','_blank','width=340,height=720,menubar=no,toolbar=no,scrollbars=yes');
   if(!w){toast('Permití ventanas emergentes para imprimir',false);return;}
   const rows=(items||[]).map(it=>{
@@ -446,6 +447,7 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
 ═══════════════════════════════════════════ */
 async function cerrarSesion(){
   if(!window.confirm('¿Cerrar sesión?'))return;
+  try{await window.MythosPresence?.stop('manual');}catch(_){}
   try{await db.auth.signOut();}catch(e){}
   localStorage.removeItem('caja_panel');
   localStorage.removeItem('caja_cart');
@@ -3485,6 +3487,7 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
       // Mensaje neutro — NUNCA mencionar diferencia/sobrante/faltante al cajero.
       toast('Cierre registrado correctamente. Gracias por tu turno.');
       try{localStorage.removeItem('caja_panel');localStorage.removeItem('caja_cart');}catch{}
+      try{await window.MythosPresence?.stop('manual');}catch(_){}
       try{await db.auth.signOut();}catch{}
       setTimeout(()=>{window.location.replace('login.html?cierre=ok');},900);
     }catch(e){
@@ -4496,8 +4499,8 @@ async function initApp(session){
   window._userProfile=profile;
   try{
     const{data:r}=await db.from('restaurants').select('name').eq('id',RID).maybeSingle();
-    window._restaurantName=r?.name||'La Huaca';
-  }catch(e){window._restaurantName='La Huaca';}
+    window._restaurantName=r?.name||'Restaurante';
+  }catch(e){window._restaurantName='Restaurante';}
   ReactDOM.createRoot(document.getElementById('root')).render(
     <><CajaApp profile={profile}/><ToastContainer/></>
   );

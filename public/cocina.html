@@ -10,6 +10,7 @@
 <script>MythosTheme.init('dark');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
+<script src="mythos-presence.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
@@ -1742,7 +1743,7 @@ function App() {
             </Btn>
           </div>
           {window._userProfile && <span style={{ fontSize: 10, color: C.dim, fontWeight: 600 }}>{window._userProfile.display_name || window._userProfile.username}</span>}
-          {db && !STATION_CONFIG && <button onClick={async () => { await db.auth.signOut(); window.location.replace('login.html'); }} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#636366', fontSize: 10, padding: '4px 9px', cursor: 'pointer', fontFamily: 'inherit' }}>Salir</button>}
+          {db && !STATION_CONFIG && <button onClick={async () => { try{await window.MythosPresence?.stop('manual');}catch(_){} await db.auth.signOut(); window.location.replace('login.html'); }} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#636366', fontSize: 10, padding: '4px 9px', cursor: 'pointer', fontFamily: 'inherit' }}>Salir</button>}
         </div>
       </div>
 

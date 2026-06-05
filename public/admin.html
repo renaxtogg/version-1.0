@@ -10,6 +10,7 @@
 <script>MythosTheme.init('light');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
+<script src="mythos-presence.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="mythos-gating.js"></script>
@@ -375,7 +376,7 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={},themeMode
       <div style={{padding:'18px 16px 14px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontFamily:'inherit',fontSize:20,fontWeight:800,letterSpacing:'-0.5px',color:C.ink}}>Mythos</div>
-          <div style={{fontSize:11,color:C.mid,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{restaurant?.name||'La Huaca'} · Admin</div>
+          <div style={{fontSize:11,color:C.mid,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{restaurant?.name||'Restaurante'} · Admin</div>
           <div style={{display:'flex',alignItems:'center',gap:6,marginTop:8}}>
             <div style={{width:6,height:6,borderRadius:'50%',background:dbOk?C.green:C.red,flexShrink:0}}/>
             <span style={{fontSize:10,color:dbOk?C.mid:C.red,fontWeight:600}}>{dbOk?'Supabase OK':'Sin DB'}</span>
@@ -425,7 +426,7 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={},themeMode
             </a>
           );})}
         </div>
-{db && <button onClick={async()=>{await db.auth.signOut();window.location.replace('login.html');}} style={{background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'5px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
+{db && <button onClick={async()=>{try{await window.MythosPresence?.stop('manual');}catch(_){}await db.auth.signOut();window.location.replace('login.html');}} style={{background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'5px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
       </div>
     </aside>
   );
@@ -2153,7 +2154,7 @@ function QrModal({table, restaurant, onClose}) {
   function printQR() {
     const w = window.open('','_blank','width=520,height=680');
     if(!w) return;
-    const restName = restaurant?.name || 'La Huaca';
+    const restName = restaurant?.name || 'Restaurante';
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR Mesa ${table.number}</title><style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:system-ui,sans-serif;background:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:32px;}div.card{text-align:center;border:1.5px solid #E5E5E7;border-radius:16px;padding:32px;max-width:320px;width:100%;}img{border-radius:8px;margin-bottom:20px;}h1{font-size:32px;font-weight:900;color:#000;margin-bottom:4px;}p.rest{font-size:14px;color:#86868B;margin-bottom:8px;}p.cap{font-size:12px;color:#C0C0C0;margin-top:8px;}@media print{body{padding:0;}div.card{border:none;border-radius:0;}}</style></head><body><div class="card"><img src="${qrImg}" width="260" height="260"/><h1>Mesa ${table.number}</h1><p class="rest">${restName}</p><p class="cap">${table.capacity||4} personas &middot; Escaneá para ver el menú</p></div><script>window.onload=function(){window.print();}<\/script></body></html>`);
     w.document.close();
   }
@@ -2198,7 +2199,7 @@ function QrModal({table, restaurant, onClose}) {
 
 function QrAllModal({tables, restaurant, onClose}) {
   function printAll() {
-    const restName = restaurant?.name || 'La Huaca';
+    const restName = restaurant?.name || 'Restaurante';
     const cards = tables.map(t => {
       const url = _buildQrUrl(t);
       const img = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(url)}&margin=8`;
@@ -2240,12 +2241,11 @@ function PersonalPage() {
   const [addForm,setAddForm]   = useState({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});
   const [addLoading,setAddLoading] = useState(false);
 
-  // Turnos
+  // Turnos / Conexiones — se alimenta de staff_sessions (login real de cada panel), no de carga manual.
   const [shifts,setShifts]         = useState([]);
   const [loadingShifts,setLS]      = useState(false);
   const [shiftDate,setShiftDate]   = useState(new Date().toISOString().slice(0,10));
-  const [shiftModal,setShiftModal] = useState(false);
-  const [shiftEmp,setShiftEmp]     = useState('');
+  const [forcingId,setForcingId]   = useState(null);
 
   // Solicitudes de personal (desde gerente)
   const [reqs,setReqs]             = useState([]);
@@ -2297,7 +2297,7 @@ function PersonalPage() {
     setLS(true);
     const s = new Date(shiftDate); s.setHours(0,0,0,0);
     const e = new Date(shiftDate); e.setHours(23,59,59,999);
-    const{data}=await db.from('employee_shifts').select('*').eq('restaurant_id',RID).gte('clock_in',s.toISOString()).lte('clock_in',e.toISOString()).order('clock_in',{ascending:false});
+    const{data}=await db.from('staff_sessions').select('*').eq('restaurant_id',RID).gte('login_at',s.toISOString()).lte('login_at',e.toISOString()).order('login_at',{ascending:false});
     setShifts(data||[]);
     setLS(false);
   }
@@ -2319,7 +2319,7 @@ function PersonalPage() {
     const ch = db.channel('personal-rt')
       .on('postgres_changes',{event:'*',schema:'public',table:'user_roles',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadProfiles(); })
       .on('postgres_changes',{event:'*',schema:'public',table:'delivery_riders',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadProfiles(); })
-      .on('postgres_changes',{event:'*',schema:'public',table:'employee_shifts',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadShifts(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'staff_sessions',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadShifts(); })
       .subscribe();
     return ()=>{ db.removeChannel(ch); };
   },[tab]);
@@ -2419,31 +2419,43 @@ function PersonalPage() {
     setRejectModal(null); setRejectNotes('');
   }
 
-  async function clockIn() {
-    if(!db||!shiftEmp){toast('Seleccioná un empleado',false);return;}
-    const emp = profiles.find(p=>p.id===shiftEmp);
-    const{error}=await db.from('employee_shifts').insert({restaurant_id:RID,employee_id:emp.user_id||emp.id,employee_name:emp.display_name||emp.username||'—',role:emp.role,clock_in:new Date().toISOString()});
+  // Cierre forzado por el admin de una sesión que quedó abierta (deslogeo / cierre de pestaña / caída).
+  async function forzarCierre(sess) {
+    if(!db) return;
+    setForcingId(sess.id);
+    const{error}=await db.from('staff_sessions').update({logout_at:new Date().toISOString(),logout_reason:'forzado_admin'}).eq('id',sess.id).is('logout_at',null);
+    setForcingId(null);
     if(error){toast('Error: '+error.message,false);return;}
-    toast('Entrada registrada'); setShiftModal(false); setShiftEmp(''); loadShifts();
+    toast('Sesión cerrada'); loadShifts();
   }
 
-  async function clockOut(shift) {
-    if(!db)return;
-    const{error}=await db.from('employee_shifts').update({clock_out:new Date().toISOString()}).eq('id',shift.id);
-    if(error){toast('Error: '+error.message,false);return;}
-    toast('Salida registrada'); loadShifts();
+  // Minutos de una sesión: hasta el logout, o hasta ahora si sigue abierta.
+  function sessionMin(s) {
+    const fin = s.logout_at ? new Date(s.logout_at) : new Date();
+    return Math.max(0, Math.round((fin-new Date(s.login_at))/60000));
   }
-
   function duracion(s) {
-    if(!s.clock_out) return '—';
-    const min = Math.round((new Date(s.clock_out)-new Date(s.clock_in))/60000);
-    return `${Math.floor(min/60)}h ${min%60}m`;
+    return `${Math.floor(sessionMin(s)/60)}h ${sessionMin(s)%60}m`;
+  }
+  // Estado de una conexión (sin heartbeat): cerrada / en línea hoy / abierta de día anterior.
+  function sessionEstado(s) {
+    if(s.logout_at) return {label:'CERRADO',color:C.dim,bg:C.card};
+    const esHoy = new Date(s.login_at).toISOString().slice(0,10)===new Date().toISOString().slice(0,10);
+    return esHoy
+      ? {label:'EN LÍNEA',color:C.green,bg:'rgba(52,199,89,0.15)'}
+      : {label:'SIN CIERRE',color:C.orange,bg:'rgba(249,115,22,0.12)'};
   }
   function horasTrabajadas(empName) {
-    return shifts.filter(s=>s.employee_name===empName&&s.clock_out).reduce((acc,s)=>{
-      return acc+Math.round((new Date(s.clock_out)-new Date(s.clock_in))/60000);
-    },0);
+    return shifts.filter(s=>s.employee_name===empName).reduce((acc,s)=>acc+sessionMin(s),0);
   }
+  // Roster de quién NO se conectó en la fecha elegida (sólo roles operativos).
+  function matchSesion(prof) {
+    return shifts.some(s=> prof._isRider ? s.rider_id===prof.id : (prof.user_id && s.user_id===prof.user_id));
+  }
+  const ROLES_OPERATIVOS = ['mozo','waiter','cajero','caja','cocina','cocinero','rider','repartidor','gerente','supervisor_local'];
+  const rosterEsperado = profiles.filter(p=>p.is_active!==false && ROLES_OPERATIVOS.includes((p.role||'').toLowerCase()));
+  const sinConexion = rosterEsperado.filter(p=>!matchSesion(p));
+  const esHoySel = shiftDate===new Date().toISOString().slice(0,10);
 
   const roleColor={cocina:C.orange,admin:C.blue,superadmin:C.purple,waiter:C.green,mozo:C.green,cajero:C.yellow,delivery:'#06b6d4',rider:'#06b6d4',supervisor_local:C.purple};
 
@@ -2456,7 +2468,7 @@ function PersonalPage() {
 
       {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
-        {[['empleados','Empleados'],['turnos','Turnos'],['solicitudes',`Solicitudes${reqs.filter(r=>r.status==='pending').length>0?' ('+reqs.filter(r=>r.status==='pending').length+')':''}`]].map(([id,lbl])=>(
+        {[['empleados','Empleados'],['turnos','Turnos · Conexiones'],['solicitudes',`Solicitudes${reqs.filter(r=>r.status==='pending').length>0?' ('+reqs.filter(r=>r.status==='pending').length+')':''}`]].map(([id,lbl])=>(
           <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:C.dim,padding:'8px 16px',fontSize:13,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
@@ -2570,63 +2582,73 @@ function PersonalPage() {
         )}
       </>)}
 
-      {/* Tab Turnos */}
+      {/* Tab Turnos / Conexiones — alimentado por staff_sessions (login real de cada panel) */}
       {tab==='turnos'&&(<>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
             <label style={{fontSize:12,color:C.mid}}>Fecha:</label>
             <input type="date" value={shiftDate} onChange={e=>setShiftDate(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}/>
           </div>
-          <Btn small onClick={()=>setShiftModal(true)}>+ Registrar entrada</Btn>
         </div>
-        {loadingShifts&&<div style={{display:'flex',gap:10,alignItems:'center',color:C.mid,fontSize:13}}><span className="spin"/>Cargando turnos…</div>}
+        <div style={{fontSize:11,color:C.dim,marginBottom:14,lineHeight:1.5}}>Registro <strong>automático</strong> del inicio de sesión de cada panel (mozo, caja, cocina, gerente, rider). Una conexión <strong>«Sin cierre»</strong> = cerraron la pestaña sin salir o se cayó la sesión; podés cerrarla con «Forzar cierre».</div>
+
+        {/* Quién no se conectó en la fecha seleccionada (sólo roles operativos) */}
+        {rosterEsperado.length>0 && (
+          <div style={{marginBottom:14,background:sinConexion.length>0?'rgba(249,115,22,0.06)':'rgba(52,199,89,0.06)',border:`1px solid ${sinConexion.length>0?'rgba(249,115,22,0.25)':'rgba(52,199,89,0.25)'}`,borderRadius:8,padding:'12px 14px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:sinConexion.length>0?8:0}}>
+              <div style={{fontSize:12,fontWeight:700,color:sinConexion.length>0?C.orange:C.green}}>
+                {sinConexion.length>0 ? `Sin conexión ${esHoySel?'hoy':'ese día'} · ${sinConexion.length}` : `Todo el personal operativo se conectó ${esHoySel?'hoy':'ese día'} ✓`}
+              </div>
+              <span style={{fontSize:11,color:C.dim}}>{rosterEsperado.length-sinConexion.length}/{rosterEsperado.length} conectados</span>
+            </div>
+            {sinConexion.length>0 && (
+              <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                {sinConexion.map(p=>(
+                  <span key={p.id} style={{fontSize:11,padding:'3px 9px',borderRadius:5,background:C.surface,border:`1px solid ${C.border}`,color:C.mid}}>
+                    {p.display_name||p.username||'—'} <span style={{color:C.dim}}>· {roleLabel(p.role)}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {loadingShifts&&<div style={{display:'flex',gap:10,alignItems:'center',color:C.mid,fontSize:13}}><span className="spin"/>Cargando conexiones…</div>}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}>
-            <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Empleado</Th><Th>Rol</Th><Th>Entrada</Th><Th>Salida</Th><Th>Duración</Th><Th>Estado</Th><Th></Th></tr></thead>
+            <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Empleado</Th><Th>Rol</Th><Th>Panel</Th><Th>Inicio</Th><Th>Cierre</Th><Th>Duración</Th><Th>Estado</Th><Th></Th></tr></thead>
             <tbody>
               {shifts.map(s=>{
-                const activo=!s.clock_out;
+                const est=sessionEstado(s);
+                const abierta=!s.logout_at;
                 return (
                   <tr key={s.id} style={{borderBottom:`1px solid #F0F0F0`}}>
                     <Td>{s.employee_name||'—'}</Td>
-                    <Td dim>{s.role||'—'}</Td>
-                    <Td mono dim>{fmtTime(s.clock_in)}</Td>
-                    <Td mono dim>{s.clock_out?fmtTime(s.clock_out):'—'}</Td>
+                    <Td dim>{roleLabel(s.role)}</Td>
+                    <Td dim>{s.panel||'—'}</Td>
+                    <Td mono dim>{fmtTime(s.login_at)}</Td>
+                    <Td mono dim>{s.logout_at?fmtTime(s.logout_at):'—'}</Td>
                     <Td mono dim>{duracion(s)}</Td>
-                    <Td><span style={{padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4,background:activo?'rgba(52,199,89,0.15)':C.card,color:activo?C.green:C.dim}}>{activo?'ACTIVO':'CERRADO'}</span></Td>
-                    <Td>{activo&&<Btn small variant="secondary" onClick={()=>clockOut(s)}>Registrar salida</Btn>}</Td>
+                    <Td><span style={{padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4,background:est.bg,color:est.color}}>{est.label}</span></Td>
+                    <Td>{abierta&&<Btn small variant="secondary" disabled={forcingId===s.id} onClick={()=>forzarCierre(s)}>{forcingId===s.id?'Cerrando…':'Forzar cierre'}</Btn>}</Td>
                   </tr>
                 );
               })}
-              {shifts.length===0&&!loadingShifts&&<EmptyRow cols={7} label={`Sin turnos el ${shiftDate}`}/>}
+              {shifts.length===0&&!loadingShifts&&<EmptyRow cols={8} label={`Sin conexiones registradas el ${shiftDate}`}/>}
             </tbody>
           </table>
         </div>
         {shifts.length>0&&(
           <div style={{marginTop:12,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
-            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10}}>TOTAL HORAS — {shiftDate}</div>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10}}>TIEMPO CONECTADO — {shiftDate}</div>
             {[...new Set(shifts.map(s=>s.employee_name))].map(name=>{
               const min=horasTrabajadas(name);
               return <div key={name} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:6}}>
-                <span>{name}</span>
+                <span>{name||'—'}</span>
                 <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{Math.floor(min/60)}h {min%60}m</span>
               </div>;
             })}
           </div>
-        )}
-        {shiftModal&&(
-          <Modal title="Registrar entrada" onClose={()=>setShiftModal(false)} width={340}>
-            <div style={{display:'flex',flexDirection:'column',gap:12}}>
-              <div><Lbl>EMPLEADO *</Lbl>
-                <Sel value={shiftEmp} onChange={e=>setShiftEmp(e.target.value)}>
-                  <option value="">Seleccionar…</option>
-                  {profiles.filter(p=>p.is_active!==false).map(p=><option key={p.id} value={p.id}>{p.display_name||p.username} ({roleLabel(p.role)})</option>)}
-                </Sel>
-              </div>
-              <div style={{fontSize:12,color:C.mid}}>Hora de entrada: {new Date().toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>
-              <div style={{display:'flex',gap:8}}><Btn onClick={clockIn}>Registrar entrada</Btn><Btn variant="ghost" onClick={()=>setShiftModal(false)}>Cancelar</Btn></div>
-            </div>
-          </Modal>
         )}
       </>)}
 
@@ -3131,7 +3153,7 @@ function ClientesPage({orders}) {
   }
   function exportReportPDF(){
     if(!reportRows)return;
-    const restaurantName=window.SUPABASE_CONFIG?.restaurantName||'La Huaca';
+    const restaurantName=window.SUPABASE_CONFIG?.restaurantName||'Restaurante';
     const w=window.open('','_blank');
     const sumHtml=reportSummary?reportSummary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${esc(s.label)}</div><div style="font-size:20px;font-weight:800;color:${esc(s.color)}">${esc(s.value)}</div></div>`).join(''):'';
     const tHead=`<tr>${reportRows.cols.map(c=>`<th style="background:#1D1D1F;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${esc(c)}</th>`).join('')}</tr>`;
@@ -5660,7 +5682,7 @@ function ReportesPage({orders}) {
   function exportPDF() {
     if(!rows) return;
     const def=REPORT_DEFS.find(r=>r.id===rType);
-    const restaurantName = window.SUPABASE_CONFIG?.restaurantName || 'La Huaca';
+    const restaurantName = window.SUPABASE_CONFIG?.restaurantName || 'Restaurante';
     const w=window.open('','_blank');
     const sumHtml=summary?summary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${esc(s.label)}</div><div style="font-size:20px;font-weight:800;color:${esc(s.color)}">${esc(s.value)}</div></div>`).join(''):'';
     const tHead=`<tr>${rows.cols.map(c=>`<th style="background:#E65100;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${esc(c)}</th>`).join('')}</tr>`;
