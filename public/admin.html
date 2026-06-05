@@ -59,7 +59,7 @@ const _initDB = () => {
 const db = _initDB();
 /* RID = sucursal activa de la sesión (multi-sucursal). El dueño la conmuta vía
    localStorage.mythos_restaurant_id; fallback a config.js para superadmin/demo. */
-const RID = (localStorage.getItem('mythos_restaurant_id') || (window.SUPABASE_CONFIG?.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
+const RID = (localStorage.getItem('mythos_restaurant_id') || (window.SUPABASE_CONFIG?.restaurantId) || '').replace(/^﻿/,'').trim();
 const MY_ROLE = (localStorage.getItem('mythos_role')||'').trim();
 
 /* contador global — pausa el polling cuando hay modal abierto o input con foco */
@@ -82,6 +82,9 @@ const EGRESOS_KEY = `egresos_${RID}`;
 const DELIV_KEY   = `deliv_pct_${RID}`;
 
 /* ── UTILS ── */
+// Escapa HTML para interpolar datos en plantillas de impresión (document.write).
+// Evita stored XSS: un cliente podría poner <script> como nombre/dirección al pedir.
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt   = n => '₲ ' + (n||0).toLocaleString('es-PY');
 const fmtK  = n => n >= 1000000 ? `${(n/1000000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n/1000)}k` : String(n||0);
 const fmtDate = d => new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'2-digit'});
@@ -2954,9 +2957,9 @@ function ClientesPage({orders}) {
     if(!reportRows)return;
     const restaurantName=window.SUPABASE_CONFIG?.restaurantName||'La Huaca';
     const w=window.open('','_blank');
-    const sumHtml=reportSummary?reportSummary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${s.label}</div><div style="font-size:20px;font-weight:800;color:${s.color}">${s.value}</div></div>`).join(''):'';
-    const tHead=`<tr>${reportRows.cols.map(c=>`<th style="background:#1D1D1F;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${c}</th>`).join('')}</tr>`;
-    const tBody=reportRows.data.map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">${r.map(v=>`<td style="padding:7px 12px;font-size:11px;border-bottom:1px solid #eee">${v}</td>`).join('')}</tr>`).join('');
+    const sumHtml=reportSummary?reportSummary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${esc(s.label)}</div><div style="font-size:20px;font-weight:800;color:${esc(s.color)}">${esc(s.value)}</div></div>`).join(''):'';
+    const tHead=`<tr>${reportRows.cols.map(c=>`<th style="background:#1D1D1F;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${esc(c)}</th>`).join('')}</tr>`;
+    const tBody=reportRows.data.map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">${r.map(v=>`<td style="padding:7px 12px;font-size:11px;border-bottom:1px solid #eee">${esc(v)}</td>`).join('')}</tr>`).join('');
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${selDef?.label||'CRM'} — ${restaurantName}</title>
     <style>body{font-family:system-ui,sans-serif;margin:32px;color:#222}@media print{button{display:none!important}@page{margin:1cm;size:A4 landscape}}</style></head><body>
       <div style="font-size:24px;font-weight:800;color:#1D1D1F;margin-bottom:4px">${restaurantName}</div>
@@ -3040,11 +3043,11 @@ function ClientesPage({orders}) {
     <tbody>${rows.map(r=>`<tr>${cols.map(c=>{
       if(c==='Tipo'){
         const cls=r[c]==='VIP'?'vip':r[c]==='Registrado'?'reg':'anon';
-        return `<td><span class="${cls}">${r[c]}</span></td>`;
+        return `<td><span class="${cls}">${esc(r[c])}</span></td>`;
       }
       if(c==='Total gastado (₲)'||c==='Ticket promedio (₲)') return `<td style="text-align:right;font-family:monospace">₲ ${Number(r[c]).toLocaleString()}</td>`;
       if(c==='Pedidos totales') return `<td style="text-align:right">${r[c]}</td>`;
-      return `<td>${r[c]||'—'}</td>`;
+      return `<td>${esc(r[c]||'—')}</td>`;
     }).join('')}</tr>`).join('')}</tbody></table>
     <script>window.onload=()=>{window.print();}<\/script></body></html>`;
     printWin.document.write(html);
@@ -5483,9 +5486,9 @@ function ReportesPage({orders}) {
     const def=REPORT_DEFS.find(r=>r.id===rType);
     const restaurantName = window.SUPABASE_CONFIG?.restaurantName || 'La Huaca';
     const w=window.open('','_blank');
-    const sumHtml=summary?summary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${s.label}</div><div style="font-size:20px;font-weight:800;color:${s.color}">${s.value}</div></div>`).join(''):'';
-    const tHead=`<tr>${rows.cols.map(c=>`<th style="background:#E65100;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${c}</th>`).join('')}</tr>`;
-    const tBody=rows.data.map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">${r.map(v=>`<td style="padding:7px 12px;font-size:11px;border-bottom:1px solid #eee">${v}</td>`).join('')}</tr>`).join('');
+    const sumHtml=summary?summary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${esc(s.label)}</div><div style="font-size:20px;font-weight:800;color:${esc(s.color)}">${esc(s.value)}</div></div>`).join(''):'';
+    const tHead=`<tr>${rows.cols.map(c=>`<th style="background:#E65100;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${esc(c)}</th>`).join('')}</tr>`;
+    const tBody=rows.data.map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">${r.map(v=>`<td style="padding:7px 12px;font-size:11px;border-bottom:1px solid #eee">${esc(v)}</td>`).join('')}</tr>`).join('');
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${def?.label||'Reporte'}</title><style>body{font-family:system-ui,sans-serif;margin:32px;color:#222}@media print{button{display:none!important}}</style></head><body>
       <div style="font-size:24px;font-weight:800;color:#1D1D1F;margin-bottom:4px">${restaurantName}</div>
       <div style="font-size:16px;font-weight:700;color:#E65100;margin-bottom:4px">${def?.label||'Reporte'}</div>

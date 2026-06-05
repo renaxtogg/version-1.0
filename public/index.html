@@ -57,7 +57,7 @@ const _urlParams = new URLSearchParams(window.location.search);
 // Restaurante: prioridad al parámetro URL (QR / link de admin) → multi-restaurante.
 // Fallback a config.js sólo para el deploy demo de un solo local.
 const _ridParam = (_urlParams.get('r') || _urlParams.get('rest') || _urlParams.get('restaurant') || '').replace(/^﻿/, '').trim();
-const RESTAURANT_ID = (_ridParam || (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '00000000-0000-0000-0000-000000000001').replace(/^﻿/, '').trim();
+const RESTAURANT_ID = (_ridParam || (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '').replace(/^﻿/, '').trim();
 let TABLE_NUM = parseInt(_urlParams.get('mesa') || '0', 10);
 const TABLE_TOKEN = _urlParams.get('t') || _urlParams.get('token') || null;
 

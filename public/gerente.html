@@ -54,7 +54,7 @@ const _initDB = () => {
   try { return window.supabase.createClient(url, key); } catch(e){ return null; }
 };
 const db = _initDB();
-const RID = ((window.SUPABASE_CONFIG?.restaurantId)||'00000000-0000-0000-0000-000000000001').replace(/^﻿/,'').trim();
+const RID = (localStorage.getItem('mythos_restaurant_id') || (window.SUPABASE_CONFIG?.restaurantId) || '').replace(/^﻿/,'').trim();
 
 /* ───────────────────────── UTILS ───────────────────────── */
 const fmt    = n => '₲ ' + (Math.round(n)||0).toLocaleString('es-PY');

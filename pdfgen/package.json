@@ -1,0 +1,1 @@
+{"name":"pdfgen","version":"1.0.0","private":true,"dependencies":{"pdfkit":"^0.18.0"}}

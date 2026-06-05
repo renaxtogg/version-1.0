@@ -477,6 +477,11 @@ Claves visuales de esta referencia:
 - Tabs horizontales para sub-módulos
 - CRUD en modals estándar, tablas con acciones inline al hover
 
+### `gerente.html` — Panel gerente
+- Mismo layout que admin (sidebar + contenido)
+- Módulos: alertas de personal, solicitudes de incorporación, proveedores, chat de soporte
+- Campana de avisos internos arriba a la derecha — badge con conteo si hay no leídos
+
 ### `superadmin.html` — Superadmin SaaS
 - Sidebar más amplio: "Mythos" + badge "Superadmin"
 - Lista de restaurantes en sidebar
@@ -529,7 +534,50 @@ Estos colores son semánticos (identifican el canal), no decorativos, por eso so
 
 ---
 
+## Toggle claro/oscuro — `mythos-theme.js`
+
+Desde el commit `0ba6a5e` (design system unificado) todos los paneles cargan **`public/mythos-theme.js`**, que aplica `data-theme="dark"` o `data-theme="light"` al `<html>` y lo persiste en `localStorage` bajo la clave `mythos-theme`.
+
+**Reglas:**
+- Cualquier panel nuevo debe incluir `<script src="mythos-theme.js"></script>` en el `<head>`, antes del `<style>`.
+- Los estilos deben usar variables CSS — el toggle reemplaza los tokens automáticamente.
+- `cocina.html` arranca en `dark` por default (KDS).
+- El resto arranca en `light` y respeta lo persistido.
+- El botón del toggle se renderiza en headers/sidebars con el ícono `theme` de `mythos-icons.js`.
+
+**No:** no hardcodear colores hex en JSX si afecta a temas claro/oscuro — siempre usar `var(--bg)`, `var(--text-primary)`, etc.
+
+---
+
+## Íconos SVG — `mythos-icons.js`
+
+Set único de íconos SVG inline reutilizables en todos los paneles. Se expone como `window.MythosIcons` con keys semánticas (`bell`, `cart`, `theme`, `user`, `print`, etc.).
+
+**Reglas:**
+- Usar los íconos de `mythos-icons.js` en lugar de Unicode emojis o icon fonts.
+- No importar librerías de íconos pesadas (Lucide, FontAwesome, etc.) — todo va inline.
+- Cualquier ícono nuevo se agrega al set centralizado, no inline en el panel.
+- Tamaño por default: 20px. Color: `currentColor` (hereda del padre).
+
+---
+
+## Modales — regla de cierre
+
+**Los modales de registro/edición SOLO pueden cerrarse con la tecla `ESC` o el botón `✕` en el header.**
+
+Razón: al seleccionar texto (doble click para palabra, triple click para línea), el evento `mouseup` puede caer fuera del modal y dispararía un `onClose` accidental — perdiendo todos los datos ingresados por el usuario.
+
+**Patrón correcto:**
+- El overlay (`.modal-overlay`) NO lleva `onClick={onClose}`.
+- El cierre por `ESC` va en un `useEffect` del componente `Modal`.
+- El botón `✕` en `.modal-header` es el único método visible.
+
+Esta regla está validada en `admin.html` (commit `3abdb69`) y aplica a todo panel.
+
+---
+
 ## Stack recordatorio (no cambiar)
 - HTML + React 18 CDN + Babel Standalone. Sin bundler.
 - Estilos: CSS custom properties + inline styles en JSX. Sin Tailwind, sin CSS modules.
 - `window.*` globals. Sin `import`/`export`.
+- `design-system.css` + `mythos-theme.js` + `mythos-icons.js` cargan en todos los paneles.

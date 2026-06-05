@@ -155,6 +155,8 @@ const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PY',{day:'2-digit',m
 const fmtDateTime = d => d ? new Date(d).toLocaleString('es-PY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
 const fmtGuarani = n => `₲ ${Number(n||0).toLocaleString('es-PY')}`;
 const fmtUSD = n => `$${Number(n||0).toFixed(2)}`;
+// Escapa HTML al interpolar datos en plantillas de impresión (document.write) — evita stored XSS.
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
 const fmtRelTime = d => {
   if (!d) return '—';
@@ -2086,9 +2088,9 @@ function PageReportes({enriched, orders, ratings, subscriptions, plans, events})
     if(!rows) return;
     const def=REPORT_DEFS.find(r=>r.id===rType);
     const w=window.open('','_blank');
-    const sumHtml=summary?summary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${s.label}</div><div style="font-size:20px;font-weight:800;color:${s.color}">${s.value}</div></div>`).join(''):'';
-    const tHead=`<tr>${rows.cols.map(c=>`<th style="background:#1D1D1F;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${c}</th>`).join('')}</tr>`;
-    const tBody=rows.data.map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">${r.map(v=>`<td style="padding:7px 12px;font-size:11px;border-bottom:1px solid #eee">${v}</td>`).join('')}</tr>`).join('');
+    const sumHtml=summary?summary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${esc(s.label)}</div><div style="font-size:20px;font-weight:800;color:${esc(s.color)}">${esc(s.value)}</div></div>`).join(''):'';
+    const tHead=`<tr>${rows.cols.map(c=>`<th style="background:#1D1D1F;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${esc(c)}</th>`).join('')}</tr>`;
+    const tBody=rows.data.map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">${r.map(v=>`<td style="padding:7px 12px;font-size:11px;border-bottom:1px solid #eee">${esc(v)}</td>`).join('')}</tr>`).join('');
     w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${def?.label||'Reporte'}</title><style>body{font-family:system-ui,sans-serif;margin:32px;color:#222}@media print{button{display:none!important}}</style></head><body>
       <div style="font-size:22px;font-weight:800;color:#1D1D1F;margin-bottom:4px">Mythos — Superadmin</div>
       <div style="font-size:16px;font-weight:700;color:#000;margin-bottom:4px">${def?.label||'Reporte'}</div>

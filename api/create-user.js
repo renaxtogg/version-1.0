@@ -46,14 +46,6 @@ function httpsDelete(url, headers) {
   });
 }
 
-function decodeJWT(token) {
-  try {
-    const parts = (token || '').replace(/^Bearer\s+/i, '').split('.');
-    if (parts.length !== 3) return null;
-    return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-  } catch { return null; }
-}
-
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -73,11 +65,20 @@ module.exports = async function handler(req, res) {
     const authHeader = (req.headers['authorization'] || '').trim();
     if (!authHeader) { res.status(401).json({ error: 'No autenticado' }); return; }
 
-    // Decodificar JWT localmente (evita llamada de red)
-    const payload = decodeJWT(authHeader);
-    if (!payload || !payload.sub) { res.status(401).json({ error: 'Token inválido' }); return; }
+    // Validar el token del caller contra Supabase Auth (verifica firma criptográfica
+    // + expiración). NO se decodifica el JWT localmente: un payload sin verificar la
+    // firma es trivialmente falsificable y permitiría a cualquiera con un UUID de
+    // admin/superadmin escalar privilegios usando el service_role de abajo.
+    const bearer = /^Bearer\s+/i.test(authHeader) ? authHeader : `Bearer ${authHeader}`;
+    const authedResp = await httpsGet(
+      `${SUPABASE_URL}/auth/v1/user`,
+      { 'Authorization': bearer, 'apikey': SERVICE_ROLE_KEY }
+    );
+    if (!authedResp.ok || !authedResp.data || !authedResp.data.id) {
+      res.status(401).json({ error: 'Token inválido o expirado' }); return;
+    }
 
-    const callerId = payload.sub;
+    const callerId = authedResp.data.id;
 
     // Verificar rol del caller en user_roles
     const roleResp = await httpsGet(

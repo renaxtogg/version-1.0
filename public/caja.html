@@ -92,6 +92,9 @@ const CORTESIA_MOTIVOS = ['Error de cocina','Cliente VIP','Evento especial','Com
 const FONDO_MINIMO   = 50000; // ₲ 50.000 mínimo recomendado
 
 /* ── PRINT TICKET ── */
+// Escapa HTML al interpolar datos en el ticket (document.write) — evita XSS por
+// nombres de producto/mesa manipulados.
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function printTicket({orderNumber,mesa,items,total,metodo,cambio,isOffline}){
   const fecha=new Date().toLocaleString('es-PY',{dateStyle:'short',timeStyle:'short'});
   const metodos={efectivo:'Efectivo',tarjeta_credito:'Tarjeta Crédito',tarjeta_debito:'Tarjeta Débito',qr:'QR / Transferencia',mixto:'Mixto'};
@@ -101,7 +104,7 @@ function printTicket({orderNumber,mesa,items,total,metodo,cambio,isOffline}){
   const rows=(items||[]).map(it=>{
     const precio=(it.unit_price||it.price_guarani||0);
     const qty=it.quantity||1;
-    return `<tr><td>${qty}× ${it.item_name||it.name||''}</td><td style="text-align:right;white-space:nowrap">${fmt(precio*qty)}</td></tr>`;
+    return `<tr><td>${qty}× ${esc(it.item_name||it.name||'')}</td><td style="text-align:right;white-space:nowrap">${fmt(precio*qty)}</td></tr>`;
   }).join('');
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ticket #${orderNumber}</title>
 <style>
@@ -114,11 +117,11 @@ table{width:100%}td{padding:1px 0;vertical-align:top}
 .vuelto{font-size:13px;font-weight:bold;margin-top:3px}
 @media print{body{width:72mm;margin:0;padding:2mm}}
 </style></head><body>
-<div class="c big">${restName}</div>
+<div class="c big">${esc(restName)}</div>
 <div class="c" style="font-size:10px;margin:2px 0">${fecha}</div>
 <hr>
-<div class="c b">Pedido #${orderNumber}${isOffline?' <span style="font-size:10px">(LOCAL)</span>':''}</div>
-<div class="c" style="font-size:10px">${mesa}</div>
+<div class="c b">Pedido #${esc(orderNumber)}${isOffline?' <span style="font-size:10px">(LOCAL)</span>':''}</div>
+<div class="c" style="font-size:10px">${esc(mesa)}</div>
 <hr>
 <table>${rows}<tr class="tot"><td>TOTAL</td><td style="text-align:right">${fmt(total)}</td></tr></table>
 <hr>
