@@ -4449,14 +4449,22 @@ function CajaApp({profile}){
 
   async function checkTurno(){
     setLoading(true);
+    setTurnoConflicto(null);
     const{data}=await db.from('turnos_caja')
       .select('*').eq('restaurant_id',RID).eq('estado','abierto')
       .order('fecha_apertura',{ascending:false}).limit(1);
     if(data&&data.length>0){
       const t=data[0];
-      if(t.cajero_id===profile.id||['admin','superadmin'].includes(profile.role)){
+      // Comparación robusta (coerción a string evita mismatch por tipo/espacios).
+      const esMiTurno   = String(t.cajero_id||'')===String(profile.id||'');
+      const esPrivilegiado=['admin','superadmin'].includes(profile.role);
+      if(esMiTurno||esPrivilegiado){
+        // Mismo cajero (o admin) reconectándose a mitad del turno → reabrir el
+        // panel directamente, SIN volver a pedir la apertura de caja.
         setTurno(t);
       } else {
+        // Otro cajero: caja abierta sin cierre por la sesión anterior.
+        // No es dead-end → pantalla con opción de retomar/arquear (CajaOcupadaScreen).
         setTurnoConflicto(t);
       }
     }
@@ -4485,7 +4493,32 @@ function CajaApp({profile}){
 
   if(turno)return <DashboardCaja turno={turno} profile={profile} onCierre={()=>{setTurno(null);setCerrado(true);}}/>;
 
-  return <AperturaTurnoScreen profile={profile} turnoAbierto={turnoConflicto} onTurnoAbierto={t=>{setTurno(t);setTurnoConflicto(null);}}/>;
+  // Caja abierta por OTRO cajero (sesión anterior cerrada sin cierre de caja).
+  // En vez de bloquear con el botón "Abrir Turno" deshabilitado, ofrecemos
+  // retomar esa caja: el cajero entrante puede seguir cobrando o ir directo
+  // al cierre/arqueo. No hace falta volver a hacer la apertura.
+  if(turnoConflicto)return(
+    <div style={{minHeight:'100vh',background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{width:'100%',maxWidth:480,animation:'fadeIn .2s ease'}}>
+        <div style={{textAlign:'center',marginBottom:20}}>
+          <div style={{fontSize:38,marginBottom:8}}>🔓</div>
+          <div style={{fontFamily:'DM Serif Display',fontSize:26,marginBottom:6,color:C.ink}}>Caja abierta sin cierre</div>
+          <div style={{fontSize:13,color:C.mid}}>
+            Hay un turno abierto por <strong style={{color:C.ink}}>{turnoConflicto.cajero_nombre||'otro cajero'}</strong> desde {fmtDT(turnoConflicto.fecha_apertura)}.
+          </div>
+        </div>
+        <AlertBox type="warn">
+          La sesión anterior se cerró sin registrar el cierre de caja. Podés <strong>retomar esta caja</strong> para seguir cobrando o para hacer el arqueo/cierre. No hace falta volver a cargar la apertura.
+        </AlertBox>
+        <div style={{display:'flex',flexDirection:'column',gap:10,marginTop:18}}>
+          <Btn full variant="primary" onClick={()=>{setTurno(turnoConflicto);setTurnoConflicto(null);}}>Retomar esta caja →</Btn>
+          <Btn full variant="ghost" onClick={cerrarSesion}>Cerrar sesión</Btn>
+        </div>
+      </div>
+    </div>
+  );
+
+  return <AperturaTurnoScreen profile={profile} turnoAbierto={null} onTurnoAbierto={t=>{setTurno(t);setTurnoConflicto(null);}}/>;
 }
 
 /* ── AUTH GUARD ── */
