@@ -100,24 +100,24 @@ const DEMO = {
     {id:'r4',name:'Café Central',city:'Ciudad del Este',country:'Paraguay',status:'suspended',address:'Palma 580',phone:'+595 61 777 3300',email:'andrea@cafecentral.py',owner_name:'Andrea Sosa',owner_email:'andrea@cafecentral.py',owner_phone:'+595 985 440 330',onboarding_date:'2025-11-01',notes:'Suspendido por falta de pago',ruc:'80000004-4',legal_name:'Café Central EIRL',maintenance_mode:false,maintenance_message:'',is_open:false,opening_hours:[]},
   ],
   plans:[
-    {id:'p1',name:'Starter',price_usd:29,billing_cycle:'monthly',max_tables:5,max_menu_items:30,features:['Pedidos QR','KDS cocina','Analytics básico'],is_active:true,allowed_panels:['caja','mozo','cocina'],max_users_by_role:{mozo:2,cajero:1,cocina:1}},
-    {id:'p2',name:'Pro',price_usd:59,billing_cycle:'monthly',max_tables:15,max_menu_items:100,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones'],is_active:true,allowed_panels:['caja','mozo','cocina','delivery-cliente'],max_users_by_role:{mozo:5,cajero:2,cocina:3}},
-    {id:'p3',name:'Enterprise',price_usd:119,billing_cycle:'monthly',max_tables:50,max_menu_items:500,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones','Soporte prioritario','Branding propio'],is_active:true,allowed_panels:['caja','mozo','cocina','delivery-cliente','delivery-rider','gerente'],max_users_by_role:{}},
+    {id:'p1',name:'Starter',price_usd:200000,billing_cycle:'monthly',max_tables:5,max_menu_items:30,features:['Pedidos QR','KDS cocina','Analytics básico'],is_active:true,allowed_panels:['caja','mozo','cocina'],max_users_by_role:{mozo:2,cajero:1,cocina:1}},
+    {id:'p2',name:'Pro',price_usd:400000,billing_cycle:'monthly',max_tables:15,max_menu_items:100,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones'],is_active:true,allowed_panels:['caja','mozo','cocina','delivery-cliente'],max_users_by_role:{mozo:5,cajero:2,cocina:3}},
+    {id:'p3',name:'Enterprise',price_usd:800000,billing_cycle:'monthly',max_tables:50,max_menu_items:500,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones','Soporte prioritario','Branding propio'],is_active:true,allowed_panels:['caja','mozo','cocina','delivery-cliente','delivery-rider','gerente'],max_users_by_role:{}},
   ],
   addonCatalog:[
-    {id:'a1',key:'delivery_cliente',name:'Delivery Cliente',panel:'delivery-cliente',price_usd:15,is_active:true},
-    {id:'a2',key:'delivery_rider',name:'Rider Delivery',panel:'delivery-rider',price_usd:10,is_active:true},
-    {id:'a3',key:'kds_cocina',name:'KDS Cocina',panel:'cocina',price_usd:12,is_active:true},
+    {id:'a1',key:'delivery_cliente',name:'Delivery Cliente',panel:'delivery-cliente',price_usd:100000,is_active:true},
+    {id:'a2',key:'delivery_rider',name:'Rider Delivery',panel:'delivery-rider',price_usd:70000,is_active:true},
+    {id:'a3',key:'kds_cocina',name:'KDS Cocina',panel:'cocina',price_usd:90000,is_active:true},
   ],
   addons:[
-    {id:'ra1',restaurant_id:'r1',addon_key:'delivery_rider',price_usd:10,enabled:true},
-    {id:'ra2',restaurant_id:'r3',addon_key:'delivery_cliente',price_usd:15,enabled:true},
+    {id:'ra1',restaurant_id:'r1',addon_key:'delivery_rider',price_usd:70000,enabled:true},
+    {id:'ra2',restaurant_id:'r3',addon_key:'delivery_cliente',price_usd:100000,enabled:true},
   ],
   subscriptions:[
-    {id:'s1',restaurant_id:'r1',plan_id:'p2',status:'active',start_date:'2026-04-01',end_date:'2026-06-01',created_at:'2026-04-01T00:00:00',auto_renew:true,payment_method:'transferencia',monthly_amount:59,plan:{name:'Pro',price_usd:59}},
-    {id:'s2',restaurant_id:'r2',plan_id:'p2',status:'active',start_date:'2026-04-10',end_date:'2026-06-10',created_at:'2026-04-10T00:00:00',auto_renew:true,payment_method:'tarjeta',monthly_amount:59,plan:{name:'Pro',price_usd:59}},
-    {id:'s3',restaurant_id:'r3',plan_id:'p1',status:'trial',start_date:'2026-04-20',end_date:'2026-05-20',created_at:'2026-04-20T00:00:00',auto_renew:false,payment_method:'manual',monthly_amount:29,plan:{name:'Starter',price_usd:29}},
-    {id:'s4',restaurant_id:'r4',plan_id:'p2',status:'suspended',start_date:'2025-11-01',end_date:'2026-04-30',created_at:'2025-11-01T00:00:00',auto_renew:false,payment_method:'transferencia',monthly_amount:59,plan:{name:'Pro',price_usd:59}},
+    {id:'s1',restaurant_id:'r1',plan_id:'p2',status:'active',start_date:'2026-04-01',end_date:'2026-06-01',created_at:'2026-04-01T00:00:00',auto_renew:true,payment_method:'transferencia',monthly_amount:400000,plan:{name:'Pro',price_usd:400000}},
+    {id:'s2',restaurant_id:'r2',plan_id:'p2',status:'active',start_date:'2026-04-10',end_date:'2026-06-10',created_at:'2026-04-10T00:00:00',auto_renew:true,payment_method:'tarjeta',monthly_amount:400000,plan:{name:'Pro',price_usd:400000}},
+    {id:'s3',restaurant_id:'r3',plan_id:'p1',status:'trial',start_date:'2026-04-20',end_date:'2026-05-20',created_at:'2026-04-20T00:00:00',auto_renew:false,payment_method:'manual',monthly_amount:200000,plan:{name:'Starter',price_usd:200000}},
+    {id:'s4',restaurant_id:'r4',plan_id:'p2',status:'suspended',start_date:'2025-11-01',end_date:'2026-04-30',created_at:'2025-11-01T00:00:00',auto_renew:false,payment_method:'transferencia',monthly_amount:400000,plan:{name:'Pro',price_usd:400000}},
   ],
   orders:[
     {id:'o1',restaurant_id:'r1',total:95000,created_at:'2026-05-19T10:00:00',status:'delivered'},
@@ -154,7 +154,6 @@ const daysUntil = d => d ? Math.ceil((new Date(d) - new Date()) / 86400000) : nu
 const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'short',year:'numeric'}) : '—';
 const fmtDateTime = d => d ? new Date(d).toLocaleString('es-PY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
 const fmtGuarani = n => `₲ ${Number(n||0).toLocaleString('es-PY')}`;
-const fmtUSD = n => `$${Number(n||0).toFixed(2)}`;
 // Escapa HTML al interpolar datos en plantillas de impresión (document.write) — evita stored XSS.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
@@ -240,10 +239,10 @@ const FEATURE_GROUPS = [
 
 // Add-ons por defecto (fallback si plan_addons aún no está migrado)
 const DEFAULT_ADDONS = [
-  {key:'delivery_cliente', name:'Delivery Cliente', panel:'delivery-cliente', price_usd:15},
-  {key:'delivery_rider',   name:'Rider Delivery',   panel:'delivery-rider',   price_usd:10},
-  {key:'kds_cocina',       name:'KDS Cocina',        panel:'cocina',           price_usd:12},
-  {key:'sucursal_extra',   name:'Sucursal Adicional (Multi-local)', panel:'admin', price_usd:25},
+  {key:'delivery_cliente', name:'Delivery Cliente', panel:'delivery-cliente', price_usd:100000},
+  {key:'delivery_rider',   name:'Rider Delivery',   panel:'delivery-rider',   price_usd:70000},
+  {key:'kds_cocina',       name:'KDS Cocina',        panel:'cocina',           price_usd:90000},
+  {key:'sucursal_extra',   name:'Sucursal Adicional (Multi-local)', panel:'admin', price_usd:180000},
 ];
 const addonName = (catalog, key) => (catalog.find(a=>a.key===key)?.name) || (DEFAULT_ADDONS.find(a=>a.key===key)?.name) || key;
 
@@ -655,7 +654,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
       // 1) Registrar/incrementar el add-on 'sucursal_extra' en la cuenta raíz (facturable)
       const {data:exist} = await db.from('restaurant_addons')
         .select('id,quantity').eq('restaurant_id',rootId).eq('addon_key','sucursal_extra').maybeSingle();
-      const extraPrice = (addonCatalog.find(a=>a.key==='sucursal_extra')||{}).price_usd ?? 25;
+      const extraPrice = (addonCatalog.find(a=>a.key==='sucursal_extra')||{}).price_usd ?? 180000;
       if (exist) {
         await db.from('restaurant_addons').update({quantity:(exist.quantity||1)+1,enabled:true}).eq('id',exist.id);
       } else {
@@ -821,7 +820,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
             <FormField label="Plan de suscripción">
               <select value={form.plan_id} onChange={sf('plan_id')}>
                 <option value="">Sin asignar</option>
-                {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtUSD(p.price_usd)}/mes</option>)}
+                {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtGuarani(p.price_usd)}/mes</option>)}
               </select>
             </FormField>
             <FormField label="Estado">
@@ -1037,7 +1036,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
                 <div style={{position:'absolute',top:12,right:12,background:'#000000',color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:.5}}>POPULAR</div>
               )}
               <PlanBadge name={p.name}/>
-              <div style={{fontSize:22,fontWeight:800,margin:'10px 0 4px',color:C.ink}}>{fmtUSD(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
+              <div style={{fontSize:22,fontWeight:800,margin:'10px 0 4px',color:C.ink}}>{fmtGuarani(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
               <div style={{display:'flex',gap:8,marginBottom:14}}>
                 <div style={{background:C.bg,borderRadius:6,padding:'6px 10px',textAlign:'center',flex:1}}>
                   <div style={{fontSize:15,fontWeight:700,color:C.ink}}>{p.max_tables??'∞'}</div>
@@ -1096,8 +1095,8 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
                   <div style={{fontSize:11,color:C.mid}}>Panel: {a.panel}</div>
                 </div>
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
-                  <span style={{fontSize:12,color:C.mid}}>USD/mes</span>
-                  <input type="number" step=".01" value={f.price_usd??''} onChange={e=>setAddonForm(s=>({...s,[a.key]:{...s[a.key],price_usd:e.target.value}}))} style={{width:90}}/>
+                  <span style={{fontSize:12,color:C.mid}}>₲/mes</span>
+                  <input type="number" step="1000" min="0" value={f.price_usd??''} onChange={e=>setAddonForm(s=>({...s,[a.key]:{...s[a.key],price_usd:e.target.value}}))} style={{width:110}}/>
                 </div>
                 <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:C.mid,cursor:'pointer'}}>
                   <input type="checkbox" checked={f.is_active!==false} onChange={e=>setAddonForm(s=>({...s,[a.key]:{...s[a.key],is_active:e.target.checked}}))} style={{width:15,height:15}}/>
@@ -1114,7 +1113,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
       <div style={{display:'flex',gap:12,margin:'20px 0',flexWrap:'wrap'}}>
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 20px',flex:'none'}}>
           <div style={{fontSize:11,color:C.mid,marginBottom:4}}>MRR Total</div>
-          <div style={{fontSize:28,fontWeight:800,color:C.ink}}>{fmtUSD(mrrTotal)}<span style={{fontSize:12,fontWeight:400,color:C.mid}}>/mes</span></div>
+          <div style={{fontSize:28,fontWeight:800,color:C.ink}}>{fmtGuarani(mrrTotal)}<span style={{fontSize:12,fontWeight:400,color:C.mid}}>/mes</span></div>
         </div>
       </div>
 
@@ -1135,7 +1134,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
                   <tr key={r.id} style={{background:vencePronto?'#FFF9F0':vencido?'#FFF1F0':'',transition:'background .1s'}}>
                     <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
                     <Td><PlanBadge name={r.plan?.name}/></Td>
-                    <Td style={{fontWeight:600}}>{s?.monthly_amount?fmtUSD(s.monthly_amount):r.plan?.price_usd?fmtUSD(r.plan.price_usd):'—'}</Td>
+                    <Td style={{fontWeight:600}}>{s?.monthly_amount?fmtGuarani(s.monthly_amount):r.plan?.price_usd?fmtGuarani(r.plan.price_usd):'—'}</Td>
                     <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{fmtDate(s?.start_date)}</Td>
                     <Td style={{fontSize:12,whiteSpace:'nowrap'}}>
                       <div style={{display:'flex',flexDirection:'column',gap:3}}>
@@ -1164,7 +1163,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
         <Modal title={planModal==='create'?'Nuevo plan':'Editar plan'} onClose={()=>setPlanModal(null)}>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
             <FormField label="Nombre *"><input value={planForm.name} onChange={spf('name')} placeholder="Pro"/></FormField>
-            <FormField label="Precio/mes (USD) *"><input type="number" step=".01" value={planForm.price_usd} onChange={spf('price_usd')} placeholder="59.00"/></FormField>
+            <FormField label="Precio/mes (₲) *"><input type="number" step="1000" min="0" value={planForm.price_usd} onChange={spf('price_usd')} placeholder="400000"/></FormField>
             <FormField label="Ciclo">
               <select value={planForm.billing_cycle} onChange={spf('billing_cycle')}>
                 <option value="monthly">Mensual</option>
@@ -1249,7 +1248,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
         <Modal title={`Suscripción — ${subModal.name}`} onClose={()=>setSubModal(null)}>
           <FormField label="Plan">
             <select value={subForm.plan_id} onChange={ssf('plan_id')}>
-              {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtUSD(p.price_usd)}/mes</option>)}
+              {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtGuarani(p.price_usd)}/mes</option>)}
             </select>
           </FormField>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
@@ -1287,14 +1286,14 @@ function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
                   <label key={a.key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderRadius:8,cursor:'pointer',border:`1px solid ${on?C.ink:C.border}`,background:on?C.bg:'transparent'}}>
                     <input type="checkbox" checked={on} onChange={()=>toggleSubAddon(a.key)} style={{width:15,height:15}}/>
                     <span style={{flex:1,fontSize:13,fontWeight:600,color:C.ink}}>{a.name}</span>
-                    <span style={{fontSize:12,color:C.mid}}>+{fmtUSD(a.price_usd)}/mes</span>
+                    <span style={{fontSize:12,color:C.mid}}>+{fmtGuarani(a.price_usd)}/mes</span>
                   </label>
                 );
               })}
             </div>
             {(subForm.addonKeys||[]).length>0&&(
               <div style={{marginTop:10,fontSize:12,color:C.mid,textAlign:'right'}}>
-                Extra add-ons: <strong style={{color:C.ink}}>{fmtUSD((subForm.addonKeys||[]).reduce((s,k)=>s+(Number(catalog.find(x=>x.key===k)?.price_usd)||0),0))}/mes</strong>
+                Extra add-ons: <strong style={{color:C.ink}}>{fmtGuarani((subForm.addonKeys||[]).reduce((s,k)=>s+(Number(catalog.find(x=>x.key===k)?.price_usd)||0),0))}/mes</strong>
               </div>
             )}
           </div>
