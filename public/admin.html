@@ -480,6 +480,53 @@ function SucursalSwitcher({caps}) {
 }
 
 /* ══════════════════════════════════════════════
+   GRÁFICOS DIDÁCTICOS — SVG/CSS puro (sin librerías)
+══════════════════════════════════════════════ */
+const Donut = ({data, size=150, thickness=22, centerLabel, centerSub}) => {
+  const total = data.reduce((s,d)=>s+(d.value||0),0)||1;
+  const r=(size-thickness)/2, cx=size/2, cy=size/2, circ=2*Math.PI*r;
+  let off=0;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.border} strokeWidth={thickness} opacity={.3}/>
+      {data.map((d,i)=>{ const len=(d.value/total)*circ;
+        const seg=<circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={d.color} strokeWidth={thickness}
+          strokeDasharray={`${len} ${circ-len}`} strokeDashoffset={-off} transform={`rotate(-90 ${cx} ${cy})`}/>;
+        off+=len; return seg; })}
+      {centerLabel!=null && <text x={cx} y={cy-1} textAnchor="middle" fontSize="18" fontWeight="800" fill={C.ink}>{centerLabel}</text>}
+      {centerSub && <text x={cx} y={cy+15} textAnchor="middle" fontSize="10" fill={C.mid}>{centerSub}</text>}
+    </svg>
+  );
+};
+
+const TrendArea = ({points, height=130, color}) => {
+  const col = color || C.blue;
+  const n=points.length;
+  if(!n) return <div style={{height,display:'flex',alignItems:'center',justifyContent:'center',color:C.dim,fontSize:12}}>Sin datos</div>;
+  const W=320,H=100,pad=6;
+  const max=Math.max(...points.map(p=>p.value),1);
+  const xs=i=> n<=1?W/2:pad+i*(W-2*pad)/(n-1);
+  const ys=v=> H-pad-(v/max)*(H-2*pad);
+  const line=points.map((p,i)=>`${xs(i).toFixed(1)},${ys(p.value).toFixed(1)}`).join(' ');
+  const area=`${pad.toFixed(1)},${(H-pad).toFixed(1)} ${line} ${(W-pad).toFixed(1)},${(H-pad).toFixed(1)}`;
+  const peak=points.reduce((m,p,i)=> p.value>points[m].value?i:m,0);
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{width:'100%',height,display:'block'}}>
+        {[.25,.5,.75].map(g=><line key={g} x1={pad} x2={W-pad} y1={H-pad-g*(H-2*pad)} y2={H-pad-g*(H-2*pad)} stroke={C.border} strokeWidth={1} opacity={.5} vectorEffect="non-scaling-stroke"/>)}
+        <polygon points={area} fill={col} opacity={.12}/>
+        <polyline points={line} fill="none" stroke={col} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"/>
+      </svg>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:5}}>
+        {points.map((p,i)=>(
+          <span key={i} style={{flex:1,textAlign:'center',fontSize:9,color:i===peak?C.ink:C.dim,fontWeight:i===peak?700:400,whiteSpace:'nowrap'}}>{p.label}</span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/* ══════════════════════════════════════════════
    DASHBOARD
 ══════════════════════════════════════════════ */
 function DashboardPage({orders, ratings, setPage}) {
@@ -549,6 +596,28 @@ function DashboardPage({orders, ratings, setPage}) {
     prodTotals[k].qty+=(it.quantity||1); prodTotals[k].total+=(it.total_price||0);
   });
   const top5 = Object.values(prodTotals).sort((a,b)=>b.qty-a.qty).slice(0,5);
+
+  // Tendencia de ventas — últimos 14 días (gráfico de área)
+  const DAYS = 14;
+  const dayBuckets = [];
+  const dayIndex = {};
+  for (let i=DAYS-1;i>=0;i--){
+    const d=new Date(now); d.setDate(d.getDate()-i); d.setHours(0,0,0,0);
+    const key=d.toDateString();
+    dayIndex[key]=dayBuckets.length;
+    dayBuckets.push({key, label:d.toLocaleDateString('es-PY',{day:'numeric'}), value:0, orders:0});
+  }
+  orders.forEach(o=>{ if(!valid(o))return; const k=new Date(o.created_at).toDateString(); const idx=dayIndex[k]; if(idx!=null){ dayBuckets[idx].value+=(o.total||0); dayBuckets[idx].orders++; } });
+  const venta14 = dayBuckets.reduce((s,b)=>s+b.value,0);
+  const promDia = Math.round(venta14/DAYS);
+
+  // Métodos de pago — últimos 14 días (dona)
+  const payAgg = {};
+  orders.forEach(o=>{ if(!valid(o))return; const k=new Date(o.created_at).toDateString(); if(dayIndex[k]!=null && o.payment_method){ payAgg[o.payment_method]=(payAgg[o.payment_method]||0)+(o.total||0); } });
+  const PAY_COLORS = {efectivo:'#34C759',tarjeta:'#007AFF',qr:'#5856D6',pos:'#FF9500'};
+  const FALLBACK_COLORS = ['#1D1D1F','#6E6E73','#86868B','#FF3B30'];
+  const payDonut = Object.entries(payAgg).sort((a,b)=>b[1]-a[1]).map(([m,v],i)=>({label:PL[m]||m,value:v,color:PAY_COLORS[m]||FALLBACK_COLORS[i%FALLBACK_COLORS.length]}));
+  const payTotal = payDonut.reduce((s,d)=>s+d.value,0);
 
   useEffect(()=>{
     if(!db||!todayOrds.length) return;
@@ -695,6 +764,35 @@ function DashboardPage({orders, ratings, setPage}) {
                 </div>
               );
             })
+          }
+        </div>
+      </div>
+
+      {/* Analítica — tendencia 14 días + métodos de pago */}
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:14,marginBottom:20}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:14,flexWrap:'wrap',gap:8}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>TENDENCIA DE VENTAS — ÚLTIMOS 14 DÍAS</div>
+            <div style={{fontSize:11,color:C.dim}}>Total <strong style={{color:C.ink}}>{fmt(venta14)}</strong> · prom/día <strong style={{color:C.ink}}>{fmt(promDia)}</strong></div>
+          </div>
+          <TrendArea points={dayBuckets} color={C.blue}/>
+        </div>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>MÉTODOS DE PAGO — 14 DÍAS</div>
+          {payTotal===0
+            ? <div style={{color:C.dim,fontSize:12,textAlign:'center',paddingTop:30}}>Sin cobros registrados</div>
+            : <div style={{display:'flex',flexDirection:'column',alignItems:'center'}}>
+                <Donut data={payDonut} centerLabel={fmtK(payTotal)} centerSub="total ₲"/>
+                <div style={{marginTop:14,width:'100%'}}>
+                  {payDonut.map((d,i)=>(
+                    <div key={i} style={{display:'flex',alignItems:'center',gap:8,fontSize:11,marginBottom:6}}>
+                      <span style={{width:9,height:9,borderRadius:'50%',background:d.color,flexShrink:0}}/>
+                      <span style={{flex:1,color:C.mid}}>{d.label}</span>
+                      <span style={{color:C.ink,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:600}}>{Math.round(d.value/payTotal*100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
           }
         </div>
       </div>
