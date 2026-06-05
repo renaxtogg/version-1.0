@@ -106,6 +106,8 @@ function mesaLabel(o) {
 const ROLES = ['cocina','admin','superadmin','waiter','cajero'];
 /* Roles que el Admin puede asignar (no puede crear admins ni superadmins) */
 const ADMIN_ALLOWED_ROLES = ['cajero','mozo','cocina','rider','supervisor_local'];
+/* PIN de 4 dígitos para riders (login del panel Delivery es por PIN, no por contraseña) */
+function genRiderPin() { return String(Math.floor(1000 + Math.random() * 9000)); }
 
 /* ── PALETTE ── reactiva al tema MythosTheme */
 const C_LIGHT = {
@@ -2232,7 +2234,7 @@ function PersonalPage() {
   const [editRole,setEditRole] = useState('');
   const [editActive,setEditActive] = useState(true);
   const [addModal,setAddModal] = useState(false);
-  const [addForm,setAddForm]   = useState({full_name:'',username:'',password:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});
+  const [addForm,setAddForm]   = useState({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});
   const [addLoading,setAddLoading] = useState(false);
 
   // Turnos
@@ -2250,17 +2252,40 @@ function PersonalPage() {
   const [rejectSaving,setRS]       = useState(false);
   const [approvingId,setApprovingId] = useState(null);
 
+  // Normaliza un registro de delivery_riders al shape de la grilla de personal.
+  function riderToProfile(r) {
+    return {
+      id:r.id, _isRider:true, rider_pin:r.rider_pin, user_id:null,
+      username:r.rider_pin?('PIN '+r.rider_pin):'—',
+      display_name:r.name||'—', role:'rider', email:r.phone||'—',
+      is_active:r.active!==false, created_at:r.created_at
+    };
+  }
+
   async function loadProfiles() {
     if(!db){setLoading(false);return;}
     setLoading(true); setError(null);
+    // Los riders viven en delivery_riders (login por PIN), separados de user_roles. Se fusionan acá.
+    const ridersP = db.from('delivery_riders').select('id,name,phone,rider_pin,active,created_at').eq('restaurant_id',RID).order('name');
+    let base=null, errMsg=null;
     const {data:rpcData,error:rpcErr} = await db.rpc('admin_list_restaurant_users',{p_restaurant_id:RID});
-    if(!rpcErr){setProfiles(rpcData||[]);setLoading(false);return;}
-    const{data,error:e}=await db.from('user_roles').select('id,user_id,username,display_name,role,email,is_active,created_at').eq('restaurant_id',RID).order('created_at',{ascending:false});
-    if(!e){setProfiles(data||[]);setLoading(false);return;}
-    const uid=(await db.auth.getUser()).data?.user?.id||'';
-    const{data:me,error:meErr}=await db.from('user_roles').select('id,user_id,username,display_name,role,email,is_active,created_at').eq('user_id',uid).limit(1);
-    if(!meErr&&me?.length){setProfiles(me);setLoading(false);return;}
-    setError(`Error al cargar personal: ${rpcErr?.message||e?.message||'Sin acceso a user_roles'}`);
+    if(!rpcErr){ base = rpcData||[]; }
+    else {
+      const{data,error:e}=await db.from('user_roles').select('id,user_id,username,display_name,role,email,is_active,created_at').eq('restaurant_id',RID).order('created_at',{ascending:false});
+      if(!e){ base = data||[]; }
+      else {
+        const uid=(await db.auth.getUser()).data?.user?.id||'';
+        const{data:me,error:meErr}=await db.from('user_roles').select('id,user_id,username,display_name,role,email,is_active,created_at').eq('user_id',uid).limit(1);
+        if(!meErr&&me?.length){ base = me; }
+        else errMsg = rpcErr?.message||e?.message||'Sin acceso a user_roles';
+      }
+    }
+    const{data:ridersData}=await ridersP;
+    // Evitar duplicar riders que también puedan figurar en user_roles con rol rider.
+    const baseNoRider = (base||[]).filter(p=>(p.role||'').toLowerCase()!=='rider'&&(p.role||'').toLowerCase()!=='repartidor');
+    const riderRows = (ridersData||[]).map(riderToProfile);
+    if(base===null && riderRows.length===0){ setError(`Error al cargar personal: ${errMsg||'Sin acceso a user_roles'}`); setLoading(false); return; }
+    setProfiles([...baseNoRider, ...riderRows]);
     setLoading(false);
   }
 
@@ -2290,6 +2315,7 @@ function PersonalPage() {
     if(!db) return;
     const ch = db.channel('personal-rt')
       .on('postgres_changes',{event:'*',schema:'public',table:'user_roles',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadProfiles(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'delivery_riders',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadProfiles(); })
       .on('postgres_changes',{event:'*',schema:'public',table:'employee_shifts',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadShifts(); })
       .subscribe();
     return ()=>{ db.removeChannel(ch); };
@@ -2297,6 +2323,16 @@ function PersonalPage() {
 
   async function saveRole(id) {
     if(!db)return;
+    const prof = profiles.find(x=>x.id===id);
+    // Riders viven en delivery_riders: su rol es fijo, sólo se cambia el estado activo.
+    if(prof?._isRider){
+      const{error}=await db.from('delivery_riders').update({active:editActive}).eq('id',id);
+      if(error){toast('Error: '+error.message,false);return;}
+      toast('Rider actualizado');
+      setProfiles(p=>p.map(x=>x.id===id?{...x,is_active:editActive}:x));
+      setEditId(null);
+      return;
+    }
     if(!ADMIN_ALLOWED_ROLES.includes(editRole)){toast('No podés asignar ese rol desde el panel admin',false);return;}
     const{error:rpcErr}=await db.rpc('admin_update_user_role',{p_user_role_id:id,p_role:editRole,p_is_active:editActive});
     if(rpcErr){const{error:e}=await db.from('user_roles').update({role:editRole,is_active:editActive}).eq('id',id);if(e){toast('Error: '+e.message,false);return;}}
@@ -2307,8 +2343,35 @@ function PersonalPage() {
 
   async function addEmployee() {
     if(!db){toast('Sin conexión',false);return;}
-    const{full_name,username,password,role,email}=addForm;
+    const{full_name,username,password,pin,role,email,phone}=addForm;
     if(!full_name.trim()){toast('Ingresá el nombre completo',false);return;}
+
+    // Riders: no usan contraseña ni auth — se crean en delivery_riders con PIN de 4 dígitos
+    // para que el panel Delivery (login por PIN) los reconozca de inmediato.
+    if(role==='rider'){
+      if(!/^\d{4}$/.test(pin||'')){toast('El PIN del rider debe tener 4 dígitos',false);return;}
+      setAddLoading(true);
+      try {
+        const{error}=await db.from('delivery_riders').insert({
+          restaurant_id:RID, name:full_name.trim(), phone:phone||null,
+          vehicle:'moto', commission_type:'pct', commission_value:0,
+          rider_pin:pin, active:true
+        });
+        if(error) throw new Error(error.message);
+        toast(`Rider "${full_name.trim()}" creado — PIN ${pin}`);
+        if(addForm._reqId){
+          const{data:{user:me}}=await db.auth.getUser();
+          await db.from('staff_requests').update({status:'approved',reviewed_by:me?.id,reviewed_at:new Date().toISOString()}).eq('id',addForm._reqId);
+          setReqs(r=>r.map(x=>x.id===addForm._reqId?{...x,status:'approved'}:x));
+        }
+        setAddModal(false);
+        setAddForm({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});
+        loadProfiles();
+      } catch(e){toast(e.message,false);}
+      setAddLoading(false);
+      return;
+    }
+
     if(!username.trim()){toast('Ingresá un nombre de usuario',false);return;}
     if(password.length<6){toast('La contraseña debe tener al menos 6 caracteres',false);return;}
     setAddLoading(true);
@@ -2330,14 +2393,14 @@ function PersonalPage() {
         setReqs(r=>r.map(x=>x.id===addForm._reqId?{...x,status:'approved'}:x));
       }
       setAddModal(false);
-      setAddForm({full_name:'',username:'',password:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});
+      setAddForm({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});
       loadProfiles();
     } catch(e){toast(e.message,false);}
     setAddLoading(false);
   }
 
   function openApprove(req) {
-    setAddForm({full_name:req.full_name||'',username:req.username||'',password:'',role:req.role||'mozo',dni:req.dni||'',phone:req.phone||'',email:req.email||'',notes:req.notes||'',_reqId:req.id});
+    setAddForm({full_name:req.full_name||'',username:req.username||'',password:'',pin:(req.role==='rider'?genRiderPin():''),role:req.role||'mozo',dni:req.dni||'',phone:req.phone||'',email:req.email||'',notes:req.notes||'',_reqId:req.id});
     setAddModal(true);
   }
 
@@ -2379,7 +2442,7 @@ function PersonalPage() {
     },0);
   }
 
-  const roleColor={cocina:C.orange,admin:C.blue,superadmin:C.purple,waiter:C.green,cajero:C.yellow,delivery:'#06b6d4'};
+  const roleColor={cocina:C.orange,admin:C.blue,superadmin:C.purple,waiter:C.green,mozo:C.green,cajero:C.yellow,delivery:'#06b6d4',rider:'#06b6d4',supervisor_local:C.purple};
 
   return (
     <div className="page">
@@ -2399,7 +2462,7 @@ function PersonalPage() {
       {tab==='empleados'&&(<>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
           <div style={{fontSize:12,color:C.mid}}>Usuarios con acceso al sistema · restaurante {RID.slice(0,8)}…</div>
-          <Btn small onClick={()=>{setAddForm({full_name:'',username:'',password:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});setAddModal(true);}}>+ Nuevo empleado</Btn>
+          <Btn small onClick={()=>{setAddForm({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});setAddModal(true);}}>+ Nuevo empleado</Btn>
         </div>
         {loading&&<div style={{display:'flex',gap:10,alignItems:'center',color:C.mid,fontSize:13}}><span className="spin"/>Cargando personal…</div>}
         {error&&<div style={{color:C.orange,fontSize:13,padding:16,background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.2)',borderRadius:8,marginBottom:14}}><div style={{fontWeight:700,marginBottom:4}}>Atención</div>{error}</div>}
@@ -2414,9 +2477,9 @@ function PersonalPage() {
                     <Td>{p.display_name||'—'}</Td>
                     <Td dim style={{fontSize:11}}>{p.email||'—'}</Td>
                     <Td>
-                      {editId===p.id
+                      {editId===p.id&&!p._isRider
                         ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:140}}>{ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{r}</option>)}</Sel>
-                        :<span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{p.role}</span>}
+                        :<span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{p.role}{p._isRider?' · delivery':''}</span>}
                     </Td>
                     <Td>
                       {editId===p.id
@@ -2439,26 +2502,36 @@ function PersonalPage() {
         {profiles.length>0&&<div style={{marginTop:10,fontSize:11,color:C.dim}}>{profiles.filter(p=>p.is_active!==false).length} activos · {profiles.filter(p=>p.is_active===false).length} inactivos</div>}
 
         {addModal&&(
-          <Modal title={addForm._reqId?'Aprobar solicitud — crear usuario':'Nuevo empleado'} onClose={()=>{setAddModal(false);setAddForm({full_name:'',username:'',password:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});}} width={520}>
+          <Modal title={addForm._reqId?'Aprobar solicitud — crear usuario':'Nuevo empleado'} onClose={()=>{setAddModal(false);setAddForm({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});}} width={520}>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 16px'}}>
               <div style={{gridColumn:'1/-1'}}>
                 <Lbl>Nombre completo *</Lbl>
                 <Inp value={addForm.full_name} onChange={e=>setAddForm(f=>({...f,full_name:e.target.value}))} placeholder="ej: Juan García" autoFocus/>
               </div>
               <div>
-                <Lbl>Usuario *</Lbl>
-                <Inp value={addForm.username} onChange={e=>setAddForm(f=>({...f,username:e.target.value}))} placeholder="ej: juanmozo" mono/>
-              </div>
-              <div>
-                <Lbl>Contraseña * (mínimo 6 caracteres)</Lbl>
-                <Inp type="password" value={addForm.password} onChange={e=>setAddForm(f=>({...f,password:e.target.value}))} placeholder="Contraseña segura"/>
-              </div>
-              <div>
                 <Lbl>Rol</Lbl>
-                <Sel value={addForm.role} onChange={e=>setAddForm(f=>({...f,role:e.target.value}))} style={{width:'100%'}}>
+                <Sel value={addForm.role} onChange={e=>{const nr=e.target.value;setAddForm(f=>({...f,role:nr,pin:nr==='rider'&&!f.pin?genRiderPin():f.pin}));}} style={{width:'100%'}}>
                   {ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
                 </Sel>
               </div>
+              {addForm.role==='rider' ? (
+                <div>
+                  <Lbl>PIN de acceso (4 dígitos) *</Lbl>
+                  <div style={{display:'flex',gap:8}}>
+                    <Inp value={addForm.pin} onChange={e=>setAddForm(f=>({...f,pin:e.target.value.replace(/\D/g,'').slice(0,4)}))} placeholder="0000" mono style={{flex:1}}/>
+                    <Btn small variant="secondary" type="button" onClick={()=>setAddForm(f=>({...f,pin:genRiderPin()}))}>Generar</Btn>
+                  </div>
+                </div>
+              ) : (<>
+                <div>
+                  <Lbl>Usuario *</Lbl>
+                  <Inp value={addForm.username} onChange={e=>setAddForm(f=>({...f,username:e.target.value}))} placeholder="ej: juanmozo" mono/>
+                </div>
+                <div>
+                  <Lbl>Contraseña * (mínimo 6 caracteres)</Lbl>
+                  <Inp type="password" value={addForm.password} onChange={e=>setAddForm(f=>({...f,password:e.target.value}))} placeholder="Contraseña segura"/>
+                </div>
+              </>)}
               <div>
                 <Lbl>DNI / Cédula</Lbl>
                 <Inp value={addForm.dni} onChange={e=>setAddForm(f=>({...f,dni:e.target.value}))} placeholder="ej: 4.123.456"/>
@@ -2482,11 +2555,13 @@ function PersonalPage() {
               </div>
             )}
             <div style={{marginTop:14,padding:'8px 12px',background:C.bg,borderRadius:8,fontSize:12,color:C.dim}}>
-              El empleado iniciará sesión con su usuario y contraseña en el panel correspondiente a su rol.
+              {addForm.role==='rider'
+                ? 'El rider accede al panel Delivery ingresando su PIN de 4 dígitos (no usa usuario ni contraseña). Aparecerá de inmediato en el módulo Delivery.'
+                : 'El empleado iniciará sesión con su usuario y contraseña en el panel correspondiente a su rol.'}
             </div>
             <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:16}}>
-              <Btn variant="ghost" onClick={()=>{setAddModal(false);setAddForm({full_name:'',username:'',password:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});}} disabled={addLoading}>Cancelar</Btn>
-              <Btn onClick={addEmployee} disabled={addLoading}>{addLoading?'Creando…':'Crear empleado'}</Btn>
+              <Btn variant="ghost" onClick={()=>{setAddModal(false);setAddForm({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});}} disabled={addLoading}>Cancelar</Btn>
+              <Btn onClick={addEmployee} disabled={addLoading}>{addLoading?'Creando…':(addForm.role==='rider'?'Crear rider':'Crear empleado')}</Btn>
             </div>
           </Modal>
         )}

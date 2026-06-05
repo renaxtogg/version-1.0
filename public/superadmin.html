@@ -153,7 +153,20 @@ const DEMO = {
 const daysUntil = d => d ? Math.ceil((new Date(d) - new Date()) / 86400000) : null;
 const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'short',year:'numeric'}) : '—';
 const fmtDateTime = d => d ? new Date(d).toLocaleString('es-PY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
-const fmtGuarani = n => `₲ ${Number(n||0).toLocaleString('es-PY')}`;
+// ── Moneda de plataforma (configurable) ─────────────────────────
+// Los importes se guardan como número "puro" (la columna price_usd es un nombre
+// heredado) y se interpretan en la moneda elegida por el superadmin. No hay
+// conversión FX: al cambiar de moneda, los precios se re-ingresan en ella.
+const CURRENCIES = {
+  PYG: {code:'PYG', symbol:'₲',   locale:'es-PY', decimals:0, step:1000, ph:'400000', label:'Guaraní (₲)'},
+  USD: {code:'USD', symbol:'US$', locale:'en-US', decimals:2, step:1,    ph:'59.90',  label:'Dólar (US$)'},
+  BRL: {code:'BRL', symbol:'R$',  locale:'pt-BR', decimals:2, step:1,    ph:'299.90', label:'Real (R$)'},
+  ARS: {code:'ARS', symbol:'AR$', locale:'es-AR', decimals:2, step:100,  ph:'50000',  label:'Peso argentino (AR$)'},
+};
+let CCY = CURRENCIES.PYG;   // moneda activa — se setea desde platform_config
+const setPlatformCurrency = code => { CCY = CURRENCIES[code] || CURRENCIES.PYG; };
+const fmtMoney = n => `${CCY.symbol} ${Number(n||0).toLocaleString(CCY.locale,{minimumFractionDigits:CCY.decimals,maximumFractionDigits:CCY.decimals})}`;
+const fmtGuarani = fmtMoney;   // alias heredado — todo el dinero de la UI pasa por aquí
 // Escapa HTML al interpolar datos en plantillas de impresión (document.write) — evita stored XSS.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
@@ -1336,8 +1349,20 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 // ══════════════════════════════════════════════════════════════
 // MÓDULO 3 — FACTURACIÓN (planes + suscripciones)
 // ══════════════════════════════════════════════════════════════
-function PageFacturacion({enriched, plans, addonCatalog=[], setFlash, reload}) {
+function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], setFlash, reload}) {
   const EMPTY_PLAN = {name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true,max_mozo:'',max_cajero:'',max_cocina:'',panels:[],allowed_features:[]};
+  const currentCcy = CURRENCIES[platformConfig.find(c=>c.key==='platform_currency')?.value] ? platformConfig.find(c=>c.key==='platform_currency').value : 'PYG';
+  const [savingCcy, setSavingCcy] = useState(false);
+  const saveCurrency = async (code) => {
+    if (code===currentCcy || !CURRENCIES[code]) return;
+    setPlatformCurrency(code);   // refleja al instante en toda la UI de dinero
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSavingCcy(true);
+    const {error} = await db.from('platform_config').upsert({key:'platform_currency',value:code,updated_at:new Date().toISOString()},{onConflict:'key'});
+    setSavingCcy(false);
+    if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
+    setFlash({type:'ok',text:`Moneda de la plataforma: ${CURRENCIES[code].label}`}); reload();
+  };
   const [planModal, setPlanModal]   = useState(null);
   const [subModal,  setSubModal]    = useState(null);
   const [planForm,  setPlanForm]    = useState(EMPTY_PLAN);
@@ -1776,6 +1801,7 @@ function PageUsuarios({restaurants, setFlash}) {
   const [newModal, setNewModal] = useState(false);
   const [newForm,  setNewForm]  = useState({username:'',password:'',display_name:'',role:'admin',restaurant_id:''});
   const [creating, setCreating] = useState(false);
+  const [expanded, setExpanded] = useState({}); // grupos de restaurante desplegados (acordeón)
 
   const createUser = async () => {
     if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
@@ -1896,8 +1922,21 @@ function PageUsuarios({restaurants, setFlash}) {
       ) : shown.length===0 ? (
         <div style={{padding:60,textAlign:'center',color:C.dim,fontSize:13}}>{users.length===0?'Sin usuarios registrados':'Sin resultados para la búsqueda'}</div>
       ) : (
-        Object.entries(byRest).map(([restId, restUsers]) => (
-          <SectionCard key={restId} title={restId==='__global'?'Acceso global (superadmin)':restName(restId)} style={{marginBottom:16}}>
+        Object.entries(byRest).map(([restId, restUsers]) => {
+          const groupCount = Object.keys(byRest).length;
+          // Desplegado si: búsqueda activa, hay un solo grupo, o el usuario lo abrió.
+          const isOpen = !!search || groupCount===1 || expanded[restId]===true;
+          const activos = restUsers.filter(u=>u.is_active).length;
+          return (
+          <div key={restId} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden',marginBottom:12}}>
+            <div onClick={()=>setExpanded(e=>({...e,[restId]:!isOpen}))} style={{padding:'12px 18px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',borderBottom:isOpen?`1px solid ${C.border}`:'none',userSelect:'none'}}>
+              <span style={{display:'flex',alignItems:'center',gap:10}}>
+                <span style={{display:'inline-block',transition:'transform .15s',transform:isOpen?'rotate(90deg)':'none',color:C.mid,fontSize:12}}>▶</span>
+                <span style={{fontWeight:600,fontSize:13,color:C.ink}}>{restId==='__global'?'Acceso global (superadmin)':restName(restId)}</span>
+                <span style={{fontSize:11,color:C.dim,fontWeight:600}}>{restUsers.length} usuario{restUsers.length!==1?'s':''} · {activos} activo{activos!==1?'s':''}</span>
+              </span>
+            </div>
+            {isOpen&&(
             <div className="tbl-wrap">
               <table style={{width:'100%',borderCollapse:'collapse',minWidth:620}}>
                 <thead><tr>
@@ -1934,8 +1973,10 @@ function PageUsuarios({restaurants, setFlash}) {
                 </tbody>
               </table>
             </div>
-          </SectionCard>
-        ))
+            )}
+          </div>
+          );
+        })
       )}
 
       {newModal&&(
@@ -3753,6 +3794,10 @@ function App() {
   const bannerActive = bannerRow?.value==='true' && !!bannerMsgRow?.value;
   const bannerMsg    = bannerMsgRow?.value||'';
 
+  // Moneda activa de la plataforma (afecta a todo fmtMoney/fmtGuarani de la app).
+  // Se aplica en el cuerpo del render para que los hijos formateen ya con la moneda correcta.
+  setPlatformCurrency(platformConfig.find(c=>c.key==='platform_currency')?.value);
+
   const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',usuarios:'Usuarios',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',configuracion:'Configuración'};
 
   return (
@@ -3788,7 +3833,7 @@ function App() {
               {page==='dashboard'     && <PageDashboard    enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} setFlash={setFlash} reload={reloadSilent} setPage={setPage}/>}
               {page==='capacidad'     && <PageCapacidad    enriched={enriched}/>}
               {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} addonCatalog={addonCatalog} setFlash={setFlash} reload={reloadSilent}/>}
-              {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} addonCatalog={addonCatalog} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} addonCatalog={addonCatalog} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
               {page==='soporte'       && <PageSoporte      setFlash={setFlash}/>}
               {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
