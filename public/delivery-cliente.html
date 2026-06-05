@@ -111,13 +111,6 @@ function calcDeliveryFee(userLat, userLng, zones, restLat, restLng) {
   return match ? { zone: match, price: match.price_guarani || 0, minutes: match.estimated_minutes || 30, distKm: dist } : null;
 }
 
-/* ── FALLBACK ZONES (si DB no carga a tiempo) ── */
-const FALLBACK_ZONES = [
-  { id: 'f1', name: 'Zona Centro',   radius_km: 3,  price_guarani: 5000,  estimated_minutes: 25, is_active: true, color: 'green'  },
-  { id: 'f2', name: 'Zona Cercana',  radius_km: 6,  price_guarani: 10000, estimated_minutes: 35, is_active: true, color: 'yellow' },
-  { id: 'f3', name: 'Zona Lejana',   radius_km: 12, price_guarani: 18000, estimated_minutes: 50, is_active: true, color: 'orange' },
-];
-
 /* ── ZONE COLORS ────────────────────────── */
 const ZONE_COLOR_MAP = {
   red:    { bg: '#FEF2F2', border: '#FECACA', dot: '#EF4444', text: '#B91C1C', label: 'Roja',    emoji: '🔴' },
@@ -128,31 +121,9 @@ const ZONE_COLOR_MAP = {
 function zoneColors(z) { return ZONE_COLOR_MAP[z?.color] || ZONE_COLOR_MAP.red; }
 
 /* ── MENU ESTÁTICO ──────────────────────── */
-const MENU_STATIC = {
-  Entrantes: [
-    { id: 1, name: 'Empanada de carne', desc: 'Masa crujiente, carne molida, cebolla, huevo duro', price: 15000, promo: null, image_url: null, category: 'Entrantes', extras: [{ n: 'Chimichurri', p: 2000 }, { n: 'Salsa picante', p: 1500 }] },
-    { id: 2, name: 'Provoleta parrilla', desc: 'Queso provolone, orégano fresco, tomate cherry', price: 22000, promo: { tag: '2×1' }, image_url: null, category: 'Entrantes', extras: [] },
-    { id: 3, name: 'Tabla de fiambres', desc: 'Jamón serrano, salami, queso, aceitunas, tostadas', price: 38000, promo: null, image_url: null, category: 'Entrantes', extras: [] },
-    { id: 4, name: 'Sopa paraguaya', desc: 'Torta de maíz, queso Paraguay, cebolla', price: 12000, promo: null, image_url: null, category: 'Entrantes', extras: [] }
-  ],
-  Hamburguesas: [
-    { id: 5, name: 'Clásica Comanda', desc: '200g res, lechuga, tomate, cebolla morada, cheddar', price: 28000, promo: null, image_url: null, category: 'Hamburguesas', extras: [{ n: 'Panceta', p: 5000 }, { n: 'Huevo frito', p: 3000 }, { n: 'Doble carne', p: 12000 }] },
-    { id: 6, name: 'BBQ Smokey', desc: '200g, cheddar ahumado, cebolla caramelizada, salsa BBQ', price: 32000, promo: { tag: '−10%' }, image_url: null, category: 'Hamburguesas', extras: [{ n: 'Panceta', p: 5000 }, { n: 'Jalapeños', p: 2000 }] },
-    { id: 7, name: 'Doble Black', desc: '2×160g angus, queso americano, brioche negro', price: 42000, promo: null, image_url: null, category: 'Hamburguesas', extras: [{ n: 'Panceta', p: 5000 }, { n: 'Huevo frito', p: 3000 }] },
-    { id: 8, name: 'Veggie', desc: 'Base de poroto negro, aguacate, brotes, tahini', price: 30000, promo: null, image_url: null, category: 'Hamburguesas', extras: [{ n: 'Extra aguacate', p: 3000 }] }
-  ],
-  Lomito: [
-    { id: 9, name: 'Lomito simple', desc: 'Lomo fino, pan casero tostado, lechuga, tomate', price: 30000, promo: null, image_url: null, category: 'Lomito', extras: [{ n: 'Huevo frito', p: 3000 }, { n: 'Queso', p: 3000 }] },
-    { id: 10, name: 'Lomito completo', desc: 'Lomo, huevo, jamón, queso, lechuga, tomate, mayo', price: 38000, promo: null, image_url: null, category: 'Lomito', extras: [{ n: 'Extra carne', p: 10000 }] },
-    { id: 11, name: 'Lomito americano', desc: 'Lomo, cheddar fundido, bacon, salsa americana', price: 35000, promo: { tag: 'Chef ★' }, image_url: null, category: 'Lomito', extras: [{ n: 'Panceta extra', p: 5000 }] }
-  ],
-  Bebidas: [
-    { id: 12, name: 'Coca-Cola', desc: 'Lata 350ml bien fría', price: 8000, promo: null, image_url: null, category: 'Bebidas', extras: [] },
-    { id: 13, name: 'Cerveza Pilsen', desc: 'Botella 500ml importada', price: 15000, promo: { tag: '2×1' }, image_url: null, category: 'Bebidas', extras: [] },
-    { id: 14, name: 'Jugo natural', desc: 'Naranja, mango o maracuyá. 400ml al momento', price: 12000, promo: null, image_url: null, category: 'Bebidas', extras: [] },
-    { id: 15, name: 'Agua mineral', desc: '500ml con o sin gas', price: 5000, promo: null, image_url: null, category: 'Bebidas', extras: [] }
-  ]
-};
+/* Sin menú estático/demo: el menú SIEMPRE viene de la base de datos del
+   restaurante real (resuelto por ?r= / config). Si está vacío, el panel
+   muestra un estado "sin menú" en vez de improvisar platos ficticios. */
 
 /* ── SUPABASE HELPERS ────────────────────── */
 async function dbLoadRestaurant() {
@@ -429,7 +400,7 @@ const inputStyle = (T) => ({
 /* ══ PANTALLA 1 — BIENVENIDA ════════════ */
 function WelcomeScreen({ restaurant, onDelivery, onPickup, onReserva }) {
   const T = useContext(ThemeCtx);
-  const restName = restaurant?.name || 'La Huaca';
+  const restName = restaurant?.name || 'Restaurante';
   const logoUrl  = restaurant?.logo_url || null;
   const initials = restaurant?.logo_initials || restName.slice(0,2).toUpperCase();
 
@@ -508,7 +479,9 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
 
   const restLat = restaurant?.lat || null;
   const restLng = restaurant?.lng || null;
-  const activeZones = zones.length > 0 ? zones : FALLBACK_ZONES;
+  // Sin zonas demo: si el local todavía no configuró cobertura, no inventamos
+  // zonas/precios. La búsqueda devolverá "fuera de cobertura" y se ofrece retiro.
+  const activeZones = zones;
 
   const tryGeo = () => {
     if (!navigator.geolocation) { setStatus('manual'); return; }
@@ -552,9 +525,6 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
         <div style={{ fontSize: 22, fontWeight: 800, color: T.ink }}>¿Llegamos a tu zona?</div>
         <div style={{ fontSize: 14, color: T.gray, marginTop: 6, lineHeight: 1.6 }}>
           Calculamos el costo de envío según la distancia al local.
-        </div>
-        <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 5, background: '#FFF7ED', border: '1px solid #FDE68A', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: '#92400E' }}>
-          <span>🗺️</span> Usando cálculo estimado por zonas (Google Maps en modo demostración)
         </div>
       </div>
 
@@ -942,9 +912,9 @@ function ProductModal({ item, onClose, onAdd }) {
 }
 
 /* ══ PANTALLA 4 — MENÚ ══════════════════ */
-function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, orderType }) {
+function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, orderType, menuStatus }) {
   const T        = useContext(ThemeCtx);
-  const liveMenu = useContext(MenuCtx) || MENU_STATIC;
+  const liveMenu = useContext(MenuCtx) || {};
   const restaurant = useContext(RestaurantCtx);
   const CATS     = Object.keys(liveMenu);
   const ALL_ITEMS = CATS.flatMap(c => liveMenu[c]);
@@ -952,7 +922,7 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, orderType 
   const [search, setSearch]       = useState('');
   const catRefs   = useRef({});
   const scrollRef = useRef();
-  const restName  = restaurant?.name || 'La Huaca';
+  const restName  = restaurant?.name || 'Restaurante';
 
   const promoItems = ALL_ITEMS.filter(i => i.promo);
   const featured   = ALL_ITEMS.find(i => i.promo?.tag?.includes('★')) || promoItems[0] || null;
@@ -994,7 +964,17 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, orderType 
 
       {/* Scroll de items */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-        {filtered ? (
+        {CATS.length === 0 ? (
+          <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '60px 32px', gap: 12 }}>
+            <Icon name="utensils" size={40} color={T.silver} />
+            <div style={{ fontSize: 17, fontWeight: 800, color: T.ink }}>
+              {menuStatus === 'empty' ? 'Menú no disponible todavía' : 'Cargando menú…'}
+            </div>
+            {menuStatus === 'empty' && <div style={{ fontSize: 13, color: T.gray, lineHeight: 1.7, maxWidth: 280 }}>
+              {restName} todavía no publicó su carta. Volvé a intentarlo en un rato o actualizá la página.
+            </div>}
+          </div>
+        ) : filtered ? (
           <div style={{ padding: '16px 20px' }}>
             <div style={{ fontSize: 12, color: T.gray, marginBottom: 12 }}>{filtered.length} resultado{filtered.length !== 1 ? 's' : ''} · "{search}"</div>
             {filtered.map(item => <ProdCard key={item.id} item={item} onSelect={onItemSelect} />)}
@@ -1694,7 +1674,7 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
       {isDelivered && !ratingSent && (
         <div style={{ padding: '24px 24px 40px', borderTop: `2px solid ${T.border}`, background: T.white }}>
           <div style={{ fontSize: 20, fontWeight: 800, color: T.ink, marginBottom: 4 }}>¿Cómo estuvo tu pedido?</div>
-          <div style={{ fontSize: 13, color: T.gray, marginBottom: 20 }}>{restaurant?.name || 'La Huaca'} · {isDelivery ? 'Delivery' : 'Retiro en local'}</div>
+          <div style={{ fontSize: 13, color: T.gray, marginBottom: 20 }}>{restaurant?.name || 'Restaurante'} · {isDelivery ? 'Delivery' : 'Retiro en local'}</div>
 
           {/* Estrellas */}
           <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
@@ -1773,7 +1753,7 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
 function ReservaScreen({ onBack, onDone }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
-  const restName = restaurant?.name || 'La Huaca';
+  const restName = restaurant?.name || 'Restaurante';
   const [form, setForm] = useState({ name: '', phone: '', date: '', time: '', guests: 2, table_id: '', occasion: '', notes: '' });
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(null);
@@ -1911,6 +1891,33 @@ function ReservaScreen({ onBack, onDone }) {
 }
 
 /* ══ APP ROOT ════════════════════════════ */
+/* El panel de delivery NO es genérico: corresponde a un local concreto, abierto
+   desde el link que comparte el restaurante (?r=). Sin contexto válido mostramos
+   una guía en vez de un menú/local demo con nombre y ubicación random. */
+function GateScreen({ kind }) {
+  const T = useContext(ThemeCtx);
+  const COPY = {
+    'no-context': {
+      icon: '🔗',
+      title: 'Abrí el delivery desde el local',
+      body: 'Este enlace no identifica a ningún restaurante. Abrí el link de delivery que comparte el local para ver su menú y hacer tu pedido.',
+    },
+    'not-found': {
+      icon: '🏪',
+      title: 'Restaurante no disponible',
+      body: 'No encontramos este restaurante. Puede que el enlace haya cambiado o que el local todavía no esté activo. Pedí un link actualizado.',
+    },
+  };
+  const c = COPY[kind] || COPY['no-context'];
+  return (
+    <div style={{ minHeight: '100%', background: T.white, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 32px', textAlign: 'center', gap: 16 }}>
+      <div style={{ fontSize: 54, lineHeight: 1 }}>{c.icon}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: T.ink, lineHeight: 1.25 }}>{c.title}</div>
+      <div style={{ fontSize: 14, color: T.gray, lineHeight: 1.7, maxWidth: 300 }}>{c.body}</div>
+    </div>
+  );
+}
+
 function App() {
   const theme = makeTheme();
 
@@ -1935,11 +1942,14 @@ function App() {
   const [toast, setToast]                   = useState(null);
   const [payData, setPayData]               = useState({ subtotal: 0, fee: 0, total: 0 });
   const [restaurant, setRestaurant]         = useState(null);
+  const [restaurantStatus, setRestaurantStatus] = useState('loading'); // loading | ready | notfound
   const [liveMenu, setLiveMenu]             = useState(null);
+  const [menuStatus, setMenuStatus]         = useState('loading'); // loading | ready | empty
 
   useEffect(() => {
-    dbLoadRestaurant().then(r => { if (r) setRestaurant(r); });
-    dbLoadMenu().then(m => { if (m) setLiveMenu(m); });
+    if (!RESTAURANT_ID) { setRestaurantStatus('notfound'); setMenuStatus('empty'); return; }
+    dbLoadRestaurant().then(r => { if (r) { setRestaurant(r); setRestaurantStatus('ready'); } else { setRestaurantStatus('notfound'); } });
+    dbLoadMenu().then(m => { if (m) { setLiveMenu(m); setMenuStatus('ready'); } else { setMenuStatus('empty'); } });
     dbLoadDeliveryZones().then(z => setZones(z));
   }, []);
 
@@ -2000,11 +2010,16 @@ function App() {
 
   return (
     <ThemeCtx.Provider value={theme}>
-      <MenuCtx.Provider value={liveMenu || MENU_STATIC}>
+      <MenuCtx.Provider value={liveMenu || {}}>
         <RestaurantCtx.Provider value={restaurant}>
           <div className="phone-wrap">
             <div className="phone" style={{ background: theme.phoneBg }}>
               <div className="screen">
+                {!RESTAURANT_ID
+                  ? <GateScreen kind="no-context" />
+                  : restaurantStatus === 'notfound'
+                  ? <GateScreen kind="not-found" />
+                  : <>
                 {toast && <Toast msg={toast} onHide={() => setToast(null)} />}
                 {selItem && <ProductModal item={selItem} onClose={() => setSelItem(null)} onAdd={addToCart} />}
 
@@ -2021,7 +2036,7 @@ function App() {
                   <CustomerDataScreen orderType={orderType} deliveryResult={deliveryResult} onNext={handleCustomerNext} onBack={() => setScreen(orderType === 'delivery' ? 'coverage' : 'welcome')} />
                 )}
                 {screen === 'menu' && (
-                  <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} orderType={orderType} />
+                  <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} orderType={orderType} menuStatus={menuStatus} />
                 )}
                 {screen === 'cart' && (
                   <CartScreen items={cartItems} orderType={orderType} deliveryFee={deliveryFee} deliveryResult={deliveryResult} onBack={() => setScreen('menu')} onCheckout={handleCheckout} onRemove={removeItem} onQty={updateQty} />
@@ -2032,6 +2047,7 @@ function App() {
                 {screen === 'confirm' && (
                   <ConfirmScreen order={confirmedOrder} orderType={orderType} customerData={customerData} deliveryResult={deliveryResult} deliveryFee={deliveryFee} onNewOrder={handleNewOrder} />
                 )}
+                </>}
               </div>
             </div>
           </div>
