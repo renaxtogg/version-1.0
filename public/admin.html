@@ -3628,7 +3628,7 @@ function CajaAdminPage() {
                 <div style={{marginBottom:10,display:'flex',gap:6,flexWrap:'wrap'}}>
                   {turnos.slice(0,5).map(t=>(
                     <button key={t.id} onClick={()=>loadMovs(t)}
-                      style={{padding:'4px 10px',fontSize:11,borderRadius:5,border:`1px solid ${selTurno?.id===t.id?"#000000":C.border}`,background:selTurno?.id===t.id?'rgba(255,255,255,0.08)':'transparent',color:selTurno?.id===t.id?C.white:C.mid,cursor:'pointer',fontWeight:selTurno?.id===t.id?700:400}}>
+                      style={{padding:'4px 10px',fontSize:11,borderRadius:5,border:`1px solid ${selTurno?.id===t.id?C.ink:C.border}`,background:selTurno?.id===t.id?C.ink:'transparent',color:selTurno?.id===t.id?C.sidebar:C.mid,cursor:'pointer',fontWeight:selTurno?.id===t.id?700:400}}>
                       {fmtDate(t.fecha_apertura)} {t.cajero_nombre?`(${t.cajero_nombre.split(' ')[0]})`:''} {t.estado==='abierto'?'🟢':''}
                     </button>
                   ))}
