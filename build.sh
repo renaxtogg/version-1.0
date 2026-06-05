@@ -5,7 +5,10 @@ set -e
 strip_bom() { printf '%s' "$1" | sed 's/^\xef\xbb\xbf//'; }
 SUPABASE_URL=$(strip_bom "${SUPABASE_URL}")
 SUPABASE_ANON_KEY=$(strip_bom "${SUPABASE_ANON_KEY}")
-RESTAURANT_ID=$(strip_bom "${RESTAURANT_ID:-00000000-0000-0000-0000-000000000001}")
+# Sin default cableado: el restaurante se resuelve por contexto (?r= del QR/link,
+# localStorage del login, o RESTAURANT_ID env para un deploy de un solo local).
+# El UUID …0001 fue eliminado en la migración 096 — NO volver a usarlo como fallback.
+RESTAURANT_ID=$(strip_bom "${RESTAURANT_ID:-}")
 
 if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
   echo "SUPABASE_URL/ANON_KEY no configuradas — deploy en modo DEMO"

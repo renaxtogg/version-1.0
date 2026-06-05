@@ -50,7 +50,15 @@ const _initDB = () => {
   const url = cfg.url.replace(/^﻿/, '').trim();
   const key = cfg.anonKey.replace(/^﻿/, '').trim();
   if (!url || url.includes('YOUR_') || !key) return null;
-  try { return window.supabase.createClient(url, key); } catch(e) { return null; }
+  // Panel cliente PÚBLICO: nunca heredar la sesión de staff (admin/mozo/caja) que
+  // pudiera estar persistida en localStorage del mismo navegador. Sin esto, el pedido
+  // del cliente corre como ese usuario autenticado y RLS lo rechaza si el restaurant_id
+  // no coincide. Forzamos cliente anónimo (persistSession:false → storage en memoria).
+  try {
+    return window.supabase.createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false, storageKey: 'mythos-anon-cliente' }
+    });
+  } catch(e) { return null; }
 };
 const db = _initDB();
 const _urlParams = new URLSearchParams(window.location.search);
@@ -95,6 +103,7 @@ async function dbValidateCoupon(code) {
 
 async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmount, couponCode, total, payMethod, custName, custRuc, custEmail, requiresInvoice, invoiceDeliveryMethod, language }) {
   if (!items || items.length === 0) throw new Error('El carrito está vacío');
+  if (!RESTAURANT_ID) throw new Error('No se identificó el restaurante. Escaneá el QR de tu mesa o abrí el link con ?r=<restaurante>.');
   const safeTotal = total > 0 ? total : items.reduce((s, ci) => s + (ci.total || 0), 0);
   if (safeTotal <= 0) throw new Error('El total del pedido es inválido (₲0)');
   total = safeTotal;

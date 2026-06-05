@@ -46,7 +46,14 @@ const _initDB = () => {
   const url = cfg.url.replace(/^﻿/, '').trim();
   const key = cfg.anonKey.replace(/^﻿/, '').trim();
   if (!url || url.includes('YOUR_') || !key) return null;
-  try { return window.supabase.createClient(url, key); } catch(e) { return null; }
+  // Panel cliente PÚBLICO: nunca heredar la sesión de staff persistida en localStorage
+  // del mismo navegador. Sin esto, el pedido corre como ese usuario autenticado y RLS lo
+  // rechaza si el restaurant_id no coincide. Forzamos cliente anónimo.
+  try {
+    return window.supabase.createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false, storageKey: 'mythos-anon-delivery-cliente' }
+    });
+  } catch(e) { return null; }
 };
 const db = _initDB();
 
@@ -190,6 +197,7 @@ async function dbLoadDeliveryZones() {
 async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryFee, total, payMethod, customerData, zone, canal, cashAmount, requiresInvoice, custRuc, custEmail, invoiceDeliveryMethod }) {
   const orderNum = 'D-' + String(Math.floor(Date.now() % 90000) + 10000);
   if (!db) return { id: null, order_number: orderNum };
+  if (!RESTAURANT_ID) throw new Error('No se identificó el restaurante. Abrí el link de delivery con ?r=<restaurante>.');
 
   // order_type='delivery' para domicilio real; 'llevar' para retiro en local
   const dbOrderType = orderType === 'delivery' ? 'delivery' : 'llevar';
