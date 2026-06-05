@@ -211,6 +211,10 @@ const eventMeta = {
 };
 
 const ALL_ROLES = ['superadmin','admin','cajero','cocina','mozo','delivery'];
+// Roles asignables al crear usuarios. 'rider' no vive en user_roles: se crea en
+// delivery_riders con PIN (el panel Delivery loguea por PIN, no por contraseña).
+const NEW_USER_ROLES = ['admin','cajero','cocina','mozo','rider','delivery','superadmin'];
+function genRiderPin() { return String(Math.floor(1000 + Math.random() * 9000)); }
 
 // ── SaaS multi-comercio: ciudades, paneles, límites y add-ons ──
 const CITIES_PY = ['Asunción','Ciudad del Este','San Lorenzo','Luque','Fernando de la Mora','Lambaré','Encarnación','Capiatá','Mariano Roque Alonso','Ñemby','Limpio','Itauguá'];
@@ -1799,13 +1803,38 @@ function PageUsuarios({restaurants, setFlash}) {
   const [editForm, setEditForm] = useState({role:'admin',restaurant_id:'',display_name:''});
   const [saving,   setSaving]   = useState(false);
   const [newModal, setNewModal] = useState(false);
-  const [newForm,  setNewForm]  = useState({username:'',password:'',display_name:'',role:'admin',restaurant_id:''});
+  const [newForm,  setNewForm]  = useState({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''});
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState({}); // grupos de restaurante desplegados (acordeón)
 
   const createUser = async () => {
     if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
-    const { username, password, display_name, role, restaurant_id } = newForm;
+    const { username, password, pin, display_name, role, restaurant_id } = newForm;
+
+    // Riders: no usan auth/contraseña — se crean en delivery_riders con PIN, anclados
+    // a un restaurante, para que el panel Delivery (login por PIN) los reconozca.
+    if (role === 'rider') {
+      const riderName = (display_name.trim() || username.trim());
+      if (!riderName) { setFlash({type:'warn',text:'Ingresá el nombre del rider'}); return; }
+      if (!restaurant_id) { setFlash({type:'warn',text:'Asigná un restaurante al rider'}); return; }
+      if (!/^\d{4}$/.test(pin||'')) { setFlash({type:'warn',text:'El PIN del rider debe tener 4 dígitos'}); return; }
+      setCreating(true);
+      try {
+        const { error } = await db.from('delivery_riders').insert({
+          restaurant_id, name: riderName, phone: null,
+          vehicle: 'moto', commission_type: 'pct', commission_value: 0,
+          rider_pin: pin, active: true
+        });
+        if (error) throw new Error(error.message);
+        setFlash({type:'ok',text:`Rider "${riderName}" creado — PIN ${pin}`});
+        setNewModal(false);
+        setNewForm({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''});
+        loadUsers();
+      } catch(e) { setFlash({type:'error',text:e.message}); }
+      setCreating(false);
+      return;
+    }
+
     if (!username.trim()) { setFlash({type:'warn',text:'Ingresá un nombre de usuario'}); return; }
     if (password.length < 6) { setFlash({type:'warn',text:'La contraseña debe tener al menos 6 caracteres'}); return; }
     setCreating(true);
@@ -1822,7 +1851,7 @@ function PageUsuarios({restaurants, setFlash}) {
       if (!resp.ok) throw new Error(result.error || 'Error desconocido');
       setFlash({type:'ok',text:`Usuario "${result.username}" creado con éxito`});
       setNewModal(false);
-      setNewForm({username:'',password:'',display_name:'',role:'admin',restaurant_id:''});
+      setNewForm({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''});
       loadUsers();
     } catch(e) { setFlash({type:'error',text:e.message}); }
     setCreating(false);
@@ -1831,16 +1860,29 @@ function PageUsuarios({restaurants, setFlash}) {
   const loadUsers = useCallback(async () => {
     if (!db) { setLoading(false); return; }
     setLoading(true);
+    // Riders viven en delivery_riders (login por PIN); se fusionan a la grilla.
+    const ridersP = db.from('delivery_riders').select('id,restaurant_id,name,phone,rider_pin,active,created_at');
+    let base = [];
     const { data, error } = await db.rpc('admin_list_users');
     if (!error && data) {
-      setUsers(data);
+      base = data;
     } else if (error) {
       // Fallback: query directa a user_roles (funciona si las policies lo permiten)
       const { data: d2, error: e2 } = await db.from('user_roles')
         .select('id,user_id,email,username,display_name,role,restaurant_id,is_active,created_at')
         .order('created_at', { ascending: false });
-      if (!e2 && d2) setUsers(d2);
+      if (!e2 && d2) base = d2;
     }
+    const { data: ridersData } = await ridersP;
+    const riderRows = (ridersData||[]).map(r=>({
+      id:'rider_'+r.id, _riderId:r.id, _isRider:true, user_id:null,
+      username:r.rider_pin?('PIN '+r.rider_pin):'—', email:r.phone||'',
+      display_name:r.name||'—', role:'rider', restaurant_id:r.restaurant_id,
+      is_active:r.active!==false, created_at:r.created_at, last_sign_in_at:null
+    }));
+    // Evitar duplicar riders que también figuren en user_roles con rol rider.
+    const baseNoRider = (base||[]).filter(u=>(u.role||'').toLowerCase()!=='rider'&&(u.role||'').toLowerCase()!=='repartidor');
+    setUsers([...baseNoRider, ...riderRows]);
     setLoading(false);
   }, []);
 
@@ -1850,6 +1892,7 @@ function PageUsuarios({restaurants, setFlash}) {
     const interval = setInterval(()=>{ if(!_shouldPause()) loadUsers(); }, 30000);
     const ch = db.channel('usuarios-rt')
       .on('postgres_changes',{event:'*',schema:'public',table:'user_roles'},()=>{ if(!_shouldPause()) loadUsers(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'delivery_riders'},()=>{ if(!_shouldPause()) loadUsers(); })
       .subscribe();
     return ()=>{ clearInterval(interval); db.removeChannel(ch); };
   },[loadUsers]);
@@ -1882,8 +1925,16 @@ function PageUsuarios({restaurants, setFlash}) {
     if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
     setSaving(true);
     try {
-      const { error } = await db.rpc('admin_update_user_role',{p_user_id:editModal.user_id,p_role:editForm.role,p_restaurant_id:editForm.restaurant_id||null,p_display_name:editForm.display_name||null});
-      if (error) throw new Error(error.message);
+      if (editModal._isRider) {
+        // Rider: actualiza delivery_riders (nombre + restaurante). El rol es fijo.
+        const upd = {name:editForm.display_name||editModal.display_name};
+        if (editForm.restaurant_id) upd.restaurant_id = editForm.restaurant_id;
+        const { error } = await db.from('delivery_riders').update(upd).eq('id',editModal._riderId);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await db.rpc('admin_update_user_role',{p_user_id:editModal.user_id,p_role:editForm.role,p_restaurant_id:editForm.restaurant_id||null,p_display_name:editForm.display_name||null});
+        if (error) throw new Error(error.message);
+      }
       setFlash({type:'ok',text:`${editModal.display_name||editModal.username} actualizado`});
       setEditModal(null); loadUsers();
     } catch(e) { setFlash({type:'error',text:e.message}); }
@@ -1892,8 +1943,13 @@ function PageUsuarios({restaurants, setFlash}) {
 
   const toggleUser = async u => {
     if (!db) return;
-    const { error } = await db.rpc('admin_toggle_user',{p_user_id:u.user_id,p_active:!u.is_active});
-    if (error) { setFlash({type:'error',text:error.message}); return; }
+    if (u._isRider) {
+      const { error } = await db.from('delivery_riders').update({active:!u.is_active}).eq('id',u._riderId);
+      if (error) { setFlash({type:'error',text:error.message}); return; }
+    } else {
+      const { error } = await db.rpc('admin_toggle_user',{p_user_id:u.user_id,p_active:!u.is_active});
+      if (error) { setFlash({type:'error',text:error.message}); return; }
+    }
     setFlash({type:'ok',text:`${u.display_name||u.username} → ${!u.is_active?'activo':'desactivado'}`});
     loadUsers();
   };
@@ -1907,7 +1963,7 @@ function PageUsuarios({restaurants, setFlash}) {
         </div>
         <div style={{display:'flex',gap:10,alignItems:'center'}}>
           <input placeholder="Buscar usuario, email, restaurante..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:260}}/>
-          <Btn onClick={()=>{ setNewForm({username:'',password:'',display_name:'',role:'admin',restaurant_id:''}); setNewModal(true); }} disabled={!db}>+ Nuevo usuario</Btn>
+          <Btn onClick={()=>{ setNewForm({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''}); setNewModal(true); }} disabled={!db}>+ Nuevo usuario</Btn>
         </div>
       </div>
 
@@ -1981,46 +2037,64 @@ function PageUsuarios({restaurants, setFlash}) {
 
       {newModal&&(
         <Modal title="Nuevo usuario" onClose={()=>setNewModal(false)}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
-            <FormField label="Usuario *">
-              <input
-                value={newForm.username}
-                onChange={e=>setNewForm(f=>({...f,username:e.target.value}))}
-                placeholder="ej: mariaperez"
-                autoFocus
-              />
-            </FormField>
-            <FormField label="Nombre para mostrar">
+          <div style={{display:'grid',gridTemplateColumns:newForm.role==='rider'?'1fr':'1fr 1fr',gap:'0 16px'}}>
+            {newForm.role!=='rider'&&(
+              <FormField label="Usuario *">
+                <input
+                  value={newForm.username}
+                  onChange={e=>setNewForm(f=>({...f,username:e.target.value}))}
+                  placeholder="ej: mariaperez"
+                  autoFocus
+                />
+              </FormField>
+            )}
+            <FormField label={newForm.role==='rider'?'Nombre del rider *':'Nombre para mostrar'}>
               <input
                 value={newForm.display_name}
                 onChange={e=>setNewForm(f=>({...f,display_name:e.target.value}))}
-                placeholder="ej: María Pérez"
+                placeholder={newForm.role==='rider'?'ej: Juan Repartidor':'ej: María Pérez'}
               />
             </FormField>
           </div>
-          <FormField label="Contraseña * (mínimo 6 caracteres)">
-            <input
-              type="password"
-              value={newForm.password}
-              onChange={e=>setNewForm(f=>({...f,password:e.target.value}))}
-              placeholder="Contraseña segura"
-            />
-          </FormField>
+          {newForm.role==='rider' ? (
+            <FormField label="PIN de acceso (4 dígitos) *">
+              <div style={{display:'flex',gap:8}}>
+                <input
+                  value={newForm.pin}
+                  onChange={e=>setNewForm(f=>({...f,pin:e.target.value.replace(/\D/g,'').slice(0,4)}))}
+                  placeholder="0000"
+                  style={{flex:1,fontFamily:"'SF Mono',ui-monospace,monospace",letterSpacing:3}}
+                />
+                <Btn variant="ghost" onClick={()=>setNewForm(f=>({...f,pin:genRiderPin()}))}>Generar</Btn>
+              </div>
+            </FormField>
+          ) : (
+            <FormField label="Contraseña * (mínimo 6 caracteres)">
+              <input
+                type="password"
+                value={newForm.password}
+                onChange={e=>setNewForm(f=>({...f,password:e.target.value}))}
+                placeholder="Contraseña segura"
+              />
+            </FormField>
+          )}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
             <FormField label="Rol">
-              <select value={newForm.role} onChange={e=>setNewForm(f=>({...f,role:e.target.value}))}>
-                {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+              <select value={newForm.role} onChange={e=>{const nr=e.target.value;setNewForm(f=>({...f,role:nr,pin:nr==='rider'&&!f.pin?genRiderPin():f.pin}));}}>
+                {NEW_USER_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
               </select>
             </FormField>
-            <FormField label="Restaurante asignado">
+            <FormField label={newForm.role==='rider'?'Restaurante asignado *':'Restaurante asignado'}>
               <select value={newForm.restaurant_id} onChange={e=>setNewForm(f=>({...f,restaurant_id:e.target.value}))}>
-                <option value="">Sin restaurante (global)</option>
+                <option value="">{newForm.role==='rider'?'Seleccioná un restaurante…':'Sin restaurante (global)'}</option>
                 {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
             </FormField>
           </div>
           <div style={{padding:'10px 14px',background:C.bg,borderRadius:8,fontSize:12,color:C.mid,marginTop:4}}>
-            El usuario iniciará sesión con su nombre de usuario y contraseña. El email asignado es interno.
+            {newForm.role==='rider'
+              ? 'El rider accede al panel Delivery del restaurante ingresando su PIN de 4 dígitos (no usa usuario ni contraseña). Aparecerá de inmediato en el módulo Delivery.'
+              : 'El usuario iniciará sesión con su nombre de usuario y contraseña. El email asignado es interno.'}
           </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
             <Btn variant="ghost" onClick={()=>setNewModal(false)} disabled={creating}>Cancelar</Btn>
@@ -2036,17 +2110,24 @@ function PageUsuarios({restaurants, setFlash}) {
           </FormField>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
             <FormField label="Rol">
-              <select value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))}>
-                {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
-              </select>
+              {editModal._isRider
+                ? <input value="rider" disabled style={{opacity:.6}}/>
+                : <select value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))}>
+                    {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+                  </select>}
             </FormField>
             <FormField label="Restaurante asignado">
               <select value={editForm.restaurant_id} onChange={e=>setEditForm(f=>({...f,restaurant_id:e.target.value}))}>
-                <option value="">Todos los restaurantes</option>
+                <option value="">{editModal._isRider?'Seleccioná un restaurante…':'Todos los restaurantes'}</option>
                 {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
             </FormField>
           </div>
+          {editModal._isRider&&editModal.username&&(
+            <div style={{padding:'8px 14px',background:C.bg,borderRadius:8,fontSize:12,color:C.mid,marginTop:8}}>
+              {editModal.username} · accede al panel Delivery por PIN. Gestioná el PIN desde el módulo Delivery del restaurante.
+            </div>
+          )}
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <Btn variant="ghost" onClick={()=>setEditModal(null)}>Cancelar</Btn>
             <Btn onClick={saveEdit} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
