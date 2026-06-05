@@ -866,17 +866,17 @@ function CajaLive() {
   }, []);
   useEffect(() => { load(); const id = setInterval(() => { if (!_shouldPause()) load(); }, 20000); return () => clearInterval(id); }, [load]);
 
-  if (loading) return <div style={{padding:40,textAlign:'center'}}><div className="spin"/></div>;
-
-  const abiertos = turnos.filter(t => t.estado === 'abierto');
-  const cerrados = turnos.filter(t => t.estado === 'cerrado');
-
   const totales = useMemo(() => {
     const cobros = movs.filter(m => m.tipo === 'cobro').reduce((s,m) => s + Number(m.monto||0), 0);
     const egresos = movs.filter(m => ['egreso','retiro_parcial'].includes(m.tipo)).reduce((s,m) => s + Number(m.monto||0), 0);
     const ingresos = movs.filter(m => ['ingreso_manual','reposicion','propina'].includes(m.tipo)).reduce((s,m) => s + Number(m.monto||0), 0);
     return { cobros, egresos, ingresos };
   }, [movs]);
+
+  if (loading) return <div style={{padding:40,textAlign:'center'}}><div className="spin"/></div>;
+
+  const abiertos = turnos.filter(t => t.estado === 'abierto');
+  const cerrados = turnos.filter(t => t.estado === 'cerrado');
 
   return (
     <div className="page">
