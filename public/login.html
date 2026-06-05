@@ -99,9 +99,9 @@
   function homeForRole(role) {
     switch ((role || '').toLowerCase()) {
       case 'superadmin':       return 'superadmin.html';
-      case 'admin':
+      case 'admin':            return 'admin.html';
       case 'gerente':
-      case 'supervisor_local': return 'admin.html';
+      case 'supervisor_local': return 'gerente.html';
       case 'cajero':
       case 'caja':             return 'caja.html';
       case 'mozo':             return 'mozo.html';
