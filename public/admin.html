@@ -106,6 +106,9 @@ function mesaLabel(o) {
 const ROLES = ['cocina','admin','superadmin','waiter','cajero'];
 /* Roles que el Admin puede asignar (no puede crear admins ni superadmins) */
 const ADMIN_ALLOWED_ROLES = ['cajero','mozo','cocina','rider','supervisor_local'];
+/* Etiquetas legibles (la clave es el string real en user_roles). 'supervisor_local' = Gerente */
+const ROLE_LABEL = {superadmin:'Superadmin',admin:'Admin',supervisor_local:'Gerente',gerente:'Gerente',cajero:'Cajero',cocina:'Cocina',mozo:'Mozo',waiter:'Mozo',delivery:'Delivery',rider:'Rider',repartidor:'Rider'};
+const roleLabel = r => ROLE_LABEL[(r||'').toLowerCase()] || r || '—';
 /* PIN de 4 dígitos para riders (login del panel Delivery es por PIN, no por contraseña) */
 function genRiderPin() { return String(Math.floor(1000 + Math.random() * 9000)); }
 
@@ -2478,8 +2481,8 @@ function PersonalPage() {
                     <Td dim style={{fontSize:11}}>{p.email||'—'}</Td>
                     <Td>
                       {editId===p.id&&!p._isRider
-                        ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:140}}>{ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{r}</option>)}</Sel>
-                        :<span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{p.role}{p._isRider?' · delivery':''}</span>}
+                        ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:140}}>{ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}</Sel>
+                        :<span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{roleLabel(p.role)}{p._isRider?' · delivery':''}</span>}
                     </Td>
                     <Td>
                       {editId===p.id
@@ -2511,7 +2514,7 @@ function PersonalPage() {
               <div>
                 <Lbl>Rol</Lbl>
                 <Sel value={addForm.role} onChange={e=>{const nr=e.target.value;setAddForm(f=>({...f,role:nr,pin:nr==='rider'&&!f.pin?genRiderPin():f.pin}));}} style={{width:'100%'}}>
-                  {ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+                  {ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}
                 </Sel>
               </div>
               {addForm.role==='rider' ? (
@@ -2617,7 +2620,7 @@ function PersonalPage() {
               <div><Lbl>EMPLEADO *</Lbl>
                 <Sel value={shiftEmp} onChange={e=>setShiftEmp(e.target.value)}>
                   <option value="">Seleccionar…</option>
-                  {profiles.filter(p=>p.is_active!==false).map(p=><option key={p.id} value={p.id}>{p.display_name||p.username} ({p.role})</option>)}
+                  {profiles.filter(p=>p.is_active!==false).map(p=><option key={p.id} value={p.id}>{p.display_name||p.username} ({roleLabel(p.role)})</option>)}
                 </Sel>
               </div>
               <div style={{fontSize:12,color:C.mid}}>Hora de entrada: {new Date().toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'})}</div>

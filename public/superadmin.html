@@ -210,10 +210,19 @@ const eventMeta = {
   payment_received:     {label:'Pago'},
 };
 
-const ALL_ROLES = ['superadmin','admin','cajero','cocina','mozo','delivery'];
+const ALL_ROLES = ['superadmin','admin','supervisor_local','cajero','cocina','mozo','delivery'];
 // Roles asignables al crear usuarios. 'rider' no vive en user_roles: se crea en
 // delivery_riders con PIN (el panel Delivery loguea por PIN, no por contraseña).
-const NEW_USER_ROLES = ['admin','cajero','cocina','mozo','rider','delivery','superadmin'];
+// 'supervisor_local' es el rol manager (etiqueta "Gerente"): el login lo enruta a
+// admin.html y desde ahí accede al sub-panel Gerente.
+const NEW_USER_ROLES = ['admin','supervisor_local','cajero','cocina','mozo','rider','delivery','superadmin'];
+// Etiquetas legibles para los dropdowns/badges (la clave es el string real en user_roles).
+const ROLE_LABEL = {
+  superadmin:'Superadmin', admin:'Admin', supervisor_local:'Gerente',
+  cajero:'Cajero', cocina:'Cocina', mozo:'Mozo', delivery:'Delivery', rider:'Rider',
+  gerente:'Gerente', repartidor:'Rider', waiter:'Mozo'
+};
+const roleLabel = r => ROLE_LABEL[(r||'').toLowerCase()] || r || '—';
 function genRiderPin() { return String(Math.floor(1000 + Math.random() * 9000)); }
 
 // ── SaaS multi-comercio: ciudades, paneles, límites y add-ons ──
@@ -1837,6 +1846,8 @@ function PageUsuarios({restaurants, setFlash}) {
 
     if (!username.trim()) { setFlash({type:'warn',text:'Ingresá un nombre de usuario'}); return; }
     if (password.length < 6) { setFlash({type:'warn',text:'La contraseña debe tener al menos 6 caracteres'}); return; }
+    // Roles operativos (todo menos superadmin) requieren restaurante: sin él, el login los rechaza.
+    if (role !== 'superadmin' && !restaurant_id) { setFlash({type:'warn',text:`Asigná un restaurante al ${roleLabel(role)}`}); return; }
     setCreating(true);
     try {
       const { data: { session } } = await db.auth.getSession();
@@ -2007,7 +2018,7 @@ function PageUsuarios({restaurants, setFlash}) {
                       </Td>
                       <Td style={{fontWeight:500}}>{u.display_name||'—'}</Td>
                       <Td>
-                        <span style={{padding:'2px 8px',borderRadius:12,fontSize:11,fontWeight:700,background:C.bg,color:C.mid}}>{u.role}</span>
+                        <span style={{padding:'2px 8px',borderRadius:12,fontSize:11,fontWeight:700,background:C.bg,color:C.mid}}>{roleLabel(u.role)}</span>
                       </Td>
                       <Td>
                         <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,fontWeight:600,color:u.is_active?C.ink:C.dim}}>
@@ -2081,7 +2092,7 @@ function PageUsuarios({restaurants, setFlash}) {
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
             <FormField label="Rol">
               <select value={newForm.role} onChange={e=>{const nr=e.target.value;setNewForm(f=>({...f,role:nr,pin:nr==='rider'&&!f.pin?genRiderPin():f.pin}));}}>
-                {NEW_USER_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+                {NEW_USER_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}
               </select>
             </FormField>
             <FormField label={newForm.role==='rider'?'Restaurante asignado *':'Restaurante asignado'}>
@@ -2113,7 +2124,7 @@ function PageUsuarios({restaurants, setFlash}) {
               {editModal._isRider
                 ? <input value="rider" disabled style={{opacity:.6}}/>
                 : <select value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))}>
-                    {ALL_ROLES.map(r=><option key={r} value={r}>{r}</option>)}
+                    {ALL_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}
                   </select>}
             </FormField>
             <FormField label="Restaurante asignado">
