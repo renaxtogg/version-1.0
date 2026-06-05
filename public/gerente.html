@@ -221,7 +221,7 @@ function useAuth() {
       if (!session) { window.location.replace('login.html?next=gerente.html'); return; }
       const { data: profile } = await db.rpc('get_my_profile');
       if (!profile) { window.location.replace('login.html?next=gerente.html'); return; }
-      const allowed = ['supervisor_local','admin','superadmin'];
+      const allowed = ['gerente','supervisor_local','admin','superadmin'];
       if (!allowed.includes(profile.role)) {
         toast('Acceso denegado: rol no autorizado para este panel', false);
         setTimeout(() => window.location.replace('login.html'), 1500);
