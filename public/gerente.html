@@ -2270,7 +2270,7 @@ function App() {
       </aside>
 
       {/* Main */}
-      <main style={{flex:1,padding:'28px 32px',overflowX:'auto'}}>
+      <main style={{flex:1,padding:'28px 32px',overflowX:'auto',background:C.bg}}>
         {section==='dashboard'    && <Dashboard onJump={setSection}/>}
         {section==='turno'        && <SupervisionTurno/>}
         {section==='aprobaciones' && <Aprobaciones user={auth.user} userName={auth.name}/>}
