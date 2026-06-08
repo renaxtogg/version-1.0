@@ -83,7 +83,7 @@
 
   // Limpia sólo las claves de sesión previas (no toca tema ni cachés de menú)
   function clearSession() {
-    ['mythos_role','mythos_restaurant_id','mythos_user_id','mythos_display_name']
+    ['mythos_role','mythos_restaurant_id','mythos_user_id','mythos_display_name','mythos_last_activity']
       .forEach(k => { try { localStorage.removeItem(k); } catch(_) {} });
   }
 
@@ -93,6 +93,8 @@
       localStorage.setItem('mythos_role',          profile.role          || '');
       localStorage.setItem('mythos_user_id',        profile.id            || '');
       localStorage.setItem('mythos_display_name',   profile.display_name  || profile.username || '');
+      // Arranca el reloj de inactividad (mythos-session.js) de cero en cada login.
+      localStorage.setItem('mythos_last_activity',  String(Date.now()));
     } catch(_) {}
   }
 

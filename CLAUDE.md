@@ -22,7 +22,7 @@
 |---|---|
 | `public/index.html` | Cliente QR (scan→menú→cart→pago→tracking→rating→factura) |
 | `public/delivery-cliente.html` | Cliente delivery (pedido a domicilio, tracking en tiempo real) |
-| `public/delivery-rider.html` | Panel rider (login por PIN, lista de pedidos, cambio de estado) |
+| `public/delivery-rider.html` | Panel rider (login por correo+contraseña, lista de pedidos, cambio de estado) |
 | `public/cocina.html` | KDS cocina (kanban + estaciones de despacho con link compartible) |
 | `public/mozo.html` | Panel mozo (mesas, transferencia entre mozos, filtro Mis/Todas) |
 | `public/caja.html` | Panel caja (turnos, cobros, fondo fijo, facturación, modo offline) |

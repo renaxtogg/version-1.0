@@ -93,6 +93,11 @@ module.exports = async function handler(req, res) {
 
     const body = req.body || {};
     const { username, password, display_name, role, restaurant_id } = body;
+    // Campos opcionales del perfil operativo de rider (sólo se usan si role === 'rider').
+    const riderVehicle   = typeof body.vehicle === 'string' ? body.vehicle : 'moto';
+    const riderCommType  = typeof body.commission_type === 'string' ? body.commission_type : 'pct';
+    const riderCommValue = Number.isFinite(+body.commission_value) ? +body.commission_value : 0;
+    const riderPhone     = (typeof body.phone === 'string' && body.phone.trim()) ? body.phone.trim() : null;
 
     if (!username || typeof username !== 'string' || username.trim().length < 2) {
       res.status(400).json({ error: 'Nombre de usuario requerido (mínimo 2 caracteres)' }); return;
@@ -171,6 +176,36 @@ module.exports = async function handler(req, res) {
       await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
         { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
       res.status(400).json({ error: roleErr?.message || 'Error al asignar rol' }); return;
+    }
+
+    // Riders: además de la cuenta auth + user_roles, crear su ficha operativa en
+    // delivery_riders vinculada por user_id. El panel rider la resuelve con auth.uid()
+    // (login por correo+contraseña, sin PIN — ver migración 101).
+    if (role === 'rider') {
+      const riderInsertResp = await httpsPost(
+        `${SUPABASE_URL}/rest/v1/delivery_riders`,
+        { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY, 'Prefer': 'return=representation' },
+        JSON.stringify({
+          restaurant_id: finalRestaurantId,
+          user_id: newUserId,
+          name: display_name || username,
+          phone: riderPhone,
+          vehicle: riderVehicle,
+          commission_type: riderCommType,
+          commission_value: riderCommValue,
+          active: true
+        })
+      );
+      if (!riderInsertResp.ok) {
+        const rErr = riderInsertResp.data;
+        // Rollback total: borrar user_roles + cuenta auth para no dejar huérfanos.
+        await httpsDelete(`${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${newUserId}`,
+          { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+        await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
+          { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+        res.status(400).json({ error: (rErr && (rErr.message || rErr.msg)) || 'Error al crear la ficha del rider' });
+        return;
+      }
     }
 
     res.status(200).json({ success: true, user_id: newUserId, username: usernameClean, email });

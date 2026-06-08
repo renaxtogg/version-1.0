@@ -13,6 +13,7 @@
 <script src="config.js"></script>
 <script>window.MYTHOS_PRESENCE_MANUAL = true;</script>
 <script src="mythos-presence.js"></script>
+<script src="mythos-session.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
@@ -75,71 +76,19 @@ function Spinner() {
 }
 
 /* ─────────────────────────────────────────
-   PANTALLA: LOGIN
+   PANTALLA: ERROR (cuenta sin ficha de rider / desactivada)
+   El login es por correo+contraseña en login.html; acá ya no hay PIN.
 ───────────────────────────────────────── */
-function LoginScreen({ onLogin }) {
-  const [pin, setPin] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  async function handleLogin() {
-    const trimmed = pin.trim();
-    if (trimmed.length < 4) { setError('El PIN debe tener al menos 4 dígitos'); return; }
-    if (!db) { setError('Sin conexión a base de datos'); return; }
-    setLoading(true); setError('');
-    const { data, error: dbErr } = await db
-      .from('delivery_riders')
-      .select('*')
-      .eq('restaurant_id', RID)
-      .eq('rider_pin', trimmed)
-      .eq('active', true)
-      .maybeSingle();
-    if (dbErr || !data) {
-      setError('PIN incorrecto o rider inactivo');
-      setLoading(false);
-      return;
-    }
-    onLogin(data);
-  }
-
+function ErrorScreen({ msg, onLogout }) {
   return (
-    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'#fff'}}>
-      <div style={{fontSize:52,marginBottom:8,animation:'popIn .3s ease'}}>🛵</div>
-      <div style={{fontSize:24,fontWeight:800,color:'#1D1D1F',marginBottom:4}}>Panel Rider</div>
-      <div style={{fontSize:14,color:'#86868B',marginBottom:44,textAlign:'center'}}>Ingresá tu PIN de acceso</div>
-
-      <input
-        type="tel"
-        inputMode="numeric"
-        maxLength={6}
-        placeholder="• • • •"
-        value={pin}
-        onChange={e => { setPin(e.target.value.replace(/\D/g,'')); setError(''); }}
-        onKeyDown={e => e.key === 'Enter' && handleLogin()}
-        autoFocus
-        style={{
-          width:'100%', padding:'18px 20px', fontSize:32, fontWeight:800,
-          textAlign:'center', border:`2px solid ${error?'#FF3B30':'#D2D2D7'}`,
-          borderRadius:16, background:'#F5F5F7', outline:'none', letterSpacing:12,
-          marginBottom:10, color:'#1D1D1F', fontFamily:"'SF Mono',ui-monospace,monospace",
-          transition:'border-color .15s'
-        }}
-      />
-
-      {error
-        ? <div style={{fontSize:13,color:'#FF3B30',marginBottom:16,textAlign:'center',minHeight:20}}>{error}</div>
-        : <div style={{minHeight:36}} />
-      }
-
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'#fff',textAlign:'center'}}>
+      <div style={{fontSize:52,marginBottom:12}}>🛵</div>
+      <div style={{fontSize:20,fontWeight:800,color:'#1D1D1F',marginBottom:10}}>No pudimos abrir tu panel</div>
+      <div style={{fontSize:14,color:'#86868B',marginBottom:32,lineHeight:1.5,maxWidth:300}}>{msg}</div>
       <button
-        onClick={handleLogin}
-        disabled={loading || pin.length < 4}
-        style={{
-          width:'100%', padding:'18px', background:pin.length>=4?'#000':'#D2D2D7',
-          color:'#fff', border:'none', borderRadius:16, fontSize:17, fontWeight:700,
-          cursor:pin.length>=4?'pointer':'default', transition:'background .15s'
-        }}
-      >{loading ? '…' : 'Entrar'}</button>
+        onClick={onLogout}
+        style={{width:'100%',padding:'16px',background:'#000',color:'#fff',border:'none',borderRadius:16,fontSize:16,fontWeight:700,cursor:'pointer'}}
+      >Volver al inicio de sesión</button>
     </div>
   );
 }
@@ -624,10 +573,11 @@ function HistoryScreen({ rider, onBack }) {
    APP ROOT
 ───────────────────────────────────────── */
 function App() {
-  const [screen, setScreen]       = useState('login');
+  const [screen, setScreen]       = useState('loading');
   const [rider, setRider]         = useState(null);
   const [activeOrders, setActiveOrders] = useState([]);
   const [stats, setStats]         = useState({ count:0, earned:0, avgMin:0 });
+  const [errMsg, setErrMsg]       = useState('');
 
   // Multi-tenant Engine: fail-safe — sin tenant en sesión, limpia y expulsa al login (salvo superadmin).
   useEffect(() => {
@@ -637,13 +587,31 @@ function App() {
     }
   }, []);
 
-  // Al montar: si la página se recargó mientras un rider estaba activo, limpiar su sesión en DB
+  // Resolver la ficha del rider desde la sesión auth — login por correo+contraseña (login.html),
+  // sin PIN. Emparejamos delivery_riders.user_id = auth.uid(). La sesión persiste entre cierres
+  // de pestaña (Supabase localStorage): al reabrir reanudamos sin re-login (cierre sólo por
+  // logout explícito o 1h de inactividad vía mythos-session.js).
   useEffect(() => {
-    const staleId = sessionStorage.getItem('rider_id');
-    if (staleId && db) {
-      db.from('delivery_riders').update({ current_status: 'disponible' }).eq('id', staleId)
-        .then(() => sessionStorage.removeItem('rider_id'));
-    }
+    let cancelled = false;
+    (async () => {
+      if (!db) { setErrMsg('Sin conexión a la base de datos.'); setScreen('error'); return; }
+      let uid = '';
+      try { const { data:{ user } } = await db.auth.getUser(); uid = user?.id || ''; } catch(_) {}
+      if (!uid) uid = localStorage.getItem('mythos_user_id') || '';
+      if (!uid) { window.location.replace('login.html?next=delivery-rider.html'); return; }
+      const { data, error } = await db.from('delivery_riders').select('*').eq('user_id', uid).maybeSingle();
+      if (cancelled) return;
+      if (error || !data) {
+        setErrMsg('Tu cuenta no está vinculada a un rider. Pedile al administrador que te dé de alta en Delivery → Riders.');
+        setScreen('error'); return;
+      }
+      if (data.active === false) {
+        setErrMsg('Tu cuenta de rider está desactivada. Contactá al administrador.');
+        setScreen('error'); return;
+      }
+      startRiderSession(data);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   async function loadStats(r) {
@@ -683,13 +651,12 @@ function App() {
 
   const pollRef = useRef(null);
 
-  function handleLogin(riderData) {
-    sessionStorage.setItem('rider_id', riderData.id);
-    // Registrar conexión del rider (login por PIN) para el módulo Personal del admin.
+  function startRiderSession(riderData) {
+    // Registrar conexión del rider para el módulo Personal del admin (presencia).
     try {
       window.MythosPresence?.start({
         restaurant_id: RID, role: 'rider', panel: 'delivery-rider',
-        rider_id: riderData.id, name: riderData.name || null
+        rider_id: riderData.id, user_id: riderData.user_id || null, name: riderData.name || null
       });
     } catch(_) {}
     setRider(riderData);
@@ -715,15 +682,15 @@ function App() {
   async function handleLogout() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     try { await window.MythosPresence?.stop('manual'); } catch(_) {}
-    sessionStorage.removeItem('rider_id');
     if (rider?.id && db) {
       await db.from('delivery_riders').update({ current_status: 'disponible' }).eq('id', rider.id);
-      db.removeAllChannels();
+      try { db.removeAllChannels(); } catch(_) {}
     }
-    setRider(null);
-    setActiveOrders([]);
-    setStats({ count:0, earned:0, avgMin:0 });
-    setScreen('login');
+    // El rider es una cuenta auth real → cerrar sesión Supabase y volver al login.
+    try { await db?.auth.signOut(); } catch(_) {}
+    ['mythos_role','mythos_restaurant_id','mythos_user_id','mythos_display_name','mythos_last_activity']
+      .forEach(k => { try { localStorage.removeItem(k); } catch(_) {} });
+    window.location.replace('login.html');
   }
 
   function handleStartRoute(orders) {
@@ -743,8 +710,9 @@ function App() {
     <div className="phone-wrap">
       <div className="phone">
         <div className="screen">
-          {screen === 'login' && (
-            <LoginScreen onLogin={handleLogin} />
+          {screen === 'loading' && <Spinner />}
+          {screen === 'error' && (
+            <ErrorScreen msg={errMsg} onLogout={handleLogout} />
           )}
           {screen === 'home' && rider && (
             <HomeScreen

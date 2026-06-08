@@ -12,8 +12,8 @@
  *   - Paneles con login email/clave (auth): incluir <script src="mythos-presence.js">
  *     y listo — auto-arranca en DOMContentLoaded leyendo localStorage + token Supabase.
  *     En el botón "Salir" llamar: window.MythosPresence.stop('manual').
- *   - Panel rider (login por PIN, sin auth): setear window.MYTHOS_PRESENCE_MANUAL=true
- *     ANTES de incluir el script, y llamar start()/stop() a mano.
+ *   - Panel rider (login por correo+contraseña; resuelve su ficha por user_id): setear
+ *     window.MYTHOS_PRESENCE_MANUAL=true ANTES de incluir el script, y llamar start()/stop() a mano.
  *
  * Requiere window.SUPABASE_CONFIG (config.js) y window.supabase cargados antes.
  * ============================================================ */

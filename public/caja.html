@@ -11,6 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="mythos-presence.js"></script>
+<script src="mythos-session.js"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="mythos-gating.js"></script>
@@ -62,34 +63,28 @@ const _initDB = () => {
   const url = cfg.url.replace(/^﻿/,'').trim();
   const key = cfg.anonKey.replace(/^﻿/,'').trim();
   if (!url || url.includes('YOUR_') || !key) return null;
-  // ── Sesión POR PESTAÑA (seguridad de terminal de caja) ──────────────────
-  // La sesión vive en sessionStorage: al cerrar la pestaña se borra y caja
-  // vuelve a exigir login. Como login.html escribe en localStorage, hacemos un
-  // "puente": si el login dejó un token recién emitido, lo adoptamos en
-  // sessionStorage y lo quitamos de localStorage para que NO persista entre
-  // cierres de pestaña ni contamine otros paneles.
+  // ── Sesión persistente (localStorage, por defecto de supabase-js) ────────
+  // Caja recuerda la sesión entre cierres de pestaña, igual que el resto de los
+  // paneles. El cierre ocurre sólo por logout explícito o por inactividad
+  // (mythos-session.js, 1h). Si quedó un token en sessionStorage de la versión
+  // anterior (sesión por-pestaña), lo migramos UNA vez a localStorage para no
+  // patear al cajero que ya estaba logueado.
   try {
-    const ls = window.localStorage.getItem(SB_STORAGE_KEY);
-    if (ls) {
-      window.sessionStorage.setItem(SB_STORAGE_KEY, ls);
-      window.localStorage.removeItem(SB_STORAGE_KEY);
+    const ss = window.sessionStorage.getItem(SB_STORAGE_KEY);
+    if (ss && !window.localStorage.getItem(SB_STORAGE_KEY)) {
+      window.localStorage.setItem(SB_STORAGE_KEY, ss);
     }
+    window.sessionStorage.removeItem(SB_STORAGE_KEY);
   } catch (_) {}
   try {
-    return window.supabase.createClient(url, key, {
-      auth: {
-        storage: window.sessionStorage,
-        storageKey: SB_STORAGE_KEY,
-        persistSession: true,
-        autoRefreshToken: true,
-      },
-    });
+    return window.supabase.createClient(url, key);
   } catch(e) { return null; }
 };
 const db = _initDB();
-// ¿Esta pestaña tiene sesión propia? (token en sessionStorage) — permite
-// redirigir a login al instante en una pestaña nueva, sin esperar el refresh.
-const HAS_TAB_SESSION = (()=>{ try{ return !!window.sessionStorage.getItem(SB_STORAGE_KEY); }catch(_){ return false; } })();
+// ¿Hay sesión persistida? (token en localStorage) — permite redirigir a login al
+// instante cuando no hay sesión, sin esperar el refresh. Caja ya NO usa sesión
+// por-pestaña: la sesión se recuerda entre pestañas (cierre sólo por inactividad).
+const HAS_TAB_SESSION = (()=>{ try{ return !!window.localStorage.getItem(SB_STORAGE_KEY); }catch(_){ return false; } })();
 // Multi-tenant Engine: el comercio se resuelve desde la sesión activa (localStorage), sin UUID hardcodeado.
 const RESTAURANT_ID = localStorage.getItem('mythos_restaurant_id');
 let RID = RESTAURANT_ID; // alias retro-compatible; initApp lo reafirma con profile.restaurant_id
@@ -492,9 +487,9 @@ async function cerrarSesion(){
   if(!window.confirm('¿Cerrar sesión?'))return;
   try{await window.MythosPresence?.stop('manual');}catch(_){}
   try{await db.auth.signOut();}catch(e){}
-  // Borra la sesión por-pestaña (ambos almacenes) y las claves de tenancy/caja.
+  // Borra el token de sesión (ambos almacenes, por las dudas) y las claves de tenancy/caja.
   try{ sessionStorage.removeItem(SB_STORAGE_KEY); localStorage.removeItem(SB_STORAGE_KEY); }catch(_){}
-  ['mythos_role','mythos_restaurant_id','mythos_user_id','mythos_display_name','caja_panel','caja_cart']
+  ['mythos_role','mythos_restaurant_id','mythos_user_id','mythos_display_name','mythos_last_activity','caja_panel','caja_cart']
     .forEach(k=>{try{localStorage.removeItem(k);}catch(_){}});
   window.location.replace('login.html');
 }
@@ -4663,7 +4658,7 @@ async function bootstrap(){
   if(!db){window.location.replace('login.html?next=caja.html');return;}
   const{data:{session}}=await db.auth.getSession();
   if(session){await initApp(session);return;}
-  /* Pestaña nueva sin sesión propia → login de inmediato (caja = sesión por pestaña) */
+  /* Sin sesión persistida → login de inmediato */
   if(!HAS_TAB_SESSION){window.location.replace('login.html?next=caja.html');return;}
   /* Token vencido pero refresh token válido — esperamos el refresh automático */
   await new Promise(resolve=>{

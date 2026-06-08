@@ -38,6 +38,7 @@
 <body>
 <div id="root"></div>
 <script src="config.js"></script>
+<script src="mythos-session.js"></script>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef, useReducer } = React;
 
@@ -1748,30 +1749,9 @@ function PageUsuarios({restaurants, setFlash}) {
     if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
     const { username, password, pin, display_name, role, restaurant_id } = newForm;
 
-    // Riders: no usan auth/contraseña — se crean en delivery_riders con PIN, anclados
-    // a un restaurante, para que el panel Delivery (login por PIN) los reconozca.
-    if (role === 'rider') {
-      const riderName = (display_name.trim() || username.trim());
-      if (!riderName) { setFlash({type:'warn',text:'Ingresá el nombre del rider'}); return; }
-      if (!restaurant_id) { setFlash({type:'warn',text:'Asigná un restaurante al rider'}); return; }
-      if (!/^\d{4}$/.test(pin||'')) { setFlash({type:'warn',text:'El PIN del rider debe tener 4 dígitos'}); return; }
-      setCreating(true);
-      try {
-        const { error } = await db.from('delivery_riders').insert({
-          restaurant_id, name: riderName, phone: null,
-          vehicle: 'moto', commission_type: 'pct', commission_value: 0,
-          rider_pin: pin, active: true
-        });
-        if (error) throw new Error(error.message);
-        setFlash({type:'ok',text:`Rider "${riderName}" creado — PIN ${pin}`});
-        setNewModal(false);
-        setNewForm({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''});
-        loadUsers();
-      } catch(e) { setFlash({type:'error',text:e.message}); }
-      setCreating(false);
-      return;
-    }
-
+    // Riders: se crean como el resto del personal (cuenta auth con usuario+contraseña).
+    // /api/create-user, además de la cuenta, crea su ficha en delivery_riders vinculada por
+    // user_id; el panel rider la resuelve con auth.uid() (login por correo+contraseña, sin PIN).
     if (!username.trim()) { setFlash({type:'warn',text:'Ingresá un nombre de usuario'}); return; }
     if (password.length < 6) { setFlash({type:'warn',text:'La contraseña debe tener al menos 6 caracteres'}); return; }
     // Roles operativos (todo menos superadmin) requieren restaurante: sin él, el login los rechaza.
@@ -1799,8 +1779,8 @@ function PageUsuarios({restaurants, setFlash}) {
   const loadUsers = useCallback(async () => {
     if (!db) { setLoading(false); return; }
     setLoading(true);
-    // Riders viven en delivery_riders (login por PIN); se fusionan a la grilla.
-    const ridersP = db.from('delivery_riders').select('id,restaurant_id,name,phone,rider_pin,active,created_at');
+    // Riders viven en delivery_riders (perfil operativo, vinculado a la cuenta por user_id); se fusionan a la grilla.
+    const ridersP = db.from('delivery_riders').select('id,restaurant_id,name,phone,rider_pin,active,created_at,user_id');
     let base = [];
     const { data, error } = await db.rpc('admin_list_users');
     if (!error && data) {
@@ -1814,7 +1794,7 @@ function PageUsuarios({restaurants, setFlash}) {
     }
     const { data: ridersData } = await ridersP;
     const riderRows = (ridersData||[]).map(r=>({
-      id:'rider_'+r.id, _riderId:r.id, _isRider:true, user_id:null,
+      id:'rider_'+r.id, _riderId:r.id, _isRider:true, user_id:r.user_id||null,
       username:r.rider_pin?('PIN '+r.rider_pin):'—', email:r.phone||'',
       display_name:r.name||'—', role:'rider', restaurant_id:r.restaurant_id,
       is_active:r.active!==false, created_at:r.created_at, last_sign_in_at:null
@@ -1976,17 +1956,15 @@ function PageUsuarios({restaurants, setFlash}) {
 
       {newModal&&(
         <Modal title="Nuevo usuario" onClose={()=>setNewModal(false)}>
-          <div style={{display:'grid',gridTemplateColumns:newForm.role==='rider'?'1fr':'1fr 1fr',gap:'0 16px'}}>
-            {newForm.role!=='rider'&&(
-              <FormField label="Usuario *">
-                <input
-                  value={newForm.username}
-                  onChange={e=>setNewForm(f=>({...f,username:e.target.value}))}
-                  placeholder="ej: mariaperez"
-                  autoFocus
-                />
-              </FormField>
-            )}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Usuario *">
+              <input
+                value={newForm.username}
+                onChange={e=>setNewForm(f=>({...f,username:e.target.value}))}
+                placeholder={newForm.role==='rider'?'ej: juanrider':'ej: mariaperez'}
+                autoFocus
+              />
+            </FormField>
             <FormField label={newForm.role==='rider'?'Nombre del rider *':'Nombre para mostrar'}>
               <input
                 value={newForm.display_name}
@@ -1995,31 +1973,17 @@ function PageUsuarios({restaurants, setFlash}) {
               />
             </FormField>
           </div>
-          {newForm.role==='rider' ? (
-            <FormField label="PIN de acceso (4 dígitos) *">
-              <div style={{display:'flex',gap:8}}>
-                <input
-                  value={newForm.pin}
-                  onChange={e=>setNewForm(f=>({...f,pin:e.target.value.replace(/\D/g,'').slice(0,4)}))}
-                  placeholder="0000"
-                  style={{flex:1,fontFamily:"'SF Mono',ui-monospace,monospace",letterSpacing:3}}
-                />
-                <Btn variant="ghost" onClick={()=>setNewForm(f=>({...f,pin:genRiderPin()}))}>Generar</Btn>
-              </div>
-            </FormField>
-          ) : (
-            <FormField label="Contraseña * (mínimo 6 caracteres)">
-              <input
-                type="password"
-                value={newForm.password}
-                onChange={e=>setNewForm(f=>({...f,password:e.target.value}))}
-                placeholder="Contraseña segura"
-              />
-            </FormField>
-          )}
+          <FormField label="Contraseña * (mínimo 6 caracteres)">
+            <input
+              type="password"
+              value={newForm.password}
+              onChange={e=>setNewForm(f=>({...f,password:e.target.value}))}
+              placeholder="Contraseña segura"
+            />
+          </FormField>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
             <FormField label="Rol">
-              <select value={newForm.role} onChange={e=>{const nr=e.target.value;setNewForm(f=>({...f,role:nr,pin:nr==='rider'&&!f.pin?genRiderPin():f.pin}));}}>
+              <select value={newForm.role} onChange={e=>setNewForm(f=>({...f,role:e.target.value}))}>
                 {NEW_USER_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}
               </select>
             </FormField>
@@ -2032,7 +1996,7 @@ function PageUsuarios({restaurants, setFlash}) {
           </div>
           <div style={{padding:'10px 14px',background:C.bg,borderRadius:8,fontSize:12,color:C.mid,marginTop:4}}>
             {newForm.role==='rider'
-              ? 'El rider accede al panel Delivery del restaurante ingresando su PIN de 4 dígitos (no usa usuario ni contraseña). Aparecerá de inmediato en el módulo Delivery.'
+              ? 'El rider inicia sesión con su usuario y contraseña en el panel Delivery. Su ficha (vehículo, comisión) se crea automáticamente y se edita en el módulo Delivery del restaurante.'
               : 'El usuario iniciará sesión con su nombre de usuario y contraseña. El email asignado es interno.'}
           </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
@@ -2062,9 +2026,9 @@ function PageUsuarios({restaurants, setFlash}) {
               </select>
             </FormField>
           </div>
-          {editModal._isRider&&editModal.username&&(
+          {editModal._isRider&&(
             <div style={{padding:'8px 14px',background:C.bg,borderRadius:8,fontSize:12,color:C.mid,marginTop:8}}>
-              {editModal.username} · accede al panel Delivery por PIN. Gestioná el PIN desde el módulo Delivery del restaurante.
+              El rider inicia sesión en el panel Delivery con su usuario y contraseña. Su perfil (vehículo, comisión) se edita en el módulo Delivery del restaurante.
             </div>
           )}
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
