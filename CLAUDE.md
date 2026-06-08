@@ -54,10 +54,9 @@ restaurants, tables (con `assigned_waiter`, `pos_x/y` virtuales, `zone`), menu_c
 
 ## Bugs críticos conocidos
 
-1. **RLS con `USING(true)`** — no segura para multi-restaurante real (todas las tablas).
-2. **Crear usuarios usa `service_role` en frontend** (`superadmin.html`) — riesgo crítico, mover a Edge Function.
-3. **Tracking cliente en `index.html`** — Realtime parcial; delivery sí tiene Realtime + polling fallback, mesa aún no.
-4. **`customers` sin tabla** — UI de CRM existe pero datos no persisten.
+1. **RLS con `USING(true)`** — *parcialmente mitigado*: el lado **autenticado** está aislado por restaurante (mig. 086) y el rol **anon** ya no filtra PII ni permite alterar pedidos ajenos (mig. 102). **Pendiente:** el resto de políticas `USING(true)` a nivel de fila (anon aún ve filas no-PII cross-tenant; tracking del cliente idealmente vía RPC `SECURITY DEFINER`).
+2. **Tracking cliente en `index.html`** — Realtime parcial; delivery sí tiene Realtime + polling fallback, mesa aún no.
+3. **`customers` sin tabla** — UI de CRM existe pero datos no persisten.
 
 **Resueltos recientemente (no revertir):**
 - ~~`tables.is_occupied` no se actualizaba~~ — `fix(mesa+caja): mesa permanece ocupada hasta liberación explícita`
@@ -69,13 +68,17 @@ restaurants, tables (con `assigned_waiter`, `pos_x/y` virtuales, `zone`), menu_c
 - ~~Cobro no se registraba por `requires_invoice` faltante~~ — migración 084 + fix mozo+caja
 - ~~Dashboard admin con 0 pedidos (400 Bad Request)~~ — fix `customer_phone` en select (commit 9d94cee)
 - ~~Pickup pagado aparecía como "A cobrar"~~ — auto-oculta 6min tras entrega cocina
+- ~~Crear usuarios con `service_role` en frontend~~ — alta de usuarios/riders vía endpoint backend `/api/create-user` (token del usuario); el frontend ya **no** usa `service_role`.
+- ~~Fuga de PII por la anon key + manipulación de pedidos ajenos~~ — migración **102** (`anon` pierde SELECT de columnas PII en orders/delivery_orders/restaurants y UPDATE/DELETE de pedidos; commit `dce8119`, 2026-06-08).
+- ~~`subscriptions` legibles/escribibles por anon (`sa_subs_all USING(true)`)~~ — restringido a superadmin (`get_my_role()`).
+- ~~`delivery_riders.rider_pin` expuesto a anon~~ — vaciado a NULL (login de rider = correo+contraseña).
 
 ---
 
 ## Reglas para agentes
 
 - NO exponer `config.js` ni credenciales en ningún archivo commiteado.
-- NO usar `service_role` key en código frontend (excepción documentada en superadmin — pendiente fix).
+- NO usar `service_role` key en código frontend — la creación de usuarios/riders ya pasa por el endpoint backend `/api/create-user` (no reintroducir `service_role` en el cliente).
 - NO convertir a Vite / Next.js / Webpack — sin bundler por decisión arquitectónica.
 - NO usar `import`/`export` — todo es `window.*` o scripts globales.
 - NO borrar comentarios `/*EDITMODE-BEGIN*/` / `/*EDITMODE-END*/` (delimitan zonas de tweaks en vivo).
@@ -93,8 +96,8 @@ restaurants, tables (con `assigned_waiter`, `pos_x/y` virtuales, `zone`), menu_c
 
 ## Prioridades
 
-1. **RLS multi-restaurante segura** (reemplazar `USING(true)`)
-2. **Gestión segura de usuarios** — mover Admin API a Edge Function, eliminar `service_role` del frontend
+1. **RLS multi-restaurante segura** (reemplazar el `USING(true)` restante a nivel de fila; anon-PII y escritura ya cerrados en mig. 102)
+2. ~~**Gestión segura de usuarios** — mover Admin API a Edge Function~~ ✅ hecho (`/api/create-user`)
 3. **Customers / CRM** — crear tabla y conectar UI existente
 4. **Realtime tracking cliente** en `index.html` (mesa) — replicar patrón delivery
 5. **QR real por mesa** con token único + expiración (parcial via `table_scan_sessions`)
