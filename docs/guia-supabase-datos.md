@@ -1,5 +1,5 @@
 # Guía: Ver datos y estadísticas en Supabase
-## Mesa App v1.0 — La Huaca
+## Mythos v1.0 — Tu Restaurante
 
 ---
 
@@ -340,4 +340,4 @@ Desde el **Table Editor**:
 
 ---
 
-*Mesa App v1.0 — La Huaca, Asunción, Paraguay*
+*Mythos v1.0 — Tu Restaurante, Asunción, Paraguay*

@@ -40,7 +40,7 @@
 
 ```
 1. CLIENTE ESCANEA QR
-   QR URL: https://mesa-app.vercel.app?mesa=4&token=lahuaca-mesa-4
+   QR URL: https://mesa-app.vercel.app?mesa=4&token=turestaurante-mesa-4
    → App identifica Mesa 4
 
 2. VE EL MENÚ

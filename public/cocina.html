@@ -608,35 +608,6 @@ const COL_COLOR = {
   entregado: '#6b7280',
 };
 
-/* ── DEMO TICKETS ─── */
-const DEMO_TICKETS = [
-  { id:'T-2841', _supabaseId:null, mesa:2, tipo:'local', typeInfo:null, hora:'19:04', elapsed:22, status:'preparando',
-    items:[
-      {id:1,nombre:'Lomito completo',cant:2,extras:['Extra carne','Huevo frito'],obs:'Sin mayo en una',allergens:'',station:'cocina',kitchenStatus:'cooking'},
-      {id:2,nombre:'Provoleta parrilla',cant:1,extras:[],obs:'',allergens:'',station:'parrilla',kitchenStatus:'cooking'},
-    ]},
-  { id:'T-2842', _supabaseId:null, mesa:7, tipo:'local', typeInfo:null, hora:'19:08', elapsed:14, status:'nuevo',
-    items:[
-      {id:4,nombre:'Clasica Comanda',cant:3,extras:['Panceta','Extra queso'],obs:'Una sin cebolla - ALERGIA a nuez',allergens:'frutos secos',station:'cocina',kitchenStatus:'pending'},
-      {id:5,nombre:'Coca-Cola',cant:3,extras:[],obs:'',allergens:'',station:'bar',kitchenStatus:'pending'},
-    ]},
-  { id:'T-2843', _supabaseId:null, mesa:null, tipo:'delivery', typeInfo:{ tipo:'delivery', label:'DELIVERY', color:'#FF9500', bg:'rgba(255,149,0,0.14)', border:'rgba(255,149,0,0.35)' }, hora:'19:11', elapsed:11, status:'nuevo',
-    deliveryInfo:{ cliente:'Juan Pérez', direccion:'Av. Mariscal 1234' },
-    items:[
-      {id:7,nombre:'Doble Black',cant:2,extras:['Panceta'],obs:'Bien cocida',allergens:'',station:'cocina',kitchenStatus:'pending'},
-      {id:8,nombre:'Cerveza Pilsen',cant:2,extras:[],obs:'',allergens:'',station:'bar',kitchenStatus:'pending'},
-    ]},
-  { id:'T-2844', _supabaseId:null, mesa:null, tipo:'pickup', typeInfo:{ tipo:'pickup', label:'PICKUP', color:'#007AFF', bg:'rgba(0,122,255,0.14)', border:'rgba(0,122,255,0.35)' }, hora:'19:14', elapsed:5, status:'nuevo',
-    items:[
-      {id:9,nombre:'Veggie',cant:1,extras:[],obs:'Sin pepino - intolerante al gluten',allergens:'gluten',station:'cocina',kitchenStatus:'pending'},
-    ]},
-  { id:'T-2840', _supabaseId:null, mesa:3, tipo:'local', typeInfo:null, hora:'18:58', elapsed:28, status:'listo',
-    items:[
-      {id:10,nombre:'Lomito americano',cant:2,extras:[],obs:'',allergens:'',station:'cocina',kitchenStatus:'ready'},
-      {id:11,nombre:'Agua mineral',cant:2,extras:[],obs:'',allergens:'',station:'bar',kitchenStatus:'ready'},
-    ]},
-];
-
 /* ── HELPERS ─── */
 function fmtTime(min) { if (min < 60) return `${min}m`; return `${Math.floor(min/60)}h${min%60}m`; }
 function fmt(n) { return `₲ ${Math.round(Number(n) || 0).toLocaleString('es-PY')}`; }
@@ -1284,7 +1255,7 @@ function KitchenMessageBanner({ message, onClose }) {
 
 /* ── APP ─── */
 function App() {
-  const [tickets, setTickets]               = useState(db ? [] : DEMO_TICKETS);
+  const [tickets, setTickets]               = useState([]);
   const [delivered, setDelivered]           = useState([]);
   const [loading, setLoading]               = useState(!!db);
   const [newAlert, setNewAlert]             = useState(null);
@@ -1367,27 +1338,6 @@ function App() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'staff_broadcasts' }, () => load())
       .subscribe();
     return () => db.removeChannel(ch);
-  }, []);
-
-  /* Demo: pedido entrante */
-  useEffect(() => {
-    if (db) return;
-    const t = setTimeout(() => {
-      const incoming = {
-        id: 'T-2845', _supabaseId: null, mesa: 9, tipo: 'local', typeInfo: null,
-        hora: new Date().toLocaleTimeString('es-PY', { hour: '2-digit', minute: '2-digit' }),
-        elapsed: 0, status: 'nuevo',
-        items: [
-          { id: 20, nombre: 'Clasica Comanda', cant: 2, extras: ['Panceta'], obs: '', allergens: '', station: 'cocina', kitchenStatus: 'pending' },
-          { id: 21, nombre: 'Coca-Cola', cant: 2, extras: [], obs: '', allergens: '', station: 'bar', kitchenStatus: 'pending' },
-        ]
-      };
-      setTickets(prev => [incoming, ...prev]);
-      setNewAlert(incoming.id);
-      if (soundRef.current) playKitchenAlert(false);
-      setTimeout(() => setNewAlert(null), 5000);
-    }, 8000);
-    return () => clearTimeout(t);
   }, []);
 
   /* ── DB LOAD & REALTIME ─── */
@@ -1671,7 +1621,6 @@ function App() {
               <span style={{ fontSize: 9, fontWeight: 700, color: C.dim, textTransform:'uppercase', letterSpacing:'0.06em' }}>{STATION_CONFIG.isAllZonas ? 'TODAS LAS ZONAS' : Array.from(STATION_CONFIG.zonas).join('·')}</span>
             </div>
           )}
-          {!db && <span style={{ fontSize: 10, fontWeight: 600, color: '#636366', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 5, padding: '2px 7px' }}>DEMO</span>}
           {db && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 6, height: 6, borderRadius: '50%', background: dbError ? '#FF3B30' : '#22C55E' }} />

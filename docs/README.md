@@ -1,4 +1,4 @@
-# Mesa App v1.0
+# Mythos v1.0
 
 Sistema de pedidos por código QR para restaurantes. Diseñado para Paraguay con moneda guaraní (₲).
 
@@ -96,7 +96,7 @@ version-1.0/
 ├── supabase/
 │   └── migrations/
 │       ├── 20260429_001_schema.sql  # Tablas + RLS + Realtime
-│       └── 20260429_002_seed.sql    # Datos de La Huaca + menú
+│       └── 20260429_002_seed.sql    # Datos de Tu Restaurante + menú
 ├── docs/
 │   ├── README.md            # Este archivo
 │   ├── ARCHITECTURE.md      # Arquitectura del sistema

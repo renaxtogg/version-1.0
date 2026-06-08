@@ -7,8 +7,9 @@ Leé todo antes de escribir una sola línea de código.
 
 ## Identidad
 
-**Mythos** — SaaS gastronómico multi-restaurante.
-Restaurante demo: **La Huaca**, Asunción, Paraguay. Moneda: guaraní (₲).
+**Mythos** — SaaS gastronómico multi-restaurante. Moneda: guaraní (₲).
+Plataforma reseteada a fábrica (migración 096): sin restaurante demo. Cada
+negocio carga sus propios datos desde 0. No cablear "La Huaca" ni el UUID `…0001`.
 Repo: `github.com/mancuellorenato/version-1.0`
 Deploy: Vercel (auto desde `main`).
 

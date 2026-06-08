@@ -13,9 +13,9 @@ const doc = new PDFDocument({
   bufferPages: true,
   info: {
     Title: 'Mythos · Auditoría integral del sistema',
-    Author: 'Mythos / La Huaca',
+    Author: 'Mythos',
     Subject: 'Análisis técnico completo y roadmap a producción',
-    Keywords: 'Mythos, Mesa App, La Huaca, SaaS gastronómico, Supabase',
+    Keywords: 'Mythos, SaaS gastronómico, Supabase',
   },
 });
 doc.pipe(fs.createWriteStream(OUT));
@@ -288,7 +288,7 @@ function cover() {
 
   // Bloque inferior
   doc.fillColor(C.body).font('Helvetica-Bold').fontSize(11).text('Restaurante demo', M.l, 320);
-  doc.font('Helvetica').fontSize(10).fillColor(C.mid).text('La Huaca — Asunción, Paraguay', M.l, 338);
+  doc.font('Helvetica').fontSize(10).fillColor(C.mid).text('Tu Restaurante — Asunción, Paraguay', M.l, 338);
 
   doc.font('Helvetica-Bold').fontSize(11).fillColor(C.body).text('Stack', M.l, 366);
   doc.font('Helvetica').fontSize(10).fillColor(C.mid)
@@ -422,7 +422,7 @@ function resumenEjecutivo() {
     'Mythos es claramente un MVP avanzado, no un sistema demo. Tiene volumen real de código, persistencia ' +
     'cuidada y flujo operativo completo. La distancia con un producto SaaS comercial es operativa (pagos, ' +
     'WhatsApp, impresión, multi-tenant seguro) y no de funcionalidad de fondo. En un piloto controlado en ' +
-    'La Huaca podría estar funcionando hoy con supervisión humana; para vender a otros restaurantes hacen ' +
+    'Tu Restaurante podría estar funcionando hoy con supervisión humana; para vender a otros restaurantes hacen ' +
     'falta las piezas críticas que faltan.',
     { bg: '#E0F2FE', bar: C.accent }
   );
@@ -1184,7 +1184,7 @@ function mejoras() {
   bullet('design-system.css ya existe pero está infrautilizado: empujar más estilos hacia ahí.');
   bullet('Loader / skeleton consistente en todos los paneles (hoy varía panel a panel).');
   bullet('Modo oscuro completo: muchos paneles ya tienen toggle pero algunos pantallazos quedan claros.');
-  bullet('Onboarding del cliente nuevo: tooltip “bienvenido a La Huaca”, animación de marca.');
+  bullet('Onboarding del cliente nuevo: tooltip “bienvenido a Tu Restaurante”, animación de marca.');
   bullet('Compresión de imágenes con browser-image-compression antes de subir a Storage.');
   bullet('Caching de menu con stale-while-revalidate (1 carga, fondo refresh, fallback a localStorage).');
   bullet('Versión PWA (manifest.json + service worker) — al menos para el cliente QR.');
@@ -1307,7 +1307,7 @@ function criticaFinal() {
 
   h2('Mi recomendación');
   box('Próxima decisión estratégica',
-    '1. Si el plan es PILOTO en La Huaca (un único restaurante): el sistema está listo, salvo Bancard. Cuatro ' +
+    '1. Si el plan es PILOTO en Tu Restaurante (un único restaurante): el sistema está listo, salvo Bancard. Cuatro ' +
     'semanas de trabajo a ritmo normal lo dejan en producción real.\n\n' +
     '2. Si el plan es SaaS multi-restaurante: hay ~10 semanas de trabajo serio antes de salir a vender. La ' +
     'mitad de ese tiempo es seguridad y multi-tenant; la otra mitad pagos, impresión y CRM.\n\n' +

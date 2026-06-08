@@ -91,62 +91,19 @@ function _shouldPause() {
   return ['INPUT','TEXTAREA','SELECT'].includes(tag) || el.isContentEditable;
 }
 
-// ── Demo data ────────────────────────────────────────────────
+// ── Estado vacío (fallback sin conexión) ─────────────────────
+// Sin datos ficticios: si no hay conexión a Supabase, los listados
+// quedan vacíos en vez de mostrar restaurantes/planes inventados.
 const DEMO = {
-  restaurants:[
-    {id:'r1',name:'La Huaca',city:'Asunción',country:'Paraguay',status:'active',address:'Mcal. Estigarribia 1234',phone:'+595 21 555 0100',email:'contacto@lahuaca.com.py',owner_name:'Carlos Gómez',owner_email:'carlos@lahuaca.com.py',owner_phone:'+595 981 123 456',onboarding_date:'2026-01-15',notes:'Cliente ancla',ruc:'80000001-1',legal_name:'La Huaca S.A.',maintenance_mode:false,maintenance_message:'',is_open:true,opening_hours:[{day:'Lun–Vie',hours:'12:00–15:00 · 19:00–23:00'},{day:'Sábados',hours:'12:00–23:30'},{day:'Domingos',hours:'12:00–16:00'}]},
-    {id:'r2',name:'El Mercado',city:'Lambaré',country:'Paraguay',status:'active',address:'Av. Santa Teresa 1230',phone:'+595 21 555 0200',email:'info@elmercadopy.com',owner_name:'Sofía Benítez',owner_email:'sofia@elmercadopy.com',owner_phone:'+595 982 200 100',onboarding_date:'2026-02-10',notes:null,ruc:'80000002-2',legal_name:null,maintenance_mode:false,maintenance_message:'',is_open:false,opening_hours:[{day:'Lun–Sáb',hours:'11:00–22:00'},{day:'Domingos',hours:'Cerrado'}]},
-    {id:'r3',name:'Don Julio Parrilla',city:'Asunción',country:'Paraguay',status:'trial',address:'Mcal. López 4590',phone:'+595 21 600 8800',email:'julio@donjulio.com.py',owner_name:'Julio Fernández',owner_email:'julio@donjulio.com.py',owner_phone:'+595 991 330 220',onboarding_date:'2026-04-20',notes:'Trial 14 días',ruc:null,legal_name:null,maintenance_mode:false,maintenance_message:'',is_open:true,opening_hours:[{day:'Martes–Dom',hours:'19:00–00:00'}]},
-    {id:'r4',name:'Café Central',city:'Ciudad del Este',country:'Paraguay',status:'suspended',address:'Palma 580',phone:'+595 61 777 3300',email:'andrea@cafecentral.py',owner_name:'Andrea Sosa',owner_email:'andrea@cafecentral.py',owner_phone:'+595 985 440 330',onboarding_date:'2025-11-01',notes:'Suspendido por falta de pago',ruc:'80000004-4',legal_name:'Café Central EIRL',maintenance_mode:false,maintenance_message:'',is_open:false,opening_hours:[]},
-  ],
-  plans:[
-    {id:'p1',name:'Starter',price_usd:200000,billing_cycle:'monthly',max_tables:5,max_menu_items:30,features:['Pedidos QR','KDS cocina','Analytics básico'],is_active:true,allowed_panels:['caja','mozo','cocina'],max_users_by_role:{mozo:2,cajero:1,cocina:1}},
-    {id:'p2',name:'Pro',price_usd:400000,billing_cycle:'monthly',max_tables:15,max_menu_items:100,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones'],is_active:true,allowed_panels:['caja','mozo','cocina','delivery-cliente'],max_users_by_role:{mozo:5,cajero:2,cocina:3}},
-    {id:'p3',name:'Enterprise',price_usd:800000,billing_cycle:'monthly',max_tables:50,max_menu_items:500,features:['Pedidos QR','KDS cocina','Analytics completo','Cupones','Calificaciones','Soporte prioritario','Branding propio'],is_active:true,allowed_panels:['caja','mozo','cocina','delivery-cliente','delivery-rider','gerente'],max_users_by_role:{}},
-  ],
-  addonCatalog:[
-    {id:'a1',key:'delivery_cliente',name:'Delivery Cliente',panel:'delivery-cliente',price_usd:100000,is_active:true},
-    {id:'a2',key:'delivery_rider',name:'Rider Delivery',panel:'delivery-rider',price_usd:70000,is_active:true},
-    {id:'a3',key:'kds_cocina',name:'KDS Cocina',panel:'cocina',price_usd:90000,is_active:true},
-  ],
-  addons:[
-    {id:'ra1',restaurant_id:'r1',addon_key:'delivery_rider',price_usd:70000,enabled:true},
-    {id:'ra2',restaurant_id:'r3',addon_key:'delivery_cliente',price_usd:100000,enabled:true},
-  ],
-  subscriptions:[
-    {id:'s1',restaurant_id:'r1',plan_id:'p2',status:'active',start_date:'2026-04-01',end_date:'2026-06-01',created_at:'2026-04-01T00:00:00',auto_renew:true,payment_method:'transferencia',monthly_amount:400000,plan:{name:'Pro',price_usd:400000}},
-    {id:'s2',restaurant_id:'r2',plan_id:'p2',status:'active',start_date:'2026-04-10',end_date:'2026-06-10',created_at:'2026-04-10T00:00:00',auto_renew:true,payment_method:'tarjeta',monthly_amount:400000,plan:{name:'Pro',price_usd:400000}},
-    {id:'s3',restaurant_id:'r3',plan_id:'p1',status:'trial',start_date:'2026-04-20',end_date:'2026-05-20',created_at:'2026-04-20T00:00:00',auto_renew:false,payment_method:'manual',monthly_amount:200000,plan:{name:'Starter',price_usd:200000}},
-    {id:'s4',restaurant_id:'r4',plan_id:'p2',status:'suspended',start_date:'2025-11-01',end_date:'2026-04-30',created_at:'2025-11-01T00:00:00',auto_renew:false,payment_method:'transferencia',monthly_amount:400000,plan:{name:'Pro',price_usd:400000}},
-  ],
-  orders:[
-    {id:'o1',restaurant_id:'r1',total:95000,created_at:'2026-05-19T10:00:00',status:'delivered'},
-    {id:'o2',restaurant_id:'r1',total:42000,created_at:'2026-05-19T11:30:00',status:'delivered'},
-    {id:'o3',restaurant_id:'r1',total:78000,created_at:'2026-05-18T19:00:00',status:'delivered'},
-    {id:'o4',restaurant_id:'r2',total:56000,created_at:'2026-05-19T09:00:00',status:'delivered'},
-    {id:'o5',restaurant_id:'r2',total:89000,created_at:'2026-05-18T20:00:00',status:'delivered'},
-    {id:'o6',restaurant_id:'r3',total:35000,created_at:'2026-05-19T12:30:00',status:'paid'},
-  ],
-  ratings:[
-    {restaurant_id:'r1',stars:5,created_at:'2026-05-19T09:00:00'},
-    {restaurant_id:'r1',stars:4,created_at:'2026-05-19T10:00:00'},
-    {restaurant_id:'r1',stars:5,created_at:'2026-05-18T20:00:00'},
-    {restaurant_id:'r2',stars:4,created_at:'2026-05-19T08:00:00'},
-    {restaurant_id:'r2',stars:3,created_at:'2026-05-18T22:00:00'},
-    {restaurant_id:'r3',stars:5,created_at:'2026-05-19T11:00:00'},
-  ],
-  events:[
-    {id:'e1',restaurant_id:'r1',event_type:'onboarding',description:'Alta en plataforma — Plan Pro',created_at:'2026-01-15T10:00:00',restaurant:{name:'La Huaca'}},
-    {id:'e2',restaurant_id:'r1',event_type:'subscription_renewed',description:'Renovación automática — Plan Pro',created_at:'2026-04-01T08:00:00',restaurant:{name:'La Huaca'}},
-    {id:'e3',restaurant_id:'r2',event_type:'onboarding',description:'Alta en plataforma — Plan Pro',created_at:'2026-02-10T11:30:00',restaurant:{name:'El Mercado'}},
-    {id:'e4',restaurant_id:'r3',event_type:'onboarding',description:'Alta — Trial 14 días Starter',created_at:'2026-04-20T09:15:00',restaurant:{name:'Don Julio Parrilla'}},
-    {id:'e5',restaurant_id:'r4',event_type:'status_changed',description:'Cuenta suspendida por falta de pago',created_at:'2026-04-30T09:00:00',restaurant:{name:'Café Central'}},
-    {id:'e6',restaurant_id:'r1',event_type:'plan_changed',description:'Cambio a Plan Pro desde Starter',created_at:'2026-03-01T10:00:00',restaurant:{name:'La Huaca'}},
-  ],
-  platformConfig:[
-    {key:'global_banner_active',value:'false',updated_at:'2026-05-19T00:00:00'},
-    {key:'global_banner_message',value:'',updated_at:'2026-05-19T00:00:00'},
-  ],
+  restaurants:[],
+  plans:[],
+  addonCatalog:[],
+  addons:[],
+  subscriptions:[],
+  orders:[],
+  ratings:[],
+  events:[],
+  platformConfig:[],
 };
 
 // ── Utils ────────────────────────────────────────────────────
@@ -1045,7 +1002,6 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   const [fCity,    setFCity]    = useState('all');
   const [sort,     setSort]     = useState('name');
   const [saving,   setSaving]   = useState(false);
-  const [demoMode, setDemoMode] = useState(false);
   const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10)};
   const [form, setForm] = useState(emptyForm);
   // Multi-sucursal: modal de alta de Sucursal Hija anclada a una Casa Central
@@ -1072,9 +1028,8 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
     return mSearch && mPlan && mStatus && mCity;
   }).sort((SORTS[sort]||SORTS.name).fn);
 
-  const openCreate = () => { setDemoMode(false); setForm({...emptyForm,plan_id:plans[1]?.id||''}); setModal('create'); };
+  const openCreate = () => { setForm({...emptyForm,plan_id:plans[1]?.id||''}); setModal('create'); };
   const openEdit   = r  => {
-    setDemoMode(false);
     setForm({name:r.name||'',legal_name:r.legal_name||'',ruc:r.ruc||'',city:r.city||'',country:r.country||'Paraguay',address:r.address||'',phone:r.phone||'',email:r.email||'',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10)});
     setModal({edit:r});
   };
@@ -1095,7 +1050,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
     try {
       const payload = {name:form.name.trim(),legal_name:form.legal_name||null,ruc:form.ruc||null,city:form.city,country:form.country,address:form.address||null,phone:form.phone||null,email:form.email||null,owner_name:form.owner_name||null,owner_email:form.owner_email||null,owner_phone:form.owner_phone||null,status:form.status,notes:form.notes||null,onboarding_date:form.onboarding_date,timezone:'America/Asuncion'};
       if (modal==='create') {
-        const {data:rest,error} = await db.from('restaurants').insert({...payload,auto_provisioned:demoMode}).select().single();
+        const {data:rest,error} = await db.from('restaurants').insert({...payload,auto_provisioned:false}).select().single();
         if (error) throw error;
         if (form.plan_id) {
           const today=new Date(),end=new Date(today);end.setMonth(end.getMonth()+1);
@@ -1167,25 +1122,6 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 
   const sf = v => e => setForm(f=>({...f,[v]:e.target.value}));
   const bf = v => e => setBranchForm(f=>({...f,[v]:e.target.value}));
-
-  // Auto-aprovisionamiento demo: precarga datos validados y bloquea campos del propietario
-  const applyDemo = on => {
-    setDemoMode(on);
-    if (!on) return;
-    const n = Math.floor(1000+Math.random()*9000);
-    setForm(f=>({...f,
-      status:'trial',
-      plan_id: plans.find(p=>p.name==='Starter')?.id || plans[0]?.id || '',
-      name:        f.name        || `Demo Resto ${n}`,
-      legal_name:  f.legal_name  || `Demo Resto ${n} S.A.`,
-      ruc:         f.ruc         || `8000${n}-${n%10}`,
-      city:        f.city        || 'Asunción',
-      email:       f.email       || `contacto${n}@mythos.app`,
-      owner_name:  'Propietario Demo',
-      owner_email: `demo${n}@mythos.app`,
-      owner_phone: '+595 981 000 000',
-    }));
-  };
 
   return (
     <div className="animate-in">
@@ -1275,19 +1211,10 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 
       {modal&&(
         <Modal title={modal==='create'?'Nuevo restaurante':'Editar restaurante'} onClose={()=>setModal(null)} width={600}>
-          {modal==='create'&&(
-            <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',marginBottom:14,borderRadius:10,border:`1px solid ${demoMode?C.ink:C.border}`,background:demoMode?C.bg:'transparent'}}>
-              <Toggle checked={demoMode} onChange={applyDemo}/>
-              <div style={{flex:1}}>
-                <div style={{fontSize:13,fontWeight:700,color:C.ink}}>Auto-aprovisionamiento demo</div>
-                <div style={{fontSize:11,color:C.mid}}>Precarga datos validados, asigna plan Starter en trial y bloquea los campos del propietario.</div>
-              </div>
-            </div>
-          )}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
-            <FormField label="Nombre *" col="1/-1"><input value={form.name} onChange={sf('name')} placeholder="La Huaca" autoFocus/></FormField>
-            <FormField label="Razón social"><input value={form.legal_name} onChange={sf('legal_name')} placeholder="La Huaca S.A."/></FormField>
-            <FormField label="RUC"><input value={form.ruc} onChange={sf('ruc')} placeholder="80000001-1"/></FormField>
+            <FormField label="Nombre *" col="1/-1"><input value={form.name} onChange={sf('name')} placeholder="Nombre del restaurante" autoFocus/></FormField>
+            <FormField label="Razón social"><input value={form.legal_name} onChange={sf('legal_name')} placeholder="Razón social S.A."/></FormField>
+            <FormField label="RUC"><input value={form.ruc} onChange={sf('ruc')} placeholder="80000000-0"/></FormField>
             <FormField label="Ciudad">
               <select value={form.city} onChange={sf('city')}>
                 <option value="">Seleccionar ciudad…</option>
@@ -1317,9 +1244,9 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
           <div style={{borderTop:`1px solid ${C.border}`,margin:'12px 0',paddingTop:14}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:.5}}>Datos del propietario</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
-              <FormField label="Nombre"><input value={form.owner_name} onChange={sf('owner_name')} placeholder="Carlos Gómez" disabled={demoMode} style={demoMode?{opacity:.55}:{}}/></FormField>
-              <FormField label="Teléfono"><input value={form.owner_phone} onChange={sf('owner_phone')} placeholder="+595 981 123 456" disabled={demoMode} style={demoMode?{opacity:.55}:{}}/></FormField>
-              <FormField label="Email" col="1/-1"><input type="email" value={form.owner_email} onChange={sf('owner_email')} placeholder="carlos@restaurante.com" disabled={demoMode} style={demoMode?{opacity:.55}:{}}/></FormField>
+              <FormField label="Nombre"><input value={form.owner_name} onChange={sf('owner_name')} placeholder="Nombre del propietario"/></FormField>
+              <FormField label="Teléfono"><input value={form.owner_phone} onChange={sf('owner_phone')} placeholder="+595 981 123 456"/></FormField>
+              <FormField label="Email" col="1/-1"><input type="email" value={form.owner_email} onChange={sf('owner_email')} placeholder="propietario@restaurante.com"/></FormField>
             </div>
           </div>
           <FormField label="Notas internas"><textarea value={form.notes} onChange={sf('notes')} rows={2} placeholder="Observaciones internas..."/></FormField>
@@ -2152,59 +2079,13 @@ function PageUsuarios({restaurants, setFlash}) {
 // ══════════════════════════════════════════════════════════════
 // MÓDULO 5 — CONFIGURACIÓN GLOBAL
 // ══════════════════════════════════════════════════════════════
-// ── Datos de prueba: borrar pedidos / generar ambiente simulado ──
-// Invoca RPCs SECURITY DEFINER definidas en migración 068.
-async function _resetOperationData() {
-  const {data,error} = await db.rpc('superadmin_reset_operation_data');
-  if (error) throw new Error(error.message);
-  return data;
-}
-async function _generateSimulatedEnvironment() {
-  const {data,error} = await db.rpc('superadmin_seed_simulated_environment');
-  if (error) throw new Error(error.message);
-  return data || {};
-}
-
 function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
   const [saving, setSaving] = useState(false);
-  const [resetting,    setResetting]    = useState(false);
-  const [simulating,   setSimulating]   = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
 
   const bannerRow   = platformConfig.find(c=>c.key==='global_banner_active');
   const bannerMsgRow= platformConfig.find(c=>c.key==='global_banner_message');
   const [bannerActive, setBannerActive] = useState(bannerRow?.value==='true');
   const [bannerMsg,    setBannerMsg]    = useState(bannerMsgRow?.value||'');
-
-  const handleReset = async () => {
-    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
-    setResetting(true);
-    try {
-      await _resetOperationData();
-      setFlash({type:'ok',text:'Datos operativos borrados — base limpia'});
-      setConfirmReset(false);
-      reload();
-    } catch(e) {
-      setFlash({type:'error',text:'Error borrando: '+e.message});
-    }
-    setResetting(false);
-  };
-
-  const handleSimulate = async () => {
-    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
-    setSimulating(true);
-    try {
-      await _resetOperationData(); // limpia antes para evitar conflictos de mesas ya ocupadas
-      const r = await _generateSimulatedEnvironment();
-      const n = r?.orders_created ?? '?';
-      const m = r?.mesas_ocupadas ?? '?';
-      setFlash({type:'ok',text:`Ambiente simulado: ${n} pedidos, ${m} mesas ocupadas`});
-      reload();
-    } catch(e) {
-      setFlash({type:'error',text:'Error simulando: '+e.message});
-    }
-    setSimulating(false);
-  };
 
   const [restConfig, setRestConfig] = useState({});
   useEffect(()=>{
@@ -2304,55 +2185,6 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
           )}
           <div style={{marginTop:16}}>
             <Btn onClick={saveBanner} disabled={saving}>{saving?'Guardando…':'Guardar configuración'}</Btn>
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* Datos de prueba — testing del sistema */}
-      <SectionCard title="Datos de prueba (testing)" style={{marginTop:20}}>
-        <div style={{padding:'20px 24px'}}>
-          <div style={{fontSize:12,color:C.mid,marginBottom:16,lineHeight:1.5}}>
-            Herramientas para validar el flujo completo del sistema (cliente → cocina → mozo → caja).
-            <strong style={{color:C.red,display:'block',marginTop:6}}>⚠ Solo afecta al restaurante demo (La Huaca). Borra órdenes, items, mesas ocupadas, turnos de caja, ratings y waiter_calls. NO toca menú, mesas, riders ni usuarios.</strong>
-          </div>
-
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            {/* Borrar */}
-            <div style={{border:`1px solid ${C.red}55`,borderRadius:10,padding:16,background:C.card}}>
-              <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:6,display:'flex',alignItems:'center',gap:6}}><Icon name="trash" size={15}/> Borrar base operativa</div>
-              <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.4}}>
-                Vacía pedidos, items, historial, llamadas, ratings, caja y delivery. Libera todas las mesas.
-              </div>
-              {!confirmReset ? (
-                <button onClick={()=>setConfirmReset(true)} disabled={resetting||simulating}
-                  style={{width:'100%',background:'transparent',border:`1px solid ${C.red}`,color:C.red,padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer'}}>
-                  Borrar todos los pedidos
-                </button>
-              ) : (
-                <div style={{display:'flex',gap:8}}>
-                  <button onClick={handleReset} disabled={resetting}
-                    style={{flex:1,background:C.red,border:'none',color:'#FFFFFF',padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',opacity:resetting?0.6:1}}>
-                    {resetting?'Borrando…':'Confirmar borrado'}
-                  </button>
-                  <button onClick={()=>setConfirmReset(false)} disabled={resetting}
-                    style={{background:C.bg,border:`1px solid ${C.border}`,color:C.mid,padding:'9px 14px',borderRadius:8,fontSize:13,cursor:'pointer'}}>
-                    Cancelar
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Simular */}
-            <div style={{border:`1px solid ${C.green}55`,borderRadius:10,padding:16,background:C.card}}>
-              <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:6,display:'flex',alignItems:'center',gap:6}}><Icon name="sparkles" size={15}/> Generar ambiente simulado</div>
-              <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.4}}>
-                Crea ~15 pedidos en distintos estados (cocina, listo, cobro pendiente, entregado) simulando un día laboral pesado. Limpia antes la base.
-              </div>
-              <button onClick={handleSimulate} disabled={resetting||simulating}
-                style={{width:'100%',background:C.green,border:'none',color:'#FFFFFF',padding:'9px 14px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',opacity:simulating?0.6:1}}>
-                {simulating?'Generando…':'Generar ambiente simulado'}
-              </button>
-            </div>
           </div>
         </div>
       </SectionCard>

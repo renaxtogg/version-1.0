@@ -26,7 +26,7 @@
 4. Click en **"Run"** — debe mostrar "Success. No rows returned"
 5. Crear otra query nueva
 6. Copiar y pegar todo el contenido de `supabase/migrations/20260429_002_seed.sql`
-7. Click en **"Run"** — debe insertar los datos de La Huaca
+7. Click en **"Run"** — debe insertar los datos de Tu Restaurante
 
 ### Verificación
 Ejecutar en el SQL Editor:

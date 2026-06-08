@@ -53,7 +53,7 @@ Mesas del restaurante. Cada mesa tiene un token único que va en el QR.
 | id | UUID PK | Identificador único |
 | restaurant_id | UUID FK | Referencia a restaurants |
 | number | INTEGER | Número de mesa (1, 2, 3...) |
-| qr_token | TEXT UNIQUE | Token del QR (ej: lahuaca-mesa-4) |
+| qr_token | TEXT UNIQUE | Token del QR (ej: turestaurante-mesa-4) |
 | capacity | INTEGER | Capacidad de personas |
 | is_active | BOOLEAN | Si la mesa está habilitada |
 

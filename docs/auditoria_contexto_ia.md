@@ -1,4 +1,4 @@
-# Auditoría de Contexto IA — Mythos / Mesa App v1.0
+# Auditoría de Contexto IA — Mythos / Mythos v1.0
 
 > Versión larga de referencia. Última actualización: 2026-05-16.
 > El CLAUDE.md activo es la versión compacta. Este archivo conserva el detalle completo.
@@ -8,7 +8,7 @@
 ## Identidad del proyecto
 
 **Mythos** — ecosistema SaaS gastronómico multi-restaurante.
-Restaurante demo: **La Huaca**, Asunción, Paraguay. Moneda: guaraní (₲).
+Restaurante demo: **Tu Restaurante**, Asunción, Paraguay. Moneda: guaraní (₲).
 Repo: `github.com/mancuellorenato/version-1.0`
 
 ---

@@ -84,7 +84,7 @@ git push origin main
 ## Dominios personalizados
 
 En Vercel Dashboard > Project > Settings > Domains:
-- Agregar `menu.lahuaca.com.py` o cualquier dominio propio
+- Agregar `menu.turestaurante.com.py` o cualquier dominio propio
 - Configurar DNS según las instrucciones de Vercel
 
 ## URLs importantes

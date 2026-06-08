@@ -3222,6 +3222,7 @@ function ClientesPage({orders}) {
 
   function exportPDF() {
     const printWin = window.open('','_blank','width=900,height=700');
+    const restaurantName = window.SUPABASE_CONFIG?.restaurantName || '';
     const rows = buildExportRows(displayed);
     const fecha = new Date().toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'numeric'});
     const cols = ['Nombre','Teléfono','Email','Tipo','Pedidos totales','Total gastado (₲)','Ticket promedio (₲)','Pide factura','Canal preferido','Direcciones delivery'];
@@ -3236,7 +3237,7 @@ function ClientesPage({orders}) {
     .reg{background:#000;color:#fff;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}
     .anon{background:#F5F5F7;color:#86868B;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}
     @media print{@page{margin:1cm;size:A4 landscape}}</style></head>
-    <body><h1>Clientes — La Huaca</h1><p>Exportado el ${fecha} · ${rows.length} cliente${rows.length!==1?'s':''} · Filtro: ${view}</p>
+    <body><h1>Clientes${restaurantName?' — '+restaurantName:''}</h1><p>Exportado el ${fecha} · ${rows.length} cliente${rows.length!==1?'s':''} · Filtro: ${view}</p>
     <table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(r=>`<tr>${cols.map(c=>{
       if(c==='Tipo'){
@@ -4272,7 +4273,7 @@ function FinanzasPage({orders}) {
 /* ══════════════════════════════════════════════
    MARKETING
 ══════════════════════════════════════════════ */
-function MarketingPage({coupons,orders,onRefresh}) {
+function MarketingPage({coupons,orders,restaurant,onRefresh}) {
   const [tab,setTab] = useState('cupones');
   const [form,setForm] = useState({code:'',discount_type:'percentage',discount_value:'',min_order_amount:'',max_uses:''});
   const [saving,setSaving] = useState(false);
@@ -4280,10 +4281,11 @@ function MarketingPage({coupons,orders,onRefresh}) {
   const [tplVars,setTplVars] = useState({nombre:'',descuento:'10',codigo:'',fecha:'',mesa:''});
   const [copied,setCopied] = useState(false);
 
+  const rname = restaurant?.name || window.SUPABASE_CONFIG?.restaurantName || 'nuestro local';
   const TPLS = [
-    {id:'promo',label:'Promoción',msg:'Hola {nombre}! 👋 Tenemos una promo especial para vos: {descuento}% OFF usando el código *{codigo}*. Válido hasta el {fecha}. ¡Te esperamos en La Huaca! 🍽'},
-    {id:'inactive',label:'Cliente inactivo',msg:'Hola {nombre}! Hace tiempo que no te vemos 😊. Tenemos novedades en el menú. Pasate por La Huaca o pedí escaneando el QR de tu mesa. ¡Te esperamos!'},
-    {id:'birthday',label:'Cumpleaños',msg:'Hola {nombre}! 🎂 El equipo de La Huaca te desea un feliz cumpleaños. Como regalo tenés {descuento}% OFF con el código *{codigo}*. ¡Celebrá con nosotros!'},
+    {id:'promo',label:'Promoción',msg:`Hola {nombre}! 👋 Tenemos una promo especial para vos: {descuento}% OFF usando el código *{codigo}*. Válido hasta el {fecha}. ¡Te esperamos en ${rname}! 🍽`},
+    {id:'inactive',label:'Cliente inactivo',msg:`Hola {nombre}! Hace tiempo que no te vemos 😊. Tenemos novedades en el menú. Pasate por ${rname} o pedí escaneando el QR de tu mesa. ¡Te esperamos!`},
+    {id:'birthday',label:'Cumpleaños',msg:`Hola {nombre}! 🎂 El equipo de ${rname} te desea un feliz cumpleaños. Como regalo tenés {descuento}% OFF con el código *{codigo}*. ¡Celebrá con nosotros!`},
   ];
   const tpl=TPLS.find(t=>t.id===tplId);
   const preview=tpl?tpl.msg.replace(/\{(\w+)\}/g,(_,k)=>tplVars[k]||`{${k}}`):'' ;
@@ -6305,7 +6307,7 @@ function ConfigPage({restaurant,onRefresh}) {
     setSavingR(false);
   }
 
-  const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante'},{key:'address',label:'Dirección'},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@lahuaca'},{key:'website',label:'Sitio web',ph:'lahuaca.com.py'}];
+  const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante'},{key:'address',label:'Dirección'},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@turestaurante'},{key:'website',label:'Sitio web',ph:'turestaurante.com.py'}];
 
   return (
     <div className="page">
@@ -9368,7 +9370,7 @@ function AdminApp() {
       case 'reportes':  return <ReportesPage orders={orders}/>;
       case 'facturas':  return <FacturasAdminPage/>;
       case 'finanzas':  return <FinanzasPage orders={orders}/>;
-      case 'marketing': return <MarketingPage coupons={coupons} orders={orders} onRefresh={loadAll}/>;
+      case 'marketing': return <MarketingPage coupons={coupons} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'ratings':   return <RatingsPage ratings={ratings}/>;
       case 'stock':     return caps.hasFeature('admin:inventory') ? <StockPage/> : <window.MythosGating.FeatureLock featureKey="admin:inventory" variant="inline"/>;
       case 'proveedores': return <ProveedoresPage/>;
