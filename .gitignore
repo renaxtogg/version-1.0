@@ -1,5 +1,7 @@
 # CREDENCIALES Y DATOS SENSIBLES — nunca subir a GitHub
 public/config.js
+# Artefactos del simulacro (contienen PAT, contraseñas y SQL de datos de prueba)
+_simulacion/
 .env
 .env.local
 .env.production

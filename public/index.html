@@ -130,10 +130,10 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
     invoice_requested_at: new Date().toISOString(),
     invoice_status: 'pending',
   } : {};
-  let { data: order, error: orderErr } = await db.from('orders').insert({ ...baseInsert, ...invoiceExtras }).select().single();
+  let { data: order, error: orderErr } = await db.from('orders').insert({ ...baseInsert, ...invoiceExtras }).select('id,order_number,status').single();
   if (orderErr) {
     // Fallback si la migración 085 no está aplicada todavía
-    const r = await db.from('orders').insert(baseInsert).select().single();
+    const r = await db.from('orders').insert(baseInsert).select('id,order_number,status').single();
     order = r.data; orderErr = r.error;
   }
   if (orderErr || !order) {
@@ -160,7 +160,7 @@ async function dbLoadRestaurant() {
   if (!db) return null;
   try {
     const { data, error } = await db.from('restaurants')
-      .select('*')
+      .select('id,name,address,phone,instagram,website,logo_initials,cover_style,timezone,is_active,created_at,updated_at,status,country,city,cover_image_url,logo_url,currency,maintenance_mode,maintenance_message,lat,lng,reservation_window_hours,reservation_alert_minutes,opening_hours,is_open,auto_provisioned,parent_company_id')
       .eq('id', RESTAURANT_ID).maybeSingle();
     if (!error && data) return data;
     return null;
