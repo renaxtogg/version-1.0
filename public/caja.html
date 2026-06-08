@@ -53,15 +53,43 @@ if('serviceWorker' in navigator){
 const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
 
 /* ── DB ── */
+// Clave de almacenamiento de la sesión Supabase (formato por defecto de supabase-js).
+const _SB_REF = ((window.SUPABASE_CONFIG?.url||'').match(/https?:\/\/([^.]+)\./)||[])[1]||'';
+const SB_STORAGE_KEY = 'sb-'+_SB_REF+'-auth-token';
 const _initDB = () => {
   const cfg = window.SUPABASE_CONFIG;
   if (!cfg?.url || !cfg?.anonKey) return null;
   const url = cfg.url.replace(/^﻿/,'').trim();
   const key = cfg.anonKey.replace(/^﻿/,'').trim();
   if (!url || url.includes('YOUR_') || !key) return null;
-  try { return window.supabase.createClient(url, key); } catch(e) { return null; }
+  // ── Sesión POR PESTAÑA (seguridad de terminal de caja) ──────────────────
+  // La sesión vive en sessionStorage: al cerrar la pestaña se borra y caja
+  // vuelve a exigir login. Como login.html escribe en localStorage, hacemos un
+  // "puente": si el login dejó un token recién emitido, lo adoptamos en
+  // sessionStorage y lo quitamos de localStorage para que NO persista entre
+  // cierres de pestaña ni contamine otros paneles.
+  try {
+    const ls = window.localStorage.getItem(SB_STORAGE_KEY);
+    if (ls) {
+      window.sessionStorage.setItem(SB_STORAGE_KEY, ls);
+      window.localStorage.removeItem(SB_STORAGE_KEY);
+    }
+  } catch (_) {}
+  try {
+    return window.supabase.createClient(url, key, {
+      auth: {
+        storage: window.sessionStorage,
+        storageKey: SB_STORAGE_KEY,
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    });
+  } catch(e) { return null; }
 };
 const db = _initDB();
+// ¿Esta pestaña tiene sesión propia? (token en sessionStorage) — permite
+// redirigir a login al instante en una pestaña nueva, sin esperar el refresh.
+const HAS_TAB_SESSION = (()=>{ try{ return !!window.sessionStorage.getItem(SB_STORAGE_KEY); }catch(_){ return false; } })();
 // Multi-tenant Engine: el comercio se resuelve desde la sesión activa (localStorage), sin UUID hardcodeado.
 const RESTAURANT_ID = localStorage.getItem('mythos_restaurant_id');
 let RID = RESTAURANT_ID; // alias retro-compatible; initApp lo reafirma con profile.restaurant_id
@@ -360,10 +388,24 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
     if(modo==='fijo'&&Math.abs(diffFijo)>0&&!obs){
       toast('Hay diferencia con el fondo fijo. Agregá una observación que la explique.',false);return;
     }
+    // El INSERT de turnos_caja está protegido por RLS: restaurant_id debe ==
+    // get_my_restaurant_id() (el local del usuario autenticado). Si el
+    // mythos_restaurant_id cacheado quedó viejo (tras reset de fábrica o cambio
+    // de local), el INSERT se rechaza con "violates row-level security policy".
+    // Derivamos SIEMPRE el local de la identidad autenticada para que coincida.
+    const isSuper=profile.role==='superadmin';
+    const ridApertura=isSuper?RID:(profile.restaurant_id||RID);
+    if(!isSuper&&!profile.restaurant_id){
+      toast('Tu sesión no tiene un restaurante asignado. Cerrá sesión y volvé a iniciarla.',false);return;
+    }
+    if(!ridApertura){
+      toast('No se pudo determinar el restaurante de la caja. Cerrá sesión y volvé a iniciarla.',false);return;
+    }
+    try{ localStorage.setItem('mythos_restaurant_id',ridApertura); }catch(e){}
     setBusy(true);
     try{
       const payload={
-        restaurant_id:RID,
+        restaurant_id:ridApertura,
         cajero_id:profile.id,
         cajero_nombre:profile.display_name||profile.username,
         fondo_apertura:{denominaciones:denoms,total},
@@ -436,6 +478,7 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
             {busy?<><span className="spin"/> Abriendo…</>:'Abrir Turno →'}
           </Btn>
           <Btn variant="ghost" onClick={()=>window.location.href='admin.html'}>Admin</Btn>
+          <Btn variant="ghost" onClick={cerrarSesion}>Cambiar usuario</Btn>
         </div>
       </div>
     </div>
@@ -449,8 +492,10 @@ async function cerrarSesion(){
   if(!window.confirm('¿Cerrar sesión?'))return;
   try{await window.MythosPresence?.stop('manual');}catch(_){}
   try{await db.auth.signOut();}catch(e){}
-  localStorage.removeItem('caja_panel');
-  localStorage.removeItem('caja_cart');
+  // Borra la sesión por-pestaña (ambos almacenes) y las claves de tenancy/caja.
+  try{ sessionStorage.removeItem(SB_STORAGE_KEY); localStorage.removeItem(SB_STORAGE_KEY); }catch(_){}
+  ['mythos_role','mythos_restaurant_id','mythos_user_id','mythos_display_name','caja_panel','caja_cart']
+    .forEach(k=>{try{localStorage.removeItem(k);}catch(_){}});
   window.location.replace('login.html');
 }
 
@@ -4606,6 +4651,8 @@ async function bootstrap(){
   if(!db){window.location.replace('login.html?next=caja.html');return;}
   const{data:{session}}=await db.auth.getSession();
   if(session){await initApp(session);return;}
+  /* Pestaña nueva sin sesión propia → login de inmediato (caja = sesión por pestaña) */
+  if(!HAS_TAB_SESSION){window.location.replace('login.html?next=caja.html');return;}
   /* Token vencido pero refresh token válido — esperamos el refresh automático */
   await new Promise(resolve=>{
     const{data:{subscription}}=db.auth.onAuthStateChange(async(event,s)=>{
