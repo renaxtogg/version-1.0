@@ -7,5 +7,9 @@ window.SUPABASE_CONFIG = {
   anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   // Dejar vacío para multi-restaurante (el cliente llega por QR con ?r=<id>).
   // Para un deploy de UN SOLO local, poné acá el UUID real del restaurante.
-  restaurantId: ''
+  restaurantId: '',
+  // WhatsApp de ventas Mythos (solo dígitos, con código de país, sin + ni espacios).
+  // Lo usan las tarjetas de "Mejorar mi plan" del módulo Paneles y los paywalls.
+  // Ej: '595981123456'. Si lo dejás vacío, se usa un número de ejemplo.
+  salesWhatsapp: ''
 };

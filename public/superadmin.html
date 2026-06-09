@@ -327,6 +327,106 @@ const FormField = ({label,children,hint,col}) => (
   </div>
 );
 
+/* ══════════════════════════════════════════════
+   MÓDULO PANELES (superadmin) — launcher universal por QR / link
+   Como superadmin tenés acceso SIN restricciones a todos los paneles (no hay
+   candados). Elegís un restaurante para que el QR/link abra con su contexto
+   (?r=) o dejás "Genérico" (el panel resuelve el local del login del usuario).
+══════════════════════════════════════════════ */
+const SUPER_PANELS = [
+  {l:'Admin Local',       h:'admin.html',            ic:'settings', desc:'Gestión completa del restaurante',       client:false},
+  {l:'Caja',              h:'caja.html',             ic:'money',    desc:'Cobros, turnos y facturación',           client:false},
+  {l:'Mozo',              h:'mozo.html',             ic:'coffee',   desc:'Mesas, comandas y transferencias',       client:false},
+  {l:'Cocina (KDS)',      h:'cocina.html',           ic:'flame',    desc:'Tablero de comandas y despacho',         client:false},
+  {l:'Gerente',           h:'gerente.html',          ic:'chart',    desc:'Reportes, personal y alertas',           client:false},
+  {l:'Delivery Cliente',  h:'delivery-cliente.html', ic:'package',  desc:'App de pedidos a domicilio',             client:true},
+  {l:'Rider Delivery',    h:'delivery-rider.html',   ic:'bike',     desc:'Panel del repartidor en ruta',           client:false},
+  {l:'Menú Cliente (QR)', h:'index.html',            ic:'cart',     desc:'Carta digital que escanea el cliente',   client:true},
+];
+
+function SuperShareModal({panel, url, needsRest, onClose}) {
+  const [copied, setCopied] = useState(false);
+  const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=14&data=${encodeURIComponent(url)}`;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(()=>setCopied(false),2000); } catch(_){}
+  };
+  return (
+    <Modal title={`Compartir — ${panel.l}`} onClose={onClose} width={420}>
+      <div style={{textAlign:'center'}}>
+        {needsRest && (
+          <div style={{fontSize:12,color:C.orange,fontWeight:600,lineHeight:1.5,marginBottom:14,border:`1px solid ${C.orange}`,borderRadius:9,padding:'9px 12px'}}>
+            Esta app del cliente necesita un restaurante. Elegí uno en el selector para que el QR cargue su menú.
+          </div>
+        )}
+        <div style={{fontSize:13,color:C.mid,lineHeight:1.5,marginBottom:16}}>
+          Mostrá este QR o compartí el link para abrir el panel de <strong>{panel.l}</strong>.
+        </div>
+        <div style={{background:'#FFFFFF',border:`1px solid ${C.border}`,borderRadius:14,padding:14,display:'inline-block',marginBottom:16}}>
+          <img src={qrImg} alt={`QR ${panel.l}`} width={220} height={220} style={{display:'block',width:220,height:220}}/>
+        </div>
+        <div style={{display:'flex',gap:8,marginBottom:10}}>
+          <input readOnly value={url} onFocus={e=>e.target.select()}
+            style={{flex:1,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.bg,color:C.ink,minWidth:0}}/>
+          <button onClick={copy} style={{background:C.ink,color:C.surface,border:'none',borderRadius:9,padding:'10px 14px',fontSize:12.5,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>{copied?'¡Copiado!':'Copiar'}</button>
+        </div>
+        <a href={url} target="_blank" rel="noopener noreferrer"
+           style={{display:'block',background:'transparent',color:C.ink,border:`1px solid ${C.ink}`,borderRadius:9,padding:'10px 14px',fontSize:13,fontWeight:700,textDecoration:'none'}}>
+          Abrir ahora ↗
+        </a>
+      </div>
+    </Modal>
+  );
+}
+
+function PageSuperPaneles({restaurants}) {
+  const [rid, setRid] = useState('');
+  const [qr, setQr]   = useState(null);
+  const list = Array.isArray(restaurants) ? restaurants : [];
+  // Strip del último segmento de la ruta (sirve igual con superadmin.html o ruta limpia /superadmin)
+  const base = window.location.origin + window.location.pathname.replace(/[^/]*$/,'');
+  const urlFor = p => `${base}${p.h}${rid ? `?r=${encodeURIComponent(rid)}` : ''}`;
+
+  return (
+    <div>
+      <h1 style={{fontSize:24,fontWeight:800,letterSpacing:'-0.5px',margin:'0 0 4px',color:C.ink}}>Paneles</h1>
+      <p style={{fontSize:13,color:C.mid,margin:'0 0 18px',maxWidth:640,lineHeight:1.55}}>
+        Como superadmin accedés a <strong>todos los paneles sin restricciones</strong>. Elegí un restaurante para que el QR/link abra con su contexto, o dejá <strong>Genérico</strong> (el panel resuelve el local del login). Tocá un panel para generar su QR o link directo.
+      </p>
+      <div style={{marginBottom:22,maxWidth:380}}>
+        <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>Restaurante (contexto del link)</label>
+        <select value={rid} onChange={e=>setRid(e.target.value)}
+          style={{width:'100%',fontSize:13,padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.surface,color:C.ink}}>
+          <option value="">Genérico (sin restaurante)</option>
+          {list.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(212px,1fr))',gap:14}}>
+        {SUPER_PANELS.map(p => (
+          <div key={p.h}
+            onClick={()=>setQr(p)}
+            style={{background:C.surface,border:`1px solid ${C.ink}`,borderRadius:14,padding:'18px 16px',minHeight:150,display:'flex',flexDirection:'column',cursor:'pointer',transition:'transform .12s, box-shadow .12s'}}
+            onMouseEnter={e=>{ e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow='0 10px 28px rgba(0,0,0,0.14)'; }}
+            onMouseLeave={e=>{ e.currentTarget.style.transform='none'; e.currentTarget.style.boxShadow='none'; }}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+              <div style={{width:42,height:42,borderRadius:11,background:C.ink,color:C.surface,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <Icon name={p.ic} size={20}/>
+              </div>
+              <span style={{fontSize:20,color:C.dim,fontWeight:300}}>›</span>
+            </div>
+            <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:5}}>{p.l}</div>
+            <div style={{fontSize:12,color:C.mid,lineHeight:1.45,flex:1,marginBottom:12}}>{p.desc}</div>
+            <div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12.5,fontWeight:700,color:C.ink}}>
+              <Icon name="layout" size={13}/> Compartir / Abrir
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {qr && <SuperShareModal panel={qr} url={urlFor(qr)} needsRest={qr.client && !rid} onClose={()=>setQr(null)}/>}
+    </div>
+  );
+}
+
 const Th = ({children,style:sx={},onClick}) => (
   <th onClick={onClick} style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.5,whiteSpace:'nowrap',background:C.surface,cursor:onClick?'pointer':'default',...sx}}>{children}</th>
 );
@@ -2685,6 +2785,7 @@ function PageActividad({events, restaurants, setFlash, reload}) {
 // ── Navegación ───────────────────────────────────────────────
 const NAV = [
   {id:'dashboard',      label:'Dashboard'},
+  {id:'paneles',        label:'Paneles'},
   {id:'capacidad',      label:'Capacidad'},
   {id:'restaurantes',   label:'Restaurantes'},
   {id:'facturacion',    label:'Facturación'},
@@ -3720,6 +3821,7 @@ function App() {
           ) : (
             <>
               {page==='dashboard'     && <PageDashboard    enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} setFlash={setFlash} reload={reloadSilent} setPage={setPage}/>}
+              {page==='paneles'       && <PageSuperPaneles restaurants={restaurants}/>}
               {page==='capacidad'     && <PageCapacidad    enriched={enriched}/>}
               {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} addonCatalog={addonCatalog} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} addonCatalog={addonCatalog} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}

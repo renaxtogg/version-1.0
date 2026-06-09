@@ -346,6 +346,7 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
 const NAV = [
   {id:'dashboard', label:'Dashboard',    icon:'dashboard'},
   {id:'pedidos',   label:'Pedidos',      icon:'menu'},
+  {id:'paneles',   label:'Paneles',      icon:'layout'},
   null,
   {id:'delivery',  label:'Delivery',     icon:'truck', group:'DELIVERY'},
   null,
@@ -406,28 +407,10 @@ function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={},themeMode
           );
         })}
       </nav>
-      <div style={{padding:'10px 12px',borderTop:`1px solid ${C.border}`}}>
-        <div style={{fontSize:9,color:C.mid,fontWeight:800,letterSpacing:'0.14em',textTransform:'uppercase',padding:'2px 4px 6px'}}>Paneles</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:4,marginBottom:8}}>
-          {[
-            {l:'Caja',h:'caja.html',ic:'money'},
-            {l:'Cocina',h:'cocina.html',ic:'flame'},
-            {l:'Mozo',h:'mozo.html',ic:'coffee'},
-            {l:'Gerente',h:'gerente.html',ic:'chart'},
-            {l:'Cliente',h:'index.html',ic:'cart'},
-            {l:'Delivery',h:'delivery-cliente.html',ic:'package'},
-            {l:'Rider',h:'delivery-rider.html',ic:'bike'},
-            {l:'Diagnóstico',h:'diag.html',ic:'activity'},
-          ].map(p=>{
-            // Apps de cliente (index/delivery) no leen localStorage → necesitan el restaurante en la URL.
-            const isClient = p.h==='index.html'||p.h==='delivery-cliente.html';
-            const href = isClient ? `${p.h}?r=${encodeURIComponent(RID)}` : p.h;
-            return (
-            <a key={p.h} href={href} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',gap:6,color:C.mid,fontSize:11,textDecoration:'none',padding:'5px 6px',border:`1px solid ${C.border}`,borderRadius:6}}>
-              <Icon name={p.ic} size={12}/><span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.l}</span>
-            </a>
-          );})}
-        </div>
+      <div style={{padding:'10px 12px',borderTop:`1px solid ${C.border}`,display:'flex',flexDirection:'column',gap:8}}>
+        <button onClick={()=>setPage('paneles')} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:7,background:'none',border:`1px solid ${C.border}`,color:C.ink,fontSize:12,fontWeight:600,padding:'7px 10px',borderRadius:6,cursor:'pointer',width:'100%'}}>
+          <Icon name="layout" size={13}/> Ver todos los paneles
+        </button>
 {db && <button onClick={async()=>{try{await window.MythosPresence?.stop('manual');}catch(_){}await db.auth.signOut();window.location.replace('login.html');}} style={{background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'5px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
       </div>
     </aside>
@@ -483,6 +466,177 @@ function SucursalSwitcher({caps}) {
           </div>
         </React.Fragment>
       )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   MÓDULO PANELES — hub de accesos + compartir por QR / link
+   ──────────────────────────────────────────────
+   El dueño entra acá tras contratar su plan: un botón cuadrado por panel.
+   · Incluido en el plan  → al tocarlo abre un QR + link directo para pasarle
+     a su personal (caja/mozo/cocina/rider); cada quien inicia sesión normal.
+   · NO incluido          → candado + copy de marketing + CTA "Mejorar plan"
+     que abre WhatsApp de ventas (window.SUPABASE_CONFIG.salesWhatsapp).
+   Gating por caps.allowed_panels (fail-open: plan sin configurar = todo abierto).
+══════════════════════════════════════════════ */
+const PANEL_HUB = [
+  {key:'caja',             l:'Caja',             h:'caja.html',             ic:'money',   rol:'cajero/a',    desc:'Cobros, turnos, fondo fijo y facturación'},
+  {key:'mozo',             l:'Mozo',             h:'mozo.html',             ic:'coffee',  rol:'mozo/a',      desc:'Mesas, comandas y transferencia entre mozos'},
+  {key:'cocina',           l:'Cocina (KDS)',     h:'cocina.html',           ic:'flame',   rol:'cocina',      desc:'Tablero de comandas y despacho por estación'},
+  {key:'gerente',          l:'Gerente',          h:'gerente.html',          ic:'chart',   rol:'gerente',     desc:'Reportes, personal, proveedores y alertas'},
+  {key:'delivery-cliente', l:'Delivery Cliente', h:'delivery-cliente.html', ic:'package', rol:'cliente',     desc:'App de pedidos a domicilio para tus clientes'},
+  {key:'delivery-rider',   l:'Rider Delivery',   h:'delivery-rider.html',   ic:'bike',    rol:'repartidor',  desc:'Panel del repartidor en ruta'},
+];
+
+function salesWaUrl(panelLabel) {
+  const num = (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.salesWhatsapp) || '595981234567';
+  const msg = `Hola Mythos, quiero ampliar mi plan para incluir el panel de ${panelLabel} en mi restaurante.`;
+  return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
+}
+
+function PanelShareModal({panel, url, onClose}) {
+  const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=14&data=${encodeURIComponent(url)}`;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); toast('Link copiado al portapapeles'); }
+    catch(_){ toast('No se pudo copiar — copialo manualmente', false); }
+  };
+  return (
+    <Modal title={`Compartir — ${panel.l}`} onClose={onClose} width={420}>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:13,color:C.mid,lineHeight:1.5,marginBottom:16}}>
+          Mostrá este QR a tu <strong>{panel.rol}</strong> o compartí el link. Al abrirlo entra directo al panel de <strong>{panel.l}</strong> e inicia sesión con su correo y contraseña.
+        </div>
+        <div style={{background:'#FFFFFF',border:`1px solid ${C.border}`,borderRadius:14,padding:14,display:'inline-block',marginBottom:16}}>
+          <img src={qrImg} alt={`QR ${panel.l}`} width={220} height={220} style={{display:'block',width:220,height:220}}/>
+        </div>
+        <div style={{display:'flex',gap:8,marginBottom:10}}>
+          <input readOnly value={url} onFocus={e=>e.target.select()}
+            style={{flex:1,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.bg,color:C.ink,minWidth:0}}/>
+          <button onClick={copy} style={{background:C.ink,color:C.surface,border:'none',borderRadius:9,padding:'10px 14px',fontSize:12.5,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>Copiar</button>
+        </div>
+        <a href={url} target="_blank" rel="noopener noreferrer"
+           style={{display:'block',background:'transparent',color:C.ink,border:`1px solid ${C.ink}`,borderRadius:9,padding:'10px 14px',fontSize:13,fontWeight:700,textDecoration:'none'}}>
+          Abrir ahora ↗
+        </a>
+      </div>
+    </Modal>
+  );
+}
+
+/* Modal de mejora de plan: lista los planes activos, marca cuál incluye el
+   panel bloqueado y ofrece el contacto de WhatsApp pre-cargado. */
+const PANEL_LABEL_SHORT = {caja:'Caja',mozo:'Mozo',cocina:'Cocina',gerente:'Gerente','delivery-cliente':'Delivery Cliente','delivery-rider':'Rider'};
+
+function UpgradeModal({panel, onClose}) {
+  const [plans, setPlans] = useState(null);
+  useEffect(()=>{
+    let on = true;
+    if (!db) { setPlans([]); return; }
+    db.from('subscription_plans').select('id,name,price_usd,billing_cycle,allowed_panels,is_active')
+      .eq('is_active', true).order('price_usd', {ascending:true})
+      .then(({data})=>{ if(on) setPlans(data||[]); })
+      .catch(()=>{ if(on) setPlans([]); });
+    return ()=>{ on = false; };
+  }, []);
+  const includesPanel = pl => Array.isArray(pl.allowed_panels) && pl.allowed_panels.includes(panel.key);
+  const waPlan = pl => {
+    const num = (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.salesWhatsapp) || '595981234567';
+    const msg = `Hola Mythos, quiero mejorar mi plan${pl?` al ${pl.name}`:''} para incluir el panel de ${panel.l} en mi restaurante.`;
+    return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
+  };
+  return (
+    <Modal title="Mejorá tu plan" onClose={onClose} width={520}>
+      <div style={{fontSize:13,color:C.mid,lineHeight:1.55,marginBottom:18}}>
+        El panel <strong>{panel.l}</strong> no está incluido en tu plan actual. Elegí el plan que lo incluye y escribinos para activarlo al instante.
+      </div>
+      {plans===null
+        ? <div style={{textAlign:'center',padding:'28px 0',color:C.dim,fontSize:13}}>Cargando planes…</div>
+        : plans.length===0
+          ? <a href={waPlan(null)} target="_blank" rel="noopener noreferrer" style={{display:'block',textAlign:'center',background:C.ink,color:C.surface,fontSize:13,fontWeight:700,padding:'12px',borderRadius:10,textDecoration:'none'}}>📲 Consultar por WhatsApp</a>
+          : <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              {plans.map(pl=>{
+                const inc = includesPanel(pl);
+                return (
+                  <div key={pl.id} style={{border:`1px solid ${inc?C.ink:C.border}`,borderRadius:12,padding:'14px 16px',background:inc?C.bg:'transparent'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:10,marginBottom:8}}>
+                      <div style={{fontSize:16,fontWeight:800,color:C.ink}}>
+                        {pl.name}
+                        {inc && <span style={{fontSize:11,fontWeight:800,color:C.green,marginLeft:8}}>✓ Incluye {panel.l}</span>}
+                      </div>
+                      <div style={{fontSize:15,fontWeight:800,color:C.ink,whiteSpace:'nowrap'}}>₲ {Number(pl.price_usd||0).toLocaleString('es-PY')}<span style={{fontSize:11,color:C.dim,fontWeight:600}}>/{pl.billing_cycle==='yearly'?'año':'mes'}</span></div>
+                    </div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:12}}>
+                      {(Array.isArray(pl.allowed_panels)?pl.allowed_panels:[]).map(k=>(
+                        <span key={k} style={{fontSize:11,fontWeight:600,color:k===panel.key?C.ink:C.mid,border:`1px solid ${k===panel.key?C.ink:C.border}`,borderRadius:20,padding:'2px 9px'}}>{PANEL_LABEL_SHORT[k]||k}</span>
+                      ))}
+                    </div>
+                    <a href={waPlan(pl)} target="_blank" rel="noopener noreferrer"
+                       style={{display:'inline-flex',alignItems:'center',gap:6,background:inc?C.ink:'transparent',color:inc?C.surface:C.ink,border:`1px solid ${C.ink}`,fontSize:12.5,fontWeight:700,padding:'8px 14px',borderRadius:9,textDecoration:'none'}}>
+                      📲 Consultar {pl.name}
+                    </a>
+                  </div>
+                );
+              })}
+            </div>}
+    </Modal>
+  );
+}
+
+function PanelesPage({caps}) {
+  const [qr, setQr] = useState(null);
+  const [upgrade, setUpgrade] = useState(null);
+  const allowed = caps && caps.caps && Array.isArray(caps.caps.allowed_panels) ? caps.caps.allowed_panels : null;
+  const isLocked = key => allowed ? !allowed.includes(key) : false;   // fail-open
+  // Strip del último segmento de la ruta (sirve igual con admin.html o ruta limpia /admin)
+  const base = window.location.origin + window.location.pathname.replace(/[^/]*$/,'');
+  const urlFor = p => `${base}${p.h}?r=${encodeURIComponent(RID)}`;
+
+  return (
+    <div>
+      <h1 style={{fontSize:24,fontWeight:800,letterSpacing:'-0.5px',margin:'0 0 4px'}}>Paneles</h1>
+      <p style={{fontSize:13,color:C.mid,margin:'0 0 22px',maxWidth:640,lineHeight:1.55}}>
+        Todos los paneles de tu restaurante en un solo lugar. Tocá un panel incluido en tu plan para abrir un <strong>QR</strong> o <strong>link directo</strong> y pasárselo a tu personal — al abrirlo, cada quien inicia sesión con su correo y contraseña. Los paneles con candado no están incluidos en tu plan actual.
+      </p>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(212px,1fr))',gap:14}}>
+        {PANEL_HUB.map(p => {
+          const lk = isLocked(p.key);
+          return (
+            <div key={p.key}
+              onClick={()=> lk ? null : setQr(p)}
+              style={{position:'relative',background:C.surface,border:`1px solid ${lk?C.border:C.ink}`,borderRadius:14,padding:'18px 16px',minHeight:160,display:'flex',flexDirection:'column',cursor:lk?'default':'pointer',filter:lk?'grayscale(1)':'none',transition:'transform .12s, box-shadow .12s'}}
+              onMouseEnter={e=>{ if(!lk){ e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow='0 10px 28px rgba(0,0,0,0.12)'; }}}
+              onMouseLeave={e=>{ e.currentTarget.style.transform='none'; e.currentTarget.style.boxShadow='none'; }}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+                <div style={{width:42,height:42,borderRadius:11,background:lk?C.bg:C.ink,color:lk?C.dim:C.surface,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                  <Icon name={p.ic} size={20}/>
+                </div>
+                {lk
+                  ? <span style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:10,fontWeight:800,color:C.dim,border:`1px solid ${C.border}`,borderRadius:20,padding:'3px 9px',textTransform:'uppercase',letterSpacing:'0.4px'}}><Icon name="lock" size={11}/>Bloqueado</span>
+                  : <span style={{fontSize:20,color:C.dim,fontWeight:300}}>›</span>}
+              </div>
+              <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:5}}>{p.l}</div>
+              {lk
+                ? <React.Fragment>
+                    <div style={{fontSize:12,color:C.mid,lineHeight:1.45,flex:1,marginBottom:12}}>No tenés acceso a este panel. Mejorá tu plan e inclúyelo para potenciar tu operación.</div>
+                    <button onClick={e=>{ e.stopPropagation(); setUpgrade(p); }}
+                       style={{display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6,background:C.ink,color:C.surface,border:'none',fontSize:12.5,fontWeight:700,padding:'9px 12px',borderRadius:9,cursor:'pointer',width:'100%'}}>
+                      🔓 Ver planes y mejorar
+                    </button>
+                  </React.Fragment>
+                : <React.Fragment>
+                    <div style={{fontSize:12,color:C.mid,lineHeight:1.45,flex:1,marginBottom:12}}>{p.desc}</div>
+                    <div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12.5,fontWeight:700,color:C.ink}}>
+                      <Icon name="layout" size={13}/> Compartir / Abrir
+                    </div>
+                  </React.Fragment>}
+            </div>
+          );
+        })}
+      </div>
+
+      {qr && <PanelShareModal panel={qr} url={urlFor(qr)} onClose={()=>setQr(null)}/>}
+      {upgrade && <UpgradeModal panel={upgrade} onClose={()=>setUpgrade(null)}/>}
     </div>
   );
 }
@@ -9351,6 +9505,7 @@ function AdminApp() {
     );
     switch(page){
       case 'dashboard': return <DashboardPage orders={orders} ratings={ratings} setPage={setPage}/>;
+      case 'paneles':   return <PanelesPage caps={caps}/>;
       case 'pedidos':   return <PedidosPage orders={orders} tables={tables} onRefresh={loadAll}/>;
       case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
       case 'mesas':     return <MesasPage tables={tables} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
