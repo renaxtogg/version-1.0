@@ -228,3 +228,96 @@ SELECT
   (SELECT count(*) FROM information_schema.role_table_grants
     WHERE grantee='anon' AND table_schema='public'
       AND table_name='delivery_orders' AND privilege_type='UPDATE')    AS anon_dord_update_grant;   -- 0
+
+-- ════════════════════════════════════════════════════════════════════
+-- SPRINT 1B (migration 105) — DRIFT HOTFIX CHECKS
+-- Run BEFORE applying 105 (record the drift) and AFTER (confirm closed).
+-- ════════════════════════════════════════════════════════════════════
+
+-- ────────────────────────────────────────────────────────────────────
+-- Q11. delivery_channels anon grants
+-- BEFORE: SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER.
+-- AFTER (PASS): 0 rows (no approved anon surface — no panel reads it).
+-- (Returns 0 rows on environments where the phantom table is absent.)
+-- ────────────────────────────────────────────────────────────────────
+SELECT grantee, privilege_type
+FROM information_schema.role_table_grants
+WHERE table_schema = 'public'
+  AND table_name = 'delivery_channels'
+  AND grantee = 'anon'
+ORDER BY privilege_type;
+
+-- ────────────────────────────────────────────────────────────────────
+-- Q12. Drift policies on channels/riders/zones are gone
+-- AFTER (PASS): 0 rows.
+-- ────────────────────────────────────────────────────────────────────
+SELECT tablename, policyname, cmd, roles::text
+FROM pg_policies
+WHERE schemaname = 'public'
+  AND policyname IN ('public_all_channels','public_read_channels',
+                     'public_all_riders','public_read_riders',
+                     'public_all_zones','public_read_zones');
+
+-- ────────────────────────────────────────────────────────────────────
+-- Q12b. Replacement policies are in place and narrow
+-- AFTER (PASS): delivery_zones_anon_select with qual (is_active = true);
+--   delivery_channels_auth tenant-scoped (only if the table exists);
+--   delivery_riders_anon_select still (active = true) from 103.
+-- ────────────────────────────────────────────────────────────────────
+SELECT tablename, policyname, cmd, roles::text, qual, with_check
+FROM pg_policies
+WHERE schemaname = 'public'
+  AND policyname IN ('delivery_zones_anon_select','delivery_channels_auth',
+                     'delivery_riders_anon_select')
+ORDER BY tablename, policyname;
+
+-- ────────────────────────────────────────────────────────────────────
+-- Q13. No admin_* RPC is executable by anon
+-- AFTER (PASS): 0 rows. (Covers the whole family, incl. admin_create_user,
+-- admin_list_users, admin_toggle_user, admin_update_user_role,
+-- admin_load_stock, admin_set_item_availability,
+-- admin_complete_stock_session — anon must not call any of them, with
+-- or without internal guards.)
+-- ────────────────────────────────────────────────────────────────────
+SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND p.proname LIKE 'admin\_%'
+  AND has_function_privilege('anon', p.oid, 'EXECUTE')
+ORDER BY p.proname;
+
+-- ────────────────────────────────────────────────────────────────────
+-- Q14. Residual anon TRUNCATE/REFERENCES/TRIGGER — schema-wide
+-- BEFORE: 23 tables. AFTER (PASS): 0 rows.
+-- ────────────────────────────────────────────────────────────────────
+SELECT table_name, string_agg(privilege_type, ',') AS residual
+FROM information_schema.role_table_grants
+WHERE grantee = 'anon'
+  AND table_schema = 'public'
+  AND privilege_type IN ('TRUNCATE','REFERENCES','TRIGGER')
+GROUP BY table_name
+ORDER BY table_name;
+
+-- ────────────────────────────────────────────────────────────────────
+-- Q15. SPRINT 1B one-line PASS/FAIL gauge
+-- AFTER (PASS): every counter 0 and zones_anon_narrow = 1.
+-- ────────────────────────────────────────────────────────────────────
+SELECT
+  (SELECT count(*) FROM information_schema.role_table_grants
+    WHERE table_schema='public' AND table_name='delivery_channels'
+      AND grantee='anon')                                              AS dc_anon_grants_left,      -- 0
+  (SELECT count(*) FROM pg_policies WHERE schemaname='public'
+      AND policyname IN ('public_all_channels','public_read_channels',
+                         'public_all_riders','public_read_riders',
+                         'public_all_zones','public_read_zones'))      AS drift_policies_left,      -- 0
+  (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname LIKE 'admin\_%'
+      AND has_function_privilege('anon', p.oid, 'EXECUTE'))            AS anon_admin_rpcs_left,     -- 0
+  (SELECT count(*) FROM information_schema.role_table_grants
+    WHERE grantee='anon' AND table_schema='public'
+      AND privilege_type IN ('TRUNCATE','REFERENCES','TRIGGER'))       AS anon_residual_grants_left,-- 0
+  (SELECT count(*) FROM pg_policies WHERE schemaname='public'
+      AND tablename='delivery_zones'
+      AND policyname='delivery_zones_anon_select'
+      AND qual = '(is_active = true)')                                 AS zones_anon_narrow;        -- 1

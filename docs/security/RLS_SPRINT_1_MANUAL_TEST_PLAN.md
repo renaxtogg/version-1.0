@@ -143,7 +143,70 @@
 
 15. - [ ] `/diag` logged out → "Acceso restringido". Logged in → checks run.
 
-## F. Record results
+## F. Sprint 1B — drift hotfix tests (run AFTER applying migration 105)
+
+> 105 closes production drift found by the post-apply verification of
+> 103/104: `delivery_channels` open to anon, `public_all_*` /
+> `public_read_*` USING(true) policies on riders/zones, anon-callable
+> `admin_*` RPCs, and residual anon TRUNCATE/REFERENCES/TRIGGER grants.
+> Pair with verification Q11–Q15 (before + after).
+
+16. **Public delivery client still works** (`/delivery-cliente.html?r=<id>` incognito):
+    - [ ] Coverage check / zone selector loads with fees and ETA
+          (anon zone read is now `delivery_zones_anon_select`,
+          `is_active = true` — the client already filtered active zones,
+          so the list must be identical).
+    - [ ] Create a delivery order end-to-end; tracking shows the rider's
+          name after cocina assigns (rider anon read from 103 unchanged).
+17. **Authenticated delivery settings still work** (admin of Terrapizza):
+    - [ ] admin → Delivery: zone list loads; edit a zone's fee and save;
+          create + delete a test zone (`delivery_zones_auth_all`).
+    - [ ] Riders management: list, edit, change rider status.
+18. **anon cannot list or mutate delivery_channels** (curl/Postman, anon key):
+    ```
+    GET    <URL>/rest/v1/delivery_channels?select=*                  → denied (42501)
+    POST   <URL>/rest/v1/delivery_channels {...}                     → denied
+    PATCH  <URL>/rest/v1/delivery_channels?id=eq.<any> {"commission_pct":0} → denied
+    DELETE <URL>/rest/v1/delivery_channels?id=eq.<any>               → denied
+    ```
+19. **anon cannot mutate riders/zones:**
+    ```
+    PATCH <URL>/rest/v1/delivery_riders?id=eq.<any> {"name":"x"}     → denied
+    PATCH <URL>/rest/v1/delivery_zones?id=eq.<any>  {"price_guarani":0} → denied
+    GET   <URL>/rest/v1/delivery_zones?select=*&is_active=eq.false   → 0 rows (narrow policy)
+    ```
+20. **Cross-tenant staff isolation on channels/riders/zones** (staff JWT of
+    restaurant A against restaurant B):
+    ```
+    GET   /rest/v1/delivery_channels?restaurant_id=eq.<other_rid>    → 0 rows
+    GET   /rest/v1/delivery_riders?restaurant_id=eq.<other_rid>      → 0 rows
+    PATCH /rest/v1/delivery_zones?restaurant_id=eq.<other_rid> {...} → 0 rows
+    ```
+21. **Stock / user-admin RPCs still work for valid staff** (logged in):
+    - [ ] admin → Stock: cargar stock (`admin_load_stock`), abrir toma
+          (`admin_create_stock_session`), completar toma
+          (`admin_complete_stock_session`), listado (`admin_list_ingredients`).
+    - [ ] admin → Personal: roster (`admin_list_restaurant_users`).
+    - [ ] superadmin → Usuarios: listar (`admin_list_users`), activar/
+          desactivar (`admin_toggle_user`), cambiar rol (`admin_update_user_role`).
+    - [ ] Alta de usuario/rider vía Personal (`/api/create-user`) sigue
+          funcionando (usa service_role en backend, no RPC).
+22. **anon cannot call any admin RPC** (anon key, all must be denied —
+    `42501 permission denied for function`):
+    ```
+    POST /rest/v1/rpc/admin_load_stock              {...} → denied
+    POST /rest/v1/rpc/admin_set_item_availability   {...} → denied
+    POST /rest/v1/rpc/admin_complete_stock_session  {...} → denied
+    POST /rest/v1/rpc/admin_create_stock_session    {...} → denied
+    POST /rest/v1/rpc/admin_create_user             {...} → denied
+    POST /rest/v1/rpc/admin_list_users              {}    → denied
+    POST /rest/v1/rpc/admin_toggle_user             {...} → denied
+    POST /rest/v1/rpc/admin_update_user_role        {...} → denied
+    POST /rest/v1/rpc/admin_list_ingredients        {...} → denied
+    POST /rest/v1/rpc/admin_list_restaurant_users   {...} → denied
+    ```
+
+## G. Record results
 
 | # | Step | PASS/FAIL | Notes (exact error if FAIL) |
 |---|------|-----------|------------------------------|
@@ -167,6 +230,20 @@
 - Anon can no longer SELECT reservations. No anon panel reads reservations
   (verified by grep: index/delivery-cliente only INSERT, with
   `return=minimal`), so no visible impact is expected.
+
+**Sprint 1B (105) acceptable degradations:**
+- `delivery_channels` is fully closed to anon and tenant-scoped for staff.
+  NO panel queries it (verified by grep across public/ and api/) — zero
+  visible impact expected.
+- `admin_create_user` and `admin_set_item_availability` become
+  service_role-only: no panel calls them (user creation goes through
+  `/api/create-user`; availability is updated via direct table writes).
+- Inactive delivery zones are invisible to anon (the client already
+  filtered `is_active = true`, so the rendered list is unchanged).
+- KNOWN RESIDUAL for Sprint 2 (not a 105 regression): `admin_load_stock`
+  and `admin_complete_stock_session` remain SECURITY DEFINER without an
+  internal role guard — any authenticated user can still call them
+  cross-tenant. Closing that requires editing function bodies.
 
 **Rollback:** restore from the pre-apply backup, or revert policies/grants by
 re-running the old policy definitions (kept in migrations 004→102). Because
