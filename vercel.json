@@ -10,7 +10,10 @@
     { "source": "/login", "destination": "/login.html" },
     { "source": "/diag", "destination": "/diag.html" },
     { "source": "/caja", "destination": "/caja.html" },
-    { "source": "/mozo", "destination": "/mozo.html" }
+    { "source": "/mozo", "destination": "/mozo.html" },
+    { "source": "/gerente", "destination": "/gerente.html" },
+    { "source": "/delivery-cliente", "destination": "/delivery-cliente.html" },
+    { "source": "/delivery-rider", "destination": "/delivery-rider.html" }
   ],
   "headers": [
     {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Diagnóstico — Mesa App</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <style>
   body { background: #0A0A0A; color: #E8E8E8; font-family: 'JetBrains Mono', monospace; padding: 32px; font-size: 13px; line-height: 1.6; }
@@ -54,6 +54,18 @@
     out.innerHTML = html;
     return;
   }
+  html += '<hr>';
+
+  // Guardia de sesión: el diagnóstico es solo para personal autenticado
+  let session = null;
+  try { session = (await db.auth.getSession()).data.session; } catch (e) {}
+  if (!session) {
+    html += row('Acceso', 'Restringido — esta página requiere sesión de personal.', 'err');
+    html += row('→ Acción', '<a href="/login?next=/diag" style="color:#F59E0B">Iniciar sesión</a> y recargar esta página.', 'warn');
+    out.innerHTML = html;
+    return;
+  }
+  html += row('Sesión', 'Autenticado: ' + ((session.user && session.user.email) || session.user.id), 'ok');
   html += '<hr>';
   out.innerHTML = html + row('Conectando…', '', 'info');
 
