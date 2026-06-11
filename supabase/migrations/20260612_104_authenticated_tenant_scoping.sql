@@ -391,18 +391,28 @@ CREATE POLICY "kitchen_messages_auth" ON public.kitchen_messages
 -- ════════════════════════════════════════════════════════════════════
 -- 7. USER_PROFILES (legacy mozo-v2 PIN table; caja reads the
 --    supervisor PIN — must stay same-restaurant only)
+--    PHANTOM-TABLE GUARD (2026-06-11): confirmed during the Sprint 1
+--    apply that public.user_profiles does NOT exist in production
+--    (mig 038 table never materialized / removed by the 096 reset).
+--    Guarded so 104 applies cleanly with or without the legacy table.
 -- ════════════════════════════════════════════════════════════════════
-REVOKE ALL ON public.user_profiles FROM anon;
-
-DROP POLICY IF EXISTS "profiles_select"    ON public.user_profiles; -- SELECT USING(true), mig 038
-DROP POLICY IF EXISTS "user_profiles_auth" ON public.user_profiles;
-CREATE POLICY "user_profiles_auth" ON public.user_profiles
-  FOR SELECT TO authenticated
-  USING (
-    public.get_my_role() = 'superadmin'
-    OR restaurant_id IN (SELECT public.get_my_company_restaurant_ids())
-  );
--- No write policies existed before and none are added (table is legacy).
+DO $$
+BEGIN
+  IF to_regclass('public.user_profiles') IS NULL THEN
+    RAISE NOTICE 'user_profiles does not exist - skipping section 7 (phantom legacy table)';
+    RETURN;
+  END IF;
+  REVOKE ALL ON public.user_profiles FROM anon;
+  DROP POLICY IF EXISTS "profiles_select"    ON public.user_profiles; -- SELECT USING(true), mig 038
+  DROP POLICY IF EXISTS "user_profiles_auth" ON public.user_profiles;
+  CREATE POLICY "user_profiles_auth" ON public.user_profiles
+    FOR SELECT TO authenticated
+    USING (
+      public.get_my_role() = 'superadmin'
+      OR restaurant_id IN (SELECT public.get_my_company_restaurant_ids())
+    );
+  -- No write policies existed before and none are added (table is legacy).
+END $$;
 
 -- ════════════════════════════════════════════════════════════════════
 -- 8. COUPONS — writes become tenant-scoped; the open SELECT

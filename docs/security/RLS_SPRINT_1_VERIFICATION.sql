@@ -194,6 +194,9 @@ SELECT
         'restaurant_settings','subscription_plans','plan_addons',
         'restaurant_addons','delivery_riders','delivery_zones'))      AS anon_write_grants_left,   -- 0
   (SELECT count(*) FROM pg_policies WHERE schemaname='public'
+      -- only count them while still OPEN: 103 §10 recreates
+      -- platform_config_write under the same name, superadmin-scoped
+      AND (qual = 'true' OR with_check = 'true')
       AND policyname IN ('sa_restaurants_all','admin_update_restaurant',
         'sa_payments_all','sa_events_all','sa_plans_all',
         'sa_plan_addons_all','sa_restaurant_addons_all',
