@@ -75,6 +75,10 @@ const TABLE_TOKEN = _urlParams.get('t') || _urlParams.get('token') || null;
 // sin número de mesa ni llamada al mozo. No confundir uno con otro.
 const IS_COUNTER = !TABLE_TOKEN && !TABLE_NUM;
 const tableLabel = () => TABLE_NUM ? `Mesa ${TABLE_NUM}` : 'Mostrador';
+// PR-1B: un pedido "para llevar" no ocupa ni se asocia a una mesa, aunque se
+// entre por el QR de una mesa. La etiqueta de servicio lo refleja en la UI del
+// cliente (la persistencia table_id=null ya la hace PayScreen — PR-1A).
+const serviceLabel = (orderMode) => orderMode === 'take' ? 'Para llevar' : tableLabel();
 
 /* ── SUPABASE HELPERS ────────────────────── */
 async function dbLoadMenu() {
@@ -588,7 +592,7 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWait
       <div style={{ background: T.hdrBg, padding: '52px 20px 12px', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 11, color: T.hdrSub, letterSpacing: T.F.lSpacing, textTransform: T.F.lCase, marginBottom: 2 }}>{tableLabel()} · {orderMode === 'take' ? 'Para llevar' : 'En el local'}</div>
+            <div style={{ fontSize: 11, color: T.hdrSub, letterSpacing: T.F.lSpacing, textTransform: T.F.lCase, marginBottom: 2 }}>{orderMode === 'take' ? 'Para llevar' : (tableLabel() + ' · En el local')}</div>
             <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.menuTitleSz, color: T.hdrText, lineHeight: 1.1 }}>{restName}</div>
           </div>
           <button onClick={onCallWaiter} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.13)', borderRadius: 9999, padding: '7px 14px', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: T.hdrText, fontSize: 12, fontWeight: 700, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
@@ -849,7 +853,7 @@ function ProductModal({ item, onClose, onAdd }) {
 }
 
 /* ══ SCREEN: PEDIDO ══════════════════════ */
-function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, onSplit }) {
+function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, onSplit, orderMode }) {
   const T = useContext(ThemeCtx);
   const [coupon, setCoupon] = useState('');
   const [applied, setApplied] = useState(false);
@@ -896,7 +900,7 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
       <div style={{ background: T.hdrBg, padding: '52px 20px 16px', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
           <button onClick={onBack} style={{ width: 38, height: 38, background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon name="back" size={17} color={T.hdrText} /></button>
-          <div style={{ flex: 1 }}><div style={{ fontSize: 11, color: T.hdrSub }}>{tableLabel()}</div><div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.titleSz, color: T.hdrText }}>Mi pedido</div></div>
+          <div style={{ flex: 1 }}><div style={{ fontSize: 11, color: T.hdrSub }}>{serviceLabel(orderMode)}</div><div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.titleSz, color: T.hdrText }}>Mi pedido</div></div>
           {items.length > 0 && onSplit && <button onClick={onSplit} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.13)', borderRadius: 9999, padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', color: T.hdrText, fontSize: 11, fontWeight: 700, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", flexShrink: 0 }}>
             <Icon name="scissors" size={13} color={T.hdrText} />Dividir cuenta
           </button>}
@@ -1052,8 +1056,8 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
               <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace,monospace", fontSize: 20, fontWeight: 500, color: T.btnPrimaryText }}>{ordNum || '#????'}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>{TABLE_NUM ? 'Mesa' : 'Modo'}</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: T.btnPrimaryText }}>{TABLE_NUM ? TABLE_NUM : (orderMode === 'take' ? 'Llevar' : 'Local')}</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 3 }}>{(TABLE_NUM && orderMode !== 'take') ? 'Mesa' : 'Modo'}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: T.btnPrimaryText }}>{(TABLE_NUM && orderMode !== 'take') ? TABLE_NUM : (orderMode === 'take' ? 'Llevar' : 'Local')}</div>
             </div>
           </div>
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 10 }}>
@@ -1225,7 +1229,7 @@ function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaite
   return (
     <div style={{ minHeight: '100%', background: T.trackBg, display: 'flex', flexDirection: 'column' }}>
       <div style={{ padding: '52px 24px 20px', flexShrink: 0 }}>
-        <div style={{ fontSize: 11, color: T.trackSub, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>{tableLabel()} · {orderNumber || 'Ticket en proceso'}</div>
+        <div style={{ fontSize: 11, color: T.trackSub, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>{serviceLabel(orderMode)} · {orderNumber || 'Ticket en proceso'}</div>
         <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: T.trackText, lineHeight: 1.1, marginBottom: 6 }}>Seguimiento</div>
         <div style={{ fontSize: 13, color: T.trackSub, marginBottom: 16 }}>Actualización en tiempo real</div>
         {/* Resumen de ítems */}
@@ -1938,7 +1942,7 @@ function App() {
                 {screen === 'profile' && <ProfileScreen onEnter={() => setScreen('menu')} orderMode={orderMode} setOrderMode={setOrderMode} lang={lang} setLang={setLang} onCallWaiter={handleCallWaiter} onReserve={() => setScreen('reserve')} assignedWaiterName={assignedWaiterName} />}
                 {screen === 'reserve' && <ReservationScreen onBack={() => setScreen('profile')} onDone={() => setScreen('profile')} />}
                 {screen === 'menu'    && <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} onCallWaiter={handleCallWaiter} orderMode={orderMode} assignedWaiterName={assignedWaiterName} menuStatus={menuStatus} />}
-                {screen === 'cart'    && <CartScreen items={cartItems} onBack={() => setScreen('menu')} onPay={(t, sub, disc, code) => { setPayTotal(t); setPaySubtotal(sub); setPayDiscount(disc); setPayCoupon(code); setScreen('pay'); }} onRemove={removeItem} onQty={updateQty} onCouponApplied={() => {}} onSplit={() => setShowSplit(true)} />}
+                {screen === 'cart'    && <CartScreen items={cartItems} onBack={() => setScreen('menu')} onPay={(t, sub, disc, code) => { setPayTotal(t); setPaySubtotal(sub); setPayDiscount(disc); setPayCoupon(code); setScreen('pay'); }} onRemove={removeItem} onQty={updateQty} onCouponApplied={() => {}} onSplit={() => setShowSplit(true)} orderMode={orderMode} />}
                 {screen === 'pay'     && <PayScreen total={payTotal} subtotal={paySubtotal} discountAmount={payDiscount} couponCode={payCoupon} cartItems={cartItems} orderMode={orderMode} lang={lang} onBack={() => setScreen('cart')} onDone={(ordNum, method) => { setCurrentOrderNum(ordNum); if (method) setPayMethod(method); setScreen('track'); }} />}
                 {screen === 'track'   && <TrackingScreen onRate={() => setScreen('rate')} orderNumber={currentOrderNum} orderMode={orderMode} cartItems={cartItems} onCallWaiter={handleCallWaiter} assignedWaiterName={assignedWaiterName} />}
                 {screen === 'rate'    && <RatingScreen onDone={clearSession} orderId={null} tableId={null} />}
