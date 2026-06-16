@@ -1,18 +1,21 @@
 // ════════════════════════════════════════════════════════════════════
-// Vite config — PR-11 piloto: migración del frontend fuera de Babel-en-navegador.
+// Vite config — migración incremental del frontend fuera de Babel-en-navegador.
 // ────────────────────────────────────────────────────────────────────
-// Estrategia INCREMENTAL: se compila UN solo panel piloto (delivery-rider)
-// a un bundle IIFE precompilado. Los otros 8 paneles siguen sirviéndose
-// tal cual desde public/*.html (sin tocar) hasta migrarse en PRs futuros.
+// Cada panel migrado se compila a un bundle IIFE autocontenido en
+// public/build/<panel>.js (reemplaza React/ReactDOM UMD + @babel/standalone
+// + el script JSX inline). Los paneles no migrados siguen sirviéndose tal cual.
 //
-//  • publicDir:false  → Vite NO trata public/ como passthrough; no copia
-//    ni transforma los HTML existentes (siguen siendo el output de Vercel).
-//  • build.lib IIFE   → un único <script> autoejecutable que reemplaza a
-//    React UMD + ReactDOM UMD + @babel/standalone + el <script type="text/babel">.
-//  • outDir public/build → el bundle queda dentro del output de Vercel
-//    (outputDirectory:public) sin mezclarse con los HTML. Carpeta gitignored.
-//  • React/ReactDOM se BUNDLEAN (reemplazan al CDN). Supabase sigue como
-//    UMD CDN (window.supabase) — diferido por bajo riesgo, sin refactor.
+// NOTA (PR-12): Rollup NO emite varios bundles IIFE en un solo build (IIFE no
+// soporta multi-input/code-splitting). Para mantener cada panel como un IIFE
+// autocontenido y NO re-tocar paneles ya migrados, cada panel tiene su propio
+// build: este archivo es el del piloto `delivery-rider` (default export) y se
+// expone `panelConfig` para los demás (ver vite.config.delivery-cliente.mjs).
+// `npm run build` encadena un `vite build` por panel.
+//
+//  • publicDir:false → no toca los HTML existentes en public/.
+//  • define process.env.NODE_ENV → en modo lib Vite no lo reemplaza; React de
+//    producción lo referencia y sin esto rompe con "process is not defined".
+//  • React/ReactDOM se bundlean. Supabase sigue UMD CDN (window.supabase).
 // ════════════════════════════════════════════════════════════════════
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -21,26 +24,32 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-export default defineConfig({
-  plugins: [react()],
-  publicDir: false,
-  // En modo `lib`, Vite NO reemplaza process.env.NODE_ENV (a diferencia del build
-  // de app). React de producción lo referencia → quedaba literal en el bundle y
-  // rompía el navegador con "process is not defined" (PR-11 QA). Lo definimos a
-  // 'production' para que React tome su rama prod y esbuild elimine el código dev.
-  define: {
-    'process.env.NODE_ENV': JSON.stringify('production'),
-  },
-  build: {
-    outDir: resolve(__dirname, 'public/build'),
-    emptyOutDir: true,
-    minify: 'esbuild',
-    sourcemap: false,
-    lib: {
-      entry: resolve(__dirname, 'src/delivery-rider/main.jsx'),
-      formats: ['iife'],
-      name: 'MythosDeliveryRider',
-      fileName: () => 'delivery-rider.js',
+// Factory: config de un panel migrado (bundle IIFE autocontenido).
+//   panel       : nombre/carpeta del panel (src/<panel>/main.jsx → build/<panel>.js)
+//   globalName  : nombre global del IIFE (no se usa en runtime, requerido por Rollup)
+//   emptyOutDir : true solo en el PRIMER build de la cadena (limpia public/build);
+//                 false en los siguientes para no borrar los bundles ya emitidos.
+export function panelConfig(panel, globalName, { emptyOutDir }) {
+  return defineConfig({
+    plugins: [react()],
+    publicDir: false,
+    define: {
+      'process.env.NODE_ENV': JSON.stringify('production'),
     },
-  },
-});
+    build: {
+      outDir: resolve(__dirname, 'public/build'),
+      emptyOutDir,
+      minify: 'esbuild',
+      sourcemap: false,
+      lib: {
+        entry: resolve(__dirname, `src/${panel}/main.jsx`),
+        formats: ['iife'],
+        name: globalName,
+        fileName: () => `${panel}.js`,
+      },
+    },
+  });
+}
+
+// Default: piloto delivery-rider (PR-11). Limpia public/build (primer build).
+export default panelConfig('delivery-rider', 'MythosDeliveryRider', { emptyOutDir: true });
