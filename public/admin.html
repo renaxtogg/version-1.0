@@ -2495,11 +2495,16 @@ function PersonalPage() {
       setEditId(null);
       return;
     }
-    if(!ADMIN_ALLOWED_ROLES.includes(editRole)){toast('No podés asignar ese rol desde el panel admin',false);return;}
-    const{error:rpcErr}=await db.rpc('admin_update_user_role',{p_user_role_id:id,p_role:editRole,p_is_active:editActive});
-    if(rpcErr){const{error:e}=await db.from('user_roles').update({role:editRole,is_active:editActive}).eq('id',id);if(e){toast('Error: '+e.message,false);return;}}
-    toast('Usuario actualizado');
-    setProfiles(p=>p.map(x=>x.id===id?{...x,role:editRole,is_active:editActive}:x));
+    // PR-3: la gestión de roles/estado del personal es superadmin-only en el backend
+    // (admin_update_user_role y admin_toggle_user exigen superadmin; la RLS de
+    // user_roles sólo permite escritura a superadmin). La llamada previa pasaba
+    // argumentos que NO coinciden con la firma real del RPC
+    // (admin_update_user_role(p_user_id, p_role, p_restaurant_id, p_display_name))
+    // y caía a un UPDATE directo a user_roles que RLS bloquea sin error → mostraba
+    // "Usuario actualizado" sin persistir (ghost write). Hasta que el backend
+    // habilite la gestión por un admin del mismo restaurante (migración con tenant
+    // guard), se deshabilita con un mensaje claro en vez de simular el guardado.
+    toast('La gestión de roles y estado del personal se realiza desde el panel Superadmin.', false);
     setEditId(null);
   }
 
