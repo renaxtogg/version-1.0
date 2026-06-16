@@ -24,6 +24,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   plugins: [react()],
   publicDir: false,
+  // En modo `lib`, Vite NO reemplaza process.env.NODE_ENV (a diferencia del build
+  // de app). React de producción lo referencia → quedaba literal en el bundle y
+  // rompía el navegador con "process is not defined" (PR-11 QA). Lo definimos a
+  // 'production' para que React tome su rama prod y esbuild elimine el código dev.
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production'),
+  },
   build: {
     outDir: resolve(__dirname, 'public/build'),
     emptyOutDir: true,
