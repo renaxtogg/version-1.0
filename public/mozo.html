@@ -2565,7 +2565,7 @@ function App() {
                         <button className="order-action-btn" onClick={enviarACocina} title="Enviar a cocina">&#9201;</button>
                       )}
                       {hasPendingCobro && (
-                        <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">$</button>
+                        <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">₲</button>
                       )}
                       {hasPendingCobro && (
                         <button className="order-action-btn" onClick={() => _caps.hasFeature('mozo:digital_qr_pay') ? setShowBancardMozoToast(true) : setShowQrPaywall(true)} title="Cobrar Mesa con QR Digital" style={{fontSize:15}}>📲</button>
