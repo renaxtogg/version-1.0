@@ -796,13 +796,13 @@ function DashboardPage({orders, ratings, setPage}) {
     const DAY_SHORT = ['dom','lun','mar','mié','jue','vie','sáb'];
     const todayIdx = now.getDay();
     Promise.all([
-      db.from('stock_alerts').select('id,alert_type,notes,ingredient:ingredients(name,unit,stock_quantity)').eq('restaurant_id',RID).is('resolved_at',null).order('created_at',{ascending:false}).limit(20),
-      db.from('ingredients').select('id,name,unit,stock_quantity,minimum_quantity').eq('restaurant_id',RID).eq('is_active',true).gt('minimum_quantity',0),
+      db.from('stock_alerts').select('id,alert_type,ingredient:ingredients(name,unit,stock_quantity)').eq('restaurant_id',RID).is('resolved_at',null).order('created_at',{ascending:false}).limit(20),
+      db.from('ingredients').select('id,name,unit,stock_quantity,min_threshold').eq('restaurant_id',RID).eq('is_active',true).gt('min_threshold',0),
       db.from('supplier_purchases').select('id,total,paid_amount,status,supplier:suppliers(name)').eq('restaurant_id',RID).eq('status','pendiente').order('purchase_date',{ascending:true}).limit(20),
       db.from('suppliers').select('id,name,delivery_days,phone').eq('restaurant_id',RID).eq('is_active',true),
     ]).then(([alertsRes, ingsRes, invoicesRes, suppliersRes]) => {
       setStockAlerts(alertsRes.data||[]);
-      setLowStock((ingsRes.data||[]).filter(i => Number(i.stock_quantity||0) <= Number(i.minimum_quantity||0)));
+      setLowStock((ingsRes.data||[]).filter(i => Number(i.stock_quantity||0) <= Number(i.min_threshold||0)));
       setPendingInvoices(invoicesRes.data||[]);
       const todayName = DAY_NAMES[todayIdx];
       const todayShort = DAY_SHORT[todayIdx];
@@ -987,7 +987,7 @@ function DashboardPage({orders, ratings, setPage}) {
             level: 'warning',
             icon: '🟡',
             title: `Stock bajo: ${i.name}`,
-            sub: `${Number(i.stock_quantity||0).toFixed(1)} ${i.unit||''} (mínimo: ${Number(i.minimum_quantity||0).toFixed(1)})`,
+            sub: `${Number(i.stock_quantity||0).toFixed(1)} ${i.unit||''} (mínimo: ${Number(i.min_threshold||0).toFixed(1)})`,
             action: ()=>setPage('stock'),
             actionLabel: 'Ver stock →',
           });
@@ -5743,7 +5743,7 @@ function ReportesPage({orders}) {
       if(!db){toast('Sin conexión a base de datos',false);return;}
       const [{data:ings},{data:alerts}] = await Promise.all([
         db.from('ingredients').select('*').eq('restaurant_id',RID).order('name'),
-        db.from('stock_alerts').select('*').eq('restaurant_id',RID).eq('resolved',false),
+        db.from('stock_alerts').select('*').eq('restaurant_id',RID).is('resolved_at',null),
       ]);
       const alertIds=new Set((alerts||[]).map(a=>a.ingredient_id));
       const total=(ings||[]).length;
@@ -5752,7 +5752,7 @@ function ReportesPage({orders}) {
         {label:'Con alerta',  value:alertIds.size,       color:'#FF3B30'},
         {label:'OK',          value:total-alertIds.size, color:'#34C759'},
       ]);
-      setRows({ cols:['Ingrediente','Stock actual','Mínimo','Unidad','Costo unit.','Estado'], data:(ings||[]).map(i=>[i.name, i.current_stock??'—', i.min_stock??'—', i.unit||'—', i.unit_cost?fmt(i.unit_cost):'—', alertIds.has(i.id)?'⚠ Alerta':'✓ OK']) });
+      setRows({ cols:['Ingrediente','Stock actual','Mínimo','Unidad','Costo unit.','Estado'], data:(ings||[]).map(i=>[i.name, i.stock_quantity??'—', i.min_threshold??'—', i.unit||'—', (i.unit_cost??i.cost_per_unit)?fmt(i.unit_cost??i.cost_per_unit):'—', alertIds.has(i.id)?'⚠ Alerta':'✓ OK']) });
     }
 
     else if(type==='movimientos_stock') {
