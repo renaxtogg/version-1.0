@@ -2517,7 +2517,7 @@ function PersonalPage() {
     // El endpoint /api/create-user, además de la cuenta, crea su ficha en delivery_riders
     // vinculada por user_id (vehículo/comisión por defecto, editables en Delivery → Riders).
     if(!username.trim()){toast('Ingresá un nombre de usuario',false);return;}
-    if(password.length<6){toast('La contraseña debe tener al menos 6 caracteres',false);return;}
+    if(typeof password!=='string'||!password.trim()||password.length<8){toast('Ingresá una contraseña de al menos 8 caracteres para crear el usuario.',false);return;}
     setAddLoading(true);
     try {
       const{data:{session}}=await db.auth.getSession();
@@ -2675,8 +2675,8 @@ function PersonalPage() {
                 <Inp value={addForm.username} onChange={e=>setAddForm(f=>({...f,username:e.target.value}))} placeholder={addForm.role==='rider'?'ej: juanrider':'ej: juanmozo'} mono/>
               </div>
               <div>
-                <Lbl>Contraseña * (mínimo 6 caracteres)</Lbl>
-                <Inp type="password" value={addForm.password} onChange={e=>setAddForm(f=>({...f,password:e.target.value}))} placeholder="Contraseña segura"/>
+                <Lbl>Contraseña * (mínimo 8 caracteres)</Lbl>
+                <Inp type="password" autoComplete="new-password" value={addForm.password} onChange={e=>setAddForm(f=>({...f,password:e.target.value}))} placeholder="Contraseña segura"/>
               </div>
               <div>
                 <Lbl>DNI / Cédula</Lbl>
@@ -6995,7 +6995,7 @@ function DelivRiders({riders, onRefresh}) {
       // Alta: crear cuenta auth (usuario+contraseña) + ficha de rider vía endpoint seguro
       // (service_role en backend). El panel rider resuelve la ficha por user_id (sin PIN).
       if(!form.username.trim()){toast('Ingresá un usuario',false);setSaving(false);return;}
-      if((form.password||'').length<6){toast('La contraseña debe tener al menos 6 caracteres',false);setSaving(false);return;}
+      if(typeof form.password!=='string'||!form.password.trim()||form.password.length<8){toast('Ingresá una contraseña de al menos 8 caracteres para crear el usuario.',false);setSaving(false);return;}
       try{
         const{data:{session}}=await db.auth.getSession();
         const token=session?.access_token;
@@ -7115,8 +7115,8 @@ function DelivRiders({riders, onRefresh}) {
                 <Inp value={form.username||''} onChange={e=>setForm({...form,username:e.target.value})} placeholder="ej: juanrider" style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
               </div>
               <div>
-                <Lbl>CONTRASEÑA * (mínimo 6 caracteres)</Lbl>
-                <Inp type="password" value={form.password||''} onChange={e=>setForm({...form,password:e.target.value})} placeholder="Contraseña segura"/>
+                <Lbl>CONTRASEÑA * (mínimo 8 caracteres)</Lbl>
+                <Inp type="password" autoComplete="new-password" value={form.password||''} onChange={e=>setForm({...form,password:e.target.value})} placeholder="Contraseña segura"/>
                 <div style={{fontSize:11,color:C.dim,marginTop:4}}>El rider inicia sesión con este usuario y contraseña en el panel Delivery.</div>
               </div>
             </>):(

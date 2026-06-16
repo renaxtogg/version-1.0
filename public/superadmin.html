@@ -1853,7 +1853,7 @@ function PageUsuarios({restaurants, setFlash}) {
     // /api/create-user, además de la cuenta, crea su ficha en delivery_riders vinculada por
     // user_id; el panel rider la resuelve con auth.uid() (login por correo+contraseña, sin PIN).
     if (!username.trim()) { setFlash({type:'warn',text:'Ingresá un nombre de usuario'}); return; }
-    if (password.length < 6) { setFlash({type:'warn',text:'La contraseña debe tener al menos 6 caracteres'}); return; }
+    if (typeof password !== 'string' || !password.trim() || password.length < 8) { setFlash({type:'warn',text:'Ingresá una contraseña de al menos 8 caracteres para crear el usuario.'}); return; }
     // Roles operativos (todo menos superadmin) requieren restaurante: sin él, el login los rechaza.
     if (role !== 'superadmin' && !restaurant_id) { setFlash({type:'warn',text:`Asigná un restaurante al ${roleLabel(role)}`}); return; }
     setCreating(true);
@@ -2073,9 +2073,10 @@ function PageUsuarios({restaurants, setFlash}) {
               />
             </FormField>
           </div>
-          <FormField label="Contraseña * (mínimo 6 caracteres)">
+          <FormField label="Contraseña * (mínimo 8 caracteres)">
             <input
               type="password"
+              autoComplete="new-password"
               value={newForm.password}
               onChange={e=>setNewForm(f=>({...f,password:e.target.value}))}
               placeholder="Contraseña segura"
