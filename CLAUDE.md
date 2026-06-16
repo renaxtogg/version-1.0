@@ -9,7 +9,7 @@
 
 ## Stack
 
-- **Frontend:** HTML + React 18 CDN + Babel Standalone. Sin bundler. CSS-in-JS inline + `design-system.css`.
+- **Frontend:** HTML + React 18 + CSS-in-JS inline + `design-system.css`. **En migración (PR-11):** paneles legacy con React/Babel CDN en navegador; paneles migrados precompilados con **Vite** (`src/<panel>/*.jsx` → `public/build/<panel>.js`). Migrado: `delivery-rider`. Ver regla "Build moderno" abajo.
 - **Backend:** Supabase (PostgreSQL + Auth + Realtime + Storage + RLS).
 - **Deploy:** Vercel estático (`outputDirectory: public/`).
 - **Config:** `config.js` gitignored — credenciales via `window.SUPABASE_CONFIG`.
@@ -84,8 +84,7 @@ restaurants, tables (con `assigned_waiter`, `pos_x/y` virtuales, `zone`), menu_c
 - **Terrapizza es un restaurante REAL** (cargado a mano post-reset) — nunca incluirlo en resets, teardowns ni scripts de simulación.
 - **Datos de simulacro** (restaurantes `a1a1…/b2b2…/c3c3…`, usuarios `@mythos.test`): solo se eliminan vía el teardown guardado, después de un backup, siguiendo `docs/security/SIMULATION_TEARDOWN_CHECKLIST.md`. Nunca con DELETEs ad-hoc.
 - **Simulaciones futuras:** nombres de restaurantes con prefijo `[SIM]`, emails `@mythos.test`, runner con `SUPABASE_PAT`/`SUPABASE_PROJECT_REF` por env vars y guardas `ALLOW_PROD_SIMULATION=true` (para tocar prod) y `CONFIRM_SIMULATION_TEARDOWN=true` (para scripts destructivos). `_simulacion/run.ps1` ya implementa ambas guardas — no debilitarlas.
-- NO convertir a Vite / Next.js / Webpack — sin bundler por decisión arquitectónica.
-- NO usar `import`/`export` — todo es `window.*` o scripts globales.
+- **Build moderno (PR-11, en migración incremental):** la decisión histórica de "sin bundler / sin `import`-`export`" queda **reemplazada SOLO para la migración a Vite**. Hoy conviven dos mundos: (a) **paneles ya migrados** — código en `src/<panel>/*.jsx` con `import`/`export`, precompilados por Vite a `public/build/<panel>.js` (bundle IIFE), referenciados desde el HTML; (b) **paneles aún NO migrados** — siguen con React/ReactDOM UMD + `@babel/standalone` + `<script type="text/babel">` inline y `window.*`. **Migrado hasta ahora:** `delivery-rider`. **NO** migrar más paneles sin aprobación del arquitecto (estrategia incremental, 1 panel por PR, empezando por los de menor riesgo; admin/caja/cocina al final). Seguimos **app estática** (sin Next/Remix); `outputDirectory` sigue `public/`. En los paneles **no migrados**, mantener el patrón viejo (`window.*`, sin `import`/`export`) hasta que les toque su PR.
 - NO borrar comentarios `/*EDITMODE-BEGIN*/` / `/*EDITMODE-END*/` (delimitan zonas de tweaks en vivo).
 - **No hay restaurante por defecto.** El `RESTAURANT_ID` se resuelve siempre del contexto: `?r=` en la URL (QR/link), `localStorage.mythos_restaurant_id` (seteado al login), o `SUPABASE_CONFIG.restaurantId` (deploy de un solo local). El UUID `…0001` quedó **eliminado** como fallback (migración 096) — no volver a cablearlo.
 - Cambios de DB siempre con **migración nueva numerada** (último número: ver `supabase/migrations/`).

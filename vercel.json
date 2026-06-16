@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "bash build.sh",
+  "buildCommand": "npm install && npm run build && bash build.sh",
   "outputDirectory": "public",
   "rewrites": [
     { "source": "/cocina", "destination": "/cocina.html" },
