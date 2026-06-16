@@ -732,7 +732,9 @@ function DashboardPage({orders, ratings, setPage}) {
 
   // Métodos de pago hoy
   const pagoHoy = {};
-  todayOrds.forEach(o=>{ if(o.payment_method){ pagoHoy[o.payment_method]=(pagoHoy[o.payment_method]||0)+(o.total||0); }});
+  // Bug-06: "Cobros hoy" = sólo dinero realmente cobrado (payment_status='paid'),
+  // no pedidos con método elegido pero aún sin pagar.
+  todayOrds.forEach(o=>{ if(o.payment_method && o.payment_status==='paid'){ pagoHoy[o.payment_method]=(pagoHoy[o.payment_method]||0)+(o.total||0); }});
   const pagosOrdenados = Object.entries(pagoHoy).sort((a,b)=>b[1]-a[1]);
 
   const pctDelta = (hoy,ayer) => (ayer>0 ? Math.round((hoy-ayer)/ayer*100) : null);
@@ -775,7 +777,7 @@ function DashboardPage({orders, ratings, setPage}) {
 
   // Métodos de pago — últimos 14 días (dona)
   const payAgg = {};
-  orders.forEach(o=>{ if(!valid(o))return; const k=new Date(o.created_at).toDateString(); if(dayIndex[k]!=null && o.payment_method){ payAgg[o.payment_method]=(payAgg[o.payment_method]||0)+(o.total||0); } });
+  orders.forEach(o=>{ if(!valid(o))return; const k=new Date(o.created_at).toDateString(); if(dayIndex[k]!=null && o.payment_method && o.payment_status==='paid'){ payAgg[o.payment_method]=(payAgg[o.payment_method]||0)+(o.total||0); } });
   const PAY_COLORS = {efectivo:'#34C759',tarjeta:'#007AFF',qr:'#5856D6',pos:'#FF9500'};
   const FALLBACK_COLORS = ['#1D1D1F','#6E6E73','#86868B','#FF3B30'];
   const payDonut = Object.entries(payAgg).sort((a,b)=>b[1]-a[1]).map(([m,v],i)=>({label:PL[m]||m,value:v,color:PAY_COLORS[m]||FALLBACK_COLORS[i%FALLBACK_COLORS.length]}));
@@ -5630,7 +5632,9 @@ function ReportesPage({orders}) {
     }
 
     else if(type==='metodo_pago') {
-      const f = orders.filter(o=>valid(o)&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      // Bug-06: el reporte de métodos de pago / "Total cobrado" cuenta sólo
+      // pedidos efectivamente cobrados (payment_status='paid').
+      const f = orders.filter(o=>valid(o)&&o.payment_status==='paid'&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
       const map = {};
       f.forEach(o=>{ const k=PL[o.payment_method]||o.payment_method||'Sin especificar'; if(!map[k])map[k]={metodo:k,pedidos:0,total:0}; map[k].pedidos++; map[k].total+=(o.total||0); });
       const rows2 = Object.values(map).sort((a,b)=>b.total-a.total);
