@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "public": true,
   "buildCommand": "bash build.sh",
   "outputDirectory": "public",
   "rewrites": [
