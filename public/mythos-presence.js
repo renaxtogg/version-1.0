@@ -63,6 +63,41 @@
     return false;
   }
 
+  // Lee la sesión Auth del panel (clave sb-<ref>-auth-token) para poder escribir
+  // staff_sessions como el USUARIO AUTENTICADO. La migración 104 cerró esta tabla
+  // al rol anon (REVOKE + policy TO authenticated), así que el registro de
+  // presencia debe ir con el JWT del usuario; su RLS lo limita a su restaurante.
+  function readStoredSession() {
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && /^sb-.*-auth-token$/.test(k)) {
+          var raw = localStorage.getItem(k);
+          if (!raw) continue;
+          var o = JSON.parse(raw);
+          var s = (o && o.access_token) ? o : (o && o.currentSession) ? o.currentSession : null;
+          if (s && s.access_token && s.refresh_token) {
+            return { access_token: s.access_token, refresh_token: s.refresh_token };
+          }
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  // Autentica el cliente de presencia con el token del panel (en memoria —
+  // persistSession:false no escribe storage, no interfiere con la sesión del
+  // panel). Devuelve true si quedó autenticado; sin token válido → false
+  // (no registramos como anon, evitando el 401 de la tabla cerrada).
+  async function ensureAuth() {
+    var s = readStoredSession();
+    if (!s) return false;
+    try {
+      var r = await sb.auth.setSession(s);
+      return !(r && r.error);
+    } catch (_) { return false; }
+  }
+
   // Busca una sesión abierta reciente para reutilizar (evita duplicar filas en refresh/navegación).
   async function findOpen(ctx) {
     var since = new Date(Date.now() - REUSE_WINDOW_H * 3600000).toISOString();
@@ -94,6 +129,10 @@
         var existing = ssGet(SS_KEY);
         if (existing) { this._id = existing; return existing; }
 
+        // staff_sessions exige usuario autenticado (RLS mig 104). Sin auth no
+        // escribimos: presencia es best-effort y no debe disparar un 401 anon.
+        if (!(await ensureAuth())) return null;
+
         var open = await findOpen(ctx);
         if (open) { this._id = open.id; ssSet(SS_KEY, open.id); return open.id; }
 
@@ -118,10 +157,12 @@
       var id = this._id || ssGet(SS_KEY);
       if (!id) return;
       try {
-        await sb.from('staff_sessions')
-          .update({ logout_at: new Date().toISOString(), logout_reason: reason || 'manual' })
-          .eq('id', id)
-          .is('logout_at', null);
+        if (await ensureAuth()) {
+          await sb.from('staff_sessions')
+            .update({ logout_at: new Date().toISOString(), logout_reason: reason || 'manual' })
+            .eq('id', id)
+            .is('logout_at', null);
+        }
       } catch (_) {}
       this._id = null;
       ssDel(SS_KEY);
