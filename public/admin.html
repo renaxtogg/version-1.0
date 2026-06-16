@@ -4589,7 +4589,7 @@ function RatingsPage({ratings}) {
     setLoadingMsg(true);
     const {data} = await db.from('kitchen_messages').select('*').eq('restaurant_id',RID).order('created_at');
     setMessages(data||[]);
-    const {data:settings} = await db.from('restaurant_settings').select('kitchen_message_frequency').eq('restaurant_id',RID).single();
+    const {data:settings} = await db.from('restaurant_settings').select('kitchen_message_frequency').eq('restaurant_id',RID).maybeSingle();
     if(settings?.kitchen_message_frequency) setFreq(settings.kitchen_message_frequency);
     setLoadingMsg(false);
   }
@@ -4778,7 +4778,7 @@ function StockPage() {
   /* Cargar y guardar toggle auto_stock_discount */
   React.useEffect(()=>{
     if(!db) return;
-    db.from('restaurant_settings').select('auto_stock_discount').eq('restaurant_id',RID).single()
+    db.from('restaurant_settings').select('auto_stock_discount').eq('restaurant_id',RID).maybeSingle()
       .then(({data})=>{ if(data) setAutoDiscount(!!data.auto_stock_discount); });
   },[]);
 
