@@ -2239,7 +2239,11 @@ function App() {
 
   // Turno stats
   const turnoStats = useMemo(() => {
-    const paid = turnoOrders.filter(o => (o.status === 'delivered' && o.payment_method) || o.payment_status === 'paid' || (o.payment_method && Number(o.total||0) > 0));
+    // Bug-06: "cobrado" = solo pedidos realmente cobrados (payment_status='paid' o
+    // entregados con método). NO contar un pedido sólo por tener payment_method
+    // elegido en el QR (efectivo a cobrar en mesa) si aún está unpaid — eso lo
+    // duplicaba en "Cobrados" y "Pendientes" a la vez. Ahora ambos son complementarios.
+    const paid = turnoOrders.filter(o => (o.status === 'delivered' && o.payment_method) || o.payment_status === 'paid');
     const pendientes = turnoOrders.filter(o => !((o.status === 'delivered' && o.payment_method) || o.payment_status === 'paid'));
     const byMethod = { efectivo: 0, pos: 0, qr: 0, tarjeta: 0, otro: 0 };
     const cntMethod = { efectivo: 0, pos: 0, qr: 0, tarjeta: 0, otro: 0 };
@@ -2921,7 +2925,7 @@ function App() {
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', marginTop: 4 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>Cobros por método</div>
                 {[
-                  { key: 'efectivo', icon: '$', label: 'Efectivo', color: 'var(--green)' },
+                  { key: 'efectivo', icon: '₲', label: 'Efectivo', color: 'var(--green)' },
                   { key: 'pos',      icon: '▣', label: 'Tarjeta POS', color: 'var(--blue)' },
                   { key: 'qr',       icon: '▦', label: 'QR Mesa', color: 'var(--indigo)' },
                   { key: 'tarjeta',  icon: '↔', label: 'Transferencia', color: 'var(--text)' },
@@ -3382,7 +3386,7 @@ function App() {
                 <div className="section-label">Método de pago</div>
                 <div className="payment-methods">
                   {[
-                    { key: 'efectivo', icon: '$', label: 'Efectivo' },
+                    { key: 'efectivo', icon: '₲', label: 'Efectivo' },
                     { key: 'pos', icon: '▣', label: 'Tarjeta POS' },
                     { key: 'qr', icon: '▦', label: 'QR Mesa' },
                     { key: 'tarjeta', icon: '↔', label: 'Transferencia' },
