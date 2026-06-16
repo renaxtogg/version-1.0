@@ -1431,6 +1431,21 @@ function App() {
           setTickets(prev => prev.map(t => t._supabaseId === upd.id ? { ...t, status: toKitchenStatus(upd.status) } : t));
         }
       })
+      // PR-13: la info de rider/delivery (rider_name/rider_status) vive en delivery_orders,
+      // que NO emitía eventos al KDS (solo la refrescaba el poll). Con el poll más espaciado,
+      // este listener focalizado mantiene la frescura del rider por realtime. Filtrado por
+      // restaurant_id (tenant-safe) y refetch reusando dbLoadTickets (tenant-scoped) con dedup
+      // por firma — idéntico al fallback, sin duplicar tarjetas.
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'delivery_orders', filter: `restaurant_id=eq.${RESTAURANT_ID}` }, () => {
+        dbLoadTickets().then(({ tickets: data, error }) => {
+          if (error || !data) return;
+          setTickets(prev => {
+            const sig = t => t.id + t.status + (t.deliveryInfo?.riderName || '') + (t.deliveryInfo?.riderStatus || '');
+            const unchanged = prev.length === data.length && prev.every((t, i) => sig(t) === sig(data[i]));
+            return unchanged ? prev : data;
+          });
+        });
+      })
       .subscribe();
     channelRef.current = ch;
     loadStockAlerts();
@@ -1493,7 +1508,9 @@ function App() {
 
     subscribeChannels();
 
-    /* Polling fallback 15s */
+    /* Polling fallback 45s (PR-13). Realtime es la vía rápida: orders INSERT/UPDATE
+       + order_status_history + delivery_orders ya refrescan al instante. Este poll
+       queda solo como red de seguridad ante caída/desconexión del canal. */
     const refreshInterval = setInterval(() => {
       dbLoadTickets().then(({ tickets: data, error }) => {
         if (error) { setDbError(error); return; }
@@ -1510,7 +1527,7 @@ function App() {
           });
         }
       });
-    }, 15000);
+    }, 45000);
 
     /* Timer check: pedidos urgentes */
     const urgentCheck = setInterval(() => {
