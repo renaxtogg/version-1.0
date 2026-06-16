@@ -4829,7 +4829,7 @@ function StockPage() {
     try {
       const [ingsRes, itemsRes, recsRes, movsRes, alertsRes] = await Promise.all([
         db.rpc('admin_list_ingredients', {p_restaurant_id: RID}),
-        db.from('menu_items').select('id,name,is_available,availability_reason').eq('restaurant_id',RID).eq('is_active',true).order('name'),
+        db.from('menu_items').select('id,name,is_available,availability_reason').eq('restaurant_id',RID).order('name'),
         db.from('recipes').select('*').then(async r => {
           if (r.error) return {data:[]};
           const ingIds = (await db.from('ingredients').select('id').eq('restaurant_id',RID)).data?.map(i=>i.id)||[];
@@ -5106,7 +5106,7 @@ function StockPage() {
           <div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
               <span style={{fontSize:13,color:C.mid}}>{ingredients.length} ingredientes registrados</span>
-              <Btn small onClick={()=>setModal('new_ing')}>+ Nuevo ingrediente</Btn>
+              <Btn small onClick={()=>setTab('cargar')}>+ Nuevo ingrediente</Btn>
             </div>
             {ingredients.length===0 ? (
               <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>No hay ingredientes.<br/><span style={{fontSize:12}}>Creá uno y vinculalo al menú con "Recetas".</span></div>
