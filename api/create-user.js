@@ -102,8 +102,8 @@ module.exports = async function handler(req, res) {
     if (!username || typeof username !== 'string' || username.trim().length < 2) {
       res.status(400).json({ error: 'Nombre de usuario requerido (mínimo 2 caracteres)' }); return;
     }
-    if (!password || typeof password !== 'string' || password.length < 6) {
-      res.status(400).json({ error: 'Contraseña requerida (mínimo 6 caracteres)' }); return;
+    if (typeof password !== 'string' || password.trim().length === 0 || password.length < 8) {
+      res.status(400).json({ error: 'La contraseña es obligatoria y debe tener al menos 8 caracteres.' }); return;
     }
     if (!role) { res.status(400).json({ error: 'Rol requerido' }); return; }
 
