@@ -998,8 +998,13 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
     if (effectiveTotal <= 0) { setSubmitError('El total del pedido es inválido. Volvé al carrito y revisá los precios.'); return; }
     setStep('proc');
     try {
+      // Bug-02 / R2: el pedido de mesa (QR con ?mesa=N o ?t=token) debe persistir
+      // su table_id real para aparecer como "Mesa N" en cocina, mozo y caja. El QR
+      // de mostrador (sin mesa) y los pedidos "para llevar" siguen SIN mesa.
+      if (!IS_COUNTER && !_tableUUID) { await _initTableUUID(); }
+      const isTableDineIn = !IS_COUNTER && orderMode !== 'take';
       const order = await dbSubmitOrder({
-        tableId: null, orderType: orderMode === 'take' ? 'llevar' : 'local',
+        tableId: isTableDineIn ? _tableUUID : null, orderType: orderMode === 'take' ? 'llevar' : 'local',
         items: cartItems, subtotal: subtotal || effectiveTotal, discountAmount: discountAmount || 0,
         couponCode: couponCode || null, total: effectiveTotal, payMethod: method,
         custName: (invoiceType === 'fiscal' && name) ? name : null,
