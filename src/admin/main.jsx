@@ -83,7 +83,7 @@ function genRiderPin() { return String(Math.floor(1000 + Math.random() * 9000));
 
 /* ── PALETTE ── reactiva al tema MythosTheme */
 const C_LIGHT = {
-  bg:'#F5F5F7',sidebar:'#FFFFFF',surface:'#FFFFFF',card:'#FFFFFF',
+  bg:'var(--bg-subtle)',sidebar:'#FFFFFF',surface:'#FFFFFF',card:'#FFFFFF',
   border:'#D2D2D7',bs:'#86868B',
   white:'#FFFFFF',ink:'#1D1D1F',mid:'#6E6E73',dim:'#86868B',
   green:'#34C759',orange:'#FF9500',red:'#FF3B30',yellow:'#FF9500',blue:'#007AFF',purple:'#000000',
@@ -797,52 +797,55 @@ function DashboardPage({orders, ratings, setPage}) {
       </div>
 
       {/* Fila 1 — 4 KPIs principales */}
+      {/* PR-B3B-FIX: KPI cards inline tinteadas → .my-metric-card neutro (Opción A).
+          Se quitan los tintes/hex hardcodeados (dark-ready). Se conservan icono,
+          Delta, sub y onClick. El valor pasa a var(--text-primary) (token). */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:12}}>
-        <div style={{background:'#F0FAF3',border:'1px solid #A3D9B1',borderLeft:'4px solid #34C759',borderRadius:8,padding:'18px 20px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
-          <div style={{fontSize:11,color:'#1A7E37',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5,display:'flex',alignItems:'center',gap:6}}><Icon name="money" size={13}/> Ventas hoy</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#1A7E37',lineHeight:1,letterSpacing:'-0.5px'}}>{fmt(ventasHoy)}</div>
+        <div className="my-metric-card" style={{cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
+          <div className="my-metric-card__label" style={{display:'flex',alignItems:'center',gap:6}}><Icon name="money" size={13}/> Ventas hoy</div>
+          <div style={{fontSize:28,fontWeight:800,color:'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px'}}>{fmt(ventasHoy)}</div>
           <div style={{marginTop:6}}><Delta val={ventasHoy} ayer={ventasAyer}/></div>
         </div>
-        <div style={{background:'#F0F6FF',border:'1px solid #A8C8FF',borderLeft:'4px solid #007AFF',borderRadius:8,padding:'18px 20px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
-          <div style={{fontSize:11,color:'#0051A8',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5,display:'flex',alignItems:'center',gap:6}}><Icon name="package" size={13}/> Pedidos hoy</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#0051A8',lineHeight:1,letterSpacing:'-0.5px'}}>{pedidosHoy}</div>
+        <div className="my-metric-card" style={{cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
+          <div className="my-metric-card__label" style={{display:'flex',alignItems:'center',gap:6}}><Icon name="package" size={13}/> Pedidos hoy</div>
+          <div style={{fontSize:28,fontWeight:800,color:'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px'}}>{pedidosHoy}</div>
           <div style={{marginTop:6}}><Delta val={pedidosHoy} ayer={pedidosAyer}/></div>
         </div>
-        <div style={{background:'#F5F0FF',border:'1px solid #C4B8FF',borderLeft:'4px solid #5856D6',borderRadius:8,padding:'18px 20px'}}>
-          <div style={{fontSize:11,color:'#3E3A9B',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5,display:'flex',alignItems:'center',gap:6}}><Icon name="receipt" size={13}/> Ticket promedio</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#3E3A9B',lineHeight:1,letterSpacing:'-0.5px'}}>{cobradosHoy>0?fmt(ticketHoy):'—'}</div>
+        <div className="my-metric-card">
+          <div className="my-metric-card__label" style={{display:'flex',alignItems:'center',gap:6}}><Icon name="receipt" size={13}/> Ticket promedio</div>
+          <div style={{fontSize:28,fontWeight:800,color:'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px'}}>{cobradosHoy>0?fmt(ticketHoy):'—'}</div>
           <div style={{marginTop:6}}>{ticketAyer>0?<Delta val={ticketHoy} ayer={ticketAyer}/>:<span style={{fontSize:11,color:C.mid}}>sin datos ayer</span>}</div>
         </div>
-        <div style={{background:'#FFF4E0',border:'1px solid #FFD580',borderLeft:'4px solid #FF9500',borderRadius:8,padding:'18px 20px'}}>
-          <div style={{fontSize:11,color:'#8A4B00',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5,display:'flex',alignItems:'center',gap:6}}><Icon name="flame" size={13}/> Mesa más activa</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#8A4B00',lineHeight:1,letterSpacing:'-0.5px'}}>{mesaActiva?`Mesa ${mesaActiva[0]}`:'—'}</div>
+        <div className="my-metric-card">
+          <div className="my-metric-card__label" style={{display:'flex',alignItems:'center',gap:6}}><Icon name="flame" size={13}/> Mesa más activa</div>
+          <div style={{fontSize:28,fontWeight:800,color:'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px'}}>{mesaActiva?`Mesa ${mesaActiva[0]}`:'—'}</div>
           <div style={{marginTop:6,fontSize:11,color:C.mid}}>{mesaActiva?`${mesaActiva[1]} pedidos hoy`:mesaActivaAyer?`ayer: Mesa ${mesaActivaAyer[0]}`:''}</div>
         </div>
       </div>
 
       {/* Fila 2 — Estado en tiempo real + Rating + Métodos de pago */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
-        {/* Activos en cocina */}
-        <div style={{background:activosCocina>0?'#FFF4E0':C.bg,border:`1px solid ${activosCocina>0?'#FFD580':C.border}`,borderRadius:8,padding:'14px 18px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
-          <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>En cocina ahora</div>
-          <div style={{fontSize:32,fontWeight:800,color:activosCocina>0?'#8A4B00':C.ink,lineHeight:1,letterSpacing:'-0.5px'}}>{activosCocina}</div>
+        {/* Activos en cocina — PR-B3B-FIX: .my-metric-card; alerta por borde token */}
+        <div className="my-metric-card" style={{cursor:'pointer',...(activosCocina>0?{borderColor:'var(--warning)'}:null)}} onClick={()=>setPage('pedidos')}>
+          <div className="my-metric-card__label">En cocina ahora</div>
+          <div style={{fontSize:32,fontWeight:800,color:activosCocina>0?'var(--warning)':'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px'}}>{activosCocina}</div>
           <div style={{marginTop:5,fontSize:11,color:C.mid}}>{activosCocina===1?'pedido preparándose':'pedidos preparándose'}</div>
         </div>
         {/* Listos para entregar */}
-        <div style={{background:activosListos>0?'#F0FAF3':C.bg,border:`1px solid ${activosListos>0?'#A3D9B1':C.border}`,borderRadius:8,padding:'14px 18px',cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
-          <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>Listos para entregar</div>
-          <div style={{fontSize:32,fontWeight:800,color:activosListos>0?'#1A7E37':C.ink,lineHeight:1,letterSpacing:'-0.5px'}}>{activosListos}</div>
+        <div className="my-metric-card" style={{cursor:'pointer',...(activosListos>0?{borderColor:'var(--success)'}:null)}} onClick={()=>setPage('pedidos')}>
+          <div className="my-metric-card__label">Listos para entregar</div>
+          <div style={{fontSize:32,fontWeight:800,color:activosListos>0?'var(--success)':'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px'}}>{activosListos}</div>
           <div style={{marginTop:5,fontSize:11,color:C.mid}}>{activosListos===1?'pedido esperando':'pedidos esperando'}</div>
         </div>
         {/* Rating 7 días */}
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',cursor:'pointer'}} onClick={()=>setPage('ratings')}>
-          <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>Rating últimos 7 días</div>
-          <div style={{fontSize:32,fontWeight:800,color:C.ink,lineHeight:1,letterSpacing:'-0.5px',display:'inline-flex',alignItems:'center',gap:6}}>{ratingProm||'—'} {ratingProm&&<Icon name="star" size={20} style={{color:'#FF9500'}}/>}</div>
+        <div className="my-metric-card" style={{cursor:'pointer'}} onClick={()=>setPage('ratings')}>
+          <div className="my-metric-card__label">Rating últimos 7 días</div>
+          <div style={{fontSize:32,fontWeight:800,color:'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px',display:'inline-flex',alignItems:'center',gap:6}}>{ratingProm||'—'} {ratingProm&&<Icon name="star" size={20} style={{color:'var(--warning)'}}/>}</div>
           <div style={{marginTop:5,fontSize:11,color:C.mid}}>{ratings7d.length} calificaciones</div>
         </div>
         {/* Métodos de pago hoy */}
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px'}}>
-          <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Cobros hoy por método</div>
+        <div className="my-metric-card">
+          <div className="my-metric-card__label">Cobros hoy por método</div>
           {pagosOrdenados.length===0
             ?<div style={{fontSize:12,color:C.dim,paddingTop:4}}>Sin datos de pago</div>
             :pagosOrdenados.map(([met,total])=>(
@@ -4479,7 +4482,7 @@ function MarketingPage({coupons,orders,restaurant,onRefresh}) {
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>PLANTILLA</div>
             <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
               {TPLS.map(t=>(
-                <button key={t.id} onClick={()=>setTplId(t.id)} style={{textAlign:'left',padding:'10px 14px',background:tplId===t.id?'rgba(255,255,255,0.08)':'#F5F5F7',border:`1px solid ${tplId===t.id?C.bs:C.border}`,borderRadius:8,cursor:'pointer',color:tplId===t.id?C.white:C.mid,fontSize:13,fontWeight:tplId===t.id?600:400}}>
+                <button key={t.id} onClick={()=>setTplId(t.id)} style={{textAlign:'left',padding:'10px 14px',background:tplId===t.id?'rgba(255,255,255,0.08)':'var(--bg-subtle)',border:`1px solid ${tplId===t.id?C.bs:C.border}`,borderRadius:8,cursor:'pointer',color:tplId===t.id?C.white:C.mid,fontSize:13,fontWeight:tplId===t.id?600:400}}>
                   {t.label}
                 </button>
               ))}
@@ -7392,7 +7395,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
                 {searchRes.map((r,i)=>(
                   <button key={i} onClick={()=>goToPlace(r)}
                     style={{display:'block',width:'100%',padding:'10px 14px',textAlign:'left',background:'none',border:'none',borderBottom:i<searchRes.length-1?'1px solid #F0F0F0':'none',cursor:'pointer',fontFamily:'inherit'}}
-                    onMouseEnter={e=>e.currentTarget.style.background='#F5F5F7'}
+                    onMouseEnter={e=>e.currentTarget.style.background='var(--bg-subtle)'}
                     onMouseLeave={e=>e.currentTarget.style.background='none'}>
                     <div style={{fontSize:13,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>📍 {r.main}</div>
                     {r.secondary&&<div style={{fontSize:11,color:C.dim,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.secondary}</div>}
