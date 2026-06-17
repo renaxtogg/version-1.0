@@ -1,0 +1,3830 @@
+// ════════════════════════════════════════════════════════════════════
+// PR-5 — Panel superadmin precompilado con Vite (batch de migración legacy).
+// Migrado 1:1 desde el <script type="text/babel"> inline de public/superadmin.html.
+// Sin cambios de comportamiento ni de UI. React/createRoot vienen de npm
+// (bundle Vite); el resto de globales del shell siguen en window.* (config.js,
+// supabase UMD, MythosTheme/Icons/Presence/Session/Gating, XLSX, Leaflet, etc.).
+// ════════════════════════════════════════════════════════════════════
+import React from "react";
+import { createRoot } from "react-dom/client";
+
+const { useState, useEffect, useCallback, useRef, useReducer } = React;
+
+// ── Paleta — reactiva al tema ────────────────────────────────
+const PALETTES = {
+  light: {
+    bg:'#F5F5F7', sidebar:'#FFFFFF', surface:'#FFFFFF', card:'#FFFFFF',
+    border:'#D2D2D7', bStrong:'#86868B',
+    white:'#FFFFFF', ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
+    blue:'#000000', blueDim:'#F5F5F7',
+    green:'#34C759', orange:'#FF9500', red:'#FF3B30',
+  },
+  dark: {
+    bg:'#000000', sidebar:'#1C1C1E', surface:'#1C1C1E', card:'#2C2C2E',
+    border:'#38383A', bStrong:'#636366',
+    white:'#1C1C1E', ink:'#F5F5F7', mid:'#AEAEB2', dim:'#636366',
+    blue:'#F5F5F7', blueDim:'#2C2C2E',
+    green:'#30D158', orange:'#FF9F0A', red:'#FF453A',
+  },
+};
+const C = Object.assign({}, PALETTES[window.MythosTheme ? window.MythosTheme.get() : 'light']);
+if (window.MythosTheme) {
+  document.addEventListener('mythos:themechange', function(e){
+    Object.assign(C, PALETTES[e.detail.mode] || PALETTES.light);
+  });
+}
+
+// ── Icon helper ──────────────────────────────────────────────
+const Icon = ({name, size=14, style}) => (
+  <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',lineHeight:0,...(style||{})}}
+        dangerouslySetInnerHTML={{__html: window.MythosIcons ? window.MythosIcons.html(name, {size}) : ''}}/>
+);
+
+// ── Supabase ─────────────────────────────────────────────────
+const _initDB = () => {
+  const cfg = window.SUPABASE_CONFIG;
+  if (!cfg?.url || !cfg?.anonKey) return null;
+  const url = cfg.url.replace(/^﻿/,'').trim();
+  const key = cfg.anonKey.replace(/^﻿/,'').trim();
+  if (!url || url.includes('YOUR_') || !key) return null;
+  try { return window.supabase.createClient(url, key); } catch(e){ return null; }
+};
+const db = _initDB();
+
+/* contador global — pausa el polling cuando hay modal abierto o input con foco */
+let _modalCount = 0;
+function _shouldPause() {
+  if (_modalCount > 0) return true;
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return ['INPUT','TEXTAREA','SELECT'].includes(tag) || el.isContentEditable;
+}
+
+// ── Estado vacío (fallback sin conexión) ─────────────────────
+// Sin datos ficticios: si no hay conexión a Supabase, los listados
+// quedan vacíos en vez de mostrar restaurantes/planes inventados.
+const DEMO = {
+  restaurants:[],
+  plans:[],
+  addonCatalog:[],
+  addons:[],
+  subscriptions:[],
+  orders:[],
+  ratings:[],
+  events:[],
+  platformConfig:[],
+};
+
+// ── Utils ────────────────────────────────────────────────────
+const daysUntil = d => d ? Math.ceil((new Date(d) - new Date()) / 86400000) : null;
+const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+const fmtDateTime = d => d ? new Date(d).toLocaleString('es-PY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+// ── Moneda de plataforma (configurable) ─────────────────────────
+// Los importes se guardan como número "puro" (la columna price_usd es un nombre
+// heredado) y se interpretan en la moneda elegida por el superadmin. No hay
+// conversión FX: al cambiar de moneda, los precios se re-ingresan en ella.
+const CURRENCIES = {
+  PYG: {code:'PYG', symbol:'₲',   locale:'es-PY', decimals:0, step:1000, ph:'400000', label:'Guaraní (₲)'},
+  USD: {code:'USD', symbol:'US$', locale:'en-US', decimals:2, step:1,    ph:'59.90',  label:'Dólar (US$)'},
+  BRL: {code:'BRL', symbol:'R$',  locale:'pt-BR', decimals:2, step:1,    ph:'299.90', label:'Real (R$)'},
+  ARS: {code:'ARS', symbol:'AR$', locale:'es-AR', decimals:2, step:100,  ph:'50000',  label:'Peso argentino (AR$)'},
+};
+let CCY = CURRENCIES.PYG;   // moneda activa — se setea desde platform_config
+const setPlatformCurrency = code => { CCY = CURRENCIES[code] || CURRENCIES.PYG; };
+const fmtMoney = n => `${CCY.symbol} ${Number(n||0).toLocaleString(CCY.locale,{minimumFractionDigits:CCY.decimals,maximumFractionDigits:CCY.decimals})}`;
+const fmtGuarani = fmtMoney;   // alias heredado — todo el dinero de la UI pasa por aquí
+// Escapa HTML al interpolar datos en plantillas de impresión (document.write) — evita stored XSS.
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
+const fmtRelTime = d => {
+  if (!d) return '—';
+  const h = (Date.now() - new Date(d).getTime()) / 3600000;
+  if (h < 1) return 'hace < 1h';
+  if (h < 24) return `hace ${Math.floor(h)}h`;
+  const days = Math.floor(h/24);
+  if (days < 30) return `hace ${days}d`;
+  return `hace ${Math.floor(days/30)}mes`;
+};
+
+const daysBadge = days => {
+  if (days === null) return {label:'—', color:C.mid, bg:'transparent'};
+  if (days < 0)   return {label:'Vencido',    color:C.red,    bg:'#FFEDEC'};
+  if (days === 0) return {label:'Vence hoy',  color:C.red,    bg:'#FFEDEC'};
+  if (days <= 6)  return {label:`${days}d`,   color:C.red,    bg:'#FFEDEC'};
+  if (days <= 30) return {label:`${days}d`,   color:C.orange, bg:'#FFF4E0'};
+  return              {label:`${days}d`,   color:C.green,  bg:'#E8F9ED'};
+};
+
+const statusMeta = {
+  active:    {label:'Activo',     color:'#1A7E37', bg:'#E8F9ED'},
+  trial:     {label:'Trial',      color:'#1D4ED8', bg:'#EEF4FF'},
+  suspended: {label:'Suspendido', color:'#C0190F', bg:'#FFEDEC'},
+  inactive:  {label:'Inactivo',   color:C.mid, bg:'#F5F5F7'},
+  expired:   {label:'Vencido',    color:'#C0190F', bg:'#FFEDEC'},
+  cancelled: {label:'Cancelado',  color:C.mid, bg:'#F5F5F7'},
+  past_due:  {label:'Mora',       color:'#8A4B00', bg:'#FFF4E0'},
+};
+
+const eventMeta = {
+  onboarding:           {label:'Alta'},
+  subscription_renewed: {label:'Renovación'},
+  subscription_expired: {label:'Vencimiento'},
+  status_changed:       {label:'Estado'},
+  note_added:           {label:'Nota'},
+  plan_changed:         {label:'Plan'},
+  user_created:         {label:'Usuario'},
+  payment_received:     {label:'Pago'},
+};
+
+const ALL_ROLES = ['superadmin','admin','supervisor_local','cajero','cocina','mozo','delivery'];
+// Roles asignables al crear usuarios. 'rider' no vive en user_roles: se crea en
+// delivery_riders con PIN (el panel Delivery loguea por PIN, no por contraseña).
+// 'supervisor_local' es el rol manager (etiqueta "Gerente"): el login lo enruta a
+// admin.html y desde ahí accede al sub-panel Gerente.
+const NEW_USER_ROLES = ['admin','supervisor_local','cajero','cocina','mozo','rider','delivery','superadmin'];
+// Etiquetas legibles para los dropdowns/badges (la clave es el string real en user_roles).
+const ROLE_LABEL = {
+  superadmin:'Superadmin', admin:'Admin', supervisor_local:'Gerente',
+  cajero:'Cajero', cocina:'Cocina', mozo:'Mozo', delivery:'Delivery', rider:'Rider',
+  gerente:'Gerente', repartidor:'Rider', waiter:'Mozo'
+};
+const roleLabel = r => ROLE_LABEL[(r||'').toLowerCase()] || r || '—';
+function genRiderPin() { return String(Math.floor(1000 + Math.random() * 9000)); }
+
+// ── SaaS multi-comercio: ciudades, paneles, límites y add-ons ──
+const CITIES_PY = ['Asunción','Ciudad del Este','San Lorenzo','Luque','Fernando de la Mora','Lambaré','Encarnación','Capiatá','Mariano Roque Alonso','Ñemby','Limpio','Itauguá'];
+
+// Paneles que un plan puede habilitar (string = key usado en allowed_panels y en login.html)
+const PANEL_OPTIONS = [
+  {key:'caja',             label:'Caja'},
+  {key:'mozo',             label:'Mozo'},
+  {key:'cocina',           label:'Cocina (KDS)'},
+  {key:'delivery-cliente', label:'Delivery Cliente'},
+  {key:'delivery-rider',   label:'Rider Delivery'},
+  {key:'gerente',          label:'Gerente'},
+];
+
+// Roles con límite estricto por plan (hard-limits) — nombres reales en user_roles
+const LIMIT_ROLES = [
+  {key:'mozo',   label:'Máx. Mozos'},
+  {key:'cajero', label:'Máx. Cajeros'},
+  {key:'cocina', label:'Máx. Cocineros'},
+];
+
+// Omni-Gating por feature: sub-módulos vendibles DENTRO de un panel.
+// key "panel:feature" = misma string que lee el frontend (mythos-gating.js).
+// Se persisten en subscription_plans.allowed_features (migración 091).
+const FEATURE_GROUPS = [
+  {group:'Admin', icon:'⚙️', items:[
+    {key:'admin:delivery_zones', label:'Gestión de Mapas',     desc:'Zonas y tarifas de delivery'},
+    {key:'admin:inventory',      label:'Control de Insumos',   desc:'Stock, recetas y toma'},
+    {key:'admin:crm',            label:'CRM de Clientes',      desc:'Base y segmentación'},
+  ]},
+  {group:'Caja', icon:'💳', items:[
+    {key:'caja:sifen',            label:'Facturación SIFEN',   desc:'e-Kuatia electrónica'},
+    {key:'caja:digital_payments', label:'Pasarelas Bancard',   desc:'QR / VPos digital'},
+  ]},
+  {group:'Mozo', icon:'🍽️', items:[
+    {key:'mozo:digital_qr_pay',   label:'Cobro Mesa por QR',   desc:'Pago digital en mesa'},
+  ]},
+];
+
+// Add-ons por defecto (fallback si plan_addons aún no está migrado)
+const DEFAULT_ADDONS = [
+  {key:'delivery_cliente', name:'Delivery Cliente', panel:'delivery-cliente', price_usd:100000},
+  {key:'delivery_rider',   name:'Rider Delivery',   panel:'delivery-rider',   price_usd:70000},
+  {key:'kds_cocina',       name:'KDS Cocina',        panel:'cocina',           price_usd:90000},
+  {key:'sucursal_extra',   name:'Sucursal Adicional (Multi-local)', panel:'admin', price_usd:180000},
+];
+const addonName = (catalog, key) => (catalog.find(a=>a.key===key)?.name) || (DEFAULT_ADDONS.find(a=>a.key===key)?.name) || key;
+
+// Lectura robusta de columnas JSONB (pueden venir como array/objeto real o string)
+const asArr = v => Array.isArray(v) ? v : (typeof v==='string' ? (()=>{try{return JSON.parse(v||'[]')}catch{return[]}})() : []);
+const asObj = v => (v && typeof v==='object' && !Array.isArray(v)) ? v : (typeof v==='string' ? (()=>{try{return JSON.parse(v||'{}')}catch{return{}}})() : {});
+
+const getMRRMonths = subscriptions => {
+  const months = [];
+  for (let i=5; i>=0; i--) {
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()-i);
+    const key = d.toISOString().slice(0,7);
+    const label = d.toLocaleDateString('es-PY',{month:'short'});
+    const total = subscriptions
+      .filter(s => s.status==='active' && (s.created_at||s.start_date||'').slice(0,7)===key)
+      .reduce((sum,s)=>sum+(Number(s.monthly_amount)||0),0);
+    months.push({key,label,total});
+  }
+  return months;
+};
+
+// ── Componentes base ─────────────────────────────────────────
+const Btn = ({children,onClick,variant='primary',size='md',disabled,style:sx={},title}) => {
+  const base = {border:'none',borderRadius:6,fontWeight:600,cursor:disabled?'not-allowed':'pointer',opacity:disabled?.5:1,transition:'all .15s',...sx};
+  const sz = size==='sm'?{padding:'4px 10px',fontSize:12}:{padding:'8px 16px',fontSize:14};
+  const vars = {
+    primary: {background:C.ink,color:C.sidebar},
+    ghost:   {background:'transparent',color:C.mid,border:`1px solid ${C.border}`},
+    danger:  {background:C.red+'1E',color:C.red,border:`1px solid ${C.red}55`},
+    success: {background:C.green+'1E',color:C.green,border:`1px solid ${C.green}55`},
+    warn:    {background:C.orange+'1E',color:C.orange,border:`1px solid ${C.orange}55`},
+  };
+  return <button title={title} style={{...base,...sz,...vars[variant]}} onClick={disabled?undefined:onClick}>{children}</button>;
+};
+
+const Badge = ({status}) => {
+  const m = statusMeta[status]||{label:status,color:C.mid,bg:'#F5F5F7'};
+  return <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:m.bg,color:m.color,whiteSpace:'nowrap'}}>{m.label}</span>;
+};
+
+const PlanBadge = ({name}) => {
+  if (!name) return <span style={{color:C.dim,fontSize:11}}>—</span>;
+  return <span style={{padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:C.bg,color:C.ink,whiteSpace:'nowrap'}}>{name}</span>;
+};
+
+const Kpi = ({label,value,sub}) => (
+  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'20px 22px',flex:'1 1 180px',minWidth:160}}>
+    <div style={{fontSize:12,color:C.mid,fontWeight:500,marginBottom:8,textTransform:'uppercase',letterSpacing:.4}}>{label}</div>
+    <div style={{fontSize:28,fontWeight:800,color:C.ink,lineHeight:1,letterSpacing:'-0.5px'}}>{value}</div>
+    {sub && <div style={{fontSize:11,color:C.mid,marginTop:6}}>{sub}</div>}
+  </div>
+);
+
+const Toggle = ({checked,onChange}) => (
+  <div onClick={()=>onChange(!checked)} style={{width:36,height:20,borderRadius:10,background:checked?'#000000':'#D2D2D7',position:'relative',cursor:'pointer',transition:'background .15s',flexShrink:0}}>
+    <div style={{position:'absolute',top:2,left:checked?18:2,width:16,height:16,borderRadius:'50%',background:'#fff',transition:'left .15s',boxShadow:'0 1px 3px rgba(0,0,0,.3)'}}/>
+  </div>
+);
+
+const FlashMsg = ({msg,onClose}) => {
+  useEffect(()=>{ if(msg){const t=setTimeout(onClose,3800);return()=>clearTimeout(t);} },[msg]);
+  if(!msg) return null;
+  const color = msg.type==='error'?C.red:msg.type==='warn'?C.orange:C.green;
+  return (
+    <div style={{position:'fixed',bottom:24,right:24,background:C.card,border:`1px solid ${color}`,borderRadius:8,padding:'12px 18px',color,fontSize:14,fontWeight:500,zIndex:9999,maxWidth:380,boxShadow:'0 8px 32px rgba(0,0,0,.2)',display:'flex',alignItems:'center',gap:12}}>
+      <span style={{flex:1}}>{msg.text}</span>
+      <span onClick={onClose} style={{opacity:.6,cursor:'pointer',flexShrink:0}}>×</span>
+    </div>
+  );
+};
+
+function Modal({title,onClose,children,width=540}) {
+  useEffect(()=>{
+    _modalCount++;
+    const fn = e => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', fn);
+    return ()=>{ _modalCount = Math.max(0, _modalCount - 1); window.removeEventListener('keydown', fn); };
+  },[onClose]);
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:1000,padding:'48px 16px 16px'}}>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,width:'100%',maxWidth:width,maxHeight:'calc(100vh - 32px)',overflowY:'auto',boxShadow:'0 24px 64px rgba(0,0,0,.25)',display:'flex',flexDirection:'column'}} className="animate-in">
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 24px',borderBottom:`1px solid ${C.border}`,position:'sticky',top:0,background:C.surface,zIndex:1,flexShrink:0}}>
+          <span style={{fontWeight:700,fontSize:15,color:C.ink}}>{title}</span>
+          <button onClick={onClose} style={{background:'none',border:'none',color:C.mid,fontSize:20,cursor:'pointer',lineHeight:1,padding:'0 4px'}}>×</button>
+        </div>
+        <div style={{padding:24,overflowY:'auto'}}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const FormField = ({label,children,hint,col}) => (
+  <div style={{marginBottom:14,gridColumn:col}}>
+    <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>{label}</label>
+    {children}
+    {hint && <div style={{fontSize:11,color:C.dim,marginTop:4}}>{hint}</div>}
+  </div>
+);
+
+/* ══════════════════════════════════════════════
+   MÓDULO PANELES (superadmin) — launcher universal por QR / link
+   Como superadmin tenés acceso SIN restricciones a todos los paneles (no hay
+   candados). Elegís un restaurante para que el QR/link abra con su contexto
+   (?r=) o dejás "Genérico" (el panel resuelve el local del login del usuario).
+══════════════════════════════════════════════ */
+const SUPER_PANELS = [
+  {l:'Admin Local',       h:'admin.html',            ic:'settings', desc:'Gestión completa del restaurante',       client:false},
+  {l:'Caja',              h:'caja.html',             ic:'money',    desc:'Cobros, turnos y facturación',           client:false},
+  {l:'Mozo',              h:'mozo.html',             ic:'coffee',   desc:'Mesas, comandas y transferencias',       client:false},
+  {l:'Cocina (KDS)',      h:'cocina.html',           ic:'flame',    desc:'Tablero de comandas y despacho',         client:false},
+  {l:'Gerente',           h:'gerente.html',          ic:'chart',    desc:'Reportes, personal y alertas',           client:false},
+  {l:'Delivery Cliente',  h:'delivery-cliente.html', ic:'package',  desc:'App de pedidos a domicilio',             client:true},
+  {l:'Rider Delivery',    h:'delivery-rider.html',   ic:'bike',     desc:'Panel del repartidor en ruta',           client:false},
+  {l:'Menú Cliente (QR)', h:'index.html',            ic:'cart',     desc:'Carta digital que escanea el cliente',   client:true},
+];
+
+function SuperShareModal({panel, url, needsRest, onClose}) {
+  const [copied, setCopied] = useState(false);
+  const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=420x420&margin=14&data=${encodeURIComponent(url)}`;
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(()=>setCopied(false),2000); } catch(_){}
+  };
+  return (
+    <Modal title={`Compartir — ${panel.l}`} onClose={onClose} width={420}>
+      <div style={{textAlign:'center'}}>
+        {needsRest && (
+          <div style={{fontSize:12,color:C.orange,fontWeight:600,lineHeight:1.5,marginBottom:14,border:`1px solid ${C.orange}`,borderRadius:9,padding:'9px 12px'}}>
+            Esta app del cliente necesita un restaurante. Elegí uno en el selector para que el QR cargue su menú.
+          </div>
+        )}
+        <div style={{fontSize:13,color:C.mid,lineHeight:1.5,marginBottom:16}}>
+          Mostrá este QR o compartí el link para abrir el panel de <strong>{panel.l}</strong>.
+        </div>
+        <div style={{background:'#FFFFFF',border:`1px solid ${C.border}`,borderRadius:14,padding:14,display:'inline-block',marginBottom:16}}>
+          <img src={qrImg} alt={`QR ${panel.l}`} width={220} height={220} style={{display:'block',width:220,height:220}}/>
+        </div>
+        <div style={{display:'flex',gap:8,marginBottom:10}}>
+          <input readOnly value={url} onFocus={e=>e.target.select()}
+            style={{flex:1,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.bg,color:C.ink,minWidth:0}}/>
+          <button onClick={copy} style={{background:C.ink,color:C.surface,border:'none',borderRadius:9,padding:'10px 14px',fontSize:12.5,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>{copied?'¡Copiado!':'Copiar'}</button>
+        </div>
+        <a href={url} target="_blank" rel="noopener noreferrer"
+           style={{display:'block',background:'transparent',color:C.ink,border:`1px solid ${C.ink}`,borderRadius:9,padding:'10px 14px',fontSize:13,fontWeight:700,textDecoration:'none'}}>
+          Abrir ahora ↗
+        </a>
+      </div>
+    </Modal>
+  );
+}
+
+function PageSuperPaneles({restaurants}) {
+  const [rid, setRid] = useState('');
+  const [qr, setQr]   = useState(null);
+  const list = Array.isArray(restaurants) ? restaurants : [];
+  // Strip del último segmento de la ruta (sirve igual con superadmin.html o ruta limpia /superadmin)
+  const base = window.location.origin + window.location.pathname.replace(/[^/]*$/,'');
+  const urlFor = p => `${base}${p.h}${rid ? `?r=${encodeURIComponent(rid)}` : ''}`;
+
+  return (
+    <div>
+      <h1 style={{fontSize:24,fontWeight:800,letterSpacing:'-0.5px',margin:'0 0 4px',color:C.ink}}>Paneles</h1>
+      <p style={{fontSize:13,color:C.mid,margin:'0 0 18px',maxWidth:640,lineHeight:1.55}}>
+        Como superadmin accedés a <strong>todos los paneles sin restricciones</strong>. Elegí un restaurante para que el QR/link abra con su contexto, o dejá <strong>Genérico</strong> (el panel resuelve el local del login). Tocá un panel para generar su QR o link directo.
+      </p>
+      <div style={{marginBottom:22,maxWidth:380}}>
+        <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>Restaurante (contexto del link)</label>
+        <select value={rid} onChange={e=>setRid(e.target.value)}
+          style={{width:'100%',fontSize:13,padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.surface,color:C.ink}}>
+          <option value="">Genérico (sin restaurante)</option>
+          {list.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(212px,1fr))',gap:14}}>
+        {SUPER_PANELS.map(p => (
+          <div key={p.h}
+            onClick={()=>setQr(p)}
+            style={{background:C.surface,border:`1px solid ${C.ink}`,borderRadius:14,padding:'18px 16px',minHeight:150,display:'flex',flexDirection:'column',cursor:'pointer',transition:'transform .12s, box-shadow .12s'}}
+            onMouseEnter={e=>{ e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow='0 10px 28px rgba(0,0,0,0.14)'; }}
+            onMouseLeave={e=>{ e.currentTarget.style.transform='none'; e.currentTarget.style.boxShadow='none'; }}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+              <div style={{width:42,height:42,borderRadius:11,background:C.ink,color:C.surface,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <Icon name={p.ic} size={20}/>
+              </div>
+              <span style={{fontSize:20,color:C.dim,fontWeight:300}}>›</span>
+            </div>
+            <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:5}}>{p.l}</div>
+            <div style={{fontSize:12,color:C.mid,lineHeight:1.45,flex:1,marginBottom:12}}>{p.desc}</div>
+            <div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12.5,fontWeight:700,color:C.ink}}>
+              <Icon name="layout" size={13}/> Compartir / Abrir
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {qr && <SuperShareModal panel={qr} url={urlFor(qr)} needsRest={qr.client && !rid} onClose={()=>setQr(null)}/>}
+    </div>
+  );
+}
+
+const Th = ({children,style:sx={},onClick}) => (
+  <th onClick={onClick} style={{padding:'10px 14px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.5,whiteSpace:'nowrap',background:C.surface,cursor:onClick?'pointer':'default',...sx}}>{children}</th>
+);
+const Td = ({children,style:sx={}}) => (
+  <td style={{padding:'11px 14px',fontSize:13,borderTop:`1px solid ${C.border}`,...sx}}>{children}</td>
+);
+
+const Spinner = () => (
+  <div style={{width:24,height:24,border:`2px solid ${C.border}`,borderTop:`2px solid ${C.ink}`,borderRadius:'50%',flexShrink:0}} className="spin"/>
+);
+
+const SectionCard = ({title,action,children,style:sx={}}) => (
+  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden',...sx}}>
+    {(title||action)&&<div style={{padding:'12px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      {title&&<span style={{fontWeight:600,fontSize:13,color:C.ink}}>{title}</span>}
+      {action}
+    </div>}
+    {children}
+  </div>
+);
+
+const FilterBtn = ({active,onClick,children}) => (
+  <button onClick={onClick} style={{padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:600,border:`1px solid ${active?'#000000':C.border}`,background:active?'#000000':'transparent',color:active?'#FFFFFF':C.mid,cursor:'pointer',transition:'all .15s',whiteSpace:'nowrap'}}>
+    {children}
+  </button>
+);
+
+const MRRChart = ({subscriptions}) => {
+  const months = getMRRMonths(subscriptions);
+  const maxVal = Math.max(...months.map(m=>m.total), 1);
+  return (
+    <div style={{display:'flex',alignItems:'flex-end',gap:8,height:130,padding:'0 0 4px 0'}}>
+      {months.map(m => {
+        const pct = maxVal>0 ? Math.max((m.total/maxVal)*100, m.total>0?4:1) : 1;
+        return (
+          <div key={m.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4,height:'100%',justifyContent:'flex-end'}}>
+            {m.total>0 && <div style={{fontSize:9,fontWeight:700,color:C.ink,textAlign:'center',lineHeight:1.2}}>{fmtGuarani(m.total)}</div>}
+            <div style={{width:'100%',background:'#000000',borderRadius:'3px 3px 0 0',height:`${pct}%`,minHeight:m.total>0?6:2,transition:'height .5s ease',opacity:m.total>0?1:.2}}/>
+            <div style={{fontSize:10,color:C.mid,textTransform:'capitalize',whiteSpace:'nowrap'}}>{m.label}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const DeltaBadge = ({current,prev}) => {
+  if (prev===0 && current===0) return <span style={{color:C.mid,fontSize:12}}>—</span>;
+  if (prev===0) return <span style={{color:'#1A7E37',fontWeight:600,fontSize:12}}>↑ nuevo</span>;
+  const pct = ((current-prev)/Math.abs(prev))*100;
+  const up = pct>=0;
+  return <span style={{color:up?'#1A7E37':'#C0190F',fontWeight:600,fontSize:12}}>{up?'↑':'↓'} {Math.abs(pct).toFixed(1)}%</span>;
+};
+
+// ══════════════════════════════════════════════════════════════
+// GRÁFICOS REUTILIZABLES — SVG/CSS puro (sin librerías)
+// ══════════════════════════════════════════════════════════════
+const fmtNum = n => Number(n||0).toLocaleString('es-PY');
+const fmtBytes = n => {
+  if (n==null || isNaN(n)) return '—';
+  if (n < 1024) return `${Math.round(n)} B`;
+  if (n < 1048576) return `${(n/1024).toFixed(1)} KB`;
+  if (n < 1073741824) return `${(n/1048576).toFixed(1)} MB`;
+  return `${(n/1073741824).toFixed(2)} GB`;
+};
+const capColor = pct => pct>=90 ? C.red : pct>=70 ? C.orange : C.green;
+
+// Tanque vertical que se "llena" — metáfora de memoria/almacenamiento ocupado
+const TankGauge = ({pct, label, value, sub, height=190, critAt=90, warnAt=70}) => {
+  const p = Math.max(0, Math.min(100, pct||0));
+  const color = capColor(p);
+  return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+      <div style={{position:'relative',width:96,height,borderRadius:14,border:`2px solid ${C.border}`,background:C.bg,overflow:'hidden',boxShadow:'inset 0 2px 6px rgba(0,0,0,.06)'}}>
+        {[25,50,75].map(g=>(
+          <div key={g} style={{position:'absolute',left:0,right:0,bottom:`${g}%`,borderTop:`1px dashed ${C.border}`,opacity:.7}}/>
+        ))}
+        <div style={{position:'absolute',left:0,right:0,bottom:0,height:`${p}%`,background:`linear-gradient(180deg, ${color}, ${color}cc)`,transition:'height .8s cubic-bezier(.2,.8,.2,1)'}}>
+          <div style={{position:'absolute',top:0,left:0,right:0,height:5,background:'rgba(255,255,255,.45)'}}/>
+        </div>
+        <div style={{position:'absolute',left:0,right:0,bottom:`${critAt}%`,borderTop:`2px dashed ${C.red}`,opacity:.85}}/>
+        <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <span style={{fontSize:26,fontWeight:800,color:p>46?'#FFFFFF':C.ink,textShadow:p>46?'0 1px 3px rgba(0,0,0,.35)':'none',lineHeight:1}}>{p<10?p.toFixed(1):Math.round(p)}%</span>
+        </div>
+      </div>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:13,fontWeight:700,color:C.ink}}>{label}</div>
+        {value!=null && <div style={{fontSize:12,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace",marginTop:1}}>{value}</div>}
+        {sub && <div style={{fontSize:10,color:C.dim,marginTop:2}}>{sub}</div>}
+      </div>
+    </div>
+  );
+};
+
+// Medidor semicircular — "cuánto margen queda" (estilo aguja de tablero)
+const SemiGauge = ({pct, label, value, sub, color}) => {
+  const p = Math.max(0, Math.min(100, pct||0));
+  const R=46, cx=60, cy=60, sw=12;
+  // frac 0 = izquierda (vacío), 1 = derecha (lleno) — semicírculo superior
+  const pt = frac => { const a=Math.PI*(1-frac); return [cx+R*Math.cos(a), cy-R*Math.sin(a)]; };
+  const arc = (f0,f1,stroke,op=1) => {
+    const [x0,y0]=pt(f0), [x1,y1]=pt(f1);
+    return <path d={`M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${R} ${R} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`} fill="none" stroke={stroke} strokeWidth={sw} strokeLinecap="round" opacity={op}/>;
+  };
+  const col = color || capColor(p);
+  const na = Math.PI*(1 - p/100);                 // ángulo de la aguja
+  const nx = cx+(R-8)*Math.cos(na), ny = cy-(R-8)*Math.sin(na);
+  return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center'}}>
+      <svg width={120} height={78} viewBox="0 0 120 72">
+        {arc(0,1,C.border,.5)}
+        {arc(0, Math.max(p/100,0.001), col)}
+        <line x1={cx} y1={cy} x2={nx.toFixed(2)} y2={ny.toFixed(2)} stroke={C.ink} strokeWidth={2.5} strokeLinecap="round"/>
+        <circle cx={cx} cy={cy} r={4} fill={C.ink}/>
+      </svg>
+      <div style={{textAlign:'center',marginTop:2}}>
+        <div style={{fontSize:18,fontWeight:800,color:col,lineHeight:1}}>{value}</div>
+        <div style={{fontSize:12,fontWeight:600,color:C.ink,marginTop:3}}>{label}</div>
+        {sub && <div style={{fontSize:10,color:C.dim,marginTop:1}}>{sub}</div>}
+      </div>
+    </div>
+  );
+};
+
+// Dona proporcional
+const Donut = ({data, size=150, thickness=22, centerLabel, centerSub}) => {
+  const total = data.reduce((s,d)=>s+(d.value||0),0)||1;
+  const r=(size-thickness)/2, cx=size/2, cy=size/2, circ=2*Math.PI*r;
+  let off=0;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.border} strokeWidth={thickness} opacity={.3}/>
+      {data.map((d,i)=>{
+        const len=(d.value/total)*circ;
+        const seg=<circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={d.color} strokeWidth={thickness}
+          strokeDasharray={`${len} ${circ-len}`} strokeDashoffset={-off}
+          transform={`rotate(-90 ${cx} ${cy})`}/>;
+        off+=len; return seg;
+      })}
+      {centerLabel!=null && <text x={cx} y={cy-1} textAnchor="middle" fontSize="21" fontWeight="800" fill={C.ink}>{centerLabel}</text>}
+      {centerSub && <text x={cx} y={cy+16} textAnchor="middle" fontSize="10" fill={C.mid}>{centerSub}</text>}
+    </svg>
+  );
+};
+
+// Barras horizontales etiquetadas (desglose / "consumo por componente")
+const HBars = ({rows, fmt=(v=>fmtNum(v)), barColor}) => (
+  <div>
+    {rows.length===0 && <div style={{fontSize:12,color:C.dim,padding:'8px 0'}}>Sin datos</div>}
+    {(()=>{ const max=Math.max(...rows.map(r=>r.value),1); return rows.map((r,i)=>(
+      <div key={i} style={{marginBottom:11}}>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:11,marginBottom:4}}>
+          <span style={{color:C.mid}}>{r.label}</span>
+          <span style={{color:C.ink,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:600}}>{fmt(r.value)}{r.note?<span style={{color:C.dim,fontWeight:400}}> {r.note}</span>:null}</span>
+        </div>
+        <div style={{height:9,background:C.bg,borderRadius:5,overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${Math.max((r.value/max)*100, r.value>0?3:0)}%`,background:r.color||barColor||C.ink,borderRadius:5,transition:'width .7s ease'}}/>
+        </div>
+      </div>
+    )); })()}
+  </div>
+);
+
+// Área/línea de tendencia
+const TrendArea = ({points, height=120, color=C.ink, yFmt=(v=>fmtNum(v))}) => {
+  const n=points.length;
+  if (!n) return <div style={{height,display:'flex',alignItems:'center',justifyContent:'center',color:C.dim,fontSize:12}}>Sin datos</div>;
+  const W=320,H=100,pad=6;
+  const max=Math.max(...points.map(p=>p.value),1);
+  const xs=i=> n<=1 ? W/2 : pad + i*(W-2*pad)/(n-1);
+  const ys=v=> H-pad - (v/max)*(H-2*pad);
+  const line=points.map((p,i)=>`${xs(i).toFixed(1)},${ys(p.value).toFixed(1)}`).join(' ');
+  const area=`${pad.toFixed(1)},${(H-pad).toFixed(1)} ${line} ${(W-pad).toFixed(1)},${(H-pad).toFixed(1)}`;
+  const peak=points.reduce((m,p,i)=> p.value>points[m].value?i:m, 0);
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{width:'100%',height,display:'block'}}>
+        {[0.25,0.5,0.75].map(g=><line key={g} x1={pad} x2={W-pad} y1={H-pad-g*(H-2*pad)} y2={H-pad-g*(H-2*pad)} stroke={C.border} strokeWidth={1} opacity={.5} vectorEffect="non-scaling-stroke"/>)}
+        <polygon points={area} fill={color} opacity={.12}/>
+        <polyline points={line} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"/>
+      </svg>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:5}}>
+        {points.map((p,i)=>(
+          <span key={i} style={{flex:1,textAlign:'center',fontSize:9,color:i===peak?C.ink:C.dim,fontWeight:i===peak?700:400,whiteSpace:'nowrap'}}>{p.label}</span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ── Modelo de capacidad de infraestructura (análisis de carga) ────
+// Límites aproximados por plan de Supabase (verificar en tu panel de billing).
+const SUPA_PLANS = {
+  free: {label:'Free',  db_mb:500,   storage_gb:1,   bandwidth_gb:5,   mau:50000,  rt_conn:200, db_conn:60,  note:'Plan gratuito · 500 MB de BD'},
+  pro:  {label:'Pro',   db_mb:8192,  storage_gb:100, bandwidth_gb:250, mau:100000, rt_conn:500, db_conn:200, note:'8 GB incluidos · escala con disco'},
+  team: {label:'Team',  db_mb:8192,  storage_gb:100, bandwidth_gb:250, mau:200000, rt_conn:500, db_conn:200, note:'Como Pro + colaboración'},
+};
+// Peso estimado por fila en bytes (datos + índices + overhead de Postgres)
+const ROW_BYTES = {
+  restaurants:1500, tables:300, menu_categories:250, menu_items:800, menu_item_extras:200,
+  orders:600, order_items:300, order_item_extras:160, order_status_history:180,
+  ratings:300, user_roles:600, turnos_caja:350, movimientos_caja:280, cancelaciones_caja:260,
+  quejas_sugerencias:300, platform_events:350, ingredients:280, recipes:220, stock_movements:260,
+  stock_alerts:240, expenses:240, delivery_orders:500, delivery_riders:300, reservations:320,
+  coupons:260, waiter_calls:220, support_tickets:400, support_messages:350, employee_shifts:260,
+  subscriptions:400, subscription_plans:500, restaurant_addons:240, platform_config:200,
+  calendar_events:280, table_scan_sessions:200,
+};
+// Etiqueta legible por tabla
+const TABLE_LABEL = {
+  orders:'Pedidos', order_items:'Ítems de pedido', menu_items:'Ítems de menú', ratings:'Calificaciones',
+  user_roles:'Usuarios', restaurants:'Restaurantes', platform_events:'Eventos plataforma',
+  movimientos_caja:'Mov. de caja', stock_movements:'Mov. de stock', delivery_orders:'Pedidos delivery',
+  support_messages:'Mensajes soporte', tables:'Mesas', reservations:'Reservas', ingredients:'Insumos',
+};
+// Huella estimada por restaurante·mes (modelo de "restaurante típico" en servicio)
+const REST_MODEL = {
+  menu_items:35, tables:14, menu_categories:8, menu_item_extras:25, user_roles:8,   // estructura (una vez)
+  orders_mo:1800, order_items_mo:5200, order_item_extras_mo:1500, ratings_mo:140,    // operación (por mes)
+  movimientos_caja_mo:900, order_status_history_mo:9000, platform_events_mo:120, waiter_calls_mo:600,
+};
+function restMonthlyBytes() {  // bytes que crecen cada mes por restaurante
+  return REST_MODEL.orders_mo*ROW_BYTES.orders + REST_MODEL.order_items_mo*ROW_BYTES.order_items
+    + REST_MODEL.order_item_extras_mo*ROW_BYTES.order_item_extras + REST_MODEL.ratings_mo*ROW_BYTES.ratings
+    + REST_MODEL.movimientos_caja_mo*ROW_BYTES.movimientos_caja + REST_MODEL.order_status_history_mo*ROW_BYTES.order_status_history
+    + REST_MODEL.platform_events_mo*ROW_BYTES.platform_events + REST_MODEL.waiter_calls_mo*ROW_BYTES.waiter_calls;
+}
+function restBaseBytes() {     // bytes fijos de estructura por restaurante
+  return REST_MODEL.menu_items*ROW_BYTES.menu_items + REST_MODEL.tables*ROW_BYTES.tables
+    + REST_MODEL.menu_categories*ROW_BYTES.menu_categories + REST_MODEL.menu_item_extras*ROW_BYTES.menu_item_extras
+    + REST_MODEL.user_roles*ROW_BYTES.user_roles;
+}
+
+// ── Analytics helpers ────────────────────────────────────────
+function buildAnalytics(restaurants, orders, ratings, subscriptions, plans, addons=[]) {
+  const now = new Date();
+  const ago30 = new Date(now - 30*86400000).toISOString();
+  const todayStr = now.toISOString().slice(0,10);
+  return restaurants.map(r => {
+    const rOrders     = orders.filter(o=>o.restaurant_id===r.id);
+    const recent      = rOrders.filter(o=>(o.created_at||'')>=ago30);
+    const todayOrders = rOrders.filter(o=>(o.created_at||'').slice(0,10)===todayStr);
+    const revenue30   = recent.reduce((s,o)=>s+(Number(o.total)||0),0);
+    const rRatings    = ratings.filter(x=>x.restaurant_id===r.id).map(x=>x.stars);
+    const rSub        = subscriptions.find(s=>s.restaurant_id===r.id);
+    const plan        = rSub?.plan || (rSub?plans.find(p=>p.id===rSub.plan_id):null);
+    const rAddons     = addons.filter(a=>a.restaurant_id===r.id && a.enabled!==false);
+    return {
+      ...r,
+      orders30:    recent.length,
+      ordersToday: todayOrders.length,
+      revenue30,
+      avgRating:   rRatings.length ? +(avg(rRatings).toFixed(1)) : null,
+      ratingCount: rRatings.length,
+      clients:     recent.length,             // proxy de "clientes activos": pedidos últimos 30d
+      addons:      rAddons,
+      addonMRR:    rAddons.reduce((s,a)=>s+(Number(a.price_usd)||0),0),
+      subscription:rSub,
+      plan,
+      daysLeft:    rSub ? daysUntil(rSub.end_date) : null,
+    };
+  });
+}
+
+// ── Widget Salud del Sistema (infraestructura) ────────────────
+function SystemHealth() {
+  const [latency, setLatency] = useState(null);
+  const [dbOk,    setDbOk]    = useState(null);
+  useEffect(()=>{
+    let alive = true;
+    const ping = async () => {
+      if (!db) { setDbOk(false); return; }
+      const t0 = performance.now();
+      const { error } = await db.from('restaurants').select('id').limit(1);
+      if (!alive) return;
+      setLatency(Math.round(performance.now()-t0));
+      setDbOk(!error);
+    };
+    ping();
+    const id = setInterval(()=>{ if(!_shouldPause()) ping(); }, 15000);
+    return ()=>{ alive=false; clearInterval(id); };
+  },[]);
+
+  const latColor = latency==null ? C.mid : latency<200 ? '#1A7E37' : latency<500 ? '#8A4B00' : C.red;
+  const dot = (color) => <span style={{width:8,height:8,borderRadius:'50%',background:color,display:'inline-block'}}/>;
+
+  // Métricas reales vs estimadas — honestidad: la anon key no expone pool/webhooks reales
+  const cell = (label, value, sub, color) => (
+    <div style={{flex:'1 1 150px',padding:'14px 18px',borderRight:`1px solid ${C.border}`}}>
+      <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:.4}}>{label}</div>
+      <div style={{display:'flex',alignItems:'center',gap:8,fontSize:20,fontWeight:800,color:color||C.ink,lineHeight:1}}>{value}</div>
+      <div style={{fontSize:10,color:C.dim,marginTop:6}}>{sub}</div>
+    </div>
+  );
+
+  return (
+    <SectionCard title="Salud del sistema">
+      <div style={{display:'flex',flexWrap:'wrap'}}>
+        {cell('Base de datos',
+          <>{dot(dbOk===false?C.red:dbOk?'#1A7E37':C.mid)} {dbOk===false?'Caída':dbOk==null?'…':'Online'}</>,
+          'Conexión Supabase', dbOk===false?C.red:C.ink)}
+        {cell('Latencia DB',
+          latency==null ? '…' : `${latency} ms`,
+          'Medición en vivo (ping)', latColor)}
+        {cell('Pool de conexiones',
+          <>24<span style={{fontSize:13,fontWeight:500,color:C.mid}}>/100</span></>,
+          'Estimado — sin métrica directa', C.ink)}
+        {cell('Webhooks Vercel',
+          <>{dot('#1A7E37')} Online</>,
+          'Estimado — verificar en panel', C.ink)}
+      </div>
+    </SectionCard>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO 1 — DASHBOARD GLOBAL
+// ══════════════════════════════════════════════════════════════
+function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, reload, setPage}) {
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0,10);
+  const ago48h = new Date(now-48*3600000).toISOString();
+
+  const activos    = enriched.filter(r=>r.status==='active').length;
+  const mrrTotal   = subscriptions.filter(s=>s.status==='active').reduce((sum,s)=>sum+(Number(s.monthly_amount)||0),0);
+  const pedidosHoy = orders.filter(o=>(o.created_at||'').slice(0,10)===todayStr).length;
+  const recRatings = ratings.filter(r=>(r.created_at||ago48h)>=ago48h);
+  const ratingProm = recRatings.length ? +(avg(recRatings.map(r=>r.stars)).toFixed(1)) : null;
+
+  const restSummary = [...enriched].sort((a,b)=>b.ordersToday-a.ordersToday);
+  const expirando   = enriched.filter(r=>r.daysLeft!==null&&r.daysLeft>=0&&r.daysLeft<=7&&r.status!=='suspended');
+
+  return (
+    <div className="animate-in">
+      {expirando.length>0&&(
+        <div style={{background:C.red+'1E',border:`1px solid ${C.red}55`,borderRadius:12,padding:'14px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <span style={{color:C.red,fontWeight:700,fontSize:13}}>Suscripciones por vencer</span>
+          {expirando.map(r=>(
+            <span key={r.id} style={{background:C.red,color:'#FFFFFF',borderRadius:6,padding:'3px 10px',fontSize:12,fontWeight:700}}>
+              {r.name} — {r.daysLeft===0?'hoy':`${r.daysLeft}d`}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* 4 KPI cards */}
+      <div style={{display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'}}>
+        <Kpi label="Restaurantes activos" value={activos}                        sub={`de ${enriched.length} totales`}/>
+        <Kpi label="MRR Total"            value={fmtGuarani(mrrTotal)}           sub="suscripciones activas"/>
+        <Kpi label="Pedidos hoy"          value={pedidosHoy}                     sub="todos los locales"/>
+        <Kpi label="Rating promedio"      value={ratingProm ? String(ratingProm) : '—'} sub="últimas 48hs"/>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:18,alignItems:'start'}}>
+        {/* MRR chart */}
+        <SectionCard title="Crecimiento MRR — últimos 6 meses">
+          <div style={{padding:'20px 20px 12px'}}>
+            <MRRChart subscriptions={subscriptions}/>
+          </div>
+          <div style={{padding:'0 20px 16px',fontSize:11,color:C.mid}}>Nuevas suscripciones activas por mes de alta</div>
+        </SectionCard>
+
+        {/* Restaurant quick summary */}
+        <SectionCard title="Restaurantes — resumen rápido">
+          {restSummary.map(r=>(
+            <div key={r.id} onClick={()=>setPage('restaurantes')} style={{padding:'12px 18px',borderBottom:`1px solid ${C.border}`,cursor:'pointer',transition:'background .1s'}}
+              onMouseEnter={e=>e.currentTarget.style.background=C.bg}
+              onMouseLeave={e=>e.currentTarget.style.background=''}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                <span style={{fontWeight:600,fontSize:13,color:C.ink}}>{r.name}</span>
+                <Badge status={r.status}/>
+              </div>
+              <div style={{display:'flex',gap:16,fontSize:11,color:C.mid}}>
+                <span>Pedidos: <strong style={{color:C.ink}}>{r.ordersToday}</strong></span>
+                <span>MRR: <strong style={{color:C.ink}}>{fmtGuarani(r.subscription?.monthly_amount||0)}</strong></span>
+                <span>Rating: <strong style={{color:C.ink}}>{r.avgRating||'—'}</strong></span>
+              </div>
+            </div>
+          ))}
+          {restSummary.length===0&&<div style={{padding:32,textAlign:'center',color:C.dim,fontSize:12}}>Sin restaurantes</div>}
+        </SectionCard>
+      </div>
+
+      <div style={{marginTop:18}}>
+        <SystemHealth/>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO — CAPACIDAD (análisis de carga de la base de datos)
+// "Como el cálculo de cargas eléctricas de una obra, pero para la BD"
+// ══════════════════════════════════════════════════════════════
+const DONUT_RAMP = ['#1D1D1F','#FF9500','#007AFF','#34C759','#5856D6','#FF3B30','#8A4B00','#6E6E73'];
+
+function PageCapacidad({ enriched }) {
+  const [counts,   setCounts]   = useState(null);
+  const [loadingC, setLoadingC] = useState(true);
+  const [planKey,  setPlanKey]  = useState('free');
+  const [latency,  setLatency]  = useState(null);
+  // Simulador "¿cuánto aguanta el tablero?"
+  const [simRest,     setSimRest]     = useState(50);
+  const [simMonths,   setSimMonths]   = useState(12);
+  const [connPerRest, setConnPerRest] = useState(8);
+
+  const plan = SUPA_PLANS[planKey];
+
+  // Conteo real de filas por tabla (HEAD + count exact — no descarga datos)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!db) { setLoadingC(false); return; }
+      setLoadingC(true);
+      const tables = Object.keys(ROW_BYTES);
+      const results = await Promise.all(tables.map(async t => {
+        try {
+          const { count, error } = await db.from(t).select('*', { count:'exact', head:true });
+          return [t, error ? null : (count || 0)];
+        } catch(e) { return [t, null]; }
+      }));
+      if (!alive) return;
+      const obj = {}; results.forEach(([t,c]) => obj[t] = c);
+      setCounts(obj); setLoadingC(false);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // Latencia en vivo (medición real con ping)
+  useEffect(() => {
+    let alive = true;
+    const ping = async () => {
+      if (!db) return;
+      const t0 = performance.now();
+      const { error } = await db.from('restaurants').select('id').limit(1);
+      if (alive && !error) setLatency(Math.round(performance.now() - t0));
+    };
+    ping();
+    const id = setInterval(() => { if (!_shouldPause()) ping(); }, 15000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
+  const cnt = counts || {};
+  const hasCounts = counts !== null;
+  const usedBytes  = Object.keys(ROW_BYTES).reduce((s,t)=> s + (Number(cnt[t]||0) * ROW_BYTES[t]), 0);
+  const limitBytes = plan.db_mb * 1048576;
+  const usedPct    = limitBytes>0 ? (usedBytes/limitBytes)*100 : 0;
+  const freePct    = Math.max(0, 100 - usedPct);
+
+  const restCount  = (enriched && enriched.length) || Number(cnt.restaurants||0) || 0;
+  const itemsCount = Number(cnt.menu_items||0);
+  const usersCount = Number(cnt.user_roles||0);
+  const ordersCount= Number(cnt.orders||0);
+
+  // Desglose de almacenamiento por tabla
+  const breakdown = Object.keys(ROW_BYTES)
+    .map(t => ({ table:t, label: TABLE_LABEL[t]||t, bytes: Number(cnt[t]||0)*ROW_BYTES[t], rows: Number(cnt[t]||0) }))
+    .filter(x => x.rows>0)
+    .sort((a,b)=> b.bytes-a.bytes);
+  const topBreak = breakdown.slice(0,8);
+  const donutTop = breakdown.slice(0,6).map((b,i)=>({label:b.label, value:b.bytes, color:DONUT_RAMP[i]}));
+  const donutRest = breakdown.slice(6).reduce((s,b)=>s+b.bytes,0);
+  if (donutRest>0) donutTop.push({label:'Otras', value:donutRest, color:DONUT_RAMP[7]});
+
+  // Huella por restaurante: real si hay datos, modelo si la plataforma está vacía
+  const perRestFor   = months => restBaseBytes() + restMonthlyBytes()*Math.max(months,1);
+  const measuredPerR = restCount>0 ? usedBytes/restCount : 0;
+  const refPerR      = measuredPerR>0 ? measuredPerR : perRestFor(simMonths);
+
+  // Capacidad teórica
+  const maxRestStorage = Math.floor(limitBytes / Math.max(perRestFor(simMonths),1));
+  const maxRestConn    = Math.floor(plan.rt_conn / Math.max(connPerRest,1));
+  const latSec         = latency ? latency/1000 : 0.08;
+  const reqPerSec      = Math.round(plan.db_conn / Math.max(latSec,0.01));
+
+  // Simulación
+  const simBytes      = restBaseBytes()*simRest + restMonthlyBytes()*simRest*simMonths;
+  const simStoragePct = (simBytes/limitBytes)*100;
+  const simConn       = simRest*connPerRest;
+  const simConnPct    = (simConn/plan.rt_conn)*100;
+  const binding       = simStoragePct>=simConnPct ? 'almacenamiento' : 'conexiones simultáneas';
+  const maxRestBinding= Math.min(maxRestStorage, maxRestConn);
+  const simOk         = simStoragePct<90 && simConnPct<90;
+
+  const CapCard = ({label, value, sub, accent, pct}) => (
+    <div style={{flex:'1 1 180px',background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 18px'}}>
+      <div style={{fontSize:11,color:C.mid,fontWeight:600,textTransform:'uppercase',letterSpacing:.4,marginBottom:8}}>{label}</div>
+      <div style={{fontSize:26,fontWeight:800,color:accent||C.ink,lineHeight:1}}>{value}</div>
+      <div style={{fontSize:10,color:C.dim,marginTop:6}}>{sub}</div>
+      {pct!=null && (
+        <div style={{height:6,background:C.bg,borderRadius:3,overflow:'hidden',marginTop:10}}>
+          <div style={{height:'100%',width:`${Math.max(0,Math.min(100,pct))}%`,background:capColor(pct),borderRadius:3,transition:'width .6s'}}/>
+        </div>
+      )}
+    </div>
+  );
+
+  const Slider = ({label, value, min, max, step=1, onChange, fmt=(v=>v)}) => (
+    <div style={{marginBottom:16}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+        <span style={{fontSize:12,color:C.mid,fontWeight:600}}>{label}</span>
+        <span style={{fontSize:13,color:C.ink,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(value)}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e=>onChange(Number(e.target.value))}
+        style={{width:'100%',accentColor:C.ink,cursor:'pointer'}}/>
+    </div>
+  );
+
+  const dot = c => <span style={{width:8,height:8,borderRadius:'50%',background:c,display:'inline-block'}}/>;
+
+  return (
+    <div className="animate-in">
+      {/* Intro / analogía */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 20px',marginBottom:18}}>
+        <div style={{fontSize:15,fontWeight:700,color:C.ink,marginBottom:4}}>Análisis de carga de la base de datos</div>
+        <div style={{fontSize:12,color:C.mid,lineHeight:1.5,maxWidth:760}}>
+          Igual que en una obra se calcula el consumo eléctrico para dimensionar el tablero y saber cuántas cargas
+          soporta, acá medimos el consumo real de la plataforma contra los límites de tu plan de Supabase:
+          cuánta memoria de BD se está usando, cuántos restaurantes / ítems / usuarios entran, y cuántas conexiones
+          simultáneas aguanta antes de saturarse.
+        </div>
+      </div>
+
+      {/* Selector de plan + estado en vivo */}
+      <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:18}}>
+        <span style={{fontSize:12,color:C.mid,fontWeight:600}}>Plan Supabase:</span>
+        {Object.keys(SUPA_PLANS).map(k=>(
+          <FilterBtn key={k} active={planKey===k} onClick={()=>setPlanKey(k)}>{SUPA_PLANS[k].label}</FilterBtn>
+        ))}
+        <span style={{fontSize:11,color:C.dim,marginLeft:4}}>{plan.note}</span>
+        <span style={{flex:1}}/>
+        <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:11,color:C.mid,background:C.bg,border:`1px solid ${C.border}`,borderRadius:20,padding:'4px 12px'}}>
+          {dot(db ? (latency==null?C.mid:latency<200?C.green:latency<500?C.orange:C.red) : C.dim)}
+          {db ? (latency==null?'midiendo…':`${latency} ms`) : 'modo demo'}
+        </span>
+      </div>
+
+      {!db && (
+        <div style={{background:C.orange+'1E',border:`1px solid ${C.orange}66`,borderRadius:10,padding:'10px 16px',marginBottom:18,fontSize:12,color:C.ink}}>
+          Sin conexión a Supabase — se muestran estimaciones del modelo, no conteos reales.
+        </div>
+      )}
+
+      {/* Uso actual real (lo que ya vive en la BD) */}
+      <div style={{display:'flex',gap:12,marginBottom:18,flexWrap:'wrap'}}>
+        <Kpi label="Restaurantes" value={loadingC?'…':fmtNum(restCount)} sub="activos en la plataforma"/>
+        <Kpi label="Ítems de menú" value={loadingC?'…':fmtNum(itemsCount)} sub="filas en menu_items"/>
+        <Kpi label="Usuarios" value={loadingC?'…':fmtNum(usersCount)} sub="roles registrados"/>
+        <Kpi label="Pedidos" value={loadingC?'…':fmtNum(ordersCount)} sub="histórico en orders"/>
+      </div>
+
+      {/* Memoria de BD — tanque + capacidad */}
+      <div style={{display:'grid',gridTemplateColumns:'280px 1fr',gap:18,alignItems:'stretch',marginBottom:18}}>
+        <SectionCard title="Memoria de base de datos">
+          <div style={{padding:'22px 20px 18px',display:'flex',flexDirection:'column',alignItems:'center'}}>
+            <TankGauge pct={usedPct}
+              label={`${fmtBytes(usedBytes)} usados`}
+              value={`de ${fmtBytes(limitBytes)} (plan ${plan.label})`}
+              sub={loadingC?'calculando…':`quedan ${fmtBytes(Math.max(limitBytes-usedBytes,0))} libres`}/>
+            <div style={{display:'flex',gap:14,marginTop:16,flexWrap:'wrap',justifyContent:'center'}}>
+              <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:10,color:C.dim}}>{dot(C.green)} &lt;70% sano</span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:10,color:C.dim}}>{dot(C.orange)} 70-90% atención</span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:10,color:C.dim}}>{dot(C.red)} &gt;90% crítico</span>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Capacidad estimada del plan">
+          <div style={{padding:'18px 18px 6px',display:'flex',gap:12,flexWrap:'wrap'}}>
+            <CapCard label="Restaurantes soportados" value={loadingC?'…':fmtNum(maxRestStorage)}
+              sub={`con ~${simMonths} meses de historial · límite por memoria`} pct={restCount/Math.max(maxRestStorage,1)*100}/>
+            <CapCard label="Restaurantes en simultáneo" value={fmtNum(maxRestConn)}
+              sub={`${connPerRest} conexiones realtime c/u · límite ${fmtNum(plan.rt_conn)}`} accent={C.ink}/>
+            <CapCard label="Usuarios concurrentes" value={fmtNum(plan.rt_conn)}
+              sub={`conexiones realtime del plan · ${fmtNum(usersCount)} registrados hoy`}/>
+            <CapCard label="Solicitudes / segundo" value={fmtNum(reqPerSec)}
+              sub={`teórico · ${plan.db_conn} conexiones ÷ ${latency||80} ms`}/>
+          </div>
+          <div style={{padding:'4px 18px 16px',display:'flex',justifyContent:'center',gap:26,flexWrap:'wrap'}}>
+            <SemiGauge pct={usedPct} value={`${usedPct<10?usedPct.toFixed(1):Math.round(usedPct)}%`} label="Memoria usada" sub={`${fmtBytes(usedBytes)} / ${fmtBytes(limitBytes)}`}/>
+            <SemiGauge pct={restCount/Math.max(maxRestStorage,1)*100} value={`${fmtNum(restCount)}/${fmtNum(maxRestStorage)}`} label="Restaurantes" sub="usados / soportados" color={C.ink}/>
+            <SemiGauge pct={(usersCount/Math.max(plan.rt_conn,1))*100} value={`${fmtNum(usersCount)}/${fmtNum(plan.rt_conn)}`} label="Usuarios / conexiones" sub="registrados / límite" color="#5856D6"/>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* Desglose de consumo por tabla */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 300px',gap:18,marginBottom:18,alignItems:'start'}}>
+        <SectionCard title="Consumo de memoria por tabla">
+          <div style={{padding:'18px 20px'}}>
+            <HBars rows={topBreak.map(b=>({label:`${b.label}`, value:b.bytes, note:`· ${fmtNum(b.rows)} filas`}))} fmt={fmtBytes} barColor={C.ink}/>
+            {topBreak.length===0 && <div style={{fontSize:12,color:C.dim,padding:'8px 0'}}>{loadingC?'Calculando conteos…':'Sin datos cargados todavía — la plataforma está vacía.'}</div>}
+          </div>
+          <div style={{padding:'0 20px 16px',fontSize:10,color:C.dim}}>Estimado: filas × peso medio por fila (datos + índices + overhead de Postgres).</div>
+        </SectionCard>
+        <SectionCard title="Proporción del almacenamiento">
+          <div style={{padding:'18px',display:'flex',flexDirection:'column',alignItems:'center'}}>
+            {donutTop.length>0
+              ? <Donut data={donutTop} centerLabel={fmtBytes(usedBytes)} centerSub="total"/>
+              : <div style={{fontSize:12,color:C.dim,padding:'30px 0'}}>{loadingC?'Calculando…':'Sin datos'}</div>}
+            <div style={{marginTop:14,width:'100%'}}>
+              {donutTop.map((d,i)=>(
+                <div key={i} style={{display:'flex',alignItems:'center',gap:8,fontSize:11,marginBottom:5}}>
+                  {dot(d.color)}<span style={{flex:1,color:C.mid}}>{d.label}</span>
+                  <span style={{color:C.ink,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmtBytes(d.value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* SIMULADOR de carga */}
+      <SectionCard title="Simulador de carga — ¿hasta dónde aguanta?">
+        <div style={{padding:'20px',display:'grid',gridTemplateColumns:'320px 1fr',gap:24,alignItems:'center'}}>
+          <div>
+            <Slider label="Restaurantes a simular" value={simRest} min={1} max={1000} step={1} onChange={setSimRest} fmt={v=>fmtNum(v)}/>
+            <Slider label="Meses de historial retenido" value={simMonths} min={1} max={60} onChange={setSimMonths} fmt={v=>`${v} m`}/>
+            <Slider label="Conexiones simultáneas por restaurante" value={connPerRest} min={1} max={30} onChange={setConnPerRest} fmt={v=>`${v}`}/>
+            <div style={{fontSize:10,color:C.dim,marginTop:4,lineHeight:1.5}}>
+              Cada restaurante en servicio mantiene varias conexiones en vivo (cocina, caja, mozos, admin, clientes).
+              El simulador proyecta la carga total contra los límites del plan <strong style={{color:C.mid}}>{plan.label}</strong>.
+            </div>
+          </div>
+          <div>
+            <div style={{display:'flex',gap:24,flexWrap:'wrap',marginBottom:16}}>
+              <TankGauge pct={simStoragePct} height={150}
+                label="Memoria proyectada"
+                value={`${fmtBytes(simBytes)} / ${fmtBytes(limitBytes)}`}
+                sub={`${Math.round(simStoragePct)}% del plan`}/>
+              <TankGauge pct={simConnPct} height={150}
+                label="Conexiones proyectadas"
+                value={`${fmtNum(simConn)} / ${fmtNum(plan.rt_conn)}`}
+                sub={`${Math.round(simConnPct)}% del plan`}/>
+              <div style={{flex:'1 1 200px',display:'flex',flexDirection:'column',justifyContent:'center',gap:10}}>
+                <div style={{background: simOk ? C.green+'1E' : C.red+'1E', border:`1px solid ${(simOk?C.green:C.red)}66`, borderRadius:10, padding:'14px 16px'}}>
+                  <div style={{fontSize:12,fontWeight:700,color: simOk?C.green:C.red, marginBottom:4}}>
+                    {simOk ? '✓ Dentro de capacidad' : '⚠ Supera la capacidad'}
+                  </div>
+                  <div style={{fontSize:12,color:C.ink,lineHeight:1.5}}>
+                    Con <strong>{fmtNum(simRest)}</strong> restaurantes y {simMonths} meses de historial, el límite que se
+                    satura primero es <strong>{binding}</strong>. Tu plan {plan.label} soporta hasta
+                    {' '}<strong>{fmtNum(maxRestBinding)}</strong> restaurantes en estas condiciones.
+                  </div>
+                </div>
+                <div style={{fontSize:11,color:C.mid,display:'flex',flexDirection:'column',gap:3}}>
+                  <span>{dot(capColor(simStoragePct))} Tope por memoria: <strong style={{color:C.ink}}>{fmtNum(maxRestStorage)}</strong> restaurantes</span>
+                  <span>{dot(capColor(simConnPct))} Tope por conexiones: <strong style={{color:C.ink}}>{fmtNum(maxRestConn)}</strong> simultáneos</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+
+      <div style={{marginTop:14,fontSize:10,color:C.dim,lineHeight:1.6}}>
+        Los pesos por fila y el modelo de "restaurante típico" son estimaciones de ingeniería (la clave anónima del
+        frontend no expone las métricas internas de disco/pool de Postgres). Para cifras exactas de disco, ancho de
+        banda y conexiones, contrastá con el panel de <em>Reports → Database</em> de Supabase. Los conteos de filas
+        sí son reales y medidos en vivo.
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO 2 — RESTAURANTES (cards grid)
+// ══════════════════════════════════════════════════════════════
+function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) {
+  const [modal,    setModal]    = useState(null);
+  const [search,   setSearch]   = useState('');
+  const [fPlan,    setFPlan]    = useState('all');
+  const [fStatus,  setFStatus]  = useState('all');
+  const [fCity,    setFCity]    = useState('all');
+  const [sort,     setSort]     = useState('name');
+  const [saving,   setSaving]   = useState(false);
+  const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10)};
+  const [form, setForm] = useState(emptyForm);
+  // Multi-sucursal: modal de alta de Sucursal Hija anclada a una Casa Central
+  const [branchModal, setBranchModal] = useState(null);   // {parent} | null
+  const [branchForm,  setBranchForm]  = useState({name:'',phone:'',city:'Asunción'});
+
+  // Ciudades presentes en los datos + cabeceras PY conocidas
+  const cityOptions = Array.from(new Set([...CITIES_PY, ...enriched.map(r=>r.city).filter(Boolean)]));
+
+  const SORTS = {
+    name:    {label:'Nombre (A-Z)',        fn:(a,b)=>a.name.localeCompare(b.name)},
+    revenue: {label:'Mayor facturación',    fn:(a,b)=>b.revenue30-a.revenue30},
+    clients: {label:'Más clientes',         fn:(a,b)=>b.clients-a.clients},
+    mrr:     {label:'Más rentables (MRR)',   fn:(a,b)=>((b.subscription?.monthly_amount||0)+b.addonMRR)-((a.subscription?.monthly_amount||0)+a.addonMRR)},
+    rating:  {label:'Mejor calificados',     fn:(a,b)=>(b.avgRating||0)-(a.avgRating||0)},
+  };
+
+  const shown = enriched.filter(r=>{
+    const q = search.toLowerCase();
+    const mSearch = !q || r.name.toLowerCase().includes(q) || (r.city||'').toLowerCase().includes(q);
+    const mPlan   = fPlan==='all'   || (r.plan?.name||'Sin plan')===fPlan;
+    const mStatus = fStatus==='all' || (fStatus==='active'&&r.status==='active') || (fStatus==='inactive'&&['inactive','suspended','trial'].includes(r.status));
+    const mCity   = fCity==='all'   || (r.city||'')===fCity;
+    return mSearch && mPlan && mStatus && mCity;
+  }).sort((SORTS[sort]||SORTS.name).fn);
+
+  const openCreate = () => { setForm({...emptyForm,plan_id:plans[1]?.id||''}); setModal('create'); };
+  const openEdit   = r  => {
+    setForm({name:r.name||'',legal_name:r.legal_name||'',ruc:r.ruc||'',city:r.city||'',country:r.country||'Paraguay',address:r.address||'',phone:r.phone||'',email:r.email||'',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10)});
+    setModal({edit:r});
+  };
+
+  const toggleStatus = async r => {
+    const next = r.status==='active'?'suspended':r.status==='suspended'?'active':'active';
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    const {error} = await db.from('restaurants').update({status:next}).eq('id',r.id);
+    if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
+    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'status_changed',description:`Estado cambiado a ${next}`}).then(()=>{},()=>{});
+    setFlash({type:'ok',text:`${r.name} → ${next}`}); reload();
+  };
+
+  const saveRestaurant = async () => {
+    if (!form.name.trim()) { setFlash({type:'error',text:'El nombre es requerido'}); return; }
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSaving(true);
+    try {
+      const payload = {name:form.name.trim(),legal_name:form.legal_name||null,ruc:form.ruc||null,city:form.city,country:form.country,address:form.address||null,phone:form.phone||null,email:form.email||null,owner_name:form.owner_name||null,owner_email:form.owner_email||null,owner_phone:form.owner_phone||null,status:form.status,notes:form.notes||null,onboarding_date:form.onboarding_date,timezone:'America/Asuncion'};
+      if (modal==='create') {
+        const {data:rest,error} = await db.from('restaurants').insert({...payload,auto_provisioned:false}).select().single();
+        if (error) throw error;
+        if (form.plan_id) {
+          const today=new Date(),end=new Date(today);end.setMonth(end.getMonth()+1);
+          const plan=plans.find(p=>p.id===form.plan_id);
+          await db.from('subscriptions').insert({restaurant_id:rest.id,plan_id:form.plan_id,status:form.status==='trial'?'trial':'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10),monthly_amount:plan?.price_usd||0}).then(()=>{},()=>{});
+        }
+        await db.from('platform_events').insert({restaurant_id:rest.id,event_type:'onboarding',description:`Alta — ${form.status}`}).then(()=>{},()=>{});
+        setFlash({type:'ok',text:`${form.name} dado de alta`});
+      } else {
+        const {error} = await db.from('restaurants').update(payload).eq('id',modal.edit.id);
+        if (error) throw error;
+        setFlash({type:'ok',text:`${form.name} actualizado`});
+      }
+      setModal(null); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  // ── Multi-sucursal: alta de Sucursal Hija ──────────────────────
+  const isRoot = r => !r.parent_company_id || r.parent_company_id === r.id;
+  const rootIdOf = r => r.parent_company_id || r.id;
+  const parentName = r => (enriched.find(x=>x.id===r.parent_company_id)?.name) || '—';
+
+  const openBranch = parent => {
+    setBranchForm({name:'',phone:'',city:parent.city||'Asunción'});
+    setBranchModal({parent});
+  };
+
+  const saveBranch = async () => {
+    const parent = branchModal?.parent;
+    if (!parent) return;
+    if (!branchForm.name.trim()) { setFlash({type:'error',text:'El nombre de la sucursal es requerido'}); return; }
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSaving(true);
+    try {
+      const rootId = rootIdOf(parent);
+      // 1) Registrar/incrementar el add-on 'sucursal_extra' en la cuenta raíz (facturable)
+      const {data:exist} = await db.from('restaurant_addons')
+        .select('id,quantity').eq('restaurant_id',rootId).eq('addon_key','sucursal_extra').maybeSingle();
+      const extraPrice = (addonCatalog.find(a=>a.key==='sucursal_extra')||{}).price_usd ?? 180000;
+      if (exist) {
+        await db.from('restaurant_addons').update({quantity:(exist.quantity||1)+1,enabled:true}).eq('id',exist.id);
+      } else {
+        await db.from('restaurant_addons').insert({restaurant_id:rootId,addon_key:'sucursal_extra',price_usd:extraPrice,quantity:1,enabled:true}).then(()=>{},()=>{});
+      }
+      // 2) Crear la sucursal hija vinculada a la cuenta corporativa raíz
+      const payload = {
+        name:branchForm.name.trim(), parent_company_id:rootId,
+        city:branchForm.city||parent.city||null, country:parent.country||'Paraguay',
+        phone:branchForm.phone||null, status:'active', timezone:'America/Asuncion',
+        owner_name:parent.owner_name||null, owner_email:parent.owner_email||null, owner_phone:parent.owner_phone||null,
+        onboarding_date:new Date().toISOString().slice(0,10),
+      };
+      const {data:branch,error} = await db.from('restaurants').insert(payload).select().single();
+      if (error) throw error;
+      // 3) Heredar el plan base del padre (suscripción propia con mismo plan_id)
+      const planId = parent.subscription?.plan_id;
+      if (planId) {
+        const today=new Date(),end=new Date(today);end.setMonth(end.getMonth()+1);
+        const plan=plans.find(p=>p.id===planId);
+        await db.from('subscriptions').insert({restaurant_id:branch.id,plan_id:planId,status:'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10),monthly_amount:plan?.price_usd||0}).then(()=>{},()=>{});
+      }
+      await db.from('platform_events').insert({restaurant_id:branch.id,event_type:'onboarding',description:`Alta de sucursal — cuenta de ${parent.name}`}).then(()=>{},()=>{});
+      setFlash({type:'ok',text:`Sucursal "${branchForm.name}" creada bajo ${parent.name}`});
+      setBranchModal(null); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const sf = v => e => setForm(f=>({...f,[v]:e.target.value}));
+  const bf = v => e => setBranchForm(f=>({...f,[v]:e.target.value}));
+
+  return (
+    <div className="animate-in">
+      {/* Filtros */}
+      <div style={{display:'flex',gap:8,marginBottom:18,flexWrap:'wrap',alignItems:'center'}}>
+        <input placeholder="Buscar restaurante..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:200,flex:'none'}}/>
+        <select value={sort} onChange={e=>setSort(e.target.value)} style={{width:'auto',minWidth:170}}>
+          {Object.entries(SORTS).map(([k,v])=><option key={k} value={k}>Ordenar: {v.label}</option>)}
+        </select>
+        <select value={fCity} onChange={e=>setFCity(e.target.value)} style={{width:'auto',minWidth:130}}>
+          <option value="all">Todas las ciudades</option>
+          {cityOptions.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={fPlan} onChange={e=>setFPlan(e.target.value)} style={{width:'auto',minWidth:130}}>
+          <option value="all">Todos los planes</option>
+          {['Free','Starter','Pro','Enterprise'].map(p=><option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{width:'auto',minWidth:110}}>
+          <option value="all">Todos</option>
+          <option value="active">Activos</option>
+          <option value="inactive">Inactivos</option>
+        </select>
+        <span style={{fontSize:12,color:C.dim,marginLeft:4}}>{shown.length} resultado{shown.length!==1?'s':''}</span>
+        <div style={{marginLeft:'auto'}}>
+          <Btn onClick={openCreate}>+ Nuevo restaurante</Btn>
+        </div>
+      </div>
+
+      {/* Cards grid */}
+      {shown.length===0 ? (
+        <div style={{textAlign:'center',padding:60,color:C.dim,fontSize:13}}>Sin resultados</div>
+      ) : (
+        <div className="cards-grid">
+          {shown.map(r=>(
+            <div key={r.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:20,display:'flex',flexDirection:'column',gap:0}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:700,color:C.ink,marginBottom:3,display:'flex',alignItems:'center',gap:6}}>
+                    {r.name}
+                    {!isRoot(r)&&<span title={`Sucursal de ${parentName(r)}`} style={{fontSize:9,fontWeight:800,background:C.ink,color:C.card,padding:'2px 7px',borderRadius:5,letterSpacing:.3,textTransform:'uppercase'}}>Sucursal</span>}
+                  </div>
+                  <div style={{fontSize:12,color:C.mid}}>{r.address||r.city}{r.city&&r.address?`, ${r.city}`:''}</div>
+                  {!isRoot(r)&&<div style={{fontSize:11,color:C.dim,marginTop:2}}>↳ {parentName(r)}</div>}
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}>
+                  <PlanBadge name={r.plan?.name||'Sin plan'}/>
+                  <Badge status={r.status}/>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:0,margin:'10px 0',padding:'12px 0',borderTop:`1px solid #F5F5F7`,borderBottom:`1px solid #F5F5F7`}}>
+                <div style={{flex:1,textAlign:'center'}}>
+                  <div style={{fontSize:11,color:C.mid,marginBottom:2}}>Pedidos hoy</div>
+                  <div style={{fontSize:18,fontWeight:700,color:C.ink}}>{r.ordersToday}</div>
+                </div>
+                <div style={{flex:1,textAlign:'center',borderLeft:`1px solid #F5F5F7`}}>
+                  <div style={{fontSize:11,color:C.mid,marginBottom:2}}>MRR</div>
+                  <div style={{fontSize:14,fontWeight:700,color:C.ink}}>{fmtGuarani(r.subscription?.monthly_amount||0)}</div>
+                </div>
+                <div style={{flex:1,textAlign:'center',borderLeft:`1px solid #F5F5F7`}}>
+                  <div style={{fontSize:11,color:C.mid,marginBottom:2}}>Rating</div>
+                  <div style={{fontSize:18,fontWeight:700,color:C.ink}}>{r.avgRating||'—'}</div>
+                </div>
+              </div>
+              {(r.addons||[]).length>0&&(
+                <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:4}}>
+                  {r.addons.map(a=>(
+                    <span key={a.addon_key} style={{fontSize:10,fontWeight:700,background:'#EEF4FF',color:'#1D4ED8',padding:'2px 8px',borderRadius:5,whiteSpace:'nowrap'}}>
+                      + {addonName(addonCatalog,a.addon_key)}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
+                <Btn size="sm" variant="ghost" onClick={()=>openEdit(r)}>Editar</Btn>
+                <a href="admin.html" target="_blank" rel="noreferrer" style={{textDecoration:'none'}}>
+                  <Btn size="sm" variant="ghost">Ver Admin</Btn>
+                </a>
+                {isRoot(r)&&<Btn size="sm" variant="ghost" onClick={()=>openBranch(r)}>➕ Añadir Sucursal Hija</Btn>}
+                <Btn size="sm" variant={r.status==='active'?'danger':'success'} onClick={()=>toggleStatus(r)}>
+                  {r.status==='active'?'Desactivar':'Activar'}
+                </Btn>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modal&&(
+        <Modal title={modal==='create'?'Nuevo restaurante':'Editar restaurante'} onClose={()=>setModal(null)} width={600}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Nombre *" col="1/-1"><input value={form.name} onChange={sf('name')} placeholder="Nombre del restaurante" autoFocus/></FormField>
+            <FormField label="Razón social"><input value={form.legal_name} onChange={sf('legal_name')} placeholder="Razón social S.A."/></FormField>
+            <FormField label="RUC"><input value={form.ruc} onChange={sf('ruc')} placeholder="80000000-0"/></FormField>
+            <FormField label="Ciudad">
+              <select value={form.city} onChange={sf('city')}>
+                <option value="">Seleccionar ciudad…</option>
+                {cityOptions.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </FormField>
+            <FormField label="País"><input value={form.country} onChange={sf('country')}/></FormField>
+            <FormField label="Dirección" col="1/-1"><input value={form.address} onChange={sf('address')} placeholder="Mcal. Estigarribia 1234"/></FormField>
+            <FormField label="Teléfono"><input value={form.phone} onChange={sf('phone')} placeholder="+595 21 555 0100"/></FormField>
+            <FormField label="Email del local"><input type="email" value={form.email} onChange={sf('email')} placeholder="contacto@restaurante.com"/></FormField>
+            <FormField label="Plan de suscripción">
+              <select value={form.plan_id} onChange={sf('plan_id')}>
+                <option value="">Sin asignar</option>
+                {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtGuarani(p.price_usd)}/mes</option>)}
+              </select>
+            </FormField>
+            <FormField label="Estado">
+              <select value={form.status} onChange={sf('status')}>
+                <option value="active">Activo</option>
+                <option value="trial">Trial</option>
+                <option value="suspended">Suspendido</option>
+                <option value="inactive">Inactivo</option>
+              </select>
+            </FormField>
+            <FormField label="Fecha de alta"><input type="date" value={form.onboarding_date} onChange={sf('onboarding_date')}/></FormField>
+          </div>
+          <div style={{borderTop:`1px solid ${C.border}`,margin:'12px 0',paddingTop:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:.5}}>Datos del propietario</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+              <FormField label="Nombre"><input value={form.owner_name} onChange={sf('owner_name')} placeholder="Nombre del propietario"/></FormField>
+              <FormField label="Teléfono"><input value={form.owner_phone} onChange={sf('owner_phone')} placeholder="+595 981 123 456"/></FormField>
+              <FormField label="Email" col="1/-1"><input type="email" value={form.owner_email} onChange={sf('owner_email')} placeholder="propietario@restaurante.com"/></FormField>
+            </div>
+          </div>
+          <FormField label="Notas internas"><textarea value={form.notes} onChange={sf('notes')} rows={2} placeholder="Observaciones internas..."/></FormField>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
+            <Btn variant="ghost" onClick={()=>setModal(null)}>Cancelar</Btn>
+            <Btn onClick={saveRestaurant} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {branchModal&&(
+        <Modal title="Añadir Sucursal Hija" onClose={()=>setBranchModal(null)} width={520}>
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',marginBottom:16,borderRadius:10,border:`1px solid ${C.ink}`,background:C.bg}}>
+            <div style={{fontSize:22}}>🏢</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,fontWeight:700,color:C.ink}}>Cuenta corporativa: {branchModal.parent.name}</div>
+              <div style={{fontSize:11,color:C.mid}}>Hereda el plan <strong>{branchModal.parent.plan?.name||'base'}</strong> del local raíz y se factura como add-on “Sucursal Adicional”.</div>
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Nombre de la sucursal *" col="1/-1"><input value={branchForm.name} onChange={bf('name')} placeholder={`${branchModal.parent.name} — Centro`} autoFocus/></FormField>
+            <FormField label="Ciudad">
+              <select value={branchForm.city} onChange={bf('city')}>
+                <option value="">Seleccionar ciudad…</option>
+                {Array.from(new Set([...CITIES_PY, branchForm.city].filter(Boolean))).map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Teléfono"><input value={branchForm.phone} onChange={bf('phone')} placeholder="+595 21 555 0200"/></FormField>
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:16}}>
+            <Btn variant="ghost" onClick={()=>setBranchModal(null)}>Cancelar</Btn>
+            <Btn onClick={saveBranch} disabled={saving}>{saving?'Creando…':'Crear sucursal'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO 3 — FACTURACIÓN (planes + suscripciones)
+// ══════════════════════════════════════════════════════════════
+function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], setFlash, reload}) {
+  const EMPTY_PLAN = {name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true,max_mozo:'',max_cajero:'',max_cocina:'',panels:[],allowed_features:[]};
+  const currentCcy = CURRENCIES[platformConfig.find(c=>c.key==='platform_currency')?.value] ? platformConfig.find(c=>c.key==='platform_currency').value : 'PYG';
+  const [savingCcy, setSavingCcy] = useState(false);
+  const saveCurrency = async (code) => {
+    if (code===currentCcy || !CURRENCIES[code]) return;
+    setPlatformCurrency(code);   // refleja al instante en toda la UI de dinero
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSavingCcy(true);
+    const {error} = await db.from('platform_config').upsert({key:'platform_currency',value:code,updated_at:new Date().toISOString()},{onConflict:'key'});
+    setSavingCcy(false);
+    if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
+    setFlash({type:'ok',text:`Moneda de la plataforma: ${CURRENCIES[code].label}`}); reload();
+  };
+  const [planModal, setPlanModal]   = useState(null);
+  const [subModal,  setSubModal]    = useState(null);
+  const [planForm,  setPlanForm]    = useState(EMPTY_PLAN);
+  const [subForm,   setSubForm]     = useState({});
+  const [saving,    setSaving]      = useState(false);
+  const catalog = addonCatalog.length ? addonCatalog : DEFAULT_ADDONS;
+  const [addonForm, setAddonForm]   = useState({});   // {key:{price_usd,is_active}}
+  const [savingAddon, setSavingAddon] = useState('');
+  useEffect(()=>{
+    const init = {};
+    catalog.forEach(a=>{ init[a.key]={price_usd:a.price_usd??'',is_active:a.is_active!==false}; });
+    setAddonForm(init);
+  },[addonCatalog]);
+
+  const saveAddon = async (a) => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSavingAddon(a.key);
+    try {
+      const f = addonForm[a.key]||{};
+      const payload = {key:a.key,name:a.name,panel:a.panel,price_usd:parseFloat(f.price_usd)||0,is_active:f.is_active!==false};
+      const {error} = await db.from('plan_addons').upsert(payload,{onConflict:'key'});
+      if (error) throw error;
+      setFlash({type:'ok',text:`Add-on "${a.name}" actualizado`}); reload();
+    } catch(e){ setFlash({type:'error',text:'Error: '+e.message}); }
+    setSavingAddon('');
+  };
+
+  // Plan más vendido
+  const subCountByPlan = {};
+  enriched.forEach(r=>{ if(r.subscription?.plan_id&&r.status!=='suspended') subCountByPlan[r.subscription.plan_id]=(subCountByPlan[r.subscription.plan_id]||0)+1; });
+  const popularPlanId = Object.entries(subCountByPlan).sort((a,b)=>b[1]-a[1])[0]?.[0];
+
+  // Suscripciones para tabla (ordenadas por días restantes ASC)
+  const subs = [...enriched].sort((a,b)=>{
+    const da = a.daysLeft??9999, db2 = b.daysLeft??9999;
+    return da - db2;
+  });
+
+  const mrrTotal = enriched.filter(r=>r.status!=='suspended').reduce((s,r)=>s+(r.plan?.price_usd||0),0);
+
+  const openEditPlan = p => {
+    const mubr = asObj(p.max_users_by_role);
+    setPlanForm({
+      name:p.name,price_usd:p.price_usd,billing_cycle:p.billing_cycle,
+      max_tables:p.max_tables||'',max_menu_items:p.max_menu_items||'',
+      features:Array.isArray(p.features)?p.features.join(', '):(typeof p.features==='string'?asArr(p.features).join(', '):''),
+      is_active:p.is_active!==false,
+      max_mozo:mubr.mozo??'',max_cajero:mubr.cajero??'',max_cocina:mubr.cocina??'',
+      panels:asArr(p.allowed_panels),
+      allowed_features:asArr(p.allowed_features),
+    });
+    setPlanModal({edit:p});
+  };
+
+  const savePlan = async () => {
+    if (!planForm.name.trim()) { setFlash({type:'error',text:'El nombre es requerido'}); return; }
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSaving(true);
+    try {
+      const feats = planForm.features ? planForm.features.split(',').map(s=>s.trim()).filter(Boolean) : [];
+      const mubr = {};
+      if (planForm.max_mozo!=='' && planForm.max_mozo!=null)     mubr.mozo   = parseInt(planForm.max_mozo);
+      if (planForm.max_cajero!=='' && planForm.max_cajero!=null) mubr.cajero = parseInt(planForm.max_cajero);
+      if (planForm.max_cocina!=='' && planForm.max_cocina!=null) mubr.cocina = parseInt(planForm.max_cocina);
+      const payload = {name:planForm.name.trim(),price_usd:parseFloat(planForm.price_usd)||0,billing_cycle:planForm.billing_cycle,max_tables:parseInt(planForm.max_tables)||null,max_menu_items:parseInt(planForm.max_menu_items)||null,features:JSON.stringify(feats),is_active:planForm.is_active,max_users_by_role:mubr,allowed_panels:planForm.panels||[],allowed_features:planForm.allowed_features||[]};
+      // Degrada con gracia si la migración 091 (columna allowed_features) aún no corrió.
+      const writePlan = async pl => planModal==='create'
+        ? db.from('subscription_plans').insert(pl)
+        : db.from('subscription_plans').update(pl).eq('id',planModal.edit.id);
+      let degraded = false;
+      let {error} = await writePlan(payload);
+      if (error && /allowed_features/.test(error.message||'')) {
+        const {allowed_features, ...legacy} = payload;
+        ({error} = await writePlan(legacy));
+        degraded = !error;
+      }
+      if (error) throw error;
+      setFlash(degraded
+        ? {type:'warn',text:'Plan guardado, pero las características granulares requieren la migración 091.'}
+        : {type:'ok',text:`Plan "${planForm.name}" ${planModal==='create'?'creado':'actualizado'}`});
+      setPlanModal(null); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const openEditSub = r => {
+    const s = r.subscription||{};
+    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||r.plan?.price_usd||'',addonKeys:(r.addons||[]).map(a=>a.addon_key)});
+    setSubModal(r);
+  };
+
+  const saveSub = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSaving(true);
+    try {
+      const sub = subModal.subscription;
+      const payload = {plan_id:subForm.plan_id,status:subForm.status,start_date:subForm.start_date,end_date:subForm.end_date||null,auto_renew:subForm.auto_renew,payment_method:subForm.payment_method,monthly_amount:parseFloat(subForm.monthly_amount)||null};
+      if (sub?.id) {
+        const {error} = await db.from('subscriptions').update(payload).eq('id',sub.id);
+        if (error) throw error;
+      } else {
+        const {error} = await db.from('subscriptions').insert({restaurant_id:subModal.id,...payload});
+        if (error) throw error;
+      }
+      // Reconciliar add-ons contratados por el restaurante
+      const want = subForm.addonKeys||[];
+      await db.from('restaurant_addons').delete().eq('restaurant_id',subModal.id);
+      if (want.length) {
+        const rows = want.map(k=>{ const c=catalog.find(x=>x.key===k); return {restaurant_id:subModal.id,addon_key:k,price_usd:c?.price_usd||0,enabled:true}; });
+        const {error:addErr} = await db.from('restaurant_addons').insert(rows);
+        if (addErr) throw addErr;
+      }
+      const planName = plans.find(p=>p.id===subForm.plan_id)?.name||'';
+      await db.from('platform_events').insert({restaurant_id:subModal.id,event_type:'plan_changed',description:`Suscripción actualizada — ${planName}`}).then(()=>{},()=>{});
+      setFlash({type:'ok',text:`Suscripción de ${subModal.name} actualizada`});
+      setSubModal(null); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const renew = async r => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    if (!r.subscription?.id) { openEditSub(r); return; }
+    const base = r.subscription.end_date && new Date(r.subscription.end_date)>new Date() ? new Date(r.subscription.end_date) : new Date();
+    const end = new Date(base); end.setMonth(end.getMonth()+1);
+    const {error} = await db.from('subscriptions').update({status:'active',end_date:end.toISOString().slice(0,10)}).eq('id',r.subscription.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'subscription_renewed',description:`Renovación manual — ${r.plan?.name}`}).then(()=>{},()=>{});
+    setFlash({type:'ok',text:`${r.name} renovado hasta ${fmtDate(end.toISOString())}`}); reload();
+  };
+
+  const spf = v => e => setPlanForm(f=>({...f,[v]:e.target.value}));
+  const ssf = v => e => setSubForm(f=>({...f,[v]:e.target.value}));
+  const togglePanel = key => setPlanForm(f=>({...f,panels:(f.panels||[]).includes(key)?f.panels.filter(p=>p!==key):[...(f.panels||[]),key]}));
+  const toggleFeature = key => setPlanForm(f=>({...f,allowed_features:(f.allowed_features||[]).includes(key)?f.allowed_features.filter(k=>k!==key):[...(f.allowed_features||[]),key]}));
+  const toggleSubAddon = key => setSubForm(f=>{const cur=f.addonKeys||[];return {...f,addonKeys:cur.includes(key)?cur.filter(k=>k!==key):[...cur,key]};});
+
+  return (
+    <div className="animate-in">
+      {/* Planes cards */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+        <span style={{fontSize:13,color:C.mid}}>Planes disponibles</span>
+        <Btn size="sm" onClick={()=>{setPlanForm(EMPTY_PLAN);setPlanModal('create')}}>+ Nuevo plan</Btn>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16,marginBottom:28}}>
+        {plans.map(p=>{
+          const featArr = Array.isArray(p.features)?p.features:(typeof p.features==='string'?JSON.parse(p.features||'[]'):[]);
+          return (
+            <div key={p.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20,opacity:p.is_active?1:.6,position:'relative'}}>
+              {p.id===popularPlanId&&(
+                <div style={{position:'absolute',top:12,right:12,background:'#000000',color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:.5}}>POPULAR</div>
+              )}
+              <PlanBadge name={p.name}/>
+              <div style={{fontSize:22,fontWeight:800,margin:'10px 0 4px',color:C.ink}}>{fmtGuarani(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
+              <div style={{display:'flex',gap:8,marginBottom:14}}>
+                <div style={{background:C.bg,borderRadius:6,padding:'6px 10px',textAlign:'center',flex:1}}>
+                  <div style={{fontSize:15,fontWeight:700,color:C.ink}}>{p.max_tables??'∞'}</div>
+                  <div style={{fontSize:10,color:C.mid}}>Mesas</div>
+                </div>
+                <div style={{background:C.bg,borderRadius:6,padding:'6px 10px',textAlign:'center',flex:1}}>
+                  <div style={{fontSize:15,fontWeight:700,color:C.ink}}>{p.max_menu_items??'∞'}</div>
+                  <div style={{fontSize:10,color:C.mid}}>Items menú</div>
+                </div>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
+                {featArr.map((f,i)=>(
+                  <div key={i} style={{fontSize:12,color:C.mid,display:'flex',gap:6}}>
+                    <span style={{fontSize:10}}>–</span>{f}
+                  </div>
+                ))}
+              </div>
+              {(() => {
+                const pnls = asArr(p.allowed_panels);
+                const feats = asArr(p.allowed_features);
+                const mubr = asObj(p.max_users_by_role);
+                const limStr = LIMIT_ROLES.map(lr=>mubr[lr.key]!=null?`${mubr[lr.key]} ${lr.key}`:null).filter(Boolean).join(' · ');
+                const featLabel = k=>{ for(const g of FEATURE_GROUPS){ const it=g.items.find(i=>i.key===k); if(it) return it.label; } return k; };
+                return (
+                  <div style={{marginBottom:14}}>
+                    {pnls.length>0&&(
+                      <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:6}}>
+                        {pnls.map(pk=><span key={pk} style={{fontSize:10,fontWeight:600,background:C.bg,color:C.mid,padding:'2px 7px',borderRadius:5}}>{(PANEL_OPTIONS.find(o=>o.key===pk)?.label)||pk}</span>)}
+                      </div>
+                    )}
+                    {feats.length>0&&(
+                      <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:6}}>
+                        {feats.map(fk=><span key={fk} style={{fontSize:9,fontWeight:700,background:C.ink,color:C.sidebar,padding:'2px 7px',borderRadius:5,letterSpacing:.2}}>{featLabel(fk)}</span>)}
+                      </div>
+                    )}
+                    <div style={{fontSize:10,color:C.dim}}>{limStr?`Límites: ${limStr}`:'Usuarios ilimitados'}</div>
+                  </div>
+                );
+              })()}
+              <Btn size="sm" variant="ghost" onClick={()=>openEditPlan(p)}>Editar plan</Btn>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add-ons disponibles (catálogo de cargos extra) */}
+      <SectionCard title="Add-ons disponibles (cargos extra)">
+        <div style={{padding:'4px 4px 8px'}}>
+          <div style={{fontSize:11,color:C.dim,padding:'4px 16px 12px'}}>Paneles que se venden como módulo independiente (modelo "hamburguesa"). Se añaden al plan base de cada restaurante desde su suscripción.</div>
+          {catalog.map(a=>{
+            const f = addonForm[a.key]||{};
+            return (
+              <div key={a.key} style={{display:'flex',alignItems:'center',gap:14,padding:'10px 16px',borderTop:`1px solid ${C.border}`,flexWrap:'wrap'}}>
+                <div style={{flex:'1 1 200px'}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.ink}}>{a.name}</div>
+                  <div style={{fontSize:11,color:C.mid}}>Panel: {a.panel}</div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:6}}>
+                  <span style={{fontSize:12,color:C.mid}}>₲/mes</span>
+                  <input type="number" step="1000" min="0" value={f.price_usd??''} onChange={e=>setAddonForm(s=>({...s,[a.key]:{...s[a.key],price_usd:e.target.value}}))} style={{width:110}}/>
+                </div>
+                <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:C.mid,cursor:'pointer'}}>
+                  <input type="checkbox" checked={f.is_active!==false} onChange={e=>setAddonForm(s=>({...s,[a.key]:{...s[a.key],is_active:e.target.checked}}))} style={{width:15,height:15}}/>
+                  Activo
+                </label>
+                <Btn size="sm" variant="ghost" onClick={()=>saveAddon(a)} disabled={savingAddon===a.key}>{savingAddon===a.key?'…':'Guardar'}</Btn>
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+
+      {/* MRR total */}
+      <div style={{display:'flex',gap:12,margin:'20px 0',flexWrap:'wrap'}}>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 20px',flex:'none'}}>
+          <div style={{fontSize:11,color:C.mid,marginBottom:4}}>MRR Total</div>
+          <div style={{fontSize:28,fontWeight:800,color:C.ink}}>{fmtGuarani(mrrTotal)}<span style={{fontSize:12,fontWeight:400,color:C.mid}}>/mes</span></div>
+        </div>
+      </div>
+
+      {/* Suscripciones tabla */}
+      <SectionCard title="Suscripciones activas">
+        <div className="tbl-wrap">
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+            <thead><tr>
+              <Th>Restaurante</Th><Th>Plan</Th><Th>Precio</Th><Th>Inicio</Th><Th>Vencimiento</Th><Th>Estado</Th><Th>Acciones</Th>
+            </tr></thead>
+            <tbody>
+              {subs.map(r=>{
+                const s = r.subscription;
+                const db2 = daysBadge(r.daysLeft);
+                const vencePronto = r.daysLeft!==null && r.daysLeft>=0 && r.daysLeft<=6;
+                const vencido     = r.daysLeft!==null && r.daysLeft<0;
+                return (
+                  <tr key={r.id} style={{background:vencePronto?'#FFF9F0':vencido?'#FFF1F0':'',transition:'background .1s'}}>
+                    <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
+                    <Td><PlanBadge name={r.plan?.name}/></Td>
+                    <Td style={{fontWeight:600}}>{s?.monthly_amount?fmtGuarani(s.monthly_amount):r.plan?.price_usd?fmtGuarani(r.plan.price_usd):'—'}</Td>
+                    <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{fmtDate(s?.start_date)}</Td>
+                    <Td style={{fontSize:12,whiteSpace:'nowrap'}}>
+                      <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                        <span>{fmtDate(s?.end_date)}</span>
+                        {vencePronto&&<span style={{padding:'2px 8px',borderRadius:4,background:C.orange,color:'#FFFFFF',fontSize:10,fontWeight:800,alignSelf:'flex-start',letterSpacing:'0.04em'}}>POR VENCER</span>}
+                        {vencido&&<span style={{padding:'2px 8px',borderRadius:4,background:C.red,color:'#FFFFFF',fontSize:10,fontWeight:800,alignSelf:'flex-start',letterSpacing:'0.04em'}}>VENCIDO</span>}
+                      </div>
+                    </Td>
+                    <Td><Badge status={s?.status||'inactive'}/></Td>
+                    <Td>
+                      <div style={{display:'flex',gap:4}}>
+                        <Btn size="sm" variant="ghost" onClick={()=>openEditSub(r)}>Cambiar plan</Btn>
+                        <Btn size="sm" variant="success" onClick={()=>renew(r)}>Renovar</Btn>
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+
+      {/* Modal plan */}
+      {planModal&&(
+        <Modal title={planModal==='create'?'Nuevo plan':'Editar plan'} onClose={()=>setPlanModal(null)}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Nombre *"><input value={planForm.name} onChange={spf('name')} placeholder="Pro"/></FormField>
+            <FormField label="Precio/mes (₲) *"><input type="number" step="1000" min="0" value={planForm.price_usd} onChange={spf('price_usd')} placeholder="400000"/></FormField>
+            <FormField label="Ciclo">
+              <select value={planForm.billing_cycle} onChange={spf('billing_cycle')}>
+                <option value="monthly">Mensual</option>
+                <option value="annual">Anual</option>
+                <option value="free">Gratuito</option>
+              </select>
+            </FormField>
+            <FormField label="Activo">
+              <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
+                <input type="checkbox" checked={planForm.is_active} onChange={e=>setPlanForm(f=>({...f,is_active:e.target.checked}))} style={{width:16,height:16}}/>
+                <span style={{fontSize:13,color:C.mid}}>Disponible</span>
+              </div>
+            </FormField>
+            <FormField label="Máx. mesas"><input type="number" value={planForm.max_tables} onChange={spf('max_tables')} placeholder="15"/></FormField>
+            <FormField label="Máx. ítems menú"><input type="number" value={planForm.max_menu_items} onChange={spf('max_menu_items')} placeholder="100"/></FormField>
+          </div>
+
+          {/* Hard-limits por rol */}
+          <div style={{borderTop:`1px solid ${C.border}`,margin:'8px 0 0',paddingTop:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Límite estricto de usuarios por rol</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Vacío = ilimitado. El admin no podrá crear más usuarios de ese rol que el tope.</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 16px'}}>
+              <FormField label="Máx. Mozos"><input type="number" min="0" value={planForm.max_mozo} onChange={spf('max_mozo')} placeholder="∞"/></FormField>
+              <FormField label="Máx. Cajeros"><input type="number" min="0" value={planForm.max_cajero} onChange={spf('max_cajero')} placeholder="∞"/></FormField>
+              <FormField label="Máx. Cocineros"><input type="number" min="0" value={planForm.max_cocina} onChange={spf('max_cocina')} placeholder="∞"/></FormField>
+            </div>
+          </div>
+
+          {/* Paneles incluidos en el plan */}
+          <div style={{borderTop:`1px solid ${C.border}`,margin:'4px 0 0',paddingTop:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Paneles incluidos en el plan</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Lo no incluido solo se habilita comprando el add-on correspondiente.</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+              {PANEL_OPTIONS.map(p=>{
+                const on = (planForm.panels||[]).includes(p.key);
+                return (
+                  <div key={p.key} onClick={()=>togglePanel(p.key)} style={{display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,cursor:'pointer',userSelect:'none',fontSize:12,fontWeight:600,border:`1px solid ${on?C.ink:C.border}`,background:on?C.ink:'transparent',color:on?C.sidebar:C.mid}}>
+                    <span style={{fontSize:11}}>{on?'✓':'+'}</span>{p.label}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Características y módulos granulares (Omni-Gating por feature) */}
+          <div style={{borderTop:`1px solid ${C.border}`,margin:'4px 0 0',paddingTop:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Características y módulos granulares</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:12}}>Sub-módulos vendibles dentro de cada panel. Lo no marcado se bloquea con paywall y se ofrece como upgrade al comercio.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+              {FEATURE_GROUPS.map(g=>(
+                <div key={g.group}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.mid,marginBottom:7,display:'flex',alignItems:'center',gap:6}}>
+                    <span style={{fontSize:13}}>{g.icon}</span>{g.group}
+                  </div>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+                    {g.items.map(it=>{
+                      const on = (planForm.allowed_features||[]).includes(it.key);
+                      return (
+                        <div key={it.key} onClick={()=>toggleFeature(it.key)} title={it.desc} style={{display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,cursor:'pointer',userSelect:'none',fontSize:12,fontWeight:600,border:`1px solid ${on?C.ink:C.border}`,background:on?C.ink:'transparent',color:on?C.sidebar:C.mid}}>
+                          <span style={{fontSize:11}}>{on?'✓':'+'}</span>{it.label}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <FormField label="Características" hint="Separadas por coma">
+            <textarea value={planForm.features} onChange={spf('features')} rows={3} placeholder="Pedidos QR, KDS cocina, Analytics completo"/>
+          </FormField>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
+            <Btn variant="ghost" onClick={()=>setPlanModal(null)}>Cancelar</Btn>
+            <Btn onClick={savePlan} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal suscripción */}
+      {subModal&&(
+        <Modal title={`Suscripción — ${subModal.name}`} onClose={()=>setSubModal(null)}>
+          <FormField label="Plan">
+            <select value={subForm.plan_id} onChange={ssf('plan_id')}>
+              {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtGuarani(p.price_usd)}/mes</option>)}
+            </select>
+          </FormField>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Estado">
+              <select value={subForm.status} onChange={ssf('status')}>
+                {['active','trial','suspended','expired','cancelled','past_due'].map(s=><option key={s} value={s}>{statusMeta[s]?.label||s}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Monto mensual (USD)">
+              <input type="number" step=".01" value={subForm.monthly_amount} onChange={ssf('monthly_amount')} placeholder="59.00"/>
+            </FormField>
+            <FormField label="Método de pago">
+              <select value={subForm.payment_method} onChange={ssf('payment_method')}>
+                {['manual','transferencia','tarjeta','efectivo','qr'].map(m=><option key={m} value={m}>{m}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Auto-renovar">
+              <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
+                <input type="checkbox" checked={subForm.auto_renew} onChange={e=>setSubForm(f=>({...f,auto_renew:e.target.checked}))} style={{width:16,height:16}}/>
+                <span style={{fontSize:13,color:C.mid}}>Renovar automáticamente</span>
+              </div>
+            </FormField>
+            <FormField label="Fecha inicio"><input type="date" value={subForm.start_date} onChange={ssf('start_date')}/></FormField>
+            <FormField label="Fecha vencimiento"><input type="date" value={subForm.end_date} onChange={ssf('end_date')}/></FormField>
+          </div>
+
+          {/* Add-ons del restaurante (cargos extra sobre el plan base) */}
+          <div style={{borderTop:`1px solid ${C.border}`,marginTop:8,paddingTop:12}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Add-ons contratados (cargos extra)</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Habilitan un panel sin cambiar de plan. Se suman al precio base.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {catalog.filter(a=>a.is_active!==false).map(a=>{
+                const on = (subForm.addonKeys||[]).includes(a.key);
+                return (
+                  <label key={a.key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderRadius:8,cursor:'pointer',border:`1px solid ${on?C.ink:C.border}`,background:on?C.bg:'transparent'}}>
+                    <input type="checkbox" checked={on} onChange={()=>toggleSubAddon(a.key)} style={{width:15,height:15}}/>
+                    <span style={{flex:1,fontSize:13,fontWeight:600,color:C.ink}}>{a.name}</span>
+                    <span style={{fontSize:12,color:C.mid}}>+{fmtGuarani(a.price_usd)}/mes</span>
+                  </label>
+                );
+              })}
+            </div>
+            {(subForm.addonKeys||[]).length>0&&(
+              <div style={{marginTop:10,fontSize:12,color:C.mid,textAlign:'right'}}>
+                Extra add-ons: <strong style={{color:C.ink}}>{fmtGuarani((subForm.addonKeys||[]).reduce((s,k)=>s+(Number(catalog.find(x=>x.key===k)?.price_usd)||0),0))}/mes</strong>
+              </div>
+            )}
+          </div>
+
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <Btn variant="ghost" onClick={()=>setSubModal(null)}>Cancelar</Btn>
+            <Btn onClick={saveSub} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO 4 — USUARIOS
+// ══════════════════════════════════════════════════════════════
+function PageUsuarios({restaurants, setFlash}) {
+  const [users,    setUsers]    = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [search,   setSearch]   = useState('');
+  const [editModal,setEditModal]= useState(null);
+  const [editForm, setEditForm] = useState({role:'admin',restaurant_id:'',display_name:''});
+  const [saving,   setSaving]   = useState(false);
+  const [newModal, setNewModal] = useState(false);
+  const [newForm,  setNewForm]  = useState({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''});
+  const [creating, setCreating] = useState(false);
+  const [expanded, setExpanded] = useState({}); // grupos de restaurante desplegados (acordeón)
+
+  const createUser = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    const { username, password, pin, display_name, role, restaurant_id } = newForm;
+
+    // Riders: se crean como el resto del personal (cuenta auth con usuario+contraseña).
+    // /api/create-user, además de la cuenta, crea su ficha en delivery_riders vinculada por
+    // user_id; el panel rider la resuelve con auth.uid() (login por correo+contraseña, sin PIN).
+    if (!username.trim()) { setFlash({type:'warn',text:'Ingresá un nombre de usuario'}); return; }
+    if (typeof password !== 'string' || !password.trim() || password.length < 8) { setFlash({type:'warn',text:'Ingresá una contraseña de al menos 8 caracteres para crear el usuario.'}); return; }
+    // Roles operativos (todo menos superadmin) requieren restaurante: sin él, el login los rechaza.
+    if (role !== 'superadmin' && !restaurant_id) { setFlash({type:'warn',text:`Asigná un restaurante al ${roleLabel(role)}`}); return; }
+    setCreating(true);
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Sin sesión activa');
+      const resp = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ username: username.trim(), password, display_name: display_name.trim(), role, restaurant_id: restaurant_id || null })
+      });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error || 'Error desconocido');
+      setFlash({type:'ok',text:`Usuario "${result.username}" creado con éxito`});
+      setNewModal(false);
+      setNewForm({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''});
+      loadUsers();
+    } catch(e) { setFlash({type:'error',text:e.message}); }
+    setCreating(false);
+  };
+
+  const loadUsers = useCallback(async () => {
+    if (!db) { setLoading(false); return; }
+    setLoading(true);
+    // Riders viven en delivery_riders (perfil operativo, vinculado a la cuenta por user_id); se fusionan a la grilla.
+    const ridersP = db.from('delivery_riders').select('id,restaurant_id,name,phone,rider_pin,active,created_at,user_id');
+    let base = [];
+    const { data, error } = await db.rpc('admin_list_users');
+    if (!error && data) {
+      base = data;
+    } else if (error) {
+      // Fallback: query directa a user_roles (funciona si las policies lo permiten)
+      const { data: d2, error: e2 } = await db.from('user_roles')
+        .select('id,user_id,email,username,display_name,role,restaurant_id,is_active,created_at')
+        .order('created_at', { ascending: false });
+      if (!e2 && d2) base = d2;
+    }
+    const { data: ridersData } = await ridersP;
+    const riderRows = (ridersData||[]).map(r=>({
+      id:'rider_'+r.id, _riderId:r.id, _isRider:true, user_id:r.user_id||null,
+      username:r.rider_pin?('PIN '+r.rider_pin):'—', email:r.phone||'',
+      display_name:r.name||'—', role:'rider', restaurant_id:r.restaurant_id,
+      is_active:r.active!==false, created_at:r.created_at, last_sign_in_at:null
+    }));
+    // Evitar duplicar riders que también figuren en user_roles con rol rider.
+    const baseNoRider = (base||[]).filter(u=>(u.role||'').toLowerCase()!=='rider'&&(u.role||'').toLowerCase()!=='repartidor');
+    setUsers([...baseNoRider, ...riderRows]);
+    setLoading(false);
+  }, []);
+
+  useEffect(()=>{
+    loadUsers();
+    if (!db) return;
+    const interval = setInterval(()=>{ if(!_shouldPause()) loadUsers(); }, 30000);
+    const ch = db.channel('usuarios-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'user_roles'},()=>{ if(!_shouldPause()) loadUsers(); })
+      .on('postgres_changes',{event:'*',schema:'public',table:'delivery_riders'},()=>{ if(!_shouldPause()) loadUsers(); })
+      .subscribe();
+    return ()=>{ clearInterval(interval); db.removeChannel(ch); };
+  },[loadUsers]);
+
+  const restName = id => restaurants.find(r=>r.id===id)?.name||'—';
+
+  const shown = users.filter(u=>{
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (u.username||'').toLowerCase().includes(q) ||
+           (u.display_name||'').toLowerCase().includes(q) ||
+           (u.email||'').toLowerCase().includes(q) ||
+           restName(u.restaurant_id).toLowerCase().includes(q);
+  });
+
+  // Agrupar por restaurante
+  const byRest = {};
+  shown.forEach(u=>{
+    const key = u.restaurant_id||'__global';
+    if (!byRest[key]) byRest[key] = [];
+    byRest[key].push(u);
+  });
+
+  const openEdit = u => {
+    setEditForm({role:u.role,restaurant_id:u.restaurant_id||'',display_name:u.display_name||''});
+    setEditModal(u);
+  };
+
+  const saveEdit = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    setSaving(true);
+    try {
+      if (editModal._isRider) {
+        // Rider: actualiza delivery_riders (nombre + restaurante). El rol es fijo.
+        const upd = {name:editForm.display_name||editModal.display_name};
+        if (editForm.restaurant_id) upd.restaurant_id = editForm.restaurant_id;
+        const { error } = await db.from('delivery_riders').update(upd).eq('id',editModal._riderId);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await db.rpc('admin_update_user_role',{p_user_id:editModal.user_id,p_role:editForm.role,p_restaurant_id:editForm.restaurant_id||null,p_display_name:editForm.display_name||null});
+        if (error) throw new Error(error.message);
+      }
+      setFlash({type:'ok',text:`${editModal.display_name||editModal.username} actualizado`});
+      setEditModal(null); loadUsers();
+    } catch(e) { setFlash({type:'error',text:e.message}); }
+    setSaving(false);
+  };
+
+  const toggleUser = async u => {
+    if (!db) return;
+    if (u._isRider) {
+      const { error } = await db.from('delivery_riders').update({active:!u.is_active}).eq('id',u._riderId);
+      if (error) { setFlash({type:'error',text:error.message}); return; }
+    } else {
+      const { error } = await db.rpc('admin_toggle_user',{p_user_id:u.user_id,p_active:!u.is_active});
+      if (error) { setFlash({type:'error',text:error.message}); return; }
+    }
+    setFlash({type:'ok',text:`${u.display_name||u.username} → ${!u.is_active?'activo':'desactivado'}`});
+    loadUsers();
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,gap:12,flexWrap:'wrap'}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700}}>Usuarios del sistema</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:3}}>{loading?'Cargando…':`${users.length} usuario${users.length!==1?'s':''}`}</div>
+        </div>
+        <div style={{display:'flex',gap:10,alignItems:'center'}}>
+          <input placeholder="Buscar usuario, email, restaurante..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:260}}/>
+          <Btn onClick={()=>{ setNewForm({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''}); setNewModal(true); }} disabled={!db}>+ Nuevo usuario</Btn>
+        </div>
+      </div>
+
+      {!db&&(
+        <div style={{background:'#FFF4E0',border:`1px solid #FFD580`,borderRadius:8,padding:'12px 18px',marginBottom:20,color:'#8A4B00',fontSize:13}}>
+          Sin conexión a Supabase — gestión de usuarios no disponible en modo demo
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:160,gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando usuarios…</span></div>
+      ) : shown.length===0 ? (
+        <div style={{padding:60,textAlign:'center',color:C.dim,fontSize:13}}>{users.length===0?'Sin usuarios registrados':'Sin resultados para la búsqueda'}</div>
+      ) : (
+        Object.entries(byRest).map(([restId, restUsers]) => {
+          const groupCount = Object.keys(byRest).length;
+          // Desplegado si: búsqueda activa, hay un solo grupo, o el usuario lo abrió.
+          const isOpen = !!search || groupCount===1 || expanded[restId]===true;
+          const activos = restUsers.filter(u=>u.is_active).length;
+          return (
+          <div key={restId} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden',marginBottom:12}}>
+            <div onClick={()=>setExpanded(e=>({...e,[restId]:!isOpen}))} style={{padding:'12px 18px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',borderBottom:isOpen?`1px solid ${C.border}`:'none',userSelect:'none'}}>
+              <span style={{display:'flex',alignItems:'center',gap:10}}>
+                <span style={{display:'inline-block',transition:'transform .15s',transform:isOpen?'rotate(90deg)':'none',color:C.mid,fontSize:12}}>▶</span>
+                <span style={{fontWeight:600,fontSize:13,color:C.ink}}>{restId==='__global'?'Acceso global (superadmin)':restName(restId)}</span>
+                <span style={{fontSize:11,color:C.dim,fontWeight:600}}>{restUsers.length} usuario{restUsers.length!==1?'s':''} · {activos} activo{activos!==1?'s':''}</span>
+              </span>
+            </div>
+            {isOpen&&(
+            <div className="tbl-wrap">
+              <table style={{width:'100%',borderCollapse:'collapse',minWidth:620}}>
+                <thead><tr>
+                  <Th>Usuario</Th><Th>Nombre</Th><Th>Rol</Th><Th>Estado</Th><Th>Último acceso</Th><Th style={{textAlign:'right'}}>Acciones</Th>
+                </tr></thead>
+                <tbody>
+                  {restUsers.map(u=>(
+                    <tr key={u.id} onMouseEnter={e=>e.currentTarget.style.background=C.bg} onMouseLeave={e=>e.currentTarget.style.background=''} style={{transition:'background .1s'}}>
+                      <Td>
+                        <div style={{fontFamily:'monospace',fontSize:13,fontWeight:600}}>{u.username||'—'}</div>
+                        <div style={{fontSize:11,color:C.dim,marginTop:2}}>{u.email||''}</div>
+                      </Td>
+                      <Td style={{fontWeight:500}}>{u.display_name||'—'}</Td>
+                      <Td>
+                        <span style={{padding:'2px 8px',borderRadius:12,fontSize:11,fontWeight:700,background:C.bg,color:C.mid}}>{roleLabel(u.role)}</span>
+                      </Td>
+                      <Td>
+                        <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,fontWeight:600,color:u.is_active?C.ink:C.dim}}>
+                          <span style={{width:6,height:6,borderRadius:'50%',background:u.is_active?C.green:C.dim}}/>
+                          {u.is_active?'Activo':'Inactivo'}
+                        </span>
+                      </Td>
+                      <Td style={{fontSize:12,color:C.mid}}>{fmtRelTime(u.last_sign_in_at)}</Td>
+                      <Td style={{textAlign:'right'}}>
+                        <div style={{display:'flex',gap:4,justifyContent:'flex-end'}}>
+                          <Btn size="sm" variant="ghost" onClick={()=>openEdit(u)}>Editar</Btn>
+                          <Btn size="sm" variant={u.is_active?'danger':'success'} onClick={()=>toggleUser(u)}>
+                            {u.is_active?'Desactivar':'Activar'}
+                          </Btn>
+                        </div>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            )}
+          </div>
+          );
+        })
+      )}
+
+      {newModal&&(
+        <Modal title="Nuevo usuario" onClose={()=>setNewModal(false)}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Usuario *">
+              <input
+                value={newForm.username}
+                onChange={e=>setNewForm(f=>({...f,username:e.target.value}))}
+                placeholder={newForm.role==='rider'?'ej: juanrider':'ej: mariaperez'}
+                autoFocus
+              />
+            </FormField>
+            <FormField label={newForm.role==='rider'?'Nombre del rider *':'Nombre para mostrar'}>
+              <input
+                value={newForm.display_name}
+                onChange={e=>setNewForm(f=>({...f,display_name:e.target.value}))}
+                placeholder={newForm.role==='rider'?'ej: Juan Repartidor':'ej: María Pérez'}
+              />
+            </FormField>
+          </div>
+          <FormField label="Contraseña * (mínimo 8 caracteres)">
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={newForm.password}
+              onChange={e=>setNewForm(f=>({...f,password:e.target.value}))}
+              placeholder="Contraseña segura"
+            />
+          </FormField>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Rol">
+              <select value={newForm.role} onChange={e=>setNewForm(f=>({...f,role:e.target.value}))}>
+                {NEW_USER_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}
+              </select>
+            </FormField>
+            <FormField label={newForm.role==='rider'?'Restaurante asignado *':'Restaurante asignado'}>
+              <select value={newForm.restaurant_id} onChange={e=>setNewForm(f=>({...f,restaurant_id:e.target.value}))}>
+                <option value="">{newForm.role==='rider'?'Seleccioná un restaurante…':'Sin restaurante (global)'}</option>
+                {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </FormField>
+          </div>
+          <div style={{padding:'10px 14px',background:C.bg,borderRadius:8,fontSize:12,color:C.mid,marginTop:4}}>
+            {newForm.role==='rider'
+              ? 'El rider inicia sesión con su usuario y contraseña en el panel Delivery. Su ficha (vehículo, comisión) se crea automáticamente y se edita en el módulo Delivery del restaurante.'
+              : 'El usuario iniciará sesión con su nombre de usuario y contraseña. El email asignado es interno.'}
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
+            <Btn variant="ghost" onClick={()=>setNewModal(false)} disabled={creating}>Cancelar</Btn>
+            <Btn onClick={createUser} disabled={creating}>{creating?'Creando…':'Crear usuario'}</Btn>
+          </div>
+        </Modal>
+      )}
+
+      {editModal&&(
+        <Modal title={`Editar — ${editModal.display_name||editModal.username}`} onClose={()=>setEditModal(null)}>
+          <FormField label="Nombre para mostrar">
+            <input value={editForm.display_name} onChange={e=>setEditForm(f=>({...f,display_name:e.target.value}))}/>
+          </FormField>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Rol">
+              {editModal._isRider
+                ? <input value="rider" disabled style={{opacity:.6}}/>
+                : <select value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))}>
+                    {ALL_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}
+                  </select>}
+            </FormField>
+            <FormField label="Restaurante asignado">
+              <select value={editForm.restaurant_id} onChange={e=>setEditForm(f=>({...f,restaurant_id:e.target.value}))}>
+                <option value="">{editModal._isRider?'Seleccioná un restaurante…':'Todos los restaurantes'}</option>
+                {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </FormField>
+          </div>
+          {editModal._isRider&&(
+            <div style={{padding:'8px 14px',background:C.bg,borderRadius:8,fontSize:12,color:C.mid,marginTop:8}}>
+              El rider inicia sesión en el panel Delivery con su usuario y contraseña. Su perfil (vehículo, comisión) se edita en el módulo Delivery del restaurante.
+            </div>
+          )}
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <Btn variant="ghost" onClick={()=>setEditModal(null)}>Cancelar</Btn>
+            <Btn onClick={saveEdit} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO 5 — CONFIGURACIÓN GLOBAL
+// ══════════════════════════════════════════════════════════════
+function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
+  const [saving, setSaving] = useState(false);
+
+  const bannerRow   = platformConfig.find(c=>c.key==='global_banner_active');
+  const bannerMsgRow= platformConfig.find(c=>c.key==='global_banner_message');
+  const [bannerActive, setBannerActive] = useState(bannerRow?.value==='true');
+  const [bannerMsg,    setBannerMsg]    = useState(bannerMsgRow?.value||'');
+
+  const [restConfig, setRestConfig] = useState({});
+  useEffect(()=>{
+    const init={};
+    restaurants.forEach(r=>{
+      init[r.id]={maintenance_mode:r.maintenance_mode||false,maintenance_message:r.maintenance_message||''};
+    });
+    setRestConfig(init);
+  },[restaurants]);
+
+  const toggleMaintenance = async (r, value) => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    const {error} = await db.from('restaurants').update({maintenance_mode:value}).eq('id',r.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setRestConfig(prev=>({...prev,[r.id]:{...prev[r.id],maintenance_mode:value}}));
+    setFlash({type:'ok',text:`${r.name} — mantenimiento ${value?'activado':'desactivado'}`});
+    reload();
+  };
+
+  const saveMaintMsg = async (r) => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    const msg = restConfig[r.id]?.maintenance_message||'';
+    const {error} = await db.from('restaurants').update({maintenance_message:msg}).eq('id',r.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:`Mensaje de ${r.name} guardado`});
+  };
+
+  const saveBanner = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSaving(true);
+    const now = new Date().toISOString();
+    await db.from('platform_config').upsert([
+      {key:'global_banner_active', value:String(bannerActive), updated_at:now},
+      {key:'global_banner_message',value:bannerMsg,            updated_at:now},
+    ],{onConflict:'key'});
+    setFlash({type:'ok',text:'Banner actualizado'}); reload();
+    setSaving(false);
+  };
+
+  return (
+    <div className="animate-in">
+      {/* Modo mantenimiento */}
+      <SectionCard title="Modo Mantenimiento" style={{marginBottom:20}}>
+        <div style={{padding:'8px 0'}}>
+          {restaurants.length===0&&<div style={{padding:'20px 24px',color:C.dim,fontSize:13}}>Sin restaurantes cargados</div>}
+          {restaurants.map(r=>{
+            const cfg = restConfig[r.id]||{maintenance_mode:false,maintenance_message:''};
+            return (
+              <div key={r.id} style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <div>
+                    <span style={{fontWeight:600,fontSize:14,color:C.ink}}>{r.name}</span>
+                    <span style={{fontSize:12,color:C.mid,marginLeft:8}}>{r.city}</span>
+                    {cfg.maintenance_mode&&<span style={{marginLeft:8,padding:'2px 8px',borderRadius:4,background:C.orange,color:'#FFFFFF',fontSize:10,fontWeight:800,letterSpacing:'0.04em'}}>EN MANTENIMIENTO</span>}
+                  </div>
+                  <Toggle checked={cfg.maintenance_mode} onChange={v=>toggleMaintenance(r,v)}/>
+                </div>
+                {cfg.maintenance_mode&&(
+                  <div style={{display:'flex',gap:8}}>
+                    <input
+                      value={cfg.maintenance_message}
+                      onChange={e=>setRestConfig(prev=>({...prev,[r.id]:{...prev[r.id],maintenance_message:e.target.value}}))}
+                      placeholder="Mensaje para el cliente (ej: Volvemos en 30 minutos)"
+                      style={{flex:1}}
+                    />
+                    <Btn size="sm" variant="ghost" onClick={()=>saveMaintMsg(r)}>Guardar</Btn>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+
+      {/* Banner global */}
+      <SectionCard title="Banner Global">
+        <div style={{padding:'20px 24px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+            <div>
+              <div style={{fontWeight:600,fontSize:14,color:C.ink,marginBottom:4}}>Activar banner de aviso</div>
+              <div style={{fontSize:12,color:C.mid}}>Aparece como barra fija en la parte superior del panel Superadmin</div>
+            </div>
+            <Toggle checked={bannerActive} onChange={setBannerActive}/>
+          </div>
+          <FormField label="Mensaje del banner">
+            <input
+              value={bannerMsg}
+              onChange={e=>setBannerMsg(e.target.value)}
+              placeholder="Ej: Sistema en mantenimiento programado el sábado 25 de mayo"
+              disabled={!bannerActive}
+            />
+          </FormField>
+          {bannerActive&&bannerMsg&&(
+            <div style={{margin:'12px 0',background:'#FF9500',borderRadius:8,padding:'10px 16px',color:'#fff',fontSize:13,fontWeight:500}}>
+              Vista previa: {bannerMsg}
+            </div>
+          )}
+          <div style={{marginTop:16}}>
+            <Btn onClick={saveBanner} disabled={saving}>{saving?'Guardando…':'Guardar configuración'}</Btn>
+          </div>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// MÓDULO 6 — REPORTES GLOBALES
+// ══════════════════════════════════════════════════════════════
+function PageReportes({enriched, orders, ratings, subscriptions, plans, events}) {
+  const [rType,   setRType]   = useState('');
+  const [fromStr, setFromStr] = useState('');
+  const [toStr,   setToStr]   = useState('');
+  const [rows,    setRows]    = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [repTitle,setRepTitle]= useState('');
+
+  useEffect(()=>{
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const pad = n => String(n).padStart(2,'0');
+    setFromStr(`${pad(first.getDate())}/${pad(first.getMonth()+1)}/${first.getFullYear()}`);
+    setToStr(`${pad(now.getDate())}/${pad(now.getMonth()+1)}/${now.getFullYear()}`);
+  },[]);
+
+  function parseDMY(str) {
+    if(!str) return null;
+    const p = str.split('/');
+    if(p.length!==3) return null;
+    const d = new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function dmyToISO(str) {
+    if(!str) return '';
+    const p = str.split('/');
+    if(p.length!==3) return '';
+    return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+  }
+
+  const REPORT_DEFS = [
+    {id:'ventas_periodo',    label:'Ventas por período',         cat:'ventas',    desc:'Ingresos, pedidos y ticket promedio de toda la plataforma'},
+    {id:'ranking_rest',      label:'Ranking de restaurantes',    cat:'ventas',    desc:'Restaurantes ordenados por ventas en el período'},
+    {id:'suscripciones',     label:'Estado de suscripciones',    cat:'subs',      desc:'Restaurantes, planes activos, vencimientos y MRR'},
+    {id:'mrr_plan',          label:'MRR por plan',               cat:'subs',      desc:'Revenue mensual recurrente desglosado por plan'},
+    {id:'restaurantes_estado',label:'Restaurantes por estado',   cat:'plataforma',desc:'Distribución activo / trial / suspendido / inactivo'},
+    {id:'calificaciones',    label:'Calificaciones por restaurante', cat:'clientes', desc:'Rating promedio y cantidad de reseñas por restaurante'},
+    {id:'actividad',         label:'Actividad de plataforma',    cat:'plataforma',desc:'Eventos registrados (altas, renovaciones, cambios de plan)'},
+    {id:'proveedores_comunes',label:'Proveedores gastronómicos comunes', cat:'inteligencia', desc:'Distribuidoras / insumos más cargados por los restaurantes (datos de muestra)'},
+    {id:'zonas_calientes',   label:'Zonas calientes de delivery',cat:'inteligencia',desc:'Focos de consumo por zona en territorio paraguayo (datos de muestra)'},
+  ];
+
+  const CATS = [
+    {id:'ventas',       label:'Ventas y facturación', color:'#007AFF'},
+    {id:'subs',         label:'Suscripciones',        color:'#34C759'},
+    {id:'clientes',     label:'Calificaciones',       color:'#FFD60A'},
+    {id:'plataforma',   label:'Plataforma',            color:'#AF52DE'},
+    {id:'inteligencia', label:'Inteligencia de mercado', color:'#FF375F'},
+  ];
+
+  async function generate() {
+    const from = parseDMY(fromStr);
+    const to   = parseDMY(toStr);
+    if(!rType){ alert('Seleccioná un tipo de reporte'); return; }
+    if(!from||!to){ alert('Fechas inválidas — usá formato dd/mm/aaaa'); return; }
+    to.setHours(23,59,59,999);
+    setLoading(true); setRows(null); setSummary(null);
+    const def = REPORT_DEFS.find(r=>r.id===rType);
+    setRepTitle(def?.label||'Reporte');
+    try { await _run(rType, from, to); }
+    catch(e){ alert('Error: '+e.message); }
+    setLoading(false);
+  }
+
+  async function _run(type, from, to) {
+    const fromISO = from.toISOString().slice(0,10);
+    const toISO   = to.toISOString().slice(0,10);
+
+    if(type==='ventas_periodo') {
+      let data = orders.filter(o=>['delivered','paid','ready','cooking','kitchen_received'].includes(o.status));
+      if(db) {
+        const {data:d} = await db.from('orders').select('id,restaurant_id,total,created_at,status').gte('created_at',from.toISOString()).lte('created_at',to.toISOString()).not('status','in','(draft,cancelled)');
+        if(d&&d.length>0) data = d;
+      }
+      data = data.filter(o=>new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const total = data.reduce((s,o)=>s+(Number(o.total)||0),0);
+      const count = data.length;
+      const avgT  = count>0?Math.round(total/count):0;
+      const restMap = {};
+      data.forEach(o=>{ const k=o.restaurant_id; restMap[k]=(restMap[k]||0)+(Number(o.total)||0); });
+      setSummary([
+        {label:'Ventas totales',  value:fmtGuarani(total), color:'#34C759'},
+        {label:'Pedidos',         value:count,             color:'#007AFF'},
+        {label:'Ticket promedio', value:fmtGuarani(avgT),  color:'#FF9500'},
+        {label:'Restaurantes',    value:Object.keys(restMap).length, color:'#AF52DE'},
+      ]);
+      const byRest = Object.entries(restMap).map(([rid,rev])=>{
+        const r = enriched.find(x=>x.id===rid);
+        return {name:r?.name||rid, rev, cnt:data.filter(o=>o.restaurant_id===rid).length};
+      }).sort((a,b)=>b.rev-a.rev);
+      setRows({
+        cols:['Restaurante','Pedidos','Ingresos','% del total'],
+        data:byRest.map(r=>[r.name, r.cnt, fmtGuarani(r.rev), total>0?`${Math.round(r.rev/total*100)}%`:'—']),
+      });
+    }
+
+    else if(type==='proveedores_comunes') {
+      // Inteligencia agregada — datos de muestra (la anon key no permite agregación cross-tenant aún)
+      const bar = (v,max)=>'█'.repeat(Math.max(1,Math.round(v/max*12)));
+      const provs = [
+        {name:'Distribuidora Avícola del Sur', cat:'Carnes y aves',   count:38, rest:12},
+        {name:'Lácteos Paraguay S.A.',          cat:'Lácteos',         count:31, rest:11},
+        {name:'Frutihortícola Mcal. López',     cat:'Verdulería',      count:29, rest:10},
+        {name:'Bebidas Itaipú Distrib.',        cat:'Bebidas',         count:27, rest:13},
+        {name:'Panificadora Central',           cat:'Panadería',       count:22, rest:8},
+        {name:'Pescados del Paraná',            cat:'Pescados',        count:14, rest:5},
+      ].sort((a,b)=>b.count-a.count);
+      const max = provs[0].count;
+      setSummary([
+        {label:'Proveedores únicos', value:provs.length,                      color:'#FF375F'},
+        {label:'Más usado',          value:provs[0].name,                     color:'#007AFF'},
+        {label:'Cargas totales',     value:provs.reduce((s,p)=>s+p.count,0),  color:'#34C759'},
+        {label:'Origen',             value:'Datos de muestra',                color:C.mid},
+      ]);
+      setRows({
+        cols:['#','Proveedor','Categoría','Veces cargado','Restaurantes','Distribución'],
+        data:provs.map((p,i)=>[i+1, p.name, p.cat, p.count, p.rest, bar(p.count,max)]),
+      });
+    }
+
+    else if(type==='zonas_calientes') {
+      // Mapa de calor consolidado — datos de muestra
+      const bar = (v,max)=>'█'.repeat(Math.max(1,Math.round(v/max*12)));
+      const zonas = [
+        {zona:'Villa Morra',          city:'Asunción',          orders:142},
+        {zona:'Centro / Microcentro', city:'Asunción',          orders:118},
+        {zona:'Carmelitas',           city:'Asunción',          orders:97},
+        {zona:'Zona Shopping del Sol',city:'Asunción',          orders:88},
+        {zona:'Centro CDE',           city:'Ciudad del Este',   orders:64},
+        {zona:'Centro',               city:'Encarnación',       orders:51},
+        {zona:'Zona Mcal. Estigarribia',city:'San Lorenzo',     orders:43},
+      ].sort((a,b)=>b.orders-a.orders);
+      const max = zonas[0].orders;
+      const tot = zonas.reduce((s,z)=>s+z.orders,0);
+      setSummary([
+        {label:'Zonas activas', value:zonas.length,        color:'#FF375F'},
+        {label:'Zona top',      value:zonas[0].zona,       color:'#FF9500'},
+        {label:'Pedidos totales',value:tot,                color:'#34C759'},
+        {label:'Origen',        value:'Datos de muestra',  color:C.mid},
+      ]);
+      setRows({
+        cols:['#','Zona','Ciudad','Pedidos','% del total','Intensidad'],
+        data:zonas.map((z,i)=>[i+1, z.zona, z.city, z.orders, `${Math.round(z.orders/tot*100)}%`, bar(z.orders,max)]),
+      });
+    }
+
+    else if(type==='ranking_rest') {
+      let data = orders.filter(o=>['delivered','paid','ready','cooking','kitchen_received'].includes(o.status));
+      if(db) {
+        const {data:d} = await db.from('orders').select('id,restaurant_id,total,created_at,status').gte('created_at',from.toISOString()).lte('created_at',to.toISOString()).not('status','in','(draft,cancelled)');
+        if(d&&d.length>0) data = d;
+      }
+      data = data.filter(o=>new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
+      const ranked = enriched.map(r=>{
+        const rOrds = data.filter(o=>o.restaurant_id===r.id);
+        const rev   = rOrds.reduce((s,o)=>s+(Number(o.total)||0),0);
+        return {name:r.name, city:r.city||'—', cnt:rOrds.length, rev, avg:rOrds.length>0?Math.round(rev/rOrds.length):0, status:r.status};
+      }).sort((a,b)=>b.rev-a.rev);
+      const totRev = ranked.reduce((s,r)=>s+r.rev,0);
+      setSummary([
+        {label:'Ventas totales', value:fmtGuarani(totRev),             color:'#34C759'},
+        {label:'Pedidos totales',value:ranked.reduce((s,r)=>s+r.cnt,0),color:'#007AFF'},
+        {label:'Restaurantes',   value:ranked.length,                   color:'#AF52DE'},
+      ]);
+      setRows({
+        cols:['#','Restaurante','Ciudad','Estado','Pedidos','Ventas','Ticket prom.','% ventas'],
+        data:ranked.map((r,i)=>[i+1, r.name, r.city, statusMeta[r.status]?.label||r.status, r.cnt, fmtGuarani(r.rev), fmtGuarani(r.avg), totRev>0?`${Math.round(r.rev/totRev*100)}%`:'—']),
+      });
+    }
+
+    else if(type==='suscripciones') {
+      const data = subscriptions.map(s=>{
+        const r   = enriched.find(x=>x.id===s.restaurant_id);
+        const pl  = s.plan || plans.find(p=>p.id===s.plan_id);
+        const days = daysUntil(s.end_date);
+        return {rest:r?.name||'—', plan:pl?.name||'—', status:s.status||'—', start:s.start_date||'—', end:s.end_date||'—', mrr:Number(s.monthly_amount||pl?.price_usd||0), days, renew:s.auto_renew?'Sí':'No'};
+      });
+      const activos  = data.filter(s=>s.status==='active').length;
+      const trials   = data.filter(s=>s.status==='trial').length;
+      const mrr      = data.filter(s=>s.status==='active').reduce((s,x)=>s+x.mrr,0);
+      setSummary([
+        {label:'Activas',  value:activos,          color:'#34C759'},
+        {label:'Trial',    value:trials,            color:'#007AFF'},
+        {label:'MRR (USD)',value:`$${mrr.toFixed(0)}`,color:'#FF9500'},
+        {label:'Total',    value:data.length,       color:'#AF52DE'},
+      ]);
+      setRows({
+        cols:['Restaurante','Plan','Estado','Inicio','Vencimiento','Días rest.','Auto-renov.','MRR (USD)'],
+        data:data.map(s=>[s.rest, s.plan, statusMeta[s.status]?.label||s.status,
+          s.start!=='—'?s.start.slice(0,10).split('-').reverse().join('/'):'—',
+          s.end  !=='—'?s.end.slice(0,10).split('-').reverse().join('/'):'—',
+          s.days!==null?(s.days>=0?`${s.days}d`:'Vencido'):'—', s.renew, `$${s.mrr.toFixed(0)}`]),
+      });
+    }
+
+    else if(type==='mrr_plan') {
+      const planMap = {};
+      subscriptions.filter(s=>s.status==='active').forEach(s=>{
+        const pl   = s.plan || plans.find(p=>p.id===s.plan_id);
+        const name = pl?.name||'Sin plan';
+        const mrr  = Number(s.monthly_amount||pl?.price_usd||0);
+        if(!planMap[name]) planMap[name]={plan:name,cnt:0,mrr:0};
+        planMap[name].cnt++;
+        planMap[name].mrr+=mrr;
+      });
+      const rows2  = Object.values(planMap).sort((a,b)=>b.mrr-a.mrr);
+      const totMRR = rows2.reduce((s,p)=>s+p.mrr,0);
+      setSummary([
+        {label:'MRR total (USD)', value:`$${totMRR.toFixed(0)}`,  color:'#34C759'},
+        {label:'Suscripciones',   value:rows2.reduce((s,p)=>s+p.cnt,0), color:'#007AFF'},
+        {label:'Planes activos',  value:rows2.length,             color:'#AF52DE'},
+      ]);
+      setRows({
+        cols:['Plan','Suscripciones','MRR (USD)','% del MRR'],
+        data:rows2.map(p=>[p.plan, p.cnt, `$${p.mrr.toFixed(0)}`, totMRR>0?`${Math.round(p.mrr/totMRR*100)}%`:'—']),
+      });
+    }
+
+    else if(type==='restaurantes_estado') {
+      const statuses = ['active','trial','suspended','inactive'];
+      const counts   = Object.fromEntries(statuses.map(s=>[s,0]));
+      enriched.forEach(r=>{ if(counts[r.status]!==undefined) counts[r.status]++; else counts['inactive']=(counts['inactive']||0)+1; });
+      const total = enriched.length;
+      setSummary([
+        {label:'Total restaurantes', value:total,              color:'#AF52DE'},
+        {label:'Activos',            value:counts.active,      color:'#34C759'},
+        {label:'Trial',              value:counts.trial,       color:'#007AFF'},
+        {label:'Suspendidos',        value:counts.suspended,   color:'#FF3B30'},
+      ]);
+      const detail = enriched.map(r=>({
+        name:r.name, city:r.city||'—', status:r.status||'—',
+        plan:r.plan?.name||'—', onboarding:r.onboarding_date||'—', mrr:Number(r.subscription?.monthly_amount||0),
+      })).sort((a,b)=>a.name.localeCompare(b.name));
+      setRows({
+        cols:['Restaurante','Ciudad','Estado','Plan','Alta','MRR (USD)'],
+        data:detail.map(r=>[r.name, r.city, statusMeta[r.status]?.label||r.status, r.plan,
+          r.onboarding!=='—'?r.onboarding.slice(0,10).split('-').reverse().join('/'):'—',
+          r.mrr>0?`$${r.mrr.toFixed(0)}`:'—']),
+      });
+    }
+
+    else if(type==='calificaciones') {
+      let data = ratings;
+      if(db) {
+        const {data:d} = await db.from('ratings').select('restaurant_id,stars,created_at').gte('created_at',from.toISOString()).lte('created_at',to.toISOString());
+        if(d&&d.length>0) data = d;
+      }
+      data = data.filter(r=>new Date(r.created_at)>=from&&new Date(r.created_at)<=to);
+      const restMap = {};
+      data.forEach(r=>{ const k=r.restaurant_id; if(!restMap[k])restMap[k]={id:k,total:0,count:0,pos:0}; restMap[k].total+=(r.stars||0); restMap[k].count++; if((r.stars||0)>=4)restMap[k].pos++; });
+      const rows2 = Object.entries(restMap).map(([id,v])=>{
+        const rest = enriched.find(r=>r.id===id);
+        return {name:rest?.name||id, avg:(v.total/v.count).toFixed(1), count:v.count, pos:v.pos, pct:Math.round(v.pos/v.count*100)};
+      }).sort((a,b)=>b.avg-a.avg);
+      const globalAvg = data.length>0?(data.reduce((s,r)=>s+(r.stars||0),0)/data.length).toFixed(1):'—';
+      setSummary([
+        {label:'Calificaciones',  value:data.length,       color:'#007AFF'},
+        {label:'Promedio global', value:`${globalAvg} ★`,  color:'#FFD60A'},
+        {label:'Positivas (≥4★)', value:data.filter(r=>(r.stars||0)>=4).length, color:'#34C759'},
+      ]);
+      setRows({
+        cols:['Restaurante','Promedio','Reseñas','Positivas','% positivas'],
+        data:rows2.map(r=>[r.name, `${r.avg} ★`, r.count, r.pos, `${r.pct}%`]),
+      });
+    }
+
+    else if(type==='actividad') {
+      let data = events.filter(e=>new Date(e.created_at)>=from&&new Date(e.created_at)<=to);
+      if(db&&data.length===0) {
+        const {data:d} = await db.from('platform_events').select('*,restaurant:restaurants(name)').gte('created_at',from.toISOString()).lte('created_at',to.toISOString()).order('created_at',{ascending:false}).limit(300);
+        if(d) data = d;
+      }
+      const typeCounts = {};
+      data.forEach(e=>{ const k=eventMeta[e.event_type]?.label||e.event_type||'—'; typeCounts[k]=(typeCounts[k]||0)+1; });
+      setSummary([
+        {label:'Eventos',    value:data.length,              color:'#007AFF'},
+        {label:'Tipos',      value:Object.keys(typeCounts).length, color:'#AF52DE'},
+        {label:'Restaurantes',value:new Set(data.map(e=>e.restaurant_id).filter(Boolean)).size, color:'#FF9500'},
+      ]);
+      setRows({
+        cols:['Fecha','Restaurante','Tipo','Descripción'],
+        data:data.map(e=>[
+          e.created_at?new Date(e.created_at).toLocaleDateString('es-PY',{day:'2-digit',month:'short',year:'numeric'}):'—',
+          e.restaurant?.name||e.restaurant_id||'Plataforma',
+          eventMeta[e.event_type]?.label||e.event_type||'—',
+          e.description||'—',
+        ]),
+      });
+    }
+  }
+
+  function exportCSV() {
+    if(!rows) return;
+    const lines=[rows.cols.join(','),...rows.data.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(','))];
+    const blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+    const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    a.href=url; a.download=`mythos_reporte_${rType}_${dmyToISO(fromStr)}.csv`; a.click(); URL.revokeObjectURL(url);
+  }
+
+  function exportXLS() {
+    if(!rows||!window.XLSX){ alert('SheetJS no disponible'); return; }
+    const ws=window.XLSX.utils.aoa_to_sheet([rows.cols,...rows.data]);
+    const wb=window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb,ws,(REPORT_DEFS.find(r=>r.id===rType)?.label||'Reporte').slice(0,31));
+    window.XLSX.writeFile(wb,`mythos_reporte_${rType}_${dmyToISO(fromStr)}.xlsx`);
+  }
+
+  function exportPDF() {
+    if(!rows) return;
+    const def=REPORT_DEFS.find(r=>r.id===rType);
+    const w=window.open('','_blank');
+    const sumHtml=summary?summary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${esc(s.label)}</div><div style="font-size:20px;font-weight:800;color:${esc(s.color)}">${esc(s.value)}</div></div>`).join(''):'';
+    const tHead=`<tr>${rows.cols.map(c=>`<th style="background:#1D1D1F;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${esc(c)}</th>`).join('')}</tr>`;
+    const tBody=rows.data.map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">${r.map(v=>`<td style="padding:7px 12px;font-size:11px;border-bottom:1px solid #eee">${esc(v)}</td>`).join('')}</tr>`).join('');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${def?.label||'Reporte'}</title><style>body{font-family:system-ui,sans-serif;margin:32px;color:#222}@media print{button{display:none!important}}</style></head><body>
+      <div style="font-size:22px;font-weight:800;color:#1D1D1F;margin-bottom:4px">Mythos — Superadmin</div>
+      <div style="font-size:16px;font-weight:700;color:#000;margin-bottom:4px">${def?.label||'Reporte'}</div>
+      <div style="font-size:11px;color:#888;margin-bottom:18px">Generado: ${new Date().toLocaleDateString('es-PY')} · Período: ${fromStr} al ${toStr}</div>
+      <div style="margin-bottom:20px;padding:14px 0;border-top:2px solid #1D1D1F;border-bottom:1px solid #eee">${sumHtml}</div>
+      <table style="width:100%;border-collapse:collapse;margin-top:4px"><thead>${tHead}</thead><tbody>${tBody}</tbody></table>
+      <div style="margin-top:24px;font-size:9px;color:#bbb;text-align:right">Página 1 de 1 · Mythos Platform</div>
+      <script>window.onload=function(){window.print();}<\/script>
+    </body></html>`);
+    w.document.close();
+  }
+
+  function limpiar() { setRType(''); setRows(null); setSummary(null); setRepTitle(''); }
+
+  const selDef = REPORT_DEFS.find(r=>r.id===rType);
+
+  return (
+    <div className="animate-in">
+      {/* Panel de configuración */}
+      <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:20}}>
+        <div style={{fontSize:15,fontWeight:700,marginBottom:16}}>Reportes personalizados</div>
+
+        {/* Tipo de reporte */}
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:600,color:C.mid,marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Tipo de reporte</div>
+          <select value={rType} onChange={e=>{setRType(e.target.value);setRows(null);setSummary(null);}} style={{width:'100%',maxWidth:440,padding:'9px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,background:'#fff',color:C.ink}}>
+            <option value="">— Seleccioná un tipo —</option>
+            {CATS.map(cat=>(
+              <optgroup key={cat.id} label={cat.label}>
+                {REPORT_DEFS.filter(r=>r.cat===cat.id).map(r=><option key={r.id} value={r.id}>{r.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          {selDef&&<div style={{fontSize:11,color:C.dim,marginTop:4}}>{selDef.desc}</div>}
+        </div>
+
+        {/* Fechas */}
+        <div style={{display:'flex',gap:14,alignItems:'flex-end',flexWrap:'wrap',marginBottom:16}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,color:C.mid,marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Fecha desde</div>
+            <input type="text" value={fromStr} onChange={e=>setFromStr(e.target.value)} placeholder="dd/mm/aaaa" style={{padding:'8px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,width:145}}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,color:C.mid,marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Fecha hasta</div>
+            <input type="text" value={toStr} onChange={e=>setToStr(e.target.value)} placeholder="dd/mm/aaaa" style={{padding:'8px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,width:145}}/>
+          </div>
+        </div>
+
+        {/* Botones */}
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+          <button onClick={generate} disabled={loading} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 18px',background:'#1D1D1F',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',opacity:loading?.7:1}}>
+            {loading&&<span className="spin" style={{borderTopColor:'#fff',borderColor:'rgba(255,255,255,.3)'}}/>}{loading?'Generando…':(<><Icon name="fileText" size={13}/> Generar reporte</>)}
+          </button>
+          {rows&&<>
+            <button onClick={exportPDF} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#FF3B30',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}><Icon name="download" size={13}/> PDF</button>
+            <button onClick={exportXLS} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#34C759',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}><Icon name="download" size={13}/> Excel</button>
+            <button onClick={exportCSV} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#6E6E73',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}><Icon name="download" size={13}/> CSV</button>
+            <button onClick={limpiar} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 14px',background:'transparent',color:C.mid,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:'pointer'}}><Icon name="x" size={13}/> Limpiar</button>
+          </>}
+        </div>
+
+        {/* KPIs */}
+        {summary&&(
+          <div style={{marginTop:20,display:'flex',gap:12,flexWrap:'wrap'}}>
+            {summary.map((s,i)=>(
+              <div key={i} style={{flex:'1 1 160px',background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',borderLeft:`3px solid ${s.color}`}}>
+                <div style={{fontSize:11,color:C.mid,marginBottom:4,textTransform:'uppercase',letterSpacing:.5,fontWeight:600}}>{s.label}</div>
+                <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tabla */}
+        {rows&&(
+          <div style={{marginTop:16,overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <thead>
+                <tr>{rows.cols.map((c,i)=><th key={i} style={{background:'#1D1D1F',color:'#fff',padding:'8px 12px',textAlign:'left',fontWeight:700,fontSize:11,whiteSpace:'nowrap'}}>{c}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.data.map((r,ri)=>(
+                  <tr key={ri} style={{background:ri%2===0?'#fff':'#F9F9F9',borderBottom:`1px solid ${C.border}`}}>
+                    {r.map((v,vi)=><td key={vi} style={{padding:'8px 12px',color:C.ink}}>{v}</td>)}
+                  </tr>
+                ))}
+                {rows.data.length===0&&<tr><td colSpan={rows.cols.length} style={{textAlign:'center',padding:28,color:C.dim,fontSize:13}}>Sin datos en el período seleccionado</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Catálogo de reportes */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16}}>
+        {CATS.map(cat=>{
+          const catReps = REPORT_DEFS.filter(r=>r.cat===cat.id);
+          return (
+            <div key={cat.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:18}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:10,color:cat.color,textTransform:'uppercase',letterSpacing:.5}}>{cat.label}</div>
+              {catReps.map(r=>(
+                <button key={r.id} onClick={()=>{setRType(r.id);setRows(null);setSummary(null);window.scrollTo({top:0,behavior:'smooth'});}} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',marginBottom:4,background:'transparent',border:`1px solid transparent`,borderRadius:7,cursor:'pointer'}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.ink}}>{r.label}</div>
+                  <div style={{fontSize:11,color:C.dim,marginTop:1}}>{r.desc}</div>
+                </button>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// ACTIVIDAD
+// ══════════════════════════════════════════════════════════════
+function PageActividad({events, restaurants, setFlash, reload}) {
+  const [filterR,    setFilterR]    = useState('all');
+  const [filterType, setFilterType] = useState('all');
+  const [addModal,   setAddModal]   = useState(false);
+  const [form,       setForm]       = useState({restaurant_id:'',event_type:'note_added',description:''});
+  const [saving,     setSaving]     = useState(false);
+
+  let shown = filterR==='all' ? events : events.filter(e=>e.restaurant_id===filterR);
+  if (filterType!=='all') shown = shown.filter(e=>e.event_type===filterType);
+
+  const addEvent = async () => {
+    if (!form.description.trim()) { setFlash({type:'error',text:'La descripción es requerida'}); return; }
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSaving(true);
+    try {
+      const {error} = await db.from('platform_events').insert({restaurant_id:form.restaurant_id||null,event_type:form.event_type,description:form.description});
+      if (error) throw error;
+      setFlash({type:'ok',text:'Evento registrado'}); setAddModal(false);
+      setForm({restaurant_id:'',event_type:'note_added',description:''}); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const eventTypes = Object.entries(eventMeta).map(([k,v])=>({value:k,label:v.label}));
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,flexWrap:'wrap',gap:10}}>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+          <select value={filterR} onChange={e=>setFilterR(e.target.value)} style={{width:'auto',minWidth:180,fontSize:13}}>
+            <option value="all">Todos los restaurantes</option>
+            {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+          <select value={filterType} onChange={e=>setFilterType(e.target.value)} style={{width:'auto',minWidth:160,fontSize:13}}>
+            <option value="all">Todos los tipos</option>
+            {eventTypes.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+          <span style={{fontSize:12,color:C.dim}}>{shown.length} evento{shown.length!==1?'s':''}</span>
+        </div>
+        <Btn onClick={()=>{setForm({restaurant_id:'',event_type:'note_added',description:''});setAddModal(true)}}>+ Registrar evento</Btn>
+      </div>
+
+      <SectionCard>
+        {shown.length===0&&<div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>Sin eventos registrados con los filtros actuales</div>}
+        {shown.map(ev=>{
+          const m = eventMeta[ev.event_type]||{label:ev.event_type};
+          return (
+            <div key={ev.id} style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:14,alignItems:'flex-start'}}>
+              <div style={{width:34,height:34,borderRadius:'50%',background:C.bg,border:`1px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <div style={{width:6,height:6,borderRadius:'50%',background:'#D2D2D7'}}/>
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:3}}>
+                  <span style={{fontWeight:700,fontSize:13}}>{ev.restaurant?.name||'Plataforma'}</span>
+                  <span style={{padding:'1px 8px',borderRadius:12,fontSize:11,fontWeight:600,background:C.bg,color:C.mid,border:`1px solid ${C.border}`}}>{m.label}</span>
+                </div>
+                <div style={{fontSize:13,color:C.ink}}>{ev.description}</div>
+              </div>
+              <div style={{fontSize:11,color:C.dim,whiteSpace:'nowrap',flexShrink:0}}>{fmtDateTime(ev.created_at)}</div>
+            </div>
+          );
+        })}
+      </SectionCard>
+
+      {addModal&&(
+        <Modal title="Registrar evento manual" onClose={()=>setAddModal(false)}>
+          <FormField label="Restaurante">
+            <select value={form.restaurant_id} onChange={e=>setForm(f=>({...f,restaurant_id:e.target.value}))}>
+              <option value="">Plataforma (sin restaurante)</option>
+              {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Tipo de evento">
+            <select value={form.event_type} onChange={e=>setForm(f=>({...f,event_type:e.target.value}))}>
+              {eventTypes.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Descripción *">
+            <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} rows={3} placeholder="Detalle del evento..."/>
+          </FormField>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <Btn variant="ghost" onClick={()=>setAddModal(false)}>Cancelar</Btn>
+            <Btn onClick={addEvent} disabled={saving}>{saving?'Guardando…':'Registrar'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Navegación ───────────────────────────────────────────────
+const NAV = [
+  {id:'dashboard',      label:'Dashboard'},
+  {id:'paneles',        label:'Paneles'},
+  {id:'capacidad',      label:'Capacidad'},
+  {id:'restaurantes',   label:'Restaurantes'},
+  {id:'facturacion',    label:'Facturación'},
+  {id:'usuarios',       label:'Usuarios'},
+  {id:'soporte',        label:'Soporte'},
+  {id:'reportes',       label:'Reportes'},
+  {id:'actividad',      label:'Actividad'},
+  {id:'horarios',       label:'Horarios'},
+  {id:'calendario',     label:'Calendario'},
+  {id:'configuracion',  label:'Configuración'},
+];
+
+/* ─── Soporte: constantes compartidas ─── */
+const SUPPORT_CATS = {
+  problema_tecnico:'Problema técnico',
+  consulta:'Consulta',
+  facturacion:'Facturación',
+  sugerencia:'Sugerencia',
+  urgente:'Urgente',
+  otro:'Otro'
+};
+const SUPPORT_STATUS = {
+  abierto:           {label:'Abierto',              color:'#1D4ED8', bg:'#EEF4FF'},
+  en_curso:          {label:'En curso',             color:'#8A4B00', bg:'#FFF4E0'},
+  esperando_cliente: {label:'Esperando cliente',    color:C.mid, bg:'#F5F5F7'},
+  resuelto:          {label:'Resuelto',             color:'#1A7E37', bg:'#E8F9ED'},
+  cerrado:           {label:'Cerrado',              color:C.mid, bg:'#F5F5F7'}
+};
+const SUPPORT_PRIO = {
+  baja:    {label:'Baja',    color:C.mid},
+  normal:  {label:'Normal',  color:'#1D4ED8'},
+  alta:    {label:'Alta',    color:'#FF9500'},
+  urgente: {label:'Urgente', color:'#FF3B30'}
+};
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PAGE: SOPORTE — Bandeja de tickets de Gerentes / Admins
+   ════════════════════════════════════════════════════════════════════════════ */
+function PageSoporte({setFlash}) {
+  const [tickets, setTickets] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filterStatus, setFilterStatus] = useState('open');  // 'all' | 'open' | 'unread' | 'cerrado' …
+  const [filterText, setFilterText] = useState('');
+  const scrollRef = useRef(null);
+  const profile = window._userProfile||{};
+  const myName = profile.display_name||profile.username||'Mythos';
+
+  const loadTickets = useCallback(async () => {
+    if (!db) return;
+    const { data } = await db.from('support_tickets')
+      .select('*')
+      .order('last_message_at', {ascending:false})
+      .limit(200);
+    setTickets(data||[]);
+    setLoading(false);
+  }, []);
+
+  const loadMessages = useCallback(async (ticketId) => {
+    if (!db || !ticketId) return;
+    const { data } = await db.from('support_messages')
+      .select('*')
+      .eq('ticket_id', ticketId)
+      .order('created_at', {ascending:true});
+    setMessages(data||[]);
+    await db.rpc('support_mark_read', {p_ticket_id: ticketId, p_side: 'support'});
+    loadTickets();
+  }, [loadTickets]);
+
+  useEffect(() => { loadTickets(); }, [loadTickets]);
+
+  useEffect(() => {
+    if (!db) return;
+    const ch = db.channel('support-super-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'support_tickets'}, () => loadTickets())
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'support_messages'}, (payload) => {
+        if (selected && payload.new?.ticket_id === selected.id) loadMessages(selected.id);
+        else loadTickets();
+      })
+      .subscribe();
+    const poll = setInterval(() => { if (!_shouldPause()) loadTickets(); }, 25000);
+    return () => { db.removeChannel(ch); clearInterval(poll); };
+  }, [selected, loadTickets, loadMessages]);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages]);
+
+  function openTicket(t) { setSelected(t); loadMessages(t.id); }
+
+  async function sendReply(body) {
+    if (!db || !selected || !body.trim()) return;
+    const { error } = await db.from('support_messages').insert({
+      ticket_id: selected.id,
+      author_user_id: profile.id||null,
+      author_name: myName,
+      author_role: 'superadmin',
+      author_side: 'support',
+      body: body.trim()
+    });
+    if (error) { setFlash({type:'error', text:'Error al enviar: '+error.message}); return; }
+    loadMessages(selected.id);
+  }
+
+  async function changeStatus(newStatus, withSystemNote) {
+    if (!db || !selected) return;
+    const patch = {status: newStatus, updated_at: new Date().toISOString()};
+    if (newStatus === 'cerrado' || newStatus === 'resuelto') {
+      patch.closed_at = new Date().toISOString();
+      patch.closed_by_user_id = profile.id||null;
+      patch.closed_by_name = myName;
+    }
+    if (!selected.assigned_to_user_id && newStatus === 'en_curso') {
+      patch.assigned_to_user_id = profile.id||null;
+      patch.assigned_to_name = myName;
+    }
+    const { error } = await db.from('support_tickets').update(patch).eq('id', selected.id);
+    if (error) { setFlash({type:'error', text:'Error: '+error.message}); return; }
+    if (withSystemNote) {
+      await db.from('support_messages').insert({
+        ticket_id: selected.id,
+        author_name:'Mythos',
+        author_role:'superadmin',
+        author_side:'system',
+        system_event:'status_change',
+        body: `Estado cambiado a: ${SUPPORT_STATUS[newStatus]?.label||newStatus}`
+      });
+    }
+    setFlash({type:'success', text:`Ticket marcado como ${SUPPORT_STATUS[newStatus]?.label||newStatus}`});
+    setSelected({...selected, ...patch});
+    loadTickets();
+    loadMessages(selected.id);
+  }
+
+  async function assignToMe() {
+    if (!db || !selected) return;
+    const { error } = await db.from('support_tickets').update({
+      assigned_to_user_id: profile.id||null,
+      assigned_to_name: myName,
+      status: selected.status==='abierto' ? 'en_curso' : selected.status,
+      updated_at: new Date().toISOString()
+    }).eq('id', selected.id);
+    if (error) { setFlash({type:'error', text:'Error: '+error.message}); return; }
+    await db.from('support_messages').insert({
+      ticket_id: selected.id,
+      author_name:'Mythos',
+      author_role:'superadmin',
+      author_side:'system',
+      system_event:'assigned',
+      body: `${myName} tomó el ticket`
+    });
+    setFlash({type:'success', text:'Ticket asignado a vos'});
+    loadTickets();
+    loadMessages(selected.id);
+    const { data: fresh } = await db.from('support_tickets').select('*').eq('id', selected.id).single();
+    if (fresh) setSelected(fresh);
+  }
+
+  // Filtrado
+  const filtered = tickets.filter(t => {
+    if (filterStatus === 'open' && ['resuelto','cerrado'].includes(t.status)) return false;
+    if (filterStatus === 'unread' && !(t.unread_for_super > 0)) return false;
+    if (filterStatus === 'cerrado' && !['resuelto','cerrado'].includes(t.status)) return false;
+    if (filterStatus !== 'all' && filterStatus !== 'open' && filterStatus !== 'unread' && filterStatus !== 'cerrado') {
+      if (t.status !== filterStatus) return false;
+    }
+    if (filterText.trim()) {
+      const q = filterText.toLowerCase();
+      const hay = `${t.subject||''} ${t.restaurant_name||''} ${t.created_by_name||''} ${t.last_message_preview||''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  // KPIs
+  const kpis = {
+    open:    tickets.filter(t => !['resuelto','cerrado'].includes(t.status)).length,
+    unread:  tickets.filter(t => t.unread_for_super > 0).length,
+    urgent:  tickets.filter(t => t.priority === 'urgente' && !['resuelto','cerrado'].includes(t.status)).length,
+    today:   tickets.filter(t => new Date(t.created_at).toDateString() === new Date().toDateString()).length
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:12,marginBottom:18,flexWrap:'wrap'}}>
+        <Kpi label="Abiertos" value={kpis.open} sub={`${kpis.unread} con mensajes sin leer`}/>
+        <Kpi label="Sin leer" value={kpis.unread} sub="Esperan tu respuesta"/>
+        <Kpi label="Urgentes" value={kpis.urgent} sub="Prioridad alta"/>
+        <Kpi label="Hoy" value={kpis.today} sub="Tickets creados hoy"/>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'380px 1fr',gap:14,height:'calc(100vh - 290px)',minHeight:560}}>
+        {/* LISTA */}
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{padding:'10px 12px',borderBottom:`1px solid ${C.border}`}}>
+            <input
+              value={filterText}
+              onChange={e => setFilterText(e.target.value)}
+              placeholder="Buscar por restaurante, asunto…"
+              style={{width:'100%',marginBottom:8}}
+            />
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              <FilterBtn active={filterStatus==='open'}    onClick={()=>setFilterStatus('open')}>Abiertos</FilterBtn>
+              <FilterBtn active={filterStatus==='unread'}  onClick={()=>setFilterStatus('unread')}>Sin leer</FilterBtn>
+              <FilterBtn active={filterStatus==='cerrado'} onClick={()=>setFilterStatus('cerrado')}>Cerrados</FilterBtn>
+              <FilterBtn active={filterStatus==='all'}     onClick={()=>setFilterStatus('all')}>Todos</FilterBtn>
+            </div>
+          </div>
+          <div style={{flex:1,overflowY:'auto'}}>
+            {loading ? <div style={{padding:30,textAlign:'center'}}><Spinner/></div>
+              : filtered.length === 0
+                ? <div style={{padding:30,textAlign:'center',color:C.dim,fontSize:13}}>Sin tickets con esos filtros</div>
+                : filtered.map(t => {
+                    const s = SUPPORT_STATUS[t.status]||{label:t.status,color:C.mid,bg:'#F5F5F7'};
+                    const p = SUPPORT_PRIO[t.priority];
+                    const isSel = selected?.id === t.id;
+                    return (
+                      <div key={t.id} onClick={() => openTicket(t)} style={{
+                        padding:'12px 14px',borderBottom:`1px solid ${C.border}`,cursor:'pointer',
+                        background: isSel ? '#F0F6FF' : (t.unread_for_super>0 ? '#FFFEF7' : 'transparent'),
+                        borderLeft: isSel ? `3px solid ${C.ink}` : (t.unread_for_super>0 ? `3px solid ${C.orange}` : '3px solid transparent'),
+                        transition:'background .15s'
+                      }}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6,marginBottom:5}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:700,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.subject}</div>
+                            <div style={{fontSize:11,color:C.mid,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                              <strong style={{color:C.ink}}>{t.restaurant_name||'—'}</strong> · {t.created_by_name||'—'} ({t.created_by_role||'—'})
+                            </div>
+                          </div>
+                          {t.unread_for_super > 0 && (
+                            <span style={{background:C.red,color:'#fff',fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,flexShrink:0}}>{t.unread_for_super}</span>
+                          )}
+                        </div>
+                        <div style={{fontSize:11,color:C.mid,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',marginBottom:6}}>
+                          {t.last_message_by_side==='client' ? <span style={{color:C.orange,fontWeight:700}}>↗ </span> : <span style={{color:C.green,fontWeight:700}}>↙ </span>}
+                          {t.last_message_preview||'—'}
+                        </div>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6}}>
+                          <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                            <span style={{padding:'2px 7px',borderRadius:10,fontSize:10,fontWeight:700,background:s.bg,color:s.color}}>{s.label}</span>
+                            {p && <span style={{fontSize:10,fontWeight:700,color:p.color}}>● {p.label}</span>}
+                          </div>
+                          <span style={{fontSize:10,color:C.dim}}>{fmtRelTime(t.last_message_at)}</span>
+                        </div>
+                      </div>
+                    );
+                  })
+            }
+          </div>
+        </div>
+
+        {/* DETALLE + CHAT */}
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          {!selected ? (
+            <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:12,padding:40,color:C.dim}}>
+              <div style={{opacity:.3,color:C.mid}}><Icon name="chat" size={36}/></div>
+              <div style={{fontSize:14,fontWeight:600,color:C.mid}}>Seleccioná un ticket para ver la conversación</div>
+              <div style={{fontSize:12,maxWidth:380,textAlign:'center'}}>Vas a ver toda la información del restaurante y del usuario que abrió el ticket, junto con la conversación completa.</div>
+            </div>
+          ) : (
+            <SoporteSuperChat
+              ticket={selected}
+              messages={messages}
+              onSend={sendReply}
+              onStatusChange={changeStatus}
+              onAssign={assignToMe}
+              onClose={() => setSelected(null)}
+              myName={myName}
+              myUserId={profile.id}
+              scrollRef={scrollRef}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SoporteSuperChat({ticket, messages, onSend, onStatusChange, onAssign, onClose, myName, myUserId, scrollRef}) {
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [showInfo, setShowInfo] = useState(true);
+  const s = SUPPORT_STATUS[ticket.status]||{label:ticket.status,color:C.mid,bg:'#F5F5F7'};
+  const p = SUPPORT_PRIO[ticket.priority];
+  const isMine = ticket.assigned_to_user_id === myUserId;
+  const closed = ['resuelto','cerrado'].includes(ticket.status);
+
+  async function submit() {
+    if (!draft.trim() || sending) return;
+    setSending(true);
+    await onSend(draft);
+    setDraft('');
+    setSending(false);
+  }
+
+  return (
+    <>
+      {/* HEADER */}
+      <div style={{padding:'12px 18px',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:700,color:C.ink}}>{ticket.subject}</div>
+            <div style={{display:'flex',gap:8,marginTop:5,alignItems:'center',flexWrap:'wrap'}}>
+              <span style={{padding:'2px 8px',borderRadius:10,fontSize:11,fontWeight:700,background:s.bg,color:s.color}}>{s.label}</span>
+              <span style={{fontSize:11,color:C.mid}}>{SUPPORT_CATS[ticket.category]||ticket.category}</span>
+              {p && <span style={{fontSize:11,color:p.color,fontWeight:700}}>· {p.label}</span>}
+              {ticket.assigned_to_name && <span style={{fontSize:11,color:C.mid}}>· Asignado a <strong style={{color:C.ink}}>{ticket.assigned_to_name}</strong></span>}
+            </div>
+          </div>
+          <button onClick={onClose} style={{background:'none',color:C.mid,fontSize:22,padding:'2px 8px',border:'none',cursor:'pointer'}}>×</button>
+        </div>
+
+        {/* Acciones */}
+        <div style={{display:'flex',gap:6,marginTop:10,flexWrap:'wrap'}}>
+          {!isMine && !closed && <Btn size="sm" variant="ghost" onClick={onAssign}>Tomar ticket</Btn>}
+          {ticket.status === 'abierto' && <Btn size="sm" variant="ghost" onClick={()=>onStatusChange('en_curso', true)}>Marcar en curso</Btn>}
+          {!closed && <Btn size="sm" variant="ghost" onClick={()=>onStatusChange('esperando_cliente', true)}>Esperando cliente</Btn>}
+          {!closed && <Btn size="sm" variant="success" onClick={()=>onStatusChange('resuelto', true)}>Marcar resuelto</Btn>}
+          {ticket.status === 'resuelto' && <Btn size="sm" variant="ghost" onClick={()=>onStatusChange('cerrado', true)}>Cerrar definitivamente</Btn>}
+          {closed && <Btn size="sm" variant="ghost" onClick={()=>onStatusChange('abierto', true)}>Reabrir</Btn>}
+        </div>
+      </div>
+
+      {/* INFO CLIENTE (colapsable) */}
+      <div style={{background:'#FAFAFB',borderBottom:`1px solid ${C.border}`}}>
+        <button onClick={() => setShowInfo(!showInfo)} style={{width:'100%',padding:'8px 18px',background:'none',border:'none',textAlign:'left',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:11,fontWeight:700,color:C.mid,textTransform:'uppercase',letterSpacing:.5}}>
+          <span>Datos del cliente</span>
+          <span>{showInfo?'▾':'▸'}</span>
+        </button>
+        {showInfo && (
+          <div style={{padding:'4px 18px 12px',display:'grid',gridTemplateColumns:'repeat(2, 1fr)',gap:'6px 18px',fontSize:12}}>
+            <div><span style={{color:C.mid}}>Restaurante: </span><strong>{ticket.restaurant_name||'—'}</strong></div>
+            <div><span style={{color:C.mid}}>ID restaurante: </span><code style={{fontSize:11,color:C.dim}}>{ticket.restaurant_id?.slice(0,8)}…</code></div>
+            <div><span style={{color:C.mid}}>Usuario: </span><strong>{ticket.created_by_name||'—'}</strong></div>
+            <div><span style={{color:C.mid}}>Rol: </span><strong>{ticket.created_by_role||'—'}</strong></div>
+            {ticket.created_by_username && <div><span style={{color:C.mid}}>Username: </span><code style={{fontSize:11}}>{ticket.created_by_username}</code></div>}
+            {ticket.created_by_email && <div><span style={{color:C.mid}}>Email: </span><a href={`mailto:${ticket.created_by_email}`} style={{color:C.ink}}>{ticket.created_by_email}</a></div>}
+            {ticket.created_by_phone && <div><span style={{color:C.mid}}>Teléfono: </span>{ticket.created_by_phone}</div>}
+            <div><span style={{color:C.mid}}>Creado: </span>{fmtDateTime(ticket.created_at)}</div>
+            <div><span style={{color:C.mid}}>Última actividad: </span>{fmtDateTime(ticket.last_message_at)}</div>
+            <div><span style={{color:C.mid}}>Mensajes: </span>{ticket.total_messages||0}</div>
+          </div>
+        )}
+      </div>
+
+      {/* MENSAJES */}
+      <div ref={scrollRef} style={{flex:1,overflowY:'auto',padding:'18px 20px',background:'#FAFAFB',display:'flex',flexDirection:'column',gap:10}}>
+        {messages.length === 0 && <div style={{textAlign:'center',color:C.dim,fontSize:12,padding:20}}>Sin mensajes aún…</div>}
+        {messages.map(m => {
+          if (m.author_side === 'system') {
+            return <div key={m.id} style={{textAlign:'center',fontSize:11,color:C.dim,padding:'4px 8px'}}>— {m.body} · {fmtDateTime(m.created_at)} —</div>;
+          }
+          const mine = m.author_side === 'support';
+          return (
+            <div key={m.id} style={{display:'flex',justifyContent: mine?'flex-end':'flex-start'}}>
+              <div style={{maxWidth:'78%'}}>
+                <div style={{
+                  background: mine ? '#000' : '#fff',
+                  color: mine ? '#fff' : C.ink,
+                  border: mine ? '1px solid #000' : `1px solid ${C.border}`,
+                  padding:'9px 13px',borderRadius:12,
+                  borderBottomRightRadius: mine?4:12,
+                  borderBottomLeftRadius:  mine?12:4,
+                  fontSize:13,lineHeight:1.45,whiteSpace:'pre-wrap',wordBreak:'break-word'
+                }}>{m.body}</div>
+                <div style={{fontSize:10,color:C.dim,marginTop:3,textAlign: mine?'right':'left'}}>
+                  {mine ? `${m.author_name||myName} (Mythos)` : (m.author_name||'Cliente')} · {fmtDateTime(m.created_at)}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* COMPOSER */}
+      <div style={{padding:12,borderTop:`1px solid ${C.border}`,background:C.surface}}>
+        {closed && (
+          <div style={{fontSize:11,color:C.mid,marginBottom:8,textAlign:'center'}}>
+            Este ticket está cerrado. Cualquier mensaje del cliente lo reabrirá automáticamente.
+          </div>
+        )}
+        <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            rows={2}
+            placeholder="Respondé al cliente…"
+            onKeyDown={e => { if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) submit(); }}
+            style={{flex:1,minHeight:50,resize:'none',fontFamily:'inherit'}}
+          />
+          <Btn onClick={submit} disabled={sending || !draft.trim()} style={{flexShrink:0,height:46}}>{sending?'Enviando…':'Enviar'}</Btn>
+        </div>
+        <div style={{fontSize:10,color:C.dim,marginTop:5,textAlign:'right'}}>Ctrl/Cmd + Enter para enviar</div>
+      </div>
+    </>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   CALENDARIO — Superadmin
+══════════════════════════════════════════════ */
+const SA_CAL_TYPES = {
+  holiday: {label:'Feriado',    color:'#FF3B30', icon:'🏖'},
+  event:   {label:'Evento',     color:'#007AFF', icon:'🎉'},
+  sport:   {label:'Deportivo',  color:'#34C759', icon:'⚽'},
+  special: {label:'Especial',   color:'#AF52DE', icon:'🎊'},
+  promo:   {label:'Promoción',  color:'#FF9500', icon:'📢'},
+};
+const SA_CAL_CROWD = {
+  low:    {label:'Afluencia baja',  color:'#34C759', dot:'🟢'},
+  medium: {label:'Afluencia media', color:'#FF9500', dot:'🟡'},
+  high:   {label:'Afluencia alta',  color:'#FF3B30', dot:'🔴'},
+};
+const SA_WEEK   = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+const SA_MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+function saCalGridDays(year, month) {
+  const first    = new Date(year, month, 1);
+  const last     = new Date(year, month + 1, 0);
+  const startDow = (first.getDay() + 6) % 7;
+  const days = [];
+  for (let i = 0; i < startDow; i++) days.push(null);
+  for (let d = 1; d <= last.getDate(); d++) days.push(d);
+  return days;
+}
+
+// ── Horarios & Estado — vista de apertura/cierre por restaurante ─
+function PageHorarios({restaurants, setFlash, reload}) {
+  const [toggling, setToggling] = useState(null);
+
+  const toggleOpen = async (r) => {
+    if (!db) { setFlash({type:'warn', text:'Sin conexión — operación demo'}); return; }
+    setToggling(r.id);
+    const next = !r.is_open;
+    const {error} = await db.from('restaurants').update({is_open: next}).eq('id', r.id);
+    setToggling(null);
+    if (error) { setFlash({type:'error', text:'Error: '+error.message}); return; }
+    setFlash({type:'ok', text:`${r.name} marcado como ${next ? 'abierto' : 'cerrado'}`});
+    reload();
+  };
+
+  const openCount   = restaurants.filter(r => r.is_open).length;
+  const closedCount = restaurants.length - openCount;
+  const allClosed   = openCount === 0 && restaurants.length > 0;
+
+  // Extrae texto de horarios del campo opening_hours (JSONB: [{day,hours}])
+  const renderHours = (oh) => {
+    if (!oh || (Array.isArray(oh) && oh.length === 0)) return <span style={{color:C.mid,fontSize:12}}>Sin horario cargado</span>;
+    const arr = Array.isArray(oh) ? oh : (typeof oh === 'string' ? JSON.parse(oh) : []);
+    return (
+      <div style={{fontSize:12,lineHeight:1.6}}>
+        {arr.map((h,i) => (
+          <div key={i}><span style={{color:C.mid}}>{h.day}:</span> {h.hours}</div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div style={{marginBottom:24}}>
+        <div style={{fontSize:22,fontWeight:800,color:C.ink,letterSpacing:'-0.5px'}}>Horarios y estados</div>
+        <div style={{fontSize:13,color:C.mid,marginTop:4}}>Estado de apertura en tiempo real y ventana de mantenimiento</div>
+      </div>
+
+      {/* Tarjetas resumen */}
+      <div style={{display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
+          <div style={{fontSize:28,fontWeight:800,color:'#34C759'}}>{openCount}</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:2}}>Abiertos ahora</div>
+        </div>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
+          <div style={{fontSize:28,fontWeight:800,color:C.red}}>{closedCount}</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:2}}>Cerrados ahora</div>
+        </div>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 24px',minWidth:140}}>
+          <div style={{fontSize:28,fontWeight:800,color:C.ink}}>{restaurants.length}</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:2}}>Total restaurantes</div>
+        </div>
+        <div style={{
+          background: allClosed ? '#34C75915' : '#FF3B3015',
+          border: `1px solid ${allClosed ? '#34C759' : C.red}`,
+          borderRadius:12,padding:'16px 24px',flex:1,minWidth:200,display:'flex',alignItems:'center',gap:12
+        }}>
+          <div style={{color:allClosed ? C.green : C.orange}}><Icon name={allClosed ? 'checkCircle' : 'clock'} size={20}/></div>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color: allClosed ? '#1a7a3a' : '#b02020'}}>
+              {allClosed ? 'Ventana disponible' : 'Aún hay restaurantes abiertos'}
+            </div>
+            <div style={{fontSize:11,color:C.mid,marginTop:2}}>
+              {allClosed
+                ? 'Todos los restaurantes están cerrados — momento ideal para actualizaciones'
+                : `${openCount} restaurante${openCount > 1 ? 's' : ''} en operación — esperá a que cierren todos`}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabla de restaurantes */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden'}}>
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead>
+            <tr style={{background:C.bg}}>
+              <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Restaurante</th>
+              <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Ciudad</th>
+              <th style={{padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Horarios</th>
+              <th style={{padding:'10px 16px',textAlign:'center',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Estado</th>
+              <th style={{padding:'10px 16px',textAlign:'center',fontSize:11,fontWeight:600,color:C.mid,textTransform:'uppercase',letterSpacing:.4}}>Toggle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {restaurants.length === 0 && (
+              <tr><td colSpan={5} style={{padding:32,textAlign:'center',color:C.mid,fontSize:13}}>Sin restaurantes</td></tr>
+            )}
+            {restaurants.map((r, i) => (
+              <tr key={r.id} style={{borderTop: i > 0 ? `1px solid ${C.border}` : 'none', background: r.is_open ? '#34C75908' : 'transparent'}}>
+                <td style={{padding:'12px 16px'}}>
+                  <div style={{fontWeight:600,fontSize:13,color:C.ink}}>{r.name}</div>
+                  <div style={{fontSize:11,color:C.mid}}>{r.status === 'active' ? 'Activo' : r.status === 'trial' ? 'Trial' : r.status === 'suspended' ? 'Suspendido' : r.status}</div>
+                </td>
+                <td style={{padding:'12px 16px',fontSize:13,color:C.mid}}>{r.city || '—'}</td>
+                <td style={{padding:'12px 16px'}}>{renderHours(r.opening_hours)}</td>
+                <td style={{padding:'12px 16px',textAlign:'center'}}>
+                  <span style={{
+                    display:'inline-block',padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:700,
+                    background: r.is_open ? '#34C75920' : '#F5F5F7',
+                    color: r.is_open ? '#1a7a3a' : C.mid
+                  }}>
+                    {r.is_open ? 'Abierto' : 'Cerrado'}
+                  </span>
+                </td>
+                <td style={{padding:'12px 16px',textAlign:'center'}}>
+                  <button
+                    disabled={toggling === r.id}
+                    onClick={() => toggleOpen(r)}
+                    style={{
+                      padding:'5px 14px',borderRadius:6,border:'none',cursor:'pointer',fontSize:12,fontWeight:600,
+                      background: r.is_open ? C.red : '#34C759',
+                      color:'#fff',opacity: toggling === r.id ? .5 : 1,
+                      transition:'all .15s'
+                    }}
+                  >
+                    {toggling === r.id ? '…' : r.is_open ? 'Marcar cerrado' : 'Marcar abierto'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{marginTop:16,fontSize:11,color:C.mid}}>
+        El estado se actualiza manualmente. Los horarios mostrados son los cargados en cada restaurante desde el panel admin.
+      </div>
+    </div>
+  );
+}
+
+function PageCalendario({restaurants}) {
+  const now = new Date();
+  const [year,  setYear]  = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [filterRest, setFilterRest] = useState('global'); // 'global' | 'all' | uuid
+  const [form, setForm] = useState({title:'', type:'event', end_date:'', expected_crowd:'medium', notes:'', is_global:true, restaurant_id:''});
+  const [editId, setEditId] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const loadEvents = useCallback(async () => {
+    if (!db) return;
+    setLoading(true);
+    const mm    = String(month + 1).padStart(2,'0');
+    const lastD = new Date(year, month + 1, 0).getDate();
+    let q = db.from('calendar_events').select('*,restaurant:restaurants(name)')
+      .gte('date', `${year}-${mm}-01`)
+      .lte('date', `${year}-${mm}-${lastD}`)
+      .order('date');
+    if (filterRest === 'global')      q = q.eq('is_global', true);
+    else if (filterRest !== 'all')    q = q.or(`restaurant_id.eq.${filterRest},is_global.eq.true`);
+    const {data} = await q;
+    setEvents(data || []);
+    setLoading(false);
+  }, [year, month, filterRest]);
+
+  useEffect(() => { loadEvents(); }, [loadEvents]);
+
+  const prevMonth = () => { if (month===0){setYear(y=>y-1);setMonth(11);}else setMonth(m=>m-1); setSelected(null); };
+  const nextMonth = () => { if (month===11){setYear(y=>y+1);setMonth(0);}else setMonth(m=>m+1); setSelected(null); };
+
+  const days    = saCalGridDays(year, month);
+  const today   = new Date();
+  const isToday = d => d===today.getDate() && month===today.getMonth() && year===today.getFullYear();
+
+  const evtsForDay = d => {
+    if (!d) return [];
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    return events.filter(e => e.date <= ds && (e.end_date ? e.end_date >= ds : e.date === ds));
+  };
+
+  const selDate = selected ? `${year}-${String(month+1).padStart(2,'0')}-${String(selected).padStart(2,'0')}` : null;
+  const selEvts = selected ? evtsForDay(selected) : [];
+
+  const resetForm = () => { setForm({title:'', type:'event', end_date:'', expected_crowd:'medium', notes:'', is_global:true, restaurant_id:''}); setEditId(null); };
+  const startEdit = e => { setForm({title:e.title, type:e.type, end_date:e.end_date||'', expected_crowd:e.expected_crowd||'medium', notes:e.notes||'', is_global:e.is_global, restaurant_id:e.restaurant_id||''}); setEditId(e.id); };
+
+  const save = async () => {
+    if (!form.title.trim() || !selDate || !db) return;
+    setSaving(true);
+    const payload = {
+      restaurant_id:  form.is_global ? null : (form.restaurant_id || null),
+      title:          form.title.trim(),
+      type:           form.type,
+      date:           selDate,
+      end_date:       form.end_date || null,
+      expected_crowd: form.expected_crowd,
+      notes:          form.notes || null,
+      color:          SA_CAL_TYPES[form.type]?.color || '#007AFF',
+      is_global:      form.is_global,
+    };
+    if (editId) await db.from('calendar_events').update(payload).eq('id', editId);
+    else        await db.from('calendar_events').insert(payload);
+    setSaving(false);
+    resetForm();
+    loadEvents();
+  };
+
+  const del = async id => {
+    if (!db) return;
+    await db.from('calendar_events').delete().eq('id', id);
+    loadEvents();
+  };
+
+  const upcoming = [...events]
+    .filter(e => { const d = new Date(); d.setHours(0,0,0,0); return new Date(e.date + 'T12:00:00') >= d; })
+    .sort((a,b) => a.date.localeCompare(b.date))
+    .slice(0, 7);
+
+  const globalCount = events.filter(e => e.is_global).length;
+  const highCount   = events.filter(e => e.expected_crowd === 'high').length;
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{marginBottom:20}}>
+        <h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Calendario de Eventos</h1>
+        <div style={{fontSize:12,color:C.mid,marginTop:3}}>Feriados globales y eventos por restaurante</div>
+      </div>
+
+      {/* Stats bar */}
+      <div style={{display:'flex',gap:10,marginBottom:18,flexWrap:'wrap'}}>
+        {[
+          {label:'Eventos este mes', value:events.length, color:C.blue},
+          {label:'Globales',         value:globalCount,   color:'#AF52DE'},
+          {label:'Alta afluencia',   value:highCount,     color:'#FF3B30'},
+        ].map(s => (
+          <div key={s.label} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 16px',display:'flex',gap:10,alignItems:'center'}}>
+            <div style={{fontSize:20,fontWeight:900,color:s.color}}>{s.value}</div>
+            <div style={{fontSize:11,color:C.mid,fontWeight:500}}>{s.label}</div>
+          </div>
+        ))}
+
+        {/* Filtro restaurante */}
+        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:6}}>
+          <span style={{fontSize:11,color:C.mid,fontWeight:600}}>Ver:</span>
+          <select value={filterRest} onChange={e=>{setFilterRest(e.target.value);setSelected(null);}}
+            style={{padding:'6px 10px',fontSize:12,borderRadius:7,border:`1px solid ${C.border}`,background:C.surface,color:C.ink}}>
+            <option value="global">Solo globales</option>
+            <option value="all">Todos</option>
+            {(restaurants||[]).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div style={{display:'flex',gap:20,alignItems:'flex-start'}}>
+        {/* Grilla */}
+        <div style={{flex:'1 1 0',minWidth:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+            <button onClick={prevMonth} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,width:34,height:34,fontSize:17,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>‹</button>
+            <div style={{flex:1,textAlign:'center',fontWeight:800,fontSize:16,color:C.ink}}>{SA_MONTHS[month]} {year}</div>
+            <button onClick={nextMonth} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,width:34,height:34,fontSize:17,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>›</button>
+            <button onClick={()=>{setYear(today.getFullYear());setMonth(today.getMonth());setSelected(null);}} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:'5px 10px',fontSize:11,fontWeight:700,cursor:'pointer',color:C.mid}}>Hoy</button>
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:3}}>
+            {SA_WEEK.map(d => <div key={d} style={{textAlign:'center',fontSize:10,fontWeight:800,color:C.mid,padding:'3px 0',textTransform:'uppercase',letterSpacing:.4}}>{d}</div>)}
+          </div>
+
+          {loading ? <div style={{textAlign:'center',padding:50}}><Spinner/></div> : (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
+              {days.map((d, i) => {
+                const dayEvts = evtsForDay(d);
+                const sel     = d && selected === d;
+                const isTdy   = isToday(d);
+                const hasHigh = dayEvts.some(e => e.expected_crowd === 'high');
+                const hasGlobal = dayEvts.some(e => e.is_global);
+                return (
+                  <div key={i}
+                    onClick={() => { if (d) { setSelected(sel ? null : d); resetForm(); } }}
+                    style={{
+                      minHeight:70, padding:'6px 7px', borderRadius:8,
+                      cursor:d?'pointer':'default',
+                      background: sel?'#000':isTdy?'#F0F6FF':hasHigh&&d?'#FFF4E0':hasGlobal&&d?'#F5EDFF':d?C.surface:'transparent',
+                      border: sel?'1.5px solid #000':isTdy?'1.5px solid #007AFF':hasHigh&&d?'1px solid #FFD580':hasGlobal&&d?'1px solid #D4AAFF':`1px solid ${C.border}`,
+                      transition:'all .1s',
+                    }}>
+                    {d && <>
+                      <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?'#fff':isTdy?'#007AFF':C.ink,lineHeight:1,marginBottom:4}}>{d}</div>
+                      <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
+                        {dayEvts.slice(0,4).map(e => (
+                          <div key={e.id} style={{width:7,height:7,borderRadius:e.is_global?2:'50%',background:SA_CAL_TYPES[e.type]?.color||'#007AFF',flexShrink:0,opacity:sel?.8:1}}/>
+                        ))}
+                        {dayEvts.length > 4 && <div style={{fontSize:9,color:sel?'#ccc':C.mid}}>+{dayEvts.length-4}</div>}
+                      </div>
+                    </>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div style={{display:'flex',flexWrap:'wrap',gap:14,marginTop:14,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+            {Object.entries(SA_CAL_TYPES).map(([k,v]) => (
+              <div key={k} style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:C.mid}}>
+                <div style={{width:8,height:8,borderRadius:'50%',background:v.color}}/>
+                {v.label}
+              </div>
+            ))}
+            <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#8A4B00'}}>
+              <div style={{width:8,height:8,borderRadius:2,background:'#FFD580'}}/>
+              Alta afluencia
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#6B21A8'}}>
+              <div style={{width:8,height:8,borderRadius:2,background:'#D4AAFF'}}/>
+              Global
+            </div>
+          </div>
+        </div>
+
+        {/* Panel lateral */}
+        <div style={{width:320,flexShrink:0}}>
+          {selected ? (
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+              <div style={{fontWeight:800,fontSize:13,marginBottom:12,color:C.ink,display:'flex',justifyContent:'space-between'}}>
+                <span>{String(selected).padStart(2,'0')} {SA_MONTHS[month].substring(0,3)} {year}</span>
+                <span style={{fontSize:11,color:C.mid,fontWeight:400}}>{selEvts.length} evento{selEvts.length!==1?'s':''}</span>
+              </div>
+
+              {selEvts.map(e => (
+                <div key={e.id} style={{background:C.bg,borderRadius:8,padding:'10px 12px',marginBottom:6,borderLeft:`3px solid ${SA_CAL_TYPES[e.type]?.color||'#007AFF'}`}}>
+                  <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:600,fontSize:13,color:C.ink,marginBottom:3}}>{SA_CAL_TYPES[e.type]?.icon} {e.title}</div>
+                      <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                        <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:SA_CAL_TYPES[e.type]?.color+'22',color:SA_CAL_TYPES[e.type]?.color,fontWeight:700}}>{SA_CAL_TYPES[e.type]?.label}</span>
+                        <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:SA_CAL_CROWD[e.expected_crowd]?.color+'22',color:SA_CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{SA_CAL_CROWD[e.expected_crowd]?.dot} {SA_CAL_CROWD[e.expected_crowd]?.label}</span>
+                        {e.is_global
+                          ? <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:'#F5EDFF',color:'#6B21A8',fontWeight:700,display:'inline-flex',alignItems:'center',gap:3}}><Icon name="sparkles" size={10}/> Global</span>
+                          : <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:'#F0F0F5',color:C.mid,fontWeight:700}}>{e.restaurant?.name||'Local'}</span>
+                        }
+                      </div>
+                      {e.notes && <div style={{fontSize:11,color:C.mid,marginTop:3}}>{e.notes}</div>}
+                    </div>
+                    <div style={{display:'flex',gap:3,flexShrink:0}}>
+                      <button onClick={()=>startEdit(e)} title="Editar" style={{background:'none',border:`1px solid ${C.border}`,borderRadius:5,padding:'3px 7px',fontSize:11,cursor:'pointer',color:C.mid,display:'inline-flex',alignItems:'center'}}><Icon name="edit" size={12}/></button>
+                      <button onClick={()=>del(e.id)} title="Eliminar" style={{background:'none',border:`1px solid rgba(239,68,68,.3)`,borderRadius:5,padding:'3px 7px',fontSize:11,cursor:'pointer',color:C.red,display:'inline-flex',alignItems:'center'}}><Icon name="trash" size={12}/></button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div style={{borderTop:selEvts.length?`1px solid ${C.border}`:'none',paddingTop:selEvts.length?12:0,marginTop:selEvts.length?4:0}}>
+                <div style={{fontSize:10,fontWeight:800,color:C.mid,textTransform:'uppercase',letterSpacing:.5,marginBottom:8,display:'flex',alignItems:'center',gap:5}}>
+                  <Icon name={editId ? 'edit' : 'plus'} size={11}/> {editId ? 'Editar evento' : 'Nuevo evento'}
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:7}}>
+                  <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Título del evento" style={{padding:'8px 10px',fontSize:13,borderRadius:7,border:`1px solid ${C.border}`,width:'100%'}}/>
+                  <select value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))} style={{padding:'8px 10px',fontSize:13,borderRadius:7,border:`1px solid ${C.border}`}}>
+                    {Object.entries(SA_CAL_TYPES).map(([k,v])=><option key={k} value={k}>{v.icon} {v.label}</option>)}
+                  </select>
+                  <select value={form.expected_crowd} onChange={e=>setForm(f=>({...f,expected_crowd:e.target.value}))} style={{padding:'8px 10px',fontSize:13,borderRadius:7,border:`1px solid ${C.border}`}}>
+                    {Object.entries(SA_CAL_CROWD).map(([k,v])=><option key={k} value={k}>{v.dot} {v.label}</option>)}
+                  </select>
+
+                  {/* Alcance */}
+                  <div style={{background:C.bg,borderRadius:7,padding:'8px 10px',border:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:10,fontWeight:800,color:C.mid,marginBottom:6,textTransform:'uppercase',letterSpacing:.4}}>Alcance</div>
+                    <label style={{display:'flex',alignItems:'center',gap:7,cursor:'pointer',marginBottom:6}}>
+                      <input type="radio" checked={form.is_global} onChange={()=>setForm(f=>({...f,is_global:true,restaurant_id:''}))}/>
+                      <span style={{fontSize:12,fontWeight:600,color:C.ink,display:'inline-flex',alignItems:'center',gap:5}}><Icon name="sparkles" size={12}/> Global — visible en todos los restaurantes</span>
+                    </label>
+                    <label style={{display:'flex',alignItems:'center',gap:7,cursor:'pointer'}}>
+                      <input type="radio" checked={!form.is_global} onChange={()=>setForm(f=>({...f,is_global:false}))}/>
+                      <span style={{fontSize:12,fontWeight:600,color:C.ink}}>Local — restaurante específico</span>
+                    </label>
+                    {!form.is_global && (
+                      <select value={form.restaurant_id} onChange={e=>setForm(f=>({...f,restaurant_id:e.target.value}))}
+                        style={{marginTop:6,padding:'6px 8px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:'100%'}}>
+                        <option value="">— Seleccioná restaurante —</option>
+                        {(restaurants||[]).map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                    )}
+                  </div>
+
+                  <div>
+                    <div style={{fontSize:10,color:C.mid,marginBottom:3}}>Hasta (multi-día, opcional)</div>
+                    <input type="date" value={form.end_date} onChange={e=>setForm(f=>({...f,end_date:e.target.value}))} style={{padding:'7px 10px',fontSize:12,borderRadius:7,border:`1px solid ${C.border}`,width:'100%'}}/>
+                  </div>
+                  <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notas (opcional)" rows={2} style={{padding:'8px 10px',fontSize:12,borderRadius:7,border:`1px solid ${C.border}`,resize:'none',fontFamily:'inherit'}}/>
+                  <div style={{display:'flex',gap:6}}>
+                    {editId && <Btn variant="ghost" size="sm" onClick={resetForm} style={{flex:1}}>Cancelar</Btn>}
+                    <Btn size="sm" onClick={save} disabled={saving||!form.title.trim()||(!form.is_global&&!form.restaurant_id)} style={{flex:1}}>
+                      {saving ? 'Guardando…' : editId ? 'Guardar cambios' : 'Crear evento'}
+                    </Btn>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
+              <div style={{fontWeight:800,fontSize:13,marginBottom:12,color:C.ink}}>Próximos eventos — {SA_MONTHS[month]}</div>
+              {upcoming.length === 0 ? (
+                <div style={{fontSize:12,color:C.mid,textAlign:'center',padding:'24px 0',lineHeight:1.6}}>
+                  Sin eventos este mes.<br/>
+                  <span style={{fontSize:11}}>Hacé clic en un día para agregar.</span>
+                </div>
+              ) : upcoming.map(e => {
+                const d = new Date(e.date + 'T12:00:00');
+                return (
+                  <div key={e.id} style={{display:'flex',gap:10,alignItems:'flex-start',padding:'8px 0',borderBottom:`1px solid ${C.border}`,cursor:'pointer'}}
+                    onClick={()=>{setSelected(d.getDate());resetForm();}}>
+                    <div style={{width:38,textAlign:'center',flexShrink:0}}>
+                      <div style={{fontSize:20,fontWeight:900,color:SA_CAL_TYPES[e.type]?.color||C.ink,lineHeight:1}}>{String(d.getDate()).padStart(2,'0')}</div>
+                      <div style={{fontSize:9,color:C.mid,textTransform:'uppercase',letterSpacing:.3}}>{SA_MONTHS[d.getMonth()].substring(0,3)}</div>
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{SA_CAL_TYPES[e.type]?.icon} {e.title}</div>
+                      <div style={{display:'flex',gap:4,marginTop:2,alignItems:'center'}}>
+                        <span style={{fontSize:10,color:SA_CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{SA_CAL_CROWD[e.expected_crowd]?.dot} {SA_CAL_CROWD[e.expected_crowd]?.label}</span>
+                        {e.is_global
+                          ? <span style={{fontSize:9,color:'#6B21A8',background:'#F5EDFF',padding:'1px 5px',borderRadius:3,fontWeight:700}}>Global</span>
+                          : <span style={{fontSize:9,color:C.mid,background:C.bg,padding:'1px 5px',borderRadius:3,fontWeight:700}}>{e.restaurant?.name||'Local'}</span>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Sidebar({page, setPage, badges={}, themeMode, onToggleTheme}) {
+  const signOut = async () => {
+    if (db) { try { await db.auth.signOut(); } catch(e){} }
+    localStorage.removeItem('mesa_session');
+    window.location.replace('login.html');
+  };
+  return (
+    <div style={{width:220,background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',height:'100%',flexShrink:0,overflowY:'auto'}}>
+      <div style={{padding:'20px 18px 16px',borderBottom:`1px solid ${C.border}`,flexShrink:0,display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:18,color:C.ink,letterSpacing:'-1px'}}>Mythos</div>
+          <div style={{fontSize:11,fontWeight:600,color:C.mid,marginTop:2,letterSpacing:.3}}>Superadmin</div>
+        </div>
+        <button onClick={onToggleTheme} title={themeMode==='dark'?'Cambiar a claro':'Cambiar a oscuro'}
+          style={{width:30,height:30,borderRadius:'50%',background:'transparent',border:`1px solid ${C.border}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.ink,flexShrink:0}}>
+          <Icon name={themeMode==='dark'?'sun':'moon'} size={14}/>
+        </button>
+      </div>
+      <nav style={{padding:'10px',flex:1}}>
+        {NAV.map(n=>{
+          const active = page===n.id;
+          const badge = badges[n.id]||0;
+          return (
+            <button key={n.id} onClick={()=>setPage(n.id)} style={{display:'flex',alignItems:'center',padding:'9px 12px',borderRadius:8,width:'100%',border:'none',background:active?C.ink:'transparent',color:active?C.sidebar:C.ink,fontWeight:active?600:400,fontSize:13,cursor:'pointer',transition:'all .15s',marginBottom:2,textAlign:'left'}}>
+              <span style={{flex:1}}>{n.label}</span>
+              {badge > 0 && <span style={{background:active?C.sidebar:C.red,color:active?C.red:C.sidebar,fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,minWidth:16,textAlign:'center'}}>{badge}</span>}
+            </button>
+          );
+        })}
+      </nav>
+      <div style={{padding:'14px 16px',borderTop:`1px solid ${C.border}`,flexShrink:0}}>
+        <div style={{fontSize:10,color:C.mid,marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Links rápidos</div>
+        {[['admin.html','Admin local'],['gerente.html','Gerente'],['caja.html','Panel caja'],['cocina.html','KDS cocina'],['mozo.html','Mozo'],['delivery-rider.html','Rider delivery'],['delivery-cliente.html','Delivery cliente'],['index.html','App cliente']].map(([href,label])=>(
+          <a key={href} href={href} target="_blank" rel="noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'space-between',fontSize:12,color:C.mid,textDecoration:'none',padding:'5px 0',transition:'color .1s'}} onMouseEnter={e=>e.currentTarget.style.color=C.ink} onMouseLeave={e=>e.currentTarget.style.color=C.mid}>
+            <span>{label}</span><span style={{fontSize:10,opacity:.5,display:'inline-flex'}}><Icon name="arrowRight" size={10}/></span>
+          </a>
+        ))}
+        <button onClick={signOut} style={{marginTop:10,width:'100%',background:C.ink,border:'none',borderRadius:6,color:C.sidebar,fontSize:12,padding:'7px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+          Cerrar sesión
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── App principal ────────────────────────────────────────────
+function App() {
+  const [page,    setPage]    = useState('dashboard');
+  const [loading, setLoading] = useState(true);
+  const [flash,   setFlash]   = useState(null);
+  const [offline, setOffline] = useState(false);
+  const [rtLive,  setRtLive]  = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [unreadSupport, setUnreadSupport] = useState(0);
+  const [rawData, setRawData] = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[],platformConfig:[],addons:[],addonCatalog:[]});
+  const [themeMode, setThemeMode] = useState(window.MythosTheme ? window.MythosTheme.get() : 'light');
+  useEffect(() => {
+    const onTheme = e => setThemeMode(e.detail.mode);
+    document.addEventListener('mythos:themechange', onTheme);
+    return () => document.removeEventListener('mythos:themechange', onTheme);
+  }, []);
+  const handleToggleTheme = () => window.MythosTheme && window.MythosTheme.toggle();
+
+  // Polling de tickets de soporte sin leer
+  useEffect(()=>{
+    if(!db) return;
+    const tick = async () => {
+      if(_shouldPause()) return;
+      const { data } = await db.from('support_tickets')
+        .select('unread_for_super,status')
+        .neq('status','cerrado');
+      setUnreadSupport((data||[]).reduce((s,t)=>s+(t.unread_for_super||0),0));
+    };
+    tick();
+    const id = setInterval(tick, 20000);
+    return () => clearInterval(id);
+  },[]);
+
+  const loadAll = useCallback(async (opts) => {
+    const silent = opts && opts.silent;
+    if (!db) { setRawData(DEMO); setOffline(true); setLoading(false); return; }
+    if (!silent) setLoading(true);
+    setRefreshing(true);
+    try {
+      const ago30 = new Date(Date.now()-30*86400000).toISOString();
+      const [rests,subs,plans,events,orders,ratings,config,addons,addonCat] = await Promise.all([
+        db.from('restaurants').select('*').order('created_at',{ascending:false}),
+        db.from('subscriptions').select('*, plan:subscription_plans(id,name,price_usd,billing_cycle)').then(r=>r.error?{data:[]}:r),
+        db.from('subscription_plans').select('*').order('price_usd').then(r=>r.error?{data:[]}:r),
+        db.from('platform_events').select('*, restaurant:restaurants(name)').order('created_at',{ascending:false}).limit(100).then(r=>r.error?{data:[]}:r),
+        db.from('orders').select('id,restaurant_id,total,created_at,status').gte('created_at',ago30).then(r=>r.error?{data:[]}:r),
+        db.from('ratings').select('restaurant_id,stars,created_at').then(r=>r.error?{data:[]}:r),
+        db.from('platform_config').select('*').then(r=>r.error?{data:[]}:r),
+        db.from('restaurant_addons').select('*').then(r=>r.error?{data:[]}:r),
+        db.from('plan_addons').select('*').order('price_usd').then(r=>r.error?{data:[]}:r),
+      ]);
+      if (rests.error) throw rests.error;
+      setRawData({restaurants:rests.data||[],subscriptions:subs.data||[],plans:plans.data||[],events:events.data||[],orders:orders.data||[],ratings:ratings.data||[],platformConfig:config.data||[],addons:addons.data||[],addonCatalog:addonCat.data||[]});
+      setOffline(false);
+    } catch(e) {
+      console.warn('Error cargando datos:',e);
+      setRawData(DEMO); setOffline(true);
+      if (!silent) setFlash({type:'warn',text:'Sin conexión a Supabase — datos demo'});
+    }
+    if (!silent) setLoading(false);
+    setRefreshing(false);
+  }, []);
+
+  useEffect(()=>{ loadAll(); },[loadAll]);
+
+  // Realtime + polling fallback 30s
+  useEffect(()=>{
+    if (!db) return;
+    const interval = setInterval(()=>{ if(!_shouldPause()) loadAll({silent:true}); }, 30000);
+    const safeLoad = ()=>{ if(!_shouldPause()) loadAll({silent:true}); };
+    const ch = db.channel('superadmin-rt')
+      .on('postgres_changes',{event:'*',schema:'public',table:'orders'},          safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'restaurants'},     safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'subscriptions'},   safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'platform_events'}, safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'user_roles'},      safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'platform_config'}, safeLoad)
+      .on('postgres_changes',{event:'*',schema:'public',table:'restaurant_addons'}, safeLoad)
+      .subscribe(s=>setRtLive(s==='SUBSCRIBED'));
+    return ()=>{ clearInterval(interval); db.removeChannel(ch); };
+  },[loadAll]);
+
+  const {restaurants,plans,subscriptions,events,orders,ratings,platformConfig,addons,addonCatalog} = rawData;
+  const enriched = buildAnalytics(restaurants, orders, ratings, subscriptions, plans, addons);
+
+  // reload silencioso (sin spinner full-screen) — para acciones tras mutaciones
+  const reloadSilent = useCallback(()=>loadAll({silent:true}),[loadAll]);
+
+  const bannerRow    = platformConfig.find(c=>c.key==='global_banner_active');
+  const bannerMsgRow = platformConfig.find(c=>c.key==='global_banner_message');
+  const bannerActive = bannerRow?.value==='true' && !!bannerMsgRow?.value;
+  const bannerMsg    = bannerMsgRow?.value||'';
+
+  // Moneda activa de la plataforma (afecta a todo fmtMoney/fmtGuarani de la app).
+  // Se aplica en el cuerpo del render para que los hijos formateen ya con la moneda correcta.
+  setPlatformCurrency(platformConfig.find(c=>c.key==='platform_currency')?.value);
+
+  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',usuarios:'Usuarios',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',configuracion:'Configuración'};
+
+  return (
+    <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
+      <Sidebar page={page} setPage={setPage} badges={{soporte:unreadSupport}} themeMode={themeMode} onToggleTheme={handleToggleTheme}/>
+      <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
+        {/* Banner global */}
+        {bannerActive&&!bannerDismissed&&(
+          <div style={{background:'#FF9500',color:'#FFFFFF',padding:'10px 24px',flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',zIndex:20}}>
+            <span style={{fontSize:13,fontWeight:500}}>{bannerMsg}</span>
+            <button onClick={()=>setBannerDismissed(true)} style={{background:'none',border:'none',color:'#FFFFFF',fontSize:18,cursor:'pointer',padding:'0 4px',opacity:.8}}>×</button>
+          </div>
+        )}
+        {/* Header */}
+        <div style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,zIndex:10}}>
+          <div style={{fontWeight:700,fontSize:15,color:C.ink}}>{pageTitles[page]||page}</div>
+          <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
+            {offline&&<span style={{fontSize:11,color:C.dim,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Demo offline</span>}
+            {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:'#E8F9ED',padding:'3px 10px',borderRadius:12}} className="pulse">En vivo</span>}
+            {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Conectado</span>}
+            {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
+            <button onClick={()=>loadAll({silent:true})} disabled={refreshing} title="Recargar datos" style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer',opacity:refreshing?0.5:1}}><span className={refreshing?'spin':''} style={{display:'inline-block'}}>↺</span></button>
+          </div>
+        </div>
+        {/* Contenido */}
+        <div style={{flex:1,padding:24,overflowY:'auto'}}>
+          {loading ? (
+            <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:200,gap:14}}>
+              <Spinner/><span style={{color:C.mid}}>Cargando Mythos…</span>
+            </div>
+          ) : (
+            <>
+              {page==='dashboard'     && <PageDashboard    enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} setFlash={setFlash} reload={reloadSilent} setPage={setPage}/>}
+              {page==='paneles'       && <PageSuperPaneles restaurants={restaurants}/>}
+              {page==='capacidad'     && <PageCapacidad    enriched={enriched}/>}
+              {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} addonCatalog={addonCatalog} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} addonCatalog={addonCatalog} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
+              {page==='soporte'       && <PageSoporte      setFlash={setFlash}/>}
+              {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
+              {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='horarios'      && <PageHorarios     restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='calendario'    && <PageCalendario   restaurants={restaurants}/>}
+              {page==='configuracion' && <PageConfiguracion restaurants={restaurants} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
+            </>
+          )}
+        </div>
+      </div>
+      <FlashMsg msg={flash} onClose={()=>setFlash(null)}/>
+    </div>
+  );
+}
+
+// ── Auth guard — solo superadmin ─────────────────────────────
+async function bootstrap() {
+  if (!db) {
+    createRoot(document.getElementById('root')).render(<App/>);
+    return;
+  }
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) { window.location.replace('login.html'); return; }
+  const { data: profile } = await db.rpc('get_my_profile');
+  if (!profile || profile.role !== 'superadmin') {
+    await db.auth.signOut();
+    window.location.replace('login.html');
+    return;
+  }
+  window._userProfile = profile;
+  createRoot(document.getElementById('root')).render(<App/>);
+}
+bootstrap();
