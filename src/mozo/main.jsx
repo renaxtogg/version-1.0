@@ -8,6 +8,12 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 
+// PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
+// (window.React). Tras bundlear React por panel con Vite ya no existe como global y
+// useCapabilities() rompía con "React is not defined". Reexponemos la MISMA instancia de
+// React (la del bundle) para el script global; NO se reintroduce React por CDN.
+window.React = React;
+
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 /* ── SUPABASE ── */

@@ -1790,15 +1790,11 @@ function App() {
   useEffect(() => { try { localStorage.setItem('app_screen', screen); } catch {} }, [screen]);
   useEffect(() => { try { localStorage.setItem('app_cart', JSON.stringify(cartItems)); } catch {} }, [cartItems]);
   useEffect(() => { try { if (currentOrderNum) localStorage.setItem('app_order_num', currentOrderNum); } catch {} }, [currentOrderNum]);
-  useEffect(() => { try { localStorage.setItem('app_pay_total', payTotal); } catch {} }, [payTotal]);
-  useEffect(() => { try { localStorage.setItem('app_pay_sub', paySubtotal); } catch {} }, [paySubtotal]);
-  useEffect(() => { try { localStorage.setItem('app_pay_disc', payDiscount); } catch {} }, [payDiscount]);
-  useEffect(() => { try { localStorage.setItem('app_pay_coupon', payCoupon); } catch {} }, [payCoupon]);
-
-  // Si el cliente recarga en pantalla de pago con total=0, volvemos al carrito de forma segura.
-  useEffect(() => {
-    if (screen === 'pay' && (payTotal <= 0 || !cartItems.length)) setScreen('cart');
-  }, []);
+  // NOTA (PR-5): los efectos que persisten payTotal/paySubtotal/payDiscount/payCoupon se movieron
+  // más abajo, justo después de declarar esos estados. Antes estaban acá, ANTES de su `const … =
+  // useState(…)`, y sus arrays de dependencias (evaluados en render) los leían adelantados. Babel
+  // los compilaba a `var` (hoisted → undefined, sin crash); con Vite/ESM el `const` real lanza
+  // "Cannot access 'payTotal' before initialization" (TDZ) y dejaba el panel cliente en blanco.
 
   const clearSession = () => {
     try {
@@ -1818,6 +1814,19 @@ function App() {
   const [paySubtotal, setPaySubtotal] = useState(() => { try { return Number(localStorage.getItem('app_pay_sub') || 0); } catch { return 0; } });
   const [payDiscount, setPayDiscount] = useState(() => { try { return Number(localStorage.getItem('app_pay_disc') || 0); } catch { return 0; } });
   const [payCoupon, setPayCoupon]   = useState(() => { try { return localStorage.getItem('app_pay_coupon') || ''; } catch { return ''; } });
+
+  // PR-5: reubicados aquí (después de declarar los estados pay*) para evitar el TDZ que rompía el
+  // panel con Vite. Comportamiento equivalente al original (persistencia de los campos de pago).
+  useEffect(() => { try { localStorage.setItem('app_pay_total', payTotal); } catch {} }, [payTotal]);
+  useEffect(() => { try { localStorage.setItem('app_pay_sub', paySubtotal); } catch {} }, [paySubtotal]);
+  useEffect(() => { try { localStorage.setItem('app_pay_disc', payDiscount); } catch {} }, [payDiscount]);
+  useEffect(() => { try { localStorage.setItem('app_pay_coupon', payCoupon); } catch {} }, [payCoupon]);
+
+  // Si el cliente recarga en pantalla de pago con total=0, volvemos al carrito de forma segura.
+  useEffect(() => {
+    if (screen === 'pay' && (payTotal <= 0 || !cartItems.length)) setScreen('cart');
+  }, []);
+
   const [toast, setToast]           = useState(null);
   const [liveMenu, setLiveMenu]     = useState(null);
   const [menuStatus, setMenuStatus] = useState('loading'); // loading | ready | empty
