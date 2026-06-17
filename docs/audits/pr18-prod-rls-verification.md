@@ -1,8 +1,9 @@
 # PR-18 — Verificación RLS producción read-only
 
-> **Tipo:** verificación read-only + documentación. **No cambia producto. No toca DB (solo SELECT, y aún sin ejecutar).**
+> **Tipo:** verificación read-only + documentación. **No cambia producto. No toca DB (solo SELECT).**
 > **Fecha:** 2026-06-16. **Autor:** Claude Code (programador). **Para:** Renato (fundador) + ChatGPT (arquitecto).
 > **Siguiente paso recomendado por:** PR-17 (Bloque A). Genera evidencia para decidir si hace falta PR-19 (hotfix).
+> **Estado:** **PASS** — gauge consolidado (§9) ejecutado manualmente por Renato en prod (ver "Resultado de ejecución manual").
 
 ---
 
@@ -22,9 +23,25 @@
 
 ## 2. Ejecución
 
-**Opción B — Script preparado, PENDIENTE de ejecución manual por Renato.**
+**Opción A — Ejecutado manualmente por Renato en el Supabase SQL Editor (producción).** Renato corrió el **gauge consolidado (§9)** y devolvió la fila de resultados (ver "Resultado de ejecución manual" abajo). El entorno local de Claude Code sigue **sin** método de conexión seguro (verificado sin imprimir valores: `SUPABASE_PAT`, `SUPABASE_DB_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `SUPABASE_ACCESS_TOKEN`, `PGPASSWORD` todas sin setear; sin `supabase` CLI ni `psql`), por lo que la corrida la hizo Renato — **no se pidieron secretos por chat**.
 
-No hay un método de conexión seguro ya configurado en el entorno local (verificado sin imprimir valores): `SUPABASE_PAT`, `SUPABASE_DB_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `SUPABASE_ACCESS_TOKEN`, `PGPASSWORD` están **todas sin setear**; **no** hay `supabase` CLI ni `psql` instalados. Según las reglas del PR, **no se piden secretos por chat**.
+### Resultado de ejecución manual por Renato
+
+**Fecha:** 2026-06-16. **Método:** Supabase SQL Editor, producción (`ocwzupmamfojvdywavqi`). **Resultado:** **PASS del gauge consolidado (§9).**
+
+| Contador (§9) | Valor observado | Esperado (PASS) | ¿OK? |
+|---|---|---|---|
+| `anon_admin_rpcs` | 0 | 0 | ✅ |
+| `dc_anon_grants` | 0 | 0 | ✅ |
+| `drift_policies` | 0 | 0 | ✅ |
+| `anon_residual_grants` | 0 | 0 | ✅ |
+| `list_users_guarded` | true | true | ✅ |
+| `capabilities_guarded` | true | true | ✅ |
+| `rls_disabled_critical` | 0 | 0 | ✅ |
+
+**Lectura:** los 7 contadores críticos coinciden con el PASS esperado → el drift de 105 está cerrado, los guards de 107 y 108 están presentes, y ninguna tabla crítica tiene RLS apagado.
+
+> **Incertidumbre menor:** se ejecutó el **gauge consolidado** (§9), no necesariamente todas las secciones de detalle (§3–§8) ni el `RLS_SPRINT_1_VERIFICATION.sql` completo. El detalle de catálogo por tabla/policy queda **no adjunto**, pero la **decisión crítica de hotfix** (¿aplicar 105/106/107?) queda **resuelta por el gauge**. Si en el futuro se quiere el detalle completo, basta correr las secciones §3–§8 (siguen siendo read-only).
 
 ### Instrucciones de ejecución manual (seguras, sin secretos)
 1. Supabase Dashboard → **SQL Editor**. Cambiar idioma a **inglés** (el español rompe keywords).
@@ -44,14 +61,14 @@ No hay un método de conexión seguro ya configurado en el entorno local (verifi
 
 | Versión/nombre | Presente en repo | Presente en prod | Estado | Observación |
 |---|---|---|---|---|
-| `103` anon_write_lockdown | Sí | _(Q10 = 0 según memoria 2026-06-11)_ | _a reconfirmar_ | Sprint 1A |
-| `104` authenticated_tenant_scoping | Sí | _(aplicado, memoria)_ | _a reconfirmar_ | Sprint 1A |
-| **`105`** production_drift_security_hotfix | Sí (**header: "DO NOT APPLY UNTIL ordered"**) | **? — desconocido** | **A VERIFICAR (clave)** | Efecto: §2.1/§2.2 del script (delivery_channels anon=0, drift policies=0, 3 stock RPCs no anon, residual=0) |
-| **`106`** fix admin_list ambiguity | Sí | **?** | **A VERIFICAR** | Efecto: §2.3 (función calificada, SECURITY DEFINER, search_path) |
-| **`107`** tenant guard admin_list | Sí | **?** | **A VERIFICAR** | Efecto: §2.3 (`has_tenant_guard_107 = true`) |
-| **`108`** harden get_restaurant_capabilities | Sí (memoria: "aplicada a mano en prod") | _(aplicado, memoria)_ | _a reconfirmar_ | Efecto: §2.4 (`has_tenant_guard = true` y `has_failclosed_coalesce = true`) |
+| `103` anon_write_lockdown | Sí | Sí (memoria; consistente con gauge) | OK | Sprint 1A |
+| `104` authenticated_tenant_scoping | Sí | Sí (memoria; consistente con gauge) | OK | Sprint 1A |
+| **`105`** production_drift_security_hotfix | Sí (header: "DO NOT APPLY UNTIL ordered") | **Sí — confirmado por EFECTO** | **OK** | Gauge §9: `dc_anon_grants=0`, `drift_policies=0`, `anon_admin_rpcs=0`, `anon_residual_grants=0` |
+| **`106`** fix admin_list ambiguity | Sí | **Sí — confirmado por EFECTO** | **OK** | Gauge §9: `list_users_guarded=true` (cuerpo actualizado) |
+| **`107`** tenant guard admin_list | Sí | **Sí — confirmado por EFECTO** | **OK** | Gauge §9: `list_users_guarded=true` (contiene `get_my_company_restaurant_ids`) |
+| **`108`** harden get_restaurant_capabilities | Sí | **Sí — confirmado por EFECTO** | **OK** | Gauge §9: `capabilities_guarded=true` |
 
-**Interpretación esperada (PASS):** §2.1 todos 0; §2.2 sin filas; §2.3 `has_tenant_guard_107 = true`; §2.4 `has_tenant_guard = true` y `has_failclosed_coalesce = true`.
+**Resultado (gauge §9, ejecutado por Renato 2026-06-16):** todos los efectos esperados confirmados. 105/106/107/108 están aplicados en prod (por efecto). **No hace falta aplicar nada.**
 
 ---
 
@@ -116,18 +133,22 @@ Si no se pudo consultar (permisos), indicarlo aquí.
 
 ## 9. Conclusión
 
-**Estado: PENDING EXECUTION.** El script read-only está preparado y validado como SELECT-only, pero **aún no se ejecutó contra prod** (no hay conexión segura local y no se piden secretos). La conclusión definitiva (PASS / PARTIAL / FAIL) se completa tras la corrida manual.
+**Estado: PASS** (basado en el gauge consolidado §9 ejecutado manualmente por Renato en prod el 2026-06-16). Los 7 contadores críticos coinciden con el resultado esperado:
+`anon_admin_rpcs=0`, `dc_anon_grants=0`, `drift_policies=0`, `anon_residual_grants=0`, `list_users_guarded=true`, `capabilities_guarded=true`, `rls_disabled_critical=0`.
 
-**Hipótesis previa (de la memoria del proyecto, a confirmar):** 103/104 aplicados (Q10 = 0) y 108 aplicado a mano; **105/106/107 con estado de aplicación NO confirmado** — son el foco de esta verificación. Si 105 no se aplicó, hay exposición anon real (delivery_channels + drift riders/zones + 3 RPCs de stock) → **FAIL/BLOCKER** y se necesita PR-19.
+**Interpretación:** producción **pasa la verificación crítica** de PR-18. El drift que documentaba la migración 105 (acceso anon a `delivery_channels`, políticas `public_all_riders/zones`, RPCs admin de stock ejecutables por anon) está **cerrado**; los tenant guards de 107 (`admin_list_restaurant_users`) y 108 (`get_restaurant_capabilities`) están **presentes**; y ninguna tabla crítica tiene RLS deshabilitado.
+
+> Alcance del PASS: se basa en el **gauge consolidado**, no en el dump completo de catálogo (§3–§8). La decisión crítica de hotfix queda resuelta; el detalle granular queda como verificación opcional futura (read-only).
 
 ---
 
 ## 10. Recomendación para PR-19
 
-- **Si la corrida muestra drift** (cualquier contador del gauge §9 ≠ esperado: `anon_admin_rpcs>0`, `dc_anon_grants>0`, `drift_policies>0`, `anon_residual_grants>0`, `list_users_guarded=false`, `capabilities_guarded=false`, o `rls_disabled_critical>0`):
-  → **PR-19 — aplicación controlada de las migraciones faltantes (105/106/107)** tal cual están en el repo (idempotentes, guardadas con `to_regclass`/`to_regprocedure`), corriendo el script de verificación **antes y después**. NO crear migración nueva si las existentes cubren el drift; aplicarlas en orden, con backup/ventana según el arquitecto.
-- **Si la corrida está sana** (gauge §9 todo en verde):
-  → **saltar PR-19** y pasar a **PR-20** (decisión sobre datos de simulación + contraseñas compartidas) o **PR-21** (superadmin demo-safety).
+**Decisión (gauge en verde):** **saltar PR-19 por ahora.** No aplicar 105/106/107 — su efecto ya está presente en prod. No abrir hotfix.
+
+Siguiente bloque recomendado: **PR-20** (decisión sobre datos de simulación + contraseñas compartidas vivos en prod) o **PR-21** (superadmin demo-safety). Ambos quedan a decisión del arquitecto.
+
+> Si más adelante se corre el detalle §3–§8 y aparece algún hallazgo no crítico (p.ej. una `USING(true)` inesperada en una tabla no-crítica, o una tabla sensible en la realtime publication), se evaluaría un PR pequeño puntual — pero **no** es un bloqueo de cliente real según el gauge actual.
 
 ---
 
