@@ -6,7 +6,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "vite build && vite build --config vite.config.delivery-cliente.mjs",
+    "build": "vite build && vite build --config vite.config.delivery-cliente.mjs && vite build --config vite.config.cocina.mjs",
     "dev": "vite",
     "preview": "vite preview"
   },
