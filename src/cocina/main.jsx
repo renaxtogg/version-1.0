@@ -945,10 +945,15 @@ function StatsPanel({ tickets }) {
   const hours = Array.from({ length: 10 }, (_, i) => (nowH - 9 + i + 24) % 24);
   const maxHourly = Math.max(...hours.map(h => s.hourly[h] || 0), 1);
 
+  // PR-B3E: tile de métrica → .my-metric-card (superficie/borde/radio/sombra por tokens;
+  // reemplaza el fondo hardcodeado '#111', que NO era theme-reactive → caja negra en light).
+  // Label → .my-metric-card__label. Se CONSERVA el valor en mono y el `color` SEMÁNTICO
+  // (verde/naranja/rojo por umbral de tiempo); el fallback C.white pasa a var(--text-primary).
+  // `sub` y `flexShrink:0` conservados.
   const statBox = (label, val, sub, color) => (
-    <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', flexShrink: 0 }}>
-      <div style={{ fontSize: 9, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 21, fontWeight: 600, color: color || C.white, lineHeight: 1 }}>{val}</div>
+    <div className="my-metric-card" style={{ flexShrink: 0 }}>
+      <div className="my-metric-card__label">{label}</div>
+      <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 21, fontWeight: 600, color: color || 'var(--text-primary)', lineHeight: 1 }}>{val}</div>
       {sub && <div style={{ fontSize: 10, color: C.dim, marginTop: 3 }}>{sub}</div>}
     </div>
   );
@@ -961,7 +966,7 @@ function StatsPanel({ tickets }) {
         {statBox('En proceso', enProceso, 'nuevo + preparando', enProceso >= 8 ? '#FF3B30' : enProceso >= 5 ? '#FF9500' : C.white)}
 
         {s.times.length > 0 && (
-          <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', flexShrink: 0, minWidth: 150 }}>
+          <div className="my-card" style={{ padding: '10px 14px', flexShrink: 0, minWidth: 150 }}>
             <div style={{ fontSize: 9, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 7 }}>Distribucion tiempos</div>
             {[['Rapido', '< 10m', dist.rapido, '#22C55E'], ['Normal', '10–20m', dist.normal, '#FF9500'], ['Lento', '> 20m', dist.lento, '#FF3B30']].map(([lbl, rng, n, col]) => (
               <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
@@ -975,7 +980,7 @@ function StatsPanel({ tickets }) {
           </div>
         )}
 
-        <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 14px', flex: 1, minWidth: 190 }}>
+        <div className="my-card" style={{ padding: '10px 14px', flex: 1, minWidth: 190 }}>
           <div style={{ fontSize: 9, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 7 }}>
             Pedidos por hora
             {stats.peak && <span style={{ marginLeft: 7, color: '#FF9500', fontWeight: 600 }}>pico: {stats.peak.h}:00 ({stats.peak.n})</span>}
@@ -1011,7 +1016,7 @@ function StatsPanel({ tickets }) {
 
       {/* Métricas por producto */}
       {productStats.length > 0 && (
-        <div style={{ background: '#111', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+        <div className="my-card" style={{ overflow: 'hidden', padding: 0 }}>
           <button onClick={() => setShowProducts(v => !v)} style={{
             width: '100%', padding: '10px 14px', background: 'transparent', border: 'none',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
