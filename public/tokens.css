@@ -1,0 +1,167 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   MYTHOS — DESIGN TOKENS (foundation global)  ·  PR-B1 (FASE B)
+   ─────────────────────────────────────────────────────────────────────
+   Fuente ÚNICA de verdad de los design tokens del sistema (UI/UX unificado).
+       :root              = LIGHT (default)
+       [data-theme="dark"] = DARK  (base #0B0B0D, NO #000000)
+
+   Notas de integración (importante):
+   • Se enlaza en cada panel DESPUÉS de design-system.css, de modo que sus
+     valores corregidos (dark sin negro puro, --on-*, overlays, controles)
+     ganan por ORDEN DE CASCADA sin tener que editar los componentes.
+   • PR-B1 es SOLO foundation: NO migra componentes, NO cambia layouts y NO
+     libera dark global. La migración de primitivos/paneles a estos tokens
+     ocurre en PR-B2…PR-B5 (ver MYTHOS_UIUX_AUDIT_PHASE_B.md, sección 6).
+   • Único delta visual respecto del estado previo (intencional, mandado por
+     la skill): --accent light #000000 → #1D1D1F (casi-negro de marca) y la
+     base dark de cocina #000000 → #0B0B0D ("sin negro puro").
+   • Referencias: MYTHOS_UIUX_STYLE_SKILL.md (sección B) y
+     docs/audits/pr-b1-theme-foundation.md.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── LIGHT (default) ─────────────────────────────────────────────────── */
+:root {
+  /* Fondos y superficies */
+  --bg:            #FFFFFF;   /* fondo de la app */
+  --bg-subtle:     #F5F5F7;   /* fondo de página / zonas */
+  --bg-hover:      #E8E8ED;
+  --surface:       #FFFFFF;   /* cards, modales, inputs */
+  --surface-hover: #F5F5F7;
+
+  /* Bordes */
+  --border:        #D2D2D7;
+  --border-strong: #86868B;
+
+  /* Texto */
+  --text-primary:   #1D1D1F;
+  --text-secondary: #6E6E73;
+  --text-tertiary:  #86868B;
+  --text-disabled:  #AEAEB2;
+  --text-inverse:   #FFFFFF;
+
+  /* Marca / acción primaria (light = casi-negro de marca, NO negro puro) */
+  --primary:      #1D1D1F;
+  --primary-text: #FFFFFF;
+
+  /* Estados (colores de sistema) */
+  --success: #34C759;
+  --warning: #FF9500;
+  --error:   #FF3B30;
+  --info:    #007AFF;
+
+  /* Texto/ícono SOBRE un fondo de estado (contraste garantizado) */
+  --on-primary: #FFFFFF;
+  --on-success: #FFFFFF;
+  --on-warning: #000000;   /* el ámbar pide texto oscuro */
+  --on-error:   #FFFFFF;
+  --on-info:    #FFFFFF;
+
+  /* Overlays de modal */
+  --overlay:        rgba(0,0,0,.4);
+  --overlay-strong: rgba(0,0,0,.6);
+
+  /* Tipografía */
+  --font:      system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, monospace;
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-md:   17px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  28px;
+  --text-3xl:  34px;
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  /* Espaciado — escala de 4px */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radios */
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   20px;
+  --radius-full: 999px;
+
+  /* Sombras (light) — monocromáticas y sutiles */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,.08), 0 0 1px rgba(0,0,0,.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.10), 0 0 1px rgba(0,0,0,.06);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.12), 0 0 1px rgba(0,0,0,.04);
+
+  /* Alturas de control */
+  --control-sm: 32px;
+  --control-md: 40px;
+  --control-lg: 48px;
+}
+
+/* ── DARK ─────────────────────────────────────────────────────────────
+   Base #0B0B0D (NO #000000). Profundidad por capas:
+   --bg (#0B0B0D) < --bg-subtle (#111113) < --surface (#1C1C1E) < hover (#2C2C2E). */
+[data-theme="dark"] {
+  --bg:            #0B0B0D;
+  --bg-subtle:     #111113;
+  --bg-hover:      #2C2C2E;
+  --surface:       #1C1C1E;
+  --surface-hover: #2C2C2E;
+
+  --border:        #38383A;
+  --border-strong: #636366;
+
+  --text-primary:   #F5F5F7;
+  --text-secondary: #AEAEB2;
+  --text-tertiary:  #8E8E93;
+  --text-disabled:  #48484A;
+  --text-inverse:   #000000;
+
+  /* En dark el primario NO es negro: claro/acento */
+  --primary:      #FFFFFF;
+  --primary-text: #000000;
+
+  --success: #30D158;
+  --warning: #FF9F0A;
+  --error:   #FF453A;
+  --info:    #0A84FF;
+
+  --on-primary: #000000;
+  --on-success: #000000;   /* verde brillante → texto oscuro = mejor contraste */
+  --on-warning: #000000;
+  --on-error:   #FFFFFF;
+  --on-info:    #FFFFFF;
+
+  --overlay:        rgba(0,0,0,.6);
+  --overlay-strong: rgba(0,0,0,.75);
+
+  /* Sombras (dark): subir opacidad; separar más por borde que por sombra */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,.4);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,.5), 0 0 1px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.6), 0 0 1px rgba(0,0,0,.3);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.7), 0 0 1px rgba(0,0,0,.3);
+}
+
+/* ── ALIAS DE COMPATIBILIDAD (solo transición — NO renombrar componentes aún)
+   Mapean los nombres legacy a los tokens nuevos para no romper paneles viejos.
+   Resuelven por tema vía var(); se retiran al cerrar la migración (PR-B5). ── */
+:root,
+[data-theme="dark"] {
+  --bg-card:       var(--surface);
+  --bg-card-hover: var(--surface-hover);
+  --bg-primary:    var(--bg);
+  --bg-secondary:  var(--bg-subtle);
+  --accent:        var(--primary);
+  --text-muted:    var(--text-tertiary);
+  --danger:        var(--error);
+  --border-hover:  var(--border-strong);
+}
