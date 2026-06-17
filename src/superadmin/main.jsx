@@ -13,7 +13,7 @@ const { useState, useEffect, useCallback, useRef, useReducer } = React;
 // ── Paleta — reactiva al tema ────────────────────────────────
 const PALETTES = {
   light: {
-    bg:'#F5F5F7', sidebar:'#FFFFFF', surface:'#FFFFFF', card:'#FFFFFF',
+    bg:'var(--bg-subtle)', sidebar:'#FFFFFF', surface:'#FFFFFF', card:'#FFFFFF',
     border:'#D2D2D7', bStrong:'#86868B',
     white:'#FFFFFF', ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
     blue:'#000000', blueDim:'#F5F5F7',
@@ -219,16 +219,12 @@ const getMRRMonths = subscriptions => {
 
 // ── Componentes base ─────────────────────────────────────────
 const Btn = ({children,onClick,variant='primary',size='md',disabled,style:sx={},title}) => {
-  const base = {border:'none',borderRadius:6,fontWeight:600,cursor:disabled?'not-allowed':'pointer',opacity:disabled?.5:1,transition:'all .15s',...sx};
-  const sz = size==='sm'?{padding:'4px 10px',fontSize:12}:{padding:'8px 16px',fontSize:14};
-  const vars = {
-    primary: {background:C.ink,color:C.sidebar},
-    ghost:   {background:'transparent',color:C.mid,border:`1px solid ${C.border}`},
-    danger:  {background:C.red+'1E',color:C.red,border:`1px solid ${C.red}55`},
-    success: {background:C.green+'1E',color:C.green,border:`1px solid ${C.green}55`},
-    warn:    {background:C.orange+'1E',color:C.orange,border:`1px solid ${C.orange}55`},
-  };
-  return <button title={title} style={{...base,...sz,...vars[variant]}} onClick={disabled?undefined:onClick}>{children}</button>;
+  // PR-B3C: cableado a .my-btn + variante/tamaño. Sin cambio de props ni de la
+  // semántica de onClick (disabled sigue guardado). danger/success pasan de tinte
+  // suave a sólido (estándar del design system); warn→secondary (no hay variante warn).
+  const vcls = {primary:'my-btn--primary',ghost:'my-btn--ghost',danger:'my-btn--danger',success:'my-btn--success'}[variant] || 'my-btn--secondary';
+  const cls = `my-btn ${vcls}${size==='sm'?' my-btn--sm':''}${disabled?' is-disabled':''}`;
+  return <button title={title} className={cls} style={sx} onClick={disabled?undefined:onClick}>{children}</button>;
 };
 
 const Badge = ({status}) => {
@@ -241,10 +237,11 @@ const PlanBadge = ({name}) => {
   return <span style={{padding:'2px 10px',borderRadius:20,fontSize:11,fontWeight:700,background:C.bg,color:C.ink,whiteSpace:'nowrap'}}>{name}</span>;
 };
 
+// PR-B3C: Kpi → .my-metric-card (Opción A). Valor a var(--text-primary); sub conservado.
 const Kpi = ({label,value,sub}) => (
-  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:'20px 22px',flex:'1 1 180px',minWidth:160}}>
-    <div style={{fontSize:12,color:C.mid,fontWeight:500,marginBottom:8,textTransform:'uppercase',letterSpacing:.4}}>{label}</div>
-    <div style={{fontSize:28,fontWeight:800,color:C.ink,lineHeight:1,letterSpacing:'-0.5px'}}>{value}</div>
+  <div className="my-metric-card" style={{flex:'1 1 180px',minWidth:160}}>
+    <div className="my-metric-card__label">{label}</div>
+    <div style={{fontSize:28,fontWeight:800,color:'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px'}}>{value}</div>
     {sub && <div style={{fontSize:11,color:C.mid,marginTop:6}}>{sub}</div>}
   </div>
 );
@@ -406,10 +403,12 @@ const Spinner = () => (
   <div style={{width:24,height:24,border:`2px solid ${C.border}`,borderTop:`2px solid ${C.ink}`,borderRadius:'50%',flexShrink:0}} className="spin"/>
 );
 
+// PR-B3C: contenedor → .my-card (superficie/borde/radio/sombra por tokens).
+// padding:0 conserva el contenido edge-to-edge (tablas); el header mantiene su padding.
 const SectionCard = ({title,action,children,style:sx={}}) => (
-  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden',...sx}}>
-    {(title||action)&&<div style={{padding:'12px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-      {title&&<span style={{fontWeight:600,fontSize:13,color:C.ink}}>{title}</span>}
+  <div className="my-card" style={{padding:0,overflow:'hidden',...sx}}>
+    {(title||action)&&<div style={{padding:'12px 18px',borderBottom:`1px solid var(--border)`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+      {title&&<span style={{fontWeight:600,fontSize:13,color:'var(--text-primary)'}}>{title}</span>}
       {action}
     </div>}
     {children}
