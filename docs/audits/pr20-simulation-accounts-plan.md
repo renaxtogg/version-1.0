@@ -3,6 +3,7 @@
 > **Tipo:** auditoría + plan (read-only + documentación). **No cambia producto. No toca datos.**
 > **Fecha:** 2026-06-16. **Autor:** Claude Code (programador). **Para:** Renato (fundador) + ChatGPT (arquitecto).
 > **Bloqueo:** 2 detectado en PR-17 (datos/cuentas de simulación vivos en prod junto a Terrapizza real).
+> **Estado:** **PASS con hallazgo confirmado** — inventario ejecutado por Renato en prod; hay demo/sim vivo (ver "Resultado de ejecución manual"). Acción recomendada: rotar/desactivar primero (PR-21A), teardown postergado.
 
 ---
 
@@ -30,9 +31,27 @@
 
 ## 3. Inventario read-only
 
-**Opción B — Script preparado, PENDIENTE de ejecución manual por Renato.**
+**Opción A — Ejecutado manualmente por Renato en el Supabase SQL Editor (producción).** Tras el fix `55b6cc6` (tablas opcionales vía `to_regclass`), el script corrió completo y Renato devolvió el **gauge (§5)**. El entorno local de Claude Code sigue **sin** conexión segura (verificado sin imprimir valores: `SUPABASE_PAT`/`SUPABASE_DB_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`DATABASE_URL`/`SUPABASE_ACCESS_TOKEN`/`PGPASSWORD` sin setear; sin `supabase` CLI ni `psql`) → la corrida la hizo Renato; **no se pidieron secretos**.
 
-No hay conexión segura configurada localmente (verificado sin imprimir valores: `SUPABASE_PAT`/`SUPABASE_DB_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`DATABASE_URL`/`SUPABASE_ACCESS_TOKEN`/`PGPASSWORD` sin setear; sin `supabase` CLI ni `psql`). Según las reglas, **no se piden secretos**.
+### Resultado de ejecución manual por Renato
+
+**Fecha:** 2026-06-16. **Método:** Supabase SQL Editor, producción (`ocwzupmamfojvdywavqi`). **Resultado:** **PASS con hallazgo confirmado** (hay demo/sim vivo).
+
+**Gauge (§5):**
+
+| Métrica | Valor | Lectura |
+|---|---|---|
+| `demo_restaurants_count` | **3** | los 3 sim de la allowlist vivos |
+| `demo_users_count` | **25** | cuentas sim/QA (más de las ~15-18 estimadas → revisar §5) |
+| `demo_orders_count` | **24** | pedidos sim (incluye data de QA de PRs previos) |
+| `demo_delivery_orders_count` | **5** | deliveries sim |
+| `real_tenant_present` | **1** | hay 1 tenant no-sim = Terrapizza |
+| `terrapizza_present` | **1** | Terrapizza presente ✅ (NO tocada) |
+| `recommended_action_hint` | **`DEMO_PRESENT_ROTATE_OR_TEARDOWN`** | confirmar limpieza: rotar/desactivar o teardown |
+
+**Lectura:** `real_tenant_present=1` coincide con `terrapizza_present=1` → el único tenant no-sim es Terrapizza, que queda **fuera** del set sim (correcto). El hint `DEMO_PRESENT_ROTATE_OR_TEARDOWN` confirma que hay simulación viva → procede el camino reversible primero (rotar/desactivar).
+
+> **Nota sobre `demo_users_count=25`:** es mayor que la estimación previa (~15-18). Probable causa: acumulación de cuentas QA `@mythos.internal` creadas en PRs (PR-4/PR-5) + las 15 sim originales + `qa.superadmin`. El detalle por cuenta lo da la **Sección 2** del script (correr y revisar antes de cualquier acción de PR-21A; recordar el flag `protegido_no_tocar`).
 
 ### Instrucciones de ejecución manual (seguras)
 1. Supabase Dashboard → **SQL Editor**, idioma **inglés**.
@@ -55,16 +74,17 @@ No hay conexión segura configurada localmente (verificado sin imprimir valores:
 
 ## 4. Datos demo/sim detectados
 
-> A completar con el inventario (Secciones 1 y 3 del script). Conteos esperados (referencia de PR-14/memoria, a confirmar):
+**Confirmado por el gauge (totales sim, los 3 restaurantes agregados):**
 
-| restaurante/tenant candidato | motivo | conteos principales | severidad | recomendación |
-|---|---|---|---|---|
-| Bella Napoli `a1a1…0001` | allowlist sim + nombre | _(pendiente: orders/delivery/ratings/…)_ | Media | rotar/desactivar cuentas → luego teardown |
-| Sushi Sakura `b2b2…0002` | allowlist sim + nombre | _(pendiente)_ | Media | idem |
-| Parrilla Don Carlos `c3c3…0003` | allowlist sim + nombre + data QA | _(pendiente; tiene data QA de PRs)_ | Media-Alta | idem |
-| **Terrapizza** | **tenant REAL** | n/a | — | **DETECTAR y EXCLUIR siempre; nunca tocar** |
+| categoría | total sim (gauge) | severidad | recomendación |
+|---|---|---|---|
+| Restaurantes sim (allowlist `a1a1/b2b2/c3c3`) | **3** | Media | rotar/desactivar cuentas → luego teardown |
+| Pedidos (`orders`) sim | **24** | Media | se eliminan con teardown (PR-23), no antes |
+| `delivery_orders` sim | **5** | Media | idem |
+| Tenant real presente (no-sim) | **1** (Terrapizza) | — | **EXCLUIR siempre; nunca tocar** |
+| Terrapizza presente | **1** ✅ | — | confirma que queda fuera del set sim |
 
-**PASS esperado del gauge:** `terrapizza_present ≥ 1`; `demo_restaurants_count = 3`.
+> El desglose por restaurante (Bella Napoli / Sushi Sakura / Don Carlos) y por tabla (ratings/coupons/support/etc.) lo da la **Sección 3** del script; correrla si se quiere el detalle fino antes del teardown. Don Carlos concentra la data de QA de PRs previos.
 
 ---
 
@@ -176,9 +196,10 @@ Racional: priorizar lo reversible y de menor riesgo (rotar/desactivar) antes que
 
 ## 12. Conclusión
 
-- **PR-20 no cambia producto ni datos.** Es auditoría + plan: prepara el inventario read-only y compara opciones.
-- Su objetivo es **decidir el camino seguro** para el Bloqueo 2 (sim/cuentas compartidas).
-- **Ninguna acción destructiva ni de escritura está aprobada todavía.** El siguiente paso concreto es correr el inventario y, con el gauge, elegir entre rotar/desactivar (reversible) y, más adelante, teardown (con backup nuevo).
+- **Estado: PASS con hallazgo confirmado.** El inventario (ejecutado por Renato en prod) confirma **demo/sim vivo**: 3 restaurantes sim, 25 cuentas demo/sim, 24 orders y 5 delivery_orders sim. **Terrapizza está presente y NO fue tocada** (único tenant real, fuera del set sim).
+- **PR-20 no cambió producto ni datos.** Solo inventario read-only + plan; ninguna acción destructiva ni de escritura ejecutada.
+- **Recomendación (no teardown inmediato):** primero **PR-21A — rotar/desactivar las cuentas sim compartidas** (reversible, cierra el riesgo de credenciales). Después decidir entre **demo limpia `[DEMO]` (PR-22)** y **teardown real (PR-23)** — este último **solo** con **backup nuevo verificado + dry-run revisado + aprobación explícita de Renato**.
+- El Bloqueo 2 de PR-17 queda **caracterizado y con camino definido**; su cierre efectivo ocurre en PR-21A en adelante.
 
 ---
 
