@@ -707,12 +707,17 @@ function DashboardPage({orders, ratings, setPage}) {
   const todayOrds = orders.filter(o => new Date(o.created_at).toDateString()===todayStr && valid(o));
   const ayerOrds  = orders.filter(o => new Date(o.created_at).toDateString()===ayerStr  && valid(o));
 
-  const ventasHoy  = todayOrds.reduce((s,o)=>s+(o.total||0),0);
-  const ventasAyer = ayerOrds.reduce((s,o)=>s+(o.total||0),0);
+  // PR-16: "Ventas hoy" = solo operaciones realmente cobradas (payment_status='paid'),
+  // nunca pendientes/en curso. "Pedidos hoy" sigue contando todos los pedidos válidos.
+  const isPaid = o => o.payment_status==='paid';
+  const ventasHoy  = todayOrds.filter(isPaid).reduce((s,o)=>s+(o.total||0),0);
+  const ventasAyer = ayerOrds.filter(isPaid).reduce((s,o)=>s+(o.total||0),0);
   const pedidosHoy  = todayOrds.length;
   const pedidosAyer = ayerOrds.length;
-  const ticketHoy   = pedidosHoy  ? Math.round(ventasHoy/pedidosHoy)   : 0;
-  const ticketAyer  = pedidosAyer ? Math.round(ventasAyer/pedidosAyer) : 0;
+  const cobradosHoy  = todayOrds.filter(isPaid).length;
+  const cobradosAyer = ayerOrds.filter(isPaid).length;
+  const ticketHoy   = cobradosHoy  ? Math.round(ventasHoy/cobradosHoy)   : 0;
+  const ticketAyer  = cobradosAyer ? Math.round(ventasAyer/cobradosAyer) : 0;
 
   const mesaCount = {}; todayOrds.forEach(o=>{if(o.table_number)mesaCount[o.table_number]=(mesaCount[o.table_number]||0)+1;});
   const mesaActiva = Object.entries(mesaCount).sort((a,b)=>b[1]-a[1])[0];
@@ -835,7 +840,7 @@ function DashboardPage({orders, ratings, setPage}) {
         </div>
         <div style={{background:'#F5F0FF',border:'1px solid #C4B8FF',borderLeft:'4px solid #5856D6',borderRadius:8,padding:'18px 20px'}}>
           <div style={{fontSize:11,color:'#3E3A9B',fontWeight:700,marginBottom:8,textTransform:'uppercase',letterSpacing:.5,display:'flex',alignItems:'center',gap:6}}><Icon name="receipt" size={13}/> Ticket promedio</div>
-          <div style={{fontSize:28,fontWeight:800,color:'#3E3A9B',lineHeight:1,letterSpacing:'-0.5px'}}>{pedidosHoy>0?fmt(ticketHoy):'—'}</div>
+          <div style={{fontSize:28,fontWeight:800,color:'#3E3A9B',lineHeight:1,letterSpacing:'-0.5px'}}>{cobradosHoy>0?fmt(ticketHoy):'—'}</div>
           <div style={{marginTop:6}}>{ticketAyer>0?<Delta val={ticketHoy} ayer={ticketAyer}/>:<span style={{fontSize:11,color:C.mid}}>sin datos ayer</span>}</div>
         </div>
         <div style={{background:'#FFF4E0',border:'1px solid #FFD580',borderLeft:'4px solid #FF9500',borderRadius:8,padding:'18px 20px'}}>

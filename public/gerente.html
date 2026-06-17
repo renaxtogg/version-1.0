@@ -282,8 +282,9 @@ function Dashboard({onJump}) {
   useEffect(() => { load(); const id = setInterval(load, 15000); return () => clearInterval(id); }, [load]);
 
   const kpis = useMemo(() => {
-    const sales = data.orders.filter(o => ['paid','delivered','kitchen_received','cooking','ready'].includes(o.status)).reduce((s,o) => s + (o.total||0), 0);
-    const tickets = data.orders.filter(o => ['paid','delivered'].includes(o.status)).length;
+    // PR-16: "Ventas hoy" = solo cobrado (payment_status='paid'), no en-curso/pendiente.
+    const sales = data.orders.filter(o => o.payment_status==='paid').reduce((s,o) => s + (o.total||0), 0);
+    const tickets = data.orders.filter(o => o.payment_status==='paid').length;
     const avg = tickets ? sales/tickets : 0;
     const inKitchen = data.orders.filter(o => ['kitchen_received','cooking'].includes(o.status));
     const delayed = inKitchen.filter(o => minsAgo(o.created_at) > 25);
@@ -396,7 +397,7 @@ function SupervisionTurno() {
     const today = new Date(); today.setHours(0,0,0,0);
     const [e, o] = await Promise.all([
       db.from('employee_shifts').select('*').eq('restaurant_id',RID).gte('clock_in', today.toISOString()).order('clock_in',{ascending:false}),
-      db.from('orders').select('id,total,status,waiter_id,waiter_name,created_at,paid_at').eq('restaurant_id',RID).gte('created_at', today.toISOString())
+      db.from('orders').select('id,total,status,waiter_id,waiter_name,created_at,paid_at,payment_status').eq('restaurant_id',RID).gte('created_at', today.toISOString())
     ]);
     setEmps(e.data||[]); setOrders(o.data||[]); setLoading(false);
   }, []);
@@ -1190,11 +1191,12 @@ function ReportesDelDia() {
   const ordersToday = data.orders.filter(o => new Date(o.created_at) >= today);
   const ordersYday  = data.orders.filter(o => new Date(o.created_at) <  today);
 
-  const salesToday = ordersToday.filter(o => ['paid','delivered','kitchen_received','cooking','ready'].includes(o.status)).reduce((s,o) => s + (o.total||0), 0);
-  const salesYday  = ordersYday.filter(o => ['paid','delivered'].includes(o.status)).reduce((s,o) => s + (o.total||0), 0);
+  // PR-16: "Ventas hoy" = solo cobrado (payment_status='paid'), no en-curso/pendiente.
+  const salesToday = ordersToday.filter(o => o.payment_status==='paid').reduce((s,o) => s + (o.total||0), 0);
+  const salesYday  = ordersYday.filter(o => o.payment_status==='paid').reduce((s,o) => s + (o.total||0), 0);
   const deltaPct = salesYday ? ((salesToday - salesYday) / salesYday * 100) : 0;
 
-  const ticketsToday = ordersToday.filter(o => ['paid','delivered'].includes(o.status)).length;
+  const ticketsToday = ordersToday.filter(o => o.payment_status==='paid').length;
   const ticketAvg = ticketsToday ? salesToday/ticketsToday : 0;
 
   // por mozo

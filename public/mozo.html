@@ -1354,7 +1354,7 @@ function App() {
     if (!db) return;
     setLoadingTurno(true);
     const { data } = await db.from('orders')
-      .select('id, order_number, status, total, table_id, created_at, payment_method, paid_by_name, paid_at, waiter_name, order_items(id, item_name, quantity)')
+      .select('id, order_number, status, payment_status, total, table_id, created_at, payment_method, paid_by_name, paid_at, waiter_name, order_items(id, item_name, quantity)')
       .eq('restaurant_id', RID)
       .gte('created_at', turnoInicio)
       .neq('status', 'cancelled')
@@ -2895,6 +2895,11 @@ function App() {
             </div>
 
             <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* PR-16: las cifras de abajo son del restaurante en el turno (todos los
+                  mozos), no individuales — aún no hay turno individual por mozo. */}
+              <div style={{ fontSize: 11, color: 'var(--text2)' }}>
+                Cifras del restaurante en el turno · todos los mozos
+              </div>
               {/* Resumen rápido: grid 2x2 */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <div className="turno-stat" style={{ padding: '12px 14px' }}>
@@ -2915,10 +2920,11 @@ function App() {
                 </div>
               </div>
 
-              {/* Total facturado destacado */}
+              {/* PR-16: cobrado real del turno (pagado), no la suma con pendientes.
+                  No llamar "facturado" a algo que incluye pendientes. */}
               <div className="turno-stat highlight">
-                <div className="turno-stat-label">Total facturado</div>
-                <div className="turno-stat-value">{fGs(turnoStats.total)}</div>
+                <div className="turno-stat-label">Cobrado en el turno</div>
+                <div className="turno-stat-value">{fGs(turnoStats.totalCobrado)}</div>
               </div>
 
               {/* Desglose por método de pago */}
