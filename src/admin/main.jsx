@@ -157,11 +157,13 @@ function Badge({status}) {
   return <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,background:col+'22',color:col,border:`1px solid ${col}44`,borderRadius:5}}><span style={{width:5,height:5,borderRadius:'50%',background:col}}/>{SL[status]||status}</span>;
 }
 function KpiCard({label,value,sub,accent,icon,onClick}) {
+  // PR-B3B: superficie/label desde primitives (.my-metric-card, Opción A). Se
+  // conservan el valor (mono + acento), el sub y el hover JS de las KPIs clicables.
   return (
-    <div onClick={onClick} style={{background:C.surface,border:`1px solid ${C.border}`,padding:'18px 20px',flex:1,minWidth:140,borderRadius:8,cursor:onClick?'pointer':'default',transition:'border-color .15s'}} onMouseEnter={e=>{if(onClick)e.currentTarget.style.borderColor=C.bs;}} onMouseLeave={e=>{if(onClick)e.currentTarget.style.borderColor=C.border;}}>
+    <div onClick={onClick} className="my-metric-card" style={{flex:1,minWidth:140,cursor:onClick?'pointer':'default'}} onMouseEnter={e=>{if(onClick)e.currentTarget.style.borderColor=C.bs;}} onMouseLeave={e=>{if(onClick)e.currentTarget.style.borderColor=C.border;}}>
       {icon && <div style={{fontSize:20,marginBottom:8}}>{icon}</div>}
-      <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>{label}{onClick&&<span style={{color:C.mid,marginLeft:4}}>→</span>}</div>
-      <div style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||'#000000',lineHeight:1}}>{value}</div>
+      <div className="my-metric-card__label">{label}{onClick&&<span style={{color:C.mid,marginLeft:4}}>→</span>}</div>
+      <div style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||'var(--text-primary)',lineHeight:1}}>{value}</div>
       {sub && <div style={{fontSize:11,color:C.dim,marginTop:5}}>{sub}</div>}
     </div>
   );
@@ -192,11 +194,13 @@ function Sel({value,onChange,children,...rest}) {
   return <select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'8px 10px',fontSize:13,borderRadius:6,...(rest.style||{})}}>{children}</select>;
 }
 function Btn({children,onClick,variant='primary',disabled,small,style:sx}) {
-  const bg = variant==='primary'?C.ink:variant==='danger'?C.red+'1E':variant==='ghost'?'transparent':C.bg;
-  const color = variant==='primary'?C.sidebar:variant==='danger'?C.red:C.mid;
-  const border = variant==='primary'?'none':variant==='danger'?`1px solid ${C.red}55`:`1px solid ${C.border}`;
+  // PR-B3B: botón cableado a .my-btn + variante (sin cambio de props ni handlers).
+  // Branching preservado 1:1: primary/danger/ghost explícitos; el resto
+  // (secondary/inline/success/otros) cae en secondary, igual que antes.
+  // Nota: danger pasa de tinte suave a sólido (estándar del design system).
+  const vcls = {primary:'my-btn--primary',danger:'my-btn--danger',ghost:'my-btn--ghost'}[variant] || 'my-btn--secondary';
   return (
-    <button onClick={onClick} disabled={disabled} style={{background:bg,border,color,padding:small?'5px 10px':'9px 18px',fontSize:small?11:13,fontWeight:700,borderRadius:6,opacity:disabled?0.5:1,...sx}}>
+    <button onClick={onClick} disabled={disabled} className={`my-btn ${vcls}${small?' my-btn--sm':''}`} style={sx}>
       {children}
     </button>
   );
