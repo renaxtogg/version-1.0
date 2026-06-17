@@ -128,10 +128,12 @@ function Modal({title, onClose, children, width=460}) {
 
 /* ───────────────────────── COMPONENTES REUTILIZABLES ───────────────────────── */
 function KpiCard({label,value,sub,accent,icon,onClick,alert}) {
+  // PR-B3A: superficie/label desde primitives (.my-metric-card, Opción A). Se
+  // conserva el valor (mono + color de acento) y el sub inline. Sin cambio de props.
   return (
-    <div onClick={onClick} style={{background:C.surface,border:`1px solid ${alert?C.red:C.border}`,padding:'16px 18px',flex:1,minWidth:140,borderRadius:10,cursor:onClick?'pointer':'default',transition:'border-color .15s',position:'relative'}}>
+    <div onClick={onClick} className="my-metric-card" style={{flex:1,minWidth:140,cursor:onClick?'pointer':'default',position:'relative',...(alert?{borderColor:'var(--error)'}:null)}}>
       {icon && <div style={{fontSize:18,marginBottom:6}}>{icon}</div>}
-      <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:6}}>{label}</div>
+      <div className="my-metric-card__label">{label}</div>
       <div style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||C.ink,lineHeight:1}}>{value}</div>
       {sub && <div style={{fontSize:11,color:C.dim,marginTop:5}}>{sub}</div>}
     </div>
@@ -148,10 +150,10 @@ function Th({children,right,width}) { return <th style={{padding:'9px 14px',text
 function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?C.mid:C.ink,textAlign:right?'right':'left',...sx}}>{children}</td>; }
 function Empty({cols, label}) { return <tr><td colSpan={cols} style={{padding:36,textAlign:'center',color:C.dim,fontSize:13}}>{label||'Sin datos'}</td></tr>; }
 function Btn({children,onClick,variant='primary',disabled,small,style:sx,full}) {
-  const bg = variant==='primary'?C.ink:variant==='danger'?C.red+'1E':variant==='success'?C.green+'1E':variant==='ghost'?'transparent':C.bg;
-  const color = variant==='primary'?C.sidebar:variant==='danger'?C.red:variant==='success'?C.green:C.ink;
-  const border = variant==='primary'?C.ink:variant==='danger'?C.red+'55':variant==='success'?C.green+'55':C.border;
-  return <button onClick={onClick} disabled={disabled} style={{background:bg,color,border:`1px solid ${border}`,padding:small?'6px 10px':'9px 14px',fontSize:small?12:13,fontWeight:600,borderRadius:8,opacity:disabled?.45:1,cursor:disabled?'not-allowed':'pointer',width:full?'100%':'auto',transition:'opacity .15s',...sx}}>{children}</button>;
+  // PR-B3A: botón cableado a .my-btn + variante. Sin cambio de props ni handlers.
+  // Nota: danger/success pasan de tinte suave a sólido (estándar del design system).
+  const vcls = {primary:'my-btn--primary',danger:'my-btn--danger',success:'my-btn--success',ghost:'my-btn--ghost'}[variant] || 'my-btn--secondary';
+  return <button onClick={onClick} disabled={disabled} className={`my-btn ${vcls}${small?' my-btn--sm':''}`} style={{...(full?{width:'100%'}:null),...sx}}>{children}</button>;
 }
 function Lbl({children}) { return <label style={{fontSize:10,color:C.mid,display:'block',marginBottom:5,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>{children}</label>; }
 function Inp({value,onChange,placeholder,type='text',...rest}) {
@@ -164,8 +166,11 @@ function Txt({value,onChange,placeholder,rows=3,...rest}) {
   return <textarea value={value||''} onChange={onChange} placeholder={placeholder} rows={rows} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,resize:'vertical',fontFamily:'inherit',...(rest.style||{})}}/>;
 }
 function Card({title, action, children, style:sx}) {
+  // PR-B3A: contenedor cableado a .my-card (superficie/borde/radio/sombra desde
+  // tokens). El `style` (sx) sigue mergeando, así las tarjetas con override
+  // puntual de color (p.ej. "Llamadas de mozo") conservan su tinte.
   return (
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18,...sx}}>
+    <div className="my-card" style={sx}>
       {(title||action) && (
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
           {title && <div style={{fontSize:13,fontWeight:700,color:C.ink}}>{title}</div>}
