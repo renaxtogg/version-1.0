@@ -107,20 +107,27 @@ SELECT t.tabla, t.filas FROM (
 ) t
 ORDER BY t.filas DESC, t.tabla;
 
--- 3.1 Tablas posiblemente FANTASMA (user_profiles / delivery_channels).
---     Correr por separado: si la tabla no existe, este statement da
---     error → simplemente omitilo (no afecta al resto).
+-- 3.1 EXISTENCIA de tablas opcionales/fantasma (SEGURO).
+--     `to_regclass` devuelve NULL si la tabla NO existe y NUNCA lanza error,
+--     así que esta consulta corre siempre. (Confirmado 2026-06-16:
+--     public.user_profiles NO existe en prod — tabla fantasma.)
 SELECT
-  (SELECT count(*) FROM public.user_profiles
-     WHERE restaurant_id IN ('a1a10000-0000-4000-8000-000000000001',
-                             'b2b20000-0000-4000-8000-000000000002',
-                             'c3c30000-0000-4000-8000-000000000003'))  AS user_profiles_sim;
--- (separado a propósito; comentá la siguiente si delivery_channels no existe)
-SELECT
-  (SELECT count(*) FROM public.delivery_channels
-     WHERE restaurant_id IN ('a1a10000-0000-4000-8000-000000000001',
-                             'b2b20000-0000-4000-8000-000000000002',
-                             'c3c30000-0000-4000-8000-000000000003'))  AS delivery_channels_sim;
+  to_regclass('public.user_profiles')     AS user_profiles_tbl,      -- NULL = no existe
+  to_regclass('public.delivery_channels')  AS delivery_channels_tbl;  -- NULL = no existe
+
+-- 3.2 (OPCIONAL) Conteos de esas tablas — ejecutar SOLO si 3.1 mostró que
+--     la tabla existe (regclass no-NULL). Descomentá la línea que aplique.
+--     Quedan COMENTADAS a propósito para que el script no falle si la
+--     tabla no existe (una referencia directa a una relación inexistente
+--     rompe el parseo aunque esté detrás de un CASE).
+-- SELECT count(*) AS user_profiles_sim FROM public.user_profiles
+--   WHERE restaurant_id IN ('a1a10000-0000-4000-8000-000000000001',
+--                           'b2b20000-0000-4000-8000-000000000002',
+--                           'c3c30000-0000-4000-8000-000000000003');
+-- SELECT count(*) AS delivery_channels_sim FROM public.delivery_channels
+--   WHERE restaurant_id IN ('a1a10000-0000-4000-8000-000000000001',
+--                           'b2b20000-0000-4000-8000-000000000002',
+--                           'c3c30000-0000-4000-8000-000000000003');
 
 
 -- ════════════════════════════════════════════════════════════════════

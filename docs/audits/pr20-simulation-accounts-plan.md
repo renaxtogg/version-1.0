@@ -40,6 +40,17 @@ No hay conexión segura configurada localmente (verificado sin imprimir valores:
 3. Pegar la salida en §4–§5 de este informe; como mínimo la **fila del gauge (Sección 5)**.
 4. **No** pegar contraseñas/hashes/tokens (el script no los devuelve).
 
+> **Fix 2026-06-16 (primera corrida):** la primera ejecución abortó con
+> `42P01: relation "public.user_profiles" does not exist` (Sección 3.1).
+> Confirmado: **`public.user_profiles` NO existe en prod** (tabla fantasma,
+> consistente con el hallazgo del RLS Sprint). El script se corrigió: las
+> tablas opcionales/fantasma (`user_profiles`, `delivery_channels`) ya **no**
+> se referencian directamente en SQL ejecutable — la Sección 3.1 ahora usa
+> `to_regclass(...)` (devuelve NULL si la tabla no existe y nunca falla), y
+> los conteos opcionales quedan **comentados** (ejecutar solo si existen).
+> El script vuelve a ser ejecutable de punta a punta. **Renato debe volver a
+> correr el archivo completo corregido.**
+
 ---
 
 ## 4. Datos demo/sim detectados
@@ -172,7 +183,7 @@ Racional: priorizar lo reversible y de menor riesgo (rotar/desactivar) antes que
 ---
 
 ### Anexo — Incertidumbres
-- Conteos exactos de restaurantes/usuarios/orders sim en prod → los da el inventario (PENDING).
+- Conteos exactos de restaurantes/usuarios/orders sim en prod → los da el inventario (PENDING re-ejecución del script corregido).
 - Acceso del SQL Editor a `auth.users` (Sección 4) — normalmente OK como `postgres`; si no, se omite.
-- Existencia real de tablas fantasma (`user_profiles`, `delivery_channels`) en prod → la Sección 3.1 lo revela (omitir línea si error).
+- `public.user_profiles` **confirmado ausente** en prod (tabla fantasma). `public.delivery_channels` → la Sección 3.1 (`to_regclass`) revela si existe; si NULL, omitir su conteo opcional.
 - Estado de rotación previa de la contraseña compartida (no verificable desde el repo).
