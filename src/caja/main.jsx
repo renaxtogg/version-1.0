@@ -232,17 +232,24 @@ function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}){re
 function Sel({value,onChange,children,...rest}){return<select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,...(rest.style||{})}}>{children}</select>;}
 function Textarea({value,onChange,placeholder,rows=3}){return<textarea value={value} onChange={onChange} placeholder={placeholder} rows={rows} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,resize:'vertical'}}/>;}
 function Btn({children,onClick,variant='primary',disabled,small,full,style:sx}){
-  const bg=variant==='primary'?'#000000':variant==='danger'?'rgba(239,68,68,0.1)':variant==='success'?'rgba(34,197,94,0.12)':variant==='ghost'?'transparent':'#F5F5F7';
-  const color=variant==='primary'?'#FFFFFF':variant==='danger'?C.red:variant==='success'?C.green:C.mid;
-  const border=variant==='primary'?'none':variant==='danger'?'1px solid rgba(239,68,68,0.3)':variant==='success'?'1px solid rgba(34,197,94,0.3)':`1px solid ${C.border}`;
-  return<button onClick={onClick} disabled={disabled} style={{background:bg,border,color,padding:small?'6px 12px':'10px 20px',fontSize:small?12:14,fontWeight:700,borderRadius:6,opacity:disabled?.5:1,width:full?'100%':'auto',...sx}}>{children}</button>;
+  // PR-B3D: cableado a .my-btn + variante/tamaño. Sin cambio de props ni de la
+  // semántica (disabled sigue como atributo nativo del <button>; full = ancho completo).
+  // Mapeo de variantes: primary/danger/success/ghost → su clase; resto → secondary.
+  // danger/success pasan de tinte suave a sólido (estándar del design system).
+  const vcls={primary:'my-btn--primary',danger:'my-btn--danger',success:'my-btn--success',ghost:'my-btn--ghost'}[variant]||'my-btn--secondary';
+  const cls=`my-btn ${vcls}${small?' my-btn--sm':''}`;
+  return<button onClick={onClick} disabled={disabled} className={cls} style={{...(full?{width:'100%'}:{}),...sx}}>{children}</button>;
 }
 function Divider(){return<div style={{height:1,background:C.border,margin:'8px 0'}}/>;}
 function KpiMini({label,value,accent,sub}){
+  // PR-B3D: contenedor → .my-metric-card (superficie/borde/radio/sombra/padding por tokens).
+  // Label → .my-metric-card__label (mismo look: xs, semibold, uppercase, secondary).
+  // Se CONSERVA el valor en mono y el `accent` SEMÁNTICO (ocupadas/listos/delivery/sin-cobrar…);
+  // el fallback C.ink pasa a var(--text-primary). `sub` conservado.
   return(
-    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px'}}>
-      <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:4}}>{label}</div>
-      <div style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||C.ink,lineHeight:1}}>{value}</div>
+    <div className="my-metric-card">
+      <div className="my-metric-card__label">{label}</div>
+      <div style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||'var(--text-primary)',lineHeight:1}}>{value}</div>
       {sub&&<div style={{fontSize:11,color:C.dim,marginTop:4}}>{sub}</div>}
     </div>
   );
