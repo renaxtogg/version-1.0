@@ -190,6 +190,28 @@ const C_DARK = {
 };
 const C = {...(window.MythosTheme && window.MythosTheme.get()==='dark' ? C_DARK : C_LIGHT)};
 
+/* ── TINT (PR-B4E) ── tintes de estado theme-adaptive y frozen-safe.
+   Strings color-mix(var(--estado) N%, var(--surface|--text-primary)): el navegador los
+   resuelve por tema en cada paint, así que sirven incluso dentro de objetos const. En
+   light replican el tinte pastel + texto oscuro previos; en dark dan tinte oscuro + texto
+   claro. Mismo lenguaje que .my-badge. NO cambia lógica: solo el valor de color. */
+const TINT = {
+  amberBg:'color-mix(in srgb, var(--warning) 16%, var(--surface))',
+  amberText:'color-mix(in srgb, var(--warning) 72%, var(--text-primary))',
+  amberBorder:'color-mix(in srgb, var(--warning) 40%, transparent)',
+  greenBg:'color-mix(in srgb, var(--success) 15%, var(--surface))',
+  greenText:'color-mix(in srgb, var(--success) 68%, var(--text-primary))',
+  greenBorder:'color-mix(in srgb, var(--success) 38%, transparent)',
+  blueBg:'color-mix(in srgb, var(--info) 14%, var(--surface))',
+  blueText:'color-mix(in srgb, var(--info) 72%, var(--text-primary))',
+  blueBorder:'color-mix(in srgb, var(--info) 38%, transparent)',
+  redBg:'color-mix(in srgb, var(--error) 15%, var(--surface))',
+  redText:'color-mix(in srgb, var(--error) 70%, var(--text-primary))',
+  redBorder:'color-mix(in srgb, var(--error) 40%, transparent)',
+  purpleBg:'color-mix(in srgb, #5856D6 16%, var(--surface))',
+  purpleBorder:'color-mix(in srgb, #5856D6 40%, transparent)',
+};
+
 /* ── TOAST ── */
 const _toast = {fn:null};
 function toast(msg,ok=true){_toast.fn?.({msg,ok,id:Date.now()});}
@@ -202,7 +224,7 @@ function ToastContainer(){
   return(
     <div style={{position:'fixed',bottom:20,right:20,zIndex:9999,display:'flex',flexDirection:'column',gap:8,pointerEvents:'none'}}>
       {items.map(it=>(
-        <div key={it.id} style={{background:it.ok?'#F0FAF3':'#FFF1F0',border:`1px solid ${it.ok?'#A3D9B1':'#FFB3AD'}`,color:it.ok?'#1A7E37':'#C0190F',padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp 200ms ease',minWidth:220,maxWidth:340}}>
+        <div key={it.id} style={{background:it.ok?TINT.greenBg:TINT.redBg,border:`1px solid ${it.ok?TINT.greenBorder:TINT.redBorder}`,color:it.ok?TINT.greenText:TINT.redText,padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp 200ms ease',minWidth:220,maxWidth:340}}>
           {it.ok?'✓ ':'✕ '}{it.msg}
         </div>
       ))}
@@ -271,7 +293,7 @@ function orderTypeLabel(t){
   return 'Salón';
 }
 function AlertBox({type='info',children}){
-  const cfg={info:{bg:'rgba(59,130,246,0.08)',border:'rgba(59,130,246,0.25)',color:'#93c5fd'},warn:{bg:'rgba(251,191,36,0.08)',border:'rgba(251,191,36,0.25)',color:'#fde68a'},error:{bg:'rgba(239,68,68,0.08)',border:'rgba(239,68,68,0.25)',color:'#fca5a5'},success:{bg:'rgba(34,197,94,0.08)',border:'rgba(34,197,94,0.25)',color:'#86efac'}};
+  const cfg={info:{bg:TINT.blueBg,border:TINT.blueBorder,color:TINT.blueText},warn:{bg:TINT.amberBg,border:TINT.amberBorder,color:TINT.amberText},error:{bg:TINT.redBg,border:TINT.redBorder,color:TINT.redText},success:{bg:TINT.greenBg,border:TINT.greenBorder,color:TINT.greenText}};
   const s=cfg[type]||cfg.info;
   return<div style={{background:s.bg,border:`1px solid ${s.border}`,color:s.color,padding:'10px 14px',borderRadius:8,fontSize:13,marginBottom:12}}>{children}</div>;
 }
@@ -416,7 +438,7 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
               {[['libre','Libre'],['fijo','Fondo fijo']].map(([v,lbl])=>(
                 <button key={v} onClick={()=>setModo(v)}
                   disabled={v==='fijo'&&!(cfg.cash_fondo_fijo>0)}
-                  style={{padding:'7px 14px',fontSize:12,borderRadius:6,border:`1px solid ${modo===v?'#000000':C.border}`,background:modo===v?'#000000':'transparent',color:modo===v?'#FFFFFF':C.mid,fontWeight:modo===v?700:500,cursor:v==='fijo'&&!(cfg.cash_fondo_fijo>0)?'not-allowed':'pointer',opacity:v==='fijo'&&!(cfg.cash_fondo_fijo>0)?0.4:1}}>{lbl}</button>
+                  style={{padding:'7px 14px',fontSize:12,borderRadius:6,border:`1px solid ${modo===v?C.ink:C.border}`,background:modo===v?C.ink:'transparent',color:modo===v?C.surface:C.mid,fontWeight:modo===v?700:500,cursor:v==='fijo'&&!(cfg.cash_fondo_fijo>0)?'not-allowed':'pointer',opacity:v==='fijo'&&!(cfg.cash_fondo_fijo>0)?0.4:1}}>{lbl}</button>
               ))}
             </div>
           </div>
@@ -945,7 +967,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
               <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt((it.unit_price||0)*it.quantity)}</span>
             </div>
           ))}
-          <div style={{display:'flex',justifyContent:'space-between',fontSize:15,fontWeight:800,borderTop:'1px solid #D2D2D7',paddingTop:8,marginTop:6}}>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:15,fontWeight:800,borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:6}}>
             <span>TOTAL</span>
             <span style={{fontFamily:"'SF Mono',monospace",color:'#34C759'}}>{fmt(successTicket.total)}</span>
           </div>
@@ -979,8 +1001,8 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           {cashAmountNum>0&&cashChangeNum>=0&&(
             <div style={{marginTop:6,paddingTop:6,borderTop:'1px solid rgba(255,59,48,0.15)'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span style={{color:'#15803D',fontWeight:700}}>💵 Vuelto a llevar</span>
-                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,fontSize:15,color:'#16A34A'}}>{fmt(cashChangeNum)}</span>
+                <span style={{color:TINT.greenText,fontWeight:700}}>💵 Vuelto a llevar</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,fontSize:15,color:TINT.greenText}}>{fmt(cashChangeNum)}</span>
               </div>
               <div style={{fontSize:10,color:C.mid,marginTop:1}}>Cliente paga {fmt(cashAmountNum)} · total {fmt(totalReal+deliveryFeeNum)}</div>
             </div>
@@ -989,11 +1011,11 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       )}
 
       {order.requires_invoice&&(order.invoice_status||'pending')==='pending'&&(
-        <div style={{background:'rgba(0,122,255,0.08)',border:'1px solid rgba(0,122,255,0.3)',borderRadius:9,padding:'10px 13px',marginBottom:12,fontSize:12,color:'#0040A0'}}>
+        <div style={{background:'rgba(0,122,255,0.08)',border:'1px solid rgba(0,122,255,0.3)',borderRadius:9,padding:'10px 13px',marginBottom:12,fontSize:12,color:TINT.blueText}}>
           🧾 <strong>Factura solicitada por el cliente</strong>
           {order.invoice_delivery_method==='email'?' — entregar por email':order.invoice_delivery_method==='print'?' — entregar impresa':''}
-          {order.customer_email&&<div style={{fontSize:11,marginTop:2,color:'#0040A0'}}>Email: {order.customer_email}</div>}
-          {order.customer_ruc&&<div style={{fontSize:11,marginTop:2,color:'#0040A0'}}>RUC: {order.customer_ruc}</div>}
+          {order.customer_email&&<div style={{fontSize:11,marginTop:2,color:TINT.blueText}}>Email: {order.customer_email}</div>}
+          {order.customer_ruc&&<div style={{fontSize:11,marginTop:2,color:TINT.blueText}}>RUC: {order.customer_ruc}</div>}
         </div>
       )}
       <div style={{marginBottom:16}}>
@@ -1006,7 +1028,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
             {items.map(it=>(
               <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}>
                 <span>{it.quantity}× {it.item_name}</span>
-                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#000000',fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink,fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
               </div>
             ))}
           </div>
@@ -1028,9 +1050,9 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
           {METODOS_PAGO.map(m=>(
             <button key={m.id} onClick={()=>setMetodo(m.id)} style={{
-              padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?'#000000':C.border}`,
-              background:metodo===m.id?'#000000':'transparent',
-              color:metodo===m.id?'#FFFFFF':C.mid,fontSize:12,fontWeight:metodo===m.id?700:400,cursor:'pointer',
+              padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?C.ink:C.border}`,
+              background:metodo===m.id?C.ink:'transparent',
+              color:metodo===m.id?C.surface:C.mid,fontSize:12,fontWeight:metodo===m.id?700:400,cursor:'pointer',
             }}>{m.lbl}</button>
           ))}
         </div>
@@ -1040,14 +1062,14 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
             <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
               padding:'10px 6px',borderRadius:7,border:`1px solid rgba(255,149,0,0.35)`,
-              background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
+              background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
               display:'flex',alignItems:'center',justifyContent:'center',gap:5,
             }}>
               <span style={{fontSize:14}}>📲</span> QR Bancard
             </button>
             <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
               padding:'10px 6px',borderRadius:7,border:`1px solid rgba(255,149,0,0.35)`,
-              background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
+              background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
               display:'flex',alignItems:'center',justifyContent:'center',gap:5,
             }}>
               <span style={{fontSize:14}}>💳</span> Tarjeta (VPos)
@@ -1088,7 +1110,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
             cambio>=0?(
               <div style={{padding:'14px 16px',background:'rgba(34,197,94,0.08)',border:`1px solid rgba(34,197,94,0.3)`,borderRadius:8}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <span style={{fontSize:13,color:'#86efac',fontWeight:700}}>Vuelto a devolver</span>
+                  <span style={{fontSize:13,color:TINT.greenText,fontWeight:700}}>Vuelto a devolver</span>
                   <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:26,fontWeight:800,color:cambio>0?C.green:'#6E6E73'}}>{cambio>0?fmt(cambio):'Sin vuelto'}</span>
                 </div>
                 {cambio>0&&<div style={{fontSize:11,color:C.mid,marginTop:4}}>Recibido {fmt(montoNum)} − Total {fmt(totalReal)}</div>}
@@ -1111,10 +1133,10 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         transition:'all .15s',
       }}>
         <div>
-          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?'#0040A0':C.ink}}>🧾 Emitir Factura Electrónica (SIFEN)</div>
+          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?C.blue:C.ink}}>🧾 Emitir Factura Electrónica (SIFEN)</div>
           <div style={{fontSize:10,color:C.mid,marginTop:2}}>e-Kuatia · Certificación en proceso</div>
         </div>
-        <div style={{width:42,height:24,borderRadius:12,background:invoiceType==='fiscal'?'#007AFF':'#D1D1D6',transition:'background .2s',position:'relative',flexShrink:0}}>
+        <div style={{width:42,height:24,borderRadius:12,background:invoiceType==='fiscal'?C.blue:C.border,transition:'background .2s',position:'relative',flexShrink:0}}>
           <div style={{position:'absolute',top:2,left:invoiceType==='fiscal'?'18px':'2px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
         </div>
       </div>
@@ -1132,7 +1154,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           ))}
         </div>
         {invoiceType==='ticket'&&(
-          <div style={{padding:'8px 12px',background:'rgba(52,199,89,0.08)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:7,fontSize:12,color:'#248A3D'}}>
+          <div style={{padding:'8px 12px',background:'rgba(52,199,89,0.08)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:7,fontSize:12,color:TINT.greenText}}>
             🖨 El ticket se imprimirá automáticamente al cobrar.
           </div>
         )}
@@ -1151,12 +1173,12 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         border:'1px dashed rgba(0,122,255,0.3)',background:'rgba(0,122,255,0.04)',
         display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
         <div>
-          <div style={{fontSize:12,fontWeight:700,color:'#0040A0'}}>🧾 Factura Electrónica SIFEN</div>
+          <div style={{fontSize:12,fontWeight:700,color:TINT.blueText}}>🧾 Factura Electrónica SIFEN</div>
           <div style={{fontSize:10,color:C.dim,marginTop:2}}>e-Kuatia — en proceso de certificación SET</div>
         </div>
         <button onClick={gate('caja:sifen',()=>setShowBancardToast(true))} style={{
           padding:'6px 12px',borderRadius:6,border:'1px solid rgba(0,122,255,0.4)',
-          background:'rgba(0,122,255,0.08)',color:'#004AAD',fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0,
+          background:'rgba(0,122,255,0.08)',color:TINT.blueText,fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0,
         }}>Activar</button>
       </div>
 
@@ -1219,12 +1241,12 @@ function PinAuthModal({title,subtitle,onCancel,onAuthorized,verifying=false}){
 
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.86)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1100,padding:20,backdropFilter:'blur(4px)'}}>
-      <div style={{background:'#FFFFFF',border:'1px solid #000000',borderRadius:14,padding:28,width:'100%',maxWidth:420,boxShadow:'0 24px 60px rgba(0,0,0,0.45)',animation:'slideUp 200ms ease'}}>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:28,width:'100%',maxWidth:420,boxShadow:'0 24px 60px rgba(0,0,0,0.45)',animation:'slideUp 200ms ease'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-          <div style={{fontFamily:'DM Serif Display',fontSize:20,color:'#000'}}>🔒 {title||'Autorización Requerida'}</div>
-          <button onClick={()=>!busy&&onCancel()} disabled={busy} style={{background:'none',border:'none',color:'#000',fontSize:24,lineHeight:1,padding:0,cursor:busy?'default':'pointer',opacity:busy?0.4:1}} aria-label="Cerrar">×</button>
+          <div style={{fontFamily:'DM Serif Display',fontSize:20,color:C.ink}}>🔒 {title||'Autorización Requerida'}</div>
+          <button onClick={()=>!busy&&onCancel()} disabled={busy} style={{background:'none',border:'none',color:C.ink,fontSize:24,lineHeight:1,padding:0,cursor:busy?'default':'pointer',opacity:busy?0.4:1}} aria-label="Cerrar">×</button>
         </div>
-        <div style={{fontSize:13,color:'#3A3A3C',lineHeight:1.5,marginBottom:18}}>
+        <div style={{fontSize:13,color:C.mid,lineHeight:1.5,marginBottom:18}}>
           {subtitle||'Ingresá el PIN de un Administrador o Gerente para confirmar la cancelación de este pedido.'}
         </div>
         <div style={{marginBottom:14}}>
@@ -1244,19 +1266,19 @@ function PinAuthModal({title,subtitle,onCancel,onAuthorized,verifying=false}){
             onKeyDown={e=>{if(e.key==='Enter'&&pin.length===4)submit();}}
             placeholder="••••"
             maxLength={4}
-            style={{width:'100%',padding:'14px 16px',fontSize:26,fontWeight:800,letterSpacing:12,textAlign:'center',fontFamily:"'SF Mono',ui-monospace,monospace",background:'#F5F5F7',border:`1.5px solid ${error?'#000000':'#D2D2D7'}`,borderRadius:10,color:'#000',outline:'none'}}
+            style={{width:'100%',padding:'14px 16px',fontSize:26,fontWeight:800,letterSpacing:12,textAlign:'center',fontFamily:"'SF Mono',ui-monospace,monospace",background:'var(--bg-subtle)',border:`1.5px solid ${error?C.red:C.border}`,borderRadius:10,color:C.ink,outline:'none'}}
           />
         </div>
         {error&&(
-          <div style={{background:'#000000',color:'#FFFFFF',padding:'10px 14px',borderRadius:8,fontSize:12,fontWeight:600,marginBottom:14,textAlign:'center',letterSpacing:0.3}}>
+          <div style={{background:C.ink,color:C.surface,padding:'10px 14px',borderRadius:8,fontSize:12,fontWeight:600,marginBottom:14,textAlign:'center',letterSpacing:0.3}}>
             {error}
           </div>
         )}
         <div style={{display:'flex',gap:8}}>
-          <button onClick={()=>!busy&&onCancel()} disabled={busy} style={{flex:1,padding:'12px 16px',background:'transparent',color:'#000',border:'1px solid #D2D2D7',borderRadius:8,fontSize:13,fontWeight:600,cursor:busy?'default':'pointer',opacity:busy?0.5:1}}>
+          <button onClick={()=>!busy&&onCancel()} disabled={busy} style={{flex:1,padding:'12px 16px',background:'transparent',color:C.ink,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontWeight:600,cursor:busy?'default':'pointer',opacity:busy?0.5:1}}>
             Cancelar
           </button>
-          <button onClick={submit} disabled={busy||pin.length!==4} style={{flex:1.2,padding:'12px 16px',background:'#000',color:'#FFF',border:'1px solid #000',borderRadius:8,fontSize:13,fontWeight:700,cursor:(busy||pin.length!==4)?'default':'pointer',opacity:(busy||pin.length!==4)?0.55:1}}>
+          <button onClick={submit} disabled={busy||pin.length!==4} style={{flex:1.2,padding:'12px 16px',background:C.ink,color:C.surface,border:`1px solid ${C.ink}`,borderRadius:8,fontSize:13,fontWeight:700,cursor:(busy||pin.length!==4)?'default':'pointer',opacity:(busy||pin.length!==4)?0.55:1}}>
             {busy?'Verificando…':verifying?'Procesando…':'Autorizar'}
           </button>
         </div>
@@ -1337,45 +1359,45 @@ function QuickCancelModal({order,turno,profile,onClose,onCancelled}){
   return(
     <>
       <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.86)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1050,padding:20,backdropFilter:'blur(4px)'}}>
-        <div style={{background:'#FFFFFF',border:'1px solid #000000',borderRadius:14,padding:24,width:'100%',maxWidth:440,boxShadow:'0 24px 60px rgba(0,0,0,0.45)',animation:'slideUp 200ms ease',color:'#000'}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:24,width:'100%',maxWidth:440,boxShadow:'0 24px 60px rgba(0,0,0,0.45)',animation:'slideUp 200ms ease',color:C.ink}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-            <div style={{fontFamily:'DM Serif Display',fontSize:18,color:'#000'}}>❌ Cancelar pedido</div>
-            <button onClick={()=>!busy&&onClose()} disabled={busy} style={{background:'none',border:'none',color:'#000',fontSize:24,lineHeight:1,padding:0,cursor:busy?'default':'pointer',opacity:busy?0.4:1}} aria-label="Cerrar">×</button>
+            <div style={{fontFamily:'DM Serif Display',fontSize:18,color:C.ink}}>❌ Cancelar pedido</div>
+            <button onClick={()=>!busy&&onClose()} disabled={busy} style={{background:'none',border:'none',color:C.ink,fontSize:24,lineHeight:1,padding:0,cursor:busy?'default':'pointer',opacity:busy?0.4:1}} aria-label="Cerrar">×</button>
           </div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,padding:'10px 14px',background:'#F5F5F7',border:'1px solid #D2D2D7',borderRadius:8}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,padding:'10px 14px',background:'var(--bg-subtle)',border:`1px solid ${C.border}`,borderRadius:8}}>
             <div>
-              <div style={{fontSize:14,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#000'}}>#{order.order_number}</div>
-              <div style={{fontSize:12,color:'#3A3A3C',marginTop:2,fontWeight:600}}>{mesa}</div>
+              <div style={{fontSize:14,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>#{order.order_number}</div>
+              <div style={{fontSize:12,color:C.mid,marginTop:2,fontWeight:600}}>{mesa}</div>
             </div>
-            <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#C0190F'}}>{fmt(Number(order.total)||0)}</div>
+            <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.red}}>{fmt(Number(order.total)||0)}</div>
           </div>
           {requierePin&&(
-            <div style={{background:'#000000',color:'#FFFFFF',padding:'10px 14px',borderRadius:8,fontSize:12,fontWeight:600,marginBottom:14,letterSpacing:0.2}}>
+            <div style={{background:C.ink,color:C.surface,padding:'10px 14px',borderRadius:8,fontSize:12,fontWeight:600,marginBottom:14,letterSpacing:0.2}}>
               🔒 Esta acción requerirá el PIN de un Administrador o Gerente al continuar.
             </div>
           )}
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>MOTIVO DE LA CANCELACIÓN <span style={{color:'#C0190F'}}>*</span></div>
-            <select value={motivo} onChange={e=>setMotivo(e.target.value)} disabled={busy} style={{width:'100%',padding:'10px 12px',fontSize:14,background:'#FFFFFF',border:'1.5px solid #D2D2D7',borderRadius:8,color:'#000',outline:'none'}}>
+            <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>MOTIVO DE LA CANCELACIÓN <span style={{color:C.red}}>*</span></div>
+            <select value={motivo} onChange={e=>setMotivo(e.target.value)} disabled={busy} style={{width:'100%',padding:'10px 12px',fontSize:14,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:8,color:C.ink,outline:'none'}}>
               <option value="">Seleccionar…</option>
               {MOTIVOS_CANCEL.map(m=><option key={m}>{m}</option>)}
             </select>
           </div>
           {motivo&&(
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>DETALLE {motivo==='Otro'?<span style={{color:'#C0190F'}}>*</span>:'(opcional)'}</div>
-              <textarea value={descripcion} onChange={e=>setDescripcion(e.target.value)} disabled={busy} placeholder="Notas adicionales para auditoría…" rows={2} style={{width:'100%',padding:'10px 12px',fontSize:13,background:'#FFFFFF',border:'1.5px solid #D2D2D7',borderRadius:8,color:'#000',outline:'none',resize:'vertical',fontFamily:'inherit'}}/>
+              <div style={{fontSize:10,color:'#6E6E73',fontWeight:700,letterSpacing:1,marginBottom:6}}>DETALLE {motivo==='Otro'?<span style={{color:C.red}}>*</span>:'(opcional)'}</div>
+              <textarea value={descripcion} onChange={e=>setDescripcion(e.target.value)} disabled={busy} placeholder="Notas adicionales para auditoría…" rows={2} style={{width:'100%',padding:'10px 12px',fontSize:13,background:C.surface,border:`1.5px solid ${C.border}`,borderRadius:8,color:C.ink,outline:'none',resize:'vertical',fontFamily:'inherit'}}/>
             </div>
           )}
           <div style={{marginBottom:18,display:'flex',alignItems:'center',gap:8}}>
             <input type="checkbox" id="qc-perdida" checked={perdida} onChange={e=>setPerdida(e.target.checked)} disabled={busy} style={{width:14,height:14}}/>
-            <label htmlFor="qc-perdida" style={{fontSize:12,color:'#3A3A3C',cursor:'pointer'}}>Generó pérdida de insumos</label>
+            <label htmlFor="qc-perdida" style={{fontSize:12,color:C.mid,cursor:'pointer'}}>Generó pérdida de insumos</label>
           </div>
           <div style={{display:'flex',gap:8}}>
-            <button onClick={()=>!busy&&onClose()} disabled={busy} style={{flex:1,padding:'12px 16px',background:'transparent',color:'#000',border:'1px solid #D2D2D7',borderRadius:8,fontSize:13,fontWeight:600,cursor:busy?'default':'pointer',opacity:busy?0.5:1}}>
+            <button onClick={()=>!busy&&onClose()} disabled={busy} style={{flex:1,padding:'12px 16px',background:'transparent',color:C.ink,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontWeight:600,cursor:busy?'default':'pointer',opacity:busy?0.5:1}}>
               Volver
             </button>
-            <button onClick={intentarCancelar} disabled={busy||!motivo} style={{flex:1.4,padding:'12px 16px',background:'#000',color:'#FFF',border:'1px solid #000',borderRadius:8,fontSize:13,fontWeight:700,cursor:(busy||!motivo)?'default':'pointer',opacity:(busy||!motivo)?0.55:1}}>
+            <button onClick={intentarCancelar} disabled={busy||!motivo} style={{flex:1.4,padding:'12px 16px',background:C.ink,color:C.surface,border:`1px solid ${C.ink}`,borderRadius:8,fontSize:13,fontWeight:700,cursor:(busy||!motivo)?'default':'pointer',opacity:(busy||!motivo)?0.55:1}}>
               {busy?'Cancelando…':requierePin?'Continuar 🔒':'Continuar'}
             </button>
           </div>
@@ -1484,7 +1506,7 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
               const enCocina=['kitchen_received','cooking','ready'].includes(o.status);
               return(
                 <div key={o.id} onClick={()=>setSelected(o)}
-                  style={{background:selected?.id===o.id?'#EBEBEB':C.surface,border:`2px solid ${selected?.id===o.id?'#000000':C.border}`,borderRadius:8,padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  style={{background:selected?.id===o.id?'var(--surface-hover)':C.surface,border:`2px solid ${selected?.id===o.id?C.ink:C.border}`,borderRadius:8,padding:'12px 14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
                     <div style={{fontSize:14,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>#{o.order_number}</div>
                     <div style={{fontSize:12,color:C.ink,marginTop:2,fontWeight:600}}>{mesa}</div>
@@ -1504,7 +1526,7 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
           <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>MOTIVO DE CANCELACIÓN</div>
           {selected?(
             <>
-              <div style={{marginBottom:14,padding:'10px 14px',background:'#F0F0F0',borderRadius:7,border:`1px solid ${C.border}`}}>
+              <div style={{marginBottom:14,padding:'10px 14px',background:'var(--bg-subtle)',borderRadius:7,border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:14,fontWeight:800,color:C.ink}}>#{selected.order_number}</div>
                 <div style={{fontSize:13,color:C.ink,marginTop:2,fontWeight:600}}>{fmt(selected.total)}</div>
               </div>
@@ -1592,7 +1614,7 @@ function IngresosEgresosPanel({turno,profile,movimientos,onMovimiento}){
         <div>
           <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
             {[['egreso','Egresos'],['ingreso_manual','Ingresos manuales']].map(([id,lbl])=>(
-              <button key={id} onClick={()=>setTipo(id)} style={{padding:'8px 14px',fontSize:12,fontWeight:tipo===id?700:400,color:tipo===id?C.ink:'#86868B',background:'none',border:'none',borderBottom:tipo===id?'2px solid #000':'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+              <button key={id} onClick={()=>setTipo(id)} style={{padding:'8px 14px',fontSize:12,fontWeight:tipo===id?700:400,color:tipo===id?C.ink:'#86868B',background:'none',border:'none',borderBottom:tipo===id?`2px solid ${C.ink}`:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
             ))}
           </div>
           {historial.length===0?(
@@ -2092,7 +2114,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
               <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
             </div>
           ))}
-          <div style={{display:'flex',justifyContent:'space-between',fontSize:15,fontWeight:800,borderTop:'1px solid #D2D2D7',paddingTop:8,marginTop:6}}>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:15,fontWeight:800,borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:6}}>
             <span>TOTAL</span>
             <span style={{fontFamily:"'SF Mono',monospace",color:'#34C759'}}>{fmt(successTicket.total)}</span>
           </div>
@@ -2124,7 +2146,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
               </div>
             ))}
           </div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',borderTop:'1px solid #D2D2D7',paddingTop:10}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',borderTop:`1px solid ${C.border}`,paddingTop:10}}>
             <span style={{fontSize:14,fontWeight:800,color:C.ink}}>TOTAL A COBRAR</span>
             <span style={{fontSize:26,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(subtotal)}</span>
           </div>
@@ -2135,8 +2157,8 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
             {METODOS_PAGO.map(m=>(
               <button key={m.id} onClick={()=>setMetodo(m.id)} style={{
-                padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?'#000000':C.border}`,
-                background:metodo===m.id?'#000000':'transparent',
+                padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?C.ink:C.border}`,
+                background:metodo===m.id?C.ink:'transparent',
                 color:metodo===m.id?'#FFFFFF':'#6E6E73',fontSize:12,fontWeight:metodo===m.id?700:400,cursor:'pointer',
               }}>{m.lbl}</button>
             ))}
@@ -2147,14 +2169,14 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
               <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
                 padding:'10px 6px',borderRadius:7,border:'1px solid rgba(255,149,0,0.35)',
-                background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
+                background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
                 display:'flex',alignItems:'center',justifyContent:'center',gap:5,
               }}>
                 <span style={{fontSize:14}}>📲</span> QR Bancard
               </button>
               <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
                 padding:'10px 6px',borderRadius:7,border:'1px solid rgba(255,149,0,0.35)',
-                background:'rgba(255,149,0,0.06)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',
+                background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
                 display:'flex',alignItems:'center',justifyContent:'center',gap:5,
               }}>
                 <span style={{fontSize:14}}>💳</span> Tarjeta (VPos Bancard)
@@ -2183,7 +2205,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
             {montoNum>0&&(
               cambio>=0?(
                 <div style={{marginTop:8,padding:'12px 14px',background:'rgba(34,197,94,0.1)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:8,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <span style={{fontSize:13,color:'#1A7E37',fontWeight:700}}>Vuelto a entregar</span>
+                  <span style={{fontSize:13,color:TINT.greenText,fontWeight:700}}>Vuelto a entregar</span>
                   <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:24,fontWeight:800,color:cambio>0?C.green:'#6E6E73'}}>{cambio>0?fmt(cambio):'Sin vuelto'}</span>
                 </div>
               ):(
@@ -2205,10 +2227,10 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         transition:'all .15s',
       }}>
         <div>
-          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?'#0040A0':C.ink}}>🧾 Emitir Factura Electrónica (SIFEN)</div>
+          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?C.blue:C.ink}}>🧾 Emitir Factura Electrónica (SIFEN)</div>
           <div style={{fontSize:10,color:C.mid,marginTop:2}}>e-Kuatia · Certificación en proceso</div>
         </div>
-        <div style={{width:42,height:24,borderRadius:12,background:invoiceType==='fiscal'?'#007AFF':'#D1D1D6',transition:'background .2s',position:'relative',flexShrink:0}}>
+        <div style={{width:42,height:24,borderRadius:12,background:invoiceType==='fiscal'?C.blue:C.border,transition:'background .2s',position:'relative',flexShrink:0}}>
           <div style={{position:'absolute',top:2,left:invoiceType==='fiscal'?'18px':'2px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
         </div>
       </div>
@@ -2226,7 +2248,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
           ))}
         </div>
         {invoiceType==='ticket'&&(
-          <div style={{padding:'8px 12px',background:'rgba(52,199,89,0.08)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:7,fontSize:12,color:'#248A3D'}}>
+          <div style={{padding:'8px 12px',background:'rgba(52,199,89,0.08)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:7,fontSize:12,color:TINT.greenText}}>
             🖨 El ticket se imprimirá automáticamente al cobrar.
           </div>
         )}
@@ -2343,9 +2365,9 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
             <button key={t} onClick={()=>{setOrderType(t);setTableId('');setCustomerName('');}} style={{
               padding:'6px 14px',fontSize:12,borderRadius:20,cursor:'pointer',
               fontWeight:orderType===t?700:400,
-              border:`1px solid ${orderType===t?'#000000':C.border}`,
-              background:orderType===t?'#000000':'transparent',
-              color:orderType===t?'#FFFFFF':C.mid,
+              border:`1px solid ${orderType===t?C.ink:C.border}`,
+              background:orderType===t?C.ink:'transparent',
+              color:orderType===t?C.surface:C.mid,
             }}>{lbl}</button>
           ))}
         </div>
@@ -2363,8 +2385,8 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
                 <button key={c.id} onClick={()=>setSelCat(c.id)} style={{
                   padding:'6px 14px',fontSize:12,borderRadius:20,cursor:'pointer',whiteSpace:'nowrap',
                   fontWeight:selCat===c.id?700:400,
-                  border:`1px solid ${selCat===c.id?'#000000':C.border}`,
-                  background:selCat===c.id?'#000000':'transparent',
+                  border:`1px solid ${selCat===c.id?C.ink:C.border}`,
+                  background:selCat===c.id?C.ink:'transparent',
                   color:selCat===c.id?'#FFFFFF':'#000000',
                 }}>{c.name}</button>
               ))}
@@ -2540,8 +2562,8 @@ function OrderDetailModal({order,onClose}){
           {cashAmt>0&&cashChg>=0&&(
             <div style={{marginTop:6,paddingTop:6,borderTop:'1px solid rgba(255,59,48,0.15)'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span style={{color:'#15803D',fontWeight:700}}>💵 Vuelto a llevar</span>
-                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,fontSize:14,color:'#16A34A'}}>{fmt(cashChg)}</span>
+                <span style={{color:TINT.greenText,fontWeight:700}}>💵 Vuelto a llevar</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,fontSize:14,color:TINT.greenText}}>{fmt(cashChg)}</span>
               </div>
               <div style={{fontSize:10,color:C.mid,marginTop:1}}>Cliente paga {fmt(cashAmt)} · total {fmt(orderTot)}</div>
             </div>
@@ -2556,7 +2578,7 @@ function OrderDetailModal({order,onClose}){
           <div key={it.id} style={{marginBottom:8}}>
             <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}>
               <span style={{fontWeight:600}}>{it.quantity}× {it.item_name}</span>
-              <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:'#777'}}>{fmt(it.unit_price*it.quantity)}</span>
+              <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.dim}}>{fmt(it.unit_price*it.quantity)}</span>
             </div>
             {it.observations&&<div style={{fontSize:11,color:C.yellow,marginLeft:12}}>📝 {it.observations}</div>}
             {(it.order_item_extras||[]).map(ex=>(
@@ -2584,11 +2606,11 @@ function OrderDetailModal({order,onClose}){
    MAPA DE ZONAS — componentes para caja
 ══════════════════════════════════════════════ */
 const ZONAS_DEF_C=[
-  {value:'salon',    label:'Salón',    bg:'#F0F7FF',border:'#BFDBFE',dot:'#3B82F6'},
-  {value:'terraza',  label:'Terraza',  bg:'#F0FFF4',border:'#BBF7D0',dot:'#22C55E'},
-  {value:'bar',      label:'Bar',      bg:'#FFF7ED',border:'#FED7AA',dot:'#F97316'},
-  {value:'privado',  label:'Privado',  bg:'#FDF4FF',border:'#E9D5FF',dot:'#A855F7'},
-  {value:'exterior', label:'Exterior', bg:'#FEFCE8',border:'#FEF08A',dot:'#EAB308'},
+  {value:'salon',    label:'Salón',    bg:TINT.blueBg,   border:TINT.blueBorder,   dot:'#3B82F6'},
+  {value:'terraza',  label:'Terraza',  bg:TINT.greenBg,  border:TINT.greenBorder,  dot:'#22C55E'},
+  {value:'bar',      label:'Bar',      bg:TINT.amberBg,  border:TINT.amberBorder,  dot:'#F97316'},
+  {value:'privado',  label:'Privado',  bg:TINT.purpleBg, border:TINT.purpleBorder, dot:'#A855F7'},
+  {value:'exterior', label:'Exterior', bg:TINT.amberBg,  border:TINT.amberBorder,  dot:'#EAB308'},
 ];
 const SHAPES_DEF_C=[{value:'square',label:'Cuadrada',icon:'⬜'},{value:'round',label:'Redonda',icon:'⭕'},{value:'rectangle',label:'Rectangular',icon:'▬'}];
 const CELL_C=80; const GAP_C=14;
@@ -2705,12 +2727,12 @@ function ZonaCaja({zona,tables,ordersByTable,sessionTotals,reservationByTable,ed
     <div style={{marginBottom:16}}>
       <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
         <div style={{width:8,height:8,borderRadius:'50%',background:zd.dot}}/>
-        <div style={{fontSize:12,fontWeight:700,color:'#3D3D3D',textTransform:'uppercase',letterSpacing:'0.5px'}}>{zd.label}</div>
+        <div style={{fontSize:12,fontWeight:700,color:C.mid,textTransform:'uppercase',letterSpacing:'0.5px'}}>{zd.label}</div>
         <div style={{fontSize:11,color:C.dim}}>· {tables.length} {tables.length===1?'mesa':'mesas'}</div>
       </div>
       <div ref={canvasRef} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
         style={{position:'relative',width:'100%',height:canvasH,background:zd.bg,border:`1.5px solid ${zd.border}`,borderRadius:10,overflow:'hidden',touchAction:editMode?'none':'auto'}}>
-        {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:'#C0C0C0',fontSize:12}}>Sin mesas en {zd.label.toLowerCase()}</div>}
+        {tables.length===0&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',color:C.dim,fontSize:12}}>Sin mesas en {zd.label.toLowerCase()}</div>}
         {canvasW>0 && tables.map((t,idx)=>{
           const shape=t.shape||'square';
           const{w,h}=tdC(shape);
@@ -2782,7 +2804,7 @@ function NuevaMesaModalC({onSave,onClose}){
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:4}}>
             {ZONAS_DEF_C.map(z=>(
               <button key={z.value} type="button" onClick={()=>setForm(prev=>({...prev,zona:z.value}))}
-                style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'#000':'#D2D2D7'}`,background:form.zona===z.value?'#000':'transparent',color:form.zona===z.value?'#fff':'#3D3D3D',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400}}>
+                style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?C.ink:C.border}`,background:form.zona===z.value?C.ink:'transparent',color:form.zona===z.value?C.surface:C.ink,fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400}}>
                 {z.label}
               </button>
             ))}
@@ -2793,7 +2815,7 @@ function NuevaMesaModalC({onSave,onClose}){
           <div style={{display:'flex',gap:8,marginTop:4}}>
             {SHAPES_DEF_C.map(s=>(
               <button key={s.value} type="button" onClick={()=>setForm(prev=>({...prev,shape:s.value}))}
-                style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'#000':'#D2D2D7'}`,background:form.shape===s.value?'#000':'transparent',color:form.shape===s.value?'#fff':'#3D3D3D',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?C.ink:C.border}`,background:form.shape===s.value?C.ink:'transparent',color:form.shape===s.value?C.surface:C.ink,fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
                 <span style={{fontSize:18,pointerEvents:'none'}}>{s.icon}</span>
                 <span style={{pointerEvents:'none'}}>{s.label}</span>
               </button>
@@ -2842,7 +2864,7 @@ function MesaEditModalC({table,onSave,onClose}){
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:4}}>
             {ZONAS_DEF_C.map(z=>(
               <button key={z.value} type="button" onClick={()=>setForm(prev=>({...prev,zona:z.value}))}
-                style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?'#000':'#D2D2D7'}`,background:form.zona===z.value?'#000':'transparent',color:form.zona===z.value?'#fff':'#3D3D3D',fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400}}>
+                style={{padding:'5px 12px',borderRadius:20,border:`1.5px solid ${form.zona===z.value?C.ink:C.border}`,background:form.zona===z.value?C.ink:'transparent',color:form.zona===z.value?C.surface:C.ink,fontSize:12,cursor:'pointer',fontWeight:form.zona===z.value?700:400}}>
                 {z.label}
               </button>
             ))}
@@ -2853,14 +2875,14 @@ function MesaEditModalC({table,onSave,onClose}){
           <div style={{display:'flex',gap:8,marginTop:4}}>
             {SHAPES_DEF_C.map(s=>(
               <button key={s.value} type="button" onClick={()=>setForm(prev=>({...prev,shape:s.value}))}
-                style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?'#000':'#D2D2D7'}`,background:form.shape===s.value?'#000':'transparent',color:form.shape===s.value?'#fff':'#3D3D3D',fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                style={{flex:1,padding:'10px 6px',borderRadius:8,border:`2px solid ${form.shape===s.value?C.ink:C.border}`,background:form.shape===s.value?C.ink:'transparent',color:form.shape===s.value?C.surface:C.ink,fontSize:11,cursor:'pointer',fontWeight:600,textAlign:'center',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
                 <span style={{fontSize:18,pointerEvents:'none'}}>{s.icon}</span><span style={{pointerEvents:'none'}}>{s.label}</span>
               </button>
             ))}
           </div>
         </div>
         {table.zona!==form.zona&&(
-          <div style={{fontSize:11,color:C.dim,background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:6,padding:'8px 10px'}}>
+          <div style={{fontSize:11,color:C.dim,background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:6,padding:'8px 10px'}}>
             Al cambiar de zona, la mesa se reposicionará automáticamente.
           </div>
         )}
@@ -3025,13 +3047,13 @@ function SalonPanel({turno,profile}){
   function TableCard({table}){
     const order=ordersByTable[table.id];
     const occ=table.is_occupied??!!order;
-    const accent=occ?(order?statusAccent(order.status):C.green):'#C8C8CC';
+    const accent=occ?(order?statusAccent(order.status):C.green):C.border;
     const espera=order?Math.floor((Date.now()-new Date(order.created_at))/60000):0;
     const sesTotal=sessionTotals[table.id]||0;
     const tableInvoiceReq=(orders||[]).some(o=>o.table_id===table.id && o.requires_invoice && (o.invoice_status||'pending')==='pending');
     return(
       <div onClick={()=>occ&&loadTableSession(table)} style={{
-        background:occ?'#1D1D1F':C.surface,
+        background:occ?C.ink:C.surface,
         border:`2px solid ${accent}`,borderRadius:12,padding:18,
         cursor:occ?'pointer':'default',minHeight:140,position:'relative',
         transition:'border-color .2s, transform .1s',
@@ -3046,19 +3068,19 @@ function SalonPanel({turno,profile}){
             {fmt(sesTotal)}
           </div>
         )}
-        <div style={{fontSize:22,fontWeight:800,color:occ?'#FFFFFF':'#1D1D1F',letterSpacing:'-0.5px'}}>Mesa {table.number}</div>
+        <div style={{fontSize:22,fontWeight:800,color:occ?C.surface:C.ink,letterSpacing:'-0.5px'}}>Mesa {table.number}</div>
         {tableInvoiceReq&&(()=>{const m=(orders||[]).find(o=>o.table_id===table.id && o.requires_invoice && (o.invoice_status||'pending')==='pending')?.invoice_delivery_method;return(
           <div style={{position:'absolute',top:8,right:8,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8,letterSpacing:'0.04em'}}>
             🧾 {m==='email'?'EMAIL':'IMPRESA'}
           </div>
         );})()}
-        {table.capacity&&<div style={{fontSize:12,color:occ?'#AAAAAA':'#6E6E73',marginTop:2}}>{table.capacity} pax</div>}
+        {table.capacity&&<div style={{fontSize:12,color:occ?C.dim:C.mid,marginTop:2}}>{table.capacity} pax</div>}
         {occ?(
           <>
             {order&&<div style={{marginTop:10}}><Badge txt={SL[order.status]} color={SC[order.status]||'#6E6E73'}/></div>}
             {!order&&<div style={{marginTop:10}}><Badge txt="Servicio activo" color={C.green}/></div>}
-            {order&&<div style={{fontSize:11,color:'#AAAAAA',marginTop:8}}>⏱ {espera}m · #{order.order_number}</div>}
-            {table.assigned_waiter_name&&<div style={{fontSize:11,color:'#AAAAAA',marginTop:4}}>👤 {table.assigned_waiter_name}</div>}
+            {order&&<div style={{fontSize:11,color:C.dim,marginTop:8}}>⏱ {espera}m · #{order.order_number}</div>}
+            {table.assigned_waiter_name&&<div style={{fontSize:11,color:C.dim,marginTop:4}}>👤 {table.assigned_waiter_name}</div>}
           </>
         ):(
           <div style={{color:C.mid,fontSize:13,marginTop:12,fontWeight:700,letterSpacing:'0.05em'}}>LIBRE</div>
@@ -3164,11 +3186,11 @@ function SalonPanel({turno,profile}){
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
                 {editMode&&<div style={{fontSize:11,color:C.dim}}>Arrastrá para posicionar · click para editar</div>}
                 <button type="button" onClick={()=>setNewMesa(true)}
-                  style={{padding:'5px 14px',borderRadius:6,border:'none',background:'#000',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                  style={{padding:'5px 14px',borderRadius:6,border:'none',background:C.ink,color:C.surface,fontSize:12,fontWeight:700,cursor:'pointer'}}>
                   + Nueva mesa
                 </button>
                 <button type="button" onClick={()=>{setEditMode(e=>!e);setDragging(null);}}
-                  style={{padding:'5px 14px',borderRadius:6,border:`1px solid ${editMode?'#000':'#D2D2D7'}`,background:editMode?'#000':'transparent',color:editMode?'#fff':'#6E6E73',fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                  style={{padding:'5px 14px',borderRadius:6,border:`1px solid ${editMode?C.ink:C.border}`,background:editMode?C.ink:'transparent',color:editMode?'#fff':'#6E6E73',fontSize:12,fontWeight:700,cursor:'pointer'}}>
                   {editMode?'✓ Editando':'✎ Editar mesas'}
                 </button>
               </div>
@@ -3310,13 +3332,13 @@ function SalonPanel({turno,profile}){
           <Modal title={`Mesa ${resvInfo.table.number} — Reserva ${resvInfo.alsoOccupied?'próxima':'activa'}`} onClose={()=>setResvInfo(null)} width={420}>
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
               {resvInfo.alsoOccupied&&(
-                <div style={{background:'#FEE2E2',border:'1px solid #DC2626',borderRadius:8,padding:'10px 12px',fontSize:12,color:'#991B1B'}}>
+                <div style={{background:TINT.redBg,border:`1px solid ${TINT.redBorder}`,borderRadius:8,padding:'10px 12px',fontSize:12,color:TINT.redText}}>
                   ⚠ Esta mesa está ocupada y tiene una reserva próxima. Considerá pedir la cuenta al cliente actual.
                 </div>
               )}
-              <div style={{background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:8,padding:'12px 14px'}}>
+              <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'12px 14px'}}>
                 <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:6}}>{r.customer_name}</div>
-                <div style={{fontSize:13,color:'#3D3D3D',lineHeight:1.7}}>
+                <div style={{fontSize:13,color:C.mid,lineHeight:1.7}}>
                   📞 {r.customer_phone}<br/>
                   🕐 Hora reservada: <strong>{horaTxt}</strong> ({tiempoTxt})<br/>
                   👥 {r.guests} personas{r.occasion?<><br/>🎉 Motivo: {r.occasion}</>:null}
@@ -3378,8 +3400,8 @@ function SalonPanel({turno,profile}){
               return(
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:14}}>
                   <div style={{background:'rgba(52,199,89,0.1)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
-                    <div style={{fontSize:10,color:'#1A7E37',fontWeight:700,marginBottom:4}}>PAGADO</div>
-                    <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:'#1A7E37'}}>{fmt(totalPagado)}</div>
+                    <div style={{fontSize:10,color:TINT.greenText,fontWeight:700,marginBottom:4}}>PAGADO</div>
+                    <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:TINT.greenText}}>{fmt(totalPagado)}</div>
                     <div style={{fontSize:10,color:C.mid,marginTop:2}}>{pagados.length} pedido{pagados.length!==1?'s':''}</div>
                   </div>
                   <div style={{background:totalSinCobrar>0?'rgba(255,59,48,0.1)':'rgba(52,199,89,0.05)',border:`1px solid ${totalSinCobrar>0?'rgba(255,59,48,0.3)':'rgba(52,199,89,0.2)'}`,borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
@@ -3619,7 +3641,7 @@ function CalculadoraFlotante(){
       <button onClick={()=>setOpen(o=>!o)} title="Calculadora" style={{
         position:'fixed',bottom:24,right:24,zIndex:1001,
         width:46,height:46,borderRadius:'50%',
-        background:open?C.white:'#FFFFFF',
+        background:open?C.white:C.surface,
         border:`1px solid ${open?'transparent':C.bs}`,
         color:open?'#000':C.mid,
         fontSize:20,cursor:'pointer',
@@ -3649,8 +3671,8 @@ function CalculadoraFlotante(){
                   return(
                     <button key={k} onClick={()=>press(k)} style={{
                       padding:'13px 0',borderRadius:7,border:'none',
-                      background:isDel?'rgba(239,68,68,0.15)':isEq?'rgba(34,197,94,0.18)':isOp||k==='%'||k==='←'?'#000000':C.card,
-                      color:isDel?C.red:isEq?C.green:isOp||k==='%'||k==='←'?'#FFFFFF':C.ink,
+                      background:isDel?'rgba(239,68,68,0.15)':isEq?'rgba(34,197,94,0.18)':isOp||k==='%'||k==='←'?C.ink:C.card,
+                      color:isDel?C.red:isEq?C.green:isOp||k==='%'||k==='←'?C.surface:C.ink,
                       fontSize:15,fontWeight:isEq?800:600,cursor:'pointer',
                       fontFamily:"'SF Mono',ui-monospace,monospace",
                     }}>{k}</button>
@@ -3782,7 +3804,7 @@ function ReservaFormModalCaja({reserva,tables,onClose,onSaved}){
               {TIME_SLOTS.map(t=>{
                 const sel=form.reservation_time===t;
                 return <button key={t} onClick={()=>f('reservation_time',t)}
-                  style={{padding:'5px 2px',borderRadius:5,border:`1.5px solid ${sel?'#000':C.border}`,background:sel?'#000':'transparent',color:sel?'#fff':C.ink,fontSize:11,fontWeight:sel?700:400,cursor:'pointer',transition:'all 100ms'}}>
+                  style={{padding:'5px 2px',borderRadius:5,border:`1.5px solid ${sel?'#000':C.border}`,background:sel?C.ink:'transparent',color:sel?'#fff':C.ink,fontSize:11,fontWeight:sel?700:400,cursor:'pointer',transition:'all 100ms'}}>
                   {t}</button>;
               })}
             </div>
@@ -3828,7 +3850,7 @@ function ReservaFormModalCaja({reserva,tables,onClose,onSaved}){
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:4}}>
             <button onClick={onClose} style={{padding:'8px 16px',border:`1px solid ${C.border}`,borderRadius:8,background:'transparent',color:C.mid,fontSize:13,cursor:'pointer'}}>Cancelar</button>
             <button onClick={save} disabled={saving||!canSave}
-              style={{padding:'8px 20px',border:'none',borderRadius:8,background:canSave?'#000':'#ccc',color:'#fff',fontSize:13,fontWeight:700,cursor:canSave?'pointer':'default',opacity:saving?.6:1}}>
+              style={{padding:'8px 20px',border:'none',borderRadius:8,background:canSave?C.ink:C.border,color:canSave?C.surface:C.dim,fontSize:13,fontWeight:700,cursor:canSave?'pointer':'default',opacity:saving?.6:1}}>
               {saving?'Guardando…':isNew?'Crear reserva':'Guardar'}
             </button>
           </div>
@@ -3880,14 +3902,14 @@ function ReservasPanel(){
     <div>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:10}}>
         <div>
-          <h1 style={{fontSize:22,fontWeight:800,color:'#000000',margin:0}}>Reservas</h1>
+          <h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Reservas</h1>
           <div style={{fontSize:12,color:C.mid,marginTop:3}}>{reservas.filter(r=>['pending','confirmed'].includes(r.status)).length} activas para esta fecha</div>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <input type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}
             style={{height:34,border:`1px solid ${C.border}`,borderRadius:6,padding:'0 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none'}}/>
           <button onClick={load} style={{height:34,padding:'0 12px',border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,color:C.mid,fontSize:12,cursor:'pointer'}}>↺</button>
-          <button onClick={()=>setNewModal(true)} style={{height:34,padding:'0 14px',border:'none',borderRadius:6,background:'#000',color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Nueva</button>
+          <button onClick={()=>setNewModal(true)} style={{height:34,padding:'0 14px',border:'none',borderRadius:6,background:C.ink,color:C.surface,fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Nueva</button>
         </div>
       </div>
 
@@ -3896,7 +3918,7 @@ function ReservasPanel(){
         <div style={{textAlign:'center',padding:60,color:C.mid}}>
           <div style={{fontSize:28,marginBottom:10}}>◷</div>
           <div style={{fontSize:14,fontWeight:600}}>Sin reservas para esta fecha</div>
-          <button onClick={()=>setNewModal(true)} style={{marginTop:14,padding:'8px 20px',border:'none',borderRadius:8,background:'#000',color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer'}}>+ Crear reserva</button>
+          <button onClick={()=>setNewModal(true)} style={{marginTop:14,padding:'8px 20px',border:'none',borderRadius:8,background:C.ink,color:C.surface,fontSize:13,fontWeight:700,cursor:'pointer'}}>+ Crear reserva</button>
         </div>
       )}
 
@@ -4038,7 +4060,7 @@ function FacturasCajaPanel({turno}){
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:2}}>
                     <span style={{fontSize:13,fontWeight:800}}>#{meta.orden_numero||'—'}</span>
                     <span style={{fontSize:11,color:C.mid}}>{meta.mesa||'—'}</span>
-                    <span style={{fontSize:10,background:'#F0F0F0',borderRadius:6,padding:'1px 6px',color:C.mid,fontWeight:600}}>{MET[c.metodo_pago]||c.metodo_pago}</span>
+                    <span style={{fontSize:10,background:'var(--bg-subtle)',borderRadius:6,padding:'1px 6px',color:C.mid,fontWeight:600}}>{MET[c.metodo_pago]||c.metodo_pago}</span>
                   </div>
                   <div style={{fontSize:11,color:C.dim}}>{hora}</div>
                 </div>
@@ -4147,23 +4169,23 @@ function HistorialPanel({onGoCobros}){
       {/* Filtros */}
       <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
         {/* Rango */}
-        <div style={{display:'flex',gap:0,background:'#F0F0F0',borderRadius:8,padding:3}}>
+        <div style={{display:'flex',gap:0,background:'var(--bg-subtle)',borderRadius:8,padding:3}}>
           {[['hoy','Hoy'],['7d','7 días'],['30d','30 días'],['todo','Todo']].map(([id,lbl])=>(
             <button key={id} onClick={()=>setRango(id)} style={{
               padding:'5px 12px',borderRadius:6,border:'none',fontSize:12,fontWeight:rango===id?700:500,
-              background:rango===id?'#FFFFFF':'transparent',color:rango===id?'#000000':'#6E6E73',
+              background:rango===id?C.white:'transparent',color:rango===id?C.ink:C.mid,
               cursor:'pointer',boxShadow:rango===id?'0 1px 4px rgba(0,0,0,0.15)':'none',
             }}>{lbl}</button>
           ))}
         </div>
 
         {/* Status filter */}
-        <select value={statusFlt} onChange={e=>setStatusFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#FFF',color:C.ink,fontWeight:600}}>
+        <select value={statusFlt} onChange={e=>setStatusFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,fontWeight:600}}>
           {STATUS_OPTIONS.map(s=><option key={s.id} value={s.id}>{s.lbl}</option>)}
         </select>
 
         {/* Tipo filter */}
-        <select value={tipoFlt} onChange={e=>setTipoFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#FFF',color:C.ink,fontWeight:600}}>
+        <select value={tipoFlt} onChange={e=>setTipoFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,fontWeight:600}}>
           {TIPO_OPTIONS.map(t=><option key={t.id} value={t.id}>{t.lbl}</option>)}
         </select>
 
