@@ -34,6 +34,25 @@ if (window.MythosTheme) {
   });
 }
 
+// ── Tintes de estado theme-adaptive (PR-B4C) ─────────────────
+// color-mix sobre tokens (--success/--warning/--error/--info + surface/text):
+// se resuelven por tema en cada paint → válidos en light Y dark, y NO se congelan
+// aunque se usen dentro de objetos const (a diferencia de C, que es mutado).
+// Mismo lenguaje visual que .my-badge. En light ≈ los tintes claros previos.
+const TINT = {
+  okBg:'color-mix(in srgb, var(--success) 15%, var(--surface))',
+  okText:'color-mix(in srgb, var(--success) 68%, var(--text-primary))',
+  warnBg:'color-mix(in srgb, var(--warning) 18%, var(--surface))',
+  warnText:'color-mix(in srgb, var(--warning) 70%, var(--text-primary))',
+  warnBorder:'color-mix(in srgb, var(--warning) 40%, transparent)',
+  dangerBg:'color-mix(in srgb, var(--error) 15%, var(--surface))',
+  dangerText:'color-mix(in srgb, var(--error) 70%, var(--text-primary))',
+  infoBg:'color-mix(in srgb, var(--info) 14%, var(--surface))',
+  infoText:'color-mix(in srgb, var(--info) 72%, var(--text-primary))',
+  purpleBg:'color-mix(in srgb, #AF52DE 16%, var(--surface))',
+  purpleText:'color-mix(in srgb, #AF52DE 72%, var(--text-primary))',
+};
+
 // ── Icon helper ──────────────────────────────────────────────
 const Icon = ({name, size=14, style}) => (
   <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',lineHeight:0,...(style||{})}}
@@ -109,21 +128,21 @@ const fmtRelTime = d => {
 
 const daysBadge = days => {
   if (days === null) return {label:'—', color:C.mid, bg:'transparent'};
-  if (days < 0)   return {label:'Vencido',    color:C.red,    bg:'#FFEDEC'};
-  if (days === 0) return {label:'Vence hoy',  color:C.red,    bg:'#FFEDEC'};
-  if (days <= 6)  return {label:`${days}d`,   color:C.red,    bg:'#FFEDEC'};
-  if (days <= 30) return {label:`${days}d`,   color:C.orange, bg:'#FFF4E0'};
-  return              {label:`${days}d`,   color:C.green,  bg:'#E8F9ED'};
+  if (days < 0)   return {label:'Vencido',    color:C.red,    bg:TINT.dangerBg};
+  if (days === 0) return {label:'Vence hoy',  color:C.red,    bg:TINT.dangerBg};
+  if (days <= 6)  return {label:`${days}d`,   color:C.red,    bg:TINT.dangerBg};
+  if (days <= 30) return {label:`${days}d`,   color:C.orange, bg:TINT.warnBg};
+  return              {label:`${days}d`,   color:C.green,  bg:TINT.okBg};
 };
 
 const statusMeta = {
-  active:    {label:'Activo',     color:'#1A7E37', bg:'#E8F9ED'},
-  trial:     {label:'Trial',      color:'#1D4ED8', bg:'#EEF4FF'},
-  suspended: {label:'Suspendido', color:'#C0190F', bg:'#FFEDEC'},
-  inactive:  {label:'Inactivo',   color:C.mid, bg:'#F5F5F7'},
-  expired:   {label:'Vencido',    color:'#C0190F', bg:'#FFEDEC'},
-  cancelled: {label:'Cancelado',  color:C.mid, bg:'#F5F5F7'},
-  past_due:  {label:'Mora',       color:'#8A4B00', bg:'#FFF4E0'},
+  active:    {label:'Activo',     color:TINT.okText,     bg:TINT.okBg},
+  trial:     {label:'Trial',      color:TINT.infoText,   bg:TINT.infoBg},
+  suspended: {label:'Suspendido', color:TINT.dangerText, bg:TINT.dangerBg},
+  inactive:  {label:'Inactivo',   color:C.mid, bg:'var(--bg-subtle)'},
+  expired:   {label:'Vencido',    color:TINT.dangerText, bg:TINT.dangerBg},
+  cancelled: {label:'Cancelado',  color:C.mid, bg:'var(--bg-subtle)'},
+  past_due:  {label:'Mora',       color:TINT.warnText,   bg:TINT.warnBg},
 };
 
 const eventMeta = {
@@ -228,7 +247,7 @@ const Btn = ({children,onClick,variant='primary',size='md',disabled,style:sx={},
 };
 
 const Badge = ({status}) => {
-  const m = statusMeta[status]||{label:status,color:C.mid,bg:'#F5F5F7'};
+  const m = statusMeta[status]||{label:status,color:C.mid,bg:'var(--bg-subtle)'};
   return <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:m.bg,color:m.color,whiteSpace:'nowrap'}}>{m.label}</span>;
 };
 
@@ -247,8 +266,8 @@ const Kpi = ({label,value,sub}) => (
 );
 
 const Toggle = ({checked,onChange}) => (
-  <div onClick={()=>onChange(!checked)} style={{width:36,height:20,borderRadius:10,background:checked?'#000000':'#D2D2D7',position:'relative',cursor:'pointer',transition:'background .15s',flexShrink:0}}>
-    <div style={{position:'absolute',top:2,left:checked?18:2,width:16,height:16,borderRadius:'50%',background:'#fff',transition:'left .15s',boxShadow:'0 1px 3px rgba(0,0,0,.3)'}}/>
+  <div onClick={()=>onChange(!checked)} style={{width:36,height:20,borderRadius:10,background:checked?C.ink:C.border,position:'relative',cursor:'pointer',transition:'background .15s',flexShrink:0}}>
+    <div style={{position:'absolute',top:2,left:checked?18:2,width:16,height:16,borderRadius:'50%',background:C.surface,transition:'left .15s',boxShadow:'0 1px 3px rgba(0,0,0,.3)'}}/>
   </div>
 );
 
@@ -416,7 +435,7 @@ const SectionCard = ({title,action,children,style:sx={}}) => (
 );
 
 const FilterBtn = ({active,onClick,children}) => (
-  <button onClick={onClick} style={{padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:600,border:`1px solid ${active?'#000000':C.border}`,background:active?'#000000':'transparent',color:active?'#FFFFFF':C.mid,cursor:'pointer',transition:'all .15s',whiteSpace:'nowrap'}}>
+  <button onClick={onClick} style={{padding:'5px 14px',borderRadius:20,fontSize:12,fontWeight:600,border:`1px solid ${active?C.ink:C.border}`,background:active?C.ink:'transparent',color:active?C.surface:C.mid,cursor:'pointer',transition:'all .15s',whiteSpace:'nowrap'}}>
     {children}
   </button>
 );
@@ -442,10 +461,10 @@ const MRRChart = ({subscriptions}) => {
 
 const DeltaBadge = ({current,prev}) => {
   if (prev===0 && current===0) return <span style={{color:C.mid,fontSize:12}}>—</span>;
-  if (prev===0) return <span style={{color:'#1A7E37',fontWeight:600,fontSize:12}}>↑ nuevo</span>;
+  if (prev===0) return <span style={{color:TINT.okText,fontWeight:600,fontSize:12}}>↑ nuevo</span>;
   const pct = ((current-prev)/Math.abs(prev))*100;
   const up = pct>=0;
-  return <span style={{color:up?'#1A7E37':'#C0190F',fontWeight:600,fontSize:12}}>{up?'↑':'↓'} {Math.abs(pct).toFixed(1)}%</span>;
+  return <span style={{color:up?TINT.okText:TINT.dangerText,fontWeight:600,fontSize:12}}>{up?'↑':'↓'} {Math.abs(pct).toFixed(1)}%</span>;
 };
 
 // ══════════════════════════════════════════════════════════════
@@ -677,7 +696,7 @@ function SystemHealth() {
     return ()=>{ alive=false; clearInterval(id); };
   },[]);
 
-  const latColor = latency==null ? C.mid : latency<200 ? '#1A7E37' : latency<500 ? '#8A4B00' : C.red;
+  const latColor = latency==null ? C.mid : latency<200 ? TINT.okText : latency<500 ? TINT.warnText : C.red;
   const dot = (color) => <span style={{width:8,height:8,borderRadius:'50%',background:color,display:'inline-block'}}/>;
 
   // Métricas reales vs estimadas — honestidad: la anon key no expone pool/webhooks reales
@@ -693,7 +712,7 @@ function SystemHealth() {
     <SectionCard title="Salud del sistema">
       <div style={{display:'flex',flexWrap:'wrap'}}>
         {cell('Base de datos',
-          <>{dot(dbOk===false?C.red:dbOk?'#1A7E37':C.mid)} {dbOk===false?'Caída':dbOk==null?'…':'Online'}</>,
+          <>{dot(dbOk===false?C.red:dbOk?C.green:C.mid)} {dbOk===false?'Caída':dbOk==null?'…':'Online'}</>,
           'Conexión Supabase', dbOk===false?C.red:C.ink)}
         {cell('Latencia DB',
           latency==null ? '…' : `${latency} ms`,
@@ -702,7 +721,7 @@ function SystemHealth() {
           <>24<span style={{fontSize:13,fontWeight:500,color:C.mid}}>/100</span></>,
           'Estimado — sin métrica directa', C.ink)}
         {cell('Webhooks Vercel',
-          <>{dot('#1A7E37')} Online</>,
+          <>{dot(C.green)} Online</>,
           'Estimado — verificar en panel', C.ink)}
       </div>
     </SectionCard>
@@ -854,7 +873,9 @@ function PageCapacidad({ enriched }) {
     .filter(x => x.rows>0)
     .sort((a,b)=> b.bytes-a.bytes);
   const topBreak = breakdown.slice(0,8);
-  const donutTop = breakdown.slice(0,6).map((b,i)=>({label:b.label, value:b.bytes, color:DONUT_RAMP[i]}));
+  // PR-B4C: slice 0 usa C.ink (theme-reactivo) en vez del #1D1D1F fijo del ramp,
+  // para que no quede near-negro invisible sobre el chart en dark.
+  const donutTop = breakdown.slice(0,6).map((b,i)=>({label:b.label, value:b.bytes, color:i===0?C.ink:DONUT_RAMP[i]}));
   const donutRest = breakdown.slice(6).reduce((s,b)=>s+b.bytes,0);
   if (donutRest>0) donutTop.push({label:'Otras', value:donutRest, color:DONUT_RAMP[7]});
 
@@ -1257,7 +1278,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
               {(r.addons||[]).length>0&&(
                 <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:4}}>
                   {r.addons.map(a=>(
-                    <span key={a.addon_key} style={{fontSize:10,fontWeight:700,background:'#EEF4FF',color:'#1D4ED8',padding:'2px 8px',borderRadius:5,whiteSpace:'nowrap'}}>
+                    <span key={a.addon_key} style={{fontSize:10,fontWeight:700,background:TINT.infoBg,color:TINT.infoText,padding:'2px 8px',borderRadius:5,whiteSpace:'nowrap'}}>
                       + {addonName(addonCatalog,a.addon_key)}
                     </span>
                   ))}
@@ -1522,7 +1543,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
           return (
             <div key={p.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20,opacity:p.is_active?1:.6,position:'relative'}}>
               {p.id===popularPlanId&&(
-                <div style={{position:'absolute',top:12,right:12,background:'#000000',color:'#fff',padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:.5}}>POPULAR</div>
+                <div style={{position:'absolute',top:12,right:12,background:C.ink,color:C.surface,padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:.5}}>POPULAR</div>
               )}
               <PlanBadge name={p.name}/>
               <div style={{fontSize:22,fontWeight:800,margin:'10px 0 4px',color:C.ink}}>{fmtGuarani(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
@@ -1620,7 +1641,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
                 const vencePronto = r.daysLeft!==null && r.daysLeft>=0 && r.daysLeft<=6;
                 const vencido     = r.daysLeft!==null && r.daysLeft<0;
                 return (
-                  <tr key={r.id} style={{background:vencePronto?'#FFF9F0':vencido?'#FFF1F0':'',transition:'background .1s'}}>
+                  <tr key={r.id} style={{background:vencePronto?TINT.warnBg:vencido?TINT.dangerBg:'',transition:'background .1s'}}>
                     <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
                     <Td><PlanBadge name={r.plan?.name}/></Td>
                     <Td style={{fontWeight:600}}>{s?.monthly_amount?fmtGuarani(s.monthly_amount):r.plan?.price_usd?fmtGuarani(r.plan.price_usd):'—'}</Td>
@@ -1954,7 +1975,7 @@ function PageUsuarios({restaurants, setFlash}) {
       </div>
 
       {!db&&(
-        <div style={{background:'#FFF4E0',border:`1px solid #FFD580`,borderRadius:8,padding:'12px 18px',marginBottom:20,color:'#8A4B00',fontSize:13}}>
+        <div style={{background:TINT.warnBg,border:`1px solid ${TINT.warnBorder}`,borderRadius:8,padding:'12px 18px',marginBottom:20,color:TINT.warnText,fontSize:13}}>
           Sin conexión a Supabase — gestión de usuarios no disponible en modo demo
         </div>
       )}
@@ -2568,7 +2589,7 @@ function PageReportes({enriched, orders, ratings, subscriptions, plans, events})
         {/* Tipo de reporte */}
         <div style={{marginBottom:14}}>
           <div style={{fontSize:11,fontWeight:600,color:C.mid,marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Tipo de reporte</div>
-          <select value={rType} onChange={e=>{setRType(e.target.value);setRows(null);setSummary(null);}} style={{width:'100%',maxWidth:440,padding:'9px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,background:'#fff',color:C.ink}}>
+          <select value={rType} onChange={e=>{setRType(e.target.value);setRows(null);setSummary(null);}} style={{width:'100%',maxWidth:440,padding:'9px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,background:C.surface,color:C.ink}}>
             <option value="">— Seleccioná un tipo —</option>
             {CATS.map(cat=>(
               <optgroup key={cat.id} label={cat.label}>
@@ -2625,7 +2646,7 @@ function PageReportes({enriched, orders, ratings, subscriptions, plans, events})
               </thead>
               <tbody>
                 {rows.data.map((r,ri)=>(
-                  <tr key={ri} style={{background:ri%2===0?'#fff':'#F9F9F9',borderBottom:`1px solid ${C.border}`}}>
+                  <tr key={ri} style={{background:ri%2===0?C.surface:'var(--bg-subtle)',borderBottom:`1px solid ${C.border}`}}>
                     {r.map((v,vi)=><td key={vi} style={{padding:'8px 12px',color:C.ink}}>{v}</td>)}
                   </tr>
                 ))}
@@ -2776,17 +2797,17 @@ const SUPPORT_CATS = {
   otro:'Otro'
 };
 const SUPPORT_STATUS = {
-  abierto:           {label:'Abierto',              color:'#1D4ED8', bg:'#EEF4FF'},
-  en_curso:          {label:'En curso',             color:'#8A4B00', bg:'#FFF4E0'},
-  esperando_cliente: {label:'Esperando cliente',    color:C.mid, bg:'#F5F5F7'},
-  resuelto:          {label:'Resuelto',             color:'#1A7E37', bg:'#E8F9ED'},
-  cerrado:           {label:'Cerrado',              color:C.mid, bg:'#F5F5F7'}
+  abierto:           {label:'Abierto',              color:TINT.infoText,   bg:TINT.infoBg},
+  en_curso:          {label:'En curso',             color:TINT.warnText,   bg:TINT.warnBg},
+  esperando_cliente: {label:'Esperando cliente',    color:C.mid, bg:'var(--bg-subtle)'},
+  resuelto:          {label:'Resuelto',             color:TINT.okText,     bg:TINT.okBg},
+  cerrado:           {label:'Cerrado',              color:C.mid, bg:'var(--bg-subtle)'}
 };
 const SUPPORT_PRIO = {
   baja:    {label:'Baja',    color:C.mid},
-  normal:  {label:'Normal',  color:'#1D4ED8'},
-  alta:    {label:'Alta',    color:'#FF9500'},
-  urgente: {label:'Urgente', color:'#FF3B30'}
+  normal:  {label:'Normal',  color:TINT.infoText},
+  alta:    {label:'Alta',    color:C.orange},
+  urgente: {label:'Urgente', color:C.red}
 };
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -2968,13 +2989,13 @@ function PageSoporte({setFlash}) {
               : filtered.length === 0
                 ? <div style={{padding:30,textAlign:'center',color:C.dim,fontSize:13}}>Sin tickets con esos filtros</div>
                 : filtered.map(t => {
-                    const s = SUPPORT_STATUS[t.status]||{label:t.status,color:C.mid,bg:'#F5F5F7'};
+                    const s = SUPPORT_STATUS[t.status]||{label:t.status,color:C.mid,bg:'var(--bg-subtle)'};
                     const p = SUPPORT_PRIO[t.priority];
                     const isSel = selected?.id === t.id;
                     return (
                       <div key={t.id} onClick={() => openTicket(t)} style={{
                         padding:'12px 14px',borderBottom:`1px solid ${C.border}`,cursor:'pointer',
-                        background: isSel ? '#F0F6FF' : (t.unread_for_super>0 ? '#FFFEF7' : 'transparent'),
+                        background: isSel ? TINT.infoBg : (t.unread_for_super>0 ? TINT.warnBg : 'transparent'),
                         borderLeft: isSel ? `3px solid ${C.ink}` : (t.unread_for_super>0 ? `3px solid ${C.orange}` : '3px solid transparent'),
                         transition:'background .15s'
                       }}>
@@ -3038,7 +3059,7 @@ function SoporteSuperChat({ticket, messages, onSend, onStatusChange, onAssign, o
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [showInfo, setShowInfo] = useState(true);
-  const s = SUPPORT_STATUS[ticket.status]||{label:ticket.status,color:C.mid,bg:'#F5F5F7'};
+  const s = SUPPORT_STATUS[ticket.status]||{label:ticket.status,color:C.mid,bg:'var(--bg-subtle)'};
   const p = SUPPORT_PRIO[ticket.priority];
   const isMine = ticket.assigned_to_user_id === myUserId;
   const closed = ['resuelto','cerrado'].includes(ticket.status);
@@ -3080,7 +3101,7 @@ function SoporteSuperChat({ticket, messages, onSend, onStatusChange, onAssign, o
       </div>
 
       {/* INFO CLIENTE (colapsable) */}
-      <div style={{background:'#FAFAFB',borderBottom:`1px solid ${C.border}`}}>
+      <div style={{background:'var(--bg-subtle)',borderBottom:`1px solid ${C.border}`}}>
         <button onClick={() => setShowInfo(!showInfo)} style={{width:'100%',padding:'8px 18px',background:'none',border:'none',textAlign:'left',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:11,fontWeight:700,color:C.mid,textTransform:'uppercase',letterSpacing:.5}}>
           <span>Datos del cliente</span>
           <span>{showInfo?'▾':'▸'}</span>
@@ -3102,7 +3123,7 @@ function SoporteSuperChat({ticket, messages, onSend, onStatusChange, onAssign, o
       </div>
 
       {/* MENSAJES */}
-      <div ref={scrollRef} style={{flex:1,overflowY:'auto',padding:'18px 20px',background:'#FAFAFB',display:'flex',flexDirection:'column',gap:10}}>
+      <div ref={scrollRef} style={{flex:1,overflowY:'auto',padding:'18px 20px',background:'var(--bg-subtle)',display:'flex',flexDirection:'column',gap:10}}>
         {messages.length === 0 && <div style={{textAlign:'center',color:C.dim,fontSize:12,padding:20}}>Sin mensajes aún…</div>}
         {messages.map(m => {
           if (m.author_side === 'system') {
@@ -3113,9 +3134,9 @@ function SoporteSuperChat({ticket, messages, onSend, onStatusChange, onAssign, o
             <div key={m.id} style={{display:'flex',justifyContent: mine?'flex-end':'flex-start'}}>
               <div style={{maxWidth:'78%'}}>
                 <div style={{
-                  background: mine ? '#000' : '#fff',
-                  color: mine ? '#fff' : C.ink,
-                  border: mine ? '1px solid #000' : `1px solid ${C.border}`,
+                  background: mine ? C.ink : C.surface,
+                  color: mine ? C.surface : C.ink,
+                  border: mine ? `1px solid ${C.ink}` : `1px solid ${C.border}`,
                   padding:'9px 13px',borderRadius:12,
                   borderBottomRightRadius: mine?4:12,
                   borderBottomLeftRadius:  mine?12:4,
@@ -3459,12 +3480,12 @@ function PageCalendario({restaurants}) {
                     style={{
                       minHeight:70, padding:'6px 7px', borderRadius:8,
                       cursor:d?'pointer':'default',
-                      background: sel?'#000':isTdy?'#F0F6FF':hasHigh&&d?'#FFF4E0':hasGlobal&&d?'#F5EDFF':d?C.surface:'transparent',
-                      border: sel?'1.5px solid #000':isTdy?'1.5px solid #007AFF':hasHigh&&d?'1px solid #FFD580':hasGlobal&&d?'1px solid #D4AAFF':`1px solid ${C.border}`,
+                      background: sel?C.ink:isTdy?TINT.infoBg:hasHigh&&d?TINT.warnBg:hasGlobal&&d?TINT.purpleBg:d?C.surface:'transparent',
+                      border: sel?`1.5px solid ${C.ink}`:isTdy?`1.5px solid var(--info)`:hasHigh&&d?`1px solid ${TINT.warnBorder}`:hasGlobal&&d?`1px solid ${TINT.purpleText}`:`1px solid ${C.border}`,
                       transition:'all .1s',
                     }}>
                     {d && <>
-                      <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?'#fff':isTdy?'#007AFF':C.ink,lineHeight:1,marginBottom:4}}>{d}</div>
+                      <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?C.surface:isTdy?'var(--info)':C.ink,lineHeight:1,marginBottom:4}}>{d}</div>
                       <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
                         {dayEvts.slice(0,4).map(e => (
                           <div key={e.id} style={{width:7,height:7,borderRadius:e.is_global?2:'50%',background:SA_CAL_TYPES[e.type]?.color||'#007AFF',flexShrink:0,opacity:sel?.8:1}}/>
@@ -3485,12 +3506,12 @@ function PageCalendario({restaurants}) {
                 {v.label}
               </div>
             ))}
-            <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#8A4B00'}}>
-              <div style={{width:8,height:8,borderRadius:2,background:'#FFD580'}}/>
+            <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:TINT.warnText}}>
+              <div style={{width:8,height:8,borderRadius:2,background:TINT.warnBorder}}/>
               Alta afluencia
             </div>
-            <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#6B21A8'}}>
-              <div style={{width:8,height:8,borderRadius:2,background:'#D4AAFF'}}/>
+            <div style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:TINT.purpleText}}>
+              <div style={{width:8,height:8,borderRadius:2,background:'#AF52DE'}}/>
               Global
             </div>
           </div>
@@ -3514,7 +3535,7 @@ function PageCalendario({restaurants}) {
                         <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:SA_CAL_TYPES[e.type]?.color+'22',color:SA_CAL_TYPES[e.type]?.color,fontWeight:700}}>{SA_CAL_TYPES[e.type]?.label}</span>
                         <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:SA_CAL_CROWD[e.expected_crowd]?.color+'22',color:SA_CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{SA_CAL_CROWD[e.expected_crowd]?.dot} {SA_CAL_CROWD[e.expected_crowd]?.label}</span>
                         {e.is_global
-                          ? <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:'#F5EDFF',color:'#6B21A8',fontWeight:700,display:'inline-flex',alignItems:'center',gap:3}}><Icon name="sparkles" size={10}/> Global</span>
+                          ? <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:TINT.purpleBg,color:TINT.purpleText,fontWeight:700,display:'inline-flex',alignItems:'center',gap:3}}><Icon name="sparkles" size={10}/> Global</span>
                           : <span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:'#F0F0F5',color:C.mid,fontWeight:700}}>{e.restaurant?.name||'Local'}</span>
                         }
                       </div>
@@ -3597,7 +3618,7 @@ function PageCalendario({restaurants}) {
                       <div style={{display:'flex',gap:4,marginTop:2,alignItems:'center'}}>
                         <span style={{fontSize:10,color:SA_CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{SA_CAL_CROWD[e.expected_crowd]?.dot} {SA_CAL_CROWD[e.expected_crowd]?.label}</span>
                         {e.is_global
-                          ? <span style={{fontSize:9,color:'#6B21A8',background:'#F5EDFF',padding:'1px 5px',borderRadius:3,fontWeight:700}}>Global</span>
+                          ? <span style={{fontSize:9,color:TINT.purpleText,background:TINT.purpleBg,padding:'1px 5px',borderRadius:3,fontWeight:700}}>Global</span>
                           : <span style={{fontSize:9,color:C.mid,background:C.bg,padding:'1px 5px',borderRadius:3,fontWeight:700}}>{e.restaurant?.name||'Local'}</span>
                         }
                       </div>
@@ -3774,7 +3795,7 @@ function App() {
           <div style={{fontWeight:700,fontSize:15,color:C.ink}}>{pageTitles[page]||page}</div>
           <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
             {offline&&<span style={{fontSize:11,color:C.dim,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Demo offline</span>}
-            {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:'#E8F9ED',padding:'3px 10px',borderRadius:12}} className="pulse">En vivo</span>}
+            {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:TINT.okBg,padding:'3px 10px',borderRadius:12}} className="pulse">En vivo</span>}
             {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Conectado</span>}
             {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
             <button onClick={()=>loadAll({silent:true})} disabled={refreshing} title="Recargar datos" style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer',opacity:refreshing?0.5:1}}><span className={refreshing?'spin':''} style={{display:'inline-block'}}>↺</span></button>
