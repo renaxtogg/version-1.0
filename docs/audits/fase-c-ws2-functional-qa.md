@@ -162,3 +162,12 @@ hueco de control de acceso por rol.
 - [ ] `rider1.*@mythos.test` → `/mozo.html`
 
 `npm run build` PASS (9/9). **Requiere QA real** (las 6 verificaciones). Recomendación: mergear WS2-A+WS2-B juntos tras QA PASS de estos 6 casos.
+
+### 8.7 Resultado QA real + nota de naming
+**QA real (2026-06-18): ✅ PASS** sobre Don Carlos/Enterprise (aísla el guard de ROL del gating por plan). Los 3 permitidos montan Mozo; los 3 bloqueados redirigen a **su propio panel** (mejor UX que login; el panel Mozo nunca monta); el bypass por `mozo_session` cacheada **falla y limpia la sesión stale**; sin errores rojos ni datos cruzados.
+
+> **Nota de naming (corrige los patrones de arriba):** la cuenta de mozo real lleva **dígito** —
+> `mozo1.<rest>@mythos.test` (y `mozo2.napoli`), **no** `mozo.<rest>`. QA confirmó que `mozo.carlos` no existe;
+> el correcto es **`mozo1.carlos@mythos.test`**. Donde este doc usa el patrón `mozo.*`, léase `mozo1.*`/`mozo2.*`.
+
+Carryover (no bloquea WS2): emojis en Mozo (`🗺` pestaña Mapa, `📋` Historial) y Rider (`🛵 📦 📋`) → **WS5**.
