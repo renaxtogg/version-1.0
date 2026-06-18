@@ -10,6 +10,14 @@
 <script src="mythos-theme.js"></script>
 <script src="mythos-icons.js"></script>
 <script src="mythos-offline.js"></script>
+<!-- PR-B4J: Delivery cliente es superficie CUSTOMER-FACING con branding propio
+     (src/delivery-cliente/main.jsx → makeTheme(): superficies claras hardcodeadas
+     #FFF/#000/#F8F8F8 + mapas de color por zona). Decisión (igual criterio que el
+     menú/QR cliente en PR-B3I.X): NO se integra al dark del staff; queda en LIGHT.
+     ⚠️ NO cambiar a init() sin un rebrand completo del panel: el bridge de tokens
+     es PARCIAL (ink/mid/gray flipean, las superficies NO) → init() dejaría texto
+     claro sobre superficie blanca = invisible en todo el flujo. El pin 'light'
+     fuerza light e ignora la preferencia global del staff (protege la marca). -->
 <script>MythosTheme.init('light');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
