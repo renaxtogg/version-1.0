@@ -196,3 +196,56 @@ Sin tocar `allowed_features`, ni planes, ni RLS, ni Auth. No se rediseñó nada 
 - **Sigue siendo gate de frontend** (bypasseable por un atacante técnico). No hay fuga de datos (RLS + role guard intactos). El **refuerzo backend** (RLS/route) sigue recomendado como evolución futura (§7), fuera de WS1-B.
 - **mozo** sin allowlist de rol (§5.3) **no** se tocó (es rol-guard, no plan-gating) → queda para WS2.
 - Superadmin que abra un panel premium **con contexto de un tenant de plan inferior** también queda gateado (usa la propia herramienta superadmin). Aceptado.
+
+---
+
+## 9. WS1-C — Desbloqueo de login de cuentas demo (Starter/Pro)
+
+### 9.1 QA BLOCKED recibido
+QA real de WS1-B (preview `mythos-a9od3fiwg-…vercel.app`) dio **🔴 BLOCKED**:
+- ✅ 4/4 casos PERMITIR pasaron; ✅ 1/5 BLOQUEAR (delivery-cliente anon Starter) pasó.
+- 🔴 4/5 BLOQUEAR **no verificables**: el login de `gerente.napoli`, `rider1.napoli`, `gerente.sakura`,
+  `rider1.sakura` devuelve **HTTP 500 "Database error querying schema"** en `POST /auth/v1/token`.
+  Las cuentas Enterprise (`*.carlos`) sí loguean.
+
+### 9.2 Diagnóstico (causa raíz)
+**No es el gating ni la mig 109 ni `login.html`** (ninguno se tocó en el camino de Auth):
+- El 500 es en **`/auth/v1/token` = GoTrue (Auth server)**, no en nuestro frontend ni en `public.*`.
+- Un **500 "Database error querying schema"** (no 400 `invalid_credentials`) ⇒ el usuario **existe** y la
+  clave **coincide**, pero GoTrue **no pudo escanear la fila** de `auth.users`. Patrón clásico: **NULL en
+  columnas de token string** (`confirmation_token`, `recovery_token`, `email_change*`, `phone_change*`,
+  `reauthentication_token`) en filas insertadas a mano por SQL.
+- La correlación real **no es por plan**: es **por seed**. Las 4 que fallan son exactamente las creadas por
+  el seed WS0-B (`_simulacion/07_ws0b_accounts.sql`); las que funcionan (`*.carlos`) son del seed viejo
+  (`02_staff.sql`), ya normalizadas a `''` por uso previo. Defecto **latente del seed**, no del código WS1-B.
+
+### 9.3 Enfoque rápido aprobado
+No investigar Auth a fondo ni tocar arquitectura de login/gating. **Normalizar a `''` esas columnas NULL**
+solo para los 4 emails demo. Reversible-trivial, idempotente, acotado.
+
+### 9.4 Cuentas afectadas
+`gerente.napoli@mythos.test`, `rider1.napoli@mythos.test`, `gerente.sakura@mythos.test`, `rider1.sakura@mythos.test`
+(mapping WS0-B: gerente→`supervisor_local`, rider→`rider`; Napoli=Starter, Sakura=Pro; riders con ficha `delivery_riders`).
+
+### 9.5 Script preparado
+`scripts/repair/ws1c-fix-demo-login.sql` (committeado, **sin secretos** — no toca contraseñas):
+- **PART A (read-only):** verificación que compara las 4 demo vs `*.carlos` (muestra qué columnas están NULL).
+- **PART B (idempotente, transaccional):** `UPDATE` que pone `''` donde hay NULL en las columnas de token de los 4 emails + ensures defensivos idempotentes de identity/`user_roles`/`delivery_riders` (por si algo faltara). **Sin DELETE.** No toca Renato, `*.carlos`, pedidos, planes ni RLS.
+- **PART C (read-only):** post-check (`tokens_ok = true` para los 4).
+
+### 9.6 Instrucciones para Renato
+En **SQL Editor (Dashboard en INGLÉS, rol postgres)**:
+1. Correr **PART A** y confirmar que las 4 demo tienen `*_tok_null = true` (NULL) y `*.carlos` `false`.
+2. Correr **PART B** (aplica el fix).
+3. Correr **PART C**: las 4 deben dar `tokens_ok = true`.
+4. Probar login real de las 4 cuentas en el preview con `Mythos2026!` → ya no deben dar 500.
+
+### 9.7 Re-QA requerido (solo estos 4 casos)
+- `gerente.napoli` → `/gerente` → **debe BLOQUEAR** (módulo no disponible, sin cargar datos).
+- `rider1.napoli` → `/delivery-rider.html` → **debe BLOQUEAR**.
+- `gerente.sakura` → `/gerente` → **debe BLOQUEAR**.
+- `rider1.sakura` → `/delivery-rider.html` → **debe BLOQUEAR**.
+Los otros 5 casos (4 PERMITIR + delivery-cliente anon Starter) ya dieron PASS y no requieren re-test.
+
+### 9.8 Nota (fuera de WS1-C)
+QA flageó **emojis en el panel rider** (🛵/📦/📋). Es del workstream de **purga de emojis (WS5)**, no de WS1-C → registrado, no se toca acá.
