@@ -472,6 +472,8 @@ function App() {
   const [mozoSession, setMozoSession] = useState(() => {
     try { return JSON.parse(localStorage.getItem('mozo_session') || 'null'); } catch(e) { return null; }
   });
+  // WS2-B · El panel solo monta cuando el guard de rol confirmó (fail-closed).
+  const [authOk, setAuthOk] = useState(false);
 
   const [transferNotifPopup, setTransferNotifPopup] = useState(null);
 
@@ -499,21 +501,29 @@ function App() {
   const pollingRef = useRef(null);
   const channelRef = useRef(null);
 
-  // Auth check: if no Supabase session, redirect to login
+  // Auth + guard de rol (WS2-B): solo roles autorizados montan el panel de mozo.
+  // Patrón alineado a gerente/caja/cocina: get_my_profile + allowlist, fail-closed.
+  // El chequeo de rol corre SIEMPRE (aun con mozo_session cacheada en localStorage),
+  // para que una sesión vieja no saltee el guard.
   useEffect(() => {
     if (!db) { window.location.replace('login.html?next=mozo.html'); return; }
     db.auth.getSession()
       .then(async ({ data: { session } }) => {
         if (!session) { window.location.replace('login.html?next=mozo.html'); return; }
-        if (mozoSession) return;
-        let mozo_name = session.user.email;
-        try {
-          const { data: profile } = await db.rpc('get_my_profile');
-          if (profile?.full_name) mozo_name = profile.full_name;
-        } catch(e) {}
+        const { data: profile } = await db.rpc('get_my_profile');
+        const allowed = ['mozo', 'admin', 'supervisor_local', 'superadmin'];
+        if (!profile || !allowed.includes(profile.role)) {
+          // Rol no autorizado / sin perfil → no montar el panel. login.html
+          // reenvía a la sesión activa a su propio panel según su rol.
+          try { localStorage.removeItem('mozo_session'); } catch(e) {}
+          window.location.replace('login.html');
+          return;
+        }
+        setAuthOk(true);
+        if (mozoSession) return;   // ya inicializado: no re-setear la sesión
         const s = {
           mozo_id: session.user.id,
-          mozo_name,
+          mozo_name: profile.full_name || session.user.email,
           turno_inicio: localStorage.getItem('turno_inicio') || new Date().toISOString()
         };
         localStorage.setItem('mozo_session', JSON.stringify(s));
@@ -1744,7 +1754,7 @@ function App() {
   }
 
   /* ── SESSION GUARD ── */
-  if (!mozoSession) {
+  if (!mozoSession || !authOk) {
     return (
       <div className="loading-screen">
         <div className="spinner"></div>

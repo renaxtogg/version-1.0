@@ -122,3 +122,43 @@ Cuentas demo (`Mythos2026!`), preview o prod-con-cuidado. Por cada flujo: flujo 
 
 > **Pendiente real para PASS pleno de WS2:** la verificación **interactiva** del checklist §6 por **QA real**.
 > Esta WS2-A entrega el mapa y la priorización; el PASS/FAIL por flujo lo cierra Claude Web.
+
+---
+
+## 8. WS2-B — Fix: guard de rol en `mozo.html`
+
+### 8.1 Bug corregido
+`mozo.html` no tenía allowlist de rol (§4 P1): cualquier sesión autenticada (cajero/cocina/rider) que abriera
+`/mozo.html` por URL directa quedaba operando como "mozo". Tenant-scoped por RLS (sin fuga cross-tenant), pero
+hueco de control de acceso por rol.
+
+### 8.2 Archivo tocado
+`src/mozo/main.jsx` (solo el bootstrap de auth + el gate de render). **Sin tocar Auth/RLS/DB/planes/UI ni los flujos de mozo.** Patrón alineado a gerente/caja/cocina (`get_my_profile` + allowlist, fail-closed).
+- Nuevo estado `authOk` (el panel monta solo cuando el guard confirmó).
+- Guard reescrito: corre `get_my_profile` y valida rol **siempre** (aun con `mozo_session` cacheada en localStorage, para que una sesión vieja no saltee el chequeo). Si el rol no está permitido → limpia `mozo_session` y `window.location.replace('login.html')` (login reenvía la sesión activa al panel correcto de su rol).
+- Gate de render: `if (!mozoSession || !authOk)` reutiliza la pantalla existente "Verificando sesión..." (sin UI nueva) → el panel y sus datos no se muestran hasta confirmar el rol.
+
+### 8.3 Roles
+- **Permitidos:** `mozo`, `admin`, `supervisor_local`, `superadmin`.
+- **Bloqueados:** `cajero`, `cocina`, `rider`, rol desconocido, sin perfil, sesión inválida → redirige a login.
+
+### 8.4 Comportamiento
+- Rol permitido → `/mozo.html` carga igual que antes (breve "Verificando sesión..." y luego el panel).
+- Rol bloqueado → no monta el panel ni sus datos; redirige a login → login lo manda a su propio panel. Sin errores rojos de consola.
+
+### 8.5 Riesgo residual
+- Caso borde (navegador con `mozo_session` viejo de antes del fix): durante el redirect (~ms) los efectos de datos —gateados por `mozoSession`— podrían disparar lecturas **RLS-protegidas del propio tenant** antes de navegar; **no se renderiza el panel** (gate `authOk`) y no hay fuga cross-tenant. El caso común (rol equivocado sin `mozo_session`) ni siquiera dispara esas lecturas.
+- Sigue siendo guard de **frontend** (consistente con los demás paneles). El refuerzo backend del acceso por rol es tema del sprint de seguridad, no de WS2.
+
+### 8.6 Verificación requerida (QA real)
+**Debe PERMITIR (carga normal):**
+- [ ] `mozo.*@mythos.test` → `/mozo.html`
+- [ ] `admin.*@mythos.test` → `/mozo.html`
+- [ ] `gerente.*@mythos.test` (rol `supervisor_local`) → `/mozo.html`
+
+**Debe BLOQUEAR (redirige a login / no monta panel):**
+- [ ] `caja.*@mythos.test` → `/mozo.html`
+- [ ] `cocina.*@mythos.test` → `/mozo.html`
+- [ ] `rider1.*@mythos.test` → `/mozo.html`
+
+`npm run build` PASS (9/9). **Requiere QA real** (las 6 verificaciones). Recomendación: mergear WS2-A+WS2-B juntos tras QA PASS de estos 6 casos.
