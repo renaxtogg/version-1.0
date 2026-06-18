@@ -155,11 +155,14 @@
   --overlay:        rgba(0,0,0,.6);
   --overlay-strong: rgba(0,0,0,.75);
 
-  /* Sombras (dark): subir opacidad; separar más por borde que por sombra */
+  /* Sombras (dark) — PR-B4A: armonizadas al MISMO modelo difuso de 2 capas que
+     light (B3I.1), con mayor opacidad para legibilidad sobre fondo oscuro. Misma
+     geometría (blur/spread) que light → la "forma" de la elevación es coherente
+     entre temas; en dark el peso lo da la opacidad, no un blur distinto. */
   --shadow-xs: 0 1px 2px rgba(0,0,0,.4);
-  --shadow-sm: 0 1px 4px rgba(0,0,0,.5), 0 0 1px rgba(0,0,0,.3);
-  --shadow-md: 0 4px 16px rgba(0,0,0,.6), 0 0 1px rgba(0,0,0,.3);
-  --shadow-lg: 0 8px 32px rgba(0,0,0,.7), 0 0 1px rgba(0,0,0,.3);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.4);
+  --shadow-md: 0 2px 4px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.5);
+  --shadow-lg: 0 4px 10px rgba(0,0,0,.4), 0 16px 48px rgba(0,0,0,.6);
 }
 
 /* ── ALIAS DE COMPATIBILIDAD (solo transición — NO renombrar componentes aún)
