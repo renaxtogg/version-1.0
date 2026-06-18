@@ -75,6 +75,12 @@
   --weight-medium:   500;
   --weight-semibold: 600;
   --weight-bold:     700;
+  /* Interlineado — PR-B3I.3: hasta ahora no existía token; los primitivos no
+     fijaban line-height (ritmo inconsistente). tight=titulares/KPI, snug=títulos,
+     normal=cuerpo/labels. Independiente del tema. */
+  --leading-tight:  1.15;
+  --leading-snug:   1.3;
+  --leading-normal: 1.5;
 
   /* Espaciado — escala de 4px */
   --space-1:  4px;
