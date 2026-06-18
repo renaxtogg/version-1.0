@@ -340,9 +340,21 @@
   text-align: center;
   color: var(--text-secondary);
 }
-.my-empty-state__icon { font-size: var(--text-3xl); color: var(--text-tertiary); }
-.my-empty-state__title { font-size: var(--text-md); font-weight: var(--weight-semibold); color: var(--text-secondary); }
-.my-empty-state__hint { font-size: var(--text-sm); color: var(--text-tertiary); }
+/* PR-B3I.4: ícono en contenedor circular suave (empty state iOS-like). */
+.my-empty-state__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-12);
+  height: var(--space-12);
+  margin-bottom: var(--space-1);
+  border-radius: var(--radius-full);
+  background: var(--bg-subtle);
+  font-size: var(--text-2xl);
+  color: var(--text-tertiary);
+}
+.my-empty-state__title { font-size: var(--text-md); font-weight: var(--weight-semibold); color: var(--text-secondary); line-height: var(--leading-snug); }
+.my-empty-state__hint { font-size: var(--text-sm); color: var(--text-tertiary); line-height: var(--leading-normal); }
 
 .my-loading-state {
   display: flex;
@@ -361,6 +373,67 @@
   border-top-color: var(--text-secondary);
   animation: my-spin 0.7s linear infinite;
 }
+
+/* ── ALERTAS / BLOQUES INFORMATIVOS ──────────────────────────────────────
+   PR-B3I.4 — ADITIVO: ningún panel los usa todavía → CERO cambio visual.
+   Bloque informativo suave; el tinte por estado se deriva con color-mix sobre
+   tokens (mismo lenguaje que .my-badge) → nada de colores duros. Fundación para
+   sustituir los avisos inline de los paneles en un PR futuro (toca paneles →
+   aprobación aparte). */
+.my-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.my-alert__icon { flex-shrink: 0; font-size: var(--text-md); line-height: 1; margin-top: 1px; }
+.my-alert__content { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.my-alert__title { font-weight: var(--weight-semibold); color: var(--text-primary); }
+.my-alert__body { color: var(--text-secondary); }
+.my-alert--info {
+  background: color-mix(in srgb, var(--info) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--info) 28%, transparent);
+}
+.my-alert--success {
+  background: color-mix(in srgb, var(--success) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--success) 28%, transparent);
+}
+.my-alert--warning {
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+}
+.my-alert--danger {
+  background: color-mix(in srgb, var(--error) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--error) 28%, transparent);
+}
+
+/* ── SECCIÓN (contenedor informativo titulado) ───────────────────────────
+   PR-B3I.4 — ADITIVO (cero consumidores → CERO cambio visual). Agrupa título +
+   contenido con ritmo vertical coherente usando el type-scale de PR-B3I.3.
+   Pensado para los "bloques de dashboard" y contenedores informativos.
+   NOTA: .my-panel NO se agrega (sería redundante con .my-card como contenedor). */
+.my-section { display: flex; flex-direction: column; gap: var(--space-4); }
+.my-section__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.my-section__title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.my-section__subtitle { font-size: var(--text-sm); color: var(--text-secondary); line-height: var(--leading-normal); margin-top: var(--space-1); }
+.my-section__body { display: flex; flex-direction: column; gap: var(--space-3); }
 
 /* ── MODALES / DRAWERS / DROPDOWNS ───────────────────────────────────── */
 .my-modal-overlay {
