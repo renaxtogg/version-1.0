@@ -1,13 +1,13 @@
-# FASE C · WS0 — Preparación de entorno de prueba
+# FASE C · WS0 — Preparación de entorno de prueba — ✅ PASS OPERATIVO
 
-> **Estado:** WS0-A (plan/inventario) **CERRADO** + WS0-B (normalización demo) **SEED PREPARADO, NO EJECUTADO
-> desde aquí** (sin PAT en el entorno del programador). **Cero borrado. Cero cambios de producto.** Lo único
-> a ejecutar es un seed INSERT-only, idempotente, no destructivo (§12) que Renato corre con un comando.
+> **Estado:** WS0-A (plan/inventario) **CERRADO** + WS0-B (normalización demo) **EJECUTADO Y VERIFICADO
+> por Renato (2026-06-18)**. Las 5 cuentas demo faltantes existen; Terrapizza y Renato intactos; cero borrado.
+> **WS0 = PASS operativo.** Falta solo la **ratificación del cierre por ChatGPT (arquitecto)** antes de pasar a WS1.
 >
 > Rol: Claude Code (programador). Arquitecto: ChatGPT. Intermediario/dueño: Renato.
 >
-> Las §1–§11 documentan el inventario y el plan original. La decisión quedó **ratificada (Opción A)** y la
-> ejecución concreta está en **§12 (WS0-B)** abajo — leer §12 para el estado final operativo.
+> Las §1–§11 documentan el inventario y el plan original. La decisión quedó **ratificada (Opción A)**; la
+> ejecución y el **resultado real del verify** están en **§12 (WS0-B)** abajo — leer §12 para el estado final.
 
 ---
 
@@ -62,32 +62,37 @@ camino consistente y auditable del repo es el SQL del simulacro corrido por `run
 > aislar el comportamiento de gating del de "rider inexistente". Lo mismo aplica al delivery en Starter.
 
 ### 12.4 Cuentas protegidas (NO tocadas — INSERT-only no puede tocarlas)
-- **Renato:** `mancuellorenato@gmail.com`, `restaurant_id NULL`, superadmin. Cuenta oficial dura. El seed solo hace `INSERT` de UUIDs/emails nuevos → no la roza. Verificado por §4 del script de verificación.
-- **Terrapizza:** restaurante real (criterio del prompt), UUID fuera de la allowlist sim. No referenciada por el seed. Verificado por §5 del script de verificación.
+- **Renato:** `mancuellorenato@gmail.com`, `restaurant_id NULL`, superadmin. **No se elimina** (única protección dura); puede usarse para QA/admin. El seed solo hace `INSERT` de UUIDs/emails nuevos → no la roza. Verificado por §4 del verify.
+- **Terrapizza:** **demo** (no cliente real), UUID fuera de la allowlist sim → **dato de control: no borrar/romper sin necesidad explícita y recuperable** (criterio del dueño 2026-06-18). No referenciada por el seed. Verificado por §5 del verify.
 
-### 12.5 Qué se ejecutó y qué NO
-- **NO ejecutado:** ningún SQL corrió desde el entorno del programador (sin PAT). Cero filas creadas/modificadas/borradas por mí.
-- **Preparado y listo:** seed `07_ws0b_accounts.sql` + verificación `ws0b-demo-accounts-verification.sql`.
-- **Ejecución pendiente (Renato, 1 comando):**
+### 12.5 Qué se ejecutó (por Renato) y cómo
+- **Preparado por el programador (sin PAT):** seed `07_ws0b_accounts.sql` + verify `ws0b-demo-accounts-verification.sql`. Cero SQL corrido desde mi entorno.
+- **Ejecutado por Renato (2026-06-18)** vía `run.ps1` (PAT por env var, prod):
   ```powershell
   $env:SUPABASE_PAT='<token>'; $env:SUPABASE_PROJECT_REF='ocwzupmamfojvdywavqi'
   $env:ALLOW_PROD_SIMULATION='true'   # INSERT-only: NO dispara la guarda destructiva de run.ps1
   cd _simulacion; .\run.ps1 -File .\07_ws0b_accounts.sql
   ```
-  Luego correr `scripts/verify/ws0b-demo-accounts-verification.sql` en el SQL Editor (Dashboard en inglés) y
-  confirmar: 5 cuentas con `tiene_auth_user`/`tiene_identity_email` = true, cobertura de roles completa por
-  restaurante, riders linkeados, Renato intacto, `filas_terrapizza ≥ 1` + `fuera_de_allowlist_sim = true`,
-  `superadmins_total = 2`.
+- El seed **corrió sin error**. Verify corrido en SQL Editor.
 
-### 12.6 Estado de la Definición de Hecho WS0
+### 12.6 Resultado real del verify (2026-06-18) — evidencia de cierre
+- **5 cuentas WS0-B presentes** (terminal devolvió las 5 esperadas):
+  `gerente.napoli`, `rider1.napoli`, `gerente.sakura`, `rider1.sakura`, `superadmin.demo` (todas `@mythos.test`).
+- **`superadmins_total = 3`** → Renato + `qa.superadmin` (preexistente, ya listado en §1.3) + `superadmin.demo` (WS0-B).
+  > Nota: la estimación previa "esperado = 2" **omitía** el `qa.superadmin` preexistente. **3 es correcto y esperado.**
+- **`riders_ws0b = 2`** → los 2 riders nuevos (Napoli + Sakura) creados y linkeados por `user_id`.
+- **Sin evidencia de borrado ni daño.** Terrapizza y Renato intactos (el seed es INSERT-only).
+- **Criterio reafirmado por el dueño:** Terrapizza = demo (dato de control, no borrar/romper sin necesidad); cuenta superadmin de Renato usable para QA pero **no se elimina**.
+
+### 12.7 Estado de la Definición de Hecho WS0 — ✅ PASS OPERATIVO
 - [x] 3 restaurantes sim mapeados a Starter/Pro/Enterprise (preexistente, confirmado §1.1/§7).
-- [x] Cuenta demo para cada rol requerido — **especificada y semillada** (efectiva tras el comando de §12.5).
-- [x] Superadmin demo — incluido en el seed.
+- [x] Cuenta demo para **cada rol requerido** — creada y verificada (§12.6).
+- [x] **Superadmin demo** creado y verificado.
 - [x] Todas las demos con `Mythos2026!`.
-- [x] Terrapizza no tocada / Renato no tocado (INSERT-only + guardas de verificación).
+- [x] **Terrapizza no tocada / Renato no tocado** (INSERT-only + §12.6).
 - [x] Documentación actualizada (este §12).
 - [x] `npm run build` PASS.
-- ⏳ **Único pendiente para PASS pleno:** que Renato corra el comando de §12.5 + la verificación. WS0-B queda **listo para ejecutar**.
+- ✅ **WS0 = PASS operativo.** Único gate restante: **ratificación del cierre por ChatGPT (arquitecto)** antes de iniciar WS1.
 
 ---
 
@@ -149,8 +154,8 @@ más `qa.superadmin` (`@mythos.test`). Confirmar el set real en el dry-run antes
 
 | Qué | Identificador | Por qué se protege |
 |---|---|---|
-| **Renato (superadmin)** | `Renaxto`, email `mancuellorenato@gmail.com`, `restaurant_id = NULL` | **Única cuenta oficial dura.** Nunca se toca. |
-| **Terrapizza** | restaurante con `name ILIKE '%terrapizza%'`, UUID **fuera** de la allowlist sim | Ver §4. **Para WS0/FASE C: NO se toca** (instrucción del prompt). |
+| **Renato (superadmin)** | `Renaxto`, email `mancuellorenato@gmail.com`, `restaurant_id = NULL` | **Única protección dura: NO se elimina.** Puede usarse para QA/admin. |
+| **Terrapizza** | restaurante con `name ILIKE '%terrapizza%'`, UUID **fuera** de la allowlist sim | **Demo** (no cliente real), pero **dato de control: no borrar/romper sin necesidad explícita y recuperable**. Ver §4. |
 | Catálogo de plataforma | `subscription_plans`, `plan_addons`, `platform_config` | Global, no-tenant. |
 
 ---
@@ -200,12 +205,12 @@ Guardar la salida en la carpeta de QA (Mythos EAS) junto a las credenciales (§6
 2. **Guarda dura in-SQL:** `teardown-simulation-data.sql` aborta (`RAISE EXCEPTION`) si algún restaurante de la allowlist matchea `name ILIKE '%terrapizza%'`, o si la allowlist resuelve a >3 filas.
 3. **Post-check:** el teardown aborta si `terrapizza_present < 1` después del borrado.
 
-> ⚠️ **Conflicto de criterio pendiente de reconciliar (NO se resuelve en WS0).**
-> El prompt de FASE C dice "NUNCA tocar Terrapizza". El criterio **FINAL 2026-06-16** (CLAUDE.md +
-> `project_terrapizza_demo_criterion`) dice que la **única** protección dura es `mancuellorenato@gmail.com`
-> y que Terrapizza es demo/QA candidata. **Para WS0 prevalece la instrucción operativa del prompt:
-> Terrapizza NO se toca.** La reconciliación formal del criterio queda para un PR aparte (no este).
-> En la práctica WS0 protege **ambas**: Renato (oficial) **y** Terrapizza (por instrucción).
+> ✅ **Criterio aclarado por el dueño (2026-06-18) — NO hay conflicto pendiente.**
+> Terrapizza **es demo** (no cliente real); CLAUDE.md ya lo refleja desde PR-21c. Para FASE C queda como
+> **dato de control: no borrar ni romper salvo necesidad explícita y recuperable.** La única protección dura
+> sigue siendo `mancuellorenato@gmail.com` (no se elimina; **sí** puede usarse para QA/admin). Todo MYTHOS está
+> en creación/demo: se permite **editar datos demo** para estabilizar, siempre que sea **seguro y reparable**.
+> WS0-B no tocó ninguno de los dos (seed INSERT-only). Ver `project_terrapizza_demo_criterion`.
 
 ---
 
