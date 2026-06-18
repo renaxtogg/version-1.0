@@ -45,12 +45,12 @@ const RestaurantCtx = createContext(null);
 
 function makeTheme() {
   return {
-    black: '#000000', ink: '#1D1D1F', dark: '#2D2D2D', mid: '#6E6E73',
-    gray: '#86868B', silver: '#BBB', border: '#E8E8E8', light: '#F0F0F0',
+    black: '#000000', ink: 'var(--text-primary)', dark: '#2D2D2D', mid: 'var(--text-secondary)',
+    gray: 'var(--text-tertiary)', silver: '#BBB', border: '#E8E8E8', light: '#F0F0F0',
     offwhite: '#F8F8F8', white: '#FFF',
-    hdrBg: '#FFF', hdrText: '#1D1D1F', hdrSub: '#86868B',
-    hdrInputBg: '#F5F5F5', hdrInputBorder: '#E2E2E2', hdrInputText: '#1D1D1F',
-    trackBg: '#F8F8F8', trackText: '#1D1D1F', trackSub: '#86868B',
+    hdrBg: '#FFF', hdrText: 'var(--text-primary)', hdrSub: 'var(--text-tertiary)',
+    hdrInputBg: '#F5F5F5', hdrInputBorder: '#E2E2E2', hdrInputText: 'var(--text-primary)',
+    trackBg: '#F8F8F8', trackText: 'var(--text-primary)', trackSub: 'var(--text-tertiary)',
     trackLine: 'rgba(0,0,0,0.5)', trackLineDim: 'rgba(0,0,0,0.08)',
     btnPrimary: '#000000', btnPrimaryText: '#FFF', phoneBg: '#F8F8F8',
     F: {
@@ -1388,7 +1388,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
       {showBancardToast && (() => {
         setTimeout(() => setShowBancardToast(false), 4000);
         return (
-          <div onClick={() => setShowBancardToast(false)} style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 9999, background: '#1C1C1E', color: '#F5F5F7', borderRadius: 14, padding: '14px 20px', maxWidth: 340, width: 'calc(100% - 40px)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
+          <div onClick={() => setShowBancardToast(false)} style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 9999, background: '#1C1C1E', color: 'var(--bg-subtle)', borderRadius: 14, padding: '14px 20px', maxWidth: 340, width: 'calc(100% - 40px)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
             <span style={{ fontSize: 22, flexShrink: 0 }}>🏦</span>
             <div>
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3 }}>Módulo Bancard / SIFEN en fase de certificación</div>
@@ -1747,9 +1747,9 @@ function ReservaScreen({ onBack, onDone }) {
     <div style={{ minHeight: '100%', background: T.black, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', textAlign: 'center' }}>
       <div style={{ width: 72, height: 72, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}><Icon name="check" size={32} color="#fff" sw={2} /></div>
       <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: '#fff', marginBottom: 10 }}>¡Reserva enviada!</div>
-      <div style={{ fontSize: 13, color: '#6E6E73', lineHeight: 1.7, marginBottom: 8 }}>Tu solicitud fue recibida. Te confirmaremos pronto.</div>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 8 }}>Tu solicitud fue recibida. Te confirmaremos pronto.</div>
       <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, padding: '14px 24px', width: '100%', marginBottom: 12, textAlign: 'left' }}>
-        <div style={{ fontSize: 10, color: '#86868B', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>Nro. de confirmación</div>
+        <div style={{ fontSize: 10, color: 'var(--text-tertiary)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 4 }}>Nro. de confirmación</div>
         <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 20, fontWeight: 500, color: '#fff' }}>{done.confirmNum}</div>
       </div>
       <div style={{ background: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: 10, padding: '12px 16px', width: '100%', marginBottom: 12, textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
