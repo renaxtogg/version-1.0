@@ -10,7 +10,10 @@
 <script src="mythos-theme.js"></script>
 <script src="mythos-icons.js"></script>
 <script src="mythos-offline.js"></script>
-<script>MythosTheme.init('light');</script>
+<!-- PR-B4G: Mozo activa dark real. init() respeta preferencia/sistema y persiste
+     vía el toggle existente. El token bridge (PR-B3F) ya cubre neutrales/estados;
+     este PR agrega overrides dark para los literales de mesa/badge no bridgeados. -->
+<script>MythosTheme.init();</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="mythos-presence.js"></script>
@@ -546,6 +549,22 @@ body {
 [data-theme="dark"] .ready-count-badge { background: var(--text); color: var(--bg); }
 [data-theme="dark"] .turno-stat.highlight { background: var(--bg3); border-color: var(--border-strong, #636366); }
 [data-theme="dark"] .mesa-card.cocina { background: #48484A; border-color: #48484A; }
+/* PR-B4G — overrides dark para estados con literales hardcodeados (no bridgeados):
+   en dark, los #000/#FFFFFF crudos se fundían o quedaban como cards blancas. */
+[data-theme="dark"] .mesa-card.ocupada { background: #2C2C2E; border-color: #48484A; }
+[data-theme="dark"] .mesa-card.cuenta { background: var(--surface); border-color: var(--text); }
+[data-theme="dark"] .mesa-card.cuenta .mesa-num { color: var(--text); }
+[data-theme="dark"] .cobrar-badge,
+[data-theme="dark"] .item-badge-listo,
+[data-theme="dark"] .promo-badge { background: var(--text); color: var(--bg); }
+[data-theme="dark"] .item-badge-entregado { color: var(--green); }
+[data-theme="dark"] .featured-card { border: 1px solid var(--border); }
+[data-theme="dark"] .extra-check-label input[type="checkbox"] { accent-color: var(--text); }
+/* PR-B4G — superficies "invertidas" (bg var(--text) + texto blanco) que en dark
+   quedaban claras con texto blanco invisible: se les da una superficie oscura. */
+[data-theme="dark"] .order-header { background: var(--surface); }
+[data-theme="dark"] .order-action-btn.primary-action { background: var(--text); color: var(--bg); }
+[data-theme="dark"] .toast { background: var(--surface); border: 1px solid var(--border); }
 </style>
 </head>
 <body>

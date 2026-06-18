@@ -1817,11 +1817,11 @@ function App() {
               {/* Toggle vista */}
               <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}>
                 <button onClick={() => { setMesaViewMode('grid'); setMapaEditMode(false); }}
-                  style={{ padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: mesaViewMode === 'grid' ? '#000' : 'transparent', color: mesaViewMode === 'grid' ? '#fff' : 'var(--text2)' }}>
+                  style={{ padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: mesaViewMode === 'grid' ? 'var(--text)' : 'transparent', color: mesaViewMode === 'grid' ? 'var(--bg)' : 'var(--text2)' }}>
                   ⊞ Cuadrícula
                 </button>
                 <button onClick={() => setMesaViewMode('mapa')}
-                  style={{ padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: mesaViewMode === 'mapa' ? '#000' : 'transparent', color: mesaViewMode === 'mapa' ? '#fff' : 'var(--text2)' }}>
+                  style={{ padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: mesaViewMode === 'mapa' ? 'var(--text)' : 'transparent', color: mesaViewMode === 'mapa' ? 'var(--bg)' : 'var(--text2)' }}>
                   🗺 Mapa
                 </button>
               </div>
@@ -1830,7 +1830,7 @@ function App() {
             <div style={{ display: 'flex', gap: 6, padding: '0 16px 12px', alignItems: 'center' }}>
               <button
                 onClick={() => setTableScope('all')}
-                style={{ padding: '6px 14px', borderRadius: 20, border: '1.5px solid', borderColor: tableScope === 'all' ? '#000' : 'var(--border)', background: tableScope === 'all' ? '#000' : 'transparent', color: tableScope === 'all' ? '#fff' : 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}>
+                style={{ padding: '6px 14px', borderRadius: 20, border: '1.5px solid', borderColor: tableScope === 'all' ? 'var(--text)' : 'var(--border)', background: tableScope === 'all' ? 'var(--text)' : 'transparent', color: tableScope === 'all' ? 'var(--bg)' : 'var(--text2)', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}>
                 Todas
               </button>
               <button
@@ -2120,7 +2120,7 @@ function App() {
                                         placeholder="Ej: sin cebolla, bien cocido, mitad pollo..."
                                       />
                                       <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                                        <button onClick={() => saveItemNote(item.id, itemEditNote)} style={{ background: '#000', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Guardar</button>
+                                        <button onClick={() => saveItemNote(item.id, itemEditNote)} style={{ background: 'var(--text)', color: 'var(--bg)', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Guardar</button>
                                         <button onClick={() => setItemEditId(null)} style={{ background: 'var(--bg2)', color: 'var(--text2)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
                                       </div>
                                     </div>
@@ -2999,15 +2999,15 @@ function App() {
                             style={{
                               display: 'flex', alignItems: 'center', gap: 10,
                               padding: '11px 14px', borderRadius: 10,
-                              border: sel ? '2px solid #000' : '1px solid var(--border)',
-                              background: sel ? '#000' : 'var(--surface)',
+                              border: sel ? '2px solid var(--text)' : '1px solid var(--border)',
+                              background: sel ? 'var(--text)' : 'var(--surface)',
                               cursor: 'pointer', transition: 'all .15s',
                             }}>
                             <div style={{ width: 32, height: 32, borderRadius: '50%', background: sel ? 'rgba(255,255,255,0.15)' : 'var(--bg2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: sel ? 'var(--bg)' : 'var(--text)', flexShrink: 0 }}>
                               {m.name.charAt(0).toUpperCase()}
                             </div>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: sel ? '#fff' : 'var(--text)' }}>{m.name}</div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: sel ? 'var(--bg)' : 'var(--text)' }}>{m.name}</div>
                               <div style={{ fontSize: 11, color: sel ? 'rgba(255,255,255,0.6)' : 'var(--text3)', marginTop: 1 }}>Mozo activo</div>
                             </div>
                             {sel && <div style={{ fontSize: 16, color: '#34C759' }}>✓</div>}
