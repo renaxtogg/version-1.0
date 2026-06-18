@@ -1,11 +1,93 @@
-# FASE C · WS0 — Preparación de entorno de prueba (PLAN, NO EJECUTADO)
+# FASE C · WS0 — Preparación de entorno de prueba
 
-> **Estado:** PLAN / INVENTARIO. **Cero cambios destructivos. Cero cambios de producto. Cero SQL corrido.**
-> Este documento es el entregable de WS0: inventario del estado actual + plan seguro de reset demo +
-> propuesta de cuentas/mapping + riesgos. **No borra ni crea nada.** La ejecución (borrado/recreación)
-> queda gateada por aprobación explícita de Renato + backup nuevo (ver §8 y §10).
+> **Estado:** WS0-A (plan/inventario) **CERRADO** + WS0-B (normalización demo) **SEED PREPARADO, NO EJECUTADO
+> desde aquí** (sin PAT en el entorno del programador). **Cero borrado. Cero cambios de producto.** Lo único
+> a ejecutar es un seed INSERT-only, idempotente, no destructivo (§12) que Renato corre con un comando.
 >
 > Rol: Claude Code (programador). Arquitecto: ChatGPT. Intermediario/dueño: Renato.
+>
+> Las §1–§11 documentan el inventario y el plan original. La decisión quedó **ratificada (Opción A)** y la
+> ejecución concreta está en **§12 (WS0-B)** abajo — leer §12 para el estado final operativo.
+
+---
+
+## 12. WS0-B — Normalización demo (decisiones ratificadas + ejecución)
+
+### 12.1 Decisiones ratificadas por el arquitecto/Renato
+- **Opción A:** reutilizar los 3 restaurantes sim existentes. **Sin teardown. Sin recrear.**
+- **No** tocar Terrapizza. **No** tocar Renato. **No** usar la cuenta de Renato para QA.
+- **Crear superadmin demo nuevo** (`superadmin.demo@mythos.test`).
+- **Contraseña demo única:** `Mythos2026!` (se mantiene la existente; no se resetean las 15 viejas).
+- **Crear 5 cuentas faltantes:** gerente Napoli, rider Napoli, gerente Sakura, rider Sakura, superadmin demo.
+
+### 12.2 Mecanismo de creación (no se inventó nada nuevo)
+Se reutiliza el patrón de seed del simulacro (`_simulacion/02_staff.sql`: `auth.users` + `auth.identities` +
+`user_roles`, password vía `crypt('Mythos2026!', gen_salt('bf'))`) y, para riders, el patrón de
+`_simulacion/03_menu_tables.sql` (`delivery_riders` con `user_id`, requerido por mig 101 para que
+`delivery-rider.html` resuelva al rider). **No** se usó `/api/create-user` porque para semillas de QA el
+camino consistente y auditable del repo es el SQL del simulacro corrido por `run.ps1` (no `service_role` en cliente).
+
+- **Seed:** `_simulacion/07_ws0b_accounts.sql` — **INSERT-only, idempotente (`ON CONFLICT DO NOTHING`), no destructivo.** Gitignored (igual que los demás seeds sim → la contraseña literal no entra al repo).
+- **Verificación read-only:** `scripts/verify/ws0b-demo-accounts-verification.sql` — solo `SELECT`, committeable, sin secretos.
+
+### 12.3 Cuentas demo finales (rol → cuenta → email → restaurante → plan → panel)
+
+| Rol | Username | Email | Restaurante | Plan | Panel esperado | Origen |
+|---|---|---|---|---|---|---|
+| admin | admin.napoli | admin.napoli@mythos.test | Bella Napoli | Starter | admin.html | ya existía |
+| gerente (`supervisor_local`) | gerente.napoli | gerente.napoli@mythos.test | Bella Napoli | Starter | gerente.html | **WS0-B ➕** |
+| cajero | caja.napoli | caja.napoli@mythos.test | Bella Napoli | Starter | caja.html | ya existía |
+| cocina | cocina.napoli | cocina.napoli@mythos.test | Bella Napoli | Starter | cocina.html | ya existía |
+| mozo | mozo1/2.napoli | mozo1.napoli@mythos.test, mozo2.napoli@mythos.test | Bella Napoli | Starter | mozo.html | ya existía |
+| rider | rider1.napoli | rider1.napoli@mythos.test | Bella Napoli | Starter | delivery-rider.html | **WS0-B ➕** |
+| admin | admin.sakura | admin.sakura@mythos.test | Sushi Sakura | Pro | admin.html | ya existía |
+| gerente (`supervisor_local`) | gerente.sakura | gerente.sakura@mythos.test | Sushi Sakura | Pro | gerente.html | **WS0-B ➕** |
+| cajero | caja.sakura | caja.sakura@mythos.test | Sushi Sakura | Pro | caja.html | ya existía |
+| cocina | cocina.sakura | cocina.sakura@mythos.test | Sushi Sakura | Pro | cocina.html | ya existía |
+| mozo | mozo1.sakura | mozo1.sakura@mythos.test | Sushi Sakura | Pro | mozo.html | ya existía |
+| rider | rider1.sakura | rider1.sakura@mythos.test | Sushi Sakura | Pro | delivery-rider.html | **WS0-B ➕** |
+| admin | admin.carlos | admin.carlos@mythos.test | Parrilla Don Carlos | Enterprise | admin.html | ya existía |
+| gerente (`supervisor_local`) | gerente.carlos | gerente.carlos@mythos.test | Parrilla Don Carlos | Enterprise | gerente.html | ya existía |
+| cajero | caja.carlos | caja.carlos@mythos.test | Parrilla Don Carlos | Enterprise | caja.html | ya existía |
+| cocina | cocina.carlos | cocina.carlos@mythos.test | Parrilla Don Carlos | Enterprise | cocina.html | ya existía |
+| mozo | mozo1.carlos | mozo1.carlos@mythos.test | Parrilla Don Carlos | Enterprise | mozo.html | ya existía |
+| rider | rider1.carlos | rider1.carlos@mythos.test | Parrilla Don Carlos | Enterprise | delivery-rider.html | ya existía |
+| **superadmin** | superadmin.demo | superadmin.demo@mythos.test | — (plataforma, `restaurant_id NULL`) | — | superadmin.html | **WS0-B ➕** |
+
+**Contraseña demo única para TODAS:** `Mythos2026!` (throwaway de QA; rotar/eliminar antes de cualquier cliente real; jamás reutilizar para `mancuellorenato@gmail.com`).
+
+> ⚠️ **Nota de gating (insumo para WS1, NO se resuelve acá):** los riders de Napoli (Starter) y Sakura (Pro)
+> existen **a propósito** para que QA verifique si el plan **habilita o bloquea** el panel rider (el seed sim
+> marca el panel delivery-rider como propio de Enterprise). Tener la cuenta + su fila `delivery_riders` permite
+> aislar el comportamiento de gating del de "rider inexistente". Lo mismo aplica al delivery en Starter.
+
+### 12.4 Cuentas protegidas (NO tocadas — INSERT-only no puede tocarlas)
+- **Renato:** `mancuellorenato@gmail.com`, `restaurant_id NULL`, superadmin. Cuenta oficial dura. El seed solo hace `INSERT` de UUIDs/emails nuevos → no la roza. Verificado por §4 del script de verificación.
+- **Terrapizza:** restaurante real (criterio del prompt), UUID fuera de la allowlist sim. No referenciada por el seed. Verificado por §5 del script de verificación.
+
+### 12.5 Qué se ejecutó y qué NO
+- **NO ejecutado:** ningún SQL corrió desde el entorno del programador (sin PAT). Cero filas creadas/modificadas/borradas por mí.
+- **Preparado y listo:** seed `07_ws0b_accounts.sql` + verificación `ws0b-demo-accounts-verification.sql`.
+- **Ejecución pendiente (Renato, 1 comando):**
+  ```powershell
+  $env:SUPABASE_PAT='<token>'; $env:SUPABASE_PROJECT_REF='ocwzupmamfojvdywavqi'
+  $env:ALLOW_PROD_SIMULATION='true'   # INSERT-only: NO dispara la guarda destructiva de run.ps1
+  cd _simulacion; .\run.ps1 -File .\07_ws0b_accounts.sql
+  ```
+  Luego correr `scripts/verify/ws0b-demo-accounts-verification.sql` en el SQL Editor (Dashboard en inglés) y
+  confirmar: 5 cuentas con `tiene_auth_user`/`tiene_identity_email` = true, cobertura de roles completa por
+  restaurante, riders linkeados, Renato intacto, `filas_terrapizza ≥ 1` + `fuera_de_allowlist_sim = true`,
+  `superadmins_total = 2`.
+
+### 12.6 Estado de la Definición de Hecho WS0
+- [x] 3 restaurantes sim mapeados a Starter/Pro/Enterprise (preexistente, confirmado §1.1/§7).
+- [x] Cuenta demo para cada rol requerido — **especificada y semillada** (efectiva tras el comando de §12.5).
+- [x] Superadmin demo — incluido en el seed.
+- [x] Todas las demos con `Mythos2026!`.
+- [x] Terrapizza no tocada / Renato no tocado (INSERT-only + guardas de verificación).
+- [x] Documentación actualizada (este §12).
+- [x] `npm run build` PASS.
+- ⏳ **Único pendiente para PASS pleno:** que Renato corra el comando de §12.5 + la verificación. WS0-B queda **listo para ejecutar**.
 
 ---
 
