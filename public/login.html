@@ -7,25 +7,32 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
   <script src="mythos-offline.js"></script>
+  <!-- PR-B3H: solo se enlaza tokens.css (define las CSS custom properties en :root).
+       NO carga design-system.css/ui-primitives.css/theme (evita conflictos de estilo y
+       no cambia el flujo de login). El <style> de abajo aliasa sus neutrales a estos tokens. -->
+  <link rel="stylesheet" href="tokens.css">
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{background:#F5F5F7;color:#1D1D1F;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
-    .card{background:#fff;border:1px solid #D2D2D7;border-radius:20px;padding:48px 40px;width:100%;max-width:380px;box-shadow:0 4px 24px rgba(0,0,0,0.08),0 0 1px rgba(0,0,0,0.04)}
+    /* PR-B3H: neutrales aliaseados a tokens globales (tokens.css). Valores light idénticos,
+       salvo el casi-negro de marca #000 → var(--primary) (#1D1D1F, delta sancionado en PR-B1).
+       Rojos de error y blancos del spinner (sobre botón) se preservan como semánticos. */
+    body{background:var(--bg-subtle);color:var(--text-primary);font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:48px 40px;width:100%;max-width:380px;box-shadow:0 4px 24px rgba(0,0,0,0.08),0 0 1px rgba(0,0,0,0.04)}
     .logo{text-align:center;margin-bottom:36px}
-    .logo-title{font-size:32px;font-weight:800;color:#000;letter-spacing:-1.2px}
-    .logo-sub{font-size:13px;font-weight:500;color:#6E6E73;margin-top:4px}
-    label{display:block;font-size:13px;font-weight:500;color:#6E6E73;margin-bottom:6px}
-    input{width:100%;background:#fff;border:1px solid #D2D2D7;color:#1D1D1F;padding:11px 14px;border-radius:10px;font-size:15px;outline:none;transition:border-color .15s;font-family:inherit}
-    input:focus{border-color:#000}
-    input::placeholder{color:#AEAEB2}
+    .logo-title{font-size:32px;font-weight:800;color:var(--primary);letter-spacing:-1.2px}
+    .logo-sub{font-size:13px;font-weight:500;color:var(--text-secondary);margin-top:4px}
+    label{display:block;font-size:13px;font-weight:500;color:var(--text-secondary);margin-bottom:6px}
+    input{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text-primary);padding:11px 14px;border-radius:10px;font-size:15px;outline:none;transition:border-color .15s;font-family:inherit}
+    input:focus{border-color:var(--primary)}
+    input::placeholder{color:var(--text-disabled)}
     .field{margin-bottom:20px}
-    .btn{width:100%;background:#000;color:#fff;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;margin-top:4px;font-family:inherit}
+    .btn{width:100%;background:var(--primary);color:var(--on-primary);border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;margin-top:4px;font-family:inherit}
     .btn:hover{opacity:0.84}
     .btn:active{opacity:0.72}
     .btn:disabled{opacity:.38;cursor:not-allowed}
-    .error{background:#fff;border:1px solid #FFCDD0;color:#C0190F;border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:20px;display:none}
+    .error{background:var(--surface);border:1px solid #FFCDD0;color:#C0190F;border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:20px;display:none}
     .error.show{display:block}
-    .hint{font-size:12px;color:#AEAEB2;text-align:center;margin-top:24px}
+    .hint{font-size:12px;color:var(--text-disabled);text-align:center;margin-top:24px}
     @keyframes spin{to{transform:rotate(360deg)}}
     .spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
   </style>
