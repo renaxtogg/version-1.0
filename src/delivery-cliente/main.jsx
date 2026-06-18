@@ -1878,6 +1878,16 @@ function GateScreen({ kind }) {
       title: 'Restaurante no disponible',
       body: 'No encontramos este restaurante. Puede que el enlace haya cambiado o que el local todavía no esté activo. Pedí un link actualizado.',
     },
+    // WS1-B · El plan del restaurante no incluye el panel delivery-cliente.
+    'plan': {
+      icon: (
+        <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke={T.ink} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+        </svg>
+      ),
+      title: 'Delivery no disponible',
+      body: 'Este restaurante no tiene pedidos a domicilio habilitados. Si creés que es un error, contactá al local.',
+    },
   };
   const c = COPY[kind] || COPY['no-context'];
   return (
@@ -1916,12 +1926,31 @@ function App() {
   const [restaurantStatus, setRestaurantStatus] = useState('loading'); // loading | ready | notfound
   const [liveMenu, setLiveMenu]             = useState(null);
   const [menuStatus, setMenuStatus]         = useState('loading'); // loading | ready | empty
+  // WS1-B · Gate por plan (panel público/anónimo). checking | allowed | blocked.
+  const [planStatus, setPlanStatus]         = useState('checking');
 
   useEffect(() => {
-    if (!RESTAURANT_ID) { setRestaurantStatus('notfound'); setMenuStatus('empty'); return; }
-    dbLoadRestaurant().then(r => { if (r) { setRestaurant(r); setRestaurantStatus('ready'); } else { setRestaurantStatus('notfound'); } });
-    dbLoadMenu().then(m => { if (m) { setLiveMenu(m); setMenuStatus('ready'); } else { setMenuStatus('empty'); } });
-    dbLoadDeliveryZones().then(z => setZones(z));
+    if (!RESTAURANT_ID) { setRestaurantStatus('notfound'); setMenuStatus('empty'); setPlanStatus('blocked'); return; }
+    // Sin backend (preview sin env) → fail-closed: no hay plan que confirmar.
+    if (!db) { setPlanStatus('blocked'); setRestaurantStatus('notfound'); setMenuStatus('empty'); return; }
+    let on = true;
+    (async () => {
+      // El panel cliente es anónimo → no sirve get_restaurant_capabilities (NULL para anon).
+      // Usamos la RPC anon-safe restaurant_panel_enabled (mig 109). Fail-closed: solo
+      // cargamos el menú/zonas si el plan incluye 'delivery-cliente'.
+      let ok = false;
+      try {
+        const { data, error } = await db.rpc('restaurant_panel_enabled', { p_restaurant_id: RESTAURANT_ID, p_panel: 'delivery-cliente' });
+        ok = (!error && data === true);
+      } catch (_) { ok = false; }
+      if (!on) return;
+      if (!ok) { setPlanStatus('blocked'); return; }   // no carga datos del módulo premium
+      setPlanStatus('allowed');
+      dbLoadRestaurant().then(r => { if (!on) return; if (r) { setRestaurant(r); setRestaurantStatus('ready'); } else { setRestaurantStatus('notfound'); } });
+      dbLoadMenu().then(m => { if (!on) return; if (m) { setLiveMenu(m); setMenuStatus('ready'); } else { setMenuStatus('empty'); } });
+      dbLoadDeliveryZones().then(z => { if (on) setZones(z); });
+    })();
+    return () => { on = false; };
   }, []);
 
   const showToast = (msg) => setToast(msg);
@@ -1988,6 +2017,10 @@ function App() {
               <div className="screen">
                 {!RESTAURANT_ID
                   ? <GateScreen kind="no-context" />
+                  : planStatus === 'blocked'
+                  ? <GateScreen kind="plan" />
+                  : planStatus === 'checking'
+                  ? <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.white }}><div style={{ fontSize: 13, color: theme.gray }}>Cargando…</div></div>
                   : restaurantStatus === 'notfound'
                   ? <GateScreen kind="not-found" />
                   : <>

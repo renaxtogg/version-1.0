@@ -574,6 +574,20 @@ function App() {
         setErrMsg('Tu cuenta de rider está desactivada. Contactá al administrador.');
         setScreen('error'); return;
       }
+      // WS1-B · Gate por plan: el panel Rider debe estar incluido en allowed_panels
+      // del plan del restaurante (get_restaurant_capabilities, mig 090/108).
+      // Fail-closed: si no se puede confirmar la capability, se BLOQUEA (no se
+      // arranca la sesión del rider ni se cargan pedidos/stats/realtime).
+      let planOk = false;
+      try {
+        const { data: caps } = await db.rpc('get_restaurant_capabilities', { p_restaurant_id: data.restaurant_id });
+        planOk = !!(caps && Array.isArray(caps.allowed_panels) && caps.allowed_panels.includes('delivery-rider'));
+      } catch (_) { planOk = false; }
+      if (cancelled) return;
+      if (!planOk) {
+        setErrMsg('El panel de Rider Delivery no está incluido en el plan de este restaurante. Contactá al administrador.');
+        setScreen('error'); return;
+      }
       startRiderSession(data);
     })();
     return () => { cancelled = true; };

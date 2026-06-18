@@ -228,6 +228,51 @@ async function logout() {
   window.location.replace('login.html');
 }
 
+/* ── WS1-B · Gate por plan ──────────────────────────────────────────
+   El panel debe estar en allowed_panels del plan del restaurante
+   (get_restaurant_capabilities, mig 090/108). Fail-closed: si no se
+   puede confirmar la capability (error / null / sin allowed_panels) se
+   BLOQUEA el uso del panel premium. Sin backend (demo) no gatea: ese
+   caso ya cae en el aviso "Sin conexión a Supabase" del propio panel. */
+function usePlanGate(panelKey) {
+  // null = verificando · true = permitido · false = bloqueado
+  const [allowed, setAllowed] = useState(db ? null : true);
+  useEffect(() => {
+    if (!db) return;
+    let on = true;
+    (async () => {
+      try {
+        if (!RID) { if (on) setAllowed(false); return; }          // sin restaurante → fail-closed
+        const { data, error } = await db.rpc('get_restaurant_capabilities', { p_restaurant_id: RID });
+        if (!on) return;
+        if (error || !data || !Array.isArray(data.allowed_panels)) { setAllowed(false); return; }
+        setAllowed(data.allowed_panels.includes(panelKey));
+      } catch (_) { if (on) setAllowed(false); }                  // fail-closed
+    })();
+    return () => { on = false; };
+  }, []);
+  return allowed;
+}
+
+function PlanLock({ panel }) {
+  return (
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:C.bg,padding:24}}>
+      <div style={{maxWidth:420,textAlign:'center',background:C.sidebar,border:`1px solid ${C.border}`,borderRadius:16,padding:'36px 28px'}}>
+        <div style={{width:60,height:60,borderRadius:'50%',border:`1.5px solid ${C.ink}`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px'}}>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={C.ink} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="4" y="11" width="16" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+          </svg>
+        </div>
+        <div style={{fontSize:20,fontWeight:800,color:C.ink,marginBottom:8}}>Módulo no disponible</div>
+        <div style={{fontSize:13.5,color:C.mid,lineHeight:1.6,marginBottom:22}}>
+          El panel <strong>{panel}</strong> no está incluido en el plan de este restaurante. Pedile al administrador que actualice el plan para habilitarlo.
+        </div>
+        <Btn variant="ghost" small onClick={logout}>Cerrar sesión</Btn>
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
    MÓDULO 1: DASHBOARD LIVE
    ════════════════════════════════════════════════════════════════════════════ */
@@ -2151,6 +2196,7 @@ function AvisosGerente({user,userName}) {
    ════════════════════════════════════════════════════════════════════════════ */
 function App() {
   const auth = useAuth();
+  const planAllowed = usePlanGate('gerente');   // WS1-B: gate por plan (fail-closed)
   const [section, setSection] = useState('dashboard');
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [unreadSupport, setUnreadSupport] = useState(0);
@@ -2165,7 +2211,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!db || !auth.user) return;
+    if (!db || !auth.user || planAllowed !== true) return;   // WS1-B: no cargar datos si el plan no incluye el panel
     const tick = async () => {
       if (_shouldPause()) return;
       const { count } = await db.from('manager_approvals').select('id',{count:'exact', head:true}).eq('restaurant_id',RID).eq('status','pendiente');
@@ -2180,11 +2226,11 @@ function App() {
     tick();
     const id = setInterval(tick, 20000);
     return () => clearInterval(id);
-  }, [auth.user]);
+  }, [auth.user, planAllowed]);
 
   /* Contador de avisos no leídos */
   useEffect(() => {
-    if (!db || !auth.user) return;
+    if (!db || !auth.user || planAllowed !== true) return;   // WS1-B
     const load = async () => {
       const { data } = await db.from('staff_broadcasts')
         .select('created_at').eq('restaurant_id', RID)
@@ -2198,11 +2244,13 @@ function App() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'staff_broadcasts' }, () => load())
       .subscribe();
     return () => db.removeChannel(ch);
-  }, [auth.user]);
+  }, [auth.user, planAllowed]);
 
   if (auth.loading) return <div style={{height:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><div className="spin"/></div>;
   if (!auth.user) return null;
   if (!db) return <div style={{padding:40,textAlign:'center'}}>Sin conexión a Supabase. Verificá <code>config.js</code>.</div>;
+  if (planAllowed === null) return <div style={{height:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><div className="spin"/></div>;
+  if (planAllowed === false) return <PlanLock panel="Gerente"/>;   // WS1-B: plan no incluye el panel
 
   const sections = [
     {key:'dashboard', label:'Dashboard', icon:'dashboard'},

@@ -107,6 +107,7 @@ Cuentas WS0-B (password `Mythos2026!`). Para cada caso, abrir el panel por **URL
 - **Riesgo:** **comercial/UI** (uso de un panel no pagado). **NO es fuga de datos:** RLS + role guard + RPC tenant-guard siguen intactos → el usuario solo ve su propio tenant; no hay escalada de rol ni cross-tenant.
 - **Por qué NO se corrige en WS1:** (a) no hay fuga real de datos → la regla dice evitar RLS/migraciones; (b) el refuerzo "de verdad" es **backend/route enforcement**, explícitamente **diferido en PR-10** (estructural); (c) un gate solo-frontend es **bypasseable** (no es enforcement real) y tocar 3 paneles tiene riesgo de regresión de runtime (precedente: regresiones de gating en PR-5) → sobreingeniería para WS1.
 - **Recomendación (PR aparte, no WS1):** gate centralizado de capabilities (idealmente refuerzo backend: política RLS por panel o validación en endpoints), reusando `get_restaurant_capabilities`. Decisión del arquitecto.
+- **➡️ Corregido en WS1-B (§8):** el arquitecto decidió cerrarlo dentro de FASE C con un gate **frontend fail-closed** (reusando la capability existente). El refuerzo **backend** sigue recomendado como evolución posterior.
 
 ### 5.2 (Comercial) `allowed_features` idéntico en los 3 planes → paywall nunca dispara
 - Ver nota ⚠️ §2. Es configuración comercial (mig 091 sembró todo a todos), **no bug**. Diferido en PR-10. No se toca ("no rediseñar planes").
@@ -137,3 +138,61 @@ Cuentas WS0-B (password `Mythos2026!`). Para cada caso, abrir el panel por **URL
 - **Mergear WS1 como checkpoint de auditoría** (solo doc) y **enviar a QA visual/funcional** para confirmar en la app real las filas hard-block de §4.1 (especialmente superadmin y cross-tenant) y el comportamiento del hub admin §4.2.
 - **NO** construir enforcement de plan-panel en WS1. Si el arquitecto quiere cerrar el hueco §5.1, abrir un **PR dedicado** (preferible refuerzo backend, reusando `get_restaurant_capabilities`), separado de la estabilización.
 - Diferidos comerciales (§5.2 features por plan) y estructurales (§5.1 enforcement) quedan para después de FASE C, salvo decisión contraria.
+
+> **Actualización:** el arquitecto decidió cerrar el hueco §5.1 dentro de FASE C → implementado en **§8 (WS1-B)** abajo.
+
+---
+
+## 8. WS1-B — Fix mínimo de gating por URL directa
+
+### 8.1 Bug corregido
+Paneles **premium standalone** abrían por URL directa en planes que NO los incluyen (hueco §5.1):
+`gerente.html`, `delivery-rider.html`, `delivery-cliente.html?r=…`. Ahora cada uno **valida el plan del
+restaurante** (vía `allowed_panels`) y, si el panel no está incluido, **no carga datos del módulo** y muestra
+una pantalla simple de "no disponible". **Fail-closed:** si no se puede confirmar la capability → se bloquea.
+
+### 8.2 Archivos tocados
+| Archivo | Cambio | ¿Migración? |
+|---|---|---|
+| `src/gerente/main.jsx` | Hook `usePlanGate('gerente')` (RPC `get_restaurant_capabilities`, fail-closed) + componente `PlanLock` + 2 efectos de conteo gateados + 2 ramas de render. | No |
+| `src/delivery-rider/main.jsx` | Tras resolver la ficha del rider, chequea `allowed_panels.includes('delivery-rider')` antes de `startRiderSession`; si no, reusa la pantalla `error` con mensaje de plan. Fail-closed. | No |
+| `src/delivery-cliente/main.jsx` | Panel **anónimo** → nueva RPC anon-safe `restaurant_panel_enabled` (no sirve `get_restaurant_capabilities`, que da NULL a anon). Estado `planStatus` + `GateScreen kind="plan"`; solo carga menú/zonas si el plan incluye `delivery-cliente`. Fail-closed. | **Sí (109)** |
+| `supabase/migrations/20260618_109_restaurant_panel_enabled.sql` | Nueva RPC `restaurant_panel_enabled(rid, panel) → boolean`, SECURITY DEFINER, GRANT anon. Espeja la unión plan∪add-ons de la 090/108; solo expone un boolean por (restaurante, panel). **PREPARADA, NO APLICADA** (la aplica Renato). | — |
+
+Sin tocar `allowed_features`, ni planes, ni RLS, ni Auth. No se rediseñó nada comercial.
+
+### 8.3 Antes / Después
+| Caso | Antes | Después |
+|---|---|---|
+| `gerente.napoli` (Starter) → `gerente.html` | entra y opera | **bloqueado** ("Módulo no disponible", sin cargar datos) |
+| `rider1.napoli` (Starter) → `delivery-rider.html` | entra (tiene ficha) | **bloqueado** (pantalla error con mensaje de plan) |
+| `delivery-cliente.html?r=<Napoli/Starter>` | carga menú y deja pedir | **bloqueado** ("Delivery no disponible", sin cargar menú) |
+| `gerente.sakura` (Pro) → `gerente.html` | entra | **bloqueado** (Pro no incluye gerente) |
+| `rider1.sakura` (Pro) → `delivery-rider.html` | entra | **bloqueado** (Pro no incluye rider) |
+| `delivery-cliente.html?r=<Sakura/Pro>` | carga | **permitido** (Pro incluye delivery-cliente) |
+| Don Carlos (Enterprise): gerente / rider / delivery-cliente | entra | **permitido** (todo incluido) — sin cambio de comportamiento |
+
+### 8.4 Matriz final (paneles premium por plan, con enforcement WS1-B)
+| Panel | Starter (Napoli) | Pro (Sakura) | Enterprise (Don Carlos) | Capa de enforcement |
+|---|---|---|---|---|
+| `gerente` | ❌ bloqueado | ❌ bloqueado | ✅ permitido | frontend fail-closed (`get_restaurant_capabilities`) |
+| `delivery-rider` | ❌ bloqueado | ❌ bloqueado | ✅ permitido | frontend fail-closed (`get_restaurant_capabilities`) |
+| `delivery-cliente` | ❌ bloqueado | ✅ permitido | ✅ permitido | frontend fail-closed (`restaurant_panel_enabled`, mig 109) |
+| `caja`/`mozo`/`cocina` | ✅ | ✅ | ✅ | en todos los planes (sin gate) |
+| `admin` | ✅ (rol) | ✅ | ✅ | role guard (no es panel de plan) |
+
+### 8.5 Comportamiento del gate
+- **Bloqueado:** pantalla simple ("no disponible"); **no** se cargan datos del módulo; navegación no se rompe; sin error de consola; sin fuga cross-tenant (no se consulta data del tenant).
+- **Permitido:** comportamiento idéntico al previo.
+- **Fail-closed:** error de RPC / `null` / sin `allowed_panels` / sin restaurante / sin backend → **bloquea**.
+
+### 8.6 Verificación
+- `npm run build` **PASS** (9/9). Lógica validada contra la matriz (mig 090) + guards reales.
+- ⚠️ **No se ejecutó la app en vivo** (sin credenciales prod en el entorno; además delivery-cliente exige aplicar mig 109 antes). La verificación por plan/rol queda para **QA real** con las cuentas WS0-B (ver §8.3 como guion exacto).
+
+### 8.7 Riesgo residual
+- **Orden de despliegue (delivery-cliente):** mig **109 debe aplicarse ANTES** de desplegar el front. El gate es fail-closed: sin la función, `delivery-cliente` se bloquea para **todos** los planes (incl. Enterprise/Pro). Documentado en la cabecera de la migración.
+- **Fail-closed transitorio:** un error puntual de la RPC bloquea temporalmente a un usuario legítimo (Enterprise) hasta reintentar. Es el costo elegido de "fail-closed".
+- **Sigue siendo gate de frontend** (bypasseable por un atacante técnico). No hay fuga de datos (RLS + role guard intactos). El **refuerzo backend** (RLS/route) sigue recomendado como evolución futura (§7), fuera de WS1-B.
+- **mozo** sin allowlist de rol (§5.3) **no** se tocó (es rol-guard, no plan-gating) → queda para WS2.
+- Superadmin que abra un panel premium **con contexto de un tenant de plan inferior** también queda gateado (usa la propia herramienta superadmin). Aceptado.
