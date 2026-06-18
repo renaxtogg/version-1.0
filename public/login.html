@@ -11,6 +11,13 @@
        NO carga design-system.css/ui-primitives.css/theme (evita conflictos de estilo y
        no cambia el flujo de login). El <style> de abajo aliasa sus neutrales a estos tokens. -->
   <link rel="stylesheet" href="tokens.css">
+  <!-- PR-B4H: Login activa dark real. Se agrega SOLO mythos-theme.js + init() (script
+       de presentación: setea data-theme/color-scheme según preferencia/sistema). NO
+       toca el flujo de Auth/login (script aparte, no comparte estado salvo el tema).
+       Sin toggle propio: Login refleja la preferencia global; el token bridge (PR-B3H)
+       ya resuelve a los valores dark de tokens.css. -->
+  <script src="mythos-theme.js"></script>
+  <script>MythosTheme.init();</script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     /* PR-B3H: neutrales aliaseados a tokens globales (tokens.css). Valores light idénticos,
@@ -32,9 +39,14 @@
     .btn:disabled{opacity:.38;cursor:not-allowed}
     .error{background:var(--surface);border:1px solid #FFCDD0;color:#C0190F;border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:20px;display:none}
     .error.show{display:block}
+    /* PR-B4H: en dark, el rojo oscuro (#C0190F) sobre superficie oscura quedaba sin
+       contraste → usa var(--error) (claro en dark). Light queda idéntico. */
+    [data-theme="dark"] .error{border-color:color-mix(in srgb, var(--error) 45%, transparent);color:var(--error)}
     .hint{font-size:12px;color:var(--text-disabled);text-align:center;margin-top:24px}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .spinner{width:15px;height:15px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+    /* PR-B4H: spinner usa el color de texto del botón (var(--on-primary)) para
+       contrastar con --primary en ambos temas (en dark el botón es claro). */
+    .spinner{width:15px;height:15px;border:2px solid color-mix(in srgb, var(--on-primary) 30%, transparent);border-top-color:var(--on-primary);border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
   </style>
 </head>
 <body>
