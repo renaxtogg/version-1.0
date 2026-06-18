@@ -101,3 +101,41 @@ Delivery cliente `/delivery-cliente.html?r=<Sakura/Pro o Don Carlos/Enterprise>`
 - **Bug 0 Gs reproduce:** **No** (ni en index ni en delivery-cliente).
 - **Fix:** 1 defensivo mínimo (delivery-cliente anti-0). El resto = auditoría.
 - `npm run build` **PASS** (9/9). **Requiere QA real** (checklist §6). No mergear; no avanzar a WS4.
+
+---
+
+## 8. WS3-B — Fix de doble-submit + errores de consola (tras QA FAIL)
+
+### 8.1 QA FAIL recibido
+QA real (preview de la rama) → **FAIL** con el bug 0 Gs **ya resuelto** (✅ QR persiste, delivery cae a welcome, nunca 0 Gs), pero 2 bloqueos:
+1. 🔴 **Delivery duplica** con doble click en Confirmar → 2 `delivery_orders` (D-91754 + D-91755, 2 UUID).
+2. 🔴 **Consola con errores rojos:** QR `Order insert error: Object` ×2; delivery `permission denied for table delivery_orders` ×4 (auto-assign de rider).
+
+### 8.2 Causa raíz
+- **Doble-submit:** el guard era el estado `step` ('form'→'proc'), que es **asíncrono**: un doble-click dispara `handleConfirm` dos veces **antes** de que React re-renderice y saque el botón. En delivery ambos inserts pasan (duplica); en QR el 2.º insert lo rechaza la DB → loguea `Order insert error` ×2. **El estado no es un guard de reentrancy.**
+- **`permission denied for table delivery_orders`:** la auto-asignación de rider (`dbAutoAssignRider`) hace un **UPDATE** sobre `delivery_orders` desde el **cliente anónimo**, que RLS deniega. El **pedido ya está creado**; el fallo de asignación no es fatal pero se logueaba como `console.error`.
+
+### 8.3 Fix aplicado (frontend only, sin migración / sin RLS / sin Auth)
+| Archivo | Cambio |
+|---|---|
+| `src/delivery-cliente/main.jsx` | `PayScreen.handleConfirm`: **guard de reentrancy sincrónico** `submittingRef` (`useRef`), seteado **antes del primer `await`** → un 2.º click retorna sin insertar. Reset en `catch` para permitir reintento. |
+| `src/delivery-cliente/main.jsx` | `dbAutoAssignRider`: el error de UPDATE (RLS) y la excepción pasan de `console.error` → **`console.warn` best-effort** ("el pedido queda creado igual"). No bloquea el flujo. |
+| `src/index/main.jsx` | `PayScreen.handleConfirm`: mismo **guard de reentrancy** `submittingRef`. Al no dispararse el 2.º insert, desaparece el `Order insert error` ×2 (el `console.error` de L111 queda solo para fallos reales). |
+
+### 8.4 Antes / Después
+| Caso | Antes | Después |
+|---|---|---|
+| Delivery: doble click Confirmar | 2 `delivery_orders` | **1 solo** (`submittingRef` bloquea el 2.º) |
+| QR: doble click Confirmar | 1 pedido + `Order insert error` ×2 en consola | **1 pedido, sin error** (no hay 2.º insert) |
+| Delivery: consola al confirmar | `permission denied …` ×4 (rojo) | **`console.warn` best-effort** (no rojo); pedido creado igual |
+| Total 0 Gs | ya resuelto | sin cambio (se mantiene el guard anti-0 de §3) |
+
+### 8.5 Decisión sobre el rider auto-assign (RLS)
+Por regla ("no crear migración/RLS salvo mínimo y seguro") se eligió la **degradación best-effort** (opción del brief): el pedido se crea, y si el cliente anónimo no puede asignar rider, se avisa con `warn` y queda **sin rider** (lo toman rider/caja/cocina). El refuerzo "correcto" (RLS para `delivery_orders` o mover el assign a un RPC `security definer`) queda como **deuda para el sprint de seguridad / RLS**, fuera de WS3.
+
+### 8.6 Re-QA requerido (solo esto)
+1. **Delivery (Sushi Sakura):** crear pedido → **doble click Confirmar** → **1 solo** `delivery_order` (verificar en Caja/KDS) → **consola sin error rojo** de auto-assign (a lo sumo un `warn`).
+2. **QR (Don Carlos):** crear pedido → **doble click Confirmar** → **1 solo** pedido → consola **sin** `Order insert error`.
+3. Confirmar que **no aparece 0 Gs** en ningún paso (no debe regresionar).
+
+`npm run build` **PASS** (9/9). **Sin migración.** No mergear hasta re-QA PASS.

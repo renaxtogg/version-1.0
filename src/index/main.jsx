@@ -962,11 +962,14 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   ];
   const currentMethod = METHODS.find(m => m.id === method);
 
+  const submittingRef = useRef(false);   // WS3-B · guard anti doble-submit (sincrónico, no async como `step`)
   const handleConfirm = async () => {
+    if (submittingRef.current) return;   // un 2º click rápido NO dispara otro insert
     setSubmitError(null);
     if (!cartItems || cartItems.length === 0) { setSubmitError('Tu carrito está vacío'); return; }
     const effectiveTotal = total > 0 ? total : cartItems.reduce((s, ci) => s + (ci.total || 0), 0);
     if (effectiveTotal <= 0) { setSubmitError('El total del pedido es inválido. Volvé al carrito y revisá los precios.'); return; }
+    submittingRef.current = true;        // se setea ANTES del primer await → bloquea reentrada
     setStep('proc');
     try {
       // Bug-02 / R2: el pedido de mesa (QR con ?mesa=N o ?t=token) debe persistir
@@ -990,6 +993,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
     } catch(e) {
       setSubmitError(e.message || 'Error al enviar el pedido');
       setStep('form');
+      submittingRef.current = false;     // error real → permitir reintento
     }
   };
 

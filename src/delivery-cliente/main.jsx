@@ -230,7 +230,7 @@ async function dbAutoAssignRider(deliveryOrderId) {
       .eq('restaurant_id', RESTAURANT_ID)
       .eq('active', true)
       .neq('current_status', 'offline');
-    if (ridersErr) { console.error('[delivery] auto-assign: error buscando riders:', ridersErr.message, ridersErr); return; }
+    if (ridersErr) { console.warn('[delivery] auto-assign (best-effort) no pudo buscar riders:', ridersErr.message); return; }
     if (!riders?.length) { console.warn('[delivery] auto-assign: no hay riders disponibles para', RESTAURANT_ID); return; }
 
     const riderIds = riders.map(r => r.id);
@@ -256,12 +256,14 @@ async function dbAutoAssignRider(deliveryOrderId) {
       assigned_at: new Date().toISOString(),
     }).eq('id', deliveryOrderId);
     if (updErr) {
-      console.error('[delivery] auto-assign: error al asignar rider', selected.name, 'a orden', deliveryOrderId, ':', updErr.message, updErr);
+      // Best-effort: el pedido YA está creado. Si RLS no deja al cliente anónimo
+      // asignar rider (permission denied), no es fatal: rider/caja/cocina lo toman.
+      console.warn('[delivery] auto-assign no disponible (best-effort), el pedido queda sin rider asignado:', updErr.message);
     } else {
       console.info('[delivery] auto-assign: rider asignado OK →', selected.name, 'a orden', deliveryOrderId);
     }
   } catch(e) {
-    console.error('[delivery] auto-assign: excepción inesperada:', e);
+    console.warn('[delivery] auto-assign (best-effort) excepción, el pedido queda creado igual:', e?.message || e);
   }
 }
 
@@ -1168,11 +1170,14 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
   const cashAmountNum = parseInt(cashInput) || 0;
   const cashChange    = cashAmountNum > 0 ? cashAmountNum - total : 0;
 
+  const submittingRef = useRef(false);   // WS3-B · guard anti doble-submit (sincrónico, no async como `step`)
   const handleConfirm = async () => {
+    if (submittingRef.current) return;   // un 2º click rápido NO dispara otro insert
     setSubmitError(null);
     // WS3 · No enviar un pedido vacío ni con total inválido (alineado al cliente QR /index).
     if (!cartItems || cartItems.length === 0) { setSubmitError('Tu carrito está vacío. Volvé al menú.'); return; }
     if (!(total > 0)) { setSubmitError('El total del pedido es inválido. Volvé al carrito y revisá tu pedido.'); return; }
+    submittingRef.current = true;        // se setea ANTES del primer await → bloquea reentrada
     setStep('proc');
     try {
       const order = await dbSubmitDeliveryOrder({
@@ -1196,6 +1201,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
     } catch(e) {
       setSubmitError(e.message || 'No se pudo enviar el pedido');
       setStep('form');
+      submittingRef.current = false;     // error real → permitir reintento
     }
   };
 
