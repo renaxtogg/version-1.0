@@ -45,13 +45,23 @@ const PALETTES = {
     bg:'#F5F5F7', surface:'#FFFFFF', sidebar:'#FFFFFF', white:'#FFFFFF',
     border:'#D2D2D7', bs:'#86868B',
     ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
-    green:'#34C759', orange:'#FF9500', red:'#FF3B30', blue:'#007AFF', yellow:'#FFCC00'
+    green:'#34C759', orange:'#FF9500', red:'#FF3B30', blue:'#007AFF', yellow:'#FFCC00',
+    // PR-B4B: tintes suaves de estado (alertas/badges). Light = valor actual exacto;
+    // dark = tinte del color de estado a baja opacidad sobre la surface oscura.
+    redSoft:'#FFF1F0', redSoftBorder:'#FFB3AD', redSoftText:'#C0190F',
+    greenSoft:'#F0FAF3', greenSoftBorder:'#A3D9B1', greenSoftText:'#1A7E37',
+    orangeSoft:'#FFF4E0', orangeSoftBorder:'#FFD580', orangeSoftText:'#8A4B00',
+    blueSoft:'#F0F6FF'
   },
   dark: {
     bg:'#000000', surface:'#1C1C1E', sidebar:'#1C1C1E', white:'#1C1C1E',
     border:'#38383A', bs:'#636366',
     ink:'#F5F5F7', mid:'#AEAEB2', dim:'#8E8E93',
-    green:'#30D158', orange:'#FF9F0A', red:'#FF453A', blue:'#0A84FF', yellow:'#FFD60A'
+    green:'#30D158', orange:'#FF9F0A', red:'#FF453A', blue:'#0A84FF', yellow:'#FFD60A',
+    redSoft:'rgba(255,69,58,.15)', redSoftBorder:'rgba(255,69,58,.4)', redSoftText:'#FF6961',
+    greenSoft:'rgba(48,209,88,.15)', greenSoftBorder:'rgba(48,209,88,.4)', greenSoftText:'#30D158',
+    orangeSoft:'rgba(255,159,10,.15)', orangeSoftBorder:'rgba(255,159,10,.4)', orangeSoftText:'#FF9F0A',
+    blueSoft:'rgba(10,132,255,.15)'
   },
 };
 const C = Object.assign({}, PALETTES[window.MythosTheme ? window.MythosTheme.get() : 'light']);
@@ -97,7 +107,7 @@ function ToastContainer() {
   return (
     <div style={{position:'fixed',bottom:20,right:20,zIndex:9999,display:'flex',flexDirection:'column',gap:8,pointerEvents:'none'}}>
       {items.map(it => (
-        <div key={it.id} style={{background:it.ok?'#F0FAF3':'#FFF1F0',border:`1px solid ${it.ok?'#A3D9B1':'#FFB3AD'}`,color:it.ok?'#1A7E37':'#C0190F',padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp .2s ease',minWidth:220,maxWidth:320}}>
+        <div key={it.id} style={{background:it.ok?C.greenSoft:C.redSoft,border:`1px solid ${it.ok?C.greenSoftBorder:C.redSoftBorder}`,color:it.ok?C.greenSoftText:C.redSoftText,padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp .2s ease',minWidth:220,maxWidth:320}}>
           {it.ok?'✓ ':'✕ '}{it.msg}
         </div>
       ))}
@@ -269,7 +279,7 @@ function Dashboard({onJump}) {
 
       {/* Alertas críticas */}
       {(data.approvals.length>0 || data.waiterCalls.length>0 || kpis.delayed.length>0 || data.complaints.filter(c=>c.urgencia==='alta').length>0) && (
-        <div style={{background:'#FFF1F0',border:`1px solid #FFB3AD`,borderRadius:10,padding:14,marginBottom:16,display:'flex',flexWrap:'wrap',gap:10}}>
+        <div style={{background:C.redSoft,border:`1px solid ${C.redSoftBorder}`,borderRadius:10,padding:14,marginBottom:16,display:'flex',flexWrap:'wrap',gap:10}}>
           <span style={{fontSize:13,fontWeight:700,color:C.red,marginRight:6}}>⚠ Atención inmediata:</span>
           {data.approvals.length>0 && <button onClick={() => onJump('aprobaciones')} style={{background:C.surface,border:`1px solid ${C.red}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.red}}>{data.approvals.length} aprobación{data.approvals.length>1?'es':''} pendiente{data.approvals.length>1?'s':''}</button>}
           {data.waiterCalls.length>0 && <button onClick={() => onJump('dashboard')} style={{background:C.surface,border:`1px solid ${C.orange}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.orange}}>{data.waiterCalls.length} llamada{data.waiterCalls.length>1?'s':''} mozo</button>}
@@ -296,7 +306,7 @@ function Dashboard({onJump}) {
                   const ago = minsAgo(o.created_at);
                   const delayed = ago > 25;
                   return (
-                    <div key={o.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:delayed?'#FFF1F0':'#F5F5F7',borderRadius:6,border:delayed?`1px solid #FFB3AD`:'1px solid transparent'}}>
+                    <div key={o.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:delayed?C.redSoft:C.bg,borderRadius:6,border:delayed?`1px solid ${C.redSoftBorder}`:'1px solid transparent'}}>
                       <div>
                         <div style={{fontSize:13,fontWeight:700}}>{mesaLabel(o)}</div>
                         <div style={{fontSize:11,color:C.mid}}>{fmt(o.total)} · {SL[o.status]||o.status}</div>
@@ -325,12 +335,12 @@ function Dashboard({onJump}) {
         </Card>
 
         {data.waiterCalls.length>0 && (
-          <Card title="Llamadas de mozo" style={{background:'#FFF8F0', borderColor:'#FFD8A8'}}>
+          <Card title="Llamadas de mozo" style={{background:C.orangeSoft, borderColor:C.orangeSoftBorder}}>
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
               {data.waiterCalls.map(w => {
                 const mesa = data.tables.find(t => t.id === w.table_id);
                 return (
-                  <div key={w.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:C.surface,borderRadius:6,border:`1px solid #FFD8A8`}}>
+                  <div key={w.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',background:C.surface,borderRadius:6,border:`1px solid ${C.orangeSoftBorder}`}}>
                     <div style={{fontSize:13,fontWeight:700,color:C.orange}}>Mesa {mesa?.number||'?'}</div>
                     <div style={{fontSize:11,color:C.mid}}>hace {minsAgo(w.created_at)} min</div>
                   </div>
@@ -343,7 +353,7 @@ function Dashboard({onJump}) {
         {data.item86.length>0 && (
           <Card title="Productos 86d (no disponibles)" action={<button onClick={()=>onJump('stock86')} style={{background:'none',color:C.blue,fontSize:11,fontWeight:700}}>Gestionar →</button>}>
             <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-              {data.item86.map(i => <span key={i.id} style={{padding:'4px 10px',background:'#FFF1F0',color:C.red,border:`1px solid #FFB3AD`,borderRadius:5,fontSize:12,fontWeight:600}}>✕ {i.item_name}</span>)}
+              {data.item86.map(i => <span key={i.id} style={{padding:'4px 10px',background:C.redSoft,color:C.red,border:`1px solid ${C.redSoftBorder}`,borderRadius:5,fontSize:12,fontWeight:600}}>✕ {i.item_name}</span>)}
             </div>
           </Card>
         )}
@@ -494,7 +504,7 @@ function Aprobaciones({user, userName}) {
 
       <div style={{display:'flex',gap:8,marginBottom:14}}>
         {['pendiente','aprobado','rechazado','todos'].map(f => (
-          <button key={f} onClick={() => setFilter(f)} style={{padding:'6px 14px',fontSize:12,fontWeight:700,borderRadius:6,border:`1px solid ${filter===f?'#000':C.border}`,background:filter===f?'#000':'#fff',color:filter===f?'#fff':C.ink,textTransform:'capitalize'}}>{f}</button>
+          <button key={f} onClick={() => setFilter(f)} style={{padding:'6px 14px',fontSize:12,fontWeight:700,borderRadius:6,border:`1px solid ${filter===f?C.ink:C.border}`,background:filter===f?C.ink:C.surface,color:filter===f?C.surface:C.ink,textTransform:'capitalize'}}>{f}</button>
         ))}
       </div>
 
@@ -1044,7 +1054,7 @@ function BitacoraTurno({user, userName}) {
 
       <div style={{display:'flex',gap:8,marginBottom:14}}>
         {[['hoy','Hoy'],['abiertos','Abiertos'],['semana','Última semana']].map(([k,l]) => (
-          <button key={k} onClick={() => setFilter(k)} style={{padding:'6px 14px',fontSize:12,fontWeight:700,borderRadius:6,border:`1px solid ${filter===k?'#000':C.border}`,background:filter===k?'#000':'#fff',color:filter===k?'#fff':C.ink}}>{l}</button>
+          <button key={k} onClick={() => setFilter(k)} style={{padding:'6px 14px',fontSize:12,fontWeight:700,borderRadius:6,border:`1px solid ${filter===k?C.ink:C.border}`,background:filter===k?C.ink:C.surface,color:filter===k?C.surface:C.ink}}>{l}</button>
         ))}
       </div>
 
@@ -1418,7 +1428,7 @@ function Soporte({user, role, userName, userUsername, userEmail}) {
                     return (
                       <div key={t.id} onClick={() => openTicket(t)} style={{
                         padding:'12px 14px',borderBottom:`1px solid ${C.border}`,cursor:'pointer',
-                        background: isSelected ? '#F0F6FF' : 'transparent',
+                        background: isSelected ? C.blueSoft : 'transparent',
                         borderLeft: isSelected ? `3px solid ${C.blue}` : '3px solid transparent',
                         transition:'background .15s'
                       }}>
@@ -1527,9 +1537,9 @@ function SoporteChat({ticket, messages, onSend, currentUserId, onClose}) {
             <div key={m.id} style={{display:'flex',justifyContent: mine?'flex-end':'flex-start'}}>
               <div style={{maxWidth:'78%'}}>
                 <div style={{
-                  background: mine ? '#000' : '#fff',
-                  color: mine ? '#fff' : C.ink,
-                  border: mine ? '1px solid #000' : `1px solid ${C.border}`,
+                  background: mine ? C.ink : C.surface,
+                  color: mine ? C.surface : C.ink,
+                  border: mine ? `1px solid ${C.ink}` : `1px solid ${C.border}`,
                   padding:'9px 13px',borderRadius:12,
                   borderBottomRightRadius: mine?4:12,
                   borderBottomLeftRadius:  mine?12:4,
@@ -1690,7 +1700,7 @@ function SolicitudPersonal({user, userName}) {
       </div>
 
       {pendientes>0 && (
-        <div style={{marginBottom:14,padding:'10px 14px',background:'#FFF9F0',border:'1px solid #FFDDA3',borderRadius:8,fontSize:13,color:C.orange,fontWeight:600}}>
+        <div style={{marginBottom:14,padding:'10px 14px',background:C.orangeSoft,border:`1px solid ${C.orangeSoftBorder}`,borderRadius:8,fontSize:13,color:C.orange,fontWeight:600}}>
           {pendientes} solicitud{pendientes>1?'es':''} pendiente{pendientes>1?'s':''} de revisión por el administrador
         </div>
       )}
@@ -1891,7 +1901,7 @@ function CalendarioGerente({user, userName}) {
           <div style={{fontSize:12,color:C.mid,marginTop:3}}>Eventos, feriados y alertas de afluencia del local</div>
         </div>
         {highDays > 0 && (
-          <div style={{background:'#FFF4E0',border:'1px solid #FFD580',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#8A4B00'}}>
+          <div style={{background:C.orangeSoft,border:`1px solid ${C.orangeSoftBorder}`,borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:C.orangeSoftText}}>
             🔴 {highDays} día{highDays>1?'s':''} de alta afluencia este mes
           </div>
         )}
@@ -1923,17 +1933,17 @@ function CalendarioGerente({user, userName}) {
                     onClick={() => { if (d) { setSelected(sel ? null : d); resetForm(); } }}
                     style={{
                       minHeight:62, padding:'5px 6px', borderRadius:7, cursor:d?'pointer':'default',
-                      background: sel?'#000':isTdy?'#F0F6FF':hasHigh&&d?'#FFF4E0':d?C.surface:'transparent',
-                      border: sel?'1.5px solid #000':isTdy?'1.5px solid #007AFF':hasHigh&&d?'1px solid #FFD580':`1px solid ${C.border}`,
+                      background: sel?C.ink:isTdy?C.blueSoft:hasHigh&&d?C.orangeSoft:d?C.surface:'transparent',
+                      border: sel?`1.5px solid ${C.ink}`:isTdy?`1.5px solid ${C.blue}`:hasHigh&&d?`1px solid ${C.orangeSoftBorder}`:`1px solid ${C.border}`,
                       transition:'all .1s',
                     }}>
                     {d && <>
-                      <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?'#fff':isTdy?'#007AFF':C.ink,lineHeight:1,marginBottom:3}}>{d}</div>
+                      <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?C.surface:isTdy?C.blue:C.ink,lineHeight:1,marginBottom:3}}>{d}</div>
                       <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
                         {dayEvts.slice(0,3).map(e=>(
                           <div key={e.id} style={{width:6,height:6,borderRadius:'50%',background:G_CAL_TYPES[e.type]?.color||'#007AFF',flexShrink:0}}/>
                         ))}
-                        {dayEvts.length>3 && <div style={{fontSize:9,color:sel?'#ccc':C.mid}}>+{dayEvts.length-3}</div>}
+                        {dayEvts.length>3 && <div style={{fontSize:9,color:sel?C.dim:C.mid}}>+{dayEvts.length-3}</div>}
                       </div>
                     </>}
                   </div>
@@ -1949,8 +1959,8 @@ function CalendarioGerente({user, userName}) {
                 {v.label}
               </div>
             ))}
-            <div style={{display:'flex',alignItems:'center',gap:4,fontSize:10,color:'#8A4B00'}}>
-              <div style={{width:7,height:7,borderRadius:2,background:'#FFD580'}}/>
+            <div style={{display:'flex',alignItems:'center',gap:4,fontSize:10,color:C.orangeSoftText}}>
+              <div style={{width:7,height:7,borderRadius:2,background:C.orangeSoftBorder}}/>
               Alta afluencia
             </div>
           </div>

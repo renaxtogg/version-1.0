@@ -10,7 +10,10 @@
 <script src="mythos-theme.js"></script>
 <script src="mythos-icons.js"></script>
 <script src="mythos-offline.js"></script>
-<script>MythosTheme.init('light');</script>
+<!-- PR-B4B: Gerente activa dark real. init() (sin arg) respeta preferencia/sistema
+     y persiste vía el toggle del sidebar (MythosTheme.toggle). Ya NO se pinea 'light'.
+     Solo Gerente: el resto de paneles staff siguen pineados hasta su propio PR. -->
+<script>MythosTheme.init();</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="mythos-presence.js"></script>
@@ -30,7 +33,7 @@
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
   .page{animation:fadeIn .15s ease}
   .pulse{animation:pulse 2s ease infinite}
-  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #D2D2D7;border-top-color:#1D1D1F;border-radius:50%;vertical-align:middle}
+  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--text-primary);border-radius:50%;vertical-align:middle}
 </style>
 </head>
 <body>
