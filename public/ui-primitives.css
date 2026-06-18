@@ -41,9 +41,13 @@
               transform var(--transition, 150ms ease);
 }
 .my-btn:active { transform: scale(0.98); }
+/* PR-B3I.2: focus ring suave (coherente con .my-input:focus) en vez del outline
+   duro. El outline transparente preserva visibilidad en forced-colors/alto contraste;
+   el anillo translúcido es más premium y consistente con los inputs. */
 .my-btn:focus-visible {
-  outline: 2px solid var(--info);
+  outline: 2px solid transparent;
   outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--info) 35%, transparent);
 }
 
 .my-btn--primary {
@@ -458,3 +462,115 @@
 .my-row { display: flex; align-items: center; gap: var(--space-3); }
 .my-row--between { justify-content: space-between; }
 .my-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
+/* ── NAVEGACIÓN ──────────────────────────────────────────────────────────
+   PR-B3I.2 — primitivos de navegación canónicos (tabs, segmented control y
+   sidebar). 100% ADITIVOS: consumen solo tokens y NINGÚN panel los usa todavía
+   → CERO cambio visual hasta que un panel los adopte (igual que PR-B2 adelantó
+   botones/cards). Cablear la navegación inline de los paneles a estas clases es
+   trabajo de un PR futuro (toca paneles → aprobación aparte). iOS/Apple-like:
+   activos claros, hover/focus suaves, sin sombras duras. */
+
+/* Tabs horizontales (underline indicator) */
+.my-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+.my-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-md);
+  padding: 0 var(--space-4);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  transition: color var(--transition, 150ms ease);
+}
+.my-tab:hover { color: var(--text-primary); }
+.my-tab:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; border-radius: var(--radius-sm); }
+.my-tab--active { color: var(--text-primary); font-weight: var(--weight-semibold); }
+.my-tab--active::after {
+  content: "";
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: -1px;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+}
+
+/* Segmented control (pill seleccionable, estilo iOS) */
+.my-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+}
+.my-segment-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: var(--control-sm);
+  padding: 0 var(--space-4);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  border-radius: calc(var(--radius-md) - 3px);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition, 150ms ease), color var(--transition, 150ms ease);
+}
+.my-segment-item:hover { color: var(--text-primary); }
+.my-segment-item:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+.my-segment-item--active {
+  background: var(--surface);
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  box-shadow: var(--shadow-xs);
+}
+
+/* Sidebar / nav vertical */
+.my-nav { display: flex; flex-direction: column; gap: 2px; }
+.my-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--control-md);
+  padding: 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition, 150ms ease), color var(--transition, 150ms ease);
+}
+.my-nav-item:hover { background: var(--surface-hover); color: var(--text-primary); }
+.my-nav-item:focus-visible { outline: 2px solid var(--info); outline-offset: -2px; }
+.my-nav-item--active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
