@@ -908,7 +908,7 @@ function OrderTypeFilterTabs({ active, onChange, tickets }) {
           }}>
             {f.label}
             {cnt > 0 && (
-              <span style={{ background: isActive ? C.white : C.border, color: isActive ? '#000' : C.mid, borderRadius: 10, fontSize: 9, fontWeight: 800, padding: '0 4px', minWidth: 14, textAlign: 'center' }}>{cnt}</span>
+              <span style={{ background: isActive ? C.white : C.border, color: isActive ? C.bg : C.mid, borderRadius: 10, fontSize: 9, fontWeight: 800, padding: '0 4px', minWidth: 14, textAlign: 'center' }}>{cnt}</span>
             )}
           </button>
         );
@@ -1108,7 +1108,7 @@ function ConfigDrawer({ onClose }) {
         </div>
       </div>
       <div style={{ padding: 16, borderTop: `1px solid ${C.border}` }}>
-        <button onClick={save} style={{ width: '100%', height: 44, background: C.white, border: 'none', borderRadius: 10, color: '#000', fontFamily: 'inherit', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>Guardar</button>
+        <button onClick={save} style={{ width: '100%', height: 44, background: C.white, border: 'none', borderRadius: 10, color: C.bg, fontFamily: 'inherit', fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>Guardar</button>
       </div>
     </div>
   );

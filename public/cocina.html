@@ -10,6 +10,11 @@
 <script src="mythos-theme.js"></script>
 <script src="mythos-icons.js"></script>
 <script src="mythos-offline.js"></script>
+<!-- PR-B4F: Cocina es un KDS operativo → dark por diseño. Se MANTIENE
+     init('dark') (default dark, no follow-preference) para no arriesgar un
+     KDS claro por defecto. El panel igual participa de MythosTheme: su paleta
+     C reacciona a mythos:themechange y conserva un toggle + paleta light
+     pre-existentes como escape opcional (no operativo). Ver docs/audits. -->
 <script>MythosTheme.init('dark');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
@@ -33,7 +38,7 @@
   @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes greenFlash{0%{background:rgba(52,199,89,0.0)}30%{background:rgba(52,199,89,0.18)}100%{background:transparent}}
-  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid #38383A;border-top-color:#F5F5F7;border-radius:50%;vertical-align:middle}
+  .spin{animation:spin .8s linear infinite;display:inline-block;width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--text-primary);border-radius:50%;vertical-align:middle}
   .card-critical{animation:blink 1s ease infinite}
 </style>
 </head>
