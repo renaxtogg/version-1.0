@@ -18,10 +18,15 @@
 <script src="mythos-gating.js"></script>
 <style>
 :root {
-  --bg: #FFFFFF; --bg2: #F5F5F7; --bg3: #E8E8ED;
-  --surface: #FFFFFF; --border: #D2D2D7;
-  --text: #1D1D1F; --text2: #6E6E73; --text3: #86868B;
-  --accent: #000000; --accent-soft: #F5F5F7;
+  /* PR-B3F — token bridge (alineación con tokens.css; NO se tocan clases ni JSX).
+     --bg/--surface/--border comparten nombre con el token global → se OMITEN aquí y
+     los aporta tokens.css directamente (un `--bg: var(--bg)` sería un ciclo inválido);
+     valores light idénticos, y en dark pasan a la base de tokens (--bg #0B0B0D).
+     El resto de neutrales aliasa al token: light idéntico salvo --accent
+     (#000000 → #1D1D1F, el delta de marca "casi-negro" sancionado en PR-B1). */
+  --bg2: var(--bg-subtle); --bg3: var(--bg-hover);
+  --text: var(--text-primary); --text2: var(--text-secondary); --text3: var(--text-tertiary);
+  --accent: var(--primary); --accent-soft: #F5F5F7;
   --indigo: #000000; --indigo-soft: #F5F5F7;
   --green: #34C759; --green-soft: #E8F9ED;
   --orange: #FF9500; --orange-soft: #FFF4E0;
@@ -33,10 +38,10 @@
   --nav-h: 64px; --header-h: 56px;
 }
 [data-theme="dark"] {
-  --bg: #000000; --bg2: #1C1C1E; --bg3: #2C2C2E;
-  --surface: #1C1C1E; --border: #38383A;
-  --text: #F5F5F7; --text2: #AEAEB2; --text3: #8E8E93;
-  --accent: #FFFFFF; --accent-soft: #2C2C2E;
+  /* PR-B3F — token bridge: en dark los neutrales (--bg/--bg2/--bg3/--surface/--border/
+     --text/--text2/--text3/--accent) los aporta tokens.css vía el alias de :root;
+     aquí quedan solo las familias locales NO bridgeadas (soft/indigo/estados/sombras). */
+  --accent-soft: #2C2C2E;
   --indigo: #F5F5F7; --indigo-soft: #2C2C2E;
   --green: #30D158; --green-soft: rgba(48,209,88,0.18);
   --orange: #FF9F0A; --orange-soft: rgba(255,159,10,0.22);
