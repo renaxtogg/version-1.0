@@ -16,7 +16,7 @@ const PALETTES = {
     bg:'var(--bg-subtle)', sidebar:'#FFFFFF', surface:'#FFFFFF', card:'#FFFFFF',
     border:'#D2D2D7', bStrong:'#86868B',
     white:'#FFFFFF', ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
-    blue:'#000000', blueDim:'#F5F5F7',
+    blue:'#1D1D1F', blueDim:'#F5F5F7',
     green:'#34C759', orange:'#FF9500', red:'#FF3B30',
   },
   dark: {
@@ -431,7 +431,7 @@ const MRRChart = ({subscriptions}) => {
         return (
           <div key={m.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4,height:'100%',justifyContent:'flex-end'}}>
             {m.total>0 && <div style={{fontSize:9,fontWeight:700,color:C.ink,textAlign:'center',lineHeight:1.2}}>{fmtGuarani(m.total)}</div>}
-            <div style={{width:'100%',background:'#000000',borderRadius:'3px 3px 0 0',height:`${pct}%`,minHeight:m.total>0?6:2,transition:'height .5s ease',opacity:m.total>0?1:.2}}/>
+            <div style={{width:'100%',background:C.ink,borderRadius:'3px 3px 0 0',height:`${pct}%`,minHeight:m.total>0?6:2,transition:'height .5s ease',opacity:m.total>0?1:.2}}/>
             <div style={{fontSize:10,color:C.mid,textTransform:'capitalize',whiteSpace:'nowrap'}}>{m.label}</div>
           </div>
         );
