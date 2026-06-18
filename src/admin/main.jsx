@@ -101,6 +101,30 @@ if (window.MythosTheme) {
   });
 }
 
+/* ── TINT (PR-B4D) ── tintes de estado theme-adaptive y frozen-safe.
+   Strings color-mix(var(--estado) N%, var(--surface|--text-primary)): el navegador
+   los resuelve por tema en cada paint, así que sirven incluso dentro de objetos const
+   evaluados una sola vez (badges/pills que en light eran #FFF4E0+#8A4B00 etc.). En light
+   replican el tinte pastel + texto oscuro previos; en dark dan tinte oscuro + texto claro.
+   Mismo lenguaje que .my-badge. NO cambia lógica: solo el valor de color. */
+const TINT = {
+  amberBg:'color-mix(in srgb, var(--warning) 16%, var(--surface))',
+  amberText:'color-mix(in srgb, var(--warning) 72%, var(--text-primary))',
+  amberBorder:'color-mix(in srgb, var(--warning) 40%, transparent)',
+  greenBg:'color-mix(in srgb, var(--success) 15%, var(--surface))',
+  greenText:'color-mix(in srgb, var(--success) 68%, var(--text-primary))',
+  greenBorder:'color-mix(in srgb, var(--success) 38%, transparent)',
+  blueBg:'color-mix(in srgb, var(--info) 14%, var(--surface))',
+  blueText:'color-mix(in srgb, var(--info) 72%, var(--text-primary))',
+  blueBorder:'color-mix(in srgb, var(--info) 38%, transparent)',
+  redBg:'color-mix(in srgb, var(--error) 15%, var(--surface))',
+  redText:'color-mix(in srgb, var(--error) 70%, var(--text-primary))',
+  redBorder:'color-mix(in srgb, var(--error) 40%, transparent)',
+  purpleBg:'color-mix(in srgb, #5856D6 16%, var(--surface))',
+  purpleText:'color-mix(in srgb, #5856D6 72%, var(--text-primary))',
+  purpleBorder:'color-mix(in srgb, #5856D6 40%, transparent)',
+};
+
 /* ── Icon helper ──────────────────────────────────────────── */
 const Icon = ({name, size=14, style}) => (
   <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',lineHeight:0,...(style||{})}}
@@ -122,7 +146,7 @@ function ToastContainer() {
   return (
     <div style={{position:'fixed',bottom:20,right:20,zIndex:9999,display:'flex',flexDirection:'column',gap:8,pointerEvents:'none'}}>
       {items.map(it => (
-        <div key={it.id} style={{background:it.ok?'#F0FAF3':'#FFF1F0',border:`1px solid ${it.ok?'#A3D9B1':'#FFB3AD'}`,color:it.ok?'#1A7E37':'#C0190F',padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp 200ms ease',minWidth:220,maxWidth:320}}>
+        <div key={it.id} style={{background:it.ok?TINT.greenBg:TINT.redBg,border:`1px solid ${it.ok?TINT.greenBorder:TINT.redBorder}`,color:it.ok?TINT.greenText:TINT.redText,padding:'10px 16px',fontSize:13,fontWeight:700,borderRadius:8,animation:'slideUp 200ms ease',minWidth:220,maxWidth:320}}>
           {it.ok ? '✓ ' : '✕ '}{it.msg}
         </div>
       ))}
@@ -999,9 +1023,9 @@ function DashboardPage({orders, ratings, setPage}) {
         });
 
         const levelStyle = {
-          critical: {bg:'#FFF0F0', border:'#FFCDD2', left:'#FF3B30', titleColor:'#B71C1C'},
-          warning:  {bg:'#FFFBEA', border:'#FFE57F', left:'#FF9500', titleColor:'#7A4900'},
-          info:     {bg:'#F0F6FF', border:'#A8C8FF', left:'#007AFF', titleColor:'#003D8F'},
+          critical: {bg:TINT.redBg, border:TINT.redBorder, left:C.red, titleColor:TINT.redText},
+          warning:  {bg:TINT.amberBg, border:TINT.amberBorder, left:C.orange, titleColor:TINT.amberText},
+          info:     {bg:TINT.blueBg, border:TINT.blueBorder, left:C.blue, titleColor:TINT.blueText},
         };
 
         return (
@@ -1112,7 +1136,7 @@ function PedidosPage({orders, tables, onRefresh}) {
     return typeFiltered.filter(o=>st.statuses.includes(o.status));
   },[typeFiltered,statusFilter]);
 
-  const rowBg = s => selected?.status===s?'':['paid','kitchen_received','cooking'].includes(s)?'#FFFBF0':s==='ready'?'#F0FAF3':s==='cancelled'?'#FFF1F0':'transparent';
+  const rowBg = s => selected?.status===s?'':['paid','kitchen_received','cooking'].includes(s)?TINT.amberBg:s==='ready'?TINT.greenBg:s==='cancelled'?TINT.redBg:'transparent';
   const rowBorderColor = s => ['paid','kitchen_received','cooking'].includes(s)?'#FF9500':s==='ready'?'#34C759':s==='cancelled'?'#FF3B30':'transparent';
 
   useEffect(()=>{
@@ -1204,7 +1228,7 @@ function PedidosPage({orders, tables, onRefresh}) {
           const active=typeFilter===t.id;
           return (
             <button key={t.id} onClick={()=>{setTypeFilter(t.id);setStatusFilter('all');}}
-              style={{display:'flex',alignItems:'center',gap:7,padding:'8px 16px',borderRadius:8,border:`2px solid ${active?t.color:C.border}`,background:active?t.color+'18':'#fff',color:active?t.color:C.mid,fontSize:13,fontWeight:active?700:500,cursor:'pointer',transition:'all .15s'}}>
+              style={{display:'flex',alignItems:'center',gap:7,padding:'8px 16px',borderRadius:8,border:`2px solid ${active?t.color:C.border}`,background:active?t.color+'18':C.surface,color:active?t.color:C.mid,fontSize:13,fontWeight:active?700:500,cursor:'pointer',transition:'all .15s'}}>
               <span>{t.icon}</span>
               <span>{t.label}</span>
               <span style={{background:active?t.color:C.dim,color:'#fff',fontSize:10,fontWeight:800,padding:'1px 7px',borderRadius:10,minWidth:20,textAlign:'center'}}>{count}</span>
@@ -1233,7 +1257,7 @@ function PedidosPage({orders, tables, onRefresh}) {
         <div style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}>
             <thead>
-              <tr style={{borderBottom:`1px solid ${C.border}`,background:'#FAFAFA'}}>
+              <tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
                 <Th>#</Th><Th>Tipo</Th><Th>Destino</Th><Th>Estado</Th><Th>Items</Th><Th right>Total</Th><Th>Pago</Th><Th>Hora</Th>
               </tr>
             </thead>
@@ -1244,7 +1268,7 @@ function PedidosPage({orders, tables, onRefresh}) {
                 const bl = isSelected?'#007AFF':rowBorderColor(o.status);
                 return (
                   <tr key={o.id} onClick={()=>{selectOrder(o);setNewBadge(0);}}
-                    style={{borderBottom:`1px solid #F0F0F0`,cursor:'pointer',background:bg,borderLeft:`3px solid ${bl}`}}>
+                    style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer',background:bg,borderLeft:`3px solid ${bl}`}}>
                     <Td mono dim>{o.order_number}</Td>
                     <Td>
                       {o.order_type==='delivery'
@@ -1269,7 +1293,7 @@ function PedidosPage({orders, tables, onRefresh}) {
 
         {selected&&(
           <div style={{width:290,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,flexShrink:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-            <div style={{padding:'13px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',background:'#FAFAFA'}}>
+            <div style={{padding:'13px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',background:'var(--bg-subtle)'}}>
               <div>
                 <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:14,fontWeight:700}}>{selected.order_number}</div>
                 <div style={{fontSize:10,color:C.dim,marginTop:2}}>{fmtDT(selected.created_at)}</div>
@@ -1279,8 +1303,8 @@ function PedidosPage({orders, tables, onRefresh}) {
             <div style={{padding:'8px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
               <Badge status={selected.status}/>
               <span style={{fontSize:12,color:C.mid}}>{mesaLabel(selected)}</span>
-              {selected.order_type==='delivery'&&<span style={{fontSize:11,color:'#FF9500',fontWeight:600,background:'#FFF4E0',padding:'2px 7px',borderRadius:6}}>🛵 Delivery</span>}
-              {selected.order_type==='llevar'&&<span style={{fontSize:11,color:'#5856D6',fontWeight:600,background:'#F5F0FF',padding:'2px 7px',borderRadius:6}}>🛍️ Para llevar</span>}
+              {selected.order_type==='delivery'&&<span style={{fontSize:11,color:'#FF9500',fontWeight:600,background:TINT.amberBg,padding:'2px 7px',borderRadius:6}}>🛵 Delivery</span>}
+              {selected.order_type==='llevar'&&<span style={{fontSize:11,color:TINT.purpleText,fontWeight:600,background:TINT.purpleBg,padding:'2px 7px',borderRadius:6}}>🛍️ Para llevar</span>}
             </div>
             <div style={{flex:1,padding:'8px 16px',overflowY:'auto',borderBottom:`1px solid ${C.border}`}}>
               {loadingItems&&<span className="spin"/>}
@@ -1462,7 +1486,7 @@ function ItemModal({item, categories, onClose, onSaved}) {
           <Sel value={form.promo_type} onChange={e=>f('promo_type',e.target.value)}>
             {PROMO_TYPES.map(p=><option key={p.value} value={p.value}>{p.label}</option>)}
           </Sel>
-          {form.promo_type&&<div style={{fontSize:11,color:'#8A4B00',marginTop:4,background:'#FFF4E0',padding:'3px 8px',borderRadius:4,display:'inline-block'}}>{PROMO_LABEL[form.promo_type]}</div>}
+          {form.promo_type&&<div style={{fontSize:11,color:TINT.amberText,marginTop:4,background:TINT.amberBg,padding:'3px 8px',borderRadius:4,display:'inline-block'}}>{PROMO_LABEL[form.promo_type]}</div>}
         </div>
 
         {/* Badge / etiqueta libre */}
@@ -1493,7 +1517,7 @@ function ItemModal({item, categories, onClose, onSaved}) {
         <div style={{gridColumn:'1/-1'}}>
           <Lbl>DESCRIPCIÓN</Lbl>
           <textarea value={form.description||''} onChange={e=>f('description',e.target.value)} rows={2}
-            style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:C.surface,border:'1px solid #D2D2D7',color:C.ink,borderRadius:6,boxSizing:'border-box'}}/>
+            style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:C.surface,border:`1px solid ${C.border}`,color:C.ink,borderRadius:6,boxSizing:'border-box'}}/>
         </div>
 
         {/* Extras */}
@@ -1668,15 +1692,15 @@ function MenuPage({categories,menuItems,onRefresh}) {
           <div style={{background:C.bg,borderRadius:12,overflow:'hidden'}}>
             {previewItem.image_url
               ?<img src={previewItem.image_url} alt="" style={{width:'100%',height:200,objectFit:'cover'}} onError={e=>{e.target.style.display='none';}}/>
-              :<div style={{height:140,background:'#E8E8ED',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40}}>🍽</div>
+              :<div style={{height:140,background:'var(--bg-subtle)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40}}>🍽</div>
             }
             <div style={{padding:20}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8,gap:8}}>
                 <div style={{fontSize:18,fontWeight:700,color:C.ink,flex:1}}>{previewItem.name}</div>
                 <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end',flexShrink:0}}>
-                  {previewItem.promo_tag&&<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 8px',fontSize:11,borderRadius:4}}>{previewItem.promo_tag}</span>}
-                  {previewItem.promo_type&&<span style={{background:'#EFF6FF',border:'1px solid #BFDBFE',color:'#1D4ED8',padding:'2px 8px',fontSize:11,borderRadius:4}}>{PROMO_LABEL[previewItem.promo_type]}</span>}
-                  {previewItem.dine_in_only&&<span style={{background:'#F0FDF4',border:'1px solid #BBF7D0',color:'#166534',padding:'2px 8px',fontSize:11,borderRadius:4}}>Solo en local</span>}
+                  {previewItem.promo_tag&&<span style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,padding:'2px 8px',fontSize:11,borderRadius:4}}>{previewItem.promo_tag}</span>}
+                  {previewItem.promo_type&&<span style={{background:TINT.blueBg,border:`1px solid ${TINT.blueBorder}`,color:TINT.blueText,padding:'2px 8px',fontSize:11,borderRadius:4}}>{PROMO_LABEL[previewItem.promo_type]}</span>}
+                  {previewItem.dine_in_only&&<span style={{background:TINT.greenBg,border:`1px solid ${TINT.greenBorder}`,color:TINT.greenText,padding:'2px 8px',fontSize:11,borderRadius:4}}>Solo en local</span>}
                 </div>
               </div>
               {previewItem.description&&<div style={{fontSize:13,color:C.mid,marginBottom:12,lineHeight:1.4}}>{previewItem.description}</div>}
@@ -1706,7 +1730,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                 <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Nombre del extra</Th><Th>Producto</Th><Th right>Precio</Th><Th>Estado</Th></tr></thead>
                 <tbody>
                   {allExtras.map(e=>(
-                    <tr key={e.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                    <tr key={e.id} style={{borderBottom:`1px solid ${C.border}`}}>
                       <Td>{e.name}</Td>
                       <Td dim style={{fontSize:11}}>{itemName(e.item_id)}</Td>
                       <Td mono right>{e.price_guarani>0?`₲ ${e.price_guarani.toLocaleString('es-PY')}`:'Gratis'}</Td>
@@ -1770,7 +1794,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                   const isSelected=selected.has(item.id);
                   return (
                     <tr key={item.id}
-                      style={{borderBottom:`1px solid #F0F0F0`,background:isSelected?'#EFF6FF':'transparent'}}>
+                      style={{borderBottom:`1px solid ${C.border}`,background:isSelected?TINT.blueBg:'transparent'}}>
                       <Td><input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(item.id)} style={{cursor:'pointer',width:14,height:14}} onClick={e=>e.stopPropagation()}/></Td>
                       <Td>
                         {item.image_url
@@ -1780,7 +1804,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                       <Td>
                         <div style={{color:item.is_available?C.ink:C.dim,fontWeight:500}}>{item.name}</div>
                         {item.description&&<div style={{fontSize:11,color:C.dim,marginTop:1,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>}
-                        {item.dine_in_only&&<span style={{fontSize:9,color:'#166534',background:'#F0FDF4',border:'1px solid #BBF7D0',padding:'1px 5px',borderRadius:3,marginTop:2,display:'inline-block'}}>Solo local</span>}
+                        {item.dine_in_only&&<span style={{fontSize:9,color:TINT.greenText,background:TINT.greenBg,border:`1px solid ${TINT.greenBorder}`,padding:'1px 5px',borderRadius:3,marginTop:2,display:'inline-block'}}>Solo local</span>}
                       </Td>
                       <Td dim>{catName(item.category_id)}</Td>
                       <Td mono right>
@@ -1795,8 +1819,8 @@ function MenuPage({categories,menuItems,onRefresh}) {
                       </Td>
                       <Td>
                         <div style={{display:'flex',flexDirection:'column',gap:3}}>
-                          {item.promo_tag&&<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 6px',fontSize:11,borderRadius:4,display:'inline-block'}}>{item.promo_tag}</span>}
-                          {item.promo_type&&<span style={{background:'#EFF6FF',border:'1px solid #BFDBFE',color:'#1D4ED8',padding:'2px 6px',fontSize:10,borderRadius:4,display:'inline-block'}}>{PROMO_LABEL[item.promo_type]}</span>}
+                          {item.promo_tag&&<span style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,padding:'2px 6px',fontSize:11,borderRadius:4,display:'inline-block'}}>{item.promo_tag}</span>}
+                          {item.promo_type&&<span style={{background:TINT.blueBg,border:`1px solid ${TINT.blueBorder}`,color:TINT.blueText,padding:'2px 6px',fontSize:10,borderRadius:4,display:'inline-block'}}>{PROMO_LABEL[item.promo_type]}</span>}
                         </div>
                       </Td>
                       <Td>
@@ -1829,11 +1853,11 @@ function MenuPage({categories,menuItems,onRefresh}) {
    MESAS — canvas drag-and-drop + fix is_occupied
 ══════════════════════════════════════════════ */
 const ZONAS_DEF = [
-  {value:'salon',    label:'Salón',    bg:'#F0F7FF', border:'#BFDBFE', dot:'#3B82F6'},
-  {value:'terraza',  label:'Terraza',  bg:'#F0FFF4', border:'#BBF7D0', dot:'#22C55E'},
-  {value:'bar',      label:'Bar',      bg:'#FFF7ED', border:'#FED7AA', dot:'#F97316'},
-  {value:'privado',  label:'Privado',  bg:'#FDF4FF', border:'#E9D5FF', dot:'#A855F7'},
-  {value:'exterior', label:'Exterior', bg:'#FEFCE8', border:'#FEF08A', dot:'#EAB308'},
+  {value:'salon',    label:'Salón',    bg:TINT.blueBg,   border:TINT.blueBorder,   dot:'#3B82F6'},
+  {value:'terraza',  label:'Terraza',  bg:TINT.greenBg,  border:TINT.greenBorder,  dot:'#22C55E'},
+  {value:'bar',      label:'Bar',      bg:TINT.amberBg,  border:TINT.amberBorder,  dot:'#F97316'},
+  {value:'privado',  label:'Privado',  bg:TINT.purpleBg, border:TINT.purpleBorder, dot:'#A855F7'},
+  {value:'exterior', label:'Exterior', bg:TINT.amberBg,  border:TINT.amberBorder,  dot:'#EAB308'},
 ];
 const SHAPES_DEF = [
   {value:'square',    label:'Cuadrada',    icon:'⬜'},
@@ -1969,8 +1993,8 @@ function ZonaCanvas({zona, tables, activeOrders, reservationByTable, editMode, d
           const isAlert = resv&&busy&&resv._minutesUntil<=resv._alertMinutes;
           const isReserved = resv&&!busy;
           const isDrag = dragging===t.id;
-          const bg = isAlert?'#FEE2E2':isReserved?'#FFF7ED':(busy?'rgba(0,0,0,0.06)':'#FFFFFF');
-          const bd = isAlert?'#DC2626':isReserved?'#FF9500':(busy?'#1D1D1F':'#D2D2D7');
+          const bg = isAlert?TINT.redBg:isReserved?TINT.amberBg:(busy?'var(--surface-hover)':C.surface);
+          const bd = isAlert?C.red:isReserved?C.orange:(busy?C.ink:C.border);
           const lblTxt = isAlert?'¡Liberar!':isReserved?'Reservada':(busy?(order?fmt(order.total):'Ocupada'):'Libre');
           const lblCol = isAlert?'#991B1B':isReserved?'#B45309':(busy?'#4B4B4B':'#86868B');
           return (
@@ -2162,11 +2186,11 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
           <Modal title={`Mesa ${resvInfo.table.number} — ${isAlert?'⚠ Reserva próxima':'Reservada'}`} onClose={()=>setResvInfo(null)} width={420}>
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
               {isAlert&&(
-                <div style={{background:'#FEE2E2',border:'1px solid #DC2626',borderRadius:8,padding:'10px 12px',fontSize:12,color:'#991B1B'}}>
+                <div style={{background:TINT.redBg,border:`1px solid ${TINT.redBorder}`,borderRadius:8,padding:'10px 12px',fontSize:12,color:TINT.redText}}>
                   ⚠ Esta mesa está ocupada y la reserva es {tiempoTxt}. Avisá al mozo para pedir la cuenta.
                 </div>
               )}
-              <div style={{background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:8,padding:'12px 14px'}}>
+              <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'12px 14px'}}>
                 <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:6}}>{r.customer_name}</div>
                 <div style={{fontSize:13,color:'#3D3D3D',lineHeight:1.7}}>
                   📞 {r.customer_phone}<br/>
@@ -2239,7 +2263,7 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
               </div>
             </div>
             {formModal.mode==='edit'&&formModal.table.zona!==form.zona&&(
-              <div style={{fontSize:11,color:C.dim,background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:6,padding:'8px 10px'}}>
+              <div style={{fontSize:11,color:C.dim,background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:6,padding:'8px 10px'}}>
                 Al cambiar de zona, la mesa se reposicionará automáticamente en la nueva zona.
               </div>
             )}
@@ -2316,8 +2340,8 @@ function QrModal({table, restaurant, onClose}) {
             <div style={{color:C.dim,fontSize:10,marginTop:2}}>Lugares</div>
           </div>
           {session ? (
-            <div style={{flex:1,background:sessionFull?'#FEE2E2':'#DCFCE7',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
-              <div style={{fontWeight:800,fontSize:20,color:sessionFull?'#DC2626':'#16A34A'}}>{session.scan_count}/{session.max_scans}</div>
+            <div style={{flex:1,background:sessionFull?TINT.redBg:TINT.greenBg,borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
+              <div style={{fontWeight:800,fontSize:20,color:sessionFull?TINT.redText:TINT.greenText}}>{session.scan_count}/{session.max_scans}</div>
               <div style={{color:C.dim,fontSize:10,marginTop:2}}>Sesión</div>
             </div>
           ) : (
@@ -2674,7 +2698,7 @@ function PersonalPage() {
               </div>
             </div>
             {addForm._reqId&&(
-              <div style={{marginTop:14,padding:'8px 12px',background:'#FFF9F0',border:'1px solid #FFDDA3',borderRadius:8,fontSize:12,color:C.orange,fontWeight:600}}>
+              <div style={{marginTop:14,padding:'8px 12px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,fontSize:12,color:C.orange,fontWeight:600}}>
                 Al crear el usuario se marcará la solicitud como <strong>Aprobada</strong>.
               </div>
             )}
@@ -2731,7 +2755,7 @@ function PersonalPage() {
                 const est=sessionEstado(s);
                 const abierta=!s.logout_at;
                 return (
-                  <tr key={s.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                  <tr key={s.id} style={{borderBottom:`1px solid ${C.border}`}}>
                     <Td>{s.employee_name||'—'}</Td>
                     <Td dim>{roleLabel(s.role)}</Td>
                     <Td dim>{s.panel||'—'}</Td>
@@ -2781,7 +2805,7 @@ function PersonalPage() {
                   const srCol={pending:C.orange,approved:C.green,rejected:C.red};
                   const srLbl={pending:'Pendiente',approved:'Aprobado',rejected:'Rechazado'};
                   return (
-                    <tr key={r.id} style={{borderBottom:`1px solid #F0F0F0`,opacity:r.status!=='pending'?0.65:1}}>
+                    <tr key={r.id} style={{borderBottom:`1px solid ${C.border}`,opacity:r.status!=='pending'?0.65:1}}>
                       <Td>{r.full_name}</Td>
                       <Td mono>{r.username||'—'}</Td>
                       <Td><span style={{background:(srCol[r.status]||'#86868B')+'18',color:srCol[r.status]||'#86868B',border:`1px solid ${(srCol[r.status]||'#86868B')}33`,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{r.role}</span></Td>
@@ -3364,9 +3388,9 @@ function ClientesPage({orders}) {
 
   // ── Badge / UI helpers ────────────────────────
   const TypeBadge = ({c}) => {
-    if(c.isVip) return <span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>VIP</span>;
+    if(c.isVip) return <span style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>VIP</span>;
     if(c.registered) return <span style={{background:C.ink,color:C.sidebar,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>REG</span>;
-    return <span style={{background:C.bg,border:'1px solid #D2D2D7',color:C.dim,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>ANÓN</span>;
+    return <span style={{background:C.bg,border:`1px solid ${C.border}`,color:C.dim,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>ANÓN</span>;
   };
 
   const CanalBar = ({canalCount}) => {
@@ -3483,7 +3507,7 @@ function ClientesPage({orders}) {
             {reportRows&&<>
               <button onClick={exportReportPDF} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#FF3B30',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ PDF</button>
               <button onClick={exportReportXLS} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#34C759',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Excel</button>
-              <button onClick={exportReportCSV} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#1D1D1F',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ CSV</button>
+              <button onClick={exportReportCSV} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:C.ink,color:C.surface,border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ CSV</button>
               <button onClick={()=>{setReportRows(null);setReportSummary(null);setReportTitle('');}} style={{padding:'9px 14px',background:'transparent',color:C.mid,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:'pointer'}}>✕</button>
             </>}
           </div>
@@ -3504,18 +3528,18 @@ function ClientesPage({orders}) {
           <div style={{overflowX:'auto',borderRadius:8,border:`1px solid ${C.border}`}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
               <thead>
-                <tr>{reportRows.cols.map((col,i)=><th key={i} style={{background:'#1D1D1F',color:'#fff',padding:'8px 12px',textAlign:'left',fontWeight:700,fontSize:11,whiteSpace:'nowrap'}}>{col}</th>)}</tr>
+                <tr>{reportRows.cols.map((col,i)=><th key={i} style={{background:C.ink,color:C.surface,padding:'8px 12px',textAlign:'left',fontWeight:700,fontSize:11,whiteSpace:'nowrap'}}>{col}</th>)}</tr>
               </thead>
               <tbody>
                 {reportRows.data.map((r,ri)=>(
-                  <tr key={ri} style={{background:ri%2===0?'#fff':'#F9F9F9',borderBottom:`1px solid ${C.border}`}}>
+                  <tr key={ri} style={{background:ri%2===0?C.surface:'var(--bg-subtle)',borderBottom:`1px solid ${C.border}`}}>
                     {r.map((v,vi)=><td key={vi} style={{padding:'7px 12px',color:C.ink}}>{v}</td>)}
                   </tr>
                 ))}
                 {reportRows.data.length===0&&<tr><td colSpan={reportRows.cols.length} style={{textAlign:'center',padding:28,color:C.dim,fontSize:13}}>Sin datos en el período seleccionado</td></tr>}
               </tbody>
             </table>
-            <div style={{padding:'8px 14px',fontSize:11,color:C.dim,borderTop:`1px solid ${C.border}`,background:'#FAFAFA'}}>
+            <div style={{padding:'8px 14px',fontSize:11,color:C.dim,borderTop:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
               {reportRows.data.length} registro{reportRows.data.length!==1?'s':''} · {selDef?.label} · {fromStr} al {toStr}
             </div>
           </div>
@@ -3559,7 +3583,7 @@ function ClientesPage({orders}) {
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
         <table style={{width:'100%',borderCollapse:'collapse',minWidth:860}}>
           <thead>
-            <tr style={{borderBottom:`1px solid ${C.border}`,background:'#FAFAFA'}}>
+            <tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
               <Th>Cliente</Th>
               <Th>Contacto</Th>
               <Th>Tipo</Th>
@@ -3575,13 +3599,13 @@ function ClientesPage({orders}) {
             {displayed.map((c,i)=>{
               const diasInactivo=Math.floor((now-new Date(c.lastDate).getTime())/864e5);
               return (
-                <tr key={i} onClick={()=>{setDetalle(c);setDetalleOrders(c.orderHistory.slice(0,10));}} style={{borderBottom:`1px solid #F0F0F0`,cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='#F9F9FA'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <tr key={i} onClick={()=>{setDetalle(c);setDetalleOrders(c.orderHistory.slice(0,10));}} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='var(--surface-hover)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                   <Td>
                     <div style={{fontWeight:700,fontSize:13,color:C.ink}}>{c.name}</div>
                     <div style={{display:'flex',gap:3,marginTop:3,flexWrap:'wrap'}}>
-                      {c.pideFactura&&<span style={{fontSize:9,fontWeight:700,color:'#007AFF',background:'#E8F2FF',padding:'1px 4px',borderRadius:3}}>FACTURA</span>}
-                      {c.orders>=3&&!c.isVip&&<span style={{fontSize:9,fontWeight:700,color:C.green,background:'#E8F8EE',padding:'1px 4px',borderRadius:3}}>FRECUENTE</span>}
-                      {c.addresses.length>0&&<span style={{fontSize:9,fontWeight:700,color:'#FF9500',background:'#FFF4E0',padding:'1px 4px',borderRadius:3}}>🛵</span>}
+                      {c.pideFactura&&<span style={{fontSize:9,fontWeight:700,color:TINT.blueText,background:TINT.blueBg,padding:'1px 4px',borderRadius:3}}>FACTURA</span>}
+                      {c.orders>=3&&!c.isVip&&<span style={{fontSize:9,fontWeight:700,color:C.green,background:TINT.greenBg,padding:'1px 4px',borderRadius:3}}>FRECUENTE</span>}
+                      {c.addresses.length>0&&<span style={{fontSize:9,fontWeight:700,color:'#FF9500',background:TINT.amberBg,padding:'1px 4px',borderRadius:3}}>🛵</span>}
                     </div>
                   </Td>
                   <Td>
@@ -3623,9 +3647,9 @@ function ClientesPage({orders}) {
                 <div style={{fontSize:20,fontWeight:800,color:C.ink}}>{detalle.name}</div>
                 <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
                   <TypeBadge c={detalle}/>
-                  {detalle.orders>=3&&<span style={{background:'#E8F8EE',color:C.green,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>FRECUENTE</span>}
-                  {detalle.pideFactura&&<span style={{background:'#E8F2FF',color:'#007AFF',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>PIDE FACTURA</span>}
-                  {(detalle.canalCount['delivery']||0)>0&&<span style={{background:'#FFF4E0',color:'#FF9500',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>🛵 DELIVERY</span>}
+                  {detalle.orders>=3&&<span style={{background:TINT.greenBg,color:C.green,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>FRECUENTE</span>}
+                  {detalle.pideFactura&&<span style={{background:TINT.blueBg,color:TINT.blueText,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>PIDE FACTURA</span>}
+                  {(detalle.canalCount['delivery']||0)>0&&<span style={{background:TINT.amberBg,color:'#FF9500',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>🛵 DELIVERY</span>}
                 </div>
               </div>
               {detalle.phone&&(
@@ -3651,7 +3675,7 @@ function ClientesPage({orders}) {
                   <div style={{gridColumn:'1/-1'}}>
                     <div style={{fontSize:10,color:C.dim,marginBottom:4}}>Direcciones de delivery ({detalle.addresses.length})</div>
                     {detalle.addresses.map((a,i)=>(
-                      <div key={i} style={{fontSize:12,padding:'5px 10px',background:'#FFF4E0',borderRadius:6,marginBottom:4,display:'flex',alignItems:'center',gap:6}}>
+                      <div key={i} style={{fontSize:12,padding:'5px 10px',background:TINT.amberBg,borderRadius:6,marginBottom:4,display:'flex',alignItems:'center',gap:6}}>
                         <span>🛵</span><span style={{flex:1}}>{a}</span>
                       </div>
                     ))}
@@ -3722,7 +3746,7 @@ function ClientesPage({orders}) {
                 <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>ÚLTIMOS PEDIDOS</div>
                 <div style={{background:C.bg,borderRadius:10,overflow:'hidden'}}>
                   {detalleOrders.map((o,i)=>(
-                    <div key={o.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderBottom:i<detalleOrders.length-1?'1px solid #E5E5EA':'none'}}>
+                    <div key={o.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderBottom:i<detalleOrders.length-1?`1px solid ${C.border}`:'none'}}>
                       <div style={{display:'flex',alignItems:'center',gap:8}}>
                         <span style={{fontSize:14}}>{CANAL_ICON[o.type]||'📦'}</span>
                         <div>
@@ -3863,7 +3887,7 @@ function CajaAdminPage() {
                 <div style={{display:'flex',gap:8,marginTop:4}}>
                   {[['libre','Libre (cajero define)'],['fijo','Fondo fijo']].map(([v,lbl])=>(
                     <button key={v} onClick={()=>setCfg({...cfg,cash_mode_default:v})}
-                      style={{padding:'8px 14px',fontSize:12,borderRadius:6,border:`1px solid ${cfg.cash_mode_default===v?'#000000':C.border}`,background:cfg.cash_mode_default===v?'#000000':'transparent',color:cfg.cash_mode_default===v?'#FFFFFF':C.mid,fontWeight:cfg.cash_mode_default===v?700:500,cursor:'pointer'}}>{lbl}</button>
+                      style={{padding:'8px 14px',fontSize:12,borderRadius:6,border:`1px solid ${cfg.cash_mode_default===v?C.ink:C.border}`,background:cfg.cash_mode_default===v?C.ink:'transparent',color:cfg.cash_mode_default===v?C.surface:C.mid,fontWeight:cfg.cash_mode_default===v?700:500,cursor:'pointer'}}>{lbl}</button>
                   ))}
                 </div>
               </div>
@@ -4242,7 +4266,7 @@ function FinanzasPage({orders}) {
                 <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Fecha</Th><Th>Descripcion</Th><Th>Cat.</Th><Th right>Monto</Th><Th/></tr></thead>
                 <tbody>
                   {egPeriod.map(e=>(
-                    <tr key={e.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                    <tr key={e.id} style={{borderBottom:`1px solid ${C.border}`}}>
                       <Td mono dim>{e.date}</Td>
                       <Td>{e.desc||e.description}</Td>
                       <Td dim>{e.category}</Td>
@@ -4265,7 +4289,7 @@ function FinanzasPage({orders}) {
                   <span style={{color:C.mid}}>{cat}</span>
                   <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.red}}>{fmt(total)}</span>
                 </div>
-                <div style={{height:4,background:'#EEEEEE',borderRadius:2,overflow:'hidden'}}>
+                <div style={{height:4,background:C.border,borderRadius:2,overflow:'hidden'}}>
                   <div style={{width:`${(total/maxCat)*100}%`,height:'100%',background:C.red,borderRadius:2}}/>
                 </div>
               </div>
@@ -4298,7 +4322,7 @@ function FinanzasPage({orders}) {
               <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Fecha</Th><Th>Tipo</Th><Th>Concepto</Th><Th>Categoria</Th><Th right>Monto</Th></tr></thead>
               <tbody>
                 {filteredMovs.map((m,i)=>(
-                  <tr key={i} style={{borderBottom:`1px solid #F0F0F0`}}>
+                  <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
                     <Td mono dim>{m.date}</Td>
                     <Td><span style={{background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.2)',color:'#C0190F',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>EGRESO</span></Td>
                     <Td>{m.concepto}</Td>
@@ -4324,12 +4348,12 @@ function FinanzasPage({orders}) {
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <div style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div style={{fontSize:13,fontWeight:700}}>Ordenes sin monto registrado</div>
-                  <span style={{background:alertas.ordenesSinMonto?.length>0?'#FFEDEC':'#E8F9ED',color:alertas.ordenesSinMonto?.length>0?'#C0190F':'#1A7E37',padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{alertas.ordenesSinMonto?.length||0}</span>
+                  <span style={{background:alertas.ordenesSinMonto?.length>0?TINT.redBg:TINT.greenBg,color:alertas.ordenesSinMonto?.length>0?TINT.redText:TINT.greenText,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{alertas.ordenesSinMonto?.length||0}</span>
                 </div>
                 {alertas.ordenesSinMonto?.length>0
                   ?<table style={{width:'100%',borderCollapse:'collapse'}}>
                     <thead><tr><Th>#Orden</Th><Th>Fecha</Th><Th right>Total</Th></tr></thead>
-                    <tbody>{alertas.ordenesSinMonto.map(o=><tr key={o.id} style={{borderBottom:`1px solid #F0F0F0`}}><Td mono dim>{o.order_number}</Td><Td dim>{fmtDate(o.created_at)}</Td><Td mono right style={{color:C.red}}>{fmt(o.total)}</Td></tr>)}</tbody>
+                    <tbody>{alertas.ordenesSinMonto.map(o=><tr key={o.id} style={{borderBottom:`1px solid ${C.border}`}}><Td mono dim>{o.order_number}</Td><Td dim>{fmtDate(o.created_at)}</Td><Td mono right style={{color:C.red}}>{fmt(o.total)}</Td></tr>)}</tbody>
                   </table>
                   :<div style={{padding:'12px 16px',fontSize:12,color:C.dim}}>Sin alertas</div>}
               </div>
@@ -4337,20 +4361,20 @@ function FinanzasPage({orders}) {
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <div style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div style={{fontSize:13,fontWeight:700}}>Turnos de caja sin cierre (+12h)</div>
-                  <span style={{background:alertas.turnosSinCierre?.length>0?'#FFEDEC':'#E8F9ED',color:alertas.turnosSinCierre?.length>0?'#C0190F':'#1A7E37',padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{alertas.turnosSinCierre?.length||0}</span>
+                  <span style={{background:alertas.turnosSinCierre?.length>0?TINT.redBg:TINT.greenBg,color:alertas.turnosSinCierre?.length>0?TINT.redText:TINT.greenText,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{alertas.turnosSinCierre?.length||0}</span>
                 </div>
                 {alertas.turnosSinCierre?.length>0
-                  ?<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr><Th>Cajero</Th><Th>Apertura</Th></tr></thead><tbody>{alertas.turnosSinCierre.map(t=><tr key={t.id} style={{borderBottom:`1px solid #F0F0F0`}}><Td>{t.cajero_nombre||'—'}</Td><Td mono dim>{fmtDT(t.fecha_apertura)}</Td></tr>)}</tbody></table>
+                  ?<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr><Th>Cajero</Th><Th>Apertura</Th></tr></thead><tbody>{alertas.turnosSinCierre.map(t=><tr key={t.id} style={{borderBottom:`1px solid ${C.border}`}}><Td>{t.cajero_nombre||'—'}</Td><Td mono dim>{fmtDT(t.fecha_apertura)}</Td></tr>)}</tbody></table>
                   :<div style={{padding:'12px 16px',fontSize:12,color:C.dim}}>Sin alertas</div>}
               </div>
               {/* Diferencias de caja */}
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <div style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div style={{fontSize:13,fontWeight:700}}>Diferencias de caja &gt; ₲ 50.000</div>
-                  <span style={{background:alertas.diferencias?.length>0?'#FFF4E0':'#E8F9ED',color:alertas.diferencias?.length>0?'#8A4B00':'#1A7E37',padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{alertas.diferencias?.length||0}</span>
+                  <span style={{background:alertas.diferencias?.length>0?TINT.amberBg:TINT.greenBg,color:alertas.diferencias?.length>0?TINT.amberText:TINT.greenText,padding:'2px 8px',fontSize:11,fontWeight:700,borderRadius:4}}>{alertas.diferencias?.length||0}</span>
                 </div>
                 {alertas.diferencias?.length>0
-                  ?<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr><Th>Cajero</Th><Th>Apertura</Th><Th right>Diferencia</Th></tr></thead><tbody>{alertas.diferencias.map(t=><tr key={t.id} style={{borderBottom:`1px solid #F0F0F0`}}><Td>{t.cajero_nombre||'—'}</Td><Td mono dim>{fmtDate(t.fecha_apertura)}</Td><Td mono right style={{color:C.orange}}>{fmt(t.diferencia)}</Td></tr>)}</tbody></table>
+                  ?<table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr><Th>Cajero</Th><Th>Apertura</Th><Th right>Diferencia</Th></tr></thead><tbody>{alertas.diferencias.map(t=><tr key={t.id} style={{borderBottom:`1px solid ${C.border}`}}><Td>{t.cajero_nombre||'—'}</Td><Td mono dim>{fmtDate(t.fecha_apertura)}</Td><Td mono right style={{color:C.orange}}>{fmt(t.diferencia)}</Td></tr>)}</tbody></table>
                   :<div style={{padding:'12px 16px',fontSize:12,color:C.dim}}>Sin alertas</div>}
               </div>
             </div>
@@ -4648,7 +4672,7 @@ function RatingsPage({ratings}) {
                 <div key={s} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
                   <span style={{color:C.yellow,fontSize:12,width:10}}>{s}</span>
                   <span style={{color:C.yellow,fontSize:10}}>★</span>
-                  <div style={{flex:1,height:6,background:'#EEEEEE',borderRadius:3,overflow:'hidden'}}><div style={{width:`${pct}%`,height:'100%',background:C.yellow,borderRadius:3}}/></div>
+                  <div style={{flex:1,height:6,background:C.border,borderRadius:3,overflow:'hidden'}}><div style={{width:`${pct}%`,height:'100%',background:C.yellow,borderRadius:3}}/></div>
                   <span style={{fontSize:11,color:C.mid,width:24,textAlign:'right'}}>{n}</span>
                 </div>
               );
@@ -4660,7 +4684,7 @@ function RatingsPage({ratings}) {
             <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Rating</Th><Th>Comentario</Th><Th>Canal</Th><Th>Fecha</Th></tr></thead>
             <tbody>
               {filtered.map(r=>(
-                <tr key={r.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                <tr key={r.id} style={{borderBottom:`1px solid ${C.border}`}}>
                   <Td><Stars n={r.stars}/></Td>
                   <Td style={{color:r.comment?C.ink:'#D2D2D7',fontStyle:r.comment?'normal':'italic'}}>{r.comment||'Sin comentario'}</Td>
                   <Td dim style={{fontSize:11}}>{ORIGINS[r.origin||'unknown']||r.origin||'—'}</Td>
@@ -4705,7 +4729,7 @@ function RatingsPage({ratings}) {
                 <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Mensaje</Th><Th>Estado</Th><Th/></tr></thead>
                 <tbody>
                   {messages.map(m=>(
-                    <tr key={m.id} style={{borderBottom:`1px solid #F0F0F0`}}>
+                    <tr key={m.id} style={{borderBottom:`1px solid ${C.border}`}}>
                       <Td style={{color:m.active?'#1D1D1F':'#86868B'}}>{m.message}</Td>
                       <Td>
                         <button onClick={()=>toggleMessage(m)} style={{background:m.active?'rgba(52,199,89,0.1)':'transparent',border:`1px solid ${m.active?'rgba(52,199,89,0.3)':C.border}`,color:m.active?'#34C759':'#86868B',padding:'2px 9px',fontSize:11,fontWeight:600,borderRadius:5,cursor:'pointer'}}>
@@ -4998,13 +5022,13 @@ function StockPage() {
 
       {/* Banner: falta toma de apertura */}
       {faltaApertura&&tab!=='toma'&&(
-        <div onClick={()=>setTab('toma')} style={{cursor:'pointer',background:'#FFF9E0',border:'1px solid #FFD580',borderRadius:8,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'center',gap:10}}>
+        <div onClick={()=>setTab('toma')} style={{cursor:'pointer',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'center',gap:10}}>
           <span style={{fontSize:18}}>📋</span>
           <div style={{flex:1}}>
-            <div style={{fontWeight:700,fontSize:13,color:'#8A4B00'}}>Toma de inventario de apertura pendiente</div>
-            <div style={{fontSize:11,color:'#8A4B00',opacity:.8}}>Realizá el conteo de stock al iniciar el día. Hacé clic aquí para comenzar.</div>
+            <div style={{fontWeight:700,fontSize:13,color:TINT.amberText}}>Toma de inventario de apertura pendiente</div>
+            <div style={{fontSize:11,color:TINT.amberText,opacity:.8}}>Realizá el conteo de stock al iniciar el día. Hacé clic aquí para comenzar.</div>
           </div>
-          <span style={{fontSize:12,color:'#8A4B00',fontWeight:600}}>Ir →</span>
+          <span style={{fontSize:12,color:TINT.amberText,fontWeight:600}}>Ir →</span>
         </div>
       )}
 
@@ -5036,20 +5060,20 @@ function StockPage() {
 
       {/* Alertas de vencimiento */}
       {expiringAlerts.length>0&&(
-        <div style={{marginBottom:12,background:'#FFF9F0',border:'1px solid #FFD580',borderRadius:8,overflow:'hidden'}}>
-          <div style={{padding:'8px 14px',borderBottom:'1px solid #FFD580',fontSize:10,fontWeight:700,color:'#8A4B00',letterSpacing:1}}>VENCIMIENTOS PROXIMOS</div>
+        <div style={{marginBottom:12,background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,overflow:'hidden'}}>
+          <div style={{padding:'8px 14px',borderBottom:`1px solid ${TINT.amberBorder}`,fontSize:10,fontWeight:700,color:TINT.amberText,letterSpacing:1}}>VENCIMIENTOS PROXIMOS</div>
           {expiringAlerts.map(ing=>{
             const exp = new Date(ing.expiry_date);
             const vencido = exp < now;
             const diffDays = Math.ceil((exp-now)/86400000);
             return (
-              <div key={ing.id} style={{padding:'8px 14px',borderBottom:'1px solid #FFD58040',display:'flex',justifyContent:'space-between',alignItems:'center',background:vencido?'#FFF0F0':'transparent'}}>
+              <div key={ing.id} style={{padding:'8px 14px',borderBottom:'1px solid #FFD58040',display:'flex',justifyContent:'space-between',alignItems:'center',background:vencido?TINT.redBg:'transparent'}}>
                 <div style={{fontSize:13,fontWeight:600,color:C.ink}}>{ing.name}</div>
                 <div style={{display:'flex',alignItems:'center',gap:10}}>
                   <span style={{fontSize:11,color:C.dim}}>{fmtDate(ing.expiry_date)}</span>
                   {vencido
-                    ?<span style={{background:'#FFEDEC',border:'1px solid #FFB3AD',color:'#C0190F',padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>VENCIDO</span>
-                    :<span style={{background:'#FFF4E0',border:'1px solid #FFD580',color:'#8A4B00',padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>VENCE en {diffDays}d</span>
+                    ?<span style={{background:TINT.redBg,border:`1px solid ${TINT.redBorder}`,color:TINT.redText,padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>VENCIDO</span>
+                    :<span style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,padding:'2px 8px',fontSize:10,fontWeight:700,borderRadius:4}}>VENCE en {diffDays}d</span>
                   }
                 </div>
               </div>
@@ -5857,7 +5881,7 @@ function ReportesPage({orders}) {
           {rows&&<>
             <button onClick={exportPDF} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#FF3B30',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Exportar PDF</button>
             <button onClick={exportXLS} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#34C759',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Exportar Excel</button>
-            <button onClick={exportCSV} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#1D1D1F',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Exportar CSV</button>
+            <button onClick={exportCSV} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:C.ink,color:C.surface,border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Exportar CSV</button>
             <button onClick={limpiar} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 14px',background:'transparent',color:C.mid,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:'pointer'}}>✕ Limpiar</button>
           </>}
         </div>
@@ -5881,7 +5905,7 @@ function ReportesPage({orders}) {
               </thead>
               <tbody>
                 {rows.data.map((r,ri)=>(
-                  <tr key={ri} style={{background:ri%2===0?'#fff':'#F9F9F9',borderBottom:`1px solid ${C.border}`}}>
+                  <tr key={ri} style={{background:ri%2===0?C.surface:'var(--bg-subtle)',borderBottom:`1px solid ${C.border}`}}>
                     {r.map((v,vi)=><td key={vi} style={{padding:'8px 12px',color:C.ink}}>{v}</td>)}
                   </tr>
                 ))}
@@ -6104,7 +6128,7 @@ function EstacionesPage({categories, tables}) {
         </div>
       </div>
 
-      <div style={{display:'inline-flex',gap:0,background:'#EFEFF4',padding:3,borderRadius:8,marginBottom:18}}>
+      <div style={{display:'inline-flex',gap:0,background:'var(--bg-subtle)',padding:3,borderRadius:8,marginBottom:18}}>
         <TabBtn id="lista" label="Estaciones"/>
         <TabBtn id="stats" label="Estadísticas"/>
         <TabBtn id="audit" label="Auditoría"/>
@@ -6192,7 +6216,7 @@ function EstacionesPage({categories, tables}) {
               <Lbl>Ícono</Lbl>
               <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
                 {STATION_ICONS.map(ic=>(
-                  <button key={ic} onClick={()=>setEditing({...editing,icon:ic})} style={{width:34,height:34,fontSize:18,border:`1px solid ${editing.icon===ic?'#000':C.border}`,background:editing.icon===ic?'#000':'#fff',borderRadius:6,cursor:'pointer'}}>{ic}</button>
+                  <button key={ic} onClick={()=>setEditing({...editing,icon:ic})} style={{width:34,height:34,fontSize:18,border:`1px solid ${editing.icon===ic?C.ink:C.border}`,background:editing.icon===ic?C.ink:C.surface,borderRadius:6,cursor:'pointer'}}>{ic}</button>
                 ))}
               </div>
             </div>
@@ -6212,7 +6236,7 @@ function EstacionesPage({categories, tables}) {
                 {categories.map(cat=>{
                   const checked = editing._categories.includes(cat.id);
                   return (
-                    <label key={cat.id} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 6px',cursor:'pointer',background:checked?'#000':'transparent',color:checked?'#fff':'#000',borderRadius:4,fontSize:12}}>
+                    <label key={cat.id} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 6px',cursor:'pointer',background:checked?C.ink:'transparent',color:checked?C.surface:C.ink,borderRadius:4,fontSize:12}}>
                       <input type="checkbox" checked={checked} onChange={()=>{
                         const next = checked ? editing._categories.filter(x=>x!==cat.id) : [...editing._categories,cat.id];
                         setEditing({...editing,_categories:next});
@@ -6240,7 +6264,7 @@ function EstacionesPage({categories, tables}) {
                       if (z==='*') next = checked ? [] : ['*'];
                       else next = checked ? editing._zonas.filter(x=>x!==z) : [...editing._zonas.filter(x=>x!=='*'),z];
                       setEditing({...editing,_zonas:next});
-                    }} style={{padding:'5px 10px',border:`1px solid ${checked?'#000':C.border}`,background:checked?'#000':'#fff',color:checked?'#fff':'#000',borderRadius:5,fontSize:12,fontWeight:600,cursor:'pointer',textTransform:'capitalize'}}>{label}</button>
+                    }} style={{padding:'5px 10px',border:`1px solid ${checked?C.ink:C.border}`,background:checked?C.ink:C.surface,color:checked?C.surface:C.ink,borderRadius:5,fontSize:12,fontWeight:600,cursor:'pointer',textTransform:'capitalize'}}>{label}</button>
                   );
                 })}
               </div>
@@ -6526,7 +6550,7 @@ function ConfigPage({restaurant,onRefresh}) {
           </div>
           <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
             <div style={{fontSize:9,color:C.dim,fontWeight:700,marginBottom:5,letterSpacing:1}}>RESTAURANT ID</div>
-            <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:'#F5F5F7',wordBreak:'break-all'}}>{RID}</div>
+            <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:C.ink,wordBreak:'break-all'}}>{RID}</div>
           </div>
         </div>
       </div>
@@ -6745,16 +6769,16 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
         <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:6,overflow:'hidden'}}>
           {DFILTS.map((f,i)=>(
-            <button key={f.id} onClick={()=>setFilter(f.id)} style={{padding:'6px 14px',fontSize:12,fontWeight:filter===f.id?700:400,background:filter===f.id?'#000000':'#FFF',color:filter===f.id?'#FFF':'#1D1D1F',border:'none',cursor:'pointer',borderRight:i<DFILTS.length-1?`1px solid ${C.border}`:'none'}}>
+            <button key={f.id} onClick={()=>setFilter(f.id)} style={{padding:'6px 14px',fontSize:12,fontWeight:filter===f.id?700:400,background:filter===f.id?C.ink:C.surface,color:filter===f.id?C.surface:C.ink,border:'none',cursor:'pointer',borderRight:i<DFILTS.length-1?`1px solid ${C.border}`:'none'}}>
               {f.label}
             </button>
           ))}
         </div>
-        <select value={chanFilter} onChange={e=>setChanFilter(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,color:C.ink,background:'#FFF'}}>
+        <select value={chanFilter} onChange={e=>setChanFilter(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,color:C.ink,background:C.surface}}>
           <option value="all">Todos los canales</option>
           {channels.map(ch=><option key={ch.id} value={ch.id}>{ch.name}</option>)}
         </select>
-        <select value={dateFilter} onChange={e=>setDateFilter(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,color:C.ink,background:'#FFF'}}>
+        <select value={dateFilter} onChange={e=>setDateFilter(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,color:C.ink,background:C.surface}}>
           <option value="today">Hoy</option>
           <option value="7d">Últimos 7 días</option>
           <option value="30d">Últimos 30 días</option>
@@ -6766,13 +6790,13 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
           <thead>
-            <tr style={{borderBottom:`1px solid ${C.border}`,background:'#F9F9FA'}}>
+            <tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
               <Th># Orden</Th><Th>Canal</Th><Th>Cliente</Th><Th>Dirección</Th><Th>Rider</Th><Th>Estado</Th><Th right>Monto</Th><Th right>Fee</Th><Th>Hora</Th>
             </tr>
           </thead>
           <tbody>
             {filtered.map(o=>(
-              <tr key={o.id} onClick={()=>openOrder(o)} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='#F9F9FA'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              <tr key={o.id} onClick={()=>openOrder(o)} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='var(--surface-hover)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                 <Td mono dim>#{o.order_number||o.id.slice(0,8)}</Td>
                 <Td>{o.channel||'Propio'}</Td>
                 <Td>{o.customer_name||'—'}</Td>
@@ -6919,7 +6943,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
               </div>
             </div>
             {selected.delivery_pin&&selected.rider_status==='confirmed'&&(
-              <div style={{background:'#FFF7E6',border:'2px solid #FF9500',borderRadius:12,padding:'14px 16px',textAlign:'center'}}>
+              <div style={{background:TINT.amberBg,border:'2px solid #FF9500',borderRadius:12,padding:'14px 16px',textAlign:'center'}}>
                 <div style={{fontSize:10,fontWeight:800,color:'#FF9500',letterSpacing:1,marginBottom:8}}>PIN PARA EL RIDER</div>
                 <div style={{fontSize:44,fontWeight:900,color:C.ink,letterSpacing:10,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{selected.delivery_pin}</div>
                 <div style={{fontSize:11,color:C.dim,marginTop:6}}>Dáselo al rider para que lo ingrese en su panel</div>
@@ -7345,7 +7369,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
     >
       <div style={{background:C.surface,borderRadius:16,width:'100%',maxWidth:700,maxHeight:'92vh',display:'flex',flexDirection:'column',overflow:'hidden',boxShadow:'0 32px 80px rgba(0,0,0,0.4)'}}>
         {/* Header */}
-        <div style={{padding:'16px 20px',borderBottom:'1px solid #E5E5EA',flexShrink:0}}>
+        <div style={{padding:'16px 20px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
           <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:12}}>
             <div>
               <div style={{fontSize:17,fontWeight:800,color:C.ink}}>Ubicación del local y zonas</div>
@@ -7370,7 +7394,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
               {searching&&<span className="spin" style={{width:14,height:14,borderWidth:1.5,flexShrink:0}}/>}
               {!searching&&(
                 gmapsReady
-                  ?<span style={{fontSize:10,fontWeight:700,color:'#1A7E37',background:'#F0FAF3',border:'1px solid #A3D9B1',borderRadius:5,padding:'2px 6px',flexShrink:0,whiteSpace:'nowrap'}}>Google ✓</span>
+                  ?<span style={{fontSize:10,fontWeight:700,color:TINT.greenText,background:TINT.greenBg,border:`1px solid ${TINT.greenBorder}`,borderRadius:5,padding:'2px 6px',flexShrink:0,whiteSpace:'nowrap'}}>Google ✓</span>
                   :<span style={{fontSize:10,fontWeight:600,color:C.dim,background:C.card,borderRadius:5,padding:'2px 6px',flexShrink:0,whiteSpace:'nowrap'}}>OSM</span>
               )}
               {searchQ&&!searching&&(
@@ -7379,19 +7403,19 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
             </div>
 
             {/* Aviso Maps — siempre visible en modo demo */}
-            <div style={{marginTop:6,padding:'7px 10px',background:'#FFF7ED',border:'1px solid #FED7AA',borderRadius:7,fontSize:11,color:'#92400E',display:'flex',gap:6,alignItems:'center'}}>
+            <div style={{marginTop:6,padding:'7px 10px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:7,fontSize:11,color:TINT.amberText,display:'flex',gap:6,alignItems:'center'}}>
               <span style={{flexShrink:0}}>🗺️</span>
               <span>Usando cálculo estimado por zonas (Google Maps en modo demostración)</span>
             </div>
             {!GKEY&&(
-              <div style={{marginTop:4,padding:'7px 10px',background:'#FFF4E0',border:'1px solid #FFD580',borderRadius:7,fontSize:10,color:'#8A4B00',display:'flex',gap:6,alignItems:'flex-start'}}>
+              <div style={{marginTop:4,padding:'7px 10px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:7,fontSize:10,color:TINT.amberText,display:'flex',gap:6,alignItems:'flex-start'}}>
                 <span style={{flexShrink:0}}>⚠</span>
                 <span>Para activar búsqueda por nombre de negocio agregá <code style={{fontFamily:"'SF Mono',monospace",fontSize:10}}>googleMapsKey: 'AIza…'</code> en <strong>config.js</strong> y habilitá <em>Maps JS API + Places API</em> en Google Cloud Console.</span>
               </div>
             )}
 
             {searchRes.length>0&&(
-              <div style={{position:'absolute',left:0,right:0,top:'calc(100% + 4px)',background:C.surface,border:'1px solid #D2D2D7',borderRadius:10,boxShadow:'0 8px 28px rgba(0,0,0,0.14)',zIndex:99999,overflow:'hidden',maxHeight:260,overflowY:'auto'}}>
+              <div style={{position:'absolute',left:0,right:0,top:'calc(100% + 4px)',background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,boxShadow:'0 8px 28px rgba(0,0,0,0.14)',zIndex:99999,overflow:'hidden',maxHeight:260,overflowY:'auto'}}>
                 {searchRes.map((r,i)=>(
                   <button key={i} onClick={()=>goToPlace(r)}
                     style={{display:'block',width:'100%',padding:'10px 14px',textAlign:'left',background:'none',border:'none',borderBottom:i<searchRes.length-1?'1px solid #F0F0F0':'none',cursor:'pointer',fontFamily:'inherit'}}
@@ -7404,7 +7428,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
               </div>
             )}
             {searchQ.trim()&&!searching&&searchRes.length===0&&(
-              <div style={{position:'absolute',left:0,right:0,top:'calc(100% + 4px)',background:C.surface,border:'1px solid #D2D2D7',borderRadius:10,padding:'14px',textAlign:'center',color:C.dim,fontSize:12,zIndex:99999}}>
+              <div style={{position:'absolute',left:0,right:0,top:'calc(100% + 4px)',background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px',textAlign:'center',color:C.dim,fontSize:12,zIndex:99999}}>
                 Sin resultados — intentá con otro nombre o ciudad
               </div>
             )}
@@ -7444,7 +7468,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
           </div>
 
           {az && (
-            <div style={{background:'#F9F9FA',border:`2px solid ${azClr}33`,borderRadius:12,padding:16}}>
+            <div style={{background:'var(--bg-subtle)',border:`2px solid ${azClr}33`,borderRadius:12,padding:16}}>
               <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
                 <span style={{width:14,height:14,borderRadius:'50%',background:azClr,display:'inline-block',flexShrink:0}}/>
                 <span style={{fontSize:14,fontWeight:800,color:C.ink}}>{az.name}</span>
@@ -7488,7 +7512,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
         </div>
 
         {/* Footer */}
-        <div style={{padding:'12px 20px 16px',borderTop:'1px solid #E5E5EA',flexShrink:0,display:'flex',gap:8}}>
+        <div style={{padding:'12px 20px 16px',borderTop:`1px solid ${C.border}`,flexShrink:0,display:'flex',gap:8}}>
           <button onClick={handleSave} disabled={saving} style={{flex:1,height:44,background:C.ink,color:C.sidebar,border:'none',borderRadius:10,fontSize:14,fontWeight:800,cursor:saving?'default':'pointer',opacity:saving?0.6:1,fontFamily:'inherit'}}>
             {saving?'Guardando…':'Guardar zonas en el mapa'}
           </button>
@@ -7543,7 +7567,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
         {zones.length===0
           ? <div style={{padding:32,textAlign:'center',color:C.dim,fontSize:13}}>Sin zonas configuradas</div>
           : <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'#F9F9FA'}}><Th>Zona</Th><Th>Radio</Th><Th right>Precio delivery</Th><Th right>Tiempo est.</Th><Th>Activa</Th><Th/></tr></thead>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}><Th>Zona</Th><Th>Radio</Th><Th right>Precio delivery</Th><Th right>Tiempo est.</Th><Th>Activa</Th><Th/></tr></thead>
               <tbody>
                 {zones.map(z=>{
                   const ZONE_COLORS={red:'#EF4444',orange:'#F97316',yellow:'#EAB308',green:'#22C55E'};
@@ -7582,7 +7606,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
           <Btn small onClick={()=>{setCForm({name:'',commission:0,color:C.ink,active:true});setChanModal('new');}}>+ Canal</Btn>
         </div>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
-          <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'#F9F9FA'}}><Th>Canal</Th><Th right>Comisión %</Th><Th>Color</Th><Th>Estado</Th><Th/></tr></thead>
+          <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}><Th>Canal</Th><Th right>Comisión %</Th><Th>Color</Th><Th>Estado</Th><Th/></tr></thead>
           <tbody>
             {channels.map(c=>(
               <tr key={c.id} style={{borderBottom:`1px solid ${C.border}`}}>
@@ -8077,7 +8101,7 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
                 const sel=form.reservation_time===t;
                 return(
                   <button key={t} onClick={()=>f('reservation_time',t)}
-                    style={{padding:'6px 4px',borderRadius:6,border:`1.5px solid ${sel?'#000':C.border}`,background:sel?'#000':'transparent',color:sel?'#fff':C.ink,fontSize:11,fontWeight:sel?700:400,cursor:'pointer',textAlign:'center',transition:'all 100ms'}}>
+                    style={{padding:'6px 4px',borderRadius:6,border:`1.5px solid ${sel?C.ink:C.border}`,background:sel?C.ink:'transparent',color:sel?C.surface:C.ink,fontSize:11,fontWeight:sel?700:400,cursor:'pointer',textAlign:'center',transition:'all 100ms'}}>
                     {t}
                   </button>
                 );
@@ -8131,14 +8155,14 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
               style={{width:'100%',border:`1px solid ${C.border}`,borderRadius:6,padding:'8px 10px',fontSize:13,color:C.ink,background:C.surface,outline:'none',resize:'none',boxSizing:'border-box'}}/>
           </div>
 
-          <div style={{background:'#fff8e6',border:'1px solid #ffe082',borderRadius:8,padding:'9px 12px',fontSize:11,color:'#b45309'}}>
+          <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'9px 12px',fontSize:11,color:TINT.amberText}}>
             ⚠ <strong>Tolerancia 15 min.</strong> Si el cliente no llega en 15 min de la hora reservada, marcá como "No llegó".
           </div>
 
           <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
             <button onClick={onClose} style={{padding:'8px 18px',border:`1px solid ${C.border}`,borderRadius:8,background:'transparent',color:C.mid,fontSize:13,cursor:'pointer'}}>Cancelar</button>
             <button onClick={save} disabled={saving||!canSave}
-              style={{padding:'8px 22px',border:'none',borderRadius:8,background:canSave?'#000':'#ccc',color:'#fff',fontSize:13,fontWeight:700,cursor:canSave?'pointer':'default',opacity:saving?.6:1}}>
+              style={{padding:'8px 22px',border:'none',borderRadius:8,background:canSave?C.ink:C.border,color:canSave?C.surface:C.dim,fontSize:13,fontWeight:700,cursor:canSave?'pointer':'default',opacity:saving?.6:1}}>
               {saving?'Guardando…':isNew?'Crear reserva':'Guardar cambios'}
             </button>
           </div>
@@ -8287,8 +8311,8 @@ function ProveedoresPage() {
                           <div style={{display:'flex',gap:6,justifyContent:'flex-end'}}>
                             <button onClick={() => { setEditing(s); setShowForm(true); }} style={{background:C.bg,border:`1px solid ${C.border}`,padding:'5px 10px',fontSize:12,fontWeight:600,borderRadius:5,cursor:'pointer'}}>Editar</button>
                             {s.is_active
-                              ? <button onClick={() => removeSupplier(s.id)} style={{background:'#FFF1F0',color:'#C0190F',border:'1px solid #FFB3AD',padding:'5px 10px',fontSize:12,fontWeight:600,borderRadius:5,cursor:'pointer'}}>Desactivar</button>
-                              : <button onClick={() => reactivate(s.id)} style={{background:'#F0FAF3',color:'#1A7E37',border:'1px solid #A3D9B1',padding:'5px 10px',fontSize:12,fontWeight:600,borderRadius:5,cursor:'pointer'}}>Reactivar</button>}
+                              ? <button onClick={() => removeSupplier(s.id)} style={{background:TINT.redBg,color:TINT.redText,border:`1px solid ${TINT.redBorder}`,padding:'5px 10px',fontSize:12,fontWeight:600,borderRadius:5,cursor:'pointer'}}>Desactivar</button>
+                              : <button onClick={() => reactivate(s.id)} style={{background:TINT.greenBg,color:TINT.greenText,border:`1px solid ${TINT.greenBorder}`,padding:'5px 10px',fontSize:12,fontWeight:600,borderRadius:5,cursor:'pointer'}}>Reactivar</button>}
                           </div>
                         </Td>
                       </tr>
@@ -8908,7 +8932,7 @@ function SoportePage({restaurant}) {
                     return (
                       <div key={t.id} onClick={() => openTicket(t)} style={{
                         padding:'12px 14px',borderBottom:`1px solid ${C.border}`,cursor:'pointer',
-                        background: isSel ? '#F0F6FF' : 'transparent',
+                        background: isSel ? TINT.blueBg : 'transparent',
                         borderLeft: isSel ? `3px solid ${C.blue}` : '3px solid transparent',
                         transition:'background .15s'
                       }}>
@@ -9000,7 +9024,7 @@ function SoporteChatAdmin({ticket, messages, onSend, onClose}) {
         <button onClick={onClose} style={{background:'none',color:C.mid,fontSize:20,padding:'4px 10px',border:'none',cursor:'pointer'}}>×</button>
       </div>
 
-      <div ref={scrollRef} style={{flex:1,overflowY:'auto',padding:'18px 20px',background:'#FAFAFB',display:'flex',flexDirection:'column',gap:10}}>
+      <div ref={scrollRef} style={{flex:1,overflowY:'auto',padding:'18px 20px',background:'var(--bg-subtle)',display:'flex',flexDirection:'column',gap:10}}>
         {messages.length === 0 && <div style={{textAlign:'center',color:C.dim,fontSize:12,padding:20}}>Sin mensajes aún…</div>}
         {messages.map(m => {
           if (m.author_side === 'system') {
@@ -9011,9 +9035,9 @@ function SoporteChatAdmin({ticket, messages, onSend, onClose}) {
             <div key={m.id} style={{display:'flex',justifyContent: mine?'flex-end':'flex-start'}}>
               <div style={{maxWidth:'78%'}}>
                 <div style={{
-                  background: mine ? '#000' : '#fff',
-                  color: mine ? '#fff' : '#1D1D1F',
-                  border: mine ? '1px solid #000' : `1px solid ${C.border}`,
+                  background: mine ? C.ink : C.surface,
+                  color: mine ? C.surface : C.ink,
+                  border: mine ? `1px solid ${C.ink}` : `1px solid ${C.border}`,
                   padding:'9px 13px',borderRadius:12,
                   borderBottomRightRadius: mine?4:12,
                   borderBottomLeftRadius:  mine?12:4,
@@ -9228,7 +9252,7 @@ function CalendarioPage() {
           <div style={{fontSize:12,color:C.mid,marginTop:3}}>Planificá feriados, eventos y movimiento de público</div>
         </div>
         {highCrowdCount > 0 && (
-          <div style={{background:'#FFF4E0',border:'1px solid #FFD580',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#8A4B00',flexShrink:0}}>
+          <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:TINT.amberText,flexShrink:0}}>
             🔴 {highCrowdCount} evento{highCrowdCount>1?'s':''} de alta afluencia este mes
           </div>
         )}
@@ -9265,12 +9289,12 @@ function CalendarioPage() {
                     style={{
                       minHeight:68, padding:'6px 7px', borderRadius:8,
                       cursor: d ? 'pointer' : 'default',
-                      background: sel ? '#000' : isTdy ? '#F0F6FF' : d ? C.surface : 'transparent',
-                      border: sel ? '1.5px solid #000' : isTdy ? '1.5px solid #007AFF' : `1px solid ${C.border}`,
+                      background: sel ? C.ink : isTdy ? TINT.blueBg : d ? C.surface : 'transparent',
+                      border: sel ? `1.5px solid ${C.ink}` : isTdy ? `1.5px solid ${C.blue}` : `1px solid ${C.border}`,
                       transition: 'all .1s',
                     }}>
                     {d && <>
-                      <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?'#fff':isTdy?'#007AFF':C.ink,lineHeight:1,marginBottom:4}}>{d}</div>
+                      <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?C.surface:isTdy?C.blue:C.ink,lineHeight:1,marginBottom:4}}>{d}</div>
                       <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
                         {dayEvts.slice(0,3).map(e => (
                           <div key={e.id} style={{width:7,height:7,borderRadius:'50%',background:CAL_TYPES[e.type]?.color||'#007AFF',opacity:sel?.85:1,flexShrink:0}}/>
@@ -9312,7 +9336,7 @@ function CalendarioPage() {
                       <div style={{display:'flex',gap:4,flexWrap:'wrap',marginBottom:e.notes?3:0}}>
                         <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:CAL_TYPES[e.type]?.color+'22',color:CAL_TYPES[e.type]?.color,fontWeight:700}}>{CAL_TYPES[e.type]?.label}</span>
                         <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:CAL_CROWD[e.expected_crowd]?.color+'22',color:CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{CAL_CROWD[e.expected_crowd]?.dot} {CAL_CROWD[e.expected_crowd]?.label}</span>
-                        {e.is_global && <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:'#F0F0F5',color:'#8E8E93',fontWeight:700}}>Global</span>}
+                        {e.is_global && <span style={{fontSize:10,padding:'1px 6px',borderRadius:4,background:'var(--bg-subtle)',color:'#8E8E93',fontWeight:700}}>Global</span>}
                         {e.end_date && e.end_date !== e.date && <span style={{fontSize:10,color:C.mid}}>hasta {e.end_date}</span>}
                       </div>
                       {e.notes && <div style={{fontSize:11,color:C.mid,marginTop:2}}>{e.notes}</div>}
@@ -9374,7 +9398,7 @@ function CalendarioPage() {
                       <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{CAL_TYPES[e.type]?.icon} {e.title}</div>
                       <div style={{display:'flex',gap:4,marginTop:2,alignItems:'center'}}>
                         <span style={{fontSize:10,color:CAL_CROWD[e.expected_crowd]?.color,fontWeight:700}}>{CAL_CROWD[e.expected_crowd]?.dot} {CAL_CROWD[e.expected_crowd]?.label}</span>
-                        {e.is_global && <span style={{fontSize:9,color:'#8E8E93',background:'#F0F0F5',padding:'1px 5px',borderRadius:3,fontWeight:700}}>Global</span>}
+                        {e.is_global && <span style={{fontSize:9,color:'#8E8E93',background:'var(--bg-subtle)',padding:'1px 5px',borderRadius:3,fontWeight:700}}>Global</span>}
                       </div>
                     </div>
                   </div>
@@ -9608,12 +9632,12 @@ function FacturasAdminPage(){
           {[['hoy','Hoy'],['7d','7 días'],['30d','30 días'],['todo','Todo']].map(([id,lbl])=>(
             <button key={id} onClick={()=>setRango(id)} style={{
               padding:'5px 12px',borderRadius:6,border:'none',fontSize:12,fontWeight:rango===id?700:500,
-              background:rango===id?'#FFFFFF':'transparent',color:rango===id?'#000000':'#6E6E73',
+              background:rango===id?C.white:'transparent',color:rango===id?C.ink:C.mid,
               cursor:'pointer',boxShadow:rango===id?'0 1px 4px rgba(0,0,0,0.15)':'none',
             }}>{lbl}</button>
           ))}
         </div>
-        <select value={metodoFlt} onChange={e=>setMetodoFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:'#FFF',color:C.ink}}>
+        <select value={metodoFlt} onChange={e=>setMetodoFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:C.ink}}>
           <option value="todos">Todos los métodos</option>
           {Object.entries(MET).map(([id,lbl])=><option key={id} value={id}>{lbl}</option>)}
         </select>
