@@ -1169,8 +1169,11 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
   const cashChange    = cashAmountNum > 0 ? cashAmountNum - total : 0;
 
   const handleConfirm = async () => {
-    setStep('proc');
     setSubmitError(null);
+    // WS3 · No enviar un pedido vacío ni con total inválido (alineado al cliente QR /index).
+    if (!cartItems || cartItems.length === 0) { setSubmitError('Tu carrito está vacío. Volvé al menú.'); return; }
+    if (!(total > 0)) { setSubmitError('El total del pedido es inválido. Volvé al carrito y revisá tu pedido.'); return; }
+    setStep('proc');
     try {
       const order = await dbSubmitDeliveryOrder({
         orderType,
