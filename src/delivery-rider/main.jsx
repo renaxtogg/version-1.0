@@ -34,7 +34,7 @@ const VEHICLE = { moto:'🛵', bici:'🚲', auto:'🚗', pie:'🚶' };
 
 /* ── SPINNER ── */
 function Spinner() {
-  return <div style={{width:22,height:22,border:'2px solid var(--border)',borderTopColor:'#000',borderRadius:'50%',animation:'spin .7s linear infinite',margin:'48px auto',display:'block'}} />;
+  return <div style={{width:22,height:22,border:'2px solid var(--border)',borderTopColor:'var(--text-primary)',borderRadius:'50%',animation:'spin .7s linear infinite',margin:'48px auto',display:'block'}} />;
 }
 
 /* ─────────────────────────────────────────
@@ -43,13 +43,13 @@ function Spinner() {
 ───────────────────────────────────────── */
 function ErrorScreen({ msg, onLogout }) {
   return (
-    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'#fff',textAlign:'center'}}>
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'var(--surface)',textAlign:'center'}}>
       <div style={{fontSize:52,marginBottom:12}}>🛵</div>
       <div style={{fontSize:20,fontWeight:800,color:'var(--text-primary)',marginBottom:10}}>No pudimos abrir tu panel</div>
       <div style={{fontSize:14,color:'var(--text-tertiary)',marginBottom:32,lineHeight:1.5,maxWidth:300}}>{msg}</div>
       <button
         onClick={onLogout}
-        style={{width:'100%',padding:'16px',background:'#000',color:'#fff',border:'none',borderRadius:16,fontSize:16,fontWeight:700,cursor:'pointer'}}
+        style={{width:'100%',padding:'16px',background:'var(--primary)',color:'var(--on-primary)',border:'none',borderRadius:16,fontSize:16,fontWeight:700,cursor:'pointer'}}
       >Volver al inicio de sesión</button>
     </div>
   );
@@ -96,8 +96,11 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
     return `https://www.google.com/maps/dir/?api=1&destination=${addrs[addrs.length-1]}&waypoints=${addrs.slice(0,-1).join('|')}`;
   }
 
-  const STATUS_BG    = { disponible:'#F0FAF4', offline:'var(--bg-subtle)', en_ruta:'#FFF7E6' };
-  const STATUS_COLOR = { disponible:'#34C759', offline:'var(--text-tertiary)', en_ruta:'#FF9500' };
+  // PR-B4I: tintes claros → color-mix sobre var(--surface) (auto-adapta por tema;
+  // en dark el texto var(--text-primary) flipea a claro y queda legible). Los
+  // colores de punto van a tokens de estado (light idéntico, dark más brillante).
+  const STATUS_BG    = { disponible:'color-mix(in srgb, var(--success) 12%, var(--surface))', offline:'var(--bg-subtle)', en_ruta:'color-mix(in srgb, var(--warning) 14%, var(--surface))' };
+  const STATUS_COLOR = { disponible:'var(--success)', offline:'var(--text-tertiary)', en_ruta:'var(--warning)' };
   const STATUS_LABEL = { disponible:'Disponible', offline:'Offline', en_ruta:'En ruta' };
 
   function earnLabel() {
@@ -107,7 +110,7 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
   }
 
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#fff'}}>
+    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'var(--surface)'}}>
       {/* Header */}
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'20px 20px 14px',borderBottom:'1px solid var(--bg-subtle)'}}>
         <div>
@@ -130,7 +133,7 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
             <div style={{width:11,height:11,borderRadius:'50%',background:STATUS_COLOR[status]||'var(--text-tertiary)',flexShrink:0,animation:status==='disponible'?'pulse 1.8s ease-in-out infinite':'none'}} />
             <div style={{fontSize:15,fontWeight:700,color:'var(--text-primary)',flex:1}}>{STATUS_LABEL[status]||status}</div>
             {status !== 'en_ruta' && (
-              <button onClick={toggleStatus} disabled={changingStatus} style={{padding:'7px 14px',background:status==='disponible'?'transparent':'#000',color:status==='disponible'?'var(--text-secondary)':'#fff',border:status==='disponible'?'1.5px solid var(--border)':'none',borderRadius:9,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+              <button onClick={toggleStatus} disabled={changingStatus} style={{padding:'7px 14px',background:status==='disponible'?'transparent':'var(--primary)',color:status==='disponible'?'var(--text-secondary)':'var(--on-primary)',border:status==='disponible'?'1.5px solid var(--border)':'none',borderRadius:9,fontSize:12,fontWeight:600,cursor:'pointer'}}>
                 {changingStatus ? '…' : status==='disponible' ? 'Ir offline' : 'Activarme'}
               </button>
             )}
@@ -180,14 +183,14 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
                 const isReady = kitchenStatus === 'ready';
                 const orderNum = o.orders?.order_number || null;
                 return (
-                <div key={o.id} style={{background: isReady ? '#F0FAF4' : 'var(--bg-subtle)', border: isReady ? '1.5px solid #34C759' : '1.5px solid transparent', borderRadius:14,padding:'14px 16px',animation:'fadeIn .15s'}}>
+                <div key={o.id} style={{background: isReady ? 'color-mix(in srgb, var(--success) 12%, var(--surface))' : 'var(--bg-subtle)', border: isReady ? '1.5px solid var(--success)' : '1.5px solid transparent', borderRadius:14,padding:'14px 16px',animation:'fadeIn .15s'}}>
                   {/* Ticket + estado cocina */}
                   <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
                     {orderNum && <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,fontWeight:800,color:'var(--text-primary)'}}>#{orderNum}</span>}
                     <KitchenBadge status={kitchenStatus} />
                   </div>
                   <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:6}}>
-                    <div style={{width:26,height:26,borderRadius:'50%',background:'#000',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,flexShrink:0,marginTop:1}}>{i+1}</div>
+                    <div style={{width:26,height:26,borderRadius:'50%',background:'var(--primary)',color:'var(--on-primary)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,flexShrink:0,marginTop:1}}>{i+1}</div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:14,fontWeight:700,color:'var(--text-primary)'}}>{o.customer_name||'Sin nombre'}</div>
                       {o.customer_phone && <div style={{fontSize:11,color:'var(--text-secondary)',marginTop:1}}>📞 {o.customer_phone}</div>}
@@ -200,9 +203,9 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
                   </div>
                   <div style={{display:'flex',gap:8,paddingLeft:36}}>
                     {o.customer_phone && (
-                      <a href={`tel:${o.customer_phone}`} style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'#fff',border:'1.5px solid var(--border)',borderRadius:8,fontSize:16,textDecoration:'none',flexShrink:0}}>📞</a>
+                      <a href={`tel:${o.customer_phone}`} style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:8,fontSize:16,textDecoration:'none',flexShrink:0}}>📞</a>
                     )}
-                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.delivery_address||o.customer_name||'')}`} target="_blank" rel="noopener noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'#fff',border:'1.5px solid var(--border)',borderRadius:8,fontSize:16,textDecoration:'none',flexShrink:0}}>🗺️</a>
+                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.delivery_address||o.customer_name||'')}`} target="_blank" rel="noopener noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:8,fontSize:16,textDecoration:'none',flexShrink:0}}>🗺️</a>
                   </div>
                 </div>
                 );
@@ -211,7 +214,7 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
             <button
               onClick={handleStartRoute}
               disabled={starting}
-              style={{width:'100%',padding:'16px',background:'#000',color:'#fff',border:'none',borderRadius:14,fontSize:15,fontWeight:700,cursor:starting?'default':'pointer',opacity:starting?.7:1,marginTop:12,display:'flex',alignItems:'center',justifyContent:'center',gap:10}}
+              style={{width:'100%',padding:'16px',background:'var(--primary)',color:'var(--on-primary)',border:'none',borderRadius:14,fontSize:15,fontWeight:700,cursor:starting?'default':'pointer',opacity:starting?.7:1,marginTop:12,display:'flex',alignItems:'center',justifyContent:'center',gap:10}}
             >
               <span>🛵</span>
               <span>{starting ? 'Iniciando…' : pendingOrders.every(o => o.orders?.status === 'ready') ? `Salir a entregar · ${pendingOrders.length} pedido${pendingOrders.length>1?'s':''}` : `Comenzar ruta · ${pendingOrders.length} pedido${pendingOrders.length>1?'s':''}`}</span>
@@ -275,11 +278,11 @@ function KitchenBadge({ status }) {
 /* PinEntryScreen eliminado — asignación automática por cocina */
 function PinEntryScreen({ onBack }) {
   return (
-    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'#fff',textAlign:'center'}}>
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'var(--surface)',textAlign:'center'}}>
       <div style={{fontSize:44,marginBottom:16}}>🛵</div>
       <div style={{fontSize:16,fontWeight:700,color:'var(--text-primary)',marginBottom:8}}>Los pedidos se asignan automáticamente</div>
       <div style={{fontSize:13,color:'var(--text-tertiary)',marginBottom:24,lineHeight:1.6}}>Cocina te asigna los pedidos cuando están listos.<br/>Volvé al inicio para verlos.</div>
-      <button onClick={onBack} style={{padding:'12px 24px',background:'#000',color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>Volver</button>
+      <button onClick={onBack} style={{padding:'12px 24px',background:'var(--primary)',color:'var(--on-primary)',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>Volver</button>
     </div>
   );
 }
@@ -334,7 +337,7 @@ function RouteScreen({ rider, initialOrders, onDone }) {
   /* ── Todos entregados ── */
   if (allDone) {
     return (
-      <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'#fff',textAlign:'center'}}>
+      <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'var(--surface)',textAlign:'center'}}>
         <div style={{fontSize:72,marginBottom:20,animation:'popIn .4s ease'}}>✅</div>
         <div style={{fontSize:24,fontWeight:800,color:'var(--text-primary)',marginBottom:8}}>¡Ruta completada!</div>
         <div style={{fontSize:15,color:'var(--text-secondary)',marginBottom:48,lineHeight:1.6}}>
@@ -343,16 +346,16 @@ function RouteScreen({ rider, initialOrders, onDone }) {
         </div>
         <button
           onClick={onDone}
-          style={{width:'100%',padding:'18px',background:'#000',color:'#fff',border:'none',borderRadius:16,fontSize:17,fontWeight:700,cursor:'pointer'}}
+          style={{width:'100%',padding:'18px',background:'var(--primary)',color:'var(--on-primary)',border:'none',borderRadius:16,fontSize:17,fontWeight:700,cursor:'pointer'}}
         >Volver al inicio</button>
       </div>
     );
   }
 
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#fff'}}>
+    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'var(--surface)'}}>
       {/* Header */}
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 20px',borderBottom:'1px solid var(--bg-subtle)',background:'#fff',position:'sticky',top:0,zIndex:10}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 20px',borderBottom:'1px solid var(--bg-subtle)',background:'var(--surface)',position:'sticky',top:0,zIndex:10}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <div style={{fontSize:17,fontWeight:700,color:'var(--text-primary)'}}>En ruta</div>
           <div style={{background:'#FF9500',color:'#fff',borderRadius:12,padding:'2px 9px',fontSize:12,fontWeight:800}}>{pending.length}</div>
@@ -362,7 +365,7 @@ function RouteScreen({ rider, initialOrders, onDone }) {
             href={getMapsUrl()}
             target="_blank"
             rel="noopener noreferrer"
-            style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',background:'#000',color:'#fff',borderRadius:10,textDecoration:'none',fontSize:13,fontWeight:600}}
+            style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',background:'var(--primary)',color:'var(--on-primary)',borderRadius:10,textDecoration:'none',fontSize:13,fontWeight:600}}
           >
             🗺️ Ruta completa
           </a>
@@ -376,7 +379,7 @@ function RouteScreen({ rider, initialOrders, onDone }) {
           <div key={o.id} style={{background:'var(--bg-subtle)',borderRadius:16,padding:'16px 18px',marginBottom:14,animation:'fadeIn .2s'}}>
             {/* Top row: number + customer + total */}
             <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:10}}>
-              <div style={{width:30,height:30,borderRadius:'50%',background:'#000',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:800,flexShrink:0,marginTop:1}}>{i+1}</div>
+              <div style={{width:30,height:30,borderRadius:'50%',background:'var(--primary)',color:'var(--on-primary)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:800,flexShrink:0,marginTop:1}}>{i+1}</div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:15,fontWeight:700,color:'var(--text-primary)'}}>{o.customer_name||'Sin nombre'}</div>
                 {o.customer_phone && <div style={{fontSize:12,color:'var(--text-secondary)',marginTop:1}}>{o.customer_phone}</div>}
@@ -394,14 +397,14 @@ function RouteScreen({ rider, initialOrders, onDone }) {
               {o.customer_phone && (
                 <a
                   href={`tel:${o.customer_phone}`}
-                  style={{display:'flex',alignItems:'center',justifyContent:'center',width:42,height:42,background:'#fff',border:'1.5px solid var(--border)',borderRadius:10,fontSize:18,textDecoration:'none',flexShrink:0}}
+                  style={{display:'flex',alignItems:'center',justifyContent:'center',width:42,height:42,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:10,fontSize:18,textDecoration:'none',flexShrink:0}}
                 >📞</a>
               )}
               <a
                 href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.delivery_address||o.customer_name||'')}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{display:'flex',alignItems:'center',justifyContent:'center',width:42,height:42,background:'#fff',border:'1.5px solid var(--border)',borderRadius:10,fontSize:18,textDecoration:'none',flexShrink:0}}
+                style={{display:'flex',alignItems:'center',justifyContent:'center',width:42,height:42,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:10,fontSize:18,textDecoration:'none',flexShrink:0}}
               >🗺️</a>
               <button
                 onClick={() => deliverOrder(o.id)}
@@ -466,8 +469,8 @@ function HistoryScreen({ rider, onBack }) {
     : 0;
 
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'#fff'}}>
-      <div style={{display:'flex',alignItems:'center',gap:8,padding:'16px 20px',borderBottom:'1px solid var(--bg-subtle)',position:'sticky',top:0,background:'#fff',zIndex:10}}>
+    <div style={{display:'flex',flexDirection:'column',height:'100%',background:'var(--surface)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'16px 20px',borderBottom:'1px solid var(--bg-subtle)',position:'sticky',top:0,background:'var(--surface)',zIndex:10}}>
         <button onClick={onBack} style={{background:'none',border:'none',padding:'4px 8px 4px 0',fontSize:22,lineHeight:1,color:'var(--text-primary)',cursor:'pointer'}}>‹</button>
         <div style={{fontSize:17,fontWeight:600,color:'var(--text-primary)'}}>Historial del día</div>
       </div>

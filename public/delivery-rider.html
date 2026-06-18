@@ -10,7 +10,11 @@
 <script src="mythos-theme.js"></script>
 <script src="mythos-icons.js"></script>
 <script src="mythos-offline.js"></script>
-<script>MythosTheme.init('light');</script>
+<!-- PR-B4I: Delivery rider activa dark real. init() sigue la preferencia global /
+     del sistema (rider en móvil con modo oscuro → panel oscuro automático). Sin
+     toggle propio (panel operativo compacto). Script de presentación: NO toca Auth,
+     sesión, pedidos, asignación ni estados. -->
+<script>MythosTheme.init();</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>window.MYTHOS_PRESENCE_MANUAL = true;</script>
@@ -21,14 +25,15 @@
   body{background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
   .phone-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh}
   .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;box-shadow:0 40px 80px rgba(0,0,0,0.7),0 0 0 1px rgba(255,255,255,0.08);flex-shrink:0}
-  .screen{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scroll-behavior:smooth;background:#fff}
+  /* PR-B4I: canvas de la app → token de superficie (dark-aware). */
+  .screen{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scroll-behavior:smooth;background:var(--surface)}
   .screen::-webkit-scrollbar{display:none}
   @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
   @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(1.15)}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes popIn{0%{opacity:0;transform:scale(.88)}100%{opacity:1;transform:scale(1)}}
   @media(max-width:430px){
-    body{display:block;background:#fff}
+    body{display:block;background:var(--bg)}
     .phone-wrap,.phone-wrap>div{display:block}
     .phone{width:100%!important;height:100dvh!important;border-radius:0!important;box-shadow:none!important}
     .screen{position:fixed!important}
