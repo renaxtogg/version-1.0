@@ -38,14 +38,14 @@ const RESTAURANT_ID = (
 ).replace(/^﻿/, '').trim();
 const CANAL = _urlParams.get('canal') || 'web';
 
-/* ── INTEGRACIÓN GOOGLE MAPS (preparación) ─────────────────────────────────
-   Punto de integración de la ubicación del CLIENTE: CoverageScreen → tryGeo()
-   usa navigator.geolocation + calcDeliveryFee() (Haversine) y el flujo manual
-   permite elegir zona/dirección. Hoy NO requiere API key.
-   Cuando se aprovisione la key (window.MYTHOS_CONFIG.googleMapsApiKey, inyectada
-   por build.sh desde la env var GOOGLE_MAPS_API_KEY), ACÁ se monta el mapa /
-   Places Autocomplete para elegir el punto exacto. Sin key, el flujo actual
-   (GPS + selección manual) queda intacto. */
+/* ── INTEGRACIÓN GOOGLE MAPS ───────────────────────────────────────────────
+   La API key se inyecta por build.sh → window.MYTHOS_CONFIG.googleMapsApiKey
+   (env var GOOGLE_MAPS_API_KEY en Vercel). Con key presente, CoverageScreen
+   muestra un mapa interactivo (pin arrastrable) para marcar la ubicación.
+   Sin key (MAPS_READY=false) el flujo actual (GPS + selección manual) queda
+   intacto: el mapa nunca se monta. */
+const MAPS_API_KEY = (window.MYTHOS_CONFIG && window.MYTHOS_CONFIG.googleMapsApiKey || '').replace(/^﻿/, '').trim();
+const MAPS_READY = !!MAPS_API_KEY;
 
 /* ── THEME ENGINE ───────────────────────── */
 const ThemeCtx      = createContext({});
@@ -454,6 +454,47 @@ function WelcomeScreen({ restaurant, onDelivery, onPickup, onReserva }) {
   );
 }
 
+/* ── GOOGLE MAPS — loader singleton + picker ───────────────────────────────
+   Carga la JS API una sola vez (libraries=places para futuras mejoras de
+   autocomplete). Defensivo: si la key falla / no hay billing / sin red, el
+   MapPicker no renderiza y el flujo manual de abajo sigue disponible. */
+let _gmapsPromise = null;
+function loadGoogleMaps(key) {
+  if (!key) return Promise.reject(new Error('sin key'));
+  if (window.google && window.google.maps) return Promise.resolve(window.google.maps);
+  if (_gmapsPromise) return _gmapsPromise;
+  _gmapsPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&libraries=places&loading=async';
+    s.async = true; s.defer = true;
+    s.onload = () => (window.google && window.google.maps) ? resolve(window.google.maps) : reject(new Error('maps no cargó'));
+    s.onerror = () => reject(new Error('error de script maps'));
+    document.head.appendChild(s);
+  });
+  return _gmapsPromise;
+}
+
+function MapPicker({ center, onPick, T }) {
+  const ref = useRef(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    loadGoogleMaps(MAPS_API_KEY).then((maps) => {
+      if (cancelled || !ref.current) return;
+      const c = { lat: (center && center.lat) || -25.2867, lng: (center && center.lng) || -57.6470 };
+      const map = new maps.Map(ref.current, { center: c, zoom: 15, disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy' });
+      const marker = new maps.Marker({ position: c, map, draggable: true });
+      const emit = () => { const p = marker.getPosition(); if (p) onPick(p.lat(), p.lng()); };
+      marker.addListener('dragend', emit);
+      map.addListener('click', (e) => { marker.setPosition(e.latLng); emit(); });
+    }).catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, []);
+  // Fallback silencioso: si el mapa no carga, se oculta y queda el flujo manual.
+  if (failed) return null;
+  return <div ref={ref} style={{ width: '100%', height: 220, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 8 }} />;
+}
+
 /* ══ PANTALLA 2A — COBERTURA ════════════ */
 function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManual, onBack }) {
   const T = useContext(ThemeCtx);
@@ -623,6 +664,28 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
         {/* Estado: manual — selección visual por zona */}
         {status === 'manual' && (
           <div style={{ animation: 'fadeIn 200ms' }}>
+            {/* Mapa interactivo (solo si hay API key configurada). El pin arrastrable
+                recalcula la zona/costo con la misma lógica de Haversine; reusa los
+                estados 'ok'/'no'. Sin key, este bloque no se renderiza. */}
+            {MAPS_READY && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, marginBottom: 8, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Marcá tu ubicación en el mapa
+                </div>
+                <MapPicker
+                  center={{ lat: restLat, lng: restLng }}
+                  T={T}
+                  onPick={(lat, lng) => {
+                    const found = calcDeliveryFee(lat, lng, activeZones, restLat, restLng);
+                    if (found) { setResult({ ...found, userLat: lat, userLng: lng }); setStatus('ok'); }
+                    else { setStatus('no'); }
+                  }}
+                />
+                <div style={{ fontSize: 12, color: T.gray, marginBottom: 16, lineHeight: 1.5 }}>
+                  Arrastrá el pin o tocá el mapa para fijar tu ubicación exacta. También podés elegir la zona manualmente abajo.
+                </div>
+              </div>
+            )}
             <div style={{ fontSize: 15, fontWeight: 800, color: T.ink, marginBottom: 4 }}>Seleccioná tu zona</div>
             <div style={{ fontSize: 13, color: T.gray, marginBottom: 16, lineHeight: 1.5 }}>
               Las zonas se miden desde el local. Si no sabés cuál es, elegí la más cercana a donde estés y el repartidor confirma al salir.
