@@ -213,3 +213,89 @@ Abrir DevTools → **Console** y **Network** en el preview, recorrer cada panel 
 - ✅ Sin cambios de lógica (solo se eliminó 1 `console.log` de desarrollo).
 - ✅ Rama lista para preview + QA real de consola/red.
 - ➡️ Pendiente ruteado: auto-assign rider (RLS) → **WS6-B / security** (no tocado aquí).
+
+---
+
+## WS6-A2 — Fix de red: Gerente "Caja en vivo" / Reportes (400 columna inexistente)
+
+El QA real de WS6-A (2026-06-19, preview `e17b7d8`) dio **FAIL** por un **request 400 real**
+en el panel **Gerente** (consola por lo demás limpia code+runtime en los 11 paneles, y los 400/406/401
+históricos confirmados resueltos). Este sub-fix es **frontend-only** (no toca DB/RLS/RPC/migraciones/Auth).
+
+### QA FAIL recibido
+
+| Campo | Detalle |
+|---|---|
+| Panel/sección | Gerente (Parrilla Don Carlos / Enterprise) → "Caja en vivo" / carga del panel |
+| Request | `GET /rest/v1/orders?select=…,table_id,table_number,created_at,…` |
+| Respuesta | `400` · `{"code":"42703","message":"column orders.table_number does not exist"}` |
+| Asociado | `GET /rest/v1/order_items?select=id,order_id,name,quantity` → `400` (columna `name` inválida) |
+| Síntoma | Falla **silenciosa** (sin consola/toast); la sección no carga datos completos |
+| Severidad | P2 — bloqueante de WS6-A |
+
+### Causa raíz
+
+1. **`orders.table_number` no existe.** El número de mesa vive en `tables.number` (FK `orders.table_id`).
+   Dos queries del panel pedían `table_number` sobre `orders` y por eso **400** (Postgres `42703`):
+   - `src/gerente/main.jsx:288` — load del **Dashboard del turno** (corre en `setInterval`; es la query
+     que capturó el QA: `…table_id,table_number,created_at,paid_at,confirmed_at,payment_status`).
+   - `src/gerente/main.jsx:1201` — load de **Reportes del día** (mismo bug; aquí `table_number` ni
+     siquiera se usa en la UI).
+2. **`order_items.name` y `order_items.price` no existen.** El esquema (`migración 001`) define
+   `item_name`, `unit_price`, `total_price`. `src/gerente/main.jsx:1202` pedía `name` y `price`
+   → 400. Todos los demás paneles (caja/admin) usan `item_name`/`unit_price`.
+3. **Bonus latente:** la query de Reportes (`:1201`) **no** seleccionaba `payment_status`, que la
+   lógica PR-16 ya lee (`o.payment_status==='paid'`). Estaba enmascarado porque la query 400-eaba
+   entera. Se agrega la columna para que la sección cargue **correcta** (no se cambia la lógica/filtro,
+   solo se le provee su columna).
+
+### Fix aplicado (frontend-only, `src/gerente/main.jsx`)
+
+| Línea | Antes | Después |
+|---|---|---|
+| 288 (orders, Dashboard) | `select('id,total,status,order_type,table_id,table_number,created_at,paid_at,confirmed_at,payment_status')` | `select('id,total,status,order_type,table_id,created_at,paid_at,confirmed_at,payment_status')` (sin `table_number`) |
+| 297-301 (setData Dashboard) | `orders: o.data\|\|[]` | resuelve `table_number` desde las `tables` ya cargadas: `orders: (o.data\|\|[]).map(ord => ({...ord, table_number: tblNum[ord.table_id] ?? null}))` (sin request extra; `mesaLabel` sigue usando `o.table_number`) |
+| 1201 (orders, Reportes) | `select('…,table_id,table_number,waiter_id,waiter_name,created_at,paid_at,confirmed_at')` | `select('…,table_id,waiter_id,waiter_name,created_at,paid_at,confirmed_at,payment_status')` (sin `table_number`, **+`payment_status`**) |
+| 1202 (order_items, Reportes) | `select('id,order_id,name,quantity,price')` | `select('id,order_id,name:item_name,quantity,price:unit_price')` (alias PostgREST → la UI sigue leyendo `it.name`/`it.price` sin cambios) |
+| 297 / 1206 (manejo de error) | `setData(…)` directo | `if (o.error) console.error('[gerente] … orders load error:', o.error.message)` antes del `setData` |
+
+**Decisiones de diseño:**
+- **`table_number` del Dashboard** se resuelve client-side con el map de `tables` (ya en el mismo
+  `Promise.all`) → **no** se agrega request ni embed, se conserva el shape `o.table_number` que espera `mesaLabel`.
+- **`order_items`** se corrige con **alias** (`name:item_name`, `price:unit_price`) para no tocar el
+  render (`itemMap[it.name]`, `it.price*it.quantity`) — mismo shape de datos para la UI.
+- **Falla silenciosa:** se añade un `console.error` **solo ante error real** de la query de orders
+  (patrón idéntico al de admin). En el camino exitoso la consola queda **limpia** (no spam). No se
+  oculta ningún error real ni se cambia la UX del happy-path.
+- **No** se tocó lógica de negocio, filtros, RLS, payloads de escritura, rutas ni permisos.
+
+### `order_items.name` — corregido (con evidencia)
+
+Confirmado contra `supabase/migrations/20260429_001_schema.sql:148-158`: `order_items` tiene
+`item_name`, `unit_price`, `total_price` (no `name` ni `price`). Verificado además que **todos**
+los demás paneles usan `item_name`/`unit_price` (`caja:856/2532/4017`, `admin:788/1173/5614/5661/6743`).
+→ Se corrigió a `item_name`/`unit_price` vía alias.
+
+### Verificación esperada (re-QA)
+
+- Gerente → **Dashboard del turno** y **Reportes del día**: la query a `orders` responde **200**
+  (sin `42703`); el número de mesa aparece en "Pedidos en cocina" (`mesaLabel`).
+- Gerente → **Reportes del día**: `order_items` responde **200**; "Top productos del día" lista
+  productos con cantidades; "Ventas hoy" refleja `payment_status='paid'` (antes 0 por el 400).
+- Consola: **0 mensajes** en el happy-path; un `console.error` **solo** si una query realmente falla.
+- Sin nuevos 400/406/401 en el resto del panel; sin regresión en los demás paneles (build 9/9).
+
+### Pendiente WS6-B / security (sin cambios)
+
+- **Auto-assign rider / RLS:** sigue ruteado a WS6-B/security (§5). No se ejerció en el QA (requiere
+  flujo de cliente con QR de mesa). No bloquea WS6-A2.
+
+### Fuera de alcance (anotado por el QA, no se toca aquí)
+
+- **Login `superadmin.demo@mythos.test` → "Database error querying schema":** error de capa **auth/DB**
+  (Auth real explícitamente excluido de WS6). La cuenta `qa.superadmin@mythos.test` entra OK. Se deja
+  para **WS6-B/security** o revisión del seed del demo. No bloquea WS6-A2.
+
+### Build
+
+- `npm run build` → **PASS** (9/9, exit 0).

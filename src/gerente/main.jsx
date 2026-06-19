@@ -285,7 +285,7 @@ function Dashboard({onJump}) {
     const today = new Date(); today.setHours(0,0,0,0);
     const todayISO = today.toISOString();
     const [o, t, w, q, a, r, i86, e] = await Promise.all([
-      db.from('orders').select('id,total,status,order_type,table_id,table_number,created_at,paid_at,confirmed_at,payment_status').eq('restaurant_id',RID).gte('created_at', todayISO),
+      db.from('orders').select('id,total,status,order_type,table_id,created_at,paid_at,confirmed_at,payment_status').eq('restaurant_id',RID).gte('created_at', todayISO),
       db.from('tables').select('id,number,is_occupied').eq('restaurant_id',RID),
       db.from('waiter_calls').select('id,table_id,status,created_at').eq('restaurant_id',RID).eq('status','pending'),
       db.from('quejas_sugerencias').select('id,tipo,urgencia,descripcion,estado,created_at').eq('restaurant_id',RID).in('estado',['abierto','en_revision']),
@@ -294,8 +294,12 @@ function Dashboard({onJump}) {
       db.from('item_86_list').select('id,item_name').eq('restaurant_id',RID).eq('is_active',true),
       db.from('employee_shifts').select('id,employee_name,role,clock_in,clock_out').eq('restaurant_id',RID).is('clock_out',null)
     ]);
+    // orders.table_number no existe en la tabla orders; se resuelve desde tables (ya cargadas).
+    if (o.error) console.error('[gerente] dashboard orders load error:', o.error.message);
+    const tblNum = {}; (t.data||[]).forEach(tb => { tblNum[tb.id] = tb.number; });
     setData({
-      orders: o.data||[], tables: t.data||[], waiterCalls: w.data||[],
+      orders: (o.data||[]).map(ord => ({ ...ord, table_number: tblNum[ord.table_id] ?? null })),
+      tables: t.data||[], waiterCalls: w.data||[],
       complaints: q.data||[], approvals: a.data||[], ratings: r.data||[],
       item86: i86.data||[], shiftEmps: e.data||[]
     });
@@ -1198,11 +1202,12 @@ function ReportesDelDia() {
     const yesterday = new Date(today); yesterday.setDate(yesterday.getDate()-1);
     const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
     const [o, i, a, c] = await Promise.all([
-      db.from('orders').select('id,total,status,order_type,table_id,table_number,waiter_id,waiter_name,created_at,paid_at,confirmed_at').eq('restaurant_id',RID).gte('created_at', yesterday.toISOString()).lte('created_at', tomorrow.toISOString()),
-      db.from('order_items').select('id,order_id,name,quantity,price').gte('created_at', today.toISOString()),
+      db.from('orders').select('id,total,status,order_type,table_id,waiter_id,waiter_name,created_at,paid_at,confirmed_at,payment_status').eq('restaurant_id',RID).gte('created_at', yesterday.toISOString()).lte('created_at', tomorrow.toISOString()),
+      db.from('order_items').select('id,order_id,name:item_name,quantity,price:unit_price').gte('created_at', today.toISOString()),
       db.from('manager_approvals').select('id,request_type,status,amount,created_at').eq('restaurant_id',RID).gte('created_at', today.toISOString()),
       db.from('cancelaciones_caja').select('id,monto_cancelado,motivo,created_at').eq('restaurant_id',RID).gte('created_at', today.toISOString())
     ]);
+    if (o.error) console.error('[gerente] reportes orders load error:', o.error.message);
     setData({orders: o.data||[], items: i.data||[], approvals: a.data||[], cancels: c.data||[]});
     setLoading(false);
   }, []);
