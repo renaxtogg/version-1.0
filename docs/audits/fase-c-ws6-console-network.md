@@ -299,3 +299,100 @@ los demás paneles usan `item_name`/`unit_price` (`caja:856/2532/4017`, `admin:7
 ### Build
 
 - `npm run build` → **PASS** (9/9, exit 0).
+
+---
+
+## WS6-A3 — Parte A: 2º columna inexistente en Gerente (`orders.confirmed_at`) · Parte B: diagnóstico Admin crear usuarios
+
+El re-QA de WS6-A2 (`5b34b39`) reveló que Gerente **seguía** 400-eando: tras quitar `table_number`,
+PostgREST avanzó a la **siguiente** columna inválida, `orders.confirmed_at`. (PostgREST corta en la
+primera columna desconocida → los bugs de columnas se descubren "de a uno".) Además Renato reportó
+que **Admin no deja crear usuarios** (rider y otros roles). Frontend-only para Gerente; Admin = diagnóstico.
+
+### Parte A — Fix Gerente `orders.confirmed_at` (P-bloqueante)
+
+| Campo | Detalle |
+|---|---|
+| Error | `400` · `{"code":"42703","message":"column orders.confirmed_at does not exist"}` |
+| Causa | `confirmed_at` **no existe en `orders`** — es una columna de **`delivery_orders`** (grant en mig 102). El esquema de `orders` (mig 001 + ALTERs) no la tiene. |
+| Dónde | `src/gerente/main.jsx:288` (Dashboard del turno) y `:1205` (Reportes del día). `confirmed_at` **no se usaba** en ninguna lógica (solo estaba en los `select`). |
+
+**Verificación de columnas (contra esquema):** `orders` se define en `20260429_001_schema.sql:115-140`
+(base) + ALTERs posteriores. Columnas usadas por los selects de Gerente — **todas existen**:
+`id`, `total`, `status`, `order_type`, `table_id`, `created_at` (001); `paid_at`, `waiter_id`,
+`waiter_name` (mig 044/038); `payment_status` (mig 053). **No existen** en `orders`: `confirmed_at`,
+`table_number`. (`order_number` existe pero no se selecciona en estos tres loads.)
+
+**Fix aplicado (`src/gerente/main.jsx`):**
+
+| Línea | Antes | Después |
+|---|---|---|
+| 288 (Dashboard) | `…created_at,paid_at,confirmed_at,payment_status` | `…created_at,paid_at,payment_status` |
+| 1205 (Reportes) | `…created_at,paid_at,confirmed_at,payment_status` | `…created_at,paid_at,payment_status` |
+| 427 (stats mozo) | `id,total,status,waiter_id,waiter_name,created_at,paid_at,payment_status` | **sin cambios** (no tenía `confirmed_at`) |
+
+**Selects de `orders` en Gerente — estado final (los 3, todos válidos):**
+- `:288` → `id,total,status,order_type,table_id,created_at,paid_at,payment_status`
+- `:427` → `id,total,status,waiter_id,waiter_name,created_at,paid_at,payment_status`
+- `:1205` → `id,total,status,order_type,table_id,waiter_id,waiter_name,created_at,paid_at,payment_status`
+
+**Confirmado:** no queda `confirmed_at` ni `table_number` dentro de ningún `select` directo a `orders`
+en Gerente (los `table_number` restantes son `mesaLabel` y la resolución client-side de WS6-A2, no
+columnas pedidas a la DB). El manejo de error (`console.error` solo ante error real) de WS6-A2 se
+mantiene; happy-path sin consola.
+
+### Parte B — Diagnóstico: Admin "no deja crear usuarios" (NO se corrige aquí)
+
+**El frontend de creación de usuarios es correcto** — el bug **no** es frontend. Evidencia:
+
+- **Handler** `addEmployee` (`src/admin/main.jsx:2513`): valida `full_name`, `username`,
+  `password` (≥8); toma el token de sesión (`db.auth.getSession()`); hace
+  `POST /api/create-user` con `Authorization: Bearer <token>` y body
+  `{username, password, display_name, role, restaurant_id:RID, email, phone}`; maneja el error real
+  (`if(!resp.ok) throw result.error`). Botón cableado (`onClick={addEmployee}`, `:2712`).
+- **Rol bien mapeado:** el `<Sel>` ofrece `ADMIN_ALLOWED_ROLES = ['cajero','mozo','cocina','rider','supervisor_local']`
+  (`:77/:2672`), que **coincide exactamente** con `ADMIN_ROLES` del backend (`api/create-user.js:110`).
+  Envía `supervisor_local` (no `gerente`) → sin mismatch. Rider se crea como el resto (usuario+contraseña),
+  el backend añade su ficha `delivery_riders` por `user_id`.
+
+**Causa raíz (backend/entorno, fuera de alcance WS6-A3):** `/api/create-user` (Vercel serverless)
+**requiere** `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` y usa **service_role** + **Supabase Auth Admin
+API** para crear la cuenta. Hipótesis ordenadas por probabilidad:
+
+1. **Env vars ausentes en el entorno de Preview** (las claves están configuradas solo en *Production*).
+   Si falta `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`, el endpoint devuelve **500**
+   `{"error":"Servidor no configurado: falta SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY"}` →
+   **falla para TODOS los roles** (coincide con "rider y otros"). ← **causa más probable** si Renato
+   prueba sobre la URL de **preview**. El toast del front ya muestra ese mensaje tal cual.
+2. **Vercel Deployment Protection** en el preview interceptando `/api/*` con un muro 401 (HTML SSO):
+   `resp.json()` recibiría HTML → toast con error de parseo poco claro.
+3. **Hard-limit de plan alcanzado** para ese rol (`api/create-user.js:132-149`) → 403
+   `"Límite de puestos alcanzado…"` (mensaje claro; sería rol-específico, no "todos").
+
+**Endpoint/tabla/payload:**
+- Endpoint: `POST /api/create-user` (serverless). Payload front:
+  `{username, password, display_name, role, restaurant_id, email?, phone?}` + Bearer del caller.
+- Backend: valida token (`/auth/v1/user`), rol del caller (`user_roles`), límite de plan
+  (`subscriptions→plan.max_users_by_role`), crea en `auth.users` (Admin API), inserta `user_roles`,
+  y si `role==='rider'` inserta `delivery_riders` (con rollback total ante fallo).
+
+**Resolución:** **pendiente — WS6-B / security / deployment.** Requiere service_role + Supabase Auth
+(explícitamente excluidos de WS6-A3). **Acción recomendada para confirmar la causa #1:** mirar el
+**texto exacto del toast** al fallar (si dice "Servidor no configurado…", es env-var de Preview) y/o
+verificar que el entorno de **Preview** tenga `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`; alternativamente
+probar la creación en **Production** (donde las env vars sí están). **No** es un fix de código frontend.
+
+> Nota menor de robustez (no aplicada, candidata futura): en `addEmployee`, `await resp.json()` corre
+> antes de chequear `resp.ok`; si el endpoint respondiera **no-JSON** (HTML de Deployment Protection /
+> página 500), el parseo lanzaría un error críptico en vez del status real. Para el caso #1 (env var) el
+> endpoint sí responde JSON, así que el mensaje ya se ve claro; por eso no se toca en WS6-A3.
+
+### Pendientes / fuera de alcance (sin cambios)
+
+- **Auto-assign rider / RLS** → WS6-B/security (§5).
+- **Admin crear usuarios** → WS6-B/security/deployment (Parte B, arriba).
+- **Login `superadmin.demo@mythos.test` "Database error querying schema"** → auth/DB, WS6-B.
+
+### Build
+
+- `npm run build` → **PASS** (9/9, exit 0).
