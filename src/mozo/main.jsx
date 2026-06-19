@@ -1947,7 +1947,9 @@ function App() {
                 </div>
                 <div className="legend">
                   <div className="legend-item"><div className="legend-dot" style={{ background: 'transparent', border: '1px solid #D2D2D7' }}></div>Libre</div>
-                  <div className="legend-item"><div className="legend-dot" style={{ background: '#000000', border: '1px solid #000000' }}></div>Ocupada</div>
+                  {/* WS4-B: dot "Ocupada" en var(--text-primary) (negro-marca en light,
+                      casi-blanco en dark) — antes #000000 sólido quedaba invisible en dark. */}
+                  <div className="legend-item"><div className="legend-dot" style={{ background: 'var(--text-primary)', border: '1px solid var(--text-primary)' }}></div>Ocupada</div>
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#86868B', border: '1px solid #86868B' }}></div>En cocina</div>
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#34C759', border: '1px solid #248A3D' }}></div>Retirar</div>
                   <div className="legend-item"><div className="legend-dot" style={{ background: '#FF9500', border: '1px solid #B45309' }}></div>Cobro pte.</div>

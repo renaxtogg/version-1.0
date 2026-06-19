@@ -42,7 +42,9 @@
     /* PR-B4H: en dark, el rojo oscuro (#C0190F) sobre superficie oscura quedaba sin
        contraste → usa var(--error) (claro en dark). Light queda idéntico. */
     [data-theme="dark"] .error{border-color:color-mix(in srgb, var(--error) 45%, transparent);color:var(--error)}
-    .hint{font-size:12px;color:var(--text-disabled);text-align:center;margin-top:24px}
+    /* PR/WS4-B: footer subido un escalón (disabled → tertiary) para más legibilidad
+       en light y dark; sigue de-enfatizado (chrome de marca, no contenido). */
+    .hint{font-size:12px;color:var(--text-tertiary);text-align:center;margin-top:24px}
     @keyframes spin{to{transform:rotate(360deg)}}
     /* PR-B4H: spinner usa el color de texto del botón (var(--on-primary)) para
        contrastar con --primary en ambos temas (en dark el botón es claro). */

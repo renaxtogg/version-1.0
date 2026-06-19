@@ -454,7 +454,10 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
         <div style={{ position: 'absolute', top: -40, left: 20, width: 80, height: 80, borderRadius: '50%', background: T.black, border: `3px solid ${T.white}`, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 5, boxShadow: '0 4px 20px rgba(0,0,0,0.28)', overflow: 'hidden' }}>
           {restaurant?.logo_url
             ? <img src={restaurant.logo_url} alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            : <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: 26, color: T.hdrText, lineHeight: 1 }}>{restInitials}</div>}
+            /* WS4-B: el círculo del avatar es siempre oscuro (T.black) → iniciales en
+               T.white (claro) para que se lean. Antes usaba T.hdrText, que en la
+               variante light es casi-negro = ilegible sobre negro. Espeja delivery-cliente. */
+            : <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: 26, color: T.white, lineHeight: 1 }}>{restInitials}</div>}
         </div>
 
         <div style={{ paddingTop: 50, paddingLeft: 20, paddingRight: 16, paddingBottom: 12 }}>
