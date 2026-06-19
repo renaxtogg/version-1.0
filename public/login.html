@@ -49,6 +49,17 @@
     /* PR-B4H: spinner usa el color de texto del botón (var(--on-primary)) para
        contrastar con --primary en ambos temas (en dark el botón es claro). */
     .spinner{width:15px;height:15px;border:2px solid color-mix(in srgb, var(--on-primary) 30%, transparent);border-top-color:var(--on-primary);border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+    /* Login social (Google/Facebook) — neutrales por tokens (dark-safe). Los logos
+       de marca conservan sus colores oficiales (excepción razonable a los tokens). */
+    .divider{display:flex;align-items:center;gap:12px;margin:26px 0 18px;color:var(--text-tertiary);font-size:12px;font-weight:500}
+    .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border)}
+    .social{display:flex;flex-direction:column;gap:10px}
+    .btn-social{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s,opacity .15s;font-family:inherit}
+    .btn-social:hover:not(:disabled){background:var(--bg-subtle)}
+    .btn-social:disabled{opacity:.5;cursor:not-allowed}
+    .btn-social svg{flex-shrink:0}
+    .social-note{font-size:12px;color:var(--text-tertiary);text-align:center;margin-top:14px;line-height:1.5;display:none}
+    .social-note.show{display:block}
   </style>
 </head>
 <body>
@@ -71,6 +82,20 @@
     </div>
     <button class="btn" type="submit" id="submitBtn">Ingresar</button>
   </form>
+
+  <div class="divider">o</div>
+
+  <div class="social">
+    <button class="btn-social" id="btnGoogle" type="button">
+      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"/><path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z"/><path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z"/><path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z"/></svg>
+      <span>Continuar con Google</span>
+    </button>
+    <button class="btn-social" id="btnFacebook" type="button">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="#1877F2" aria-hidden="true"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+      <span>Continuar con Facebook</span>
+    </button>
+  </div>
+  <div class="social-note" id="socialNote"></div>
 
   <div class="hint">Mythos · Sistema gastronómico</div>
 </div>
@@ -197,6 +222,49 @@
       setLoading(false);
     }
   });
+
+  // ── Login social (Google / Facebook) — PREPARADO ─────────────────────────
+  // Los proveedores se habilitan vía window.MYTHOS_CONFIG.authProviders (lo genera
+  // build.sh desde env vars). Con el flag en false el botón queda deshabilitado en
+  // estado "pendiente de configuración" y NO dispara OAuth: el login por correo +
+  // contraseña sigue intacto. El flag se pone en true SOLO tras habilitar el provider
+  // en Supabase → Authentication → Providers.
+  async function signInOAuth(provider, niceName) {
+    hideErr();
+    try {
+      const redirectTo = window.location.origin + window.location.pathname;
+      const { error } = await db.auth.signInWithOAuth({ provider, options: { redirectTo } });
+      if (error) throw error;
+      // En éxito el navegador redirige al proveedor; al volver, el getSession()
+      // de arriba revalida el perfil y enruta al panel del rol.
+    } catch (err) {
+      showErr('No pudimos iniciar con ' + niceName + '. ' + (err.message || 'Intentá de nuevo.'));
+    }
+  }
+
+  function setupSocial() {
+    const providers = (window.MYTHOS_CONFIG && window.MYTHOS_CONFIG.authProviders) || {};
+    const pending = [];
+    const wire = (btnId, provider, niceName) => {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+      if (providers[provider]) {
+        btn.addEventListener('click', () => signInOAuth(provider, niceName));
+      } else {
+        btn.disabled = true;
+        btn.title = niceName + ': pendiente de configuración';
+        pending.push(niceName);
+      }
+    };
+    wire('btnGoogle', 'google', 'Google');
+    wire('btnFacebook', 'facebook', 'Facebook');
+    if (pending.length) {
+      const note = document.getElementById('socialNote');
+      note.textContent = 'El acceso con ' + pending.join(' y ') + ' estará disponible cuando se configure.';
+      note.classList.add('show');
+    }
+  }
+  setupSocial();
 })();
 </script>
 </body>

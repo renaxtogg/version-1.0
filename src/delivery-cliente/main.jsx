@@ -38,6 +38,15 @@ const RESTAURANT_ID = (
 ).replace(/^﻿/, '').trim();
 const CANAL = _urlParams.get('canal') || 'web';
 
+/* ── INTEGRACIÓN GOOGLE MAPS (preparación) ─────────────────────────────────
+   Punto de integración de la ubicación del CLIENTE: CoverageScreen → tryGeo()
+   usa navigator.geolocation + calcDeliveryFee() (Haversine) y el flujo manual
+   permite elegir zona/dirección. Hoy NO requiere API key.
+   Cuando se aprovisione la key (window.MYTHOS_CONFIG.googleMapsApiKey, inyectada
+   por build.sh desde la env var GOOGLE_MAPS_API_KEY), ACÁ se monta el mapa /
+   Places Autocomplete para elegir el punto exacto. Sin key, el flujo actual
+   (GPS + selección manual) queda intacto. */
+
 /* ── THEME ENGINE ───────────────────────── */
 const ThemeCtx      = createContext({});
 const MenuCtx       = createContext(null);

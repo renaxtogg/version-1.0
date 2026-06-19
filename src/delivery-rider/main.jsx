@@ -31,6 +31,14 @@ const db = _initDB();
 const RESTAURANT_ID = localStorage.getItem('mythos_restaurant_id');
 const RID = RESTAURANT_ID; // alias retro-compatible con consultas/suscripciones existentes
 
+/* ── INTEGRACIÓN GOOGLE MAPS (preparación) ─────────────────────────────────
+   Punto de integración de la ubicación del RIDER: los enlaces "Ver en mapa" /
+   getMapsUrl() abren google.com/maps/dir (deep-links de navegación) — NO
+   requieren API key, ya funcionan. Cuando se aprovisione la key
+   (window.MYTHOS_CONFIG.googleMapsApiKey, inyectada por build.sh desde la env
+   var GOOGLE_MAPS_API_KEY), ACÁ se puede montar un mapa embebido / tracking en
+   vivo. Sin key, los deep-links actuales quedan intactos. */
+
 /* ── UTILS ── */
 const fmt = n => '₲ ' + (n||0).toLocaleString('es-PY');
 const fmtTime = d => new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'});

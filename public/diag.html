@@ -38,6 +38,15 @@
   html += row('RESTAURANT_ID', rid, 'info');
   html += '<hr>';
 
+  // 1b. Integraciones externas (preparación) — no imprime la key, solo presencia.
+  const mcfg = window.MYTHOS_CONFIG || {};
+  const mapsKey = (mcfg.googleMapsApiKey || '').trim();
+  const ap = mcfg.authProviders || {};
+  html += row('Google Maps API key', mapsKey ? 'configurada' : '(vacía — el cliente usa GPS + deep-links)', mapsKey ? 'ok' : 'warn');
+  html += row('Login Google',   ap.google   ? 'habilitado' : '(pendiente de configuración)', ap.google   ? 'ok' : 'warn');
+  html += row('Login Facebook', ap.facebook ? 'habilitado' : '(pendiente de configuración)', ap.facebook ? 'ok' : 'warn');
+  html += '<hr>';
+
   if (!url || !key) {
     html += row('Estado', 'Sin credenciales — modo DEMO activo. Configurá SUPABASE_URL y SUPABASE_ANON_KEY en Vercel → Settings → Environment Variables', 'err');
     out.innerHTML = html;
