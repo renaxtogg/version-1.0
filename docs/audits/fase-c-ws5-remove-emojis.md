@@ -178,3 +178,49 @@ a los emojis coloridos antes presentes.)
 ### Build
 
 - `npm run build` → **PASS** (9/9, exit 0). `public/build/` gitignored (Vercel compila de `src/`).
+
+---
+
+## WS5-C — Residuos de Mozo (emoji codificado como entidad HTML)
+
+El re-QA de `1c0294f` reportó **WS5-B FAIL solo por Mozo**: el resto quedó correcto, pero Mozo
+seguía renderizando 3 glyphs.
+
+### Causa raíz (importante)
+
+Los escaneos de WS5/WS5-B buscaban **caracteres de emoji literales** (por codepoint). En Mozo
+estos 3 glyphs estaban escritos como **entidades HTML numéricas** (`&#NNNN;`) en el JSX —
+ASCII puro en el archivo, invisibles a un escaneo por codepoint, pero que el transform JSX
+**decodifica al glyph real** en el bundle, y el navegador los pinta como emoji coloridos.
+Por eso `src/mozo/main.jsx` "daba limpio" mientras `public/build/mozo.js` y el navegador
+mostraban los emojis. **Lección:** escanear también entidades `&#…;` en rangos de emoji.
+
+### Cambios exactos en Mozo
+
+| Línea | Antes (entidad) | Glyph | Después |
+|---|---|---|---|
+| 2042 | `…title="Enviar a cocina">&#9201;</button>` | ⏱ | `◷` (consistente con los botones-carácter hermanos `＋`/`₲`) |
+| 2085 | `<div className="order-info-item">&#9200; {timeStr…}` | ⏰ | `◷ {timeStr…}` |
+| 2562 | `<span …>&#9200; {timeStr…}</span>` | ⏰ | `◷ {timeStr…}` |
+| 2615 | `<span style={{color:'var(--text3)',fontSize:14}}>&#128269;</span>` | 🔍 | `<Icon name="search" size={14} style={{color:'var(--text3)'}}/>` (SVG `MythosIcons`, `currentColor`) |
+
+Sin cambios de handlers, props, queries, payloads, permisos ni navegación. El botón conserva
+`onClick={enviarACocina}` y `title`; los time-labels conservan `timeStr(...)`.
+
+### Entidades NO-emoji conservadas en Mozo (monocromas, no flagueadas)
+
+`&#8635;` (↻ refresh), `&#9776;` (☰ menú), `&#10003;` (✓), `&#39;` (apóstrofo). No son emoji
+coloridos → se mantienen.
+
+### Escaneo (post-WS5-C)
+
+- **`src/mozo/main.jsx`:** 0 ocurrencias de `🔍`/`⏰`/`⏱` ni de sus entidades `&#128269;`/`&#9200;`/`&#9201;`.
+- **`public/build/mozo.js`:** 0 ocurrencias de los 3 glyphs decodificados.
+- **Entidades de emoji en el resto del chrome de producto:** ninguna — **Mozo era el único panel**
+  con emoji codificado como entidad (inventario de `&#…;` sobre todo `src/`+`public` no-build).
+- **High-plane (1F300+) en los 9 bundles:** solo `admin.js`, y son exactamente las **2 exclusiones
+  documentadas** (STATION food icons + WhatsApp `😊👋🎂🍽`). Ningún otro bundle contiene emoji.
+
+### Build
+
+- `npm run build` → **PASS** (9/9, exit 0).

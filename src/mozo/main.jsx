@@ -2039,7 +2039,7 @@ function App() {
                     <div className="order-actions">
                       <button className="order-action-btn" onClick={() => activeOrder ? openProductModal() : createOrder(activeTableId, activeTable?.number)} title={activeOrder ? 'Agregar ítems' : 'Nueva orden'}>＋</button>
                       {activeOrder && ['confirmed', 'draft'].includes(activeOrder.status) && (
-                        <button className="order-action-btn" onClick={enviarACocina} title="Enviar a cocina">&#9201;</button>
+                        <button className="order-action-btn" onClick={enviarACocina} title="Enviar a cocina">◷</button>
                       )}
                       {hasPendingCobro && (
                         <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">₲</button>
@@ -2082,7 +2082,7 @@ function App() {
                 {activeOrder ? (
                   <>
                     <div className="order-info">
-                      <div className="order-info-item">&#9200; {timeStr(activeOrder.created_at)}</div>
+                      <div className="order-info-item">◷ {timeStr(activeOrder.created_at)}</div>
                       <div className="order-info-item" style={{ fontSize: 12 }}>{activeOrder.order_number}</div>
                       <div className={`order-status-badge ${orderStatusClass(activeOrder.status)}`}>
                         {orderStatusText(activeOrder.status, activeOrder.payment_status).toUpperCase()}
@@ -2559,7 +2559,7 @@ function App() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <div>
                       <span style={{ fontSize: 12, fontWeight: 700 }}>#{ord.order_number}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>&#9200; {timeStr(ord.created_at)}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text3)', marginLeft: 8 }}>◷ {timeStr(ord.created_at)}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       {(ord.payment_status === 'paid' || (ord.status === 'delivered' && ord.payment_method)) && (
@@ -2612,7 +2612,7 @@ function App() {
             </div>
             <div className="modal-body">
               <div className="search-box">
-                <span style={{ color: 'var(--text3)', fontSize: 14 }}>&#128269;</span>
+                <Icon name="search" size={14} style={{ color: 'var(--text3)' }} />
                 <input
                   type="text"
                   placeholder="Buscar producto..."
