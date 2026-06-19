@@ -325,7 +325,7 @@ function Dashboard({onJump}) {
       {/* Alertas críticas */}
       {(data.approvals.length>0 || data.waiterCalls.length>0 || kpis.delayed.length>0 || data.complaints.filter(c=>c.urgencia==='alta').length>0) && (
         <div style={{background:C.redSoft,border:`1px solid ${C.redSoftBorder}`,borderRadius:10,padding:14,marginBottom:16,display:'flex',flexWrap:'wrap',gap:10}}>
-          <span style={{fontSize:13,fontWeight:700,color:C.red,marginRight:6}}>⚠ Atención inmediata:</span>
+          <span style={{fontSize:13,fontWeight:700,color:C.red,marginRight:6}}>Atención inmediata:</span>
           {data.approvals.length>0 && <button onClick={() => onJump('aprobaciones')} style={{background:C.surface,border:`1px solid ${C.red}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.red}}>{data.approvals.length} aprobación{data.approvals.length>1?'es':''} pendiente{data.approvals.length>1?'s':''}</button>}
           {data.waiterCalls.length>0 && <button onClick={() => onJump('dashboard')} style={{background:C.surface,border:`1px solid ${C.orange}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.orange}}>{data.waiterCalls.length} llamada{data.waiterCalls.length>1?'s':''} mozo</button>}
           {kpis.delayed.length>0 && <button onClick={() => onJump('dashboard')} style={{background:C.surface,border:`1px solid ${C.orange}`,borderRadius:6,padding:'4px 10px',fontSize:12,fontWeight:700,color:C.orange}}>{kpis.delayed.length} pedido{kpis.delayed.length>1?'s':''} demorado{kpis.delayed.length>1?'s':''}</button>}
@@ -1502,7 +1502,7 @@ function Soporte({user, role, userName, userUsername, userEmail}) {
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,display:'flex',flexDirection:'column',overflow:'hidden'}}>
           {!selected ? (
             <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:10,padding:40,color:C.dim}}>
-              <div style={{fontSize:28,opacity:.4}}>💬</div>
+              <div style={{opacity:.4}}><Icon name="chat" size={28}/></div>
               <div style={{fontSize:14,fontWeight:600,color:C.mid}}>Seleccioná un ticket o creá uno nuevo</div>
               <div style={{fontSize:12,maxWidth:340,textAlign:'center'}}>El equipo Mythos verá automáticamente quién sos, tu rol y tu restaurante. Vos solo escribí tu consulta.</div>
             </div>
@@ -1832,17 +1832,20 @@ function SolicitudPersonal({user, userName}) {
 /* ════════════════════════════════════════════════════════════════════════════
    CALENDARIO
    ════════════════════════════════════════════════════════════════════════════ */
+// WS5: glyphs de emoji → bullet geométrico monocromo '●' (U+25CF). Hereda el color
+// del span contenedor (en los badges de afluencia da verde/ámbar/rojo); en los
+// <option> y títulos queda como viñeta sobria. Sin emoji colorido.
 const G_CAL_TYPES = {
-  holiday: {label:'Feriado',    color:'#FF3B30', icon:'🏖'},
-  event:   {label:'Evento',     color:'#007AFF', icon:'🎉'},
-  sport:   {label:'Deportivo',  color:'#34C759', icon:'⚽'},
-  special: {label:'Especial',   color:'#AF52DE', icon:'🎊'},
-  promo:   {label:'Promoción',  color:'#FF9500', icon:'📢'},
+  holiday: {label:'Feriado',    color:'#FF3B30', icon:'●'},
+  event:   {label:'Evento',     color:'#007AFF', icon:'●'},
+  sport:   {label:'Deportivo',  color:'#34C759', icon:'●'},
+  special: {label:'Especial',   color:'#AF52DE', icon:'●'},
+  promo:   {label:'Promoción',  color:'#FF9500', icon:'●'},
 };
 const G_CAL_CROWD = {
-  low:    {label:'Afluencia baja',  color:'#34C759', dot:'🟢'},
-  medium: {label:'Afluencia media', color:'#FF9500', dot:'🟡'},
-  high:   {label:'Afluencia alta',  color:'#FF3B30', dot:'🔴'},
+  low:    {label:'Afluencia baja',  color:'#34C759', dot:'●'},
+  medium: {label:'Afluencia media', color:'#FF9500', dot:'●'},
+  high:   {label:'Afluencia alta',  color:'#FF3B30', dot:'●'},
 };
 const G_WEEK   = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 const G_MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -1947,7 +1950,7 @@ function CalendarioGerente({user, userName}) {
         </div>
         {highDays > 0 && (
           <div style={{background:C.orangeSoft,border:`1px solid ${C.orangeSoftBorder}`,borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:C.orangeSoftText}}>
-            🔴 {highDays} día{highDays>1?'s':''} de alta afluencia este mes
+            <span style={{color:'#FF3B30'}}>●</span> {highDays} día{highDays>1?'s':''} de alta afluencia este mes
           </div>
         )}
       </div>

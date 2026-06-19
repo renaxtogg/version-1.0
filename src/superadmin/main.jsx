@@ -195,16 +195,16 @@ const LIMIT_ROLES = [
 // key "panel:feature" = misma string que lee el frontend (mythos-gating.js).
 // Se persisten en subscription_plans.allowed_features (migración 091).
 const FEATURE_GROUPS = [
-  {group:'Admin', icon:'⚙️', items:[
+  {group:'Admin', icon:'settings', items:[
     {key:'admin:delivery_zones', label:'Gestión de Mapas',     desc:'Zonas y tarifas de delivery'},
     {key:'admin:inventory',      label:'Control de Insumos',   desc:'Stock, recetas y toma'},
     {key:'admin:crm',            label:'CRM de Clientes',      desc:'Base y segmentación'},
   ]},
-  {group:'Caja', icon:'💳', items:[
+  {group:'Caja', icon:'creditCard', items:[
     {key:'caja:sifen',            label:'Facturación SIFEN',   desc:'e-Kuatia electrónica'},
     {key:'caja:digital_payments', label:'Pasarelas Bancard',   desc:'QR / VPos digital'},
   ]},
-  {group:'Mozo', icon:'🍽️', items:[
+  {group:'Mozo', icon:'utensils', items:[
     {key:'mozo:digital_qr_pay',   label:'Cobro Mesa por QR',   desc:'Pago digital en mesa'},
   ]},
 ];
@@ -1055,7 +1055,7 @@ function PageCapacidad({ enriched }) {
               <div style={{flex:'1 1 200px',display:'flex',flexDirection:'column',justifyContent:'center',gap:10}}>
                 <div style={{background: simOk ? C.green+'1E' : C.red+'1E', border:`1px solid ${(simOk?C.green:C.red)}66`, borderRadius:10, padding:'14px 16px'}}>
                   <div style={{fontSize:12,fontWeight:700,color: simOk?C.green:C.red, marginBottom:4}}>
-                    {simOk ? '✓ Dentro de capacidad' : '⚠ Supera la capacidad'}
+                    {simOk ? '✓ Dentro de capacidad' : 'Supera la capacidad'}
                   </div>
                   <div style={{fontSize:12,color:C.ink,lineHeight:1.5}}>
                     Con <strong>{fmtNum(simRest)}</strong> restaurantes y {simMonths} meses de historial, el límite que se
@@ -1291,7 +1291,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
                 <a href="admin.html" target="_blank" rel="noreferrer" style={{textDecoration:'none'}}>
                   <Btn size="sm" variant="ghost">Ver Admin</Btn>
                 </a>
-                {isRoot(r)&&<Btn size="sm" variant="ghost" onClick={()=>openBranch(r)}>➕ Añadir Sucursal Hija</Btn>}
+                {isRoot(r)&&<Btn size="sm" variant="ghost" onClick={()=>openBranch(r)}><Icon name="plus" size={12} style={{verticalAlign:'-2px',marginRight:3}}/>Añadir Sucursal Hija</Btn>}
                 <Btn size="sm" variant={r.status==='active'?'danger':'success'} onClick={()=>toggleStatus(r)}>
                   {r.status==='active'?'Desactivar':'Activar'}
                 </Btn>
@@ -1352,7 +1352,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
       {branchModal&&(
         <Modal title="Añadir Sucursal Hija" onClose={()=>setBranchModal(null)} width={520}>
           <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',marginBottom:16,borderRadius:10,border:`1px solid ${C.ink}`,background:C.bg}}>
-            <div style={{fontSize:22}}>🏢</div>
+            <div style={{display:'flex',color:C.ink}}><Icon name="building" size={22}/></div>
             <div style={{flex:1}}>
               <div style={{fontSize:13,fontWeight:700,color:C.ink}}>Cuenta corporativa: {branchModal.parent.name}</div>
               <div style={{fontSize:11,color:C.mid}}>Hereda el plan <strong>{branchModal.parent.plan?.name||'base'}</strong> del local raíz y se factura como add-on “Sucursal Adicional”.</div>
@@ -1728,7 +1728,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
               {FEATURE_GROUPS.map(g=>(
                 <div key={g.group}>
                   <div style={{fontSize:11,fontWeight:700,color:C.mid,marginBottom:7,display:'flex',alignItems:'center',gap:6}}>
-                    <span style={{fontSize:13}}>{g.icon}</span>{g.group}
+                    <Icon name={g.icon} size={13}/>{g.group}
                   </div>
                   <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
                     {g.items.map(it=>{
@@ -3180,17 +3180,18 @@ function SoporteSuperChat({ticket, messages, onSend, onStatusChange, onAssign, o
 /* ══════════════════════════════════════════════
    CALENDARIO — Superadmin
 ══════════════════════════════════════════════ */
+// WS5: emoji → bullet geométrico monocromo '●' (U+25CF), hereda color del span.
 const SA_CAL_TYPES = {
-  holiday: {label:'Feriado',    color:'#FF3B30', icon:'🏖'},
-  event:   {label:'Evento',     color:'#007AFF', icon:'🎉'},
-  sport:   {label:'Deportivo',  color:'#34C759', icon:'⚽'},
-  special: {label:'Especial',   color:'#AF52DE', icon:'🎊'},
-  promo:   {label:'Promoción',  color:'#FF9500', icon:'📢'},
+  holiday: {label:'Feriado',    color:'#FF3B30', icon:'●'},
+  event:   {label:'Evento',     color:'#007AFF', icon:'●'},
+  sport:   {label:'Deportivo',  color:'#34C759', icon:'●'},
+  special: {label:'Especial',   color:'#AF52DE', icon:'●'},
+  promo:   {label:'Promoción',  color:'#FF9500', icon:'●'},
 };
 const SA_CAL_CROWD = {
-  low:    {label:'Afluencia baja',  color:'#34C759', dot:'🟢'},
-  medium: {label:'Afluencia media', color:'#FF9500', dot:'🟡'},
-  high:   {label:'Afluencia alta',  color:'#FF3B30', dot:'🔴'},
+  low:    {label:'Afluencia baja',  color:'#34C759', dot:'●'},
+  medium: {label:'Afluencia media', color:'#FF9500', dot:'●'},
+  high:   {label:'Afluencia alta',  color:'#FF3B30', dot:'●'},
 };
 const SA_WEEK   = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 const SA_MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];

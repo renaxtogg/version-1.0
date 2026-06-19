@@ -16,6 +16,12 @@ window.React = React;
 
 const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
 
+/* ── Icon (SVG inline de mythos-icons.js, hereda color/tamaño) — WS5 ── */
+const Icon = ({ name, size = 16, style }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0, ...(style || {}) }}
+        dangerouslySetInnerHTML={{ __html: window.MythosIcons ? window.MythosIcons.html(name, { size }) : '' }} />
+);
+
 /* ── DB ── */
 // Clave de almacenamiento de la sesión Supabase (formato por defecto de supabase-js).
 const _SB_REF = ((window.SUPABASE_CONFIG?.url||'').match(/https?:\/\/([^.]+)\./)||[])[1]||'';
@@ -310,7 +316,7 @@ function DenomGrid({values,onChange,label=''}){
         {DENOMS.map(d=>(
           <div key={d.v} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px',display:'flex',alignItems:'center',gap:8}}>
             <div style={{flex:1}}>
-              <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:2}}>{d.t==='moneda'?'🪙':'💵'} {d.lbl}</div>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:2,display:'flex',alignItems:'center',gap:4}}><Icon name="money" size={10} /> {d.lbl}</div>
               <input
                 type="number" min="0" step="1"
                 value={values[d.v]||''}
@@ -419,12 +425,12 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
 
         {turnoAbierto&&(
           <AlertBox type="error">
-            ⚠ Hay un turno anterior abierto desde {fmtDT(turnoAbierto.fecha_apertura)} por <strong>{turnoAbierto.cajero_nombre||'otro cajero'}</strong>. Cerralo antes de abrir uno nuevo.
+            Hay un turno anterior abierto desde {fmtDT(turnoAbierto.fecha_apertura)} por <strong>{turnoAbierto.cajero_nombre||'otro cajero'}</strong>. Cerralo antes de abrir uno nuevo.
           </AlertBox>
         )}
         {fondoBajo&&(
           <AlertBox type="warn">
-            ⚠ El fondo es menor al mínimo recomendado de {fmt(FONDO_MINIMO)}. Podés continuar igual.
+            El fondo es menor al mínimo recomendado de {fmt(FONDO_MINIMO)}. Podés continuar igual.
           </AlertBox>
         )}
 
@@ -504,7 +510,7 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
     {id:'pedido',  icon:'',  lbl:'Tomar pedido'},
     {id:'cobros',  icon:'',  lbl:'Cobrar pedidos'},
     {id:'avisos',  icon:'', lbl:'Avisos', badge: broadcastCount},
-    {id:'facturas', icon:'🧾', lbl:'Facturas del turno'},
+    {id:'facturas', icon:'', lbl:'Facturas del turno'},
     {id:'historial',icon:'≡', lbl:'Historial'},
     {id:'reservas',icon:'◷', lbl:'Reservas'},
     {id:'retiro',  icon:'',  lbl:'Retiro de efectivo'},
@@ -592,7 +598,7 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
       {/* Indicador offline */}
       {!isOnline&&(
         <div style={{margin:'0 8px 6px',background:'rgba(255,59,48,0.1)',border:'1px solid rgba(255,59,48,0.3)',borderRadius:8,padding:'8px 10px'}}>
-          <div style={{fontSize:11,fontWeight:700,color:'#FF3B30',marginBottom:2}}>⚡ MODO OFFLINE</div>
+          <div style={{fontSize:11,fontWeight:700,color:'#FF3B30',marginBottom:2}}>MODO OFFLINE</div>
           <div style={{fontSize:10,color:C.dim}}>Menú desde caché local</div>
           {pendingOffline>0&&<div style={{fontSize:10,color:'#FF9500',marginTop:2,fontWeight:600}}>{pendingOffline} pedido{pendingOffline>1?'s':''} pendiente{pendingOffline>1?'s':''} de sync</div>}
         </div>
@@ -732,8 +738,8 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                       <span style={{fontSize:12,color:C.ink,fontWeight:600}}>{mesa}</span>
                     </div>
                     {o.requires_invoice&&(o.invoice_status||'pending')==='pending'&&(
-                      <div style={{display:'inline-block',marginTop:6,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8}}>
-                        🧾 Factura solicitada{o.invoice_delivery_method==='email'?' — email':o.invoice_delivery_method==='print'?' — impresa':''}
+                      <div style={{display:'inline-flex',alignItems:'center',gap:3,marginTop:6,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8}}>
+                        <Icon name="receipt" size={10} /> Factura solicitada{o.invoice_delivery_method==='email'?' — email':o.invoice_delivery_method==='print'?' — impresa':''}
                         {o.customer_email?` · ${o.customer_email}`:''}
                       </div>
                     )}
@@ -743,29 +749,29 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                 </div>
                 {dInfo&&(
                   <div style={{background:'rgba(255,59,48,0.05)',border:'1px solid rgba(255,59,48,0.15)',borderRadius:7,padding:'7px 10px',marginBottom:8,fontSize:11}}>
-                    {(dInfo.customer_name||o.customer_name)&&<div style={{fontWeight:700,color:C.ink,marginBottom:2}}>👤 {dInfo.customer_name||o.customer_name}</div>}
-                    {dInfo.customer_phone&&<div style={{color:C.mid,marginBottom:1}}>📞 {dInfo.customer_phone}</div>}
-                    {dInfo.delivery_address&&<div style={{color:C.mid,marginBottom:1}}>📍 {dInfo.delivery_address}</div>}
+                    {(dInfo.customer_name||o.customer_name)&&<div style={{fontWeight:700,color:C.ink,marginBottom:2,display:'flex',alignItems:'center',gap:5}}><Icon name="user" size={11} /> {dInfo.customer_name||o.customer_name}</div>}
+                    {dInfo.customer_phone&&<div style={{color:C.mid,marginBottom:1,display:'flex',alignItems:'center',gap:5}}><Icon name="phone" size={11} /> {dInfo.customer_phone}</div>}
+                    {dInfo.delivery_address&&<div style={{color:C.mid,marginBottom:1,display:'flex',alignItems:'center',gap:5}}><Icon name="pin" size={11} /> {dInfo.delivery_address}</div>}
                     {dInfo.rider_name
-                      ? <div style={{color:dInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:2}}>🛵 Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':dInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
-                      : <div style={{color:'#FF9500',fontWeight:600,marginTop:2}}>⏳ Sin rider asignado aún</div>
+                      ? <div style={{color:dInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:2,display:'flex',alignItems:'center',gap:5}}><Icon name="bike" size={11} /> Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':dInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
+                      : <div style={{color:'#FF9500',fontWeight:600,marginTop:2,display:'flex',alignItems:'center',gap:5}}><Icon name="clock" size={11} /> Sin rider asignado aún</div>
                     }
                   </div>
                 )}
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div style={{fontSize:20,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(displayTotal)}</div>
-                  <div style={{fontSize:11,color:espera>30?C.red:espera>15?C.orange:'#6E6E73'}}>⏱ {espera}m</div>
+                  <div style={{fontSize:11,color:espera>30?C.red:espera>15?C.orange:'#6E6E73',display:'inline-flex',alignItems:'center',gap:3}}><Icon name="clock" size={11} /> {espera}m</div>
                 </div>
                 {!yaCobrado?(
                   <div style={{marginTop:12,display:'flex',gap:6,alignItems:'stretch'}}>
                     <Btn small style={{flex:1}} variant={sinCobrar?'danger':listo?'success':'secondary'} onClick={e=>{e.stopPropagation();selectOrder(orderForModal);}}>
-                      {listo?'✓ Cobrar':'⚠ Cobrar ahora'}
+                      {listo?'✓ Cobrar':'Cobrar ahora'}
                     </Btn>
                     <button
                       onClick={e=>{e.stopPropagation();setCancelTarget(orderForModal);}}
                       title="Cancelar pedido"
-                      style={{padding:'6px 12px',background:'transparent',color:C.red,border:`1px solid ${C.red}55`,borderRadius:6,fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',letterSpacing:0.2}}>
-                      ❌ Cancelar
+                      style={{padding:'6px 12px',background:'transparent',color:C.red,border:`1px solid ${C.red}55`,borderRadius:6,fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',letterSpacing:0.2,display:'inline-flex',alignItems:'center',gap:4}}>
+                      <Icon name="x" size={12} /> Cancelar
                     </button>
                   </div>
                 ):(
@@ -815,7 +821,7 @@ function BancardProximamente({onDismiss}){
       background:'#1C1C1E',color:'#F5F5F7',borderRadius:14,padding:'14px 20px',
       maxWidth:340,width:'calc(100% - 40px)',boxShadow:'0 8px 32px rgba(0,0,0,0.4)',
       display:'flex',alignItems:'flex-start',gap:12,animation:'slideUp .25s ease'}}>
-      <span style={{fontSize:22,flexShrink:0}}>🏦</span>
+      <span style={{flexShrink:0,display:'flex'}}><Icon name="building" size={22} /></span>
       <div>
         <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>Módulo Bancard / SIFEN en fase de certificación</div>
         <div style={{fontSize:11,color:'#AEAEB2',lineHeight:1.4}}>Esta pasarela se activará automáticamente al concluir los trámites del comercio.</div>
@@ -979,7 +985,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           )}
         </div>
         <div style={{display:'flex',gap:10}}>
-          <Btn full onClick={()=>printTicket(successTicket)} variant="secondary">🖨 Imprimir ticket</Btn>
+          <Btn full onClick={()=>printTicket(successTicket)} variant="secondary"><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir ticket</Btn>
           <Btn full onClick={cerrarTrasExito} variant="success">Cerrar</Btn>
         </div>
       </Modal>
@@ -991,17 +997,17 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       {/* Info delivery */}
       {isDeliveryOrder&&deliveryInfo&&(
         <div style={{background:'rgba(255,59,48,0.05)',border:'1px solid rgba(255,59,48,0.18)',borderRadius:9,padding:'10px 13px',marginBottom:14,fontSize:12}}>
-          {(deliveryInfo.customer_name||order.customer_name)&&<div style={{fontWeight:700,color:C.ink,marginBottom:3}}>👤 {deliveryInfo.customer_name||order.customer_name}</div>}
-          {deliveryInfo.customer_phone&&<div style={{color:C.mid,marginBottom:2}}>📞 {deliveryInfo.customer_phone}</div>}
-          {deliveryInfo.delivery_address&&<div style={{color:C.mid,marginBottom:2}}>📍 {deliveryInfo.delivery_address}</div>}
+          {(deliveryInfo.customer_name||order.customer_name)&&<div style={{fontWeight:700,color:C.ink,marginBottom:3,display:'flex',alignItems:'center',gap:5}}><Icon name="user" size={12} /> {deliveryInfo.customer_name||order.customer_name}</div>}
+          {deliveryInfo.customer_phone&&<div style={{color:C.mid,marginBottom:2,display:'flex',alignItems:'center',gap:5}}><Icon name="phone" size={12} /> {deliveryInfo.customer_phone}</div>}
+          {deliveryInfo.delivery_address&&<div style={{color:C.mid,marginBottom:2,display:'flex',alignItems:'center',gap:5}}><Icon name="pin" size={12} /> {deliveryInfo.delivery_address}</div>}
           {deliveryInfo.rider_name
-            ?<div style={{color:deliveryInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:3}}>🛵 Rider: {deliveryInfo.rider_name}{deliveryInfo.rider_status==='on_way'?' — En camino':deliveryInfo.rider_status==='confirmed'?' — Esperando retiro':deliveryInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
-            :<div style={{color:'#FF9500',fontWeight:600,marginTop:3}}>⏳ Sin rider asignado</div>
+            ?<div style={{color:deliveryInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:3,display:'flex',alignItems:'center',gap:5}}><Icon name="bike" size={12} /> Rider: {deliveryInfo.rider_name}{deliveryInfo.rider_status==='on_way'?' — En camino':deliveryInfo.rider_status==='confirmed'?' — Esperando retiro':deliveryInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
+            :<div style={{color:'#FF9500',fontWeight:600,marginTop:3,display:'flex',alignItems:'center',gap:5}}><Icon name="clock" size={12} /> Sin rider asignado</div>
           }
           {cashAmountNum>0&&cashChangeNum>=0&&(
             <div style={{marginTop:6,paddingTop:6,borderTop:'1px solid rgba(255,59,48,0.15)'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span style={{color:TINT.greenText,fontWeight:700}}>💵 Vuelto a llevar</span>
+                <span style={{color:TINT.greenText,fontWeight:700,display:'inline-flex',alignItems:'center',gap:5}}><Icon name="money" size={12} /> Vuelto a llevar</span>
                 <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,fontSize:15,color:TINT.greenText}}>{fmt(cashChangeNum)}</span>
               </div>
               <div style={{fontSize:10,color:C.mid,marginTop:1}}>Cliente paga {fmt(cashAmountNum)} · total {fmt(totalReal+deliveryFeeNum)}</div>
@@ -1012,7 +1018,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
 
       {order.requires_invoice&&(order.invoice_status||'pending')==='pending'&&(
         <div style={{background:'rgba(0,122,255,0.08)',border:'1px solid rgba(0,122,255,0.3)',borderRadius:9,padding:'10px 13px',marginBottom:12,fontSize:12,color:TINT.blueText}}>
-          🧾 <strong>Factura solicitada por el cliente</strong>
+          <Icon name="receipt" size={13} style={{verticalAlign:'-2px',marginRight:4}}/> <strong>Factura solicitada por el cliente</strong>
           {order.invoice_delivery_method==='email'?' — entregar por email':order.invoice_delivery_method==='print'?' — entregar impresa':''}
           {order.customer_email&&<div style={{fontSize:11,marginTop:2,color:TINT.blueText}}>Email: {order.customer_email}</div>}
           {order.customer_ruc&&<div style={{fontSize:11,marginTop:2,color:TINT.blueText}}>RUC: {order.customer_ruc}</div>}
@@ -1065,14 +1071,14 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
               background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
               display:'flex',alignItems:'center',justifyContent:'center',gap:5,
             }}>
-              <span style={{fontSize:14}}>📲</span> QR Bancard
+              <Icon name="dashboard" size={14} /> QR Bancard
             </button>
             <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
               padding:'10px 6px',borderRadius:7,border:`1px solid rgba(255,149,0,0.35)`,
               background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
               display:'flex',alignItems:'center',justifyContent:'center',gap:5,
             }}>
-              <span style={{fontSize:14}}>💳</span> Tarjeta (VPos)
+              <Icon name="creditCard" size={14} /> Tarjeta (VPos)
             </button>
           </div>
         </div>
@@ -1117,7 +1123,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
               </div>
             ):(
               <div style={{padding:'10px 14px',background:'rgba(239,68,68,0.08)',border:`1px solid rgba(239,68,68,0.3)`,borderRadius:7}}>
-                <span style={{fontSize:13,color:C.red,fontWeight:700}}>⚠ Insuficiente — faltan {fmt(totalReal-montoNum)}</span>
+                <span style={{fontSize:13,color:C.red,fontWeight:700}}>Insuficiente — faltan {fmt(totalReal-montoNum)}</span>
               </div>
             )
           )}
@@ -1133,7 +1139,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         transition:'all .15s',
       }}>
         <div>
-          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?C.blue:C.ink}}>🧾 Emitir Factura Electrónica (SIFEN)</div>
+          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?C.blue:C.ink,display:'flex',alignItems:'center',gap:6}}><Icon name="receipt" size={13} /> Emitir Factura Electrónica (SIFEN)</div>
           <div style={{fontSize:10,color:C.mid,marginTop:2}}>e-Kuatia · Certificación en proceso</div>
         </div>
         <div style={{width:42,height:24,borderRadius:12,background:invoiceType==='fiscal'?C.blue:C.border,transition:'background .2s',position:'relative',flexShrink:0}}>
@@ -1155,7 +1161,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         </div>
         {invoiceType==='ticket'&&(
           <div style={{padding:'8px 12px',background:'rgba(52,199,89,0.08)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:7,fontSize:12,color:TINT.greenText}}>
-            🖨 El ticket se imprimirá automáticamente al cobrar.
+            <Icon name="print" size={13} style={{verticalAlign:'-2px',marginRight:4}}/> El ticket se imprimirá automáticamente al cobrar.
           </div>
         )}
         {invoiceType==='fiscal'&&(
@@ -1173,7 +1179,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         border:'1px dashed rgba(0,122,255,0.3)',background:'rgba(0,122,255,0.04)',
         display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
         <div>
-          <div style={{fontSize:12,fontWeight:700,color:TINT.blueText}}>🧾 Factura Electrónica SIFEN</div>
+          <div style={{fontSize:12,fontWeight:700,color:TINT.blueText,display:'flex',alignItems:'center',gap:6}}><Icon name="receipt" size={13} /> Factura Electrónica SIFEN</div>
           <div style={{fontSize:10,color:C.dim,marginTop:2}}>e-Kuatia — en proceso de certificación SET</div>
         </div>
         <button onClick={gate('caja:sifen',()=>setShowBancardToast(true))} style={{
@@ -1243,7 +1249,7 @@ function PinAuthModal({title,subtitle,onCancel,onAuthorized,verifying=false}){
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.86)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1100,padding:20,backdropFilter:'blur(4px)'}}>
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:28,width:'100%',maxWidth:420,boxShadow:'0 24px 60px rgba(0,0,0,0.45)',animation:'slideUp 200ms ease'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
-          <div style={{fontFamily:'DM Serif Display',fontSize:20,color:C.ink}}>🔒 {title||'Autorización Requerida'}</div>
+          <div style={{fontFamily:'DM Serif Display',fontSize:20,color:C.ink,display:'flex',alignItems:'center',gap:8}}><Icon name="lock" size={18} /> {title||'Autorización Requerida'}</div>
           <button onClick={()=>!busy&&onCancel()} disabled={busy} style={{background:'none',border:'none',color:C.ink,fontSize:24,lineHeight:1,padding:0,cursor:busy?'default':'pointer',opacity:busy?0.4:1}} aria-label="Cerrar">×</button>
         </div>
         <div style={{fontSize:13,color:C.mid,lineHeight:1.5,marginBottom:18}}>
@@ -1361,7 +1367,7 @@ function QuickCancelModal({order,turno,profile,onClose,onCancelled}){
       <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.86)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1050,padding:20,backdropFilter:'blur(4px)'}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:24,width:'100%',maxWidth:440,boxShadow:'0 24px 60px rgba(0,0,0,0.45)',animation:'slideUp 200ms ease',color:C.ink}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-            <div style={{fontFamily:'DM Serif Display',fontSize:18,color:C.ink}}>❌ Cancelar pedido</div>
+            <div style={{fontFamily:'DM Serif Display',fontSize:18,color:C.ink,display:'flex',alignItems:'center',gap:8}}><Icon name="x" size={17} /> Cancelar pedido</div>
             <button onClick={()=>!busy&&onClose()} disabled={busy} style={{background:'none',border:'none',color:C.ink,fontSize:24,lineHeight:1,padding:0,cursor:busy?'default':'pointer',opacity:busy?0.4:1}} aria-label="Cerrar">×</button>
           </div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,padding:'10px 14px',background:'var(--bg-subtle)',border:`1px solid ${C.border}`,borderRadius:8}}>
@@ -1373,7 +1379,7 @@ function QuickCancelModal({order,turno,profile,onClose,onCancelled}){
           </div>
           {requierePin&&(
             <div style={{background:C.ink,color:C.surface,padding:'10px 14px',borderRadius:8,fontSize:12,fontWeight:600,marginBottom:14,letterSpacing:0.2}}>
-              🔒 Esta acción requerirá el PIN de un Administrador o Gerente al continuar.
+              <Icon name="lock" size={13} style={{verticalAlign:'-2px',marginRight:4}}/> Esta acción requerirá el PIN de un Administrador o Gerente al continuar.
             </div>
           )}
           <div style={{marginBottom:12}}>
@@ -1398,7 +1404,7 @@ function QuickCancelModal({order,turno,profile,onClose,onCancelled}){
               Volver
             </button>
             <button onClick={intentarCancelar} disabled={busy||!motivo} style={{flex:1.4,padding:'12px 16px',background:C.ink,color:C.surface,border:`1px solid ${C.ink}`,borderRadius:8,fontSize:13,fontWeight:700,cursor:(busy||!motivo)?'default':'pointer',opacity:(busy||!motivo)?0.55:1}}>
-              {busy?'Cancelando…':requierePin?'Continuar 🔒':'Continuar'}
+              {busy?'Cancelando…':'Continuar'}
             </button>
           </div>
         </div>
@@ -1513,7 +1519,7 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>
                     <Badge txt={SL[o.status]} color={SC[o.status]||'#6E6E73'}/>
-                    {enCocina&&<Badge txt="⚠ En cocina" color={C.orange}/>}
+                    {enCocina&&<Badge txt="En cocina" color={C.orange}/>}
                     <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:14,fontWeight:700,color:C.red}}>{fmt(o.total)}</span>
                   </div>
                 </div>
@@ -1531,7 +1537,7 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
                 <div style={{fontSize:13,color:C.ink,marginTop:2,fontWeight:600}}>{fmt(selected.total)}</div>
               </div>
               {requierePin&&(
-                <AlertBox type="info">🔒 Esta acción requerirá el PIN de un Administrador o Gerente al confirmar.</AlertBox>
+                <AlertBox type="info"><Icon name="lock" size={13} style={{verticalAlign:'-2px',marginRight:4}}/> Esta acción requerirá el PIN de un Administrador o Gerente al confirmar.</AlertBox>
               )}
               <div style={{marginBottom:12}}>
                 <Lbl required>MOTIVO</Lbl>
@@ -1551,7 +1557,7 @@ function CancelacionesPanel({turno,profile,onMovimiento}){
                 <label htmlFor="perdida" style={{fontSize:12,color:C.mid,cursor:'pointer'}}>Generó pérdida de insumos</label>
               </div>
               <Btn full variant="danger" onClick={intentarCancelar} disabled={busy||!form.motivo}>
-                {busy?<><span className="spin"/> Cancelando…</>:requierePin?'Confirmar cancelación 🔒':'Confirmar cancelación'}
+                {busy?<><span className="spin"/> Cancelando…</>:'Confirmar cancelación'}
               </Btn>
             </>
           ):(
@@ -1713,7 +1719,7 @@ function QuejasPanel({turno,profile}){
       });
       if(error)throw error;
       toast('Registrado correctamente');
-      if(form.urgencia==='alta'&&form.tipo==='queja')toast('⚠ Urgencia alta — notificar al supervisor',false);
+      if(form.urgencia==='alta'&&form.tipo==='queja')toast('Urgencia alta — notificar al supervisor',false);
       setShowForm(false);
       setForm({tipo:'queja',categoria:'',urgencia:'media',descripcion:'',compensacion:false,comp_tipo:'',comp_monto:''});
       loadQuejas();
@@ -1723,7 +1729,6 @@ function QuejasPanel({turno,profile}){
 
   const urgColor={alta:C.red,media:C.yellow,baja:C.green};
   const tipoColor={queja:C.red,sugerencia:C.blue,comentario_positivo:C.green};
-  const tipoIcon={queja:'⚠',sugerencia:'💡',comentario_positivo:'✓'};
 
   return(
     <div className="page">
@@ -1758,7 +1763,7 @@ function QuejasPanel({turno,profile}){
                 <Sel value={form.urgencia} onChange={e=>setForm({...form,urgencia:e.target.value})}>
                   <option value="baja">Baja</option>
                   <option value="media">Media</option>
-                  <option value="alta">Alta ⚠</option>
+                  <option value="alta">Alta</option>
                 </Sel>
               </div>
             )}
@@ -1804,7 +1809,7 @@ function QuejasPanel({turno,profile}){
           <div key={q.id} style={{background:C.surface,border:`1px solid ${tipoColor[q.tipo]||'#D2D2D7'}44`,borderRadius:8,padding:'12px 14px'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                <Badge txt={`${tipoIcon[q.tipo]} ${q.tipo.replace('_',' ')}`} color={tipoColor[q.tipo]||'#6E6E73'}/>
+                <Badge txt={q.tipo.replace('_',' ')} color={tipoColor[q.tipo]||'#6E6E73'}/>
                 {q.urgencia&&<Badge txt={q.urgencia} color={urgColor[q.urgencia]||'#6E6E73'}/>}
                 {q.categoria&&<Badge txt={q.categoria} color="#6E6E73"/>}
               </div>
@@ -1898,7 +1903,7 @@ function RetiroPanel({turno,profile,movimientos,onMovimiento}){
                   <div>
                     <div style={{fontSize:13,fontWeight:600}}>{m.descripcion}</div>
                     <div style={{fontSize:11,color:C.dim,marginTop:2}}>{m.usuario_nombre} · {fmtTime(m.created_at)}</div>
-                    {m.motivo&&<div style={{fontSize:11,color:C.mid,marginTop:1}}>📝 {m.motivo}</div>}
+                    {m.motivo&&<div style={{fontSize:11,color:C.mid,marginTop:1,display:'flex',alignItems:'center',gap:4}}><Icon name="fileText" size={11} /> {m.motivo}</div>}
                   </div>
                   <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:700,color:C.orange}}>- {fmt(m.monto)}</div>
                 </div>
@@ -1914,7 +1919,7 @@ function RetiroPanel({turno,profile,movimientos,onMovimiento}){
             <Lbl required>MONTO A RETIRAR (₲)</Lbl>
             <Inp type="number" mono value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})} placeholder="0"/>
             {excede&&(
-              <div style={{fontSize:11,color:C.red,marginTop:4}}>⚠ Supera el efectivo disponible ({fmt(saldoEfectivo)})</div>
+              <div style={{fontSize:11,color:C.red,marginTop:4}}>Supera el efectivo disponible ({fmt(saldoEfectivo)})</div>
             )}
           </div>
           <div style={{marginBottom:12}}>
@@ -2126,7 +2131,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
           )}
         </div>
         <div style={{display:'flex',gap:10}}>
-          <Btn full onClick={()=>printTicket(successTicket)} variant="secondary">🖨 Imprimir ticket</Btn>
+          <Btn full onClick={()=>printTicket(successTicket)} variant="secondary"><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir ticket</Btn>
           <Btn full onClick={cerrarTrasExito} variant="success">Cerrar</Btn>
         </div>
       </Modal>
@@ -2172,14 +2177,14 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
                 background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
                 display:'flex',alignItems:'center',justifyContent:'center',gap:5,
               }}>
-                <span style={{fontSize:14}}>📲</span> QR Bancard
+                <Icon name="dashboard" size={14} /> QR Bancard
               </button>
               <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
                 padding:'10px 6px',borderRadius:7,border:'1px solid rgba(255,149,0,0.35)',
                 background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
                 display:'flex',alignItems:'center',justifyContent:'center',gap:5,
               }}>
-                <span style={{fontSize:14}}>💳</span> Tarjeta (VPos Bancard)
+                <Icon name="creditCard" size={14} /> Tarjeta (VPos Bancard)
               </button>
             </div>
           </div>
@@ -2210,7 +2215,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
                 </div>
               ):(
                 <div style={{marginTop:8,padding:'10px 12px',background:'rgba(255,59,48,0.08)',border:'1px solid rgba(255,59,48,0.3)',borderRadius:7}}>
-                  <span style={{fontSize:13,color:C.red,fontWeight:700}}>⚠ Faltan {fmt(subtotal-montoNum)}</span>
+                  <span style={{fontSize:13,color:C.red,fontWeight:700}}>Faltan {fmt(subtotal-montoNum)}</span>
                 </div>
               )
             )}
@@ -2227,7 +2232,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         transition:'all .15s',
       }}>
         <div>
-          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?C.blue:C.ink}}>🧾 Emitir Factura Electrónica (SIFEN)</div>
+          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?C.blue:C.ink,display:'flex',alignItems:'center',gap:6}}><Icon name="receipt" size={13} /> Emitir Factura Electrónica (SIFEN)</div>
           <div style={{fontSize:10,color:C.mid,marginTop:2}}>e-Kuatia · Certificación en proceso</div>
         </div>
         <div style={{width:42,height:24,borderRadius:12,background:invoiceType==='fiscal'?C.blue:C.border,transition:'background .2s',position:'relative',flexShrink:0}}>
@@ -2249,7 +2254,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         </div>
         {invoiceType==='ticket'&&(
           <div style={{padding:'8px 12px',background:'rgba(52,199,89,0.08)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:7,fontSize:12,color:TINT.greenText}}>
-            🖨 El ticket se imprimirá automáticamente al cobrar.
+            <Icon name="print" size={13} style={{verticalAlign:'-2px',marginRight:4}}/> El ticket se imprimirá automáticamente al cobrar.
           </div>
         )}
         {invoiceType==='fiscal'&&(
@@ -2353,7 +2358,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
   }
 
   /* ── render ── */
-  const TYPE_BTNS=[['dine_in','🪑 Salón'],['takeaway','🥡 Para llevar'],['delivery','🛵 Delivery']];
+  const TYPE_BTNS=[['dine_in','Salón'],['takeaway','Para llevar'],['delivery','Delivery']];
 
   return(
     <div className="page" style={{height:'calc(100vh - 48px)',display:'flex',flexDirection:'column',gap:12}}>
@@ -2403,7 +2408,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
                       <div key={item.id} className="ds-product-card" onClick={()=>clickItem(item)}>
                         {item.image_url
                           ? <img className="ds-product-card-img" src={item.image_url} alt={item.name}/>
-                          : <div className="ds-product-card-placeholder">🍽️</div>
+                          : <div className="ds-product-card-placeholder"><Icon name="utensils" size={26} /></div>
                         }
                         {inCart>0&&<div className="ds-product-badge">{inCart}</div>}
                         <div className="ds-product-info">
@@ -2445,7 +2450,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
             <div style={{flex:1,overflowY:'auto',padding:'10px 14px'}}>
               {cart.length===0?(
                 <div style={{textAlign:'center',padding:'28px 0',color:C.mid}}>
-                  <div style={{fontSize:30,marginBottom:8}}>🛒</div>
+                  <div style={{marginBottom:8,display:'flex',justifyContent:'center'}}><Icon name="cart" size={28} /></div>
                   <div style={{fontSize:11,fontWeight:500}}>Tocá un producto para agregarlo</div>
                 </div>
               ):(
@@ -2456,7 +2461,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:13,fontWeight:600,lineHeight:1.3}}>{c.item.name}</div>
                           {c.extras.length>0&&<div style={{fontSize:10,color:C.mid,marginTop:2}}>{c.extras.map(e=>e.name).join(', ')}</div>}
-                          {c.observations&&<div style={{fontSize:10,color:C.yellow,marginTop:2}}>📝 {c.observations}</div>}
+                          {c.observations&&<div style={{fontSize:10,color:C.yellow,marginTop:2}}><Icon name="fileText" size={10} style={{verticalAlign:'-1px',marginRight:2}}/> {c.observations}</div>}
                         </div>
                         <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,color:C.green,whiteSpace:'nowrap'}}>{fmt(c.linePrice*c.quantity)}</div>
                       </div>
@@ -2480,7 +2485,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
               </div>
               <div style={{display:'flex',gap:8}}>
                 <Btn full onClick={abrirPago} disabled={cart.length===0} variant="success">
-                  {'💳 Cobrar y enviar →'}
+                  <Icon name="creditCard" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Cobrar y enviar →
                 </Btn>
                 {cart.length>0&&(
                   <button onClick={()=>setCart([])} style={{background:'none',border:`1px solid ${C.border}`,color:C.dim,borderRadius:6,padding:'0 10px',cursor:'pointer',fontSize:11,flexShrink:0}}>Limpiar</button>
@@ -2546,23 +2551,23 @@ function OrderDetailModal({order,onClose}){
         <Badge txt={SL[order.status]||order.status} color={SC[order.status]||'#6E6E73'}/>
         {order.order_type&&<Badge txt={orderTypeLabel(order.order_type)} color={orderTypeColor(order.order_type)}/>}
         <span style={{fontSize:12,color:C.mid}}>{mesa}</span>
-        <span style={{fontSize:11,color:C.dim}}>⏱ {espera}m</span>
+        <span style={{fontSize:11,color:C.dim,display:'inline-flex',alignItems:'center',gap:3}}><Icon name="clock" size={11} /> {espera}m</span>
       </div>
 
       {/* Info delivery */}
       {isDelivery&&dInfo&&(
         <div style={{background:'rgba(255,59,48,0.05)',border:'1px solid rgba(255,59,48,0.18)',borderRadius:9,padding:'10px 13px',marginBottom:14,fontSize:12}}>
-          {(dInfo.customer_name||order.customer_name)&&<div style={{fontWeight:700,color:C.ink,marginBottom:3}}>👤 {dInfo.customer_name||order.customer_name}</div>}
-          {dInfo.customer_phone&&<div style={{color:C.mid,marginBottom:2}}>📞 {dInfo.customer_phone}</div>}
-          {dInfo.delivery_address&&<div style={{color:C.mid,marginBottom:2}}>📍 {dInfo.delivery_address}</div>}
+          {(dInfo.customer_name||order.customer_name)&&<div style={{fontWeight:700,color:C.ink,marginBottom:3,display:'flex',alignItems:'center',gap:5}}><Icon name="user" size={12} /> {dInfo.customer_name||order.customer_name}</div>}
+          {dInfo.customer_phone&&<div style={{color:C.mid,marginBottom:2,display:'flex',alignItems:'center',gap:5}}><Icon name="phone" size={12} /> {dInfo.customer_phone}</div>}
+          {dInfo.delivery_address&&<div style={{color:C.mid,marginBottom:2,display:'flex',alignItems:'center',gap:5}}><Icon name="pin" size={12} /> {dInfo.delivery_address}</div>}
           {dInfo.rider_name
-            ?<div style={{color:dInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:3}}>🛵 Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':dInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
-            :<div style={{color:'#FF9500',fontWeight:600,marginTop:3}}>⏳ Sin rider asignado</div>
+            ?<div style={{color:dInfo.rider_status==='delivered'?'#FF9500':'#34C759',fontWeight:700,marginTop:3,display:'flex',alignItems:'center',gap:5}}><Icon name="bike" size={12} /> Rider: {dInfo.rider_name}{dInfo.rider_status==='on_way'?' — En camino':dInfo.rider_status==='confirmed'?' — Esperando retiro':dInfo.rider_status==='delivered'?' — Entregado, pdte. cobro':''}</div>
+            :<div style={{color:'#FF9500',fontWeight:600,marginTop:3,display:'flex',alignItems:'center',gap:5}}><Icon name="clock" size={12} /> Sin rider asignado</div>
           }
           {cashAmt>0&&cashChg>=0&&(
             <div style={{marginTop:6,paddingTop:6,borderTop:'1px solid rgba(255,59,48,0.15)'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span style={{color:TINT.greenText,fontWeight:700}}>💵 Vuelto a llevar</span>
+                <span style={{color:TINT.greenText,fontWeight:700,display:'inline-flex',alignItems:'center',gap:5}}><Icon name="money" size={12} /> Vuelto a llevar</span>
                 <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,fontSize:14,color:TINT.greenText}}>{fmt(cashChg)}</span>
               </div>
               <div style={{fontSize:10,color:C.mid,marginTop:1}}>Cliente paga {fmt(cashAmt)} · total {fmt(orderTot)}</div>
@@ -2580,7 +2585,7 @@ function OrderDetailModal({order,onClose}){
               <span style={{fontWeight:600}}>{it.quantity}× {it.item_name}</span>
               <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.dim}}>{fmt(it.unit_price*it.quantity)}</span>
             </div>
-            {it.observations&&<div style={{fontSize:11,color:C.yellow,marginLeft:12}}>📝 {it.observations}</div>}
+            {it.observations&&<div style={{fontSize:11,color:C.yellow,marginLeft:12}}><Icon name="fileText" size={11} style={{verticalAlign:'-1px',marginRight:2}}/> {it.observations}</div>}
             {(it.order_item_extras||[]).map(ex=>(
               <div key={ex.extra_name} style={{fontSize:11,color:C.mid,marginLeft:12}}>+ {ex.extra_name}{ex.extra_price>0?` (${fmt(ex.extra_price)})`:''}</div>
             ))}
@@ -3070,8 +3075,8 @@ function SalonPanel({turno,profile}){
         )}
         <div style={{fontSize:22,fontWeight:800,color:occ?C.surface:C.ink,letterSpacing:'-0.5px'}}>Mesa {table.number}</div>
         {tableInvoiceReq&&(()=>{const m=(orders||[]).find(o=>o.table_id===table.id && o.requires_invoice && (o.invoice_status||'pending')==='pending')?.invoice_delivery_method;return(
-          <div style={{position:'absolute',top:8,right:8,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8,letterSpacing:'0.04em'}}>
-            🧾 {m==='email'?'EMAIL':'IMPRESA'}
+          <div style={{position:'absolute',top:8,right:8,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8,letterSpacing:'0.04em',display:'flex',alignItems:'center',gap:3}}>
+            <Icon name="receipt" size={10} /> {m==='email'?'EMAIL':'IMPRESA'}
           </div>
         );})()}
         {table.capacity&&<div style={{fontSize:12,color:occ?C.dim:C.mid,marginTop:2}}>{table.capacity} pax</div>}
@@ -3080,7 +3085,7 @@ function SalonPanel({turno,profile}){
             {order&&<div style={{marginTop:10}}><Badge txt={SL[order.status]} color={SC[order.status]||'#6E6E73'}/></div>}
             {!order&&<div style={{marginTop:10}}><Badge txt="Servicio activo" color={C.green}/></div>}
             {order&&<div style={{fontSize:11,color:C.dim,marginTop:8}}>⏱ {espera}m · #{order.order_number}</div>}
-            {table.assigned_waiter_name&&<div style={{fontSize:11,color:C.dim,marginTop:4}}>👤 {table.assigned_waiter_name}</div>}
+            {table.assigned_waiter_name&&<div style={{fontSize:11,color:C.dim,marginTop:4,display:'flex',alignItems:'center',gap:4}}><Icon name="user" size={11} /> {table.assigned_waiter_name}</div>}
           </>
         ):(
           <div style={{color:C.mid,fontSize:13,marginTop:12,fontWeight:700,letterSpacing:'0.05em'}}>LIBRE</div>
@@ -3116,9 +3121,9 @@ function SalonPanel({turno,profile}){
               <Badge txt={statusLbl} color={statusCol}/>
               {tipo&&<Badge txt={tipo} color={orderTypeColor(order.order_type)}/>}
               {order.requires_invoice&&(order.invoice_status||'pending')==='pending'&&(
-                <Badge txt={`🧾 ${order.invoice_delivery_method==='email'?'Factura email':'Factura impresa'}`} color={'#007AFF'}/>
+                <Badge txt={`${order.invoice_delivery_method==='email'?'Factura email':'Factura impresa'}`} color={'#007AFF'}/>
               )}
-              <span style={{fontSize:10,color:C.mid}}>⏱ {espera}m</span>
+              <span style={{fontSize:10,color:C.mid,display:'inline-flex',alignItems:'center',gap:3}}><Icon name="clock" size={10} /> {espera}m</span>
             </div>
           </div>
           <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:800,color:C.green,whiteSpace:'nowrap'}}>{fmt(order.total)}</div>
@@ -3128,8 +3133,8 @@ function SalonPanel({turno,profile}){
             <button
               onClick={e=>{e.stopPropagation();setCancelTarget(order);}}
               title="Cancelar pedido"
-              style={{padding:'5px 10px',background:'transparent',color:C.red,border:`1px solid ${C.red}55`,borderRadius:6,fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',letterSpacing:0.2}}>
-              ❌ Cancelar
+              style={{padding:'5px 10px',background:'transparent',color:C.red,border:`1px solid ${C.red}55`,borderRadius:6,fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',letterSpacing:0.2,display:'inline-flex',alignItems:'center',gap:4}}>
+              <Icon name="x" size={12} /> Cancelar
             </button>
           </div>
         )}
@@ -3160,8 +3165,8 @@ function SalonPanel({turno,profile}){
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,gap:10,flexWrap:'wrap'}}>
         <h1 style={{fontSize:20,fontWeight:800}}>Vista del Salón</h1>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          <Btn small variant="secondary" onClick={()=>setQrModal(true)}>▦ QR mostrador</Btn>
-          <Btn small variant="secondary" onClick={load}>↻ Actualizar</Btn>
+          <Btn small variant="secondary" onClick={()=>setQrModal(true)}><Icon name="dashboard" size={13} style={{verticalAlign:'-2px',marginRight:4}}/>QR mostrador</Btn>
+          <Btn small variant="secondary" onClick={load}><Icon name="refresh" size={13} style={{verticalAlign:'-2px',marginRight:4}}/>Actualizar</Btn>
         </div>
       </div>
 
@@ -3228,7 +3233,7 @@ function SalonPanel({turno,profile}){
             {/* Pedidos con table_id que no está en la lista de mesas */}
             {dineInOrders.filter(o=>o.table_id&&!tables.find(t=>t.id===o.table_id)).length>0&&(
               <div style={{marginTop:16}}>
-                <div style={{fontSize:10,color:C.yellow,fontWeight:700,letterSpacing:1,marginBottom:8}}>⚠ PEDIDOS CON MESA NO REGISTRADA</div>
+                <div style={{fontSize:10,color:C.yellow,fontWeight:700,letterSpacing:1,marginBottom:8}}>PEDIDOS CON MESA NO REGISTRADA</div>
                 <AlertBox type="warn">Estos pedidos tienen una mesa asignada que no aparece en el listado. Verificar configuración de mesas.</AlertBox>
                 <div style={{display:'flex',flexDirection:'column',gap:8}}>
                   {dineInOrders.filter(o=>o.table_id&&!tables.find(t=>t.id===o.table_id)).map(o=><OrderRow key={o.id} order={o}/>)}
@@ -3333,16 +3338,16 @@ function SalonPanel({turno,profile}){
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
               {resvInfo.alsoOccupied&&(
                 <div style={{background:TINT.redBg,border:`1px solid ${TINT.redBorder}`,borderRadius:8,padding:'10px 12px',fontSize:12,color:TINT.redText}}>
-                  ⚠ Esta mesa está ocupada y tiene una reserva próxima. Considerá pedir la cuenta al cliente actual.
+                  Esta mesa está ocupada y tiene una reserva próxima. Considerá pedir la cuenta al cliente actual.
                 </div>
               )}
               <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'12px 14px'}}>
                 <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:6}}>{r.customer_name}</div>
                 <div style={{fontSize:13,color:C.mid,lineHeight:1.7}}>
-                  📞 {r.customer_phone}<br/>
-                  🕐 Hora reservada: <strong>{horaTxt}</strong> ({tiempoTxt})<br/>
-                  👥 {r.guests} personas{r.occasion?<><br/>🎉 Motivo: {r.occasion}</>:null}
-                  {r.notes?<><br/>📝 {r.notes}</>:null}
+                  <Icon name="phone" size={12} style={{verticalAlign:'-2px',marginRight:4}}/> {r.customer_phone}<br/>
+                  <Icon name="clock" size={12} style={{verticalAlign:'-2px',marginRight:4}}/> Hora reservada: <strong>{horaTxt}</strong> ({tiempoTxt})<br/>
+                  <Icon name="users" size={12} style={{verticalAlign:'-2px',marginRight:4}}/> {r.guests} personas{r.occasion?<><br/><Icon name="sparkles" size={12} style={{verticalAlign:'-2px',marginRight:4}}/> Motivo: {r.occasion}</>:null}
+                  {r.notes?<><br/><Icon name="fileText" size={12} style={{verticalAlign:'-2px',marginRight:4}}/> {r.notes}</>:null}
                 </div>
                 <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:C.dim,marginTop:8}}>Confirmación {r.confirm_num}</div>
               </div>
@@ -3385,9 +3390,9 @@ function SalonPanel({turno,profile}){
                 <span style={{fontSize:12,color:C.mid}}>Desde {fmtTime(selTable.table.occupied_since)}</span>
               )}
               {(selTable.table.assigned_waiter_name||selTable.orders[0]?.waiter_name)?(
-                <span style={{fontSize:12,color:C.ink,fontWeight:600}}>👤 Mozo: {selTable.table.assigned_waiter_name||selTable.orders[0].waiter_name}</span>
+                <span style={{fontSize:12,color:C.ink,fontWeight:600,display:'inline-flex',alignItems:'center',gap:5}}><Icon name="user" size={12} /> Mozo: {selTable.table.assigned_waiter_name||selTable.orders[0].waiter_name}</span>
               ):(
-                <span style={{fontSize:12,color:C.mid}}>👤 Sin mozo asignado</span>
+                <span style={{fontSize:12,color:C.mid,display:'inline-flex',alignItems:'center',gap:5}}><Icon name="user" size={12} /> Sin mozo asignado</span>
               )}
             </div>
 
@@ -3427,7 +3432,7 @@ function SalonPanel({turno,profile}){
                     <div style={{display:'flex',gap:8,alignItems:'center'}}>
                       <span style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>#{ord.order_number}</span>
                       {!(ord.status==='pending_payment'&&esPagado)&&<Badge txt={SL[ord.status]||ord.status} color={SC[ord.status]||'#6E6E73'} />}
-                      {esPagado?<span style={{fontSize:10,color:C.green,fontWeight:700}}>✓ Cobrado</span>:<span style={{fontSize:10,color:C.red,fontWeight:700}}>⚠ Sin cobrar</span>}
+                      {esPagado?<span style={{fontSize:10,color:C.green,fontWeight:700}}>✓ Cobrado</span>:<span style={{fontSize:10,color:C.red,fontWeight:700}}>Sin cobrar</span>}
                     </div>
                     <div style={{textAlign:'right'}}>
                       <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:16,fontWeight:800,color:esPagado?C.green:C.red}}>{fmt(ord.total)}</div>
@@ -3647,7 +3652,7 @@ function CalculadoraFlotante(){
         fontSize:20,cursor:'pointer',
         boxShadow:'0 4px 16px rgba(0,0,0,0.5)',
         display:'flex',alignItems:'center',justifyContent:'center',
-      }}>🧮</button>
+      }}><Icon name="dashboard" size={20} /></button>
 
       {open&&(
         <div style={{
@@ -3694,7 +3699,7 @@ function ReservaFormModalCaja({reserva,tables,onClose,onSaved}){
   const isNew=!reserva;
   const now=new Date();
   const MONTHS_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  const OCCASION_OPTS=[{id:'',label:'Sin motivo especial'},{id:'birthday',label:'🎂 Cumpleaños'},{id:'anniversary',label:'💑 Aniversario'},{id:'business',label:'💼 Reunión'},{id:'celebration',label:'🥂 Celebración'},{id:'other',label:'✦ Otro'}];
+  const OCCASION_OPTS=[{id:'',label:'Sin motivo especial'},{id:'birthday',label:'Cumpleaños'},{id:'anniversary',label:'Aniversario'},{id:'business',label:'Reunión'},{id:'celebration',label:'Celebración'},{id:'other',label:'Otro'}];
   const STATUS_OPTS=[{id:'pending',label:'Pendiente'},{id:'confirmed',label:'Confirmada'},{id:'seated',label:'En mesa'},{id:'no_show',label:'No llegó'},{id:'cancelled',label:'Cancelada'}];
 
   const TIME_SLOTS=[];
@@ -3868,7 +3873,7 @@ function ReservasPanel(){
   const [editModal,setEditModal]=useState(null);
   const [tables,setTables]=useState([]);
 
-  const OCCASION_LABEL={birthday:'🎂 Cumpleaños',anniversary:'💑 Aniversario',business:'💼 Reunión',celebration:'🥂 Celebración',other:'✦ Otro'};
+  const OCCASION_LABEL={birthday:'Cumpleaños',anniversary:'Aniversario',business:'Reunión',celebration:'Celebración',other:'Otro'};
   const STATUS_CFG={
     pending:   {label:'Pendiente', color:'#FF9500', bg:'rgba(255,149,0,.12)'},
     confirmed: {label:'Confirmada',color:'#34C759', bg:'rgba(52,199,89,.12)'},
@@ -3936,7 +3941,7 @@ function ReservasPanel(){
                     </div>
                     <div style={{display:'flex',gap:16,fontSize:12,color:C.mid,flexWrap:'wrap'}}>
                       <span>◷ {fmtTime(r.reservation_time)}</span>
-                      <span>👥 {r.guests} personas</span>
+                      <span style={{display:'inline-flex',alignItems:'center',gap:4}}><Icon name="users" size={12} /> {r.guests} personas</span>
                       {r.table_id&&<span>Mesa asignada</span>}
                       {r.occasion&&<span>{OCCASION_LABEL[r.occasion]||r.occasion}</span>}
                     </div>
@@ -4031,7 +4036,7 @@ function FacturasCajaPanel({turno}){
 
       {/* Placeholder facturación electrónica */}
       <div style={{background:'rgba(0,122,255,0.06)',border:'1px solid rgba(0,122,255,0.2)',borderRadius:10,padding:'12px 16px',marginBottom:20,display:'flex',alignItems:'center',gap:12}}>
-        <span style={{fontSize:22}}>🇵🇾</span>
+        <span style={{display:'flex',flexShrink:0,color:'#007AFF'}}><Icon name="fileText" size={22} /></span>
         <div>
           <div style={{fontSize:13,fontWeight:700,color:'#007AFF'}}>Facturación electrónica SET (SIFEN)</div>
           <div style={{fontSize:11,color:C.mid,marginTop:2}}>Próximamente — integración con la SET de Paraguay para emisión de facturas electrónicas (e-Kuatia).</div>
@@ -4043,7 +4048,7 @@ function FacturasCajaPanel({turno}){
 
       {!loading&&cobros.length===0&&(
         <div style={{textAlign:'center',padding:'60px 0',color:C.mid}}>
-          <div style={{fontSize:36,marginBottom:12}}>🧾</div>
+          <div style={{marginBottom:12,display:'flex',justifyContent:'center'}}><Icon name="receipt" size={34} /></div>
           <div style={{fontSize:14,fontWeight:700}}>Sin facturas en este turno</div>
           <div style={{fontSize:12,marginTop:4}}>Aparecen aquí al cobrar pedidos</div>
         </div>
@@ -4065,7 +4070,7 @@ function FacturasCajaPanel({turno}){
                   <div style={{fontSize:11,color:C.dim}}>{hora}</div>
                 </div>
                 <div style={{fontFamily:"'SF Mono',monospace",fontSize:16,fontWeight:800,color:'#34C759',flexShrink:0}}>{fmt(c.monto)}</div>
-                <button onClick={()=>reimprimir(c)} title="Reimprimir ticket" style={{padding:'6px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:13,cursor:'pointer',flexShrink:0}}>🖨</button>
+                <button onClick={()=>reimprimir(c)} title="Reimprimir ticket" style={{padding:'6px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,cursor:'pointer',flexShrink:0,display:'inline-flex',alignItems:'center'}}><Icon name="print" size={14} /></button>
               </div>
             );
           })}
@@ -4159,7 +4164,7 @@ function HistorialPanel({onGoCobros}){
       {alertaPendientes>0&&(
         <div style={{background:'rgba(255,59,48,0.08)',border:'2px solid rgba(255,59,48,0.5)',borderRadius:10,padding:'12px 16px',marginBottom:16,display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
           <div>
-            <div style={{fontWeight:800,color:'#FF3B30',fontSize:14}}>⚠ {alertaPendientes} pedido{alertaPendientes>1?'s':''} sin cobrar en el historial</div>
+            <div style={{fontWeight:800,color:'#FF3B30',fontSize:14}}>{alertaPendientes} pedido{alertaPendientes>1?'s':''} sin cobrar en el historial</div>
             <div style={{fontSize:12,color:C.mid,marginTop:2}}>Estos pedidos no deberían estar aquí sin cobrar. Ir a cobrar para resolverlos.</div>
           </div>
           {onGoCobros&&<button onClick={onGoCobros} style={{background:'#FF3B30',color:'#fff',border:'none',padding:'8px 16px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>Ir a cobrar →</button>}
@@ -4232,12 +4237,12 @@ function HistorialPanel({onGoCobros}){
                   </div>
                   <div style={{fontSize:11,color:C.mid,marginTop:4,display:'flex',gap:12}}>
                     <span>{fmtDT(o.created_at)}</span>
-                    {o.payment_method&&<span>💳 {metodo}</span>}
+                    {o.payment_method&&<span style={{display:'inline-flex',alignItems:'center',gap:4}}><Icon name="creditCard" size={12} /> {metodo}</span>}
                   </div>
                 </div>
                 <div style={{textAlign:'right',flexShrink:0}}>
                   <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:esCancelado?C.red:esSinCobrar?C.orange:C.green}}>{fmt(o.total)}</div>
-                  {esSinCobrar&&<div style={{fontSize:10,color:C.orange,fontWeight:700,marginTop:2}}>⚠ PENDIENTE</div>}
+                  {esSinCobrar&&<div style={{fontSize:10,color:C.orange,fontWeight:700,marginTop:2}}>PENDIENTE</div>}
                 </div>
               </div>
             );
@@ -4419,7 +4424,7 @@ function DashboardCaja({turno,profile,onCierre}){
       if(lastIds.size>0&&fresh.length>0){
         fresh.forEach(c=>{
           const mesa=c.tables?.number?`Mesa ${c.tables.number}`:'Mesa ?';
-          toast(`💰 ${mesa} solicita cobro`,true);
+          toast(`${mesa} solicita cobro`,true);
           try{
             const ctx=new (window.AudioContext||window.webkitAudioContext)();
             const osc=ctx.createOscillator();const g=ctx.createGain();
@@ -4507,7 +4512,7 @@ function DashboardCaja({turno,profile,onCierre}){
         {paymentCalls.length>0&&(
           <div style={{background:'rgba(255,149,0,0.12)',border:'1px solid rgba(255,149,0,0.5)',borderRadius:10,padding:'12px 16px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
             <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-              <span style={{fontSize:18}}>💰</span>
+              <span style={{display:'flex',color:C.ink}}><Icon name="money" size={18} /></span>
               <span style={{fontSize:13,fontWeight:700,color:C.ink}}>
                 {paymentCalls.length===1?'1 mesa solicita cobro':`${paymentCalls.length} mesas solicitan cobro`}
               </span>
@@ -4608,7 +4613,7 @@ function CajaApp({profile}){
     <div style={{minHeight:'100vh',background:C.bg,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
       <div style={{width:'100%',maxWidth:480,animation:'fadeIn .2s ease'}}>
         <div style={{textAlign:'center',marginBottom:20}}>
-          <div style={{fontSize:38,marginBottom:8}}>🔓</div>
+          <div style={{marginBottom:8,display:'flex',justifyContent:'center',color:C.ink}}><Icon name="unlock" size={36} /></div>
           <div style={{fontFamily:'DM Serif Display',fontSize:26,marginBottom:6,color:C.ink}}>Caja abierta sin cierre</div>
           <div style={{fontSize:13,color:C.mid}}>
             Hay un turno abierto por <strong style={{color:C.ink}}>{turnoConflicto.cajero_nombre||'otro cajero'}</strong> desde {fmtDT(turnoConflicto.fecha_apertura)}.

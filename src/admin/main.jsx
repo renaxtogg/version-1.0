@@ -291,7 +291,7 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
       <div style={{display:'flex',alignItems:'center',gap:6}}>
         {value
           ? <img src={value} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:5,flexShrink:0,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
-          : <div style={{width:36,height:36,background:C.white,borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>🍽</div>}
+          : <div style={{width:36,height:36,background:C.white,borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,color:C.mid}}><Icon name="utensils" size={16}/></div>}
         <div style={{display:'flex',flexDirection:'column',gap:3}}>
           <button onClick={()=>ref.current.click()} disabled={busy} style={{background:'transparent',border:`1px solid ${C.border}`,color:C.mid,padding:'2px 8px',fontSize:10,fontWeight:600,borderRadius:4,cursor:'pointer',whiteSpace:'nowrap'}}>
             {busy?'⏳':value?'Cambiar':'Subir foto'}
@@ -327,7 +327,7 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
       {busy
         ? <><span className="spin"/><div style={{fontSize:12,color:C.mid,marginTop:10}}>Comprimiendo y subiendo…</div></>
         : <>
-          <div style={{fontSize:28,marginBottom:6}}>🖼</div>
+          <div style={{marginBottom:6,display:'flex',justifyContent:'center',color:C.mid}}><Icon name="upload" size={26}/></div>
           <div style={{fontSize:12,color:C.mid}}>Arrastrá una imagen o hacé clic para subir</div>
           <div style={{fontSize:10,color:C.dim,marginTop:4}}>JPG · PNG · WebP · máx 5 MB · se comprime automáticamente</div>
         </>}
@@ -431,7 +431,7 @@ function SucursalSwitcher({caps}) {
     <div style={{position:'relative',marginBottom:18}}>
       <button onClick={()=>setOpen(o=>!o)}
         style={{display:'inline-flex',alignItems:'center',gap:8,background:C.surface,border:`1px solid ${C.ink}`,color:C.ink,borderRadius:10,padding:'8px 14px',fontSize:13,fontWeight:700,cursor:'pointer'}}>
-        <span>📍 Sucursal:</span>
+        <span style={{display:'inline-flex',alignItems:'center',gap:5}}><Icon name="pin" size={13}/> Sucursal:</span>
         <span style={{fontWeight:800}}>{current?.name||'—'}</span>
         <span style={{fontSize:10,opacity:.7,transform:open?'rotate(180deg)':'none',transition:'transform .12s'}}>▼</span>
       </button>
@@ -453,7 +453,7 @@ function SucursalSwitcher({caps}) {
                     {b.name}{b.is_root?'  ·  Casa Central':''}{b.city?`  ·  ${b.city}`:''}
                   </span>
                   {active && <span style={{fontSize:11}}>✓</span>}
-                  {locked && <span style={{fontSize:11}}>🔒</span>}
+                  {locked && <span style={{display:'inline-flex'}}><Icon name="lock" size={12}/></span>}
                 </button>
               );
             })}
@@ -547,7 +547,7 @@ function UpgradeModal({panel, onClose}) {
       {plans===null
         ? <div style={{textAlign:'center',padding:'28px 0',color:C.dim,fontSize:13}}>Cargando planes…</div>
         : plans.length===0
-          ? <a href={waPlan(null)} target="_blank" rel="noopener noreferrer" style={{display:'block',textAlign:'center',background:C.ink,color:C.surface,fontSize:13,fontWeight:700,padding:'12px',borderRadius:10,textDecoration:'none'}}>📲 Consultar por WhatsApp</a>
+          ? <a href={waPlan(null)} target="_blank" rel="noopener noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'center',gap:6,background:C.ink,color:C.surface,fontSize:13,fontWeight:700,padding:'12px',borderRadius:10,textDecoration:'none'}}><Icon name="phone" size={14}/> Consultar por WhatsApp</a>
           : <div style={{display:'flex',flexDirection:'column',gap:12}}>
               {plans.map(pl=>{
                 const inc = includesPanel(pl);
@@ -567,7 +567,7 @@ function UpgradeModal({panel, onClose}) {
                     </div>
                     <a href={waPlan(pl)} target="_blank" rel="noopener noreferrer"
                        style={{display:'inline-flex',alignItems:'center',gap:6,background:inc?C.ink:'transparent',color:inc?C.surface:C.ink,border:`1px solid ${C.ink}`,fontSize:12.5,fontWeight:700,padding:'8px 14px',borderRadius:9,textDecoration:'none'}}>
-                      📲 Consultar {pl.name}
+                      <Icon name="phone" size={13}/> Consultar {pl.name}
                     </a>
                   </div>
                 );
@@ -615,7 +615,7 @@ function PanelesPage({caps}) {
                     <div style={{fontSize:12,color:C.mid,lineHeight:1.45,flex:1,marginBottom:12}}>No tenés acceso a este panel. Mejorá tu plan e inclúyelo para potenciar tu operación.</div>
                     <button onClick={e=>{ e.stopPropagation(); setUpgrade(p); }}
                        style={{display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6,background:C.ink,color:C.surface,border:'none',fontSize:12.5,fontWeight:700,padding:'9px 12px',borderRadius:9,cursor:'pointer',width:'100%'}}>
-                      🔓 Ver planes y mejorar
+                      <Icon name="unlock" size={13}/> Ver planes y mejorar
                     </button>
                   </React.Fragment>
                 : <React.Fragment>
@@ -973,7 +973,7 @@ function DashboardPage({orders, ratings, setPage}) {
           allAlerts.push({
             key: 'alert-'+a.id,
             level: 'critical',
-            icon: '🔴',
+            icon: 'alert',
             title: ing ? `Stock crítico: ${ing.name}` : 'Alerta de stock',
             sub: ing ? `${Number(ing.stock_quantity||0).toFixed(1)} ${ing.unit||''} en inventario` : (a.notes||''),
             action: ()=>setPage('stock'),
@@ -987,7 +987,7 @@ function DashboardPage({orders, ratings, setPage}) {
           allAlerts.push({
             key: 'low-'+i.id,
             level: 'warning',
-            icon: '🟡',
+            icon: 'alert',
             title: `Stock bajo: ${i.name}`,
             sub: `${Number(i.stock_quantity||0).toFixed(1)} ${i.unit||''} (mínimo: ${Number(i.min_threshold||0).toFixed(1)})`,
             action: ()=>setPage('stock'),
@@ -1000,7 +1000,7 @@ function DashboardPage({orders, ratings, setPage}) {
           allAlerts.push({
             key: 'sup-'+s.id,
             level: 'info',
-            icon: '📦',
+            icon: 'package',
             title: `Entrega hoy: ${s.name}`,
             sub: s.phone ? `Tel: ${s.phone}` : 'Proveedor activo',
             action: ()=>setPage('proveedores'),
@@ -1014,7 +1014,7 @@ function DashboardPage({orders, ratings, setPage}) {
           allAlerts.push({
             key: 'inv-'+inv.id,
             level: 'warning',
-            icon: '💸',
+            icon: 'money',
             title: `Factura pendiente: ${inv.supplier?.name||'Proveedor'}`,
             sub: `Saldo: ${fmt(deuda)}`,
             action: ()=>setPage('proveedores'),
@@ -1036,7 +1036,7 @@ function DashboardPage({orders, ratings, setPage}) {
             </div>
             {allAlerts.length === 0
               ? <div style={{padding:'28px 16px', textAlign:'center', color:C.dim, fontSize:13}}>
-                  <div style={{fontSize:28, marginBottom:8}}>✅</div>
+                  <div style={{marginBottom:8,display:'flex',justifyContent:'center',color:C.green}}><Icon name="checkCircle" size={28}/></div>
                   Todo en orden — sin alertas pendientes
                 </div>
               : <div style={{display:'flex', flexDirection:'column', gap:0}}>
@@ -1044,7 +1044,7 @@ function DashboardPage({orders, ratings, setPage}) {
                     const s = levelStyle[a.level]||levelStyle.info;
                     return (
                       <div key={a.key} style={{display:'flex', alignItems:'center', gap:12, padding:'10px 16px', borderBottom: idx<allAlerts.length-1?`1px solid ${C.border}`:'none', background: s.bg, borderLeft:`4px solid ${s.left}`}}>
-                        <div style={{fontSize:20, flexShrink:0}}>{a.icon}</div>
+                        <div style={{flexShrink:0, color:s.left, display:'flex'}}><Icon name={a.icon} size={20}/></div>
                         <div style={{flex:1, minWidth:0}}>
                           <div style={{fontSize:13, fontWeight:700, color: s.titleColor, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{a.title}</div>
                           <div style={{fontSize:11, color:C.mid, marginTop:1}}>{a.sub}</div>
@@ -1079,10 +1079,10 @@ function PedidosPage({orders, tables, onRefresh}) {
   const [newBadge,setNewBadge]         = useState(0);
 
   const TYPE_TABS = [
-    {id:'all',      label:'Generales',  icon:'📋', color:C.ink},
-    {id:'local',    label:'Local',       icon:'🪑', color:'#007AFF'},
-    {id:'delivery', label:'Delivery',    icon:'🛵', color:'#FF9500'},
-    {id:'llevar',   label:'Para llevar', icon:'🛍️', color:'#5856D6'},
+    {id:'all',      label:'Generales',  icon:'clipboard', color:C.ink},
+    {id:'local',    label:'Local',       icon:'utensils', color:'#007AFF'},
+    {id:'delivery', label:'Delivery',    icon:'bike', color:'#FF9500'},
+    {id:'llevar',   label:'Para llevar', icon:'package', color:'#5856D6'},
   ];
   const STATUS_TABS = [
     {id:'all',       label:'Todos',      color:C.ink, statuses:null},
@@ -1194,7 +1194,7 @@ function PedidosPage({orders, tables, onRefresh}) {
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <div style={{position:'relative'}}>
-            <span style={{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',fontSize:13,pointerEvents:'none'}}>🔍</span>
+            <span style={{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',pointerEvents:'none',display:'flex',color:C.mid}}><Icon name="search" size={13}/></span>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar N° orden…" style={{padding:'7px 10px 7px 30px',fontSize:12,borderRadius:8,border:`1px solid ${C.border}`,width:180}}/>
           </div>
           <Btn onClick={exportExcel} variant="secondary" small>Exportar Excel</Btn>
@@ -1229,7 +1229,7 @@ function PedidosPage({orders, tables, onRefresh}) {
           return (
             <button key={t.id} onClick={()=>{setTypeFilter(t.id);setStatusFilter('all');}}
               style={{display:'flex',alignItems:'center',gap:7,padding:'8px 16px',borderRadius:8,border:`2px solid ${active?t.color:C.border}`,background:active?t.color+'18':C.surface,color:active?t.color:C.mid,fontSize:13,fontWeight:active?700:500,cursor:'pointer',transition:'all .15s'}}>
-              <span>{t.icon}</span>
+              <Icon name={t.icon} size={14}/>
               <span>{t.label}</span>
               <span style={{background:active?t.color:C.dim,color:'#fff',fontSize:10,fontWeight:800,padding:'1px 7px',borderRadius:10,minWidth:20,textAlign:'center'}}>{count}</span>
             </button>
@@ -1272,10 +1272,10 @@ function PedidosPage({orders, tables, onRefresh}) {
                     <Td mono dim>{o.order_number}</Td>
                     <Td>
                       {o.order_type==='delivery'
-                        ?<span style={{color:'#FF9500',fontSize:12,fontWeight:600}}>🛵 Delivery</span>
+                        ?<span style={{color:'#FF9500',fontSize:12,fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="bike" size={12}/> Delivery</span>
                         :o.order_type==='llevar'
-                        ?<span style={{color:'#5856D6',fontSize:12,fontWeight:600}}>🛍️ Llevar</span>
-                        :<span style={{color:'#007AFF',fontSize:12,fontWeight:600}}>🪑 Local</span>}
+                        ?<span style={{color:'#5856D6',fontSize:12,fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="package" size={12}/> Llevar</span>
+                        :<span style={{color:'#007AFF',fontSize:12,fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="utensils" size={12}/> Local</span>}
                     </Td>
                     <Td>{mesaLabel(o)}</Td>
                     <Td><Badge status={o.status}/></Td>
@@ -1303,8 +1303,8 @@ function PedidosPage({orders, tables, onRefresh}) {
             <div style={{padding:'8px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
               <Badge status={selected.status}/>
               <span style={{fontSize:12,color:C.mid}}>{mesaLabel(selected)}</span>
-              {selected.order_type==='delivery'&&<span style={{fontSize:11,color:'#FF9500',fontWeight:600,background:TINT.amberBg,padding:'2px 7px',borderRadius:6}}>🛵 Delivery</span>}
-              {selected.order_type==='llevar'&&<span style={{fontSize:11,color:TINT.purpleText,fontWeight:600,background:TINT.purpleBg,padding:'2px 7px',borderRadius:6}}>🛍️ Para llevar</span>}
+              {selected.order_type==='delivery'&&<span style={{fontSize:11,color:'#FF9500',fontWeight:600,background:TINT.amberBg,padding:'2px 7px',borderRadius:6,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="bike" size={11}/> Delivery</span>}
+              {selected.order_type==='llevar'&&<span style={{fontSize:11,color:TINT.purpleText,fontWeight:600,background:TINT.purpleBg,padding:'2px 7px',borderRadius:6,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="package" size={11}/> Para llevar</span>}
             </div>
             <div style={{flex:1,padding:'8px 16px',overflowY:'auto',borderBottom:`1px solid ${C.border}`}}>
               {loadingItems&&<span className="spin"/>}
@@ -1692,7 +1692,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
           <div style={{background:C.bg,borderRadius:12,overflow:'hidden'}}>
             {previewItem.image_url
               ?<img src={previewItem.image_url} alt="" style={{width:'100%',height:200,objectFit:'cover'}} onError={e=>{e.target.style.display='none';}}/>
-              :<div style={{height:140,background:'var(--bg-subtle)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40}}>🍽</div>
+              :<div style={{height:140,background:'var(--bg-subtle)',display:'flex',alignItems:'center',justifyContent:'center',color:C.dim}}><Icon name="utensils" size={38}/></div>
             }
             <div style={{padding:20}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8,gap:8}}>
@@ -1799,7 +1799,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
                       <Td>
                         {item.image_url
                           ?<img src={item.image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
-                          :<div style={{width:36,height:36,background:C.bg,borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,color:C.dim}}>🍽</div>}
+                          :<div style={{width:36,height:36,background:C.bg,borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',color:C.dim}}><Icon name="utensils" size={14}/></div>}
                       </Td>
                       <Td>
                         <div style={{color:item.is_available?C.ink:C.dim,fontWeight:500}}>{item.name}</div>
@@ -1860,9 +1860,9 @@ const ZONAS_DEF = [
   {value:'exterior', label:'Exterior', bg:TINT.amberBg,  border:TINT.amberBorder,  dot:'#EAB308'},
 ];
 const SHAPES_DEF = [
-  {value:'square',    label:'Cuadrada',    icon:'⬜'},
-  {value:'round',     label:'Redonda',     icon:'⭕'},
-  {value:'rectangle', label:'Rectangular', icon:'▬'},
+  {value:'square',    label:'Cuadrada',    icon:'□'},
+  {value:'round',     label:'Redonda',     icon:'○'},
+  {value:'rectangle', label:'Rectangular', icon:'▭'},
 ];
 const CELL_SZ = 80; const GAP_SZ = 14;
 // Coordenadas virtuales: pos_x/pos_y son 0-1000 (porcentaje × 10).
@@ -2183,20 +2183,20 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
         const occ=resvInfo.table.is_occupied||!!resvInfo.order;
         const isAlert=occ&&mins<=resvAlertMin;
         return(
-          <Modal title={`Mesa ${resvInfo.table.number} — ${isAlert?'⚠ Reserva próxima':'Reservada'}`} onClose={()=>setResvInfo(null)} width={420}>
+          <Modal title={`Mesa ${resvInfo.table.number} — ${isAlert?'Reserva próxima':'Reservada'}`} onClose={()=>setResvInfo(null)} width={420}>
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
               {isAlert&&(
                 <div style={{background:TINT.redBg,border:`1px solid ${TINT.redBorder}`,borderRadius:8,padding:'10px 12px',fontSize:12,color:TINT.redText}}>
-                  ⚠ Esta mesa está ocupada y la reserva es {tiempoTxt}. Avisá al mozo para pedir la cuenta.
+                  Esta mesa está ocupada y la reserva es {tiempoTxt}. Avisá al mozo para pedir la cuenta.
                 </div>
               )}
               <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'12px 14px'}}>
                 <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:6}}>{r.customer_name}</div>
                 <div style={{fontSize:13,color:'#3D3D3D',lineHeight:1.7}}>
-                  📞 {r.customer_phone}<br/>
-                  🕐 Hora reservada: <strong>{horaTxt}</strong> ({tiempoTxt})<br/>
-                  👥 {r.guests} personas{r.occasion?<><br/>🎉 Motivo: {r.occasion}</>:null}
-                  {r.notes?<><br/>📝 {r.notes}</>:null}
+                  <Icon name="phone" size={12} style={{verticalAlign:'-2px',marginRight:4}}/> {r.customer_phone}<br/>
+                  <Icon name="clock" size={12} style={{verticalAlign:'-2px',marginRight:4}}/> Hora reservada: <strong>{horaTxt}</strong> ({tiempoTxt})<br/>
+                  <Icon name="users" size={12} style={{verticalAlign:'-2px',marginRight:4}}/> {r.guests} personas{r.occasion?<><br/><Icon name="sparkles" size={12} style={{verticalAlign:'-2px',marginRight:4}}/> Motivo: {r.occasion}</>:null}
+                  {r.notes?<><br/><Icon name="fileText" size={12} style={{verticalAlign:'-2px',marginRight:4}}/> {r.notes}</>:null}
                 </div>
                 <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:C.dim,marginTop:8}}>Confirmación {r.confirm_num}</div>
               </div>
@@ -2885,7 +2885,7 @@ function ClientesPage({orders}) {
   const ORDER_TYPES = {
     'mesa':'QR Mesa','llevar':'Para Llevar','delivery':'Delivery','counter':'Mostrador','external':'Plataforma'
   };
-  const CANAL_ICON  = {'mesa':'🪑','llevar':'🥡','delivery':'🛵','counter':'🏪','external':'📱'};
+  const CANAL_ICON  = {'mesa':'utensils','llevar':'package','delivery':'bike','counter':'store','external':'phone'}; // WS5: nombres MythosIcons (no emoji)
   const CANAL_COLOR = {'mesa':'#007AFF','llevar':'#34C759','delivery':'#FF9500','counter':'#8E8E93','external':'#AF52DE'};
 
   useEffect(()=>{
@@ -3259,7 +3259,7 @@ function ClientesPage({orders}) {
         data:anonOrds.slice(0,300).map(o=>[
           o.order_number||o.id?.slice(-6)||'—',
           fmtDate(o.created_at),
-          (CANAL_ICON[o.order_type]||'')+' '+(ORDER_TYPES[o.order_type]||o.order_type||'—'),
+          (ORDER_TYPES[o.order_type]||o.order_type||'—'),
           fmt(o.total||0),
           o.table_number?`Mesa ${o.table_number}`:o.delivery_address||'—',
           o.payment_method||'—',
@@ -3399,7 +3399,7 @@ function ClientesPage({orders}) {
     return <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
       {canales.map(([k,v])=>(
         <span key={k} style={{background:CANAL_COLOR[k]||'#8E8E93',color:'#fff',padding:'1px 6px',borderRadius:10,fontSize:9,fontWeight:700,whiteSpace:'nowrap'}}>
-          {CANAL_ICON[k]||''} {ORDER_TYPES[k]||k}{v>1?` ×${v}`:''}
+<Icon name={CANAL_ICON[k]} size={12} style={{verticalAlign:'-2px',marginRight:3}}/> {ORDER_TYPES[k]||k}{v>1?` ×${v}`:''}
         </span>
       ))}
     </div>;
@@ -3443,7 +3443,7 @@ function ClientesPage({orders}) {
             const pct=Math.round(count/totalCanalOrds*100);
             return (
               <div key={k} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,minWidth:70}}>
-                <div style={{fontSize:18}}>{CANAL_ICON[k]}</div>
+                <div style={{display:'flex'}}><Icon name={CANAL_ICON[k]} size={18}/></div>
                 <div style={{fontSize:11,fontWeight:700,color:CANAL_COLOR[k]}}>{count}</div>
                 <div style={{fontSize:10,color:C.mid,textAlign:'center',lineHeight:1.2}}>{v}</div>
                 <div style={{width:60,height:4,background:C.card,borderRadius:2}}>
@@ -3458,7 +3458,7 @@ function ClientesPage({orders}) {
 
       {/* ── Top consumidores ── */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:14}}>
-        {[['🏆 Top del día',topDia],['⭐ Top de la semana',topSemana],['👑 Top del mes',topMes]].map(([lbl,top])=>(
+        {[['Top del día',topDia],['Top de la semana',topSemana],['Top del mes',topMes]].map(([lbl,top])=>(
           <div key={lbl} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px'}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:0.8,marginBottom:6}}>{lbl}</div>
             {top?<>
@@ -3466,7 +3466,7 @@ function ClientesPage({orders}) {
               {top.phone&&<div style={{fontSize:11,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace",marginTop:1}}>{top.phone}</div>}
               {top.email&&<div style={{fontSize:10,color:C.dim,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{top.email}</div>}
               <div style={{fontSize:12,color:C.orange,marginTop:4,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{fmt(top.total)}</div>
-              <div style={{fontSize:10,color:C.dim}}>{top.orders} pedido{top.orders!==1?'s':''} · {CANAL_ICON[top.canal]||''} {ORDER_TYPES[top.canal]||top.canal||'—'}</div>
+              <div style={{fontSize:10,color:C.dim}}>{top.orders} pedido{top.orders!==1?'s':''} · {ORDER_TYPES[top.canal]||top.canal||'—'}</div>
             </>:<div style={{fontSize:12,color:C.dim}}>Sin datos</div>}
           </div>
         ))}
@@ -3566,7 +3566,7 @@ function ClientesPage({orders}) {
         </div>
         <select value={canalF} onChange={e=>setCanalF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
           <option value="todos">Todos los canales</option>
-          {Object.entries(ORDER_TYPES).map(([k,v])=><option key={k} value={k}>{CANAL_ICON[k]} {v}</option>)}
+          {Object.entries(ORDER_TYPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}
         </select>
         <select value={periodF} onChange={e=>setPeriodF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
           <option value="todos">Todo el tiempo</option>
@@ -3605,7 +3605,7 @@ function ClientesPage({orders}) {
                     <div style={{display:'flex',gap:3,marginTop:3,flexWrap:'wrap'}}>
                       {c.pideFactura&&<span style={{fontSize:9,fontWeight:700,color:TINT.blueText,background:TINT.blueBg,padding:'1px 4px',borderRadius:3}}>FACTURA</span>}
                       {c.orders>=3&&!c.isVip&&<span style={{fontSize:9,fontWeight:700,color:C.green,background:TINT.greenBg,padding:'1px 4px',borderRadius:3}}>FRECUENTE</span>}
-                      {c.addresses.length>0&&<span style={{fontSize:9,fontWeight:700,color:'#FF9500',background:TINT.amberBg,padding:'1px 4px',borderRadius:3}}>🛵</span>}
+                      {c.addresses.length>0&&<span style={{fontWeight:700,color:'#FF9500',background:TINT.amberBg,padding:'2px 4px',borderRadius:3,display:'inline-flex'}}><Icon name="bike" size={10}/></span>}
                     </div>
                   </Td>
                   <Td>
@@ -3619,7 +3619,7 @@ function ClientesPage({orders}) {
                   <Td><CanalBar canalCount={c.canalCount}/></Td>
                   <Td>
                     {c.addresses.length>0
-                      ?<div style={{fontSize:11,color:'#FF9500',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={c.addresses.join(' | ')}>🛵 {c.addresses[0]}{c.addresses.length>1?` +${c.addresses.length-1}`:''}</div>
+                      ?<div style={{fontSize:11,color:'#FF9500',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={c.addresses.join(' | ')}><Icon name="bike" size={11} style={{verticalAlign:'-2px',marginRight:2}}/> {c.addresses[0]}{c.addresses.length>1?` +${c.addresses.length-1}`:''}</div>
                       :<span style={{color:C.dim,fontSize:11}}>—</span>
                     }
                   </Td>
@@ -3649,12 +3649,12 @@ function ClientesPage({orders}) {
                   <TypeBadge c={detalle}/>
                   {detalle.orders>=3&&<span style={{background:TINT.greenBg,color:C.green,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>FRECUENTE</span>}
                   {detalle.pideFactura&&<span style={{background:TINT.blueBg,color:TINT.blueText,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>PIDE FACTURA</span>}
-                  {(detalle.canalCount['delivery']||0)>0&&<span style={{background:TINT.amberBg,color:'#FF9500',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>🛵 DELIVERY</span>}
+                  {(detalle.canalCount['delivery']||0)>0&&<span style={{background:TINT.amberBg,color:'#FF9500',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="bike" size={10}/> DELIVERY</span>}
                 </div>
               </div>
               {detalle.phone&&(
                 <a href={`https://wa.me/595${detalle.phone.replace(/\D/g,'').replace(/^0/,'').replace(/^595/,'')}`} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',gap:6,background:'#25D366',color:'#fff',padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:700,textDecoration:'none',whiteSpace:'nowrap'}}>
-                  <span>💬</span> WhatsApp
+                  <Icon name="chat" size={14}/> WhatsApp
                 </a>
               )}
             </div>
@@ -3676,7 +3676,7 @@ function ClientesPage({orders}) {
                     <div style={{fontSize:10,color:C.dim,marginBottom:4}}>Direcciones de delivery ({detalle.addresses.length})</div>
                     {detalle.addresses.map((a,i)=>(
                       <div key={i} style={{fontSize:12,padding:'5px 10px',background:TINT.amberBg,borderRadius:6,marginBottom:4,display:'flex',alignItems:'center',gap:6}}>
-                        <span>🛵</span><span style={{flex:1}}>{a}</span>
+                        <span style={{display:'inline-flex'}}><Icon name="bike" size={13}/></span><span style={{flex:1}}>{a}</span>
                       </div>
                     ))}
                   </div>
@@ -3719,7 +3719,7 @@ function ClientesPage({orders}) {
                   const pct = Math.round(v/detalle.orders*100);
                   return (
                     <div key={k} style={{background:C.bg,borderRadius:8,padding:'8px 12px',minWidth:90,textAlign:'center'}}>
-                      <div style={{fontSize:20,marginBottom:2}}>{CANAL_ICON[k]||'📦'}</div>
+                      <div style={{marginBottom:2,display:'flex',justifyContent:'center'}}><Icon name={CANAL_ICON[k]||'package'} size={20}/></div>
                       <div style={{fontSize:12,fontWeight:700,color:CANAL_COLOR[k]||'#000'}}>{v} pedido{v!==1?'s':''}</div>
                       <div style={{fontSize:10,color:C.dim}}>{ORDER_TYPES[k]||k}</div>
                       <div style={{fontSize:10,color:C.dim}}>{pct}%</div>
@@ -3748,7 +3748,7 @@ function ClientesPage({orders}) {
                   {detalleOrders.map((o,i)=>(
                     <div key={o.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderBottom:i<detalleOrders.length-1?`1px solid ${C.border}`:'none'}}>
                       <div style={{display:'flex',alignItems:'center',gap:8}}>
-                        <span style={{fontSize:14}}>{CANAL_ICON[o.type]||'📦'}</span>
+                        <span style={{display:'inline-flex'}}><Icon name={CANAL_ICON[o.type]||'package'} size={14}/></span>
                         <div>
                           <div style={{fontSize:12,fontWeight:600,color:C.ink}}>{o.num?`#${o.num}`:o.id.slice(0,8)}</div>
                           <div style={{fontSize:10,color:C.dim}}>{fmtDate(o.date)} · {ORDER_TYPES[o.type]||o.type||'—'}</div>
@@ -3864,7 +3864,7 @@ function CajaAdminPage() {
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <h1 style={{fontSize:22,fontWeight:800,color:C.ink}}>Caja</h1>
         <a href="caja.html" target="_blank" style={{padding:'9px 18px',background:C.ink,color:C.sidebar,borderRadius:6,fontSize:13,fontWeight:700,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:6}}>
-          🖥 Abrir Panel de Caja
+          <Icon name="creditCard" size={14}/> Abrir Panel de Caja
         </a>
       </div>
 
@@ -3964,7 +3964,7 @@ function CajaAdminPage() {
                   {turnos.slice(0,5).map(t=>(
                     <button key={t.id} onClick={()=>loadMovs(t)}
                       style={{padding:'4px 10px',fontSize:11,borderRadius:5,border:`1px solid ${selTurno?.id===t.id?C.ink:C.border}`,background:selTurno?.id===t.id?C.ink:'transparent',color:selTurno?.id===t.id?C.sidebar:C.mid,cursor:'pointer',fontWeight:selTurno?.id===t.id?700:400}}>
-                      {fmtDate(t.fecha_apertura)} {t.cajero_nombre?`(${t.cajero_nombre.split(' ')[0]})`:''} {t.estado==='abierto'?'🟢':''}
+                      {fmtDate(t.fecha_apertura)} {t.cajero_nombre?`(${t.cajero_nombre.split(' ')[0]})`:''} {t.estado==='abierto'?<span style={{color:'#34C759'}}>●</span>:''}
                     </button>
                   ))}
                 </div>
@@ -4032,7 +4032,7 @@ function CajaAdminPage() {
                     <div key={q.id} style={{padding:'8px 14px',borderBottom:`1px solid #0d0d0d`}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
                         <span style={{background:(quejaCols[q.tipo]||'#6E6E73')+'22',color:quejaCols[q.tipo]||'#6E6E73',padding:'1px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>{q.tipo}</span>
-                        {q.urgencia==='alta'&&<span style={{background:C.red+'22',color:C.red,padding:'1px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>⚠ ALTA</span>}
+                        {q.urgencia==='alta'&&<span style={{background:C.red+'22',color:C.red,padding:'1px 6px',fontSize:10,fontWeight:700,borderRadius:4}}>ALTA</span>}
                         <span style={{fontSize:10,color:C.dim}}>{fmtDate(q.created_at)}</span>
                       </div>
                       <div style={{fontSize:11,color:C.mid,marginTop:2,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{q.descripcion}</div>
@@ -4983,7 +4983,7 @@ function StockPage() {
   const itemName = id => menuItems.find(i=>i.id===parseInt(id))?.name||id;
   const mvtIcon  = t => ({load:'↑',deduct:'↓',adjustment:'≈',waste:'✕',expired:'⚠'}[t]||'•');
   const mvtColor = t => ({load:C.green,deduct:C.blue,adjustment:C.yellow,waste:C.orange,expired:C.red}[t]||C.mid);
-  const alertIcon  = t => ({low_stock:'⚠',critical_stock:'🔴',expiring_soon:'📅',expired:'💀'}[t]||'•');
+  const alertIcon  = t => ({low_stock:'⚠',critical_stock:'●',expiring_soon:'◷',expired:'✕'}[t]||'•');
   const alertColor = t => ({low_stock:C.yellow,critical_stock:C.red,expiring_soon:C.orange,expired:C.red}[t]||C.mid);
   const alertLabel = t => ({low_stock:'Stock bajo',critical_stock:'Stock crítico',expiring_soon:'Por vencer',expired:'Vencido'}[t]||t);
 
@@ -5023,7 +5023,7 @@ function StockPage() {
       {/* Banner: falta toma de apertura */}
       {faltaApertura&&tab!=='toma'&&(
         <div onClick={()=>setTab('toma')} style={{cursor:'pointer',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'10px 16px',marginBottom:12,display:'flex',alignItems:'center',gap:10}}>
-          <span style={{fontSize:18}}>📋</span>
+          <span style={{display:'flex',color:TINT.amberText}}><Icon name="clipboard" size={18}/></span>
           <div style={{flex:1}}>
             <div style={{fontWeight:700,fontSize:13,color:TINT.amberText}}>Toma de inventario de apertura pendiente</div>
             <div style={{fontSize:11,color:TINT.amberText,opacity:.8}}>Realizá el conteo de stock al iniciar el día. Hacé clic aquí para comenzar.</div>
@@ -5287,7 +5287,7 @@ function StockPage() {
                             <div style={{fontSize:11,color:C.mid}}>{fmtDT(ultima.created_at)}</div>
                           </>
                         ) : enCurso ? (
-                          <div style={{fontSize:11,color:C.yellow,fontWeight:600}}>⚡ En curso…</div>
+                          <div style={{fontSize:11,color:C.yellow,fontWeight:600}}>En curso…</div>
                         ) : (
                           <div style={{fontSize:11,color:'#C0190F',fontWeight:600}}>✗ Pendiente hoy</div>
                         )}
@@ -5334,7 +5334,7 @@ function StockPage() {
                         <div style={{padding:'8px 14px',borderBottom:`1px solid ${C.border}`,fontSize:11,fontWeight:700,color:C.mid,letterSpacing:1}}>HISTORIAL DE HOY</div>
                         {todaySessions.map(s=>(
                           <div key={s.id} style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}30`,display:'flex',alignItems:'center',gap:10}}>
-                            <span style={{fontSize:16}}>{s.session_type==='apertura'?'🌅':'🌙'}</span>
+                            <span style={{display:'flex',color:C.mid}}><Icon name={s.session_type==='apertura'?'sun':'moon'} size={16}/></span>
                             <div style={{flex:1}}>
                               <span style={{fontWeight:600,fontSize:13,textTransform:'capitalize'}}>{s.session_type}</span>
                               <span style={{marginLeft:8,padding:'1px 7px',borderRadius:10,fontSize:10,fontWeight:700,background:s.status==='completado'?C.green+'22':'#FFD58022',color:s.status==='completado'?C.green:'#8A4B00'}}>
@@ -7254,14 +7254,14 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
           _movePinTo(place.geometry.location.lat(), place.geometry.location.lng());
           setSearchQ(place.name||item.main);
           setSearchRes([]);
-          setHint(`📍 ${place.name||item.main} — guardá para confirmar`);
+          setHint(`${place.name||item.main} — guardá para confirmar`);
         }
       );
     } else {
       _movePinTo(parseFloat(item.lat||0), parseFloat(item.lon||0));
       setSearchQ(item.main);
       setSearchRes([]);
-      setHint('📍 Ubicación actualizada — guardá para confirmar');
+      setHint('Ubicación actualizada — guardá para confirmar');
     }
   }
 
@@ -7282,12 +7282,12 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
         html:'<div style="width:22px;height:22px;background:#000;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,0.5);cursor:grab"></div>',
         iconSize:[22,22],iconAnchor:[11,11]
       })
-    }).addTo(map).bindTooltip('📍 Local (arrastrar)',{permanent:false});
+    }).addTo(map).bindTooltip('Local (arrastrar)',{permanent:false});
     pin.on('dragend',e=>{
       const {lat,lng}=e.target.getLatLng();
       latRef.current=lat; lngRef.current=lng;
       Object.values(circlesRef.current).forEach(c=>c.setLatLng([lat,lng]));
-      setHint('📍 Ubicación del local actualizada');
+      setHint('Ubicación del local actualizada');
     });
     pinRef.current = pin;
 
@@ -7383,7 +7383,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
           {/* Buscador de lugares */}
           <div style={{position:'relative'}}>
             <div style={{display:'flex',alignItems:'center',gap:8,background:C.bg,border:`1.5px solid ${gmapsReady?'#A3D9B1':'#D2D2D7'}`,borderRadius:10,padding:'9px 12px'}}>
-              <span style={{fontSize:16,flexShrink:0}}>🔍</span>
+              <span style={{flexShrink:0,display:'flex',color:C.mid}}><Icon name="search" size={16}/></span>
               <input
                 value={searchQ}
                 onChange={e=>handleSearchChange(e.target.value)}
@@ -7404,12 +7404,12 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
 
             {/* Aviso Maps — siempre visible en modo demo */}
             <div style={{marginTop:6,padding:'7px 10px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:7,fontSize:11,color:TINT.amberText,display:'flex',gap:6,alignItems:'center'}}>
-              <span style={{flexShrink:0}}>🗺️</span>
+              <span style={{flexShrink:0,display:'flex'}}><Icon name="pin" size={13}/></span>
               <span>Usando cálculo estimado por zonas (Google Maps en modo demostración)</span>
             </div>
             {!GKEY&&(
               <div style={{marginTop:4,padding:'7px 10px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:7,fontSize:10,color:TINT.amberText,display:'flex',gap:6,alignItems:'flex-start'}}>
-                <span style={{flexShrink:0}}>⚠</span>
+                <span style={{flexShrink:0,display:'flex'}}><Icon name="alert" size={12}/></span>
                 <span>Para activar búsqueda por nombre de negocio agregá <code style={{fontFamily:"'SF Mono',monospace",fontSize:10}}>googleMapsKey: 'AIza…'</code> en <strong>config.js</strong> y habilitá <em>Maps JS API + Places API</em> en Google Cloud Console.</span>
               </div>
             )}
@@ -7421,7 +7421,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
                     style={{display:'block',width:'100%',padding:'10px 14px',textAlign:'left',background:'none',border:'none',borderBottom:i<searchRes.length-1?'1px solid #F0F0F0':'none',cursor:'pointer',fontFamily:'inherit'}}
                     onMouseEnter={e=>e.currentTarget.style.background='var(--bg-subtle)'}
                     onMouseLeave={e=>e.currentTarget.style.background='none'}>
-                    <div style={{fontSize:13,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>📍 {r.main}</div>
+                    <div style={{fontSize:13,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}><Icon name="pin" size={12} style={{verticalAlign:'-2px',marginRight:2}}/> {r.main}</div>
                     {r.secondary&&<div style={{fontSize:11,color:C.dim,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.secondary}</div>}
                   </button>
                 ))}
@@ -7560,7 +7560,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
         <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>ZONAS DE COBERTURA</div>
           <div style={{display:'flex',gap:6}}>
-            <Btn small variant="secondary" onClick={()=>setMapOpen(true)}>🗺 Editor de mapa</Btn>
+            <Btn small variant="secondary" onClick={()=>setMapOpen(true)}><Icon name="pin" size={13} style={{verticalAlign:'-2px',marginRight:4}}/>Editor de mapa</Btn>
             <Btn small onClick={()=>{setZForm({name:'',radius:'',price:0,time:30,active:true,color:'red'});setZoneModal('new');}}>+ Agregar zona</Btn>
           </div>
         </div>
@@ -7673,7 +7673,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
       {mapOpen&&zones.length===0&&(
         <div style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center'}}>
           <div style={{background:C.surface,borderRadius:14,padding:28,maxWidth:360,textAlign:'center'}}>
-            <div style={{fontSize:32,marginBottom:12}}>🗺</div>
+            <div style={{marginBottom:12,display:'flex',justifyContent:'center',color:C.mid}}><Icon name="pin" size={32}/></div>
             <div style={{fontSize:15,fontWeight:800,marginBottom:8}}>Primero creá al menos una zona</div>
             <div style={{fontSize:13,color:C.dim,marginBottom:20}}>Necesitás tener zonas configuradas para editarlas en el mapa.</div>
             <Btn onClick={()=>setMapOpen(false)}>Entendido</Btn>
@@ -7821,7 +7821,7 @@ function ReservasPage({tables}) {
   const [editModal,setEditModal] = useState(null);
   const [newModal,setNewModal]  = useState(false);
 
-  const OCCASION_LABEL={birthday:'🎂 Cumpleaños',anniversary:'💑 Aniversario',business:'💼 Reunión',celebration:'🥂 Celebración',other:'✦ Otro'};
+  const OCCASION_LABEL={birthday:'Cumpleaños',anniversary:'Aniversario',business:'Reunión',celebration:'Celebración',other:'Otro'};
   const STATUS_CFG={
     pending:   {label:'Pendiente', color:'#FF9500'},
     confirmed: {label:'Confirmada',color:'#34C759'},
@@ -7908,7 +7908,7 @@ function ReservasPage({tables}) {
       {loading&&<div style={{textAlign:'center',padding:40,color:C.mid}}>Cargando…</div>}
       {!loading&&reservas.length===0&&(
         <div style={{textAlign:'center',padding:60,color:C.mid}}>
-          <div style={{fontSize:32,marginBottom:12}}>📅</div>
+          <div style={{marginBottom:12,display:'flex',justifyContent:'center',color:C.mid}}><Icon name="calendar" size={32}/></div>
           <div style={{fontSize:14,fontWeight:600,marginBottom:6}}>Sin reservas</div>
           <div style={{fontSize:12}}>Cambiá los filtros o creá una nueva reserva.</div>
         </div>
@@ -7932,7 +7932,7 @@ function ReservasPage({tables}) {
                     <td style={{padding:'10px 12px',fontFamily:'monospace',fontSize:12,color:C.mid}}>{r.confirm_num}</td>
                     <td style={{padding:'10px 12px'}}>
                       <div style={{fontWeight:600,fontSize:13,color:C.ink}}>{r.customer_name}</div>
-                      <div style={{fontSize:11,color:C.mid}}>📱 {r.customer_phone}</div>
+                      <div style={{fontSize:11,color:C.mid,display:'flex',alignItems:'center',gap:4}}><Icon name="phone" size={11}/> {r.customer_phone}</div>
                     </td>
                     <td style={{padding:'10px 12px',fontSize:13,color:C.ink,whiteSpace:'nowrap'}}>{fmtDate(r.reservation_date)}</td>
                     <td style={{padding:'10px 12px',fontSize:13,fontWeight:700,color:C.ink}}>{fmtTime(r.reservation_time)}</td>
@@ -7980,7 +7980,7 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
   const now=new Date();
   const todayStr=now.toISOString().slice(0,10);
   const MONTHS_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-  const OCCASION_OPTS=[{id:'',label:'Sin motivo especial'},{id:'birthday',label:'🎂 Cumpleaños'},{id:'anniversary',label:'💑 Aniversario'},{id:'business',label:'💼 Reunión'},{id:'celebration',label:'🥂 Celebración'},{id:'other',label:'✦ Otro'}];
+  const OCCASION_OPTS=[{id:'',label:'Sin motivo especial'},{id:'birthday',label:'Cumpleaños'},{id:'anniversary',label:'Aniversario'},{id:'business',label:'Reunión'},{id:'celebration',label:'Celebración'},{id:'other',label:'Otro'}];
   const STATUS_OPTS=[{id:'pending',label:'Pendiente'},{id:'confirmed',label:'Confirmada'},{id:'seated',label:'En mesa'},{id:'no_show',label:'No llegó'},{id:'cancelled',label:'Cancelada'}];
 
   const TIME_SLOTS=[];
@@ -8156,7 +8156,7 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
           </div>
 
           <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'9px 12px',fontSize:11,color:TINT.amberText}}>
-            ⚠ <strong>Tolerancia 15 min.</strong> Si el cliente no llega en 15 min de la hora reservada, marcá como "No llegó".
+            <strong>Tolerancia 15 min.</strong> Si el cliente no llega en 15 min de la hora reservada, marcá como "No llegó".
           </div>
 
           <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
@@ -8961,7 +8961,7 @@ function SoportePage({restaurant}) {
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,display:'flex',flexDirection:'column',overflow:'hidden'}}>
           {!selected ? (
             <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:10,padding:40,color:C.dim}}>
-              <div style={{fontSize:28,opacity:.4}}>💬</div>
+              <div style={{opacity:.4}}><Icon name="chat" size={28}/></div>
               <div style={{fontSize:14,fontWeight:600,color:C.mid}}>Seleccioná un ticket o creá uno nuevo</div>
               <div style={{fontSize:12,maxWidth:360,textAlign:'center'}}>El equipo Mythos verá automáticamente quién sos, tu rol y tu restaurante. Vos solo escribí tu consulta.</div>
             </div>
@@ -9135,17 +9135,18 @@ function NewTicketModalAdmin({onClose, onCreate, userName, role, email, restaura
 /* ══════════════════════════════════════════════
    CALENDARIO
 ══════════════════════════════════════════════ */
+// WS5: emoji → bullet geométrico monocromo '●' (U+25CF), hereda color del span.
 const CAL_TYPES = {
-  holiday: {label:'Feriado',    color:'#FF3B30', icon:'🏖'},
-  event:   {label:'Evento',     color:'#007AFF', icon:'🎉'},
-  sport:   {label:'Deportivo',  color:'#34C759', icon:'⚽'},
-  special: {label:'Especial',   color:'#AF52DE', icon:'🎊'},
-  promo:   {label:'Promoción',  color:'#FF9500', icon:'📢'},
+  holiday: {label:'Feriado',    color:'#FF3B30', icon:'●'},
+  event:   {label:'Evento',     color:'#007AFF', icon:'●'},
+  sport:   {label:'Deportivo',  color:'#34C759', icon:'●'},
+  special: {label:'Especial',   color:'#AF52DE', icon:'●'},
+  promo:   {label:'Promoción',  color:'#FF9500', icon:'●'},
 };
 const CAL_CROWD = {
-  low:    {label:'Afluencia baja',  color:'#34C759', dot:'🟢'},
-  medium: {label:'Afluencia media', color:'#FF9500', dot:'🟡'},
-  high:   {label:'Afluencia alta',  color:'#FF3B30', dot:'🔴'},
+  low:    {label:'Afluencia baja',  color:'#34C759', dot:'●'},
+  medium: {label:'Afluencia media', color:'#FF9500', dot:'●'},
+  high:   {label:'Afluencia alta',  color:'#FF3B30', dot:'●'},
 };
 const CAL_WEEK  = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
 const CAL_MONTHS= ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -9253,7 +9254,7 @@ function CalendarioPage() {
         </div>
         {highCrowdCount > 0 && (
           <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:TINT.amberText,flexShrink:0}}>
-            🔴 {highCrowdCount} evento{highCrowdCount>1?'s':''} de alta afluencia este mes
+            <span style={{color:'#FF3B30'}}>●</span> {highCrowdCount} evento{highCrowdCount>1?'s':''} de alta afluencia este mes
           </div>
         )}
       </div>
@@ -9508,7 +9509,7 @@ function AdminApp() {
     if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,flexDirection:'column',gap:14}}><span className="spin"/><div style={{fontSize:12,color:C.dim}}>Cargando datos…</div></div>;
     if(!db) return (
       <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:400,flexDirection:'column',gap:12}}>
-        <div style={{fontSize:32,color:C.dim}}>⚠</div>
+        <div style={{color:C.dim,display:'flex'}}><Icon name="alert" size={32}/></div>
         <div style={{fontSize:15,fontWeight:700}}>Sin conexión a la base de datos</div>
         <div style={{fontSize:13,color:C.mid,maxWidth:340,textAlign:'center'}}>Configurá las credenciales en <code style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.mid}}>config.js</code> o en variables de entorno de Vercel.</div>
         <a href="diag.html" style={{fontSize:13,color:C.mid,marginTop:8}}>→ Ver diagnóstico</a>
@@ -9608,7 +9609,7 @@ function FacturasAdminPage(){
 
       {/* Placeholder facturación electrónica */}
       <div style={{background:'rgba(0,122,255,0.06)',border:'1px solid rgba(0,122,255,0.2)',borderRadius:10,padding:'14px 18px',marginBottom:20,display:'flex',alignItems:'center',gap:14}}>
-        <span style={{fontSize:24}}>🇵🇾</span>
+        <span style={{display:'flex',color:'#007AFF'}}><Icon name="fileText" size={24}/></span>
         <div style={{flex:1}}>
           <div style={{fontSize:14,fontWeight:700,color:'#007AFF'}}>Facturación electrónica SET (SIFEN)</div>
           <div style={{fontSize:12,color:C.mid,marginTop:3}}>Próximamente — integración con la SET de Paraguay para emisión de e-Kuatia. Las facturas listadas aquí son comprobantes internos del sistema.</div>
@@ -9649,7 +9650,7 @@ function FacturasAdminPage(){
 
       {!loading&&display.length===0&&(
         <div style={{textAlign:'center',padding:'60px 0',color:C.mid}}>
-          <div style={{fontSize:36,marginBottom:12}}>🧾</div>
+          <div style={{marginBottom:12,display:'flex',justifyContent:'center'}}><Icon name="receipt" size={34}/></div>
           <div style={{fontSize:14,fontWeight:700}}>Sin facturas en el período</div>
         </div>
       )}

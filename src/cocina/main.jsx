@@ -12,6 +12,12 @@ import { createRoot } from "react-dom/client";
 
 const { useState, useEffect, useRef, useCallback, useReducer } = React;
 
+/* ── Icon (SVG inline de mythos-icons.js, hereda color/tamaño) — WS5 ── */
+const Icon = ({ name, size = 16, style }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0, ...(style || {}) }}
+        dangerouslySetInnerHTML={{ __html: window.MythosIcons ? window.MythosIcons.html(name, { size }) : '' }} />
+);
+
 /* ── SUPABASE CLIENT ─── */
 const _initDB = () => {
   const cfg = window.SUPABASE_CONFIG;
@@ -674,7 +680,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
           {/* Alergia badge */}
           {hasAnyAllergy && (
             <span style={{ fontSize: 9, fontWeight: 800, background: 'rgba(255,59,48,0.14)', border: '1px solid rgba(255,59,48,0.4)', borderRadius: 4, padding: '2px 5px', color: '#FF3B30', letterSpacing: '0.05em', animation: 'pulse 1s ease infinite', flexShrink: 0 }}>
-              ⚠ ALERGIA
+              <Icon name="alert" size={9} style={{verticalAlign:'-1px',marginRight:2}}/> ALERGIA
             </span>
           )}
         </div>
@@ -692,7 +698,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
       {/* Alerta alergia global */}
       {hasAnyAllergy && !isDone && (
         <div style={{ background: 'rgba(255,59,48,0.08)', borderBottom: `1px solid rgba(255,59,48,0.22)`, padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12 }}>⚠</span>
+          <span style={{ display:'flex', color:'#FF3B30' }}><Icon name="alert" size={12}/></span>
           <span style={{ fontSize: 11, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.04em' }}>ALERGIA / ATENCION — Verificar items marcados</span>
         </div>
       )}
@@ -702,21 +708,21 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
         <div style={{ background: 'rgba(255,59,48,0.06)', borderBottom: `1px solid rgba(255,59,48,0.18)`, padding: '5px 16px' }}>
           {ticket.deliveryInfo.cliente && <div style={{ fontSize: 11, color: '#FF3B30', fontWeight: 600 }}>{ticket.deliveryInfo.cliente}</div>}
           {ticket.deliveryInfo.direccion && <div style={{ fontSize: 10, color: C.mid }}>{ticket.deliveryInfo.direccion}</div>}
-          {ticket.deliveryInfo.phone && <div style={{ fontSize: 10, color: C.mid }}>📞 {ticket.deliveryInfo.phone}</div>}
+          {ticket.deliveryInfo.phone && <div style={{ fontSize: 10, color: C.mid, display:'flex', alignItems:'center', gap:4 }}><Icon name="phone" size={10}/> {ticket.deliveryInfo.phone}</div>}
           {(ticket.deliveryInfo.riderName || ticket.deliveryInfo.riderAssigned) && (
-            <div style={{ fontSize: 10, color: '#34C759', fontWeight: 700, marginTop: 1 }}>
-              🛵 {ticket.deliveryInfo.riderName || ticket.deliveryInfo.riderAssigned}
+            <div style={{ fontSize: 10, color: '#34C759', fontWeight: 700, marginTop: 1, display:'flex', alignItems:'center', gap:4 }}>
+              <Icon name="bike" size={10}/> {ticket.deliveryInfo.riderName || ticket.deliveryInfo.riderAssigned}
             </div>
           )}
           {ticket.deliveryInfo.isDelivery && !ticket.deliveryInfo.riderName && !isEntregado && (
-            <div style={{ fontSize: 9, color: '#FF9500', fontWeight: 600 }}>⏳ buscando rider disponible</div>
+            <div style={{ fontSize: 9, color: '#FF9500', fontWeight: 600, display:'flex', alignItems:'center', gap:4 }}><Icon name="clock" size={9}/> buscando rider disponible</div>
           )}
           {ticket.deliveryInfo.cashAmount > 0 && (() => {
             const total = ticket.deliveryInfo.orderTotal || 0;
             const chg   = ticket.deliveryInfo.cashAmount - total;
             return chg >= 0 ? (
               <div style={{ marginTop: 3, fontSize: 10, color: '#16A34A', fontWeight: 700 }}>
-                💵 Vuelto: {fmt(chg)} (paga {fmt(ticket.deliveryInfo.cashAmount)})
+                <Icon name="money" size={10} style={{verticalAlign:'-1px',marginRight:2}}/> Vuelto: {fmt(chg)} (paga {fmt(ticket.deliveryInfo.cashAmount)})
               </div>
             ) : null;
           })()}
@@ -747,7 +753,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
                     {/* Alérgenos del item */}
                     {item.allergens && (
                       <div style={{ marginTop: 3, fontSize: 10, color: '#FF9500', fontWeight: 600 }}>
-                        ⚠ Alergenos: {item.allergens}
+                        <Icon name="alert" size={10} style={{verticalAlign:'-1px',marginRight:2}}/> Alergenos: {item.allergens}
                       </div>
                     )}
                     {item.extras.length > 0 && (
@@ -773,7 +779,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
                         borderRadius: '0 5px 5px 0',
                         padding: '4px 7px',
                       }}>
-                        <span style={{ fontSize: 10, color: allergyItem ? '#FF3B30' : C.dim, flexShrink: 0, marginTop: 1 }}>{allergyItem ? '⚠' : 'o'}</span>
+                        <span style={{ fontSize: 10, color: allergyItem ? '#FF3B30' : C.dim, flexShrink: 0, marginTop: 1, display:'inline-flex' }}>{allergyItem ? <Icon name="alert" size={10}/> : '·'}</span>
                         {item.obs}
                       </div>
                     )}
@@ -1601,7 +1607,7 @@ function App() {
           <span style={{ fontSize: 10, fontWeight: 600, color: C.dim, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{restaurant?.name || 'KDS'}</span>
           {STATION_CONFIG && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 4, padding: '4px 10px', background: (STATION_CONFIG.color||'#fb923c')+'22', border: '1px solid '+(STATION_CONFIG.color||'#fb923c')+'55', borderRadius: 14 }}>
-              <span style={{ fontSize: 13 }}>{STATION_CONFIG.icon || '⛳'}</span>
+              <span style={{ fontSize: 13 }}>{STATION_CONFIG.icon || ''}</span>
               <span style={{ fontSize: 11, fontWeight: 800, color: STATION_CONFIG.color || '#fb923c', letterSpacing: '0.04em' }}>{STATION_CONFIG.name}</span>
               <span style={{ fontSize: 9, fontWeight: 700, color: C.dim, textTransform:'uppercase', letterSpacing:'0.06em' }}>{STATION_CONFIG.isAllZonas ? 'TODAS LAS ZONAS' : Array.from(STATION_CONFIG.zonas).join('·')}</span>
             </div>
@@ -1668,7 +1674,7 @@ function App() {
             <Btn active={splitView} onClick={() => setSplitView(v => !v)} title="Pantalla dividida caliente/fria">
               <IconSplit />
             </Btn>
-            <Btn onClick={toggleFullscreen} title={isFullscreen ? 'Salir pantalla completa' : 'Pantalla completa'}>{isFullscreen ? '⊡' : '⛶'}</Btn>
+            <Btn onClick={toggleFullscreen} title={isFullscreen ? 'Salir pantalla completa' : 'Pantalla completa'}><Icon name="maximize" size={14}/></Btn>
             <Btn onClick={() => window.MythosTheme && window.MythosTheme.toggle()} title={themeMode === 'dark' ? 'Cambiar a claro' : 'Cambiar a oscuro'}>
               <span dangerouslySetInnerHTML={{__html: window.MythosIcons ? window.MythosIcons.html(themeMode === 'dark' ? 'sun' : 'moon', {size:14}) : ''}}/>
             </Btn>
@@ -1808,7 +1814,7 @@ async function bootstrap() {
     if (!STATION_CONFIG || STATION_CONFIG._inactive) {
       document.getElementById('root').innerHTML =
         '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:14px;color:#F5F5F7;font-family:system-ui,sans-serif;padding:20px;text-align:center">'+
-        '<div style="font-size:32px">⚠</div>'+
+        '<div style="display:flex;justify-content:center">'+(window.MythosIcons?window.MythosIcons.html('alert',{size:32}):'')+'</div>'+
         '<div style="font-size:20px;font-weight:700">Estación no encontrada o desactivada</div>'+
         '<div style="font-size:13px;color:#888;max-width:360px">El token de acceso no es válido. Pedile al administrador que regenere el link de esta pantalla.</div>'+
         '</div>';

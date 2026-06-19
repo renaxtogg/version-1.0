@@ -284,7 +284,7 @@ const fmt = (n) => '₲ ' + Number(n).toLocaleString('es-PY');
    podrían terminar como pedidos reales. */
 
 /* ── ICON ────────────────────────────────── */
-const Icon = ({ name, size = 20, color = 'currentColor', sw = 1.5 }) => {
+const Icon = ({ name, size = 20, color = 'currentColor', sw = 1.5, style }) => {
   const paths = {
     back: <path d="M19 12H5M12 5l-7 7 7 7" />,
     search: <><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></>,
@@ -310,9 +310,16 @@ const Icon = ({ name, size = 20, color = 'currentColor', sw = 1.5 }) => {
     scissors: <><circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><line x1="20" y1="4" x2="8.12" y2="15.88" /><line x1="14.47" y1="14.48" x2="20" y2="20" /><line x1="8.12" y1="8.12" x2="12" y2="12" /></>,
     fire: <path d="M12 2c0 0-4.8 5-4.8 9.5a4.8 4.8 0 009.6 0C16.8 7 12 2 12 2zm0 0c0 0 2.5 3 2.5 5.5a2.5 2.5 0 01-5 0C9.5 5 12 2 12 2z" />,
     award: <><circle cx="12" cy="8" r="6" /><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11" /></>,
-    img: <><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></>
+    img: <><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></>,
+    alert:    <><path d="M10.29 3.86 1.82 18a2 2 0 002.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></>,
+    mail:     <><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M22 7l-10 6L2 7" /></>,
+    print:    <><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></>,
+    building: <><rect x="4" y="2" width="16" height="20" rx="2" /><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M8 10h.01M16 10h.01M8 14h.01M16 14h.01" /></>,
+    link:     <><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></>,
+    store:    <><path d="M3 9l1.5-6h15L21 9" /><path d="M3 9v11a2 2 0 002 2h14a2 2 0 002-2V9" /><path d="M3 9h18" /><path d="M9 22V12h6v10" /></>,
+    calendarX:<><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><line x1="14" y1="14" x2="10" y2="18" /><line x1="10" y1="14" x2="14" y2="18" /></>
   };
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={style}>{paths[name]}</svg>;
 };
 
 /* ── QR CODE SVG ─────────────────────────── */
@@ -808,7 +815,7 @@ function ProductModal({ item, onClose, onAdd }) {
             <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>Observaciones para cocina</div>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Sin sal, sin cebolla, término de cocción, alergia a…" style={{ width: '100%', height: 76, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, resize: 'none', outline: 'none', background: T.offwhite }} />
             <div style={{ marginTop: 8, background: '#FFF7ED', border: '1px solid #FDE68A', borderRadius: 8, padding: '8px 10px', display: 'flex', gap: 7, alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 14, flexShrink: 0 }}>⚠️</span>
+              <span style={{ flexShrink: 0, display: 'flex' }}><Icon name="alert" size={14} color="#92400E" /></span>
               <span style={{ fontSize: 11, color: '#92400E', lineHeight: 1.5 }}>Si tenés alergias o intolerancias, indicalas arriba. El local tomará las precauciones necesarias.</span>
             </div>
           </div>
@@ -1066,7 +1073,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
         <div onClick={() => setShowBancardToast(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'rgba(255,149,0,0.05)', border: `2px dashed rgba(255,149,0,0.35)`, borderRadius: 12, marginBottom: 8, cursor: 'pointer' }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#92400E', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>📲</span> Pagar desde el celular
+              <Icon name="card" size={14} color="#92400E" /> Pagar desde el celular
               <span style={{ fontSize: 9, fontWeight: 800, background: '#FF9500', color: '#fff', borderRadius: 4, padding: '2px 5px', letterSpacing: '0.05em' }}>PRÓXIMAMENTE</span>
             </div>
             <div style={{ fontSize: 12, color: '#B45309', marginTop: 1 }}>Tarjeta / QR Bancard</div>
@@ -1076,7 +1083,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
         {/* Texto contextual por método */}
         {currentMethod && (
           <div style={{ background: method === 'qr' ? '#FFF7ED' : T.light, border: `1px solid ${method === 'qr' ? '#FDE68A' : T.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: method === 'qr' ? '#92400E' : T.mid, lineHeight: 1.5 }}>
-            {method === 'qr' && <span style={{ marginRight: 6 }}>⚠️</span>}{currentMethod.info}
+            {method === 'qr' && <Icon name="alert" size={12} color="#92400E" style={{ marginRight: 6, verticalAlign: '-2px' }} />}{currentMethod.info}
           </div>
         )}
         {method === 'qr' && (
@@ -1098,7 +1105,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
             <div style={{ marginTop: 10 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>¿Cómo querés recibirlo?</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                {[['print','🖨 Impreso'],['email','✉️ Por email']].map(([v, lbl]) => (
+                {[['print','Impreso'],['email','Por email']].map(([v, lbl]) => (
                   <button key={v} onClick={() => setInvoiceDelivery(v)} style={{ padding: '9px 4px', borderRadius: 9, border: `2px solid ${invoiceDelivery === v ? T.black : T.border}`, background: invoiceDelivery === v ? T.black : 'transparent', color: invoiceDelivery === v ? T.white : T.ink, fontSize: 12, fontWeight: 700, cursor: 'pointer', lineHeight: 1.3, transition: 'all 150ms', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>{lbl}</button>
                 ))}
               </div>
@@ -1132,7 +1139,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
         setTimeout(() => setShowBancardToast(false), 4000);
         return (
           <div onClick={() => setShowBancardToast(false)} style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 9999, background: '#1C1C1E', color: '#F5F5F7', borderRadius: 14, padding: '14px 20px', maxWidth: 340, width: 'calc(100% - 40px)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
-            <span style={{ fontSize: 22, flexShrink: 0 }}>🏦</span>
+            <span style={{ flexShrink: 0, display: 'flex' }}><Icon name="building" size={22} color="#F5F5F7" /></span>
             <div>
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3 }}>Módulo Bancard / SIFEN en fase de certificación</div>
               <div style={{ fontSize: 11, color: '#AEAEB2', lineHeight: 1.4 }}>Esta pasarela se activará automáticamente al concluir los trámites del comercio.</div>
@@ -1155,7 +1162,7 @@ function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaite
     { label: 'En cola de cocina', sub: `Ticket ${orderNumber || '#????'}` },
     { label: 'Cocinando', sub: 'Tu plato está en preparación' },
     { label: readyLabel, sub: readySub },
-    { label: 'Entregado', sub: '¡Buen provecho! 🎉' }
+    { label: 'Entregado', sub: '¡Buen provecho!' }
   ];
   const STATUS_MAP = { paid: 1, kitchen_received: 2, cooking: 3, ready: 4, delivered: 5, pending_payment: 5 };
   const [active, setActive] = useState(1);
@@ -1314,7 +1321,7 @@ function RatingScreen({ onDone, orderId, tableId }) {
       )}
       {rating >= 4 && (
         <div style={{ background: 'rgba(22,163,74,0.08)', border: '1px solid rgba(22,163,74,0.15)', borderRadius: 8, padding: '8px 12px', marginBottom: 16, fontSize: 12, color: '#15803D', fontWeight: 600, lineHeight: 1.5 }}>
-          ¡Nos alegra que hayas disfrutado! 🎉 Esperamos verte pronto.
+          ¡Nos alegra que hayas disfrutado! Esperamos verte pronto.
         </div>
       )}
       {/* Chips de motivos */}
@@ -1343,18 +1350,18 @@ function RatingScreen({ onDone, orderId, tableId }) {
 
 /* ══ SCREEN: RESERVAR MESA ══════════════ */
 const OCCASIONS = [
-  { id: 'birthday',     label: '🎂 Cumpleaños' },
-  { id: 'anniversary',  label: '💑 Aniversario' },
-  { id: 'business',     label: '💼 Reunión' },
-  { id: 'celebration',  label: '🥂 Celebración' },
-  { id: 'other',        label: '✦ Otro motivo' },
+  { id: 'birthday',     label: 'Cumpleaños' },
+  { id: 'anniversary',  label: 'Aniversario' },
+  { id: 'business',     label: 'Reunión' },
+  { id: 'celebration',  label: 'Celebración' },
+  { id: 'other',        label: 'Otro motivo' },
 ];
 
 const ZONES = [
-  { id: 'salon',    label: 'Salón',    icon: '🪑' },
-  { id: 'terraza',  label: 'Terraza',  icon: '🌿' },
-  { id: 'bar',      label: 'Bar',      icon: '🍸' },
-  { id: 'privado',  label: 'Privado',  icon: '🚪' },
+  { id: 'salon',    label: 'Salón' },
+  { id: 'terraza',  label: 'Terraza' },
+  { id: 'bar',      label: 'Bar' },
+  { id: 'privado',  label: 'Privado' },
 ];
 
 function ReservationScreen({ onBack, onDone }) {
@@ -1491,8 +1498,7 @@ function ReservationScreen({ onBack, onDone }) {
                 const active = form.preferred_zone === z.id;
                 return (
                   <button key={z.id} onClick={() => f('preferred_zone', z.id)}
-                    style={{ padding: '14px 10px', borderRadius: 12, border: `2px solid ${active ? T.black : T.border}`, background: active ? T.black : 'transparent', color: active ? T.white : T.ink, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, transition: 'all 150ms' }}>
-                    <span style={{ fontSize: 22 }}>{z.icon}</span>
+                    style={{ padding: '16px 10px', borderRadius: 12, border: `2px solid ${active ? T.black : T.border}`, background: active ? T.black : 'transparent', color: active ? T.white : T.ink, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 150ms' }}>
                     <span>{z.label}</span>
                   </button>
                 );
@@ -1669,7 +1675,7 @@ function QRCheckingScreen() {
 function MesaLlenaScreen({scanCount, maxScans}) {
   return (
     <div style={{minHeight:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:'#000',padding:'40px 32px',textAlign:'center',gap:16}}>
-      <div style={{fontSize:60,lineHeight:1}}>⛔</div>
+      <div style={{lineHeight:1,display:'flex'}}><Icon name="alert" size={56} color="#fff" /></div>
       <div style={{fontSize:26,fontWeight:900,color:'#fff',letterSpacing:'-0.5px'}}>Mesa llena</div>
       <div style={{fontSize:14,color:'rgba(255,255,255,0.55)',lineHeight:1.7,maxWidth:280}}>
         Esta mesa ya alcanzó el límite de {maxScans||'?'} dispositivos.
@@ -1685,7 +1691,7 @@ function MesaReservadaScreen({firstName, time, onConfirm, onSkip}) {
   const timeStr = time ? String(time).slice(0,5) : '';
   return (
     <div style={{minHeight:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:T.qrBg,padding:'40px 28px',textAlign:'center',gap:20}}>
-      <div style={{fontSize:52,lineHeight:1}}>📅</div>
+      <div style={{lineHeight:1,display:'flex'}}><Icon name="calendar" size={48} color={T.qrText} /></div>
       <div style={{display:'flex',flexDirection:'column',gap:6}}>
         <div style={{fontSize:22,fontWeight:900,color:T.qrText,letterSpacing:'-0.5px',lineHeight:1.2}}>Esta mesa tiene<br/>una reserva</div>
         {timeStr && <div style={{fontSize:13,color:T.qrSub}}>Hora: {timeStr}</div>}
@@ -1714,12 +1720,12 @@ function GateScreen({ kind }) {
   const T = useContext(ThemeCtx);
   const COPY = {
     'no-context': {
-      icon: '🔗',
+      icon: <Icon name="link" size={52} color={T.qrText} />,
       title: 'Escaneá el QR del local',
       body: 'Este enlace no identifica a ningún restaurante. Escaneá el código QR de tu mesa o abrí el link que te compartió el local para ver su menú y hacer tu pedido.',
     },
     'not-found': {
-      icon: '🏪',
+      icon: <Icon name="store" size={52} color={T.qrText} />,
       title: 'Restaurante no disponible',
       body: 'No encontramos este restaurante. Puede que el enlace haya cambiado o que el local todavía no esté activo. Pedí un QR o link actualizado.',
     },

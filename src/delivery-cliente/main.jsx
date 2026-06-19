@@ -84,10 +84,10 @@ function calcDeliveryFee(userLat, userLng, zones, restLat, restLng) {
 
 /* ── ZONE COLORS ────────────────────────── */
 const ZONE_COLOR_MAP = {
-  red:    { bg: '#FEF2F2', border: '#FECACA', dot: '#EF4444', text: '#B91C1C', label: 'Roja',    emoji: '🔴' },
-  orange: { bg: '#FFF7ED', border: '#FED7AA', dot: '#F97316', text: '#C2410C', label: 'Naranja', emoji: '🟠' },
-  yellow: { bg: '#FEFCE8', border: '#FDE68A', dot: '#EAB308', text: '#A16207', label: 'Amarilla',emoji: '🟡' },
-  green:  { bg: '#F0FDF4', border: '#BBF7D0', dot: '#22C55E', text: '#15803D', label: 'Verde',   emoji: '🟢' }
+  red:    { bg: '#FEF2F2', border: '#FECACA', dot: '#EF4444', text: '#B91C1C', label: 'Roja' },
+  orange: { bg: '#FFF7ED', border: '#FED7AA', dot: '#F97316', text: '#C2410C', label: 'Naranja' },
+  yellow: { bg: '#FEFCE8', border: '#FDE68A', dot: '#EAB308', text: '#A16207', label: 'Amarilla' },
+  green:  { bg: '#F0FDF4', border: '#BBF7D0', dot: '#22C55E', text: '#15803D', label: 'Verde' }
 };
 function zoneColors(z) { return ZONE_COLOR_MAP[z?.color] || ZONE_COLOR_MAP.red; }
 
@@ -309,11 +309,11 @@ async function dbLoadTables() {
 }
 
 const OCCASIONS = [
-  { id: 'birthday',    label: '🎂 Cumpleaños' },
-  { id: 'anniversary', label: '💑 Aniversario' },
-  { id: 'business',    label: '💼 Reunión' },
-  { id: 'celebration', label: '🥂 Celebración' },
-  { id: 'other',       label: '✦ Otro motivo' },
+  { id: 'birthday',    label: 'Cumpleaños' },
+  { id: 'anniversary', label: 'Aniversario' },
+  { id: 'business',    label: 'Reunión' },
+  { id: 'celebration', label: 'Celebración' },
+  { id: 'other',       label: 'Otro motivo' },
 ];
 
 /* ── ICON ────────────────────────────────── */
@@ -343,7 +343,11 @@ const Icon = ({ name, size = 20, color = 'currentColor', sw = 1.5 }) => {
     shield:   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,
     home:     <><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></>,
     bag:      <><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 01-8 0" /></>,
-    calendar: <><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></>
+    calendar: <><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /></>,
+    alert:    <><path d="M10.29 3.86 1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></>,
+    building: <><rect x="4" y="2" width="16" height="20" rx="2" /><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M8 10h.01M16 10h.01M8 14h.01M16 14h.01" /></>,
+    link:     <><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></>,
+    store:    <><path d="M3 9l1.5-6h15L21 9" /><path d="M3 9v11a2 2 0 002 2h14a2 2 0 002-2V9" /><path d="M3 9h18" /><path d="M9 22V12h6v10" /></>
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
@@ -524,7 +528,7 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
                 {[...activeZones].reverse().map((z, i, arr) => {
                   const c = zoneColors(z);
                   const sz = 68 - (arr.length - 1 - i) * 16;
-                  return <div key={z.id || z.name} style={{ position: 'absolute', width: sz, height: sz, borderRadius: '50%', background: c.dot + '30', border: `2px solid ${c.dot}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i === arr.length - 1 && <span style={{ fontSize: 9, color: T.gray }}>📍</span>}</div>;
+                  return <div key={z.id || z.name} style={{ position: 'absolute', width: sz, height: sz, borderRadius: '50%', background: c.dot + '30', border: `2px solid ${c.dot}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i === arr.length - 1 && <Icon name="location" size={11} color={T.gray} />}</div>;
                 })}
               </div>
               {activeZones.map((z) => {
@@ -594,7 +598,7 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
         {status === 'no' && (
           <div style={{ animation: 'fadeIn 300ms' }}>
             <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 14, padding: '20px', marginBottom: 20, textAlign: 'center' }}>
-              <div style={{ fontSize: 32, marginBottom: 10 }}>😕</div>
+              <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'center' }}><Icon name="location" size={30} color="#DC2626" /></div>
               <div style={{ fontSize: 16, fontWeight: 800, color: '#B91C1C', marginBottom: 6 }}>Por el momento no llegamos a tu zona</div>
               <div style={{ fontSize: 13, color: '#DC2626', lineHeight: 1.6 }}>Tu dirección está fuera de nuestra área de cobertura actual.</div>
             </div>
@@ -869,7 +873,7 @@ function ProductModal({ item, onClose, onAdd }) {
             <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>Observaciones para cocina</div>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Sin sal, sin cebolla, alergia a…" style={{ width: '100%', height: 76, border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, resize: 'none', outline: 'none', background: T.offwhite }} />
             <div style={{ marginTop: 8, background: '#FFF7ED', border: '1px solid #FDE68A', borderRadius: 8, padding: '8px 10px', display: 'flex', gap: 7, alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 14, flexShrink: 0 }}>⚠️</span>
+              <span style={{ flexShrink: 0, display: 'flex' }}><Icon name="alert" size={14} color="#92400E" /></span>
               <span style={{ fontSize: 11, color: '#92400E', lineHeight: 1.5 }}>Si tenés alergias o intolerancias, indicalas arriba.</span>
             </div>
           </div>
@@ -1273,7 +1277,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
 
         {method === 'qr' && (
           <div style={{ background: '#FFF7ED', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400E', lineHeight: 1.5 }}>
-            ⚠️ El pago digital estará disponible próximamente. Confirmá el pedido y coordinamos el pago por WhatsApp.
+            El pago digital estará disponible próximamente. Confirmá el pedido y coordinamos el pago por WhatsApp.
           </div>
         )}
 
@@ -1281,7 +1285,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
         <div onClick={() => setShowBancardToast(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'rgba(255,149,0,0.05)', border: `2px dashed rgba(255,149,0,0.35)`, borderRadius: 12, marginBottom: 8, cursor: 'pointer' }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#92400E', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span>📲</span> Pago Online (Tarjeta/QR Bancard)
+              <Icon name="card" size={14} color="#92400E" /> Pago Online (Tarjeta/QR Bancard)
               <span style={{ fontSize: 9, fontWeight: 800, background: '#FF9500', color: '#fff', borderRadius: 4, padding: '2px 5px', letterSpacing: '0.05em' }}>PRÓXIMAMENTE</span>
             </div>
             <div style={{ fontSize: 12, color: '#B45309', marginTop: 1 }}>Visa · Mastercard · QR Bancard</div>
@@ -1323,7 +1327,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
                 )}
                 {cashAmountNum > 0 && cashAmountNum < total && (
                   <div style={{ marginTop:10, padding:'10px 14px', background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.3)', borderRadius:9 }}>
-                    <span style={{ fontSize:13, color:'#DC2626', fontWeight:700 }}>⚠ Insuficiente — faltan {fmt(total - cashAmountNum)}</span>
+                    <span style={{ fontSize:13, color:'#DC2626', fontWeight:700 }}>Insuficiente — faltan {fmt(total - cashAmountNum)}</span>
                   </div>
                 )}
               </div>
@@ -1345,7 +1349,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>¿Cómo querés recibirlo?</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                {[['print','🖨 Lo recibís con el pedido'],['email','✉️ Por email']].map(([v, lbl]) => (
+                {[['print','Lo recibís con el pedido'],['email','Por email']].map(([v, lbl]) => (
                   <div key={v} onClick={() => setInvoiceDelivery(v)} style={{ padding: '10px 4px', background: invoiceDelivery === v ? T.black : T.white, border: `2px solid ${invoiceDelivery === v ? T.black : T.border}`, borderRadius: 9, cursor: 'pointer', textAlign: 'center' }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: invoiceDelivery === v ? T.white : T.ink }}>{lbl}</span>
                   </div>
@@ -1398,7 +1402,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
         setTimeout(() => setShowBancardToast(false), 4000);
         return (
           <div onClick={() => setShowBancardToast(false)} style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 9999, background: '#1C1C1E', color: 'var(--bg-subtle)', borderRadius: 14, padding: '14px 20px', maxWidth: 340, width: 'calc(100% - 40px)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
-            <span style={{ fontSize: 22, flexShrink: 0 }}>🏦</span>
+            <span style={{ flexShrink: 0, display: 'flex' }}><Icon name="building" size={22} color="var(--bg-subtle)" /></span>
             <div>
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3 }}>Módulo Bancard / SIFEN en fase de certificación</div>
               <div style={{ fontSize: 11, color: '#AEAEB2', lineHeight: 1.4 }}>Esta pasarela se activará automáticamente al concluir los trámites del comercio.</div>
@@ -1716,7 +1720,7 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
 
       {isDelivered && ratingSent && (
         <div style={{ padding: '32px 24px 48px', borderTop: `2px solid ${T.border}`, background: T.white, textAlign: 'center' }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}><Icon name="star" size={46} color={T.ink} /></div>
           <div style={{ fontSize: 22, fontWeight: 800, color: T.ink, marginBottom: 8 }}>¡Gracias por tu opinión!</div>
           <div style={{ fontSize: 13, color: T.gray, lineHeight: 1.7, marginBottom: 28 }}>Tu calificación nos ayuda<br />a mejorar cada día.</div>
           <button onClick={onNewOrder}
@@ -1878,12 +1882,12 @@ function GateScreen({ kind }) {
   const T = useContext(ThemeCtx);
   const COPY = {
     'no-context': {
-      icon: '🔗',
+      icon: <Icon name="link" size={52} color={T.ink} />,
       title: 'Abrí el delivery desde el local',
       body: 'Este enlace no identifica a ningún restaurante. Abrí el link de delivery que comparte el local para ver su menú y hacer tu pedido.',
     },
     'not-found': {
-      icon: '🏪',
+      icon: <Icon name="store" size={52} color={T.ink} />,
       title: 'Restaurante no disponible',
       body: 'No encontramos este restaurante. Puede que el enlace haya cambiado o que el local todavía no esté activo. Pedí un link actualizado.',
     },

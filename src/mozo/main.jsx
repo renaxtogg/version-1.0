@@ -16,6 +16,12 @@ window.React = React;
 
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
+/* ── Icon (SVG inline de mythos-icons.js, hereda color/tamaño) — WS5 ── */
+const Icon = ({ name, size = 16, style }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0, ...(style || {}) }}
+        dangerouslySetInnerHTML={{ __html: window.MythosIcons ? window.MythosIcons.html(name, { size }) : '' }} />
+);
+
 /* ── SUPABASE ── */
 const _initDB = () => {
   const cfg = window.SUPABASE_CONFIG;
@@ -950,7 +956,7 @@ function App() {
       const tiempoTxt = mins > 0 ? `en ${mins < 60 ? mins + ' min' : Math.floor(mins/60) + 'h ' + (mins%60) + 'm'}` : `hace ${Math.abs(mins)} min`;
       setMesaDialog({
         title: `Mesa ${mesa.number} — Reservada`,
-        body: `${r.customer_name} · ${r.guests} personas\n📞 ${r.customer_phone}\nHora reservada: ${horaTxt} (${tiempoTxt})${r.occasion ? '\nMotivo: ' + r.occasion : ''}${r.notes ? '\nNotas: ' + r.notes : ''}\n\nLa mesa se reserva automáticamente cuando se acerca la hora.`,
+        body: `${r.customer_name} · ${r.guests} personas\nTel: ${r.customer_phone}\nHora reservada: ${horaTxt} (${tiempoTxt})${r.occasion ? '\nMotivo: ' + r.occasion : ''}${r.notes ? '\nNotas: ' + r.notes : ''}\n\nLa mesa se reserva automáticamente cuando se acerca la hora.`,
         actions: [
           { label: 'Marcar como sentada (crear orden)', primary: true, action: async () => { await markReservationSeated(r.id); createOrder(tableId, mesa.number); } },
           { label: 'Llamar al cliente', action: () => { try { window.open('tel:' + r.customer_phone, '_self'); } catch(e) {} } },
@@ -965,8 +971,8 @@ function App() {
       const horaTxt = r.reservation_time?.slice(0, 5) || '';
       const mins = resv._minutesUntil;
       setMesaDialog({
-        title: `⚠ Mesa ${mesa.number} — Reserva próxima`,
-        body: `Esta mesa tiene una reserva a las ${horaTxt} (${mins > 0 ? 'en ' + mins + ' min' : 'pasada hace ' + Math.abs(mins) + ' min'}).\n${r.customer_name} · ${r.guests} personas · 📞 ${r.customer_phone}\n\nLa mesa sigue ocupada. Considerá pedir la cuenta al cliente actual.`,
+        title: `Mesa ${mesa.number} — Reserva próxima`,
+        body: `Esta mesa tiene una reserva a las ${horaTxt} (${mins > 0 ? 'en ' + mins + ' min' : 'pasada hace ' + Math.abs(mins) + ' min'}).\n${r.customer_name} · ${r.guests} personas · Tel: ${r.customer_phone}\n\nLa mesa sigue ocupada. Considerá pedir la cuenta al cliente actual.`,
         actions: [
           { label: 'El cliente de la reserva ya llegó — Sentar', primary: true, action: async () => { await markReservationSeated(r.id); showToast('Reserva marcada como sentada ✓'); } },
           { label: 'Ver orden actual', action: () => openOrderView(tableId) },
@@ -1092,7 +1098,7 @@ function App() {
     setConfirmDialog({
       title: `Liberar Mesa ${mesa?.number}`,
       body: hayDeuda
-        ? `⚠ Hay pedidos sin cobrar. ¿Confirmar que el servicio concluyó y la mesa quedó libre?`
+        ? `Hay pedidos sin cobrar. ¿Confirmar que el servicio concluyó y la mesa quedó libre?`
         : '¿Confirmar que el servicio concluyó y la mesa quedó libre?',
       danger: hayDeuda,
       onOk: async () => {
@@ -1828,11 +1834,11 @@ function App() {
               <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}>
                 <button onClick={() => { setMesaViewMode('grid'); setMapaEditMode(false); }}
                   style={{ padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: mesaViewMode === 'grid' ? 'var(--text)' : 'transparent', color: mesaViewMode === 'grid' ? 'var(--bg)' : 'var(--text2)' }}>
-                  ⊞ Cuadrícula
+                  <Icon name="layout" size={13} style={{ verticalAlign: '-2px', marginRight: 3 }} /> Cuadrícula
                 </button>
                 <button onClick={() => setMesaViewMode('mapa')}
                   style={{ padding: '5px 12px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: mesaViewMode === 'mapa' ? 'var(--text)' : 'transparent', color: mesaViewMode === 'mapa' ? 'var(--bg)' : 'var(--text2)' }}>
-                  🗺 Mapa
+                  <Icon name="pin" size={13} style={{ verticalAlign: '-2px', marginRight: 3 }} /> Mapa
                 </button>
               </div>
             </div>
@@ -2039,7 +2045,7 @@ function App() {
                         <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">₲</button>
                       )}
                       {hasPendingCobro && (
-                        <button className="order-action-btn" onClick={() => _caps.hasFeature('mozo:digital_qr_pay') ? setShowBancardMozoToast(true) : setShowQrPaywall(true)} title="Cobrar Mesa con QR Digital" style={{fontSize:15}}>📲</button>
+                        <button className="order-action-btn" onClick={() => _caps.hasFeature('mozo:digital_qr_pay') ? setShowBancardMozoToast(true) : setShowQrPaywall(true)} title="Cobrar Mesa con QR Digital"><Icon name="creditCard" size={15} /></button>
                       )}
                       {activeOrder && (
                         // Mostrar ✓ sólo cuando hay acción real:
@@ -2307,7 +2313,7 @@ function App() {
                       }).join(', ');
                       setConfirmDialog({
                         title: 'Terminar turno',
-                        body: `⚠ Quedan ${conItems.length} orden(es) sin cobrar: ${mesaNums}.\n\nEstas quedarán pendientes para caja. ¿Confirmar cierre de turno?`,
+                        body: `Quedan ${conItems.length} orden(es) sin cobrar: ${mesaNums}.\n\nEstas quedarán pendientes para caja. ¿Confirmar cierre de turno?`,
                         danger: true,
                         onOk: doClose,
                       });
@@ -2656,7 +2662,7 @@ function App() {
               {showPromosSection && promoItems.length > 0 && (
                 <>
                   <div className="promo-section-title">
-                    <span style={{ color: 'var(--orange)' }}>🎁</span> Promociones disponibles
+                    <span style={{ color: 'var(--orange)' }}><Icon name="tag" size={14} style={{ verticalAlign: '-2px' }} /></span> Promociones disponibles
                   </div>
                   <div className="promo-strip">
                     {promoItems.map(p => {
@@ -2683,7 +2689,7 @@ function App() {
 
               {showPromosSection && (
                 <div className="promo-section-title">
-                  <span>📋</span> Todo el menú
+                  <Icon name="book" size={14} style={{ verticalAlign: '-2px' }} /> Todo el menú
                 </div>
               )}
 
@@ -2888,7 +2894,7 @@ function App() {
                   <div style={{ marginBottom: 10 }}>
                     <div className="section-label" style={{ fontSize: 11, marginBottom: 5 }}>¿Cómo recibe el cliente?</div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                      {[['print','🖨 Impreso'],['email','✉️ Email']].map(([v,lbl]) => (
+                      {[['print','Impreso'],['email','Email']].map(([v,lbl]) => (
                         <div key={v} className={`tip-chip ${invoiceDelivery === v ? 'active' : ''}`} style={{ fontSize: 11, padding: '8px 4px' }} onClick={() => setInvoiceDelivery(v)}>{lbl}</div>
                       ))}
                     </div>
@@ -3185,7 +3191,7 @@ function App() {
             maxWidth:340,width:'calc(100% - 40px)',boxShadow:'0 8px 32px rgba(0,0,0,0.4)',
             display:'flex',alignItems:'flex-start',gap:12,animation:'slideUp .25s ease',cursor:'pointer'}}
             onClick={dismiss}>
-            <span style={{fontSize:22,flexShrink:0}}>🏦</span>
+            <span style={{flexShrink:0,display:'flex',color:'#F5F5F7'}}><Icon name="building" size={22} /></span>
             <div>
               <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>Módulo Bancard / SIFEN en fase de certificación</div>
               <div style={{fontSize:11,color:'#AEAEB2',lineHeight:1.4}}>Esta pasarela se activará automáticamente al concluir los trámites del comercio.</div>

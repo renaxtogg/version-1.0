@@ -11,6 +11,12 @@ import { createRoot } from 'react-dom/client';
 
 const { useState, useEffect, useRef } = React;
 
+/* ── Icon (SVG inline de mythos-icons.js, hereda color/tamaño) — WS5 ── */
+const Icon = ({ name, size = 16, style }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0, ...(style || {}) }}
+        dangerouslySetInnerHTML={{ __html: window.MythosIcons ? window.MythosIcons.html(name, { size }) : '' }} />
+);
+
 /* ── DB ── */
 const _initDB = () => {
   const cfg = window.SUPABASE_CONFIG;
@@ -30,7 +36,7 @@ const fmt = n => '₲ ' + (n||0).toLocaleString('es-PY');
 const fmtTime = d => new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'});
 const diffMin = (a,b) => Math.round((new Date(b)-new Date(a))/60000);
 const vibrate = () => { try { navigator.vibrate && navigator.vibrate([200,100,200]); } catch(e) {} };
-const VEHICLE = { moto:'🛵', bici:'🚲', auto:'🚗', pie:'🚶' };
+const VEHICLE = { moto:'bike', bici:'bike', auto:'truck', pie:'user' };
 
 /* ── SPINNER ── */
 function Spinner() {
@@ -44,7 +50,7 @@ function Spinner() {
 function ErrorScreen({ msg, onLogout }) {
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'var(--surface)',textAlign:'center'}}>
-      <div style={{fontSize:52,marginBottom:12}}>🛵</div>
+      <div style={{marginBottom:12,display:'flex',justifyContent:'center',color:'var(--text-tertiary)'}}><Icon name="bike" size={52} /></div>
       <div style={{fontSize:20,fontWeight:800,color:'var(--text-primary)',marginBottom:10}}>No pudimos abrir tu panel</div>
       <div style={{fontSize:14,color:'var(--text-tertiary)',marginBottom:32,lineHeight:1.5,maxWidth:300}}>{msg}</div>
       <button
@@ -114,13 +120,13 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
       {/* Header */}
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'20px 20px 14px',borderBottom:'1px solid var(--bg-subtle)'}}>
         <div>
-          <div style={{fontSize:20,fontWeight:800,color:'var(--text-primary)'}}>
-            {VEHICLE[rider.vehicle]||'🛵'} {rider.name.split(' ')[0]}
+          <div style={{fontSize:20,fontWeight:800,color:'var(--text-primary)',display:'flex',alignItems:'center',gap:6}}>
+            <Icon name={VEHICLE[rider.vehicle]||'bike'} size={18} /> {rider.name.split(' ')[0]}
           </div>
           <div style={{fontSize:12,color:'var(--text-tertiary)',marginTop:2}}>{rider.name}</div>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          <button onClick={onRefresh} style={{background:'none',border:'1.5px solid var(--border)',borderRadius:8,padding:'6px 10px',fontSize:13,color:'var(--text-secondary)',cursor:'pointer'}}>↻</button>
+          <button onClick={onRefresh} aria-label="Actualizar" style={{background:'none',border:'1.5px solid var(--border)',borderRadius:8,padding:'6px 10px',color:'var(--text-secondary)',cursor:'pointer',display:'inline-flex',alignItems:'center'}}><Icon name="refresh" size={14} /></button>
           <button onClick={onLogout} style={{background:'none',border:'1.5px solid var(--border)',borderRadius:8,padding:'6px 12px',fontSize:12,color:'var(--text-secondary)',cursor:'pointer',fontWeight:500}}>Salir</button>
         </div>
       </div>
@@ -144,7 +150,7 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
         {routeOrders.length > 0 && (
           <div style={{background:'#FFF7ED',border:'1.5px solid #FDBA74',borderRadius:16,padding:'16px',marginBottom:16,animation:'fadeIn .2s'}}>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
-              <div style={{fontSize:14,fontWeight:800,color:'#C2410C'}}>🛵 Ruta activa — {routeOrders.length} entrega{routeOrders.length>1?'s':''}</div>
+              <div style={{fontSize:14,fontWeight:800,color:'#C2410C',display:'flex',alignItems:'center',gap:6}}><Icon name="bike" size={15} /> Ruta activa — {routeOrders.length} entrega{routeOrders.length>1?'s':''}</div>
               {getMapsUrl(routeOrders) && (
                 <a href={getMapsUrl(routeOrders)} target="_blank" rel="noopener noreferrer" style={{fontSize:12,fontWeight:700,color:'#fff',background:'#C2410C',borderRadius:8,padding:'5px 10px',textDecoration:'none'}}>
                   Ver mapa
@@ -193,19 +199,19 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
                     <div style={{width:26,height:26,borderRadius:'50%',background:'var(--primary)',color:'var(--on-primary)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,flexShrink:0,marginTop:1}}>{i+1}</div>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:14,fontWeight:700,color:'var(--text-primary)'}}>{o.customer_name||'Sin nombre'}</div>
-                      {o.customer_phone && <div style={{fontSize:11,color:'var(--text-secondary)',marginTop:1}}>📞 {o.customer_phone}</div>}
+                      {o.customer_phone && <div style={{fontSize:11,color:'var(--text-secondary)',marginTop:1,display:'flex',alignItems:'center',gap:4}}><Icon name="phone" size={11} /> {o.customer_phone}</div>}
                     </div>
                     <div style={{fontSize:13,fontWeight:700,color:'var(--text-primary)',flexShrink:0}}>{fmt((o.order_total||0)+(o.delivery_fee||0))}</div>
                   </div>
                   <div style={{fontSize:12,color:'var(--text-primary)',marginBottom:8,paddingLeft:36,lineHeight:1.4}}>
-                    📍 {o.delivery_address||'Sin dirección'}
+                    <Icon name="pin" size={12} style={{verticalAlign:'-2px',marginRight:2}} /> {o.delivery_address||'Sin dirección'}
                     {o.delivery_detail && <div style={{fontSize:11,color:'var(--text-secondary)',marginTop:1}}>{o.delivery_detail}</div>}
                   </div>
                   <div style={{display:'flex',gap:8,paddingLeft:36}}>
                     {o.customer_phone && (
-                      <a href={`tel:${o.customer_phone}`} style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:8,fontSize:16,textDecoration:'none',flexShrink:0}}>📞</a>
+                      <a href={`tel:${o.customer_phone}`} aria-label="Llamar" style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:8,color:'var(--text-primary)',textDecoration:'none',flexShrink:0}}><Icon name="phone" size={16} /></a>
                     )}
-                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.delivery_address||o.customer_name||'')}`} target="_blank" rel="noopener noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:8,fontSize:16,textDecoration:'none',flexShrink:0}}>🗺️</a>
+                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.delivery_address||o.customer_name||'')}`} target="_blank" rel="noopener noreferrer" aria-label="Ver en mapa" style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:8,color:'var(--text-primary)',textDecoration:'none',flexShrink:0}}><Icon name="pin" size={16} /></a>
                   </div>
                 </div>
                 );
@@ -216,7 +222,7 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
               disabled={starting}
               style={{width:'100%',padding:'16px',background:'var(--primary)',color:'var(--on-primary)',border:'none',borderRadius:14,fontSize:15,fontWeight:700,cursor:starting?'default':'pointer',opacity:starting?.7:1,marginTop:12,display:'flex',alignItems:'center',justifyContent:'center',gap:10}}
             >
-              <span>🛵</span>
+              <Icon name="bike" size={16} />
               <span>{starting ? 'Iniciando…' : pendingOrders.every(o => o.orders?.status === 'ready') ? `Salir a entregar · ${pendingOrders.length} pedido${pendingOrders.length>1?'s':''}` : `Comenzar ruta · ${pendingOrders.length} pedido${pendingOrders.length>1?'s':''}`}</span>
             </button>
           </div>
@@ -225,7 +231,7 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
         {/* Sin pedidos */}
         {pendingOrders.length === 0 && routeOrders.length === 0 && (
           <div style={{textAlign:'center',padding:'32px 20px',color:'var(--text-tertiary)',fontSize:14,background:'var(--bg-subtle)',borderRadius:16,marginBottom:16}}>
-            <div style={{fontSize:36,marginBottom:10}}>📦</div>
+            <div style={{marginBottom:10,display:'flex',justifyContent:'center'}}><Icon name="package" size={36} /></div>
             <div style={{fontWeight:600}}>Sin pedidos asignados</div>
             <div style={{fontSize:12,marginTop:4}}>Cuando un pedido de delivery entre a cocina,<br/>te aparecerá aquí automáticamente.</div>
           </div>
@@ -251,7 +257,7 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
         </div>
 
         <button onClick={onShowHistory} style={{width:'100%',padding:'12px',background:'transparent',color:'var(--text-primary)',border:'1.5px solid var(--border)',borderRadius:12,fontSize:14,fontWeight:500,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-          <span>📋</span> Historial del día
+          <Icon name="clipboard" size={16} /> Historial del día
         </button>
       </div>
     </div>
@@ -279,7 +285,7 @@ function KitchenBadge({ status }) {
 function PinEntryScreen({ onBack }) {
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'var(--surface)',textAlign:'center'}}>
-      <div style={{fontSize:44,marginBottom:16}}>🛵</div>
+      <div style={{marginBottom:16,display:'flex',justifyContent:'center',color:'var(--text-tertiary)'}}><Icon name="bike" size={44} /></div>
       <div style={{fontSize:16,fontWeight:700,color:'var(--text-primary)',marginBottom:8}}>Los pedidos se asignan automáticamente</div>
       <div style={{fontSize:13,color:'var(--text-tertiary)',marginBottom:24,lineHeight:1.6}}>Cocina te asigna los pedidos cuando están listos.<br/>Volvé al inicio para verlos.</div>
       <button onClick={onBack} style={{padding:'12px 24px',background:'var(--primary)',color:'var(--on-primary)',border:'none',borderRadius:12,fontSize:14,fontWeight:700,cursor:'pointer'}}>Volver</button>
@@ -338,7 +344,7 @@ function RouteScreen({ rider, initialOrders, onDone }) {
   if (allDone) {
     return (
       <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:32,background:'var(--surface)',textAlign:'center'}}>
-        <div style={{fontSize:72,marginBottom:20,animation:'popIn .4s ease'}}>✅</div>
+        <div style={{marginBottom:20,animation:'popIn .4s ease',display:'flex',justifyContent:'center',color:'#34C759'}}><Icon name="checkCircle" size={66} /></div>
         <div style={{fontSize:24,fontWeight:800,color:'var(--text-primary)',marginBottom:8}}>¡Ruta completada!</div>
         <div style={{fontSize:15,color:'var(--text-secondary)',marginBottom:48,lineHeight:1.6}}>
           {orders.length} pedido{orders.length>1?'s':''} entregado{orders.length>1?'s':''}<br/>
@@ -367,7 +373,7 @@ function RouteScreen({ rider, initialOrders, onDone }) {
             rel="noopener noreferrer"
             style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',background:'var(--primary)',color:'var(--on-primary)',borderRadius:10,textDecoration:'none',fontSize:13,fontWeight:600}}
           >
-            🗺️ Ruta completa
+            <Icon name="pin" size={14} /> Ruta completa
           </a>
         )}
       </div>
@@ -389,7 +395,7 @@ function RouteScreen({ rider, initialOrders, onDone }) {
 
             {/* Address */}
             <div style={{fontSize:14,color:'var(--text-primary)',marginBottom:12,paddingLeft:40,lineHeight:1.4}}>
-              📍 {o.delivery_address||'Sin dirección'}
+              <Icon name="pin" size={13} style={{verticalAlign:'-2px',marginRight:2}} /> {o.delivery_address||'Sin dirección'}
             </div>
 
             {/* Actions */}
@@ -397,15 +403,17 @@ function RouteScreen({ rider, initialOrders, onDone }) {
               {o.customer_phone && (
                 <a
                   href={`tel:${o.customer_phone}`}
-                  style={{display:'flex',alignItems:'center',justifyContent:'center',width:42,height:42,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:10,fontSize:18,textDecoration:'none',flexShrink:0}}
-                >📞</a>
+                  aria-label="Llamar"
+                  style={{display:'flex',alignItems:'center',justifyContent:'center',width:42,height:42,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:10,color:'var(--text-primary)',textDecoration:'none',flexShrink:0}}
+                ><Icon name="phone" size={18} /></a>
               )}
               <a
                 href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.delivery_address||o.customer_name||'')}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{display:'flex',alignItems:'center',justifyContent:'center',width:42,height:42,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:10,fontSize:18,textDecoration:'none',flexShrink:0}}
-              >🗺️</a>
+                aria-label="Ver en mapa"
+                style={{display:'flex',alignItems:'center',justifyContent:'center',width:42,height:42,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:10,color:'var(--text-primary)',textDecoration:'none',flexShrink:0}}
+              ><Icon name="pin" size={18} /></a>
               <button
                 onClick={() => deliverOrder(o.id)}
                 disabled={o._delivering}
@@ -479,7 +487,7 @@ function HistoryScreen({ rider, onBack }) {
         {orders === null && <Spinner />}
         {orders !== null && orders.length === 0 && (
           <div style={{textAlign:'center',padding:'60px 20px',color:'var(--text-tertiary)',fontSize:15}}>
-            <div style={{fontSize:44,marginBottom:14}}>📋</div>
+            <div style={{marginBottom:14,display:'flex',justifyContent:'center'}}><Icon name="clipboard" size={44} /></div>
             No hay entregas hoy todavía
           </div>
         )}
