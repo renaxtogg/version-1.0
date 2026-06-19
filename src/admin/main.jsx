@@ -9487,7 +9487,6 @@ function AdminApp() {
     const tbls=tR.data||[];
     const tableMap={};tbls.forEach(t=>{tableMap[t.id]=t.number;});
     const rawOrds=oR.data||[];
-    console.log('[admin] orders loaded:', rawOrds.length, '| RID:', RID);
     const orderIds=rawOrds.slice(0,150).map(o=>o.id);
     let countsMap={};
     if(orderIds.length){
