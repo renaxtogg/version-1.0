@@ -294,7 +294,7 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
           : <div style={{width:36,height:36,background:C.white,borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,color:C.mid}}><Icon name="utensils" size={16}/></div>}
         <div style={{display:'flex',flexDirection:'column',gap:3}}>
           <button onClick={()=>ref.current.click()} disabled={busy} style={{background:'transparent',border:`1px solid ${C.border}`,color:C.mid,padding:'2px 8px',fontSize:10,fontWeight:600,borderRadius:4,cursor:'pointer',whiteSpace:'nowrap'}}>
-            {busy?'⏳':value?'Cambiar':'Subir foto'}
+            {busy?'Subiendo…':value?'Cambiar':'Subir foto'}
           </button>
           {value&&<button onClick={()=>onChange('')} style={{background:'transparent',border:'1px solid rgba(239,68,68,0.2)',color:'rgba(239,68,68,0.5)',padding:'2px 8px',fontSize:10,fontWeight:600,borderRadius:4,cursor:'pointer'}}>Quitar</button>}
         </div>
@@ -6256,7 +6256,7 @@ function EstacionesPage({categories, tables}) {
             <div>
               <Lbl>Zonas del salón que atiende</Lbl>
               <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                {[{z:'*',label:'⭐ Todas las zonas'},...zonasFromTables.map(z=>({z,label:z}))].map(({z,label})=>{
+                {[{z:'*',label:'★ Todas las zonas'},...zonasFromTables.map(z=>({z,label:z}))].map(({z,label})=>{
                   const checked = editing._zonas.includes(z);
                   return (
                     <button key={z} onClick={()=>{

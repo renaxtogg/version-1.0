@@ -146,7 +146,7 @@ const ZONAS_DEF_M=[
   {value:'privado',  label:'Privado',  bg:'#FDF4FF',border:'#E9D5FF',dot:'#A855F7'},
   {value:'exterior', label:'Exterior', bg:'#FEFCE8',border:'#FEF08A',dot:'#EAB308'},
 ];
-const SHAPES_DEF_M=[{value:'square',label:'Cuadrada',icon:'⬜'},{value:'round',label:'Redonda',icon:'⭕'},{value:'rectangle',label:'Rectangular',icon:'▬'}];
+const SHAPES_DEF_M=[{value:'square',label:'Cuadrada',icon:'□'},{value:'round',label:'Redonda',icon:'○'},{value:'rectangle',label:'Rectangular',icon:'▬'}];
 const CELL_M=70; const GAP_M=10;
 // Coordenadas virtuales 0-1000 (compartido con admin y caja)
 const VCOORD_MAX_M=1000;
@@ -2631,7 +2631,7 @@ function App() {
               {showPromosSection && featuredItem && (
                 <>
                   <div className="promo-section-title">
-                    <span>⭐</span> Destacado del día
+                    <span>★</span> Destacado del día
                   </div>
                   <div className="featured-card" onClick={() => setSelectedProducts(prev => ({ ...prev, [featuredItem.id]: (prev[featuredItem.id] || 0) + 1 }))}>
                     <div className="feat-img">

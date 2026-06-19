@@ -103,7 +103,7 @@
       },
       onMouseEnter: function (e) { e.currentTarget.style.opacity = '0.82'; },
       onMouseLeave: function (e) { e.currentTarget.style.opacity = '1'; }
-    }, '📲 Consultar Precio de este Módulo');
+    }, 'Consultar Precio de este Módulo');
 
     var card = h('div', {
       style: {

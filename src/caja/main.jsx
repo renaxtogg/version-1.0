@@ -613,7 +613,7 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
           title="Cerrar sesión"
           style={{marginTop:4,width:'100%',borderRadius:6,padding:'6px 10px',background:'rgba(239,68,68,0.07)',border:'1px solid rgba(239,68,68,0.2)',color:'#FF3B30',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
         >
-          ⏻ Cerrar sesión
+          <Icon name="logout" size={13} style={{verticalAlign:'-2px',marginRight:5}}/> Cerrar sesión
         </button>
       </div>
     </aside>
@@ -2617,7 +2617,7 @@ const ZONAS_DEF_C=[
   {value:'privado',  label:'Privado',  bg:TINT.purpleBg, border:TINT.purpleBorder, dot:'#A855F7'},
   {value:'exterior', label:'Exterior', bg:TINT.amberBg,  border:TINT.amberBorder,  dot:'#EAB308'},
 ];
-const SHAPES_DEF_C=[{value:'square',label:'Cuadrada',icon:'⬜'},{value:'round',label:'Redonda',icon:'⭕'},{value:'rectangle',label:'Rectangular',icon:'▬'}];
+const SHAPES_DEF_C=[{value:'square',label:'Cuadrada',icon:'□'},{value:'round',label:'Redonda',icon:'○'},{value:'rectangle',label:'Rectangular',icon:'▬'}];
 const CELL_C=80; const GAP_C=14;
 // Coordenadas virtuales 0-1000 (compartido con admin y mozo)
 const VCOORD_MAX_C=1000;
@@ -3084,7 +3084,7 @@ function SalonPanel({turno,profile}){
           <>
             {order&&<div style={{marginTop:10}}><Badge txt={SL[order.status]} color={SC[order.status]||'#6E6E73'}/></div>}
             {!order&&<div style={{marginTop:10}}><Badge txt="Servicio activo" color={C.green}/></div>}
-            {order&&<div style={{fontSize:11,color:C.dim,marginTop:8}}>⏱ {espera}m · #{order.order_number}</div>}
+            {order&&<div style={{fontSize:11,color:C.dim,marginTop:8}}>◷ {espera}m · #{order.order_number}</div>}
             {table.assigned_waiter_name&&<div style={{fontSize:11,color:C.dim,marginTop:4,display:'flex',alignItems:'center',gap:4}}><Icon name="user" size={11} /> {table.assigned_waiter_name}</div>}
           </>
         ):(

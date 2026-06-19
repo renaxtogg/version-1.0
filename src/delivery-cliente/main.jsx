@@ -988,7 +988,7 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, orderType,
                     {featured.image_url ? <img src={featured.image_url} alt={featured.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Icon name="award" size={22} color="rgba(255,255,255,0.2)" />}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 2 }}>⭐ Destacado del mes</div>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 2 }}>★ Destacado del mes</div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{featured.name}</div>
                     <div style={{ fontSize: 12, color: T.gray }}>{fmt(featured.price)}</div>
                   </div>

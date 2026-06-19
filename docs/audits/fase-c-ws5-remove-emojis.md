@@ -115,3 +115,66 @@ donde aplique):
    (maximize), error de estación (alert).
 10. **Transversal:** sin emojis coloridos visibles (salvo estaciones de cocina y plantillas
     WhatsApp, documentadas); sin regresión de layout/legibilidad en light/dark.
+
+---
+
+## WS5-B — Corrección de residuos detectados por QA
+
+Tras el primer push (`733c3c6`), el QA de Chrome marcó **WS5 FAIL** por glyphs residuales
+en chrome de producto. Esta sub-iteración (`WS5-B`) los corrige sobre la misma rama.
+
+### Bugs QA recibidos vs. realidad en código
+
+| # | Bug QA | Realidad verificada | Acción |
+|---|---|---|---|
+| 1 | `⭐ Destacados` en index / delivery-cliente / mozo (P1) | Confirmado: `⭐ Destacado del mes` (index 654, delivery-cliente 991) y `⭐ Destacado del día` (mozo 2634) | `⭐` → `★` (estrella monocroma aceptada) |
+| 2 | Mozo: `🔍`, `⏰`, `⏱` | **`🔍` y `⏰` NO existen** en ninguna fuente de producto (escaneo exhaustivo). El único reloj real es **`⏱` en caja 3087** (`⏱ {espera}m`), no en mozo → QA misatribuyó el panel. `🔍` probable lupa nativa de un `input[type=search]` del navegador, no emoji nuestro | `⏱` (caja 3087) → `◷` (U+25F7, monocromo aceptado). `🔍`/`⏰`: nada que cambiar (inexistentes) — documentado |
+| 3 | Admin: `⏳` en loading + `⭐ Todas...` | Confirmado: `⏳` en botón "Subir foto" (admin 297), `⭐ Todas las zonas` (admin 6259) | `⏳` → texto sobrio `Subiendo…`; `⭐` → `★` |
+| 4 | Caja + Mozo: `⬜`→`□`, `⭕`→`○` (selector forma de mesa) | Confirmado: `SHAPES_DEF_M` (mozo 149) y `SHAPES_DEF_C` (caja 2620). El campo `icon` es **solo display** (render en la píldora del selector, línea mozo 335); el payload persiste `value` (`square`/`round`/`rectangle`), no el glyph | `⬜`→`□`, `⭕`→`○`. **Sin cambio de payload/modelo** |
+| 5 | `mythos-gating.js`: `📲` | Confirmado: `📲 Consultar Precio de este Módulo` (línea 106), label del botón de upsell/paywall (chrome UI, píldora negra de WhatsApp) | `📲` removido → texto sobrio `Consultar Precio de este Módulo`. **Sin tocar lógica de gating/capabilities** |
+
+### Extra (no listado por QA, mismo criterio premium)
+
+- **caja 616** `⏻ Cerrar sesión` (U+23FB POWER SYMBOL, podría presentarse como emoji en
+  algunos sistemas) → `<Icon name="logout">` (SVG monocromo `MythosIcons`, helper ya existente
+  en caja). Botón sin cambio funcional.
+
+### Cambios aplicados (lista exacta)
+
+| Archivo | Línea | Antes | Después |
+|---|---|---|---|
+| `src/index/main.jsx` | 654 | `⭐ Destacado del mes` | `★ Destacado del mes` |
+| `src/delivery-cliente/main.jsx` | 991 | `⭐ Destacado del mes` | `★ Destacado del mes` |
+| `src/mozo/main.jsx` | 149 | `icon:'⬜'` / `icon:'⭕'` | `icon:'□'` / `icon:'○'` |
+| `src/mozo/main.jsx` | 2634 | `<span>⭐</span> Destacado del día` | `<span>★</span> Destacado del día` |
+| `src/caja/main.jsx` | 2620 | `icon:'⬜'` / `icon:'⭕'` | `icon:'□'` / `icon:'○'` |
+| `src/caja/main.jsx` | 3087 | `⏱ {espera}m` | `◷ {espera}m` |
+| `src/caja/main.jsx` | 616 | `⏻ Cerrar sesión` | `<Icon name="logout"/> Cerrar sesión` |
+| `src/admin/main.jsx` | 297 | `busy?'⏳'` | `busy?'Subiendo…'` |
+| `src/admin/main.jsx` | 6259 | `⭐ Todas las zonas` | `★ Todas las zonas` |
+| `public/mythos-gating.js` | 106 | `📲 Consultar Precio de este Módulo` | `Consultar Precio de este Módulo` |
+
+### Símbolos finales aceptados (monocromos, conservados)
+
+`✓ ✕ ★ ☆ ✎ ✦ ♦ ● ◷ ○ □ ▬ ▭ ▣ ▦ ₲` + `⚠` compacto. (`★`/`◷`/`□`/`○` ahora reemplazan
+a los emojis coloridos antes presentes.)
+
+### Exclusiones (sin cambio — vigentes de WS5)
+
+1. **Admin — selector de íconos de estación de cocina** (`STATION_ICONS`, `STATION_TYPES`,
+   admin 5953-6020): emoji **como dato** persistido en `kitchen_stations.icon`. Fuera de alcance.
+2. **Admin — plantillas WhatsApp** (`MSG_TEMPLATES`, admin 4419-4421): contenido de mensaje
+   saliente al cliente, no chrome UI.
+
+### Resultado del escaneo (post-WS5-B)
+
+- **Chrome de producto** (9 paneles `src/<panel>/main.jsx` + `public/mythos-gating.js` +
+  HTML de panel): **0 emojis pictográficos/coloridos residuales**.
+- `src/` solo conserva las **2 exclusiones documentadas** en admin.
+- Hits restantes fuera de producto: **docs de arquitectura** (`docs/diagrama-sistema.html`,
+  `docs/sistema-completo-v1.html`, `docs/DATABASE_SCHEMA.md`) y este propio audit doc — **no son
+  chrome de producto**, no se tocan (documentación interna).
+
+### Build
+
+- `npm run build` → **PASS** (9/9, exit 0). `public/build/` gitignored (Vercel compila de `src/`).
