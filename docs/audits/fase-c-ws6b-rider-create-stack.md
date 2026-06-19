@@ -9,7 +9,78 @@
 
 ---
 
+## 0. CORRECCIÓN — hallazgo DESCARTADO (QA runtime, 2026-06-19)
+
+> 🟢 **ESTADO FINAL: crear rider = PASS. NO es un bug del producto. NO requiere fix.**
+> El error `Maximum call stack size exceeded` queda **descartado como artefacto de la
+> instrumentación de QA** (wrapper/doble-wrapper de `fetch`), no del app.
+
+Las §1–§9 de abajo son el **diagnóstico inicial** (histórico) y siguen siendo válidas en su
+conclusión clave: el **path frontend de creación de rider no contiene recursión**. Lo que faltaba era
+la evidencia runtime, que ahora confirma que tampoco había bug en el backend: el error nacía en la
+capa de instrumentación del QA.
+
+### 0.1 Diagnóstico inicial (resumen)
+
+WS6-B1 (estático, sin entorno vivo) concluyó que el path de Personal para rider está **limpio**
+(mismo `addEmployee` que mozo salvo el string `role`; `riderToProfile`/`loadProfiles`/render/realtime
+sin recursión) y, como no había recursión en el app, atribuyó el `RangeError` como **probable** origen
+server-side, ruteándolo a WS6-B/Auth. **Esa hipótesis de "server-side" queda corregida** por la
+evidencia runtime: no era ni frontend ni backend del app.
+
+### 0.2 Nueva evidencia (QA runtime pasivo, preview `ba647ee`)
+
+- **Crear rider FUNCIONA.** Se creó la fila nueva: **"juanperes"**, `Rider · delivery`, **Activo**.
+- El **contador de activos pasó de 11 → 12**.
+- **Consola: 0 errores.** **No** hubo **toast** rojo ni **overlay** de React.
+- En la captura pasiva **no se observó** que se disparara `/api/create-user` (el QA reportó que el flujo
+  siguió otra vía); en todo caso, **no hubo error visible** en consola/red.
+- El `Maximum call stack size exceeded` de la corrida anterior fue **provocado por la propia
+  instrumentación de QA**: un **wrapper (y probable doble-wrapper) de `window.fetch`** que, al llamarse a
+  sí mismo, recursaba infinitamente → `RangeError`. El stack overflow vivía en la **capa de observación
+  del QA**, no en MYTHOS.
+
+> Esto **valida** el análisis estático de WS6-B1: la razón por la que no se encontró ninguna recursión en
+> el código del app es que **no la había** — la recursión estaba en el harness de QA.
+
+### 0.3 Conclusión corregida
+
+- ✅ **Crear rider = PASS.** No hay fix requerido (ni frontend ni backend).
+- ✅ El `Maximum call stack size exceeded` se **descarta** como bug del producto: **artefacto de QA**.
+- ✅ WS6-B1 cierra **sin cambios de código de producto** (sigue siendo un PR de solo documentación).
+
+### 0.4 Lección de QA (método)
+
+- Para auditar **consola/red**, usar **captura pasiva** (p. ej. `PerformanceObserver` / Resource Timing,
+  o el panel Network de DevTools), **no** envolver `window.fetch`.
+- **No envolver `fetch`** salvo que sea estrictamente necesario; si se hace, **garantizar un único
+  wrapper** que delegue al `fetch` **nativo original** (capturado una sola vez), nunca al ya-envuelto,
+  para evitar recursión/doble-wrapper.
+- Ante un `Maximum call stack size exceeded` durante QA instrumentado, **sospechar primero del harness**
+  (wrapper de `fetch`/`console`) antes de atribuirlo al producto.
+
+### 0.5 Pendientes reales que SÍ quedan (no son este caso)
+
+| Tema | Ruta |
+|---|---|
+| Auto-assign rider bloqueado por RLS (PATCH `delivery_orders`) | **WS6-B / security** |
+| `superadmin.demo@mythos.test` login → `Database error querying schema` | **WS6-B / Auth / seed** |
+| Admin → Personal → columna **USUARIO** con bajo contraste en **dark** | **Visual / dark** |
+
+### 0.6 Datos de QA a limpiar más adelante (no en esta rama)
+
+Creados durante el QA contra el sim (no Terrapizza, no la cuenta oficial) — limpiar con el teardown
+guardado, no con DELETEs ad-hoc:
+
+- usuario **`qa.ws6a3.mozo`** (creado al probar crear-mozo).
+- rider **`juanperes`** (creado al probar crear-rider).
+
+---
+
 ## 1. Resultado (TL;DR)
+
+> ⚠️ **Histórico — diagnóstico inicial.** La conclusión vigente está en §0 (crear rider = PASS, error
+> descartado como artefacto de QA). Se conserva lo de abajo por trazabilidad.
 
 - **No se encontró ninguna recursión en el path frontend de creación de rider** (`src/admin/main.jsx`).
   El flujo de Personal es **idéntico** para mozo y rider salvo el valor `role` que se envía y los
