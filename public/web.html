@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="es-PY" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MYTHOS — El sistema operativo de tu restaurante</title>
+  <meta name="description" content="Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Cobrá con Bancard, facturá legal y operá todo desde un solo lugar. Hecho en Paraguay.">
+  <meta name="theme-color" content="#FFFFFF">
+  <link rel="canonical" href="/inicio">
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="es_PY">
+  <meta property="og:site_name" content="MYTHOS">
+  <meta property="og:title" content="MYTHOS — El sistema operativo de tu restaurante">
+  <meta property="og:description" content="Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Cobrá con Bancard, facturá legal y operá todo desde un solo lugar.">
+
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="web-marketing.css">
+  <!-- Tema: aplicar data-theme antes de pintar (evita parpadeo); light por defecto -->
+  <script src="mythos-theme.js"></script>
+  <script>if(!localStorage.getItem('mythos-theme')&&window.MythosTheme){window.MythosTheme.init('light');}</script>
+</head>
+<body>
+  <!-- Header inyectado por web-marketing.js (fuente única de navegación) -->
+  <div id="site-header"></div>
+  <noscript>
+    <nav class="wrap" style="display:flex;gap:20px;padding:16px 24px;border-bottom:1px solid var(--border)">
+      <a href="/inicio"><strong>MYTHOS</strong></a>
+      <a href="/precios">Precios</a><a href="/demo">Demo</a>
+      <a href="/contacto">Contacto</a><a href="/login">Iniciar sesión</a>
+    </nav>
+  </noscript>
+
+  <main>
+    <!-- ── HERO ─────────────────────────────────────────────────────────── -->
+    <section class="hero wrap">
+      <span class="eyebrow"><span data-icon="pin"></span> Hecho en Paraguay · Cobrá con Bancard</span>
+      <h1>El sistema operativo de tu restaurante.</h1>
+      <p class="sub">Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Cobrás con Bancard, facturás legal, y operás todo desde un solo lugar.</p>
+      <div class="hero-bullets">
+        <span class="chip"><span data-icon="dashboard"></span> Menú digital con QR</span>
+        <span class="chip"><span data-icon="activity"></span> Caja y cocina en tiempo real</span>
+        <span class="chip"><span data-icon="creditCard"></span> Cobro con Bancard</span>
+        <span class="chip"><span data-icon="receipt"></span> Factura electrónica</span>
+        <span class="chip"><span data-icon="truck"></span> Delivery con tracking</span>
+      </div>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="/registro">Probar gratis</a>
+        <a class="btn btn-secondary" href="/demo">Ver demo en vivo</a>
+      </div>
+      <p class="microcopy">14 días gratis. Sin tarjeta. Cancelás cuando quieras.</p>
+
+      <!-- Mockup de panel (monocromo) -->
+      <div class="device reveal" aria-hidden="true">
+        <div class="device-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <div class="device-body">
+          <div class="device-side">
+            <div class="side-item active">Caja</div>
+            <div class="side-item">Cocina (KDS)</div>
+            <div class="side-item">Mesas y Mozos</div>
+            <div class="side-item">Delivery</div>
+            <div class="side-item">Inventario</div>
+            <div class="side-item">Gerente</div>
+          </div>
+          <div class="device-main">
+            <div class="dm-row">
+              <div class="dm-card"><div class="dm-label">Ventas hoy</div><div class="dm-num">Gs 4.820.000</div></div>
+              <div class="dm-card"><div class="dm-label">Pedidos</div><div class="dm-num">137</div></div>
+              <div class="dm-card"><div class="dm-label">Ticket prom.</div><div class="dm-num">Gs 35.200</div></div>
+            </div>
+            <div class="dm-ticket"><span><b>Mesa 4</b> · 2 platos · 1 bebida</span><span class="badge-ok"><span data-icon="check" data-icon-size="11"></span> Listo</span></div>
+            <div class="dm-ticket"><span><b>Delivery #218</b> · en camino</span><span class="badge-ok"><span data-icon="creditCard" data-icon-size="11"></span> Bancard</span></div>
+            <div class="dm-ticket"><span><b>Mesa 9</b> · esperando cocina</span><span class="badge-muted">Preparando</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── TIRA DE CONFIANZA (sin contadores en cero) ──────────────────── -->
+    <div class="trust">
+      <div class="wrap">
+        <span class="t-item"><span data-icon="pin"></span> Hecho en Paraguay</span>
+        <span class="t-item"><span data-icon="creditCard"></span> Cobrá con Bancard</span>
+        <span class="t-item"><span data-icon="receipt"></span> Factura electrónica</span>
+        <span class="t-item"><span data-icon="chat"></span> Soporte por WhatsApp</span>
+        <span class="t-item"><span data-icon="activity"></span> Demo en vivo, no maqueta</span>
+      </div>
+    </div>
+
+    <!-- ── MÓDULOS ─────────────────────────────────────────────────────── -->
+    <section class="block wrap center reveal" id="modulos">
+      <h2>Todo en una sola plataforma</h2>
+      <p class="lead">Los módulos que tu restaurante necesita para operar mejor — integrados, no 8 apps sueltas.</p>
+      <div class="grid">
+        <div class="mod"><div class="mod-ic"><span data-icon="dashboard" data-icon-size="21"></span></div><h3>Menú QR</h3><p>Tu carta digital, fotos y pedidos desde el celular.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="creditCard" data-icon-size="21"></span></div><h3>Caja / POS</h3><p>Tomá pedidos y cobrá desde el mostrador.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="flame" data-icon-size="21"></span></div><h3>Cocina (KDS)</h3><p>Tickets en tiempo real por estación.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="users" data-icon-size="21"></span></div><h3>Mesas y Mozos</h3><p>Plano del local, zonas y turnos.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="truck" data-icon-size="21"></span></div><h3>Delivery</h3><p>Zonas, tarifas y tracking en vivo.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="package" data-icon-size="21"></span></div><h3>Inventario y Recetas</h3><p>Stock, costeo y proveedores.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="calendar" data-icon-size="21"></span></div><h3>Reservas</h3><p>Reservas online desde el menú.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="chart" data-icon-size="21"></span></div><h3>Analytics (Gerente)</h3><p>Reportes de ventas y rendimiento.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="building" data-icon-size="21"></span></div><h3>Multi-sucursal</h3><p>Varias sedes, un solo panel.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="money" data-icon-size="21"></span></div><h3>Cobro Bancard</h3><p>Pagos online locales, integrados.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="receipt" data-icon-size="21"></span></div><h3>Facturación electrónica</h3><p>Emití factura legal con tu RUC.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="award" data-icon-size="21"></span></div><h3>0% comisión</h3><p>Lo que vendés es tuyo. Sin comisión por pedido.</p></div>
+      </div>
+    </section>
+
+    <!-- ── DIFERENCIADOR LOCAL ─────────────────────────────────────────── -->
+    <section class="block wrap reveal">
+      <div class="local">
+        <h2>Cobrá con Bancard. Facturá legal. Sin vueltas.</h2>
+        <p class="lead">Lo que ningún software internacional te da fácil en Paraguay: pagos y facturación locales, de verdad.</p>
+        <div class="local-grid">
+          <div class="local-item"><span class="n"><span data-icon="creditCard"></span> 01</span><h4>Pagos con Bancard</h4><p>Cobrá online con la pasarela local que tus clientes ya conocen. Sin Stripe ni dólares.</p></div>
+          <div class="local-item"><span class="n"><span data-icon="receipt"></span> 02</span><h4>Factura electrónica</h4><p>Emití comprobantes legales con tu RUC, integrado al sistema. Cumplís con el fisco.</p></div>
+          <div class="local-item"><span class="n"><span data-icon="chat"></span> 03</span><h4>Soporte que contesta</h4><p>WhatsApp directo, en español, atendido por el equipo que hizo el producto.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── COMPARAR ────────────────────────────────────────────────────── -->
+    <section class="block wrap center reveal">
+      <h2>Una plataforma, no 8 apps sueltas</h2>
+      <p class="lead">Otros pagan por separado menú, POS, cocina, delivery, reservas… Con MYTHOS está todo junto.</p>
+      <div class="cmp">
+        <div class="cmp-col">
+          <h4>Sin MYTHOS</h4>
+          <div class="big">+6 apps sueltas</div>
+          <ul>
+            <li class="no"><span class="ic">&#10005;</span> App de menú · App de delivery</li>
+            <li class="no"><span class="ic">&#10005;</span> Software POS aparte</li>
+            <li class="no"><span class="ic">&#10005;</span> Sistema KDS aparte</li>
+            <li class="no"><span class="ic">&#10005;</span> Excel para reportes</li>
+            <li class="no"><span class="ic">&#10005;</span> Comisiones por pedido</li>
+            <li class="no"><span class="ic">&#10005;</span> Datos que no se hablan entre sí</li>
+          </ul>
+        </div>
+        <div class="cmp-col win">
+          <h4>Con MYTHOS</h4>
+          <div class="big">1 plataforma integrada</div>
+          <ul>
+            <li><span class="ic">&#10003;</span> Menú + POS + Cocina + Delivery</li>
+            <li><span class="ic">&#10003;</span> Reservas + Inventario + Analytics</li>
+            <li><span class="ic">&#10003;</span> Cobro Bancard + Factura electrónica</li>
+            <li><span class="ic">&#10003;</span> 0% comisión por pedido</li>
+            <li><span class="ic">&#10003;</span> Multi-sucursal, un panel</li>
+            <li><span class="ic">&#10003;</span> Un solo precio, todo conectado</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── DEMO EN VIVO ────────────────────────────────────────────────── -->
+    <section class="block wrap center reveal" id="demo">
+      <h2>No te creas nada. Probalo.</h2>
+      <p class="lead">MYTHOS ya está funcionando. Conocé los paneles reales en una demo guiada.</p>
+      <a class="btn btn-primary btn-lg" href="/demo">Ver demo en vivo</a>
+    </section>
+
+    <!-- ── PRECIOS (PLACEHOLDER) ───────────────────────────────────────────
+      TODO(WEB-2/WEB-3): estos precios y features NO deben quedar hardcodeados.
+      En WEB-2 se crean las tablas `marketing_plans` / `marketing_add_ons` y en
+      WEB-3 esta sección lee de Supabase (filas activas), editable desde
+      Superadmin → "Sitio web". Hoy son placeholders de vidriera (no definitivos).
+    -->
+    <section class="block wrap center reveal" id="precios">
+      <h2>Planes que crecen con vos</h2>
+      <p class="lead">Probá 14 días gratis. Escalá cuando crezcas. Cancelás cuando quieras.</p>
+      <div class="toggle-wrap">
+        <span class="tg-label act" id="lblMensual">Mensual</span>
+        <button class="toggle" id="priceToggle" type="button" aria-label="Cambiar a precio anual"><span class="knob"></span></button>
+        <span class="tg-label" id="lblAnual">Anual</span>
+      </div>
+      <div class="save-note" id="saveNote"></div>
+
+      <div class="plans">
+        <div class="plan">
+          <h3>Carta</h3>
+          <div class="frase">Tu carta, siempre lista</div>
+          <div class="price"><span class="gs">Gs</span><span data-m="99.000" data-a="82.500">99.000</span><small>/mes</small></div>
+          <ul>
+            <li>Menú digital con QR</li>
+            <li>Productos ilimitados</li>
+            <li>Pedidos por WhatsApp</li>
+            <li>Analytics básico</li>
+            <li>Reseñas · 1 sucursal</li>
+          </ul>
+          <a class="btn btn-secondary" href="/registro?plan=carta">Probar gratis</a>
+        </div>
+
+        <div class="plan feat">
+          <div class="tag">Recomendado</div>
+          <h3>Servicio</h3>
+          <div class="frase">Sala y cocina, sincronizadas</div>
+          <div class="price"><span class="gs">Gs</span><span data-m="229.000" data-a="190.800">229.000</span><small>/mes</small></div>
+          <ul>
+            <li>Todo lo de Carta</li>
+            <li>Caja / POS</li>
+            <li>Cocina (KDS)</li>
+            <li>Mesas y Mozos</li>
+            <li>Gestión de equipo · Soporte prioritario</li>
+          </ul>
+          <a class="btn btn-primary" href="/registro?plan=servicio">Probar gratis</a>
+        </div>
+
+        <div class="plan">
+          <h3>Full</h3>
+          <div class="frase">Control total del negocio</div>
+          <div class="price"><span class="gs">Gs</span><span data-m="399.000" data-a="332.500">399.000</span><small>/mes</small></div>
+          <ul>
+            <li>Todo lo de Servicio</li>
+            <li>Delivery con tracking</li>
+            <li>Reservas online</li>
+            <li>Analytics avanzado</li>
+            <li>Soporte 24/7</li>
+          </ul>
+          <a class="btn btn-secondary" href="/registro?plan=full">Probar gratis</a>
+        </div>
+
+        <div class="plan">
+          <h3>Enterprise</h3>
+          <div class="frase">Cadenas y multi-local</div>
+          <div class="price">A cotizar</div>
+          <ul>
+            <li>Todo lo de Full</li>
+            <li>Sucursales ilimitadas</li>
+            <li>Módulos a medida</li>
+            <li>Onboarding dedicado</li>
+            <li>Soporte con SLA</li>
+          </ul>
+          <a class="btn btn-secondary" data-wa="Hola, me interesa el plan Enterprise de MYTHOS para mi cadena.">Contactar ventas</a>
+        </div>
+      </div>
+
+      <!-- Banner Oferta Fundador — TODO(WEB-3): mostrar/ocultar por flag marketing_config.oferta_fundador_activa -->
+      <div class="founder">
+        <div>
+          <b><span data-icon="star"></span> Oferta Fundador — solo 10 lugares</b>
+          <p>Precio congelado de por vida + 50% off los primeros 3 meses, a cambio de tu testimonio. Para los primeros 10 restaurantes.</p>
+        </div>
+        <a class="btn btn-primary btn-sm" data-wa="Hola, quiero uno de los 10 lugares de la Oferta Fundador de MYTHOS.">Quiero un lugar</a>
+      </div>
+
+      <p class="microcopy" style="margin-top:18px">Precios de referencia. El detalle final de planes y add-ons se confirma al activar tu cuenta.</p>
+    </section>
+
+    <!-- ── CÓMO FUNCIONA ───────────────────────────────────────────────── -->
+    <section class="block wrap center reveal">
+      <h2>Empezá en 3 pasos</h2>
+      <p class="lead">Sin instalaciones ni complicaciones. Lo armás vos, y si te trabás, te ayudamos.</p>
+      <div class="steps">
+        <div class="step"><div class="num">1</div><h3>Creá tu cuenta</h3><p>Registrás tu restaurante y elegís tu plan. 14 días gratis, sin tarjeta.</p></div>
+        <div class="step"><div class="num">2</div><h3>Cargá tu menú y tu operación</h3><p>Productos, mesas, zonas y equipo. Te guiamos en el onboarding.</p></div>
+        <div class="step"><div class="num">3</div><h3>Empezá a vender</h3><p>Compartí tu QR, tomá pedidos, cobrá con Bancard y facturá legal.</p></div>
+      </div>
+    </section>
+
+    <!--
+      TODO(WEB-2/WEB-3): sección TESTIMONIOS. Se omite en WEB-1 a propósito:
+      no inventar prueba social. Mostrar reseñas reales (con nombre + local)
+      leídas de `marketing_testimonials` solo cuando existan filas activas.
+    -->
+
+    <!-- ── FAQ ─────────────────────────────────────────────────────────── -->
+    <section class="block wrap reveal" id="faq">
+      <h2 class="center">Preguntas frecuentes</h2>
+      <p class="lead center">Todo lo que necesitás saber antes de empezar.</p>
+      <div class="faq">
+        <details open><summary>¿Necesito conocimientos técnicos?</summary><p>No. Creás tu cuenta, cargás tu menú y empezás. Y si te trabás, te ayudamos por WhatsApp.</p></details>
+        <details><summary>¿Puedo probar antes de pagar?</summary><p>Sí. 14 días gratis, sin tarjeta de crédito. Cancelás cuando quieras.</p></details>
+        <details><summary>¿Cómo cobro a mis clientes?</summary><p>Con Bancard, la pasarela local. Pagos online integrados, sin depender de Stripe ni cuentas en dólares.</p></details>
+        <details><summary>¿Emiten factura?</summary><p>Sí. MYTHOS integra facturación electrónica con tu RUC para que emitas comprobantes legales.</p></details>
+        <details><summary>¿Y si tengo más de una sucursal?</summary><p>Sumás sucursales y las administrás todas desde un solo panel. Para cadenas está el plan Enterprise.</p></details>
+        <details><summary>¿Mis clientes descargan una app?</summary><p>No. Escanean el QR y listo, funciona en el navegador. Cero fricción.</p></details>
+        <details><summary>¿Puedo cancelar cuando quiera?</summary><p>Sí. No hay permanencia: cancelás desde tu panel cuando quieras.</p></details>
+      </div>
+    </section>
+
+    <!-- ── CTA FINAL ───────────────────────────────────────────────────── -->
+    <section class="cta-final wrap reveal">
+      <h2>Llevá tu restaurante al siguiente nivel.</h2>
+      <p class="lead">Probá MYTHOS gratis por 14 días. Sin tarjeta. Sin compromiso.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="/registro">Probar gratis</a>
+        <a class="btn btn-secondary" data-wa><span data-icon="chat"></span> Hablar por WhatsApp</a>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer inyectado por web-marketing.js -->
+  <div id="site-footer"></div>
+
+  <script src="mythos-icons.js"></script>
+  <script src="web-marketing.js"></script>
+  <script>MythosWeb.init({ active: '' });</script>
+</body>
+</html>

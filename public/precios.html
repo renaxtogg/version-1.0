@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es-PY" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Precios — MYTHOS</title>
+  <meta name="description" content="Planes de MYTHOS: Carta, Servicio y Full, más add-ons modulares. 14 días gratis, sin tarjeta. Cobrá con Bancard y facturá legal.">
+  <meta name="theme-color" content="#FFFFFF">
+  <link rel="canonical" href="/precios">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="es_PY">
+  <meta property="og:site_name" content="MYTHOS">
+  <meta property="og:title" content="Precios — MYTHOS">
+  <meta property="og:description" content="Planes y add-ons de MYTHOS. 14 días gratis, sin tarjeta.">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="web-marketing.css">
+  <script src="mythos-theme.js"></script>
+  <script>if(!localStorage.getItem('mythos-theme')&&window.MythosTheme){window.MythosTheme.init('light');}</script>
+</head>
+<body>
+  <div id="site-header"></div>
+  <noscript>
+    <nav class="wrap" style="display:flex;gap:20px;padding:16px 24px;border-bottom:1px solid var(--border)">
+      <a href="/inicio"><strong>MYTHOS</strong></a>
+      <a href="/precios">Precios</a><a href="/demo">Demo</a>
+      <a href="/contacto">Contacto</a><a href="/login">Iniciar sesión</a>
+    </nav>
+  </noscript>
+
+  <main>
+    <section class="page-hero wrap">
+      <h1>Planes que crecen con vos</h1>
+      <p class="lead">Probá 14 días gratis. Escalá cuando crezcas. Cancelás cuando quieras.</p>
+    </section>
+
+    <!-- ── PRECIOS (PLACEHOLDER) ───────────────────────────────────────────
+      TODO(WEB-2/WEB-3): leer planes y add-ons de Supabase (`marketing_plans` /
+      `marketing_add_ons`, filas activas), editables desde Superadmin → "Sitio
+      web". Estos valores son placeholders de vidriera, NO definitivos.
+    -->
+    <section class="block wrap center" style="padding-top:20px">
+      <div class="toggle-wrap">
+        <span class="tg-label act" id="lblMensual">Mensual</span>
+        <button class="toggle" id="priceToggle" type="button" aria-label="Cambiar a precio anual"><span class="knob"></span></button>
+        <span class="tg-label" id="lblAnual">Anual</span>
+      </div>
+      <div class="save-note" id="saveNote"></div>
+
+      <div class="plans">
+        <div class="plan">
+          <h3>Carta</h3>
+          <div class="frase">Tu carta, siempre lista</div>
+          <div class="price"><span class="gs">Gs</span><span data-m="99.000" data-a="82.500">99.000</span><small>/mes</small></div>
+          <ul>
+            <li>Menú digital con QR</li>
+            <li>Productos ilimitados</li>
+            <li>Pedidos por WhatsApp</li>
+            <li>Analytics básico</li>
+            <li>Reseñas · 1 sucursal</li>
+          </ul>
+          <a class="btn btn-secondary" href="/registro?plan=carta">Probar gratis</a>
+        </div>
+
+        <div class="plan feat">
+          <div class="tag">Recomendado</div>
+          <h3>Servicio</h3>
+          <div class="frase">Sala y cocina, sincronizadas</div>
+          <div class="price"><span class="gs">Gs</span><span data-m="229.000" data-a="190.800">229.000</span><small>/mes</small></div>
+          <ul>
+            <li>Todo lo de Carta</li>
+            <li>Caja / POS</li>
+            <li>Cocina (KDS)</li>
+            <li>Mesas y Mozos</li>
+            <li>Gestión de equipo · Soporte prioritario</li>
+          </ul>
+          <a class="btn btn-primary" href="/registro?plan=servicio">Probar gratis</a>
+        </div>
+
+        <div class="plan">
+          <h3>Full</h3>
+          <div class="frase">Control total del negocio</div>
+          <div class="price"><span class="gs">Gs</span><span data-m="399.000" data-a="332.500">399.000</span><small>/mes</small></div>
+          <ul>
+            <li>Todo lo de Servicio</li>
+            <li>Delivery con tracking</li>
+            <li>Reservas online</li>
+            <li>Analytics avanzado</li>
+            <li>Soporte 24/7</li>
+          </ul>
+          <a class="btn btn-secondary" href="/registro?plan=full">Probar gratis</a>
+        </div>
+
+        <div class="plan">
+          <h3>Enterprise</h3>
+          <div class="frase">Cadenas y multi-local</div>
+          <div class="price">A cotizar</div>
+          <ul>
+            <li>Todo lo de Full</li>
+            <li>Sucursales ilimitadas</li>
+            <li>Módulos a medida</li>
+            <li>Onboarding dedicado</li>
+            <li>Soporte con SLA</li>
+          </ul>
+          <a class="btn btn-secondary" data-wa="Hola, me interesa el plan Enterprise de MYTHOS para mi cadena.">Contactar ventas</a>
+        </div>
+      </div>
+
+      <div class="founder">
+        <div>
+          <b><span data-icon="star"></span> Oferta Fundador — solo 10 lugares</b>
+          <p>Precio congelado de por vida + 50% off los primeros 3 meses, a cambio de tu testimonio. Para los primeros 10 restaurantes.</p>
+        </div>
+        <a class="btn btn-primary btn-sm" data-wa="Hola, quiero uno de los 10 lugares de la Oferta Fundador de MYTHOS.">Quiero un lugar</a>
+      </div>
+    </section>
+
+    <!-- ── ADD-ONS (PLACEHOLDER) ───────────────────────────────────────────
+      TODO(WEB-3): "Armador / Calculá tu precio" interactivo que lee `marketing_add_ons`
+      y arma el total en vivo. En WEB-1 se muestran como referencia estática.
+    -->
+    <section class="block wrap center reveal">
+      <h2>Sumá lo que necesitás</h2>
+      <p class="lead">Add-ons modulares para ampliar tu plan. El armador con total en vivo llega pronto.</p>
+      <div class="grid">
+        <div class="mod"><div class="mod-ic"><span data-icon="money" data-icon-size="21"></span></div><h3>Cobro con Bancard</h3><p>Pagos online locales integrados.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="receipt" data-icon-size="21"></span></div><h3>Facturación electrónica</h3><p>Comprobantes legales con tu RUC.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="package" data-icon-size="21"></span></div><h3>Inventario y Recetas</h3><p>Stock, costeo y proveedores.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="truck" data-icon-size="21"></span></div><h3>Delivery</h3><p>Zonas, tarifas y tracking.</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="star" data-icon-size="21"></span></div><h3>Fidelización</h3><p>Puntos y recompensas (próximamente).</p></div>
+        <div class="mod"><div class="mod-ic"><span data-icon="building" data-icon-size="21"></span></div><h3>Sucursal adicional</h3><p>Cada sede extra, en un panel.</p></div>
+      </div>
+    </section>
+
+    <section class="cta-final wrap reveal">
+      <h2>¿Listo para empezar?</h2>
+      <p class="lead">14 días gratis. Sin tarjeta. Cancelás cuando quieras.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="/registro">Probar gratis</a>
+        <a class="btn btn-secondary" data-wa><span data-icon="chat"></span> Hablar por WhatsApp</a>
+      </div>
+    </section>
+  </main>
+
+  <div id="site-footer"></div>
+  <script src="mythos-icons.js"></script>
+  <script src="web-marketing.js"></script>
+  <script>MythosWeb.init({ active: 'precios' });</script>
+</body>
+</html>

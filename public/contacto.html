@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="es-PY" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contacto — MYTHOS</title>
+  <meta name="description" content="Hablá con el equipo de MYTHOS. Soporte y ventas por WhatsApp, en español.">
+  <meta name="theme-color" content="#FFFFFF">
+  <link rel="canonical" href="/contacto">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="web-marketing.css">
+  <script src="mythos-theme.js"></script>
+  <script>if(!localStorage.getItem('mythos-theme')&&window.MythosTheme){window.MythosTheme.init('light');}</script>
+</head>
+<body>
+  <div id="site-header"></div>
+  <noscript>
+    <nav class="wrap" style="display:flex;gap:20px;padding:16px 24px;border-bottom:1px solid var(--border)">
+      <a href="/inicio"><strong>MYTHOS</strong></a>
+      <a href="/precios">Precios</a><a href="/demo">Demo</a>
+      <a href="/contacto">Contacto</a><a href="/login">Iniciar sesión</a>
+    </nav>
+  </noscript>
+
+  <main>
+    <section class="page-hero wrap">
+      <h1>Hablemos</h1>
+      <p class="lead">¿Dudas, demo o ganas de empezar? Te respondemos por WhatsApp, en español.</p>
+    </section>
+
+    <section class="block wrap" style="padding-top:20px">
+      <div style="max-width:520px;margin:0 auto 28px;display:flex;flex-direction:column;gap:12px">
+        <a class="btn btn-primary btn-lg" data-wa="Hola, quiero más información sobre MYTHOS."><span data-icon="chat"></span> Escribir por WhatsApp</a>
+        <a class="btn btn-secondary" data-email><span data-icon="mail"></span> Enviar un email</a>
+      </div>
+
+      <div class="notice">
+        <span data-icon="info"></span>
+        <span><b>Próximamente:</b> el formulario de contacto se conecta en una fase siguiente. Por ahora, el WhatsApp es la vía más rápida.</span>
+      </div>
+
+      <!--
+        WEB-1: formulario VISUAL deshabilitado. NO escribe en la base de datos.
+        TODO(WEB-5): crear tabla `marketing_leads` (anon INSERT-only, lectura solo
+        superadmin) + endpoint /api/submit-lead (valida y guarda) + email vía Resend.
+        Los leads se ven desde Superadmin → "Sitio web".
+      -->
+      <form class="form-card" aria-label="Formulario de contacto" onsubmit="return false">
+        <div class="field">
+          <label for="c-name">Nombre</label>
+          <input id="c-name" type="text" placeholder="Tu nombre" disabled autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="c-email">Email</label>
+          <input id="c-email" type="email" placeholder="vos@turestaurante.com" disabled autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="c-wsp">WhatsApp</label>
+          <input id="c-wsp" type="tel" placeholder="+595 9xx xxx xxx" disabled autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="c-msg">Mensaje</label>
+          <textarea id="c-msg" rows="4" placeholder="Contanos sobre tu restaurante" disabled></textarea>
+        </div>
+        <button class="btn btn-primary" type="button" disabled aria-disabled="true">Enviar (próximamente)</button>
+      </form>
+    </section>
+  </main>
+
+  <div id="site-footer"></div>
+  <script src="mythos-icons.js"></script>
+  <script src="web-marketing.js"></script>
+  <script>MythosWeb.init({ active: 'contacto' });</script>
+</body>
+</html>

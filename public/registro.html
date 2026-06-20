@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es-PY" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Probar gratis — MYTHOS</title>
+  <meta name="description" content="Creá tu cuenta de restaurante y probá MYTHOS 14 días gratis, sin tarjeta.">
+  <meta name="theme-color" content="#FFFFFF">
+  <link rel="canonical" href="/registro">
+  <meta name="robots" content="noindex">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="web-marketing.css">
+  <script src="mythos-theme.js"></script>
+  <script>if(!localStorage.getItem('mythos-theme')&&window.MythosTheme){window.MythosTheme.init('light');}</script>
+</head>
+<body>
+  <div id="site-header"></div>
+  <noscript>
+    <nav class="wrap" style="display:flex;gap:20px;padding:16px 24px;border-bottom:1px solid var(--border)">
+      <a href="/inicio"><strong>MYTHOS</strong></a>
+      <a href="/precios">Precios</a><a href="/demo">Demo</a>
+      <a href="/contacto">Contacto</a><a href="/login">Iniciar sesión</a>
+    </nav>
+  </noscript>
+
+  <main>
+    <section class="page-hero wrap">
+      <h1>Probá MYTHOS gratis</h1>
+      <p class="lead">14 días gratis para tu restaurante. Sin tarjeta. Cancelás cuando quieras.</p>
+    </section>
+
+    <section class="block wrap" style="padding-top:20px">
+      <div class="notice">
+        <span data-icon="info"></span>
+        <span><b>Próximamente:</b> el alta automática de cuentas se habilita en una fase siguiente. Por ahora activamos tu prueba en persona — escribinos por WhatsApp y te acompañamos en el onboarding. <b>El registro es solo para dueños de restaurante</b>; el personal (mozos, caja, cocina, riders) se crea desde el panel del restaurante y entra por <a href="/login">Iniciar sesión</a>.</span>
+      </div>
+
+      <!--
+        WEB-1: formulario VISUAL deshabilitado (modo "próxima fase"). NO crea Auth,
+        NO escribe en la base de datos, NO hay service_role en el cliente.
+        TODO(WEB-4): conectar a Supabase Auth + crear restaurante en estado 'trial'
+        (trial_fin = now()+14d) + fila en `signups`. El cobro (Bancard) queda como
+        fase separada; el botón "Activar plan" permanece deshabilitado hasta entonces.
+      -->
+      <form class="form-card" aria-label="Registro de restaurante" onsubmit="return false">
+        <p id="planTag" class="microcopy" style="margin:0 0 16px"></p>
+        <div class="field">
+          <label for="r-rest">Nombre del restaurante</label>
+          <input id="r-rest" type="text" placeholder="Mi Restaurante" disabled autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="r-owner">Nombre del dueño</label>
+          <input id="r-owner" type="text" placeholder="Tu nombre" disabled autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="r-email">Email</label>
+          <input id="r-email" type="email" placeholder="vos@turestaurante.com" disabled autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="r-wsp">WhatsApp</label>
+          <input id="r-wsp" type="tel" placeholder="+595 9xx xxx xxx" disabled autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="r-pass">Contraseña</label>
+          <input id="r-pass" type="password" placeholder="Mínimo 8 caracteres" disabled autocomplete="new-password">
+        </div>
+        <button class="btn btn-primary" type="button" disabled aria-disabled="true">Crear cuenta (próximamente)</button>
+        <p class="microcopy" style="margin-top:14px;text-align:center">Alta automática disponible en la próxima fase.</p>
+      </form>
+
+      <div style="max-width:520px;margin:24px auto 0;display:flex;flex-direction:column;gap:12px">
+        <a class="btn btn-primary btn-lg" data-wa="Hola, quiero empezar mi prueba gratis de 14 días en MYTHOS.">Empezar por WhatsApp</a>
+        <a class="btn btn-secondary" href="/login">Ya tengo cuenta — Iniciar sesión</a>
+      </div>
+    </section>
+  </main>
+
+  <div id="site-footer"></div>
+  <script src="mythos-icons.js"></script>
+  <script src="web-marketing.js"></script>
+  <script>
+    MythosWeb.init({ active: '' });
+    // Mostrar el plan elegido (si vino por ?plan=) — solo informativo, sin lógica de cobro.
+    try {
+      var plan = new URLSearchParams(location.search).get('plan');
+      if (plan) {
+        var map = { carta: 'Carta', servicio: 'Servicio', full: 'Full', enterprise: 'Enterprise' };
+        var el = document.getElementById('planTag');
+        if (el) el.textContent = 'Plan seleccionado: ' + (map[plan.toLowerCase()] || plan);
+      }
+    } catch (e) {}
+  </script>
+</body>
+</html>
