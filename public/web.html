@@ -19,6 +19,10 @@
   <!-- Tema: aplicar data-theme antes de pintar (evita parpadeo); light por defecto -->
   <script src="mythos-theme.js"></script>
   <script>if(!localStorage.getItem('mythos-theme')&&window.MythosTheme){window.MythosTheme.init('light');}</script>
+  <!-- Capa de datos (WEB-3): Supabase UMD + config + helper de lectura (degrada a fallback si faltan) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <script src="web-marketing-data.js"></script>
 </head>
 <body>
   <!-- Header inyectado por web-marketing.js (fuente única de navegación) -->
@@ -45,8 +49,8 @@
         <span class="chip"><span data-icon="truck"></span> Delivery con tracking</span>
       </div>
       <div class="hero-cta">
-        <a class="btn btn-primary" href="/registro">Probar gratis</a>
-        <a class="btn btn-secondary" href="/demo">Ver demo en vivo</a>
+        <a class="btn btn-primary" href="/registro" data-track="trial_click">Probar gratis</a>
+        <a class="btn btn-secondary" href="/demo" data-track="demo_click">Ver demo en vivo</a>
       </div>
       <p class="microcopy">14 días gratis. Sin tarjeta. Cancelás cuando quieras.</p>
 
@@ -156,7 +160,7 @@
     <section class="block wrap center reveal" id="demo">
       <h2>No te creas nada. Probalo.</h2>
       <p class="lead">MYTHOS ya está funcionando. Conocé los paneles reales en una demo guiada.</p>
-      <a class="btn btn-primary btn-lg" href="/demo">Ver demo en vivo</a>
+      <a class="btn btn-primary btn-lg" href="/demo" data-track="demo_click">Ver demo en vivo</a>
     </section>
 
     <!-- ── PRECIOS (PLACEHOLDER) ───────────────────────────────────────────
@@ -175,7 +179,7 @@
       </div>
       <div class="save-note" id="saveNote"></div>
 
-      <div class="plans">
+      <div class="plans" id="plansGrid">
         <div class="plan">
           <h3>Carta</h3>
           <div class="frase">Tu carta, siempre lista</div>
@@ -234,8 +238,8 @@
         </div>
       </div>
 
-      <!-- Banner Oferta Fundador — TODO(WEB-3): mostrar/ocultar por flag marketing_config.oferta_fundador_activa -->
-      <div class="founder">
+      <!-- Banner Oferta Fundador — gobernado por marketing_config (founder_offer_active / founder_offer_limit) -->
+      <div class="founder" id="founderBanner">
         <div>
           <b><span data-icon="star"></span> Oferta Fundador — solo 10 lugares</b>
           <p>Precio congelado de por vida + 50% off los primeros 3 meses, a cambio de tu testimonio. Para los primeros 10 restaurantes.</p>
@@ -283,7 +287,7 @@
       <h2>Llevá tu restaurante al siguiente nivel.</h2>
       <p class="lead">Probá MYTHOS gratis por 14 días. Sin tarjeta. Sin compromiso.</p>
       <div class="hero-cta">
-        <a class="btn btn-primary" href="/registro">Probar gratis</a>
+        <a class="btn btn-primary" href="/registro" data-track="trial_click">Probar gratis</a>
         <a class="btn btn-secondary" data-wa><span data-icon="chat"></span> Hablar por WhatsApp</a>
       </div>
     </section>

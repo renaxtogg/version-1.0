@@ -1,30 +1,61 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   MYTHOS — SITIO WEB COMERCIAL · capa de datos (WEB-2, opcional)
+   MYTHOS — SITIO WEB COMERCIAL · capa de datos (WEB-3)
    ─────────────────────────────────────────────────────────────────────
-   Helper de LECTURA del sitio público contra las tablas `marketing_*`
-   (migración 110). Expuesto como `window.MythosWebData`.
+   Lectura del sitio público contra las tablas `marketing_*` (migración 110),
+   con FALLBACK estático seguro. Expuesto como `window.MythosWebData`.
 
-   ESTADO: preparado para WEB-3, **todavía NO cableado** a ninguna página
-   (las páginas de WEB-1 siguen siendo estáticas). Es seguro incluirlo o no:
-   si no hay `window.supabase` (UMD) o `window.SUPABASE_CONFIG`, todas las
-   lecturas devuelven null/[] y las escrituras resuelven false SIN romper.
-
-   Para activarlo en WEB-3, la página debe cargar antes:
-     <script src="https://.../@supabase/supabase-js@2"></script>   (UMD)
-     <script src="config.js"></script>                            (SUPABASE_CONFIG)
-   y luego `await MythosWebData.getPlans()`, etc.
-
-   Seguridad: usa la anon key (igual que los paneles). RLS (mig 110) garantiza
-   que anon solo lee filas activas de los catálogos y que los INSERT de
-   leads/events no son legibles por anon. Los INSERT NO encadenan .select()
-   (return=minimal), igual que reservations en mig 103 §12.
+   • Usa la anon key (igual que los paneles). RLS (mig 110) garantiza que anon
+     solo lee filas activas de catálogos / config is_public=true, y que los
+     INSERT de events/leads no son legibles por anon.
+   • Si no hay window.supabase (UMD) o window.SUPABASE_CONFIG con credenciales,
+     TODO degrada con gracia: getPlans/getAddOns devuelven el fallback estático,
+     getPublicConfig los defaults, y trackEvent/submitLead resuelven sin romper.
+   • Los INSERT NO encadenan .select() (return=minimal): anon no tiene SELECT
+     en events/leads (mismo patrón que reservations en mig 103 §12).
    ═══════════════════════════════════════════════════════════════════════ */
 (function () {
   'use strict';
 
+  // ── Fallback estático (refleja las semillas de la migración 110) ───────
+  var FALLBACK_PLANS = [
+    { slug: 'carta', name: 'MYTHOS Carta', headline: 'Tu carta, siempre lista',
+      price_monthly_gs: 99000, price_annual_gs: 990000, currency: 'PYG',
+      features: ['Menú digital QR', 'Productos ilimitados', 'Pedidos por WhatsApp', 'Analytics básico', '1 sucursal incluida'],
+      badge: null, is_recommended: false, is_enterprise: false },
+    { slug: 'servicio', name: 'MYTHOS Servicio', headline: 'Sala y cocina, sincronizadas',
+      price_monthly_gs: 229000, price_annual_gs: 2290000, currency: 'PYG',
+      features: ['Todo lo de Carta', 'Caja/POS', 'Cocina/KDS', 'Mesas y Mozos', 'Gestión de equipo', 'Soporte prioritario'],
+      badge: 'Recomendado', is_recommended: true, is_enterprise: false },
+    { slug: 'full', name: 'MYTHOS Full', headline: 'Control total',
+      price_monthly_gs: 399000, price_annual_gs: 3990000, currency: 'PYG',
+      features: ['Todo lo de Servicio', 'Delivery con tracking', 'Reservas', 'Analytics avanzado', 'Multi-usuario', 'Soporte 24/7'],
+      badge: null, is_recommended: false, is_enterprise: false },
+    { slug: 'enterprise', name: 'MYTHOS Enterprise', headline: 'Cadenas y multi-local',
+      price_monthly_gs: null, price_annual_gs: null, currency: 'PYG',
+      features: ['Todo lo de Full', 'Multi-sucursal avanzado', 'Módulos a medida', 'Onboarding dedicado', 'SLA'],
+      badge: null, is_recommended: false, is_enterprise: true }
+  ];
+
+  var FALLBACK_ADDONS = [
+    { slug: 'bancard', name: 'Cobro online con Bancard', description: 'Pagos online locales integrados.', price_gs: 100000, price_type: 'cuota' },
+    { slug: 'facturacion-electronica', name: 'Facturación electrónica', description: 'Comprobantes legales con tu RUC.', price_gs: 150000, price_type: 'cuota' },
+    { slug: 'inventario-recetas', name: 'Inventario y Recetas', description: 'Stock, costeo y proveedores.', price_gs: 250000, price_type: 'cuota' },
+    { slug: 'delivery', name: 'Delivery', description: 'Zonas, tarifas y tracking en vivo.', price_gs: 350000, price_type: 'cuota' },
+    { slug: 'fidelizacion', name: 'Fidelización', description: 'Puntos y recompensas.', price_gs: 250000, price_type: 'cuota' },
+    { slug: 'sucursal-adicional', name: 'Sucursal adicional', description: 'Cada sede extra, en un solo panel.', price_gs: 150000, price_type: 'cuota' }
+  ];
+
+  var DEFAULT_CONFIG = {
+    trial_days: 14,
+    founder_offer_active: true,
+    founder_offer_limit: 10,
+    sales_whatsapp: '595000000000',
+    site_home_path: '/inicio'
+  };
+
+  // ── Cliente Supabase (lazy, anon key) ─────────────────────────────────
   var _client = null;
   var _tried = false;
-
   function db() {
     if (_tried) return _client;
     _tried = true;
@@ -39,54 +70,89 @@
     return _client;
   }
 
-  // Lectura de un catálogo ordenado por sort_order (RLS filtra is_active).
+  function warn(msg, e) { try { console.warn('[MythosWebData] ' + msg, e || ''); } catch (x) {} }
+
+  // Lee un catálogo (RLS filtra is_active). Devuelve array de filas o null si
+  // no hay cliente / error / vacío (→ el caller usa fallback).
   function readOrdered(table) {
     var c = db();
-    if (!c) return Promise.resolve([]);
+    if (!c) return Promise.resolve(null);
     return c.from(table).select('*').order('sort_order', { ascending: true })
-      .then(function (r) { return (r && !r.error && r.data) ? r.data : []; })
-      .catch(function () { return []; });
+      .then(function (r) {
+        if (r && r.error) { warn(table + ' query error → fallback', r.error.message); return null; }
+        return (r && r.data && r.data.length) ? r.data : null;
+      })
+      .catch(function (e) { warn(table + ' fetch failed → fallback', e); return null; });
   }
 
-  function getPlans()        { return readOrdered('marketing_plans'); }
-  function getAddOns()       { return readOrdered('marketing_add_ons'); }
-  function getSections()     { return readOrdered('marketing_site_sections'); }
-  function getFaqs()         { return readOrdered('marketing_faqs'); }
-  function getTestimonials() { return readOrdered('marketing_testimonials'); }
+  function normalizeFeatures(p) {
+    var f = p.features;
+    if (Array.isArray(f)) return p;
+    if (typeof f === 'string') { try { p.features = JSON.parse(f); } catch (e) { p.features = []; } }
+    else if (!f) p.features = [];
+    return p;
+  }
 
-  // Config pública → objeto plano { key: value } (RLS filtra is_public=true).
-  function getConfig() {
+  // ── API pública ───────────────────────────────────────────────────────
+  function getPlans() {
+    return readOrdered('marketing_plans').then(function (rows) {
+      return (rows ? rows.map(normalizeFeatures) : FALLBACK_PLANS.slice());
+    });
+  }
+
+  function getAddOns() {
+    return readOrdered('marketing_add_ons').then(function (rows) {
+      return rows ? rows : FALLBACK_ADDONS.slice();
+    });
+  }
+
+  // Config pública → objeto plano con defaults garantizados.
+  function getPublicConfig() {
     var c = db();
-    if (!c) return Promise.resolve({});
-    return c.from('marketing_config').select('key,value')
+    if (!c) return Promise.resolve(Object.assign({}, DEFAULT_CONFIG));
+    return c.from('marketing_config').select('key,value').eq('is_public', true)
       .then(function (r) {
-        var out = {};
-        if (r && !r.error && r.data) r.data.forEach(function (row) { out[row.key] = row.value; });
+        var out = Object.assign({}, DEFAULT_CONFIG);
+        if (r && r.error) { warn('marketing_config error → defaults', r.error.message); return out; }
+        if (r && r.data) r.data.forEach(function (row) { out[row.key] = row.value; });
         return out;
       })
-      .catch(function () { return {}; });
+      .catch(function (e) { warn('marketing_config failed → defaults', e); return Object.assign({}, DEFAULT_CONFIG); });
   }
 
-  // Registrar un evento de actividad (anon INSERT-only; nunca bloquea la UI).
-  function logEvent(eventName, meta) {
-    var c = db();
-    if (!c || !eventName) return Promise.resolve(false);
-    var row = {
-      event_name: String(eventName),
-      page_path: (location && location.pathname) || null,
-      plan_slug: (meta && meta.plan_slug) || null,
-      metadata: (meta && meta.metadata) || {},
-      session_id: (meta && meta.session_id) || null
-    };
-    return c.from('marketing_events').insert(row, { returning: 'minimal' })
-      .then(function (r) { return !!(r && !r.error); })
-      .catch(function () { return false; });
+  // Registrar evento de actividad (anon INSERT-only; nunca bloquea ni lanza).
+  function trackEvent(eventName, metadata) {
+    try {
+      var c = db();
+      if (!c || !eventName) return Promise.resolve(false);
+      metadata = metadata || {};
+      var row = {
+        event_name: String(eventName),
+        page_path: (location && location.pathname) || null,
+        plan_slug: metadata.plan_slug || null,
+        metadata: metadata,
+        session_id: sessionId()
+      };
+      return c.from('marketing_events').insert(row, { returning: 'minimal' })
+        .then(function (r) { return !!(r && !r.error); })
+        .catch(function () { return false; });
+    } catch (e) { return Promise.resolve(false); }
   }
 
-  // Crear un lead desde el sitio (anon INSERT-only; sin .select()).
+  // id de sesión efímero (solo para agrupar eventos; no es PII).
+  function sessionId() {
+    try {
+      var k = 'mythos_web_sid';
+      var v = sessionStorage.getItem(k);
+      if (!v) { v = 's' + Math.floor(Date.now()).toString(36) + Math.floor(Math.random() * 1e6).toString(36); sessionStorage.setItem(k, v); }
+      return v;
+    } catch (e) { return null; }
+  }
+
+  // Crear un lead (WEB-5; anon INSERT-only, sin .select()).
   function submitLead(payload) {
     var c = db();
-    if (!c || !payload) return Promise.resolve({ ok: false, reason: 'no-client' });
+    if (!c || !payload) return Promise.resolve({ ok: false, error: 'no-client' });
     var row = {
       type: payload.type || 'contact',
       name: payload.name || null,
@@ -98,7 +164,6 @@
       selected_addons: payload.selected_addons || [],
       source: payload.source || (location && location.pathname) || null,
       utm: payload.utm || {}
-      // status/internal_notes los maneja la BD/superadmin (RLS impide setearlos desde anon).
     };
     return c.from('marketing_leads').insert(row, { returning: 'minimal' })
       .then(function (r) { return { ok: !(r && r.error), error: r && r.error ? r.error.message : null }; })
@@ -109,11 +174,11 @@
     available: function () { return !!db(); },
     getPlans: getPlans,
     getAddOns: getAddOns,
-    getSections: getSections,
-    getFaqs: getFaqs,
-    getTestimonials: getTestimonials,
-    getConfig: getConfig,
-    logEvent: logEvent,
-    submitLead: submitLead
+    getPublicConfig: getPublicConfig,
+    trackEvent: trackEvent,
+    submitLead: submitLead,
+    FALLBACK_PLANS: FALLBACK_PLANS,
+    FALLBACK_ADDONS: FALLBACK_ADDONS,
+    DEFAULT_CONFIG: DEFAULT_CONFIG
   };
 })();

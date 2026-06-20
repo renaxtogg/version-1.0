@@ -16,6 +16,10 @@
   <link rel="stylesheet" href="web-marketing.css">
   <script src="mythos-theme.js"></script>
   <script>if(!localStorage.getItem('mythos-theme')&&window.MythosTheme){window.MythosTheme.init('light');}</script>
+  <!-- Capa de datos (WEB-3): Supabase UMD + config + helper de lectura (degrada a fallback si faltan) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <script src="web-marketing-data.js"></script>
 </head>
 <body>
   <div id="site-header"></div>
@@ -46,7 +50,7 @@
       </div>
       <div class="save-note" id="saveNote"></div>
 
-      <div class="plans">
+      <div class="plans" id="plansGrid">
         <div class="plan">
           <h3>Carta</h3>
           <div class="frase">Tu carta, siempre lista</div>
@@ -105,7 +109,7 @@
         </div>
       </div>
 
-      <div class="founder">
+      <div class="founder" id="founderBanner">
         <div>
           <b><span data-icon="star"></span> Oferta Fundador — solo 10 lugares</b>
           <p>Precio congelado de por vida + 50% off los primeros 3 meses, a cambio de tu testimonio. Para los primeros 10 restaurantes.</p>
@@ -114,20 +118,24 @@
       </div>
     </section>
 
-    <!-- ── ADD-ONS (PLACEHOLDER) ───────────────────────────────────────────
-      TODO(WEB-3): "Armador / Calculá tu precio" interactivo que lee `marketing_add_ons`
-      y arma el total en vivo. En WEB-1 se muestran como referencia estática.
+    <!-- ── ARMADOR "Calculá tu precio" (WEB-3) ─────────────────────────────
+      web-marketing.js (buildCalculator) reemplaza #calculator con el armador
+      interactivo (plan base + add-ons + total mensual/anual en vivo) leído de
+      marketing_plans / marketing_add_ons. El contenido de abajo es el fallback
+      no-JS: lista estática de add-ons de referencia.
     -->
-    <section class="block wrap center reveal">
-      <h2>Sumá lo que necesitás</h2>
-      <p class="lead">Add-ons modulares para ampliar tu plan. El armador con total en vivo llega pronto.</p>
-      <div class="grid">
-        <div class="mod"><div class="mod-ic"><span data-icon="money" data-icon-size="21"></span></div><h3>Cobro con Bancard</h3><p>Pagos online locales integrados.</p></div>
-        <div class="mod"><div class="mod-ic"><span data-icon="receipt" data-icon-size="21"></span></div><h3>Facturación electrónica</h3><p>Comprobantes legales con tu RUC.</p></div>
-        <div class="mod"><div class="mod-ic"><span data-icon="package" data-icon-size="21"></span></div><h3>Inventario y Recetas</h3><p>Stock, costeo y proveedores.</p></div>
-        <div class="mod"><div class="mod-ic"><span data-icon="truck" data-icon-size="21"></span></div><h3>Delivery</h3><p>Zonas, tarifas y tracking.</p></div>
-        <div class="mod"><div class="mod-ic"><span data-icon="star" data-icon-size="21"></span></div><h3>Fidelización</h3><p>Puntos y recompensas (próximamente).</p></div>
-        <div class="mod"><div class="mod-ic"><span data-icon="building" data-icon-size="21"></span></div><h3>Sucursal adicional</h3><p>Cada sede extra, en un panel.</p></div>
+    <section class="block wrap center reveal" id="precios-calc">
+      <h2>Calculá tu precio</h2>
+      <p class="lead">Elegí tu plan base y sumá los add-ons que necesités. El total se actualiza al instante.</p>
+      <div id="calculator">
+        <div class="grid">
+          <div class="mod"><div class="mod-ic"><span data-icon="money" data-icon-size="21"></span></div><h3>Cobro con Bancard</h3><p>Pagos online locales integrados.</p></div>
+          <div class="mod"><div class="mod-ic"><span data-icon="receipt" data-icon-size="21"></span></div><h3>Facturación electrónica</h3><p>Comprobantes legales con tu RUC.</p></div>
+          <div class="mod"><div class="mod-ic"><span data-icon="package" data-icon-size="21"></span></div><h3>Inventario y Recetas</h3><p>Stock, costeo y proveedores.</p></div>
+          <div class="mod"><div class="mod-ic"><span data-icon="truck" data-icon-size="21"></span></div><h3>Delivery</h3><p>Zonas, tarifas y tracking.</p></div>
+          <div class="mod"><div class="mod-ic"><span data-icon="star" data-icon-size="21"></span></div><h3>Fidelización</h3><p>Puntos y recompensas.</p></div>
+          <div class="mod"><div class="mod-ic"><span data-icon="building" data-icon-size="21"></span></div><h3>Sucursal adicional</h3><p>Cada sede extra, en un panel.</p></div>
+        </div>
       </div>
     </section>
 
@@ -135,7 +143,7 @@
       <h2>¿Listo para empezar?</h2>
       <p class="lead">14 días gratis. Sin tarjeta. Cancelás cuando quieras.</p>
       <div class="hero-cta">
-        <a class="btn btn-primary" href="/registro">Probar gratis</a>
+        <a class="btn btn-primary" href="/registro" data-track="trial_click">Probar gratis</a>
         <a class="btn btn-secondary" data-wa><span data-icon="chat"></span> Hablar por WhatsApp</a>
       </div>
     </section>
