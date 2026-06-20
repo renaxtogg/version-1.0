@@ -179,11 +179,90 @@
     return null;
   }
 
-  // Sesión ya activa → revalidar perfil y redirigir; si es inválida, cerrar sesión.
+  // Etiqueta legible del rol (para la pantalla "Elegir panel").
+  function roleLabel(role) {
+    switch ((role || '').toLowerCase()) {
+      case 'superadmin':       return 'Superadmin';
+      case 'admin':            return 'Administrador';
+      case 'gerente':
+      case 'supervisor_local': return 'Gerente';
+      case 'cajero':
+      case 'caja':             return 'Caja';
+      case 'mozo':             return 'Mozo';
+      case 'cocinero':
+      case 'cocina':           return 'Cocina';
+      case 'rider':
+      case 'repartidor':       return 'Delivery (Rider)';
+      default:                 return role || 'Panel';
+    }
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+
+  // Pantalla simple "Elegí tu panel" (usuario con más de un panel disponible).
+  function showChooser(items, profile) {
+    const card = document.querySelector('.card');
+    if (!card) return;
+    const name = ((profile && (profile.display_name || profile.username)) || '').trim();
+    const btns = items.map((it, i) =>
+      '<button class="btn-social" type="button" data-i="' + i + '">' + escapeHtml(roleLabel(it.role)) + '</button>'
+    ).join('');
+    card.innerHTML =
+      '<div class="logo"><div class="logo-title">Mythos</div>' +
+        '<div class="logo-sub">' + (name ? 'Hola, ' + escapeHtml(name) + ' — ' : '') + 'elegí tu panel</div></div>' +
+      '<div class="social">' + btns + '</div>' +
+      '<div class="hint"><a id="chooserLogout" href="#">Cerrar sesión</a></div>';
+    items.forEach((it, i) => {
+      const b = card.querySelector('button[data-i="' + i + '"]');
+      if (b) b.addEventListener('click', () => {
+        clearSession();
+        saveSession({ role: it.role, restaurant_id: it.restaurant_id, id: profile.id, display_name: profile.display_name, username: profile.username });
+        window.location.replace(it.dest);
+      });
+    });
+    const lo = card.querySelector('#chooserLogout');
+    if (lo) lo.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try { await db.auth.signOut(); } catch (_) {}
+      clearSession();
+      window.location.reload();
+    });
+  }
+
+  // Resolver el destino: si el usuario tiene >1 panel válido → "Elegí tu panel";
+  // si no, usar el flujo single-role probado (validateAndRedirect). Reutiliza
+  // homeForRole. Best-effort: si la lectura de roles falla, cae al single-role.
+  async function resolveAndRoute(profile) {
+    if (!profile || !profile.role) return 'Tu cuenta no tiene un rol asignado. Contactá al administrador.';
+    let rows = null;
+    try {
+      // RLS (policy user_read_own_role, mig 029) limita a las filas del propio usuario.
+      const { data, error } = await db.from('user_roles').select('role, restaurant_id').eq('is_active', true);
+      if (!error && Array.isArray(data)) rows = data;
+    } catch (_) { rows = null; }
+
+    if (rows && rows.length > 1) {
+      const items = [];
+      const seen = {};
+      rows.forEach(r => {
+        const dest = homeForRole(r.role);
+        if (!dest) return;
+        const okTenant = r.restaurant_id || String(r.role).toLowerCase() === 'superadmin';
+        if (!okTenant) return;
+        if (seen[dest]) return; seen[dest] = true;
+        items.push({ role: r.role, restaurant_id: r.restaurant_id, dest });
+      });
+      if (items.length > 1) { showChooser(items, profile); return null; }
+    }
+    return validateAndRedirect(profile);
+  }
+
+  // Sesión ya activa → revalidar perfil y enrutar; si es inválida, cerrar sesión.
   db.auth.getSession().then(({ data: { session } }) => {
     if (!session) return;
-    db.rpc('get_my_profile').then(({ data }) => {
-      const err = validateAndRedirect(data);
+    db.rpc('get_my_profile').then(async ({ data }) => {
+      const err = await resolveAndRoute(data);
       if (err) db.auth.signOut();
     });
   });
@@ -210,8 +289,8 @@
       const { data: profile, error: profErr } = await db.rpc('get_my_profile');
       if (profErr) throw new Error('Error al leer tu perfil. Intentá de nuevo.');
 
-      // 3. Validar tenancy + redirigir al panel del rol
-      const err = validateAndRedirect(profile);
+      // 3. Validar tenancy + enrutar al panel del rol (o "Elegí tu panel" si hay varios)
+      const err = await resolveAndRoute(profile);
       if (err) {
         await db.auth.signOut();
         clearSession();

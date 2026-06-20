@@ -78,7 +78,7 @@
           '<a class="logo" href="/inicio" aria-label="MYTHOS — inicio">MYTHOS</a>' +
           '<nav class="nav-links" aria-label="Principal">' + links + '</nav>' +
           '<div class="nav-right">' +
-            '<a class="btn btn-ghost btn-sm" href="' + CONFIG.loginUrl + '">Iniciar sesión</a>' +
+            '<a class="btn btn-ghost btn-sm" href="' + CONFIG.loginUrl + '" data-track="login_entry_click">Iniciar sesión</a>' +
             '<a class="btn btn-primary btn-sm btn-cta-desktop" href="/registro" data-track="trial_click">Probar gratis</a>' +
             '<button class="icon-btn" type="button" id="mktTheme" aria-label="Cambiar tema">' + icon('moon') + '</button>' +
             '<button class="icon-btn nav-toggle" type="button" id="mktNavToggle" aria-label="Abrir menú" aria-expanded="false">' + icon('menu') + '</button>' +
@@ -86,7 +86,7 @@
         '</div>' +
         '<nav class="mobile-menu" id="mktMobile" aria-label="Menú móvil">' +
           mobileLinks +
-          '<a href="' + CONFIG.loginUrl + '">Iniciar sesión</a>' +
+          '<a href="' + CONFIG.loginUrl + '" data-track="login_entry_click">Iniciar sesión</a>' +
           '<a class="btn btn-primary" href="/registro" data-track="trial_click">Probar gratis</a>' +
         '</nav>' +
       '</header>';
@@ -102,7 +102,7 @@
               '<p class="foot-about">El sistema operativo de tu restaurante. Menú, caja, cocina, delivery y más — en una sola plataforma.</p>' +
             '</div>' +
             '<div><h5>Producto</h5><a href="/precios">Precios</a><a href="/inicio#modulos">Módulos</a><a href="/demo">Demo</a><a href="/registro">Probar gratis</a></div>' +
-            '<div><h5>Empresa</h5><a href="/contacto">Contacto</a><a href="/inicio#faq">Preguntas frecuentes</a><a href="' + CONFIG.loginUrl + '">Iniciar sesión</a></div>' +
+            '<div><h5>Empresa</h5><a href="/contacto">Contacto</a><a href="/inicio#faq">Preguntas frecuentes</a><a href="' + CONFIG.loginUrl + '" data-track="login_entry_click">Iniciar sesión</a></div>' +
             '<div><h5>Legal</h5><a href="/terminos">Términos</a><a href="/privacidad">Privacidad</a></div>' +
           '</div>' +
           '<div class="foot-bottom">' +
