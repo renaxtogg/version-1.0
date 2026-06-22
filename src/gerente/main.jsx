@@ -438,8 +438,30 @@ function SupervisionTurno() {
   };
 
   const waiterStats = useMemo(() => {
+    // G3: acotar el performance a la ventana del turno. employee_shifts no tiene FK a
+    // auth.users, así que matcheamos cada orden con un turno del mozo por
+    // employee_id===waiter_id o, como respaldo, por nombre normalizado. Solo se cuenta
+    // la orden si su created_at cae dentro de [clock_in, clock_out||ahora] de algún turno
+    // suyo de hoy; órdenes fuera de turno (o de un mozo sin turno registrado) no suman.
+    const norm = s => (s||'').trim().toLowerCase();
+    const byId = {}, byName = {};
+    emps.forEach(e => {
+      if (e.employee_id) (byId[e.employee_id] = byId[e.employee_id] || []).push(e);
+      const n = norm(e.employee_name);
+      if (n) (byName[n] = byName[n] || []).push(e);
+    });
+    const inShift = (o) => {
+      const shifts = (byId[o.waiter_id] || []).concat(byName[norm(o.waiter_name)] || []);
+      if (!shifts.length) return false;
+      const t = new Date(o.created_at).getTime();
+      return shifts.some(s => {
+        const ci = new Date(s.clock_in).getTime();
+        const co = s.clock_out ? new Date(s.clock_out).getTime() : Date.now();
+        return t >= ci && t <= co;
+      });
+    };
     const grouped = {};
-    orders.filter(o => o.waiter_id).forEach(o => {
+    orders.filter(o => o.waiter_id && inShift(o)).forEach(o => {
       const k = o.waiter_id;
       if (!grouped[k]) grouped[k] = {name: o.waiter_name||'—', orders:0, sales:0, paid:0};
       grouped[k].orders++;
@@ -447,7 +469,7 @@ function SupervisionTurno() {
       if (['paid','delivered'].includes(o.status)) grouped[k].paid++;
     });
     return Object.values(grouped).sort((a,b) => b.sales - a.sales);
-  }, [orders]);
+  }, [orders, emps]);
 
   if (loading) return <div style={{padding:40,textAlign:'center'}}><div className="spin"/></div>;
 
@@ -478,7 +500,7 @@ function SupervisionTurno() {
               </table>}
         </Card>
 
-        <Card title="Performance por mozo (hoy)">
+        <Card title="Performance por mozo (en turno)">
           {waiterStats.length === 0 ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>Sin actividad</div>
             : <table style={{width:'100%',borderCollapse:'collapse'}}>
                 <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Mozo</Th><Th right>Pedidos</Th><Th right>Cobrados</Th><Th right>Ventas</Th></tr></thead>
