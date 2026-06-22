@@ -1281,12 +1281,78 @@ function NewLogModal({onClose, onSaved, user, userName}) {
 /* ════════════════════════════════════════════════════════════════════════════
    MÓDULO 9: REPORTES DEL DÍA
    ════════════════════════════════════════════════════════════════════════════ */
+// G8: normalización del resumen del día a un único view-model, venga de la RPC
+// get_gerente_report_day (camino principal, scope de tenant server-side) o del
+// fallback de queries legacy (con el scope de G1). El render consume siempre la
+// misma forma, así no se regresa nada de lo que ya mostraba el panel.
+function gReportFromRpc(d) {
+  const st = Number(d.sales_today)||0, sy = Number(d.sales_yesterday)||0;
+  const tk = Number(d.tickets_today)||0;
+  return {
+    salesToday: st, salesYesterday: sy,
+    deltaPct: sy ? ((st - sy) / sy * 100) : 0,
+    ticketsToday: tk,
+    ticketAvg: tk ? st / tk : 0,
+    avgServiceMin: Number(d.avg_service_min)||0,
+    completedCount: Number(d.completed_count)||0,
+    approvalsTotal: Number(d.approvals_total)||0,
+    approvalsApproved: Number(d.approvals_approved)||0,
+    approvalsRejected: Number(d.approvals_rejected)||0,
+    byWaiter: (d.by_waiter||[]).map(w => ({name:w.name||'—', sales:Number(w.sales)||0, count:Number(w.count)||0})),
+    topItems: (d.top_items||[]).map(t => ({name:t.name, qty:Number(t.qty)||0, total:Number(t.total)||0})),
+    cancellations: (d.cancellations||[]).map(c => ({created_at:c.created_at, motivo:c.motivo, monto:Number(c.monto)||0})),
+  };
+}
+
+function gReportFromLegacy(orders, items, approvals, cancels) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const oToday = orders.filter(o => new Date(o.created_at) >= today);
+  const oYday  = orders.filter(o => new Date(o.created_at) <  today);
+  // PR-16: "Ventas hoy" = solo cobrado (payment_status='paid').
+  const salesToday = oToday.filter(o => o.payment_status==='paid').reduce((s,o) => s + (o.total||0), 0);
+  const salesYesterday = oYday.filter(o => o.payment_status==='paid').reduce((s,o) => s + (o.total||0), 0);
+  const ticketsToday = oToday.filter(o => o.payment_status==='paid').length;
+  const completed = oToday.filter(o => o.paid_at && o.created_at);
+  const avgServiceMin = completed.length ? completed.reduce((s,o) => s + (new Date(o.paid_at) - new Date(o.created_at))/60000, 0) / completed.length : 0;
+  const bw = {};
+  oToday.filter(o => o.waiter_id).forEach(o => {
+    if (!bw[o.waiter_id]) bw[o.waiter_id] = {name:o.waiter_name||'—', sales:0, count:0};
+    bw[o.waiter_id].sales += o.total||0; bw[o.waiter_id].count++;
+  });
+  const im = {};
+  items.forEach(it => {
+    if (!im[it.name]) im[it.name] = {qty:0, total:0};
+    im[it.name].qty += it.quantity||0; im[it.name].total += (it.price||0) * (it.quantity||0);
+  });
+  return {
+    salesToday, salesYesterday,
+    deltaPct: salesYesterday ? ((salesToday - salesYesterday) / salesYesterday * 100) : 0,
+    ticketsToday, ticketAvg: ticketsToday ? salesToday/ticketsToday : 0,
+    avgServiceMin, completedCount: completed.length,
+    approvalsTotal: approvals.length,
+    approvalsApproved: approvals.filter(a => a.status==='aprobado').length,
+    approvalsRejected: approvals.filter(a => a.status==='rechazado').length,
+    byWaiter: Object.values(bw).sort((a,b) => b.sales - a.sales),
+    topItems: Object.entries(im).map(([name,v]) => ({name, ...v})).sort((a,b) => b.qty - a.qty).slice(0,10),
+    cancellations: cancels.map(c => ({created_at:c.created_at, motivo:c.motivo, monto:c.monto_cancelado})),
+  };
+}
+
 function ReportesDelDia() {
-  const [data, setData] = useState({orders:[], items:[], approvals:[], cancels:[]});
+  const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!db) return;
+    const d0 = new Date();
+    const p_date = `${d0.getFullYear()}-${String(d0.getMonth()+1).padStart(2,'0')}-${String(d0.getDate()).padStart(2,'0')}`;
+    // G8: un solo RPC con scope de tenant server-side (la función hace el JOIN a orders,
+    // lo que también blinda G1). Si la RPC todavía no está aplicada en prod, se cae al
+    // camino legacy — que mantiene el mismo scope por order_id.
+    const { data: rpc, error } = await db.rpc('get_gerente_report_day', { p_restaurant_id: RID, p_date });
+    if (!error && rpc) { setReport(gReportFromRpc(rpc)); setLoading(false); return; }
+    if (error) console.warn('[gerente] get_gerente_report_day no disponible, usando fallback:', error.message);
+    // ── Fallback legacy (mismo scope de tenant que G1) ──
     const today = new Date(); today.setHours(0,0,0,0);
     const yesterday = new Date(today); yesterday.setDate(yesterday.getDate()-1);
     const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
@@ -1296,72 +1362,36 @@ function ReportesDelDia() {
       db.from('cancelaciones_caja').select('id,monto_cancelado,motivo,created_at').eq('restaurant_id',RID).gte('created_at', today.toISOString())
     ]);
     if (o.error) console.error('[gerente] reportes orders load error:', o.error.message);
-    // G1: order_items NO tiene restaurant_id (verificado en migraciones). El scope de
-    // tenant se aplica acotando a los order_id de las órdenes del restaurante ya cargadas
-    // — defensa en profundidad sobre la RLS oi_auth_select. Sin esto la query era la única
-    // del archivo que cruzaba restaurantes.
     const orderIds = (o.data||[]).map(ord => ord.id);
     const i = orderIds.length
       ? await db.from('order_items').select('id,order_id,name:item_name,quantity,price:unit_price').in('order_id', orderIds).gte('created_at', today.toISOString())
       : { data: [] };
-    setData({orders: o.data||[], items: i.data||[], approvals: a.data||[], cancels: c.data||[]});
+    setReport(gReportFromLegacy(o.data||[], i.data||[], a.data||[], c.data||[]));
     setLoading(false);
   }, []);
   useEffect(() => { load(); const id = setInterval(() => { if (!_shouldPause()) load(); }, 60000); return () => clearInterval(id); }, [load]);
 
-  if (loading) return <div style={{padding:40,textAlign:'center'}}><div className="spin"/></div>;
+  if (loading || !report) return <div style={{padding:40,textAlign:'center'}}><div className="spin"/></div>;
 
-  const today = new Date(); today.setHours(0,0,0,0);
-  const ordersToday = data.orders.filter(o => new Date(o.created_at) >= today);
-  const ordersYday  = data.orders.filter(o => new Date(o.created_at) <  today);
-
-  // PR-16: "Ventas hoy" = solo cobrado (payment_status='paid'), no en-curso/pendiente.
-  const salesToday = ordersToday.filter(o => o.payment_status==='paid').reduce((s,o) => s + (o.total||0), 0);
-  const salesYday  = ordersYday.filter(o => o.payment_status==='paid').reduce((s,o) => s + (o.total||0), 0);
-  const deltaPct = salesYday ? ((salesToday - salesYday) / salesYday * 100) : 0;
-
-  const ticketsToday = ordersToday.filter(o => o.payment_status==='paid').length;
-  const ticketAvg = ticketsToday ? salesToday/ticketsToday : 0;
-
-  // por mozo
-  const byWaiter = {};
-  ordersToday.filter(o => o.waiter_id).forEach(o => {
-    if (!byWaiter[o.waiter_id]) byWaiter[o.waiter_id] = {name:o.waiter_name||'—', sales:0, count:0};
-    byWaiter[o.waiter_id].sales += o.total||0;
-    byWaiter[o.waiter_id].count++;
-  });
-  const waiters = Object.values(byWaiter).sort((a,b) => b.sales - a.sales);
-
-  // top productos
-  const itemMap = {};
-  data.items.forEach(it => {
-    if (!itemMap[it.name]) itemMap[it.name] = {qty:0, total:0};
-    itemMap[it.name].qty += it.quantity||0;
-    itemMap[it.name].total += (it.price||0) * (it.quantity||0);
-  });
-  const topItems = Object.entries(itemMap).map(([name,v]) => ({name, ...v})).sort((a,b) => b.qty - a.qty).slice(0,10);
-
-  // tiempo medio servicio
-  const completed = ordersToday.filter(o => o.paid_at && o.created_at);
-  const avgServiceMin = completed.length ? completed.reduce((s,o) => s + (new Date(o.paid_at) - new Date(o.created_at))/60000, 0) / completed.length : 0;
+  const r = report;
 
   return (
     <div className="page">
       <h2 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Reportes del día</h2>
 
       <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:18}}>
-        <KpiCard label="Ventas hoy" value={fmt(salesToday)} sub={`vs ayer: ${deltaPct>=0?'+':''}${deltaPct.toFixed(0)}%`} accent={deltaPct>=0?C.green:C.red}/>
-        <KpiCard label="Tickets" value={ticketsToday} sub={`Promedio ${fmt(ticketAvg)}`}/>
-        <KpiCard label="Tiempo medio servicio" value={`${Math.round(avgServiceMin)} min`} sub={`${completed.length} pedidos completos`}/>
-        <KpiCard label="Aprobaciones" value={data.approvals.length} sub={`${data.approvals.filter(a=>a.status==='aprobado').length} aprobadas / ${data.approvals.filter(a=>a.status==='rechazado').length} rechazadas`}/>
+        <KpiCard label="Ventas hoy" value={fmt(r.salesToday)} sub={`vs ayer: ${r.deltaPct>=0?'+':''}${r.deltaPct.toFixed(0)}%`} accent={r.deltaPct>=0?C.green:C.red}/>
+        <KpiCard label="Tickets" value={r.ticketsToday} sub={`Promedio ${fmt(r.ticketAvg)}`}/>
+        <KpiCard label="Tiempo medio servicio" value={`${Math.round(r.avgServiceMin)} min`} sub={`${r.completedCount} pedidos completos`}/>
+        <KpiCard label="Aprobaciones" value={r.approvalsTotal} sub={`${r.approvalsApproved} aprobadas / ${r.approvalsRejected} rechazadas`}/>
       </div>
 
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
         <Card title="Ventas por mozo">
-          {waiters.length === 0 ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>Sin actividad</div>
+          {r.byWaiter.length === 0 ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>Sin actividad</div>
             : <table style={{width:'100%',borderCollapse:'collapse'}}>
                 <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Mozo</Th><Th right>Pedidos</Th><Th right>Ventas</Th></tr></thead>
-                <tbody>{waiters.map((w,i) => (
+                <tbody>{r.byWaiter.map((w,i) => (
                   <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
                     <Td><strong>{w.name}</strong></Td>
                     <Td right mono>{w.count}</Td>
@@ -1372,10 +1402,10 @@ function ReportesDelDia() {
         </Card>
 
         <Card title="Top productos del día">
-          {topItems.length === 0 ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>Sin datos</div>
+          {r.topItems.length === 0 ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>Sin datos</div>
             : <table style={{width:'100%',borderCollapse:'collapse'}}>
                 <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Producto</Th><Th right>Cantidad</Th><Th right>Subtotal</Th></tr></thead>
-                <tbody>{topItems.map((it,i) => (
+                <tbody>{r.topItems.map((it,i) => (
                   <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
                     <Td>{it.name}</Td>
                     <Td right mono><strong>{it.qty}</strong></Td>
@@ -1385,15 +1415,15 @@ function ReportesDelDia() {
               </table>}
         </Card>
 
-        {data.cancels.length>0 && (
-          <Card title={`Cancelaciones hoy (${data.cancels.length})`} style={{gridColumn:'1 / -1'}}>
+        {r.cancellations.length>0 && (
+          <Card title={`Cancelaciones hoy (${r.cancellations.length})`} style={{gridColumn:'1 / -1'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Hora</Th><Th>Motivo</Th><Th right>Monto</Th></tr></thead>
-              <tbody>{data.cancels.map(c => (
-                <tr key={c.id} style={{borderBottom:`1px solid ${C.border}`}}>
+              <tbody>{r.cancellations.map((c,i) => (
+                <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
                   <Td mono dim>{fmtTime(c.created_at)}</Td>
                   <Td>{c.motivo}</Td>
-                  <Td right mono>{fmt(c.monto_cancelado)}</Td>
+                  <Td right mono>{fmt(c.monto)}</Td>
                 </tr>
               ))}</tbody>
             </table>
