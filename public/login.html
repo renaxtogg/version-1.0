@@ -83,6 +83,10 @@
     <button class="btn" type="submit" id="submitBtn">Ingresar</button>
   </form>
 
+  <div id="forgotWrap" style="text-align:center;margin-top:16px">
+    <a href="#" id="forgotLink" style="font-size:13px;color:var(--text-secondary);text-decoration:none">¿Olvidaste tu contraseña?</a>
+  </div>
+
   <div class="divider">o</div>
 
   <div class="social">
@@ -96,6 +100,17 @@
     </button>
   </div>
   <div class="social-note" id="socialNote"></div>
+
+  <!-- AUTH-1: recuperación "olvidé mi contraseña" (oculto por defecto). -->
+  <div id="recoveryPanel" style="display:none">
+    <div class="field">
+      <label for="recEmail">Correo electrónico</label>
+      <input id="recEmail" type="email" inputmode="email" autocomplete="email" placeholder="tu@correo.com"/>
+    </div>
+    <button class="btn" type="button" id="recSendBtn">Enviarme el enlace</button>
+    <div id="recMsg" style="display:none;font-size:13px;margin-top:14px;text-align:center;color:var(--text-secondary)" role="status" aria-live="polite"></div>
+    <div class="hint"><a href="#" id="recBack" style="color:var(--text-secondary)">Volver a iniciar sesión</a></div>
+  </div>
 
   <div class="hint">Mythos · Sistema gastronómico</div>
 </div>
@@ -258,11 +273,40 @@
     return validateAndRedirect(profile);
   }
 
+  // AUTH-1: ¿el usuario debe cambiar su contraseña antes de entrar?
+  // Lee user_security_flags (RLS: solo su fila). FAIL-OPEN: si la tabla no
+  // existe (mig 113 no aplicada) o hay error, devuelve false → login normal.
+  async function needsPasswordChange() {
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      if (!session || !session.user) return false;
+      const { data, error } = await db
+        .from('user_security_flags')
+        .select('must_change_password')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+      if (error) return false;
+      return !!(data && data.must_change_password === true);
+    } catch (_) { return false; }
+  }
+
+  // Gate previo al redirect por rol: si hay cambio obligatorio pendiente,
+  // mandar a /cambiar-password y NO entrar al panel. Aplica también a Google
+  // OAuth (solo se dispara si existe el flag explícito; los usuarios OAuth no
+  // lo tienen salvo que se haya forzado).
+  async function routeAfterAuth(profile) {
+    if (await needsPasswordChange()) {
+      window.location.replace('cambiar-password.html?reason=first_login');
+      return null;
+    }
+    return resolveAndRoute(profile);
+  }
+
   // Sesión ya activa → revalidar perfil y enrutar; si es inválida, cerrar sesión.
   db.auth.getSession().then(({ data: { session } }) => {
     if (!session) return;
     db.rpc('get_my_profile').then(async ({ data }) => {
-      const err = await resolveAndRoute(data);
+      const err = await routeAfterAuth(data);
       if (err) db.auth.signOut();
     });
   });
@@ -289,8 +333,9 @@
       const { data: profile, error: profErr } = await db.rpc('get_my_profile');
       if (profErr) throw new Error('Error al leer tu perfil. Intentá de nuevo.');
 
-      // 3. Validar tenancy + enrutar al panel del rol (o "Elegí tu panel" si hay varios)
-      const err = await resolveAndRoute(profile);
+      // 3. Gate de cambio obligatorio de contraseña + enrutar al panel del rol
+      //    (o "Elegí tu panel" si hay varios).
+      const err = await routeAfterAuth(profile);
       if (err) {
         await db.auth.signOut();
         clearSession();
@@ -344,6 +389,42 @@
     }
   }
   setupSocial();
+
+  // ── AUTH-1: "Olvidé mi contraseña" ───────────────────────────────────────
+  // Alterna entre el panel de login y el de recuperación. El envío SIEMPRE
+  // responde con el mismo mensaje genérico (no revela si el email existe).
+  function showRecovery(show) {
+    [document.getElementById('loginForm'),
+     document.querySelector('.divider'),
+     document.querySelector('.social'),
+     document.getElementById('socialNote'),
+     document.getElementById('forgotWrap')
+    ].forEach(function (el) { if (el) el.style.display = show ? 'none' : ''; });
+    var rp = document.getElementById('recoveryPanel');
+    if (rp) rp.style.display = show ? '' : 'none';
+    hideErr();
+  }
+
+  var forgotLink = document.getElementById('forgotLink');
+  if (forgotLink) forgotLink.addEventListener('click', function (e) { e.preventDefault(); showRecovery(true); });
+  var recBack = document.getElementById('recBack');
+  if (recBack) recBack.addEventListener('click', function (e) { e.preventDefault(); showRecovery(false); });
+
+  var recSendBtn = document.getElementById('recSendBtn');
+  if (recSendBtn) recSendBtn.addEventListener('click', async function () {
+    var email = (document.getElementById('recEmail').value || '').trim();
+    var msg = document.getElementById('recMsg');
+    if (!email) { if (msg) { msg.style.display = ''; msg.textContent = 'Ingresá tu correo.'; } return; }
+    recSendBtn.disabled = true;
+    recSendBtn.textContent = 'Enviando…';
+    try {
+      // El enlace del correo abre /cambiar-password en modo recuperación.
+      await db.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/cambiar-password?mode=recovery' });
+    } catch (_) { /* nunca revelar el detalle */ }
+    if (msg) { msg.style.display = ''; msg.textContent = 'Si el correo existe, te enviamos un enlace para cambiar tu contraseña.'; }
+    recSendBtn.disabled = false;
+    recSendBtn.textContent = 'Enviarme el enlace';
+  });
 })();
 </script>
 </body>

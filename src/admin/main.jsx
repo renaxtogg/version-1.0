@@ -2679,6 +2679,7 @@ function PersonalPage() {
               <div>
                 <Lbl>Contraseña * (mínimo 8 caracteres)</Lbl>
                 <Inp type="password" autoComplete="new-password" value={addForm.password} onChange={e=>setAddForm(f=>({...f,password:e.target.value}))} placeholder="Contraseña segura"/>
+                <div style={{fontSize:11,color:C.dim,marginTop:4}}>El usuario deberá cambiar esta contraseña en su primer ingreso.</div>
               </div>
               <div>
                 <Lbl>DNI / Cédula</Lbl>
@@ -7119,7 +7120,7 @@ function DelivRiders({riders, onRefresh}) {
               <div>
                 <Lbl>CONTRASEÑA * (mínimo 8 caracteres)</Lbl>
                 <Inp type="password" autoComplete="new-password" value={form.password||''} onChange={e=>setForm({...form,password:e.target.value})} placeholder="Contraseña segura"/>
-                <div style={{fontSize:11,color:C.dim,marginTop:4}}>El rider inicia sesión con este usuario y contraseña en el panel Delivery.</div>
+                <div style={{fontSize:11,color:C.dim,marginTop:4}}>El rider inicia sesión con este usuario y contraseña en el panel Delivery. Deberá cambiarla en su primer ingreso.</div>
               </div>
             </>):(
               <div style={{fontSize:11,color:C.dim}}>El usuario y la contraseña del rider se gestionan en Personal. Acá editás su perfil operativo.</div>

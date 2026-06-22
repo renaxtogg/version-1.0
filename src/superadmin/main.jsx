@@ -2071,6 +2071,7 @@ function PageUsuarios({restaurants, setFlash}) {
               onChange={e=>setNewForm(f=>({...f,password:e.target.value}))}
               placeholder="Contraseña segura"
             />
+            <div style={{fontSize:11,color:C.mid,marginTop:4}}>El usuario deberá cambiar esta contraseña en su primer ingreso.</div>
           </FormField>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
             <FormField label="Rol">

@@ -8,6 +8,7 @@
     { "source": "/precios", "destination": "/precios.html" },
     { "source": "/demo", "destination": "/demo.html" },
     { "source": "/registro", "destination": "/registro.html" },
+    { "source": "/cambiar-password", "destination": "/cambiar-password.html" },
     { "source": "/contacto", "destination": "/contacto.html" },
     { "source": "/terminos", "destination": "/terminos.html" },
     { "source": "/privacidad", "destination": "/privacidad.html" },

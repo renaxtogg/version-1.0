@@ -178,6 +178,27 @@ module.exports = async function handler(req, res) {
       res.status(400).json({ error: roleErr?.message || 'Error al asignar rol' }); return;
     }
 
+    // AUTH-1: forzar cambio de contraseña en el primer ingreso. El admin/superadmin
+    // eligió la contraseña (genérica/temporal); el usuario debe crear la suya antes
+    // de entrar al panel. Por defecto SIEMPRE se fuerza; pasar force_password_change:
+    // false (explícito) lo desactiva si en el futuro se crea con contraseña final.
+    // Si el flag no se puede crear, NO dejar el usuario a medias: rollback total.
+    const forcePwdChange = body.force_password_change !== false;
+    if (forcePwdChange) {
+      const flagResp = await httpsPost(
+        `${SUPABASE_URL}/rest/v1/user_security_flags`,
+        { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        JSON.stringify({ user_id: newUserId, must_change_password: true, forced_reason: 'initial_generic_password' })
+      );
+      if (!flagResp.ok) {
+        await httpsDelete(`${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${newUserId}`,
+          { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+        await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
+          { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+        res.status(500).json({ error: 'No se pudo configurar la cuenta (seguridad). Intentá de nuevo.' }); return;
+      }
+    }
+
     // Riders: además de la cuenta auth + user_roles, crear su ficha operativa en
     // delivery_riders vinculada por user_id. El panel rider la resuelve con auth.uid()
     // (login por correo+contraseña, sin PIN — ver migración 101).
@@ -208,7 +229,7 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    res.status(200).json({ success: true, user_id: newUserId, username: usernameClean, email });
+    res.status(200).json({ success: true, user_id: newUserId, username: usernameClean, email, must_change_password: forcePwdChange });
   } catch(e) {
     res.status(500).json({ error: e.message || 'Error interno del servidor' });
   }
