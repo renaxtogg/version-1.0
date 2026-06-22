@@ -1201,13 +1201,20 @@ function ReportesDelDia() {
     const today = new Date(); today.setHours(0,0,0,0);
     const yesterday = new Date(today); yesterday.setDate(yesterday.getDate()-1);
     const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
-    const [o, i, a, c] = await Promise.all([
+    const [o, a, c] = await Promise.all([
       db.from('orders').select('id,total,status,order_type,table_id,waiter_id,waiter_name,created_at,paid_at,payment_status').eq('restaurant_id',RID).gte('created_at', yesterday.toISOString()).lte('created_at', tomorrow.toISOString()),
-      db.from('order_items').select('id,order_id,name:item_name,quantity,price:unit_price').gte('created_at', today.toISOString()),
       db.from('manager_approvals').select('id,request_type,status,amount,created_at').eq('restaurant_id',RID).gte('created_at', today.toISOString()),
       db.from('cancelaciones_caja').select('id,monto_cancelado,motivo,created_at').eq('restaurant_id',RID).gte('created_at', today.toISOString())
     ]);
     if (o.error) console.error('[gerente] reportes orders load error:', o.error.message);
+    // G1: order_items NO tiene restaurant_id (verificado en migraciones). El scope de
+    // tenant se aplica acotando a los order_id de las órdenes del restaurante ya cargadas
+    // — defensa en profundidad sobre la RLS oi_auth_select. Sin esto la query era la única
+    // del archivo que cruzaba restaurantes.
+    const orderIds = (o.data||[]).map(ord => ord.id);
+    const i = orderIds.length
+      ? await db.from('order_items').select('id,order_id,name:item_name,quantity,price:unit_price').in('order_id', orderIds).gte('created_at', today.toISOString())
+      : { data: [] };
     setData({orders: o.data||[], items: i.data||[], approvals: a.data||[], cancels: c.data||[]});
     setLoading(false);
   }, []);
