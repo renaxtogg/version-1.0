@@ -1130,10 +1130,11 @@ function BitacoraTurno({user, userName}) {
   const [filter, setFilter] = useState('hoy'); // hoy | abiertos | semana
   const [showNew, setShowNew] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [limit, setLimit] = useState(20); // G6: paginación incremental
 
   const load = useCallback(async () => {
     if (!db) return;
-    let q = db.from('shift_logs').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(100);
+    let q = db.from('shift_logs').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(limit);
     if (filter === 'hoy') {
       const today = new Date().toISOString().slice(0,10);
       q = q.eq('log_date', today);
@@ -1145,7 +1146,7 @@ function BitacoraTurno({user, userName}) {
     }
     const { data } = await q;
     setList(data||[]); setLoading(false);
-  }, [filter]);
+  }, [filter, limit]);
   useEffect(() => { load(); const id = setInterval(() => { if (!_shouldPause()) load(); }, 30000); return () => clearInterval(id); }, [load]);
 
   const resolve = async (id) => {
@@ -1168,7 +1169,7 @@ function BitacoraTurno({user, userName}) {
 
       <div style={{display:'flex',gap:8,marginBottom:14}}>
         {[['hoy','Hoy'],['abiertos','Abiertos'],['semana','Última semana']].map(([k,l]) => (
-          <button key={k} onClick={() => setFilter(k)} style={{padding:'6px 14px',fontSize:12,fontWeight:700,borderRadius:6,border:`1px solid ${filter===k?C.ink:C.border}`,background:filter===k?C.ink:C.surface,color:filter===k?C.surface:C.ink}}>{l}</button>
+          <button key={k} onClick={() => { setFilter(k); setLimit(20); }} style={{padding:'6px 14px',fontSize:12,fontWeight:700,borderRadius:6,border:`1px solid ${filter===k?C.ink:C.border}`,background:filter===k?C.ink:C.surface,color:filter===k?C.surface:C.ink}}>{l}</button>
         ))}
       </div>
 
@@ -1196,6 +1197,12 @@ function BitacoraTurno({user, userName}) {
               </div>
             ))}
           </div>}
+
+      {!loading && list.length >= limit && (
+        <div style={{textAlign:'center',marginTop:14}}>
+          <Btn variant="ghost" small onClick={() => setLimit(l => l + 20)}>Cargar más</Btn>
+        </div>
+      )}
 
       {showNew && <NewLogModal onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); }} user={user} userName={userName}/>}
     </div>
@@ -1408,6 +1415,7 @@ function Soporte({user, role, userName, userUsername, userEmail}) {
   const [showNew, setShowNew] = useState(false);
   const [restaurantName, setRestaurantName] = useState('');
   const [restaurantPhone, setRestaurantPhone] = useState(null);
+  const [ticketLimit, setTicketLimit] = useState(25); // G6: paginación incremental
   const scrollRef = useRef(null);
 
   // Carga del nombre del restaurante (una vez)
@@ -1426,10 +1434,10 @@ function Soporte({user, role, userName, userUsername, userEmail}) {
       .eq('restaurant_id', RID)
       .eq('created_by_role', 'supervisor_local')
       .order('last_message_at', {ascending:false})
-      .limit(80);
+      .limit(ticketLimit);
     setTickets(data||[]);
     setLoading(false);
-  }, []);
+  }, [ticketLimit]);
 
   const loadMessages = useCallback(async (ticketId) => {
     if (!db || !ticketId) return;
@@ -1572,6 +1580,11 @@ function Soporte({user, role, userName, userUsername, userEmail}) {
                     );
                   })
             }
+            {!loading && tickets.length >= ticketLimit && (
+              <div style={{padding:12,textAlign:'center',borderTop:`1px solid ${C.border}`}}>
+                <Btn variant="ghost" small onClick={() => setTicketLimit(l => l + 25)}>Cargar más</Btn>
+              </div>
+            )}
           </div>
         </div>
 
