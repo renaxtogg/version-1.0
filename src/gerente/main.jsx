@@ -1066,7 +1066,7 @@ function ReservasHoy() {
                   <Td>{r.customer_name||'—'}</Td>
                   <Td dim>{r.customer_phone||'—'}</Td>
                   <Td right mono>{r.guests}</Td>
-                  <Td dim>{r.zone||'—'}</Td>
+                  <Td dim>{r.preferred_zone||'—'}</Td>
                   <Td><Badge color={r.status==='confirmed'?C.green:r.status==='seated'?C.blue:r.status==='cancelled'?C.red:r.status==='no_show'?C.red:C.orange}>{r.status}</Badge></Td>
                   <Td right>
                     {r.status === 'pending' && <Btn small variant="success" onClick={() => setStatus(r.id, 'confirmed')}>Confirmar</Btn>}
