@@ -485,7 +485,7 @@ function SupervisionTurno() {
     // employee_id===waiter_id o, como respaldo, por nombre normalizado. Solo se cuenta
     // la orden si su created_at cae dentro de [clock_in, clock_out||ahora] de algún turno
     // suyo de hoy; órdenes fuera de turno (o de un mozo sin turno registrado) no suman.
-    const norm = s => (s||'').trim().toLowerCase();
+    const norm = s => (s||'').trim().toLowerCase().replace(/\s+/g,' ').normalize('NFD').replace(/[̀-ͯ]/g,'');
     const byId = {}, byName = {};
     emps.forEach(e => {
       if (e.employee_id) (byId[e.employee_id] = byId[e.employee_id] || []).push(e);
@@ -508,7 +508,9 @@ function SupervisionTurno() {
       if (!grouped[k]) grouped[k] = {name: o.waiter_name||'—', orders:0, sales:0, paid:0};
       grouped[k].orders++;
       grouped[k].sales += o.total||0;
-      if (['paid','delivered'].includes(o.status)) grouped[k].paid++;
+      // "Cobrados" = pago confirmado. payment_status es la fuente real (status es el
+      // estado de preparación: 'paid' nunca aparece ahí). Antes subcontaba.
+      if (o.payment_status === 'paid') grouped[k].paid++;
     });
     return Object.values(grouped).sort((a,b) => b.sales - a.sales);
   }, [orders, emps]);
@@ -1300,7 +1302,7 @@ function gReportFromRpc(d) {
     approvalsRejected: Number(d.approvals_rejected)||0,
     byWaiter: (d.by_waiter||[]).map(w => ({name:w.name||'—', sales:Number(w.sales)||0, count:Number(w.count)||0})),
     topItems: (d.top_items||[]).map(t => ({name:t.name, qty:Number(t.qty)||0, total:Number(t.total)||0})),
-    cancellations: (d.cancellations||[]).map(c => ({created_at:c.created_at, motivo:c.motivo, monto:Number(c.monto)||0})),
+    cancellations: (d.cancellations||[]).map(c => ({id:c.id, created_at:c.created_at, motivo:c.motivo, monto:Number(c.monto)||0})),
   };
 }
 
@@ -1319,8 +1321,11 @@ function gReportFromLegacy(orders, items, approvals, cancels) {
     if (!bw[o.waiter_id]) bw[o.waiter_id] = {name:o.waiter_name||'—', sales:0, count:0};
     bw[o.waiter_id].sales += o.total||0; bw[o.waiter_id].count++;
   });
+  // Top productos del día = ítems de órdenes creadas hoy (paridad con la RPC, que
+  // agrupa por orders.created_at vía JOIN, no por el created_at del ítem).
+  const todayOrderIds = new Set(oToday.map(o => o.id));
   const im = {};
-  items.forEach(it => {
+  items.filter(it => todayOrderIds.has(it.order_id)).forEach(it => {
     if (!im[it.name]) im[it.name] = {qty:0, total:0};
     im[it.name].qty += it.quantity||0; im[it.name].total += (it.price||0) * (it.quantity||0);
   });
@@ -1334,7 +1339,7 @@ function gReportFromLegacy(orders, items, approvals, cancels) {
     approvalsRejected: approvals.filter(a => a.status==='rechazado').length,
     byWaiter: Object.values(bw).sort((a,b) => b.sales - a.sales),
     topItems: Object.entries(im).map(([name,v]) => ({name, ...v})).sort((a,b) => b.qty - a.qty).slice(0,10),
-    cancellations: cancels.map(c => ({created_at:c.created_at, motivo:c.motivo, monto:c.monto_cancelado})),
+    cancellations: cancels.map(c => ({id:c.id, created_at:c.created_at, motivo:c.motivo, monto:c.monto_cancelado})),
   };
 }
 
@@ -1344,8 +1349,9 @@ function ReportesDelDia() {
 
   const load = useCallback(async () => {
     if (!db) return;
-    const d0 = new Date();
-    const p_date = `${d0.getFullYear()}-${String(d0.getMonth()+1).padStart(2,'0')}-${String(d0.getDate()).padStart(2,'0')}`;
+    // Día comercial en America/Asuncion (Paraguay) para que cliente y RPC coincidan
+    // aunque el dispositivo esté en otro huso (p.ej. el dueño revisando desde afuera).
+    const p_date = new Intl.DateTimeFormat('en-CA', {timeZone:'America/Asuncion', year:'numeric', month:'2-digit', day:'2-digit'}).format(new Date());
     // G8: un solo RPC con scope de tenant server-side (la función hace el JOIN a orders,
     // lo que también blinda G1). Si la RPC todavía no está aplicada en prod, se cae al
     // camino legacy — que mantiene el mismo scope por order_id.
@@ -1358,14 +1364,17 @@ function ReportesDelDia() {
     const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
     const [o, a, c] = await Promise.all([
       db.from('orders').select('id,total,status,order_type,table_id,waiter_id,waiter_name,created_at,paid_at,payment_status').eq('restaurant_id',RID).gte('created_at', yesterday.toISOString()).lte('created_at', tomorrow.toISOString()),
-      db.from('manager_approvals').select('id,request_type,status,amount,created_at').eq('restaurant_id',RID).gte('created_at', today.toISOString()),
-      db.from('cancelaciones_caja').select('id,monto_cancelado,motivo,created_at').eq('restaurant_id',RID).gte('created_at', today.toISOString())
+      db.from('manager_approvals').select('id,request_type,status,amount,created_at').eq('restaurant_id',RID).gte('created_at', today.toISOString()).lt('created_at', tomorrow.toISOString()),
+      db.from('cancelaciones_caja').select('id,monto_cancelado,motivo,created_at').eq('restaurant_id',RID).gte('created_at', today.toISOString()).lt('created_at', tomorrow.toISOString())
     ]);
     if (o.error) console.error('[gerente] reportes orders load error:', o.error.message);
+    // order_items acotado por los order_id del restaurante (G1). El recorte al día se hace
+    // en gReportFromLegacy (por orden creada hoy), así no se pierde ni se mezcla nada.
     const orderIds = (o.data||[]).map(ord => ord.id);
     const i = orderIds.length
-      ? await db.from('order_items').select('id,order_id,name:item_name,quantity,price:unit_price').in('order_id', orderIds).gte('created_at', today.toISOString())
+      ? await db.from('order_items').select('id,order_id,name:item_name,quantity,price:unit_price').in('order_id', orderIds)
       : { data: [] };
+    if (i.error) console.error('[gerente] reportes order_items load error:', i.error.message);
     setReport(gReportFromLegacy(o.data||[], i.data||[], a.data||[], c.data||[]));
     setLoading(false);
   }, []);
@@ -1420,7 +1429,7 @@ function ReportesDelDia() {
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Hora</Th><Th>Motivo</Th><Th right>Monto</Th></tr></thead>
               <tbody>{r.cancellations.map((c,i) => (
-                <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+                <tr key={c.id||i} style={{borderBottom:`1px solid ${C.border}`}}>
                   <Td mono dim>{fmtTime(c.created_at)}</Td>
                   <Td>{c.motivo}</Td>
                   <Td right mono>{fmt(c.monto)}</Td>

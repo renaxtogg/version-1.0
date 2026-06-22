@@ -127,7 +127,8 @@ BEGIN
   -- ── Cancelaciones de hoy ────────────────────────────────────────────
   SELECT COALESCE(jsonb_agg(c ORDER BY c.created_at DESC), '[]'::jsonb) INTO v_cancels
   FROM (
-    SELECT created_at,
+    SELECT id,
+           created_at,
            motivo,
            monto_cancelado AS monto
       FROM public.cancelaciones_caja
