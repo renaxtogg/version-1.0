@@ -2784,6 +2784,7 @@ const NAV = [
   {id:'soporte',        label:'Soporte'},
   {id:'reportes',       label:'Reportes'},
   {id:'actividad',      label:'Actividad'},
+  {id:'sitio_web',      label:'Sitio web'},
   {id:'horarios',       label:'Horarios'},
   {id:'calendario',     label:'Calendario'},
   {id:'configuracion',  label:'Configuración'},
@@ -3637,6 +3638,352 @@ function PageCalendario({restaurants}) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════
+// MÓDULO SITIO WEB (WEB-6A) — gestión de la web comercial
+//   Lee/edita SOLO tablas de la migración 110 (marketing_*) vía el
+//   cliente autenticado (anon key + sesión superadmin); RLS
+//   superadmin-only protege. Sin service_role, sin endpoint, sin DB.
+//   Pestañas: Resumen · Leads · Actividad · Config.
+// ══════════════════════════════════════════════════════════════
+const LEAD_STATUSES = ['new','contacted','qualified','won','lost','spam'];
+const LEAD_STATUS_META = {
+  new:       {label:'Nuevo',       color:TINT.infoText,   bg:TINT.infoBg},
+  contacted: {label:'Contactado',  color:TINT.warnText,   bg:TINT.warnBg},
+  qualified: {label:'Calificado',  color:TINT.purpleText, bg:TINT.purpleBg},
+  won:       {label:'Ganado',      color:TINT.okText,     bg:TINT.okBg},
+  lost:      {label:'Perdido',     color:TINT.dangerText, bg:TINT.dangerBg},
+  spam:      {label:'Spam',        color:C.mid,           bg:'var(--bg-subtle)'},
+};
+const LEAD_TYPE_LABEL = {contact:'Contacto', demo:'Demo', trial_interest:'Interés trial', whatsapp:'WhatsApp', pricing:'Precios'};
+const leadTypeLabel = t => LEAD_TYPE_LABEL[t] || t || '—';
+
+const LeadStatusBadge = ({status}) => {
+  const m = LEAD_STATUS_META[status] || {label:status||'—',color:C.mid,bg:'var(--bg-subtle)'};
+  return <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:m.bg,color:m.color,whiteSpace:'nowrap'}}>{m.label}</span>;
+};
+const TypePill = ({type}) => (
+  <span style={{padding:'2px 8px',borderRadius:12,fontSize:11,fontWeight:600,background:C.bg,color:C.mid,border:`1px solid ${C.border}`,whiteSpace:'nowrap'}}>{leadTypeLabel(type)}</span>
+);
+
+function SitioResumen({leads, events}) {
+  const since = Date.now() - 7*86400000;
+  const inWindow = arr => arr.filter(x => x.created_at && new Date(x.created_at).getTime() >= since);
+  const rl = inWindow(leads), re = inWindow(events);
+  const kDemos = rl.filter(l => l.type==='demo').length;
+  const kTrial = rl.filter(l => l.type==='trial_interest').length;
+  const pendingNew = leads.filter(l => l.status==='new').length;
+  return (
+    <div>
+      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:18}}>
+        <Kpi label="Leads (7 días)" value={rl.length} sub={`${leads.length} en total`}/>
+        <Kpi label="Solicitudes demo (7 días)" value={kDemos}/>
+        <Kpi label="Intereses trial (7 días)" value={kTrial}/>
+        <Kpi label="Eventos (7 días)" value={re.length}/>
+      </div>
+      <SectionCard title="Leads pendientes">
+        {leads.length===0
+          ? <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>Sin leads todavía</div>
+          : <div style={{padding:'16px 20px',fontSize:13,color:C.ink}}>
+              {pendingNew===0
+                ? 'No hay leads sin contactar.'
+                : <>Hay <strong>{pendingNew}</strong> lead{pendingNew!==1?'s':''} con estado “Nuevo”. Revisalos en la pestaña <strong>Leads</strong>.</>}
+            </div>}
+      </SectionCard>
+    </div>
+  );
+}
+
+function LeadDetailModal({lead, onClose, setFlash, reload}) {
+  const [status, setStatus] = useState(lead.status||'new');
+  const [notes, setNotes]   = useState(lead.internal_notes||'');
+  const [saving, setSaving] = useState(false);
+  const addons = asArr(lead.selected_addons);
+
+  const Row = ({label,children}) => (
+    <div style={{display:'flex',gap:12,padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
+      <div style={{width:120,flexShrink:0,fontSize:12,color:C.mid,fontWeight:600}}>{label}</div>
+      <div style={{flex:1,fontSize:13,color:C.ink,minWidth:0,wordBreak:'break-word'}}>{children}</div>
+    </div>
+  );
+
+  const save = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    if (!LEAD_STATUSES.includes(status)) { setFlash({type:'error',text:'Estado inválido'}); return; }
+    setSaving(true);
+    const { error } = await db.from('marketing_leads')
+      .update({ status, internal_notes: notes.trim() ? notes.trim() : null, updated_at: new Date().toISOString() })
+      .eq('id', lead.id);
+    setSaving(false);
+    if (error) { setFlash({type:'error',text:'No se pudo guardar el lead'}); return; }
+    setFlash({type:'success',text:'Lead actualizado'});
+    onClose(); reload();
+  };
+
+  return (
+    <Modal title="Detalle del lead" onClose={onClose} width={560}>
+      <div style={{marginBottom:18}}>
+        <Row label="Fecha">{fmtDateTime(lead.created_at)}</Row>
+        <Row label="Tipo"><TypePill type={lead.type}/></Row>
+        <Row label="Nombre">{lead.name||'—'}</Row>
+        <Row label="Restaurante">{lead.business_name||'—'}</Row>
+        <Row label="Email">{lead.email||'—'}</Row>
+        <Row label="WhatsApp">{lead.whatsapp||'—'}</Row>
+        <Row label="Plan">{lead.plan_slug||'—'}</Row>
+        <Row label="Add-ons">{addons.length ? addons.join(', ') : '—'}</Row>
+        <Row label="Mensaje">{lead.message||'—'}</Row>
+        <Row label="Origen">{lead.source||'—'}</Row>
+      </div>
+      <FormField label="Estado">
+        <select value={status} onChange={e=>setStatus(e.target.value)}>
+          {LEAD_STATUSES.map(s=><option key={s} value={s}>{LEAD_STATUS_META[s].label}</option>)}
+        </select>
+      </FormField>
+      <FormField label="Notas internas" hint="Solo visibles para superadmin.">
+        <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={4} placeholder="Notas de seguimiento…"/>
+      </FormField>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+        <Btn variant="ghost" onClick={onClose}>Cerrar</Btn>
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function SitioLeads({leads, setFlash, reload}) {
+  const [fType, setFType]     = useState('all');
+  const [fStatus, setFStatus] = useState('all');
+  const [selected, setSelected] = useState(null);
+
+  let shown = leads;
+  if (fType!=='all')   shown = shown.filter(l => l.type===fType);
+  if (fStatus!=='all') shown = shown.filter(l => l.status===fStatus);
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:16}}>
+        <select value={fType} onChange={e=>setFType(e.target.value)} style={{width:'auto',minWidth:150,fontSize:13}}>
+          <option value="all">Todos los tipos</option>
+          {Object.keys(LEAD_TYPE_LABEL).map(t=><option key={t} value={t}>{leadTypeLabel(t)}</option>)}
+        </select>
+        <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{width:'auto',minWidth:150,fontSize:13}}>
+          <option value="all">Todos los estados</option>
+          {LEAD_STATUSES.map(s=><option key={s} value={s}>{LEAD_STATUS_META[s].label}</option>)}
+        </select>
+        <span style={{fontSize:12,color:C.dim}}>{shown.length} lead{shown.length!==1?'s':''}</span>
+      </div>
+      <SectionCard>
+        {shown.length===0
+          ? <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>Sin leads con los filtros actuales</div>
+          : <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr>
+                  <Th>Fecha</Th><Th>Tipo</Th><Th>Nombre</Th><Th>Restaurante</Th><Th>Email</Th><Th>WhatsApp</Th><Th>Plan</Th><Th>Estado</Th><Th></Th>
+                </tr></thead>
+                <tbody>
+                  {shown.map(l=>(
+                    <tr key={l.id}>
+                      <Td style={{whiteSpace:'nowrap',color:C.mid}}>{fmtDate(l.created_at)}</Td>
+                      <Td><TypePill type={l.type}/></Td>
+                      <Td>{l.name||'—'}</Td>
+                      <Td>{l.business_name||'—'}</Td>
+                      <Td style={{fontSize:12,color:C.mid}}>{l.email||'—'}</Td>
+                      <Td style={{fontSize:12,color:C.mid,whiteSpace:'nowrap'}}>{l.whatsapp||'—'}</Td>
+                      <Td style={{fontSize:12}}>{l.plan_slug||'—'}</Td>
+                      <Td><LeadStatusBadge status={l.status}/></Td>
+                      <Td style={{whiteSpace:'nowrap'}}><Btn size="sm" variant="ghost" onClick={()=>setSelected(l)}>Ver</Btn></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>}
+      </SectionCard>
+      {selected && <LeadDetailModal lead={selected} onClose={()=>setSelected(null)} setFlash={setFlash} reload={reload}/>}
+    </div>
+  );
+}
+
+function SitioActividad({events}) {
+  const [fName, setFName] = useState('all');
+  const names = Array.from(new Set(events.map(e=>e.event_name).filter(Boolean))).sort();
+  const shown = fName==='all' ? events : events.filter(e=>e.event_name===fName);
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:16}}>
+        <select value={fName} onChange={e=>setFName(e.target.value)} style={{width:'auto',minWidth:200,fontSize:13}}>
+          <option value="all">Todos los eventos</option>
+          {names.map(n=><option key={n} value={n}>{n}</option>)}
+        </select>
+        <span style={{fontSize:12,color:C.dim}}>{shown.length} evento{shown.length!==1?'s':''}</span>
+        <span style={{fontSize:11,color:C.dim}}>· solo lectura</span>
+      </div>
+      <SectionCard>
+        {shown.length===0
+          ? <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>Sin actividad registrada</div>
+          : shown.slice(0,200).map(ev=>(
+              <div key={ev.id} style={{padding:'12px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:14,alignItems:'center'}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                    <span style={{fontWeight:700,fontSize:13}}>{ev.event_name}</span>
+                    {ev.plan_slug && <span style={{fontSize:12,color:C.mid}}>· {ev.plan_slug}</span>}
+                  </div>
+                  <div style={{fontSize:12,color:C.mid,marginTop:2}}>{ev.page_path||'—'}</div>
+                </div>
+                <div style={{fontSize:11,color:C.dim,whiteSpace:'nowrap',flexShrink:0}}>{fmtDateTime(ev.created_at)}</div>
+              </div>
+            ))}
+      </SectionCard>
+    </div>
+  );
+}
+
+function SitioConfig({config, setFlash, reload}) {
+  const getVal = (k, dflt) => { const row = config.find(c=>c.key===k); return row ? row.value : dflt; };
+  const hasKey = k => config.some(c=>c.key===k);
+
+  const [whatsapp, setWhatsapp]         = useState(String(getVal('sales_whatsapp','') ?? ''));
+  const [founderActive, setFounderActive] = useState(getVal('founder_offer_active', false) === true);
+  const [founderLimit, setFounderLimit] = useState(String(getVal('founder_offer_limit', 0) ?? 0));
+  const [trialDays, setTrialDays]       = useState(String(getVal('trial_days', 14) ?? 14));
+  const [saving, setSaving]             = useState(false);
+
+  const trialSignupExists = hasKey('trial_signup_enabled');
+  const trialSignupOn = getVal('trial_signup_enabled', null) === true;
+
+  // Guarda una clave en marketing_config con el TIPO JSONB correcto (number/bool/string).
+  const saveKey = async (key, value) => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    setSaving(true);
+    const { error } = await db.from('marketing_config')
+      .upsert({ key, value, is_public:true, updated_at:new Date().toISOString() }, { onConflict:'key' });
+    setSaving(false);
+    if (error) { setFlash({type:'error',text:'No se pudo guardar la configuración'}); return; }
+    setFlash({type:'success',text:'Configuración guardada'});
+    reload();
+  };
+
+  const saveWhatsapp = () => {
+    const v = whatsapp.trim();
+    if (!/^\d{6,15}$/.test(v)) { setFlash({type:'error',text:'Usá solo dígitos: código de país + número (ej: 595986622735)'}); return; }
+    saveKey('sales_whatsapp', v);                 // string JSONB
+  };
+  const saveFounderActive = (val) => { setFounderActive(val); saveKey('founder_offer_active', !!val); };  // boolean JSONB
+  const saveFounderLimit = () => {
+    const n = parseInt(founderLimit, 10);
+    if (!Number.isFinite(n) || n < 0) { setFlash({type:'error',text:'El límite debe ser un número entero ≥ 0'}); return; }
+    saveKey('founder_offer_limit', n);            // number JSONB
+  };
+  const saveTrialDays = () => {
+    const n = parseInt(trialDays, 10);
+    if (!Number.isFinite(n) || n < 1) { setFlash({type:'error',text:'Los días deben ser un número entero ≥ 1'}); return; }
+    saveKey('trial_days', n);                      // number JSONB
+  };
+
+  return (
+    <div style={{maxWidth:640}}>
+      <SectionCard title="Contacto de ventas" style={{marginBottom:18}}>
+        <div style={{padding:'18px 20px'}}>
+          <FormField label="WhatsApp de ventas" hint="Solo dígitos: código de país + número (ej: 595986622735).">
+            <div style={{display:'flex',gap:8}}>
+              <input value={whatsapp} onChange={e=>setWhatsapp(e.target.value)} placeholder="595986622735" style={{flex:1}}/>
+              <Btn variant="ghost" onClick={saveWhatsapp} disabled={saving}>Guardar</Btn>
+            </div>
+          </FormField>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Oferta Fundador" style={{marginBottom:18}}>
+        <div style={{padding:'18px 20px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+            <div>
+              <div style={{fontWeight:600,fontSize:14,color:C.ink,marginBottom:4}}>Oferta Fundador activa</div>
+              <div style={{fontSize:12,color:C.mid}}>Muestra el banner de cupos en el sitio público.</div>
+            </div>
+            <Toggle checked={founderActive} onChange={saveFounderActive}/>
+          </div>
+          <FormField label="Cupos de la oferta">
+            <div style={{display:'flex',gap:8}}>
+              <input type="number" min="0" value={founderLimit} onChange={e=>setFounderLimit(e.target.value)} style={{flex:1}}/>
+              <Btn variant="ghost" onClick={saveFounderLimit} disabled={saving}>Guardar</Btn>
+            </div>
+          </FormField>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Prueba gratis">
+        <div style={{padding:'18px 20px'}}>
+          <FormField label="Días de prueba">
+            <div style={{display:'flex',gap:8}}>
+              <input type="number" min="1" value={trialDays} onChange={e=>setTrialDays(e.target.value)} style={{flex:1}}/>
+              <Btn variant="ghost" onClick={saveTrialDays} disabled={saving}>Guardar</Btn>
+            </div>
+          </FormField>
+
+          {/* Registro público de prueba — BLOQUEADO en WEB-6A (solo lectura). */}
+          <div style={{marginTop:6,padding:'14px 16px',border:`1px solid ${TINT.warnBorder}`,borderRadius:10,background:TINT.warnBg}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:TINT.warnText}}>Registro público de prueba</div>
+                <div style={{fontSize:12,color:C.mid,marginTop:3,lineHeight:1.5}}>
+                  Estado actual: <strong>{trialSignupExists ? (trialSignupOn ? 'activado' : 'apagado') : 'apagado / no configurado'}</strong>.
+                  {' '}El alta automática todavía no tiene backend ni control de expiración: se habilita en una fase posterior (WEB-4B), no desde acá.
+                </div>
+              </div>
+              <span style={{padding:'4px 10px',borderRadius:8,fontSize:11,fontWeight:800,letterSpacing:'.04em',whiteSpace:'nowrap',background:'var(--bg-subtle)',color:C.mid,border:`1px solid ${C.border}`}}>BLOQUEADO</span>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function PageSitioWeb({setFlash}) {
+  const [tab,    setTab]    = useState('resumen');
+  const [leads,  setLeads]  = useState([]);
+  const [events, setEvents] = useState([]);
+  const [config, setConfig] = useState([]);
+  const [loading,setLoading]= useState(true);
+
+  // Self-fetch (como PageSoporte). Solo tablas de mig 110. Degradado a [] si la
+  // tabla no existe o RLS deniega (no rompe el panel).
+  const load = useCallback(async () => {
+    if (!db) { setLoading(false); return; }
+    const [l, e, c] = await Promise.all([
+      db.from('marketing_leads').select('*').order('created_at',{ascending:false}).limit(500).then(r=>r.error?{data:[]}:r),
+      db.from('marketing_events').select('*').order('created_at',{ascending:false}).limit(300).then(r=>r.error?{data:[]}:r),
+      db.from('marketing_config').select('*').then(r=>r.error?{data:[]}:r),
+    ]);
+    setLeads(l.data||[]); setEvents(e.data||[]); setConfig(c.data||[]);
+    setLoading(false);
+  }, []);
+  useEffect(()=>{ load(); }, [load]);
+
+  const TABS = [
+    {id:'resumen',   label:'Resumen'},
+    {id:'leads',     label:'Leads'},
+    {id:'actividad', label:'Actividad'},
+    {id:'config',    label:'Config'},
+  ];
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:8,marginBottom:18,flexWrap:'wrap'}}>
+        {TABS.map(t=><FilterBtn key={t.id} active={tab===t.id} onClick={()=>setTab(t.id)}>{t.label}</FilterBtn>)}
+      </div>
+      {loading ? (
+        <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:160,gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando…</span></div>
+      ) : (
+        <>
+          {tab==='resumen'   && <SitioResumen  leads={leads} events={events}/>}
+          {tab==='leads'     && <SitioLeads    leads={leads} setFlash={setFlash} reload={load}/>}
+          {tab==='actividad' && <SitioActividad events={events}/>}
+          {tab==='config'    && <SitioConfig   config={config} setFlash={setFlash} reload={load}/>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Sidebar({page, setPage, badges={}, themeMode, onToggleTheme}) {
   const signOut = async () => {
     if (db) { try { await db.auth.signOut(); } catch(e){} }
@@ -3784,7 +4131,7 @@ function App() {
   // Se aplica en el cuerpo del render para que los hijos formateen ya con la moneda correcta.
   setPlatformCurrency(platformConfig.find(c=>c.key==='platform_currency')?.value);
 
-  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',usuarios:'Usuarios',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',configuracion:'Configuración'};
+  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',usuarios:'Usuarios',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración'};
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
@@ -3825,6 +4172,7 @@ function App() {
               {page==='soporte'       && <PageSoporte      setFlash={setFlash}/>}
               {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='sitio_web'     && <PageSitioWeb     setFlash={setFlash}/>}
               {page==='horarios'      && <PageHorarios     restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='calendario'    && <PageCalendario   restaurants={restaurants}/>}
               {page==='configuracion' && <PageConfiguracion restaurants={restaurants} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
