@@ -3937,23 +3937,267 @@ function SitioConfig({config, setFlash, reload}) {
   );
 }
 
+// ── Planes / Add-ons (WEB-6B) — editor de marketing_plans / marketing_add_ons ──
+// Edición SOLO (sin alta ni borrado). slug = clave estable, read-only. Números
+// validados como enteros ≥0 (vacío = null = "a cotizar"). RLS superadmin (mig 110).
+const ADDON_PRICE_TYPES = {cuota:'Cuota mensual', comision:'Comisión', cotizar:'A cotizar'};
+const fmtGsRaw = n => (n==null || n==='') ? 'A cotizar' : '₲ ' + Number(n).toLocaleString('es-PY');
+// Entero opcional ≥0: '' → null; solo dígitos → number; otro → inválido.
+function parseOptInt(s) {
+  const t = String(s == null ? '' : s).trim();
+  if (t === '') return { ok:true, value:null };
+  if (!/^\d+$/.test(t)) return { ok:false, value:null };
+  return { ok:true, value: parseInt(t, 10) };
+}
+
+function PlanEditModal({plan, onClose, setFlash, reload}) {
+  const [name, setName]               = useState(plan.name||'');
+  const [headline, setHeadline]       = useState(plan.headline||'');
+  const [description, setDescription] = useState(plan.description||'');
+  const [monthly, setMonthly]         = useState(plan.price_monthly_gs==null?'':String(plan.price_monthly_gs));
+  const [annual, setAnnual]           = useState(plan.price_annual_gs==null?'':String(plan.price_annual_gs));
+  const [badge, setBadge]             = useState(plan.badge||'');
+  const [features, setFeatures]       = useState(asArr(plan.features).join('\n'));
+  const [isRec, setIsRec]             = useState(plan.is_recommended===true);
+  const [isEnt, setIsEnt]             = useState(plan.is_enterprise===true);
+  const [isActive, setIsActive]       = useState(plan.is_active!==false);
+  const [order, setOrder]             = useState(plan.sort_order==null?'0':String(plan.sort_order));
+  const [saving, setSaving]           = useState(false);
+
+  const save = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    if (!name.trim()) { setFlash({type:'error',text:'El nombre es obligatorio'}); return; }
+    const m = parseOptInt(monthly), a = parseOptInt(annual), o = parseOptInt(order);
+    if (!m.ok) { setFlash({type:'error',text:'Precio mensual: solo números (vacío = a cotizar)'}); return; }
+    if (!a.ok) { setFlash({type:'error',text:'Precio anual: solo números (vacío = a cotizar)'}); return; }
+    if (!o.ok) { setFlash({type:'error',text:'Orden: solo números'}); return; }
+    const feats = features.split('\n').map(s=>s.trim()).filter(Boolean);
+    setSaving(true);
+    const { error } = await db.from('marketing_plans').update({
+      name: name.trim(),
+      headline: headline.trim() || null,
+      description: description.trim() || null,
+      price_monthly_gs: m.value,
+      price_annual_gs: a.value,
+      badge: badge.trim() || null,
+      features: feats,           // jsonb array de strings
+      is_recommended: isRec,
+      is_enterprise: isEnt,
+      is_active: isActive,
+      sort_order: o.value==null ? 0 : o.value,
+      updated_at: new Date().toISOString(),
+    }).eq('id', plan.id);        // slug NUNCA se envía (read-only)
+    setSaving(false);
+    if (error) { setFlash({type:'error',text:'No se pudo guardar el plan'}); return; }
+    setFlash({type:'success',text:'Plan actualizado'});
+    onClose(); reload();
+  };
+
+  return (
+    <Modal title={`Editar plan — ${plan.name||plan.slug}`} onClose={onClose} width={560}>
+      <FormField label="Slug (no editable)" hint="Clave estable que consume la web pública y el mapeo de billing.">
+        <input value={plan.slug||''} disabled readOnly/>
+      </FormField>
+      <FormField label="Nombre">
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="MYTHOS Servicio"/>
+      </FormField>
+      <FormField label="Titular (headline)">
+        <input value={headline} onChange={e=>setHeadline(e.target.value)} placeholder="Sala y cocina, sincronizadas"/>
+      </FormField>
+      <FormField label="Descripción">
+        <textarea value={description} onChange={e=>setDescription(e.target.value)} rows={2}/>
+      </FormField>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <FormField label="Precio mensual (₲)" hint="Vacío = a cotizar">
+          <input value={monthly} onChange={e=>setMonthly(e.target.value)} placeholder="229000"/>
+        </FormField>
+        <FormField label="Precio anual (₲)" hint="Vacío = a cotizar">
+          <input value={annual} onChange={e=>setAnnual(e.target.value)} placeholder="2290000"/>
+        </FormField>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <FormField label="Badge"><input value={badge} onChange={e=>setBadge(e.target.value)} placeholder="Recomendado"/></FormField>
+        <FormField label="Orden"><input value={order} onChange={e=>setOrder(e.target.value)} placeholder="0"/></FormField>
+      </div>
+      <FormField label="Features (una por línea)" hint="Cada línea es un ítem de la lista del plan.">
+        <textarea value={features} onChange={e=>setFeatures(e.target.value)} rows={6} placeholder={"Menú digital QR\nCaja/POS\nCocina/KDS"}/>
+      </FormField>
+      <div style={{display:'flex',gap:24,flexWrap:'wrap',marginBottom:10}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink}}><Toggle checked={isRec} onChange={setIsRec}/><span>Recomendado</span></div>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink}}><Toggle checked={isEnt} onChange={setIsEnt}/><span>Enterprise</span></div>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink}}><Toggle checked={isActive} onChange={setIsActive}/><span>Activo</span></div>
+      </div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function SitioPlanes({plans, setFlash, reload}) {
+  const [editing, setEditing] = useState(null);
+  const sorted = [...plans].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+  return (
+    <div>
+      <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.5}}>
+        Estos planes alimentan <strong>/precios</strong> y la calculadora del sitio. El <strong>slug</strong> es una clave estable y no se edita.
+      </div>
+      <SectionCard>
+        {sorted.length===0
+          ? <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>Sin planes cargados</div>
+          : <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr>
+                  <Th>Orden</Th><Th>Nombre</Th><Th>Slug</Th><Th>Mensual</Th><Th>Anual</Th><Th>Estado</Th><Th></Th>
+                </tr></thead>
+                <tbody>
+                  {sorted.map(p=>(
+                    <tr key={p.id}>
+                      <Td style={{color:C.mid}}>{p.sort_order??0}</Td>
+                      <Td>
+                        <div style={{fontWeight:600}}>{p.name||'—'}</div>
+                        <div style={{display:'flex',gap:6,marginTop:3,flexWrap:'wrap'}}>
+                          {p.badge && <span style={{padding:'1px 8px',borderRadius:10,fontSize:10.5,fontWeight:700,background:C.bg,color:C.mid,border:`1px solid ${C.border}`}}>{p.badge}</span>}
+                          {p.is_recommended && <span style={{padding:'1px 8px',borderRadius:10,fontSize:10.5,fontWeight:700,background:C.bg,color:C.mid,border:`1px solid ${C.border}`}}>Recomendado</span>}
+                          {p.is_enterprise && <span style={{padding:'1px 8px',borderRadius:10,fontSize:10.5,fontWeight:700,background:C.bg,color:C.mid,border:`1px solid ${C.border}`}}>Enterprise</span>}
+                        </div>
+                      </Td>
+                      <Td style={{fontSize:12,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{p.slug}</Td>
+                      <Td style={{whiteSpace:'nowrap'}}>{fmtGsRaw(p.price_monthly_gs)}</Td>
+                      <Td style={{whiteSpace:'nowrap'}}>{fmtGsRaw(p.price_annual_gs)}</Td>
+                      <Td><Badge status={p.is_active!==false?'active':'inactive'}/></Td>
+                      <Td style={{whiteSpace:'nowrap'}}><Btn size="sm" variant="ghost" onClick={()=>setEditing(p)}>Editar</Btn></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>}
+      </SectionCard>
+      {editing && <PlanEditModal plan={editing} onClose={()=>setEditing(null)} setFlash={setFlash} reload={reload}/>}
+    </div>
+  );
+}
+
+function AddonEditModal({addon, onClose, setFlash, reload}) {
+  const [name, setName]               = useState(addon.name||'');
+  const [description, setDescription] = useState(addon.description||'');
+  const [price, setPrice]             = useState(addon.price_gs==null?'':String(addon.price_gs));
+  const [priceType, setPriceType]     = useState(['cuota','comision','cotizar'].includes(addon.price_type)?addon.price_type:'cuota');
+  const [isActive, setIsActive]       = useState(addon.is_active!==false);
+  const [order, setOrder]             = useState(addon.sort_order==null?'0':String(addon.sort_order));
+  const [saving, setSaving]           = useState(false);
+
+  const save = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    if (!name.trim()) { setFlash({type:'error',text:'El nombre es obligatorio'}); return; }
+    if (!['cuota','comision','cotizar'].includes(priceType)) { setFlash({type:'error',text:'Tipo de precio inválido'}); return; }
+    const pr = parseOptInt(price), o = parseOptInt(order);
+    if (!pr.ok) { setFlash({type:'error',text:'Precio: solo números (vacío = sin precio)'}); return; }
+    if (!o.ok) { setFlash({type:'error',text:'Orden: solo números'}); return; }
+    setSaving(true);
+    const { error } = await db.from('marketing_add_ons').update({
+      name: name.trim(),
+      description: description.trim() || null,
+      price_gs: pr.value,
+      price_type: priceType,
+      is_active: isActive,
+      sort_order: o.value==null ? 0 : o.value,
+      updated_at: new Date().toISOString(),
+    }).eq('id', addon.id);      // slug NUNCA se envía (read-only)
+    setSaving(false);
+    if (error) { setFlash({type:'error',text:'No se pudo guardar el add-on'}); return; }
+    setFlash({type:'success',text:'Add-on actualizado'});
+    onClose(); reload();
+  };
+
+  return (
+    <Modal title={`Editar add-on — ${addon.name||addon.slug}`} onClose={onClose} width={520}>
+      <FormField label="Slug (no editable)" hint="Clave estable que consume la web pública.">
+        <input value={addon.slug||''} disabled readOnly/>
+      </FormField>
+      <FormField label="Nombre"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Facturación electrónica"/></FormField>
+      <FormField label="Descripción"><textarea value={description} onChange={e=>setDescription(e.target.value)} rows={2}/></FormField>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <FormField label="Precio (₲)" hint="Vacío = sin precio">
+          <input value={price} onChange={e=>setPrice(e.target.value)} placeholder="150000"/>
+        </FormField>
+        <FormField label="Tipo de precio">
+          <select value={priceType} onChange={e=>setPriceType(e.target.value)}>
+            <option value="cuota">Cuota mensual</option>
+            <option value="comision">Comisión</option>
+            <option value="cotizar">A cotizar</option>
+          </select>
+        </FormField>
+      </div>
+      <FormField label="Orden"><input value={order} onChange={e=>setOrder(e.target.value)} placeholder="0"/></FormField>
+      <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink,marginBottom:10}}><Toggle checked={isActive} onChange={setIsActive}/><span>Activo</span></div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function SitioAddons({addons, setFlash, reload}) {
+  const [editing, setEditing] = useState(null);
+  const sorted = [...addons].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+  return (
+    <div>
+      <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.5}}>
+        Add-ons que aparecen en la calculadora de <strong>/precios</strong>. El <strong>slug</strong> es una clave estable y no se edita.
+      </div>
+      <SectionCard>
+        {sorted.length===0
+          ? <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>Sin add-ons cargados</div>
+          : <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr>
+                  <Th>Orden</Th><Th>Nombre</Th><Th>Slug</Th><Th>Precio</Th><Th>Tipo</Th><Th>Estado</Th><Th></Th>
+                </tr></thead>
+                <tbody>
+                  {sorted.map(a=>(
+                    <tr key={a.id}>
+                      <Td style={{color:C.mid}}>{a.sort_order??0}</Td>
+                      <Td style={{fontWeight:600}}>{a.name||'—'}</Td>
+                      <Td style={{fontSize:12,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{a.slug}</Td>
+                      <Td style={{whiteSpace:'nowrap'}}>{a.price_type==='cotizar'?'A cotizar':fmtGsRaw(a.price_gs)}</Td>
+                      <Td style={{fontSize:12,color:C.mid}}>{ADDON_PRICE_TYPES[a.price_type]||a.price_type||'—'}</Td>
+                      <Td><Badge status={a.is_active!==false?'active':'inactive'}/></Td>
+                      <Td style={{whiteSpace:'nowrap'}}><Btn size="sm" variant="ghost" onClick={()=>setEditing(a)}>Editar</Btn></Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>}
+      </SectionCard>
+      {editing && <AddonEditModal addon={editing} onClose={()=>setEditing(null)} setFlash={setFlash} reload={reload}/>}
+    </div>
+  );
+}
+
 function PageSitioWeb({setFlash}) {
   const [tab,    setTab]    = useState('resumen');
   const [leads,  setLeads]  = useState([]);
   const [events, setEvents] = useState([]);
   const [config, setConfig] = useState([]);
+  const [plans,  setPlans]  = useState([]);
+  const [addons, setAddons] = useState([]);
   const [loading,setLoading]= useState(true);
 
   // Self-fetch (como PageSoporte). Solo tablas de mig 110. Degradado a [] si la
   // tabla no existe o RLS deniega (no rompe el panel).
   const load = useCallback(async () => {
     if (!db) { setLoading(false); return; }
-    const [l, e, c] = await Promise.all([
+    const [l, e, c, p, a] = await Promise.all([
       db.from('marketing_leads').select('*').order('created_at',{ascending:false}).limit(500).then(r=>r.error?{data:[]}:r),
       db.from('marketing_events').select('*').order('created_at',{ascending:false}).limit(300).then(r=>r.error?{data:[]}:r),
       db.from('marketing_config').select('*').then(r=>r.error?{data:[]}:r),
+      db.from('marketing_plans').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
+      db.from('marketing_add_ons').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
     ]);
-    setLeads(l.data||[]); setEvents(e.data||[]); setConfig(c.data||[]);
+    setLeads(l.data||[]); setEvents(e.data||[]); setConfig(c.data||[]); setPlans(p.data||[]); setAddons(a.data||[]);
     setLoading(false);
   }, []);
   useEffect(()=>{ load(); }, [load]);
@@ -3962,6 +4206,8 @@ function PageSitioWeb({setFlash}) {
     {id:'resumen',   label:'Resumen'},
     {id:'leads',     label:'Leads'},
     {id:'actividad', label:'Actividad'},
+    {id:'planes',    label:'Planes'},
+    {id:'addons',    label:'Add-ons'},
     {id:'config',    label:'Config'},
   ];
 
@@ -3977,6 +4223,8 @@ function PageSitioWeb({setFlash}) {
           {tab==='resumen'   && <SitioResumen  leads={leads} events={events}/>}
           {tab==='leads'     && <SitioLeads    leads={leads} setFlash={setFlash} reload={load}/>}
           {tab==='actividad' && <SitioActividad events={events}/>}
+          {tab==='planes'    && <SitioPlanes   plans={plans} setFlash={setFlash} reload={load}/>}
+          {tab==='addons'    && <SitioAddons   addons={addons} setFlash={setFlash} reload={load}/>}
           {tab==='config'    && <SitioConfig   config={config} setFlash={setFlash} reload={load}/>}
         </>
       )}
