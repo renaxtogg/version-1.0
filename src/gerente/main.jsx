@@ -321,7 +321,24 @@ function Dashboard({onJump}) {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); const id = setInterval(load, 15000); return () => clearInterval(id); }, [load]);
+  // G7: realtime en las alertas del dashboard (aprobaciones, 86-list, llamadas de mozo)
+  // reusando el patrón db.channel(...).on('postgres_changes',...) ya usado en soporte/avisos.
+  // Las 3 tablas están en la publicación supabase_realtime (verificado). Se mantiene un
+  // polling suave de respaldo (30s) por si la suscripción no conecta. load() ya se
+  // auto-pausa con modales/inputs abiertos.
+  useEffect(() => {
+    load();
+    let ch = null;
+    if (db) {
+      ch = db.channel('gerente-dash-rt')
+        .on('postgres_changes', {event:'*', schema:'public', table:'manager_approvals', filter:`restaurant_id=eq.${RID}`}, () => load())
+        .on('postgres_changes', {event:'*', schema:'public', table:'item_86_list', filter:`restaurant_id=eq.${RID}`}, () => load())
+        .on('postgres_changes', {event:'*', schema:'public', table:'waiter_calls', filter:`restaurant_id=eq.${RID}`}, () => load())
+        .subscribe();
+    }
+    const id = setInterval(load, 30000);
+    return () => { if (ch && db) db.removeChannel(ch); clearInterval(id); };
+  }, [load]);
 
   const kpis = useMemo(() => {
     // PR-16: "Ventas hoy" = solo cobrado (payment_status='paid'), no en-curso/pendiente.
