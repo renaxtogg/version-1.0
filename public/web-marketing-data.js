@@ -106,6 +106,18 @@
     });
   }
 
+  // FAQs activas, ordenadas (RLS filtra is_active). null → el caller deja el HTML estático.
+  function getFaqs() {
+    var c = db();
+    if (!c) return Promise.resolve(null);
+    return c.from('marketing_faqs').select('question,answer').order('sort_order', { ascending: true })
+      .then(function (r) {
+        if (r && r.error) { warn('marketing_faqs error → estático', r.error.message); return null; }
+        return (r && r.data && r.data.length) ? r.data : null;
+      })
+      .catch(function (e) { warn('marketing_faqs failed → estático', e); return null; });
+  }
+
   // Config pública → objeto plano con defaults garantizados.
   function getPublicConfig() {
     var c = db();
@@ -174,6 +186,7 @@
     available: function () { return !!db(); },
     getPlans: getPlans,
     getAddOns: getAddOns,
+    getFaqs: getFaqs,
     getPublicConfig: getPublicConfig,
     trackEvent: trackEvent,
     submitLead: submitLead,

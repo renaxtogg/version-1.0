@@ -410,6 +410,18 @@
     }).catch(function (e) { console.warn('[MythosWeb] pricing load', e); wireStaticPricingToggle(); });
   }
 
+  /* ── FAQ dinámico (web.html #faqList) — degrada al HTML estático ──────── */
+  function renderFaqs() {
+    var host = document.getElementById('faqList');
+    if (!host || !window.MythosWebData || !MythosWebData.getFaqs) return;
+    MythosWebData.getFaqs().then(function (rows) {
+      if (!rows || !rows.length) return;   // sin datos → se mantiene el HTML estático (fallback)
+      host.innerHTML = rows.map(function (f, i) {
+        return '<details' + (i === 0 ? ' open' : '') + '><summary>' + esc(f.question) + '</summary><p>' + esc(f.answer) + '</p></details>';
+      }).join('');
+    }).catch(function () {});
+  }
+
   /* ── Carga de datos públicos (config) + WhatsApp/founder dinámicos ─────── */
   function loadDynamic() {
     if (window.MythosWebData && MythosWebData.getPublicConfig) {
@@ -424,6 +436,7 @@
       updateFounder();
     }
     initPricing();
+    renderFaqs();
   }
 
   /* ═══════════════════════════════════════════════════════════════════════

@@ -4177,6 +4177,181 @@ function SitioAddons({addons, setFlash, reload}) {
   );
 }
 
+// ── Contenido (WEB-6C) — FAQs (CRUD) + Testimonios (solo reales) ──────────
+// CRUD vía cliente autenticado (RLS superadmin, mig 110). Delete con confirm de
+// 2 pasos (no hay primitive de confirm en el panel). Testimonios: NO inventar;
+// vacío = estado honesto (el sitio público oculta la sección sin datos).
+function FaqEditModal({faq, onClose, setFlash, reload}) {
+  const isNew = !faq.id;
+  const [question, setQuestion] = useState(faq.question||'');
+  const [answer, setAnswer]     = useState(faq.answer||'');
+  const [isActive, setIsActive] = useState(faq.is_active!==false);
+  const [order, setOrder]       = useState(faq.sort_order==null?'0':String(faq.sort_order));
+  const [saving, setSaving]     = useState(false);
+
+  const save = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    if (!question.trim() || !answer.trim()) { setFlash({type:'error',text:'Pregunta y respuesta son obligatorias'}); return; }
+    const o = parseOptInt(order);
+    if (!o.ok) { setFlash({type:'error',text:'Orden: solo números'}); return; }
+    const payload = { question:question.trim(), answer:answer.trim(), is_active:isActive, sort_order:o.value==null?0:o.value, updated_at:new Date().toISOString() };
+    setSaving(true);
+    const { error } = isNew
+      ? await db.from('marketing_faqs').insert(payload)
+      : await db.from('marketing_faqs').update(payload).eq('id', faq.id);
+    setSaving(false);
+    if (error) { setFlash({type:'error',text:'No se pudo guardar la FAQ'}); return; }
+    setFlash({type:'success',text:isNew?'FAQ creada':'FAQ actualizada'});
+    onClose(); reload();
+  };
+
+  return (
+    <Modal title={isNew?'Nueva pregunta':'Editar pregunta'} onClose={onClose} width={560}>
+      <FormField label="Pregunta"><input value={question} onChange={e=>setQuestion(e.target.value)} placeholder="¿Necesito conocimientos técnicos?"/></FormField>
+      <FormField label="Respuesta"><textarea value={answer} onChange={e=>setAnswer(e.target.value)} rows={4}/></FormField>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'center'}}>
+        <FormField label="Orden"><input value={order} onChange={e=>setOrder(e.target.value)} placeholder="0"/></FormField>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink,marginTop:8}}><Toggle checked={isActive} onChange={setIsActive}/><span>Activa</span></div>
+      </div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function FaqManager({faqs, setFlash, reload}) {
+  const [editing, setEditing] = useState(null);
+  const sorted = [...faqs].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+
+  const toggleActive = async (f) => {
+    if (!db) return;
+    const { error } = await db.from('marketing_faqs').update({is_active:!(f.is_active!==false), updated_at:new Date().toISOString()}).eq('id', f.id);
+    if (error) { setFlash({type:'error',text:'No se pudo actualizar'}); return; }
+    setFlash({type:'ok',text:'FAQ actualizada'}); reload();
+  };
+
+  return (
+    <SectionCard title="Preguntas frecuentes" action={<Btn size="sm" onClick={()=>setEditing({})}>+ Nueva</Btn>} style={{marginBottom:18}}>
+      {sorted.length===0
+        ? <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>Sin preguntas cargadas</div>
+        : sorted.map(f=>(
+            <div key={f.id} style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:14,alignItems:'flex-start'}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                  <span style={{fontSize:11,color:C.mid,fontWeight:700}}>#{f.sort_order??0}</span>
+                  <span style={{fontWeight:600,fontSize:13}}>{f.question}</span>
+                  {!(f.is_active!==false) && <Badge status="inactive"/>}
+                </div>
+                <div style={{fontSize:12,color:C.mid,marginTop:3,lineHeight:1.5}}>{f.answer}</div>
+              </div>
+              <div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
+                <Toggle checked={f.is_active!==false} onChange={()=>toggleActive(f)}/>
+                <Btn size="sm" variant="ghost" onClick={()=>setEditing(f)}>Editar</Btn>
+              </div>
+            </div>
+          ))}
+      {editing && <FaqEditModal faq={editing} onClose={()=>setEditing(null)} setFlash={setFlash} reload={reload}/>}
+    </SectionCard>
+  );
+}
+
+function TestimonialEditModal({item, onClose, setFlash, reload}) {
+  const isNew = !item.id;
+  const [personName, setPersonName]   = useState(item.person_name||'');
+  const [businessName, setBusinessName] = useState(item.business_name||'');
+  const [role, setRole]               = useState(item.role||'');
+  const [quote, setQuote]             = useState(item.quote||'');
+  const [isActive, setIsActive]       = useState(item.is_active!==false);
+  const [order, setOrder]             = useState(item.sort_order==null?'0':String(item.sort_order));
+  const [saving, setSaving]           = useState(false);
+
+  const save = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    if (!personName.trim() || !quote.trim()) { setFlash({type:'error',text:'Nombre y testimonio son obligatorios'}); return; }
+    const o = parseOptInt(order);
+    if (!o.ok) { setFlash({type:'error',text:'Orden: solo números'}); return; }
+    const payload = { person_name:personName.trim(), business_name:businessName.trim()||null, role:role.trim()||null, quote:quote.trim(), is_active:isActive, sort_order:o.value==null?0:o.value, updated_at:new Date().toISOString() };
+    setSaving(true);
+    const { error } = isNew
+      ? await db.from('marketing_testimonials').insert(payload)
+      : await db.from('marketing_testimonials').update(payload).eq('id', item.id);
+    setSaving(false);
+    if (error) { setFlash({type:'error',text:'No se pudo guardar el testimonio'}); return; }
+    setFlash({type:'success',text:isNew?'Testimonio creado':'Testimonio actualizado'});
+    onClose(); reload();
+  };
+
+  return (
+    <Modal title={isNew?'Nuevo testimonio':'Editar testimonio'} onClose={onClose} width={560}>
+      <div style={{padding:'9px 12px',marginBottom:14,fontSize:12,color:C.mid,border:`1px solid ${C.border}`,borderRadius:8,lineHeight:1.5}}>Cargá solo testimonios <strong>reales</strong> y con consentimiento. No inventes prueba social.</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <FormField label="Nombre"><input value={personName} onChange={e=>setPersonName(e.target.value)}/></FormField>
+        <FormField label="Restaurante"><input value={businessName} onChange={e=>setBusinessName(e.target.value)}/></FormField>
+      </div>
+      <FormField label="Rol / cargo"><input value={role} onChange={e=>setRole(e.target.value)} placeholder="Dueño, Encargada…"/></FormField>
+      <FormField label="Testimonio"><textarea value={quote} onChange={e=>setQuote(e.target.value)} rows={4}/></FormField>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'center'}}>
+        <FormField label="Orden"><input value={order} onChange={e=>setOrder(e.target.value)} placeholder="0"/></FormField>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink,marginTop:8}}><Toggle checked={isActive} onChange={setIsActive}/><span>Activo</span></div>
+      </div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function TestimonialManager({testimonials, setFlash, reload}) {
+  const [editing, setEditing] = useState(null);
+  const sorted = [...testimonials].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+
+  const toggleActive = async (t) => {
+    if (!db) return;
+    const { error } = await db.from('marketing_testimonials').update({is_active:!(t.is_active!==false), updated_at:new Date().toISOString()}).eq('id', t.id);
+    if (error) { setFlash({type:'error',text:'No se pudo actualizar'}); return; }
+    setFlash({type:'ok',text:'Testimonio actualizado'}); reload();
+  };
+
+  return (
+    <SectionCard title="Testimonios" action={<Btn size="sm" onClick={()=>setEditing({})}>+ Nuevo</Btn>}>
+      {sorted.length===0
+        ? <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13,lineHeight:1.6}}>Sin testimonios cargados. Agregá solo testimonios reales; el sitio público no muestra la sección hasta que haya datos.</div>
+        : sorted.map(t=>(
+            <div key={t.id} style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:14,alignItems:'flex-start'}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                  <span style={{fontWeight:600,fontSize:13}}>{t.person_name}</span>
+                  {t.business_name && <span style={{fontSize:12,color:C.mid}}>· {t.business_name}</span>}
+                  {!(t.is_active!==false) && <Badge status="inactive"/>}
+                </div>
+                <div style={{fontSize:12,color:C.mid,marginTop:3,lineHeight:1.5,fontStyle:'italic'}}>“{t.quote}”</div>
+              </div>
+              <div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
+                <Toggle checked={t.is_active!==false} onChange={()=>toggleActive(t)}/>
+                <Btn size="sm" variant="ghost" onClick={()=>setEditing(t)}>Editar</Btn>
+              </div>
+            </div>
+          ))}
+      {editing && <TestimonialEditModal item={editing} onClose={()=>setEditing(null)} setFlash={setFlash} reload={reload}/>}
+    </SectionCard>
+  );
+}
+
+function SitioContenido({faqs, testimonials, setFlash, reload}) {
+  return (
+    <div>
+      <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.5}}>
+        Las FAQs activas se publican en <strong>/inicio#faq</strong>. Los testimonios se cargan solo reales; el sitio oculta la sección si no hay ninguno. Para ocultar contenido, desactivalo con el interruptor (no se borra de la base).
+      </div>
+      <FaqManager faqs={faqs} setFlash={setFlash} reload={reload}/>
+      <TestimonialManager testimonials={testimonials} setFlash={setFlash} reload={reload}/>
+    </div>
+  );
+}
+
 function PageSitioWeb({setFlash}) {
   const [tab,    setTab]    = useState('resumen');
   const [leads,  setLeads]  = useState([]);
@@ -4184,20 +4359,25 @@ function PageSitioWeb({setFlash}) {
   const [config, setConfig] = useState([]);
   const [plans,  setPlans]  = useState([]);
   const [addons, setAddons] = useState([]);
+  const [faqs,   setFaqs]   = useState([]);
+  const [testimonials, setTestimonials] = useState([]);
   const [loading,setLoading]= useState(true);
 
   // Self-fetch (como PageSoporte). Solo tablas de mig 110. Degradado a [] si la
   // tabla no existe o RLS deniega (no rompe el panel).
   const load = useCallback(async () => {
     if (!db) { setLoading(false); return; }
-    const [l, e, c, p, a] = await Promise.all([
+    const [l, e, c, p, a, f, t] = await Promise.all([
       db.from('marketing_leads').select('*').order('created_at',{ascending:false}).limit(500).then(r=>r.error?{data:[]}:r),
       db.from('marketing_events').select('*').order('created_at',{ascending:false}).limit(300).then(r=>r.error?{data:[]}:r),
       db.from('marketing_config').select('*').then(r=>r.error?{data:[]}:r),
       db.from('marketing_plans').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
       db.from('marketing_add_ons').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
+      db.from('marketing_faqs').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
+      db.from('marketing_testimonials').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
     ]);
     setLeads(l.data||[]); setEvents(e.data||[]); setConfig(c.data||[]); setPlans(p.data||[]); setAddons(a.data||[]);
+    setFaqs(f.data||[]); setTestimonials(t.data||[]);
     setLoading(false);
   }, []);
   useEffect(()=>{ load(); }, [load]);
@@ -4208,6 +4388,7 @@ function PageSitioWeb({setFlash}) {
     {id:'actividad', label:'Actividad'},
     {id:'planes',    label:'Planes'},
     {id:'addons',    label:'Add-ons'},
+    {id:'faq',       label:'FAQ'},
     {id:'config',    label:'Config'},
   ];
 
@@ -4225,6 +4406,7 @@ function PageSitioWeb({setFlash}) {
           {tab==='actividad' && <SitioActividad events={events}/>}
           {tab==='planes'    && <SitioPlanes   plans={plans} setFlash={setFlash} reload={load}/>}
           {tab==='addons'    && <SitioAddons   addons={addons} setFlash={setFlash} reload={load}/>}
+          {tab==='faq'       && <SitioContenido faqs={faqs} testimonials={testimonials} setFlash={setFlash} reload={load}/>}
           {tab==='config'    && <SitioConfig   config={config} setFlash={setFlash} reload={load}/>}
         </>
       )}

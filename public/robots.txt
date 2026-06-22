@@ -1,0 +1,15 @@
+# MYTHOS — robots
+# Sitio comercial indexable; paneles operativos y diagnóstico fuera del índice.
+User-agent: *
+Allow: /
+Disallow: /superadmin
+Disallow: /admin
+Disallow: /caja
+Disallow: /cocina
+Disallow: /mozo
+Disallow: /gerente
+Disallow: /delivery-rider
+Disallow: /delivery-cliente
+Disallow: /diag
+
+Sitemap: https://mythos-pos.vercel.app/sitemap.xml
