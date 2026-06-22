@@ -426,6 +426,83 @@
     initPricing();
   }
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     LEADS (WEB-5) — formularios públicos → marketing_leads (anon INSERT-only)
+     ─────────────────────────────────────────────────────────────────────
+     Sin Auth, sin service_role, sin crear cuentas. Solo escribe `marketing_leads`
+     vía MythosWebData.submitLead (anon key + RLS). Nunca lee leads. Degrada con
+     gracia si no hay capa de datos (muestra fallback a WhatsApp, no rompe).
+     ═══════════════════════════════════════════════════════════════════════ */
+  function leadEventName(type) {
+    return ({ contact: 'contact_submit', demo: 'demo_request_submit', trial_interest: 'trial_interest_submit' })[type] || 'contact_submit';
+  }
+  function emailValid(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+
+  // form: <form> con inputs name="name|business_name|email|whatsapp|message|type",
+  //       un [data-lead-status] y un [data-lead-submit].
+  // opts: { fixedType, successMsg (string|fn(type)), extra (fn→obj a fusionar) }
+  function wireLeadForm(form, opts) {
+    opts = opts || {};
+    if (!form || form.__leadWired) return; form.__leadWired = true;
+    var statusEl = form.querySelector('[data-lead-status]');
+    var submitBtn = form.querySelector('[data-lead-submit]');
+
+    function field(n) { var el = form.querySelector('[name="' + n + '"]'); return el ? String(el.value == null ? '' : el.value).trim() : ''; }
+    function setStatus(msg, kind) {
+      if (!statusEl) return;
+      statusEl.textContent = msg || '';
+      statusEl.className = 'lead-status' + (kind ? ' lead-status--' + kind : '');
+      statusEl.style.display = msg ? '' : 'none';
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var type = opts.fixedType || field('type') || 'contact';
+      var name = field('name'), business = field('business_name'),
+          email = field('email'), wsp = field('whatsapp'), msg = field('message');
+
+      // Validaciones (mensajes claros en español; sin tecnicismos).
+      if (!name) { setStatus('Decinos tu nombre, por favor.', 'error'); return; }
+      if (email && !emailValid(email)) { setStatus('Ese email no parece válido. Revisalo, por favor.', 'error'); return; }
+      if (!email && !wsp) { setStatus('Dejanos al menos un WhatsApp o un email para responderte.', 'error'); return; }
+      if (type === 'contact' && !msg) { setStatus('Contanos brevemente en qué te ayudamos.', 'error'); return; }
+
+      var prev = submitBtn ? submitBtn.textContent : '';
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Enviando…'; }
+      setStatus('', '');
+
+      var payload = {
+        type: type, name: name, business_name: business, email: email,
+        whatsapp: wsp, message: msg, source: (location && location.pathname) || null
+      };
+      if (typeof opts.extra === 'function') { try { Object.assign(payload, opts.extra() || {}); } catch (x) {} }
+
+      function finish(res) {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prev; }
+        if (res && res.ok) {
+          track(leadEventName(type), { type: type, plan_slug: payload.plan_slug || null });
+          var sm = (typeof opts.successMsg === 'function') ? opts.successMsg(type) : opts.successMsg;
+          var box = document.createElement('div');
+          box.className = 'notice lead-success';
+          box.setAttribute('role', 'status');
+          box.innerHTML = '<span class="lead-ok" aria-hidden="true">✓</span> <span>' + esc(sm || '¡Listo! Recibimos tus datos y te contactamos pronto.') + '</span>';
+          if (form.parentNode) form.parentNode.insertBefore(box, form);
+          try { form.reset(); } catch (x) {}
+          form.style.display = 'none';
+        } else {
+          track('lead_submit_error', { type: type, error: (res && res.error) || 'unknown' });
+          setStatus('No pudimos enviar tus datos ahora. Probá de nuevo o escribinos por WhatsApp.', 'error');
+        }
+      }
+
+      if (window.MythosWebData && MythosWebData.submitLead) {
+        MythosWebData.submitLead(payload).then(finish).catch(function (err) { finish({ ok: false, error: String(err) }); });
+      } else {
+        finish({ ok: false, error: 'no-data-layer' });
+      }
+    });
+  }
+
   /* ── Render del chrome + wiring ───────────────────────────────────────── */
   function renderChrome(opts) {
     opts = opts || {};
@@ -455,6 +532,7 @@
     formatGs: formatGs,
     formatMiles: formatMiles,
     track: track,
+    wireLeadForm: wireLeadForm,
     config: CONFIG
   };
 })();

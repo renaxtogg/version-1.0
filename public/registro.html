@@ -36,40 +36,42 @@
     <section class="block wrap" style="padding-top:20px">
       <div class="notice">
         <span data-icon="info"></span>
-        <span><b>Próximamente:</b> el alta automática de cuentas se habilita en una fase siguiente. Por ahora activamos tu prueba en persona — escribinos por WhatsApp y te acompañamos en el onboarding. <b>El registro es solo para dueños de restaurante</b>; el personal (mozos, caja, cocina, riders) se crea desde el panel del restaurante y entra por <a href="/login">Iniciar sesión</a>.</span>
+        <span><b>La prueba gratis está en activación.</b> Dejanos tus datos y te contactamos para habilitar tu cuenta. <b>El registro es solo para dueños de restaurante</b>; el personal (mozos, caja, cocina, riders) se crea desde el panel del restaurante y entra por <a href="/login">Iniciar sesión</a>.</span>
       </div>
 
       <!--
-        WEB-1: formulario VISUAL deshabilitado (modo "próxima fase"). NO crea Auth,
-        NO escribe en la base de datos, NO hay service_role en el cliente.
-        TODO(WEB-4): conectar a Supabase Auth + crear restaurante en estado 'trial'
-        (trial_fin = now()+14d) + fila en `signups`. El cobro (Bancard) queda como
-        fase separada; el botón "Activar plan" permanece deshabilitado hasta entonces.
+        WEB-5: el alta automática (Auth + restaurante + trial) sigue APAGADA. Este
+        formulario SOLO registra un lead de interés en `marketing_leads`
+        (type='trial_interest', anon INSERT-only, RLS mig 110) vía
+        MythosWebData.submitLead. NO crea Auth, NO restaurantes, NO subscriptions,
+        NO usa service_role. El alta real llega en WEB-4B-2 detrás del flag
+        trial_signup_enabled. Conserva ?plan / ?addons en plan_slug / selected_addons.
       -->
-      <form class="form-card" aria-label="Registro de restaurante" onsubmit="return false">
+      <form class="form-card" aria-label="Interés en la prueba gratis" novalidate>
         <p id="planTag" class="microcopy" style="margin:0 0 16px"></p>
         <div class="field">
           <label for="r-rest">Nombre del restaurante</label>
-          <input id="r-rest" type="text" placeholder="Mi Restaurante" disabled autocomplete="off">
+          <input id="r-rest" name="business_name" type="text" placeholder="Mi Restaurante" autocomplete="organization">
         </div>
         <div class="field">
           <label for="r-owner">Nombre del dueño</label>
-          <input id="r-owner" type="text" placeholder="Tu nombre" disabled autocomplete="off">
+          <input id="r-owner" name="name" type="text" placeholder="Tu nombre" autocomplete="name">
         </div>
         <div class="field">
           <label for="r-email">Email</label>
-          <input id="r-email" type="email" placeholder="vos@turestaurante.com" disabled autocomplete="off">
+          <input id="r-email" name="email" type="email" placeholder="vos@turestaurante.com" autocomplete="email">
         </div>
         <div class="field">
           <label for="r-wsp">WhatsApp</label>
-          <input id="r-wsp" type="tel" placeholder="+595 9xx xxx xxx" disabled autocomplete="off">
+          <input id="r-wsp" name="whatsapp" type="tel" placeholder="+595 9xx xxx xxx" autocomplete="tel">
         </div>
         <div class="field">
-          <label for="r-pass">Contraseña</label>
-          <input id="r-pass" type="password" placeholder="Mínimo 8 caracteres" disabled autocomplete="new-password">
+          <label for="r-msg">Mensaje (opcional)</label>
+          <textarea id="r-msg" name="message" rows="3" placeholder="Contanos algo de tu restaurante (opcional)"></textarea>
         </div>
-        <button class="btn btn-primary" type="button" disabled aria-disabled="true">Crear cuenta (próximamente)</button>
-        <p class="microcopy" style="margin-top:14px;text-align:center">Alta automática disponible en la próxima fase.</p>
+        <p class="microcopy" style="margin:0 0 12px">Dejanos al menos un WhatsApp o un email. Te contactamos para habilitar tu cuenta.</p>
+        <p data-lead-status class="lead-status" style="display:none" role="status" aria-live="polite"></p>
+        <button class="btn btn-primary" type="submit" data-lead-submit>Quiero que me contacten</button>
       </form>
 
       <div style="max-width:520px;margin:24px auto 0;display:flex;flex-direction:column;gap:12px">
@@ -84,15 +86,33 @@
   <script src="web-marketing.js"></script>
   <script>
     MythosWeb.init({ active: '' });
-    // Mostrar el plan elegido (si vino por ?plan=) — solo informativo, sin lógica de cobro.
-    try {
-      var plan = new URLSearchParams(location.search).get('plan');
-      if (plan) {
+    (function () {
+      var plan = '', addons = [];
+      try {
+        var qp = new URLSearchParams(location.search);
+        plan = (qp.get('plan') || '').toLowerCase().trim();
+        var raw = qp.get('addons') || '';
+        addons = raw ? raw.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [];
+      } catch (e) {}
+      // Etiqueta informativa del plan/add-ons elegidos (sin lógica de cobro).
+      try {
         var map = { carta: 'Carta', servicio: 'Servicio', full: 'Full', enterprise: 'Enterprise' };
         var el = document.getElementById('planTag');
-        if (el) el.textContent = 'Plan seleccionado: ' + (map[plan.toLowerCase()] || plan);
+        if (el && plan) {
+          el.textContent = 'Plan de interés: ' + (map[plan] || plan) +
+            (addons.length ? ' · add-ons: ' + addons.join(', ') : '');
+        }
+      } catch (e) {}
+      // Lead de interés (type=trial_interest) — NO crea cuenta; conserva plan/addons.
+      var form = document.querySelector('form[aria-label="Interés en la prueba gratis"]');
+      if (form && window.MythosWeb && MythosWeb.wireLeadForm) {
+        MythosWeb.wireLeadForm(form, {
+          fixedType: 'trial_interest',
+          successMsg: '¡Gracias! Recibimos tu interés. Te contactamos para activar tu prueba.',
+          extra: function () { return { plan_slug: plan || null, selected_addons: addons }; }
+        });
       }
-    } catch (e) {}
+    })();
   </script>
 </body>
 </html>

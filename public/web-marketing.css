@@ -300,6 +300,20 @@ details p { font-size: 14.5px; color: var(--text-secondary); margin-top: 12px; }
 .notice svg { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--text-tertiary); }
 .notice b { color: var(--text-primary); }
 
+/* Select del formulario de leads (WEB-5) — calza con .field input/textarea */
+.field select {
+  font-family: inherit; font-size: var(--text-base); color: var(--text-primary);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 11px 13px; transition: border-color .2s; cursor: pointer;
+}
+.field select:focus { border-color: var(--border-strong); outline: none; }
+
+/* Estado del formulario de leads (WEB-5) */
+.lead-status { font-size: var(--text-sm); line-height: 1.45; margin: 0 0 14px; padding: 10px 13px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--text-secondary); text-align: left; }
+.lead-status--error { color: var(--error); border-color: var(--error); }
+.lead-success { align-items: center; }
+.lead-success .lead-ok { color: var(--success); font-weight: var(--weight-bold); flex: none; }
+
 /* Legal */
 .legal { max-width: 760px; margin: 0 auto; padding: 20px 0 40px; text-align: left; }
 .legal h2 { font-size: var(--text-xl); margin: 36px 0 12px; }

@@ -38,35 +38,44 @@
         <a class="btn btn-secondary" data-email><span data-icon="mail"></span> Enviar un email</a>
       </div>
 
-      <div class="notice">
-        <span data-icon="info"></span>
-        <span><b>Próximamente:</b> el formulario de contacto se conecta en una fase siguiente. Por ahora, el WhatsApp es la vía más rápida.</span>
-      </div>
-
       <!--
-        WEB-1: formulario VISUAL deshabilitado. NO escribe en la base de datos.
-        TODO(WEB-5): crear tabla `marketing_leads` (anon INSERT-only, lectura solo
-        superadmin) + endpoint /api/submit-lead (valida y guarda) + email vía Resend.
-        Los leads se ven desde Superadmin → "Sitio web".
+        WEB-5: formulario real. Escribe SOLO en `marketing_leads` (anon INSERT-only,
+        RLS mig 110) vía MythosWebData.submitLead. NO usa Auth, NO service_role, NO
+        crea cuentas/restaurantes/trials, NO lee leads. Los leads se gestionan desde
+        Superadmin → "Sitio web" (WEB-6).
       -->
-      <form class="form-card" aria-label="Formulario de contacto" onsubmit="return false">
+      <form class="form-card" aria-label="Formulario de contacto" novalidate>
+        <div class="field">
+          <label for="c-type">¿En qué te ayudamos?</label>
+          <select id="c-type" name="type">
+            <option value="contact">Contacto general</option>
+            <option value="demo">Quiero una demo</option>
+            <option value="trial_interest">Me interesa probar MYTHOS</option>
+          </select>
+        </div>
         <div class="field">
           <label for="c-name">Nombre</label>
-          <input id="c-name" type="text" placeholder="Tu nombre" disabled autocomplete="off">
+          <input id="c-name" name="name" type="text" placeholder="Tu nombre" autocomplete="name">
+        </div>
+        <div class="field">
+          <label for="c-biz">Restaurante / local</label>
+          <input id="c-biz" name="business_name" type="text" placeholder="Nombre de tu restaurante" autocomplete="organization">
         </div>
         <div class="field">
           <label for="c-email">Email</label>
-          <input id="c-email" type="email" placeholder="vos@turestaurante.com" disabled autocomplete="off">
+          <input id="c-email" name="email" type="email" placeholder="vos@turestaurante.com" autocomplete="email">
         </div>
         <div class="field">
           <label for="c-wsp">WhatsApp</label>
-          <input id="c-wsp" type="tel" placeholder="+595 9xx xxx xxx" disabled autocomplete="off">
+          <input id="c-wsp" name="whatsapp" type="tel" placeholder="+595 9xx xxx xxx" autocomplete="tel">
         </div>
         <div class="field">
           <label for="c-msg">Mensaje</label>
-          <textarea id="c-msg" rows="4" placeholder="Contanos sobre tu restaurante" disabled></textarea>
+          <textarea id="c-msg" name="message" rows="4" placeholder="Contanos sobre tu restaurante"></textarea>
         </div>
-        <button class="btn btn-primary" type="button" disabled aria-disabled="true">Enviar (próximamente)</button>
+        <p class="microcopy" style="margin:0 0 12px">Dejanos al menos un WhatsApp o un email para poder responderte.</p>
+        <p data-lead-status class="lead-status" style="display:none" role="status" aria-live="polite"></p>
+        <button class="btn btn-primary" type="submit" data-lead-submit>Enviar</button>
       </form>
     </section>
   </main>
@@ -74,6 +83,27 @@
   <div id="site-footer"></div>
   <script src="mythos-icons.js"></script>
   <script src="web-marketing.js"></script>
-  <script>MythosWeb.init({ active: 'contacto' });</script>
+  <script>
+    MythosWeb.init({ active: 'contacto' });
+    (function () {
+      var form = document.querySelector('form[aria-label="Formulario de contacto"]');
+      if (!form || !window.MythosWeb || !MythosWeb.wireLeadForm) return;
+      var sel = form.querySelector('[name="type"]');
+      // Preseleccionar tipo desde ?type= (contact|demo|trial_interest)
+      try {
+        var t = new URLSearchParams(location.search).get('type');
+        var allow = { contact: 1, demo: 1, trial_interest: 1 };
+        if (t && allow[t] && sel) sel.value = t;
+      } catch (e) {}
+      function successMsg(type) {
+        return type === 'demo'
+          ? '¡Listo! Recibimos tu pedido de demo. Te escribimos para coordinar día y hora.'
+          : type === 'trial_interest'
+            ? '¡Gracias! Recibimos tu interés. Te contactamos para activar tu prueba.'
+            : '¡Listo! Recibimos tu mensaje y te respondemos a la brevedad.';
+      }
+      MythosWeb.wireLeadForm(form, { successMsg: successMsg });
+    })();
+  </script>
 </body>
 </html>
