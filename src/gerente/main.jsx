@@ -138,15 +138,23 @@ function Modal({title, onClose, children, width=460}) {
 }
 
 /* ───────────────────────── COMPONENTES REUTILIZABLES ───────────────────────── */
-function KpiCard({label,value,sub,accent,icon,onClick,alert}) {
+function KpiCard({label,value,sub,accent,icon,onClick,alert,delta}) {
   // PR-B3A: superficie/label desde primitives (.my-metric-card, Opción A). Se
   // conserva el valor (mono + color de acento) y el sub inline. Sin cambio de props.
+  // G5: prop opcional `delta` ({n, unit}) — indicador sobrio B/N de variación vs ayer.
   return (
     <div onClick={onClick} className="my-metric-card" style={{flex:1,minWidth:140,cursor:onClick?'pointer':'default',position:'relative',...(alert?{borderColor:'var(--error)'}:null)}}>
       {icon && <div style={{fontSize:18,marginBottom:6}}>{icon}</div>}
       <div className="my-metric-card__label">{label}</div>
       <div style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:accent||C.ink,lineHeight:1}}>{value}</div>
       {sub && <div style={{fontSize:11,color:C.dim,marginTop:5}}>{sub}</div>}
+      {delta && (
+        <div style={{fontSize:11,color:C.mid,marginTop:4,display:'flex',alignItems:'center',gap:4,fontWeight:600}}>
+          {delta.n==null
+            ? <span style={{color:C.dim}}>sin dato de ayer</span>
+            : <><span aria-hidden="true">{delta.n>0?'▲':delta.n<0?'▼':'–'}</span><span>{delta.n>0?'+':''}{delta.n}{delta.unit} vs ayer</span></>}
+        </div>
+      )}
     </div>
   );
 }
@@ -278,14 +286,16 @@ function PlanLock({ panel }) {
    MÓDULO 1: DASHBOARD LIVE
    ════════════════════════════════════════════════════════════════════════════ */
 function Dashboard({onJump}) {
-  const [data, setData] = useState({orders:[], tables:[], waiterCalls:[], complaints:[], approvals:[], ratings:[], item86:[], shiftEmps:[]});
+  const [data, setData] = useState({orders:[], tables:[], waiterCalls:[], complaints:[], approvals:[], ratings:[], item86:[], shiftEmps:[], yOrders:[], yRatings:[]});
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!db || _shouldPause()) return;
     const today = new Date(); today.setHours(0,0,0,0);
     const todayISO = today.toISOString();
-    const [o, t, w, q, a, r, i86, e] = await Promise.all([
+    const yest = new Date(today); yest.setDate(yest.getDate()-1);
+    const yestISO = yest.toISOString();
+    const [o, t, w, q, a, r, i86, e, yo, yr] = await Promise.all([
       db.from('orders').select('id,total,status,order_type,table_id,created_at,paid_at,payment_status').eq('restaurant_id',RID).gte('created_at', todayISO),
       db.from('tables').select('id,number,is_occupied').eq('restaurant_id',RID),
       db.from('waiter_calls').select('id,table_id,status,created_at').eq('restaurant_id',RID).eq('status','pending'),
@@ -293,7 +303,10 @@ function Dashboard({onJump}) {
       db.from('manager_approvals').select('id,request_type,amount,reason,status,created_at,requested_by_name').eq('restaurant_id',RID).eq('status','pendiente'),
       db.from('ratings').select('id,stars,created_at').eq('restaurant_id',RID).gte('created_at',todayISO),
       db.from('item_86_list').select('id,item_name').eq('restaurant_id',RID).eq('is_active',true),
-      db.from('employee_shifts').select('id,employee_name,role,clock_in,clock_out').eq('restaurant_id',RID).is('clock_out',null)
+      db.from('employee_shifts').select('id,employee_name,role,clock_in,clock_out').eq('restaurant_id',RID).is('clock_out',null),
+      // G5: día previo completo para el delta de los KPIs principales
+      db.from('orders').select('total,payment_status,created_at').eq('restaurant_id',RID).gte('created_at', yestISO).lt('created_at', todayISO),
+      db.from('ratings').select('stars').eq('restaurant_id',RID).gte('created_at', yestISO).lt('created_at', todayISO)
     ]);
     // orders.table_number no existe en la tabla orders; se resuelve desde tables (ya cargadas).
     if (o.error) console.error('[gerente] dashboard orders load error:', o.error.message);
@@ -302,7 +315,8 @@ function Dashboard({onJump}) {
       orders: (o.data||[]).map(ord => ({ ...ord, table_number: tblNum[ord.table_id] ?? null })),
       tables: t.data||[], waiterCalls: w.data||[],
       complaints: q.data||[], approvals: a.data||[], ratings: r.data||[],
-      item86: i86.data||[], shiftEmps: e.data||[]
+      item86: i86.data||[], shiftEmps: e.data||[],
+      yOrders: yo.data||[], yRatings: yr.data||[]
     });
     setLoading(false);
   }, []);
@@ -318,7 +332,18 @@ function Dashboard({onJump}) {
     const delayed = inKitchen.filter(o => minsAgo(o.created_at) > 25);
     const occupied = data.tables.filter(t => t.is_occupied).length;
     const ratingAvg = data.ratings.length ? data.ratings.reduce((s,r) => s + r.stars, 0) / data.ratings.length : 0;
-    return { sales, tickets, avg, inKitchen, delayed, occupied, totalTables: data.tables.length, ratingAvg };
+    // G5: deltas vs ayer (día previo completo). Solo para KPIs de negocio comparables;
+    // los contadores en vivo (mesas/cocina/personal) no llevan delta porque "vs ayer"
+    // no es una métrica significativa para un snapshot instantáneo.
+    const ySales = data.yOrders.filter(o => o.payment_status==='paid').reduce((s,o) => s + (o.total||0), 0);
+    const yTickets = data.yOrders.filter(o => o.payment_status==='paid').length;
+    const yAvg = yTickets ? ySales/yTickets : 0;
+    const yRatingAvg = data.yRatings.length ? data.yRatings.reduce((s,r) => s + r.stars, 0) / data.yRatings.length : 0;
+    const pct = (cur, prev) => prev>0 ? Math.round((cur-prev)/prev*100) : null;
+    const salesDelta = pct(sales, ySales);
+    const avgDelta = pct(avg, yAvg);
+    const ratingDelta = yRatingAvg>0 ? Math.round((ratingAvg - yRatingAvg)*10)/10 : null;
+    return { sales, tickets, avg, inKitchen, delayed, occupied, totalTables: data.tables.length, ratingAvg, salesDelta, avgDelta, ratingDelta };
   }, [data]);
 
   if (loading) return <div style={{padding:40,textAlign:'center',color:C.mid}}><div className="spin"/></div>;
@@ -339,11 +364,11 @@ function Dashboard({onJump}) {
       )}
 
       <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:18}}>
-        <KpiCard label="Ventas hoy" value={fmt(kpis.sales)} sub={`${kpis.tickets} tickets`} accent={C.green}/>
-        <KpiCard label="Ticket promedio" value={fmt(kpis.avg)} sub={`Sobre ${kpis.tickets} tickets`}/>
+        <KpiCard label="Ventas hoy" value={fmt(kpis.sales)} sub={`${kpis.tickets} tickets`} accent={C.green} delta={{n:kpis.salesDelta, unit:'%'}}/>
+        <KpiCard label="Ticket promedio" value={fmt(kpis.avg)} sub={`Sobre ${kpis.tickets} tickets`} delta={{n:kpis.avgDelta, unit:'%'}}/>
         <KpiCard label="Mesas ocupadas" value={`${kpis.occupied}/${kpis.totalTables}`} sub={`${Math.round(kpis.occupied/(kpis.totalTables||1)*100)}% ocupación`}/>
         <KpiCard label="En cocina" value={kpis.inKitchen.length} sub={kpis.delayed.length>0?`${kpis.delayed.length} demorados`:'Sin demoras'} accent={kpis.delayed.length>0?C.orange:C.blue} alert={kpis.delayed.length>0}/>
-        <KpiCard label="Rating del día" value={kpis.ratingAvg ? `${kpis.ratingAvg.toFixed(1)} ★` : '—'} sub={`${data.ratings.length} calificaciones`} accent={C.yellow}/>
+        <KpiCard label="Rating del día" value={kpis.ratingAvg ? `${kpis.ratingAvg.toFixed(1)} ★` : '—'} sub={`${data.ratings.length} calificaciones`} accent={C.yellow} delta={{n:kpis.ratingDelta, unit:'★'}}/>
         <KpiCard label="Personal en turno" value={data.shiftEmps.length} sub="Empleados activos"/>
       </div>
 
