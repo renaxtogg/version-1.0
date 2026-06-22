@@ -29,6 +29,7 @@
 
   var _caps = null;          // capacidades cacheadas del restaurante
   var _loadingPromise = null;
+  var _warnedFailOpen = {};  // de-dup: avisar fail-open 1 vez por key (evita spam por render)
 
   function featureLabel(key) {
     return FEATURE_LABELS[key] || key;
@@ -42,7 +43,18 @@
 
   function hasFeatureWith(caps, key) {
     var f = caps && caps.allowed_features;
-    if (!Array.isArray(f)) return true;          // legacy / no configurado → permitido
+    if (!Array.isArray(f)) {
+      // Fail-open: plan legacy (allowed_features NULL) o capacidades aún no
+      // cargadas → permitido, pero dejamos rastro (1 warn por key, sin spam).
+      // Con la migración 116 los 3 planes traen array → esto NO debería
+      // dispararse para un comercio con suscripción cargada.
+      if (!_warnedFailOpen[key]) {
+        _warnedFailOpen[key] = true;
+        console.warn('[MythosGating] fail-open: "' + key + '" permitido sin allowed_features ' +
+          '(plan legacy/NULL o capabilities no cargadas). Si persiste, revisá la suscripción del restaurante.');
+      }
+      return true;
+    }
     return f.indexOf(key) >= 0;
   }
 
@@ -54,8 +66,24 @@
     if (_loadingPromise) return _loadingPromise;
     if (!db || !rid) return Promise.resolve(_caps);
     _loadingPromise = db.rpc('get_restaurant_capabilities', { p_restaurant_id: rid })
-      .then(function (res) { if (res && res.data) _caps = res.data; return _caps; })
-      .catch(function () { return _caps; });
+      .then(function (res) {
+        // Supabase no rechaza en error de RPC: viene en res.error. Si las
+        // capacidades no cargan dejamos rastro en vez de fallar en silencio
+        // (el gating queda fail-open: _caps sigue null → todo permitido).
+        if (res && res.error) {
+          console.error('[MythosGating] get_restaurant_capabilities falló → gating fail-open:', res.error);
+        } else if (res && res.data) {
+          _caps = res.data;
+        } else {
+          console.warn('[MythosGating] get_restaurant_capabilities devolvió NULL/sin data ' +
+            '(restaurant ' + rid + ') → gating fail-open. Posible plan sin suscripción, rol anon o tenant cruzado.');
+        }
+        return _caps;
+      })
+      .catch(function (err) {
+        console.error('[MythosGating] error al cargar capabilities → gating fail-open:', err);
+        return _caps;
+      });
     return _loadingPromise;
   }
 
