@@ -39,6 +39,7 @@ const APPROVAL_LABEL = {
 };
 const CAT_LOG = {nota:'Nota',incidencia:'Incidencia',tarea:'Tarea',traspaso:'Traspaso',cliente:'Cliente',personal:'Personal',equipo:'Equipo',limpieza:'Limpieza'};
 const PRIO_COL = {baja:'#86868B', normal:'#007AFF', alta:'#FF9500', urgente:'#FF3B30'};
+const STOCK_ALERT_LABEL = {low_stock:'Stock bajo', critical_stock:'Stock crítico', expiring_soon:'Por vencer', expired:'Vencido'};
 
 const PALETTES = {
   light: {
@@ -772,7 +773,7 @@ function Stock86({user, userName}) {
     const [i, m, a] = await Promise.all([
       db.from('item_86_list').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(60),
       db.from('menu_items').select('id,name,is_available,category_id').eq('restaurant_id',RID).order('name'),
-      db.from('stock_alerts').select('id,alert_type,current_value,threshold_triggered,resolved_at,created_at,ingredient_id').eq('restaurant_id',RID).is('resolved_at',null).order('created_at',{ascending:false}).limit(40)
+      db.from('stock_alerts').select('id,alert_type,current_value,threshold_triggered,resolved_at,created_at,ingredient_id,ingredient:ingredients(name)').eq('restaurant_id',RID).is('resolved_at',null).order('created_at',{ascending:false}).limit(40)
     ]);
     setList(i.data||[]); setMenu(m.data||[]); setStockAlerts(a.data||[]); setLoading(false);
   }, []);
@@ -816,6 +817,23 @@ function Stock86({user, userName}) {
               ))}</tbody>
             </table>}
       </Card>
+
+      {stockAlerts.length>0 && (
+        <Card title={`Alertas de stock activas (${stockAlerts.length})`} style={{marginTop:16}}>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Ingrediente</Th><Th>Alerta</Th><Th right>Valor actual</Th><Th right>Umbral</Th><Th right>Desde</Th></tr></thead>
+            <tbody>{stockAlerts.map(a => (
+              <tr key={a.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                <Td><strong>{a.ingredient?.name || '—'}</strong></Td>
+                <Td><Badge color={['critical_stock','expired'].includes(a.alert_type)?C.red:a.alert_type==='expiring_soon'?C.orange:C.yellow}>{STOCK_ALERT_LABEL[a.alert_type]||a.alert_type}</Badge></Td>
+                <Td right mono>{a.current_value ?? '—'}</Td>
+                <Td right mono>{a.threshold_triggered ?? '—'}</Td>
+                <Td right mono dim>{fmtTime(a.created_at)}</Td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </Card>
+      )}
 
       {reactivados.length>0 && (
         <Card title="Repuestos hoy" style={{marginTop:16}}>
