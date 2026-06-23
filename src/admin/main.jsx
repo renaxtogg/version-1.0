@@ -4250,7 +4250,7 @@ function ImpresoraConfig({restaurant}){
         <div style={{marginBottom:6}}>Para que el ticket salga <strong>al instante, sin el diálogo del navegador</strong>, configurá la PC de caja una sola vez:</div>
         <ol style={{margin:'0 0 10px 18px',padding:0,display:'flex',flexDirection:'column',gap:4}}>
           <li>Poné la <strong>POS-80C como impresora predeterminada</strong> de Windows (Configuración → Bluetooth y dispositivos → Impresoras → POS-80C → “Predeterminar”). Así no arranca en “Microsoft Print to PDF”.</li>
-          <li>En sus <strong>propiedades</strong>, fijá el tamaño de papel en 80 mm (o el rollo) y márgenes en 0. Ahí mismo activá el <strong>corte automático</strong> y, si tenés, el <strong>pulso de cajón</strong>.</li>
+          <li>En sus <strong>propiedades</strong>, fijá el tamaño de papel en 80 mm (o el rollo) y márgenes en 0. Subí la <strong>densidad / oscuridad de impresión al máximo</strong> (el navegador imprime como gráfico, así que la densidad alta = texto más negro). Ahí mismo activá el <strong>corte automático</strong> y, si tenés, el <strong>pulso de cajón</strong>.</li>
           <li>Abrí Mythos con un acceso directo de Chrome en <strong>modo kiosco de impresión</strong>: clic derecho en el ícono de Chrome → Propiedades → en “Destino” agregá <code style={{fontFamily:"'SF Mono',monospace",background:C.bg,padding:'1px 5px',borderRadius:4}}>--kiosk-printing</code> al final (después de las comillas, con un espacio). Abrí caja con ESE acceso directo.</li>
         </ol>
         <div style={{marginBottom:10}}>Con eso, al cobrar el comprobante se imprime directo en la térmica, <strong>sin diálogo ni clicks</strong>.</div>

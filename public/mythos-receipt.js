@@ -153,15 +153,19 @@
       + '<style>'
       + '@page{size:' + w + 'mm auto;margin:0}'                     /* ← FIX CLAVE térmica */
       + '*{margin:0;padding:0;box-sizing:border-box}'
+      /* Contraste térmico: TODO en negrita + fuente pesada + tamaño grande +
+         sin anti-aliasing. El navegador rasteriza el texto (no es ESC/POS), así
+         que cuanto más sólido el glifo, más negro sale en la térmica. */
       + 'html,body{width:' + w + 'mm;background:#fff;color:#000}'
-      + 'body{font-family:\'Courier New\',Courier,monospace;font-size:12px;line-height:1.32;padding:2mm 3mm}'
-      + '.c{text-align:center}.b{font-weight:bold}.r{text-align:right;white-space:nowrap}'
-      + '.big{font-size:15px;font-weight:bold}.big2{font-size:13px}.sm{font-size:10px}'
-      + 'img.logo{max-width:40mm;max-height:24mm;object-fit:contain;margin:0 auto 3px;display:block;filter:grayscale(1) contrast(1.1)}'
-      + 'hr{border:none;border-top:1px dashed #000;margin:5px 0}'
-      + 'table{width:100%;border-collapse:collapse}td{padding:1px 0;vertical-align:top}'
-      + '.tot td{font-weight:bold;font-size:14px;border-top:1px solid #000;padding-top:3px}'
-      + '.vuelto{font-size:13px;font-weight:bold;margin-top:2px}'
+      + 'body{font-family:\'Consolas\',\'Courier New\',Courier,monospace;font-weight:700;font-size:12.5px;line-height:1.4;padding:2mm 3mm;'
+      +   '-webkit-font-smoothing:none;text-rendering:geometricPrecision;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+      + '.c{text-align:center}.b{font-weight:800}.r{text-align:right;white-space:nowrap}'
+      + '.big{font-size:18px;font-weight:800;letter-spacing:.3px}.big2{font-size:14.5px;font-weight:800}.sm{font-size:11.5px;font-weight:700}'
+      + 'img.logo{max-width:40mm;max-height:24mm;object-fit:contain;margin:0 auto 3px;display:block;filter:grayscale(1) contrast(1.6)}'
+      + 'hr{border:none;border-top:1.5px dashed #000;margin:5px 0}'
+      + 'table{width:100%;border-collapse:collapse}td{padding:1.5px 0;vertical-align:top}'
+      + '.tot td{font-weight:800;font-size:15.5px;border-top:1.5px solid #000;padding-top:3px}'
+      + '.vuelto{font-size:13.5px;font-weight:800;margin-top:2px}'
       + '</style></head><body>'
       + head.join('')
       + (head.length ? '<hr>' : '')
