@@ -9439,6 +9439,24 @@ function AdminApp() {
   // Capacidades del plan (Omni-Gating por feature) — re-renderiza al resolver
   const caps = window.MythosGating ? window.MythosGating.useCapabilities(db, RID) : {hasFeature:()=>true};
 
+  // ── Guard de tenant ──────────────────────────────────────────────
+  // Si el restaurante activo (RID en localStorage) NO pertenece a la sesión,
+  // get_restaurant_capabilities (mig 108) devuelve NULL SIN error → el panel
+  // está apuntando a un restaurante que el usuario no puede leer/escribir
+  // (sale todo vacío y la RLS rechaza los INSERT). Bloqueamos SOLO ante esa
+  // señal definitiva; ante un error transitorio de red NO bloqueamos (no
+  // dejamos afuera a un admin legítimo). El superadmin nunca cae acá: la
+  // mig 108 le devuelve datos para cualquier restaurante.
+  const [tenantDenied,setTenantDenied] = useState(false);
+  useEffect(()=>{
+    if(!db || !RID) return;
+    let alive = true;
+    db.rpc('get_restaurant_capabilities',{p_restaurant_id:RID})
+      .then(({data,error})=>{ if(alive && !error && data === null) setTenantDenied(true); })
+      .catch(()=>{});   // error transitorio → no bloquear
+    return ()=>{ alive=false; };
+  },[]);
+
   useEffect(()=>{ loadAll(); },[]);
 
   // Polling de tickets sin leer (Soporte)
@@ -9540,6 +9558,27 @@ function AdminApp() {
       case 'config':    return <ConfigPage restaurant={restaurant} onRefresh={loadAll}/>;
       default: return null;
     }
+  }
+
+  if (tenantDenied) {
+    return (
+      <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:24,background:C.bg}}>
+        <div style={{maxWidth:460,width:'100%',textAlign:'center',border:`1px solid ${C.border}`,borderRadius:16,padding:'34px 28px',background:C.card,boxSizing:'border-box'}}>
+          <div style={{display:'flex',justifyContent:'center',color:C.dim,marginBottom:14}}><Icon name="alert" size={34}/></div>
+          <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:10}}>Sesión sin acceso a este restaurante</div>
+          <div style={{fontSize:13,color:C.mid,lineHeight:1.6,marginBottom:22}}>
+            El panel está apuntando a un restaurante (<code style={{fontFamily:"'SF Mono',monospace"}}>{(RID||'').slice(0,8)}…</code>) que tu usuario actual no tiene autorizado.
+            Por eso las listas salen vacías y al crear datos la base los rechaza. Volvé a iniciar sesión con la cuenta del restaurante correcto.
+          </div>
+          <button onClick={()=>{
+            try{ Object.keys(localStorage).filter(k=>k.startsWith('mythos_')||k.startsWith('sb-')||k.toLowerCase().includes('supabase')).forEach(k=>localStorage.removeItem(k)); }catch(e){}
+            window.location.href='login.html';
+          }} style={{background:C.ink,color:C.bg,border:'none',borderRadius:10,padding:'12px 22px',fontSize:13.5,fontWeight:700,cursor:'pointer'}}>
+            Volver a iniciar sesión
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
