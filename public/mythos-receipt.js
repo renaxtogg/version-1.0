@@ -175,24 +175,54 @@
       + '</body></html>';
   }
 
-  // Abre una ventana, escribe el comprobante e inyecta el auto-print.
-  // Es el ÚNICO punto que imprime. Devuelve false si el popup fue bloqueado.
-  function print(data, config) {
-    var html = buildHTML(data, config);
+  // Imprime el comprobante SIN abrir ventana emergente: usa un <iframe>
+  // oculto en la misma página (menos fricción, sin bloqueo de popups, sin
+  // ventana que parpadea). El diálogo del navegador igual aparece salvo que
+  // Chrome corra con --kiosk-printing (ver nota en el panel Impresora).
+  // Devuelve true salvo que ni siquiera se pueda crear el iframe.
+  function _printViaIframe(html) {
+    if (!document || !document.body) return false;
+    var iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+    document.body.appendChild(iframe);
+    var cleaned = false;
+    function cleanup() {
+      if (cleaned) return; cleaned = true;
+      setTimeout(function () { try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch (e) {} }, 500);
+    }
+    var win = iframe.contentWindow;
+    var idoc = win.document;
+    idoc.open(); idoc.write(html); idoc.close();
+    function fire() {
+      try { win.focus(); win.onafterprint = cleanup; win.print(); }
+      catch (e) { cleanup(); }
+    }
+    if (idoc.readyState === 'complete') setTimeout(fire, 60);
+    else iframe.onload = function () { setTimeout(fire, 60); };
+    setTimeout(cleanup, 60000); // backstop por si afterprint no dispara
+    return true;
+  }
+
+  // Fallback (entornos raros sin document.body): ventana emergente clásica.
+  function _printViaPopup(html) {
     var printScript = '<scr' + 'ipt>window.onload=function(){window.focus();window.print();};'
       + 'window.onafterprint=function(){setTimeout(function(){window.close();},300);}<\/scr' + 'ipt>';
-    var doc = html.indexOf('</body>') >= 0
-      ? html.replace('</body>', printScript + '</body>')
-      : html + printScript;
+    var doc = html.indexOf('</body>') >= 0 ? html.replace('</body>', printScript + '</body>') : html + printScript;
     var w = window.open('', '_blank', 'width=360,height=720,menubar=no,toolbar=no,scrollbars=yes');
     if (!w) {
       try { if (window.toast) window.toast('Permití ventanas emergentes para imprimir', false); else alert('Permití ventanas emergentes para imprimir.'); } catch (e) {}
       return false;
     }
-    w.document.open();
-    w.document.write(doc);
-    w.document.close();
+    w.document.open(); w.document.write(doc); w.document.close();
     return true;
+  }
+
+  // Único punto que imprime. buildHTML NO imprime (es seguro para la preview).
+  function print(data, config) {
+    var html = buildHTML(data, config);
+    try { if (_printViaIframe(html)) return true; } catch (e) {}
+    return _printViaPopup(html);
   }
 
   window.MythosReceipt = {

@@ -4245,12 +4245,18 @@ function ImpresoraConfig({restaurant}){
         <Btn variant="secondary" onClick={testPrint}><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir prueba</Btn>
       </div>
 
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 18px',fontSize:12,color:C.mid,lineHeight:1.6}}>
-        <strong style={{color:C.ink}}>Cómo imprime Mythos:</strong> al cobrar (o con “Imprimir prueba”) se abre el
-        diálogo de impresión del navegador — elegí ahí tu impresora térmica (ej. POS-80C) y poné los márgenes en
-        “Ninguno”. El <strong>corte de papel</strong> y la <strong>apertura del cajón</strong> los maneja el
-        <em> driver</em> de Windows de la impresora (configurables en sus propiedades), no Mythos: una web no
-        envía comandos ESC/POS directos. Para control de hardware por software haría falta un agente de escritorio.
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 18px',fontSize:12.5,color:C.mid,lineHeight:1.65}}>
+        <div style={{fontSize:13,fontWeight:800,color:C.ink,marginBottom:8}}>Imprimir sin clicks (recomendado para caja)</div>
+        <div style={{marginBottom:6}}>Para que el ticket salga <strong>al instante, sin el diálogo del navegador</strong>, configurá la PC de caja una sola vez:</div>
+        <ol style={{margin:'0 0 10px 18px',padding:0,display:'flex',flexDirection:'column',gap:4}}>
+          <li>Poné la <strong>POS-80C como impresora predeterminada</strong> de Windows (Configuración → Bluetooth y dispositivos → Impresoras → POS-80C → “Predeterminar”). Así no arranca en “Microsoft Print to PDF”.</li>
+          <li>En sus <strong>propiedades</strong>, fijá el tamaño de papel en 80 mm (o el rollo) y márgenes en 0. Ahí mismo activá el <strong>corte automático</strong> y, si tenés, el <strong>pulso de cajón</strong>.</li>
+          <li>Abrí Mythos con un acceso directo de Chrome en <strong>modo kiosco de impresión</strong>: clic derecho en el ícono de Chrome → Propiedades → en “Destino” agregá <code style={{fontFamily:"'SF Mono',monospace",background:C.bg,padding:'1px 5px',borderRadius:4}}>--kiosk-printing</code> al final (después de las comillas, con un espacio). Abrí caja con ESE acceso directo.</li>
+        </ol>
+        <div style={{marginBottom:10}}>Con eso, al cobrar el comprobante se imprime directo en la térmica, <strong>sin diálogo ni clicks</strong>.</div>
+        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:10}}>
+          <strong style={{color:C.ink}}>Sin modo kiosco</strong> aparece el diálogo: elegí la POS-80C y poné márgenes en “Ninguno”. El <strong>corte de papel</strong> y la <strong>apertura del cajón</strong> los maneja el <em>driver</em> de Windows, no Mythos: una web no envía comandos ESC/POS directos. Para controlarlos por software haría falta un agente de escritorio.
+        </div>
       </div>
     </div>
   );
