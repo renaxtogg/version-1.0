@@ -85,46 +85,28 @@ const CORTESIA_MOTIVOS = ['Error de cocina','Cliente VIP','Evento especial','Com
 const FONDO_MINIMO   = 50000; // ₲ 50.000 mínimo recomendado
 
 /* ── PRINT TICKET ── */
-// Escapa HTML al interpolar datos en el ticket (document.write) — evita XSS por
-// nombres de producto/mesa manipulados.
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function printTicket({orderNumber,mesa,items,total,metodo,cambio,isOffline}){
-  const fecha=new Date().toLocaleString('es-PY',{dateStyle:'short',timeStyle:'short'});
-  const metodos={efectivo:'Efectivo',tarjeta_credito:'Tarjeta Crédito',tarjeta_debito:'Tarjeta Débito',qr:'QR / Transferencia',mixto:'Mixto'};
-  const restName=window._restaurantName||'Restaurante';
-  const w=window.open('','_blank','width=340,height=720,menubar=no,toolbar=no,scrollbars=yes');
-  if(!w){toast('Permití ventanas emergentes para imprimir',false);return;}
-  const rows=(items||[]).map(it=>{
-    const precio=(it.unit_price||it.price_guarani||0);
-    const qty=it.quantity||1;
-    return `<tr><td>${qty}× ${esc(it.item_name||it.name||'')}</td><td style="text-align:right;white-space:nowrap">${fmt(precio*qty)}</td></tr>`;
-  }).join('');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ticket #${orderNumber}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Courier New',Courier,monospace;font-size:12px;width:72mm;margin:0 auto;padding:4mm;background:#fff;color:#000}
-.c{text-align:center}.b{font-weight:bold}.big{font-size:15px;font-weight:bold}
-hr{border:none;border-top:1px dashed #000;margin:5px 0}
-table{width:100%}td{padding:1px 0;vertical-align:top}
-.tot td{font-weight:bold;font-size:14px;border-top:1px solid #000;padding-top:3px;margin-top:2px}
-.vuelto{font-size:13px;font-weight:bold;margin-top:3px}
-@media print{body{width:72mm;margin:0;padding:2mm}}
-</style></head><body>
-<div class="c big">${esc(restName)}</div>
-<div class="c" style="font-size:10px;margin:2px 0">${fecha}</div>
-<hr>
-<div class="c b">Pedido #${esc(orderNumber)}${isOffline?' <span style="font-size:10px">(LOCAL)</span>':''}</div>
-<div class="c" style="font-size:10px">${esc(mesa)}</div>
-<hr>
-<table>${rows}<tr class="tot"><td>TOTAL</td><td style="text-align:right">${fmt(total)}</td></tr></table>
-<hr>
-<div>Método: ${metodos[metodo]||metodo}</div>
-${cambio>0?`<div class="vuelto">Vuelto: ${fmt(cambio)}</div>`:''}
-<hr>
-<div class="c" style="font-size:10px;margin-top:4px">¡Gracias por su visita!</div>
-<script>window.onload=function(){window.print();}<\/script>
-</body></html>`);
-  w.document.close();
+// El render del comprobante 80mm vive en window.MythosReceipt (public/mythos-receipt.js),
+// compartido con el diseñador de admin (vista previa = lo que se imprime). printTicket
+// arma el `data` y delega; la config (campos/ancho/encabezado) sale de window._receiptConfig,
+// cargada en el bootstrap desde restaurant_settings.settings_json.receipt + datos del negocio.
+function printTicket(t){
+  t = t || {};
+  if(!window.MythosReceipt){ toast('No se pudo cargar el módulo de impresión',false); return; }
+  const cfg = window._receiptConfig || window.MythosReceipt.defaultConfig;
+  const ok = window.MythosReceipt.print({
+    orderNumber: t.orderNumber,
+    tableLabel:  t.mesa,
+    customerName:t.customerName,        // undefined → el renderer pone "Anónimo"
+    customerRuc: t.customerRuc,
+    cashier:     t.cashier,
+    createdAt:   t.createdAt,
+    items:       t.items,
+    total:       t.total,
+    metodo:      t.metodo,
+    cambio:      t.cambio,
+    isOffline:   t.isOffline,
+  }, cfg);
+  if(ok===false) toast('Permití ventanas emergentes para imprimir',false);
 }
 
 /* ── MENU CACHE (localStorage) ── */
@@ -941,6 +923,10 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         total:totalReal,
         metodo,
         cambio:Math.max(0,cambio),
+        customerName:order.customer_name||null,
+        customerRuc:order.customer_ruc||null,
+        cashier:profile.display_name||profile.username,
+        createdAt:order.created_at||new Date().toISOString(),
       };
       setSuccessTicket(ticket);
       if(invoiceType==='ticket') printTicket(ticket);
@@ -2092,6 +2078,10 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         total:subtotal,
         metodo,
         cambio:Math.max(0,cambio),
+        customerName:order.customer_name||null,
+        customerRuc:order.customer_ruc||null,
+        cashier:profile.display_name||profile.username,
+        createdAt:order.created_at||new Date().toISOString(),
       };
       setSuccessTicket(ticket);
       if(invoiceType==='ticket' || metodo==='efectivo') printTicket(ticket);
@@ -4012,14 +4002,23 @@ function FacturasCajaPanel({turno}){
 
   async function reimprimir(c){
     const meta=c.metadata||{};
-    let items=[];
+    let items=[], ord=null;
     if(c.pedido_id){
-      const{data}=await db.from('order_items').select('item_name,quantity,unit_price').eq('order_id',c.pedido_id);
-      items=data||[];
+      // Backfill desde el pedido: cliente/mesa/fecha (el mov sólo guarda un string de mesa).
+      const[{data:oi},{data:o}]=await Promise.all([
+        db.from('order_items').select('item_name,quantity,unit_price').eq('order_id',c.pedido_id),
+        db.from('orders').select('customer_name,customer_ruc,created_at,tables(number)').eq('id',c.pedido_id).maybeSingle(),
+      ]);
+      items=oi||[]; ord=o||null;
     }
+    const tableLabel=ord?.tables?.number?`Mesa ${ord.tables.number}`:(meta.mesa||c.descripcion||'—');
     printTicket({
       orderNumber:meta.orden_numero||'—',
-      mesa:meta.mesa||c.descripcion||'—',
+      mesa:tableLabel,
+      customerName:ord?.customer_name||null,
+      customerRuc:ord?.customer_ruc||null,
+      cashier:c.usuario_nombre||null,   // el cajero queda en la columna del mov, no en metadata
+      createdAt:ord?.created_at||c.created_at||null,
       items,
       total:Number(c.monto||0),
       metodo:c.metodo_pago,
@@ -4643,8 +4642,24 @@ async function initApp(session){
   if(profile.restaurant_id) RID = profile.restaurant_id;
   window._userProfile=profile;
   try{
-    const{data:r}=await db.from('restaurants').select('name').eq('id',RID).maybeSingle();
+    // Datos del negocio + config del comprobante (settings_json.receipt) para el
+    // render 80mm. La identidad vive en restaurants; el diseño en restaurant_settings.
+    const [{data:r},{data:st}] = await Promise.all([
+      db.from('restaurants').select('name,address,phone,instagram,website,logo_url,logo_initials,ruc,legal_name,email').eq('id',RID).maybeSingle(),
+      db.from('restaurant_settings').select('settings_json').eq('restaurant_id',RID).maybeSingle(),
+    ]);
     window._restaurantName=r?.name||'Restaurante';
+    const rcfg=(st&&st.settings_json&&st.settings_json.receipt)||{};
+    const base=(window.MythosReceipt&&window.MythosReceipt.defaultConfig)||{};
+    window._receiptConfig={
+      ...base, ...rcfg,
+      business:{
+        name:r?.name||'', address:r?.address||'', phone:r?.phone||'',
+        instagram:r?.instagram||'', website:r?.website||'', logoUrl:r?.logo_url||'',
+        ruc:r?.ruc||'', legalName:r?.legal_name||'', email:r?.email||'',
+        facebook:(rcfg.social&&rcfg.social.facebook)||'',
+      },
+    };
   }catch(e){window._restaurantName='Restaurante';}
   createRoot(document.getElementById('root')).render(
     <><CajaApp profile={profile}/><ToastContainer/></>
