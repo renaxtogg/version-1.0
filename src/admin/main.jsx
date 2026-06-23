@@ -355,7 +355,6 @@ const NAV = [
   null,
   {id:'clientes',  label:'Clientes',     icon:'user', group:'ANÁLISIS'},
   {id:'reportes',  label:'Reportes',     icon:'chart'},
-  {id:'facturas',  label:'Facturas',     icon:'receipt'},
   {id:'finanzas',  label:'Finanzas',     icon:'money'},
   {id:'caja',      label:'Caja',         icon:'creditCard'},
   null,
@@ -4060,7 +4059,204 @@ function AlertBoxAdmin({type='info',children}){
 /* ══════════════════════════════════════════════
    FINANZAS — Tabs: resumen, movimientos, alertas, exportar
 ══════════════════════════════════════════════ */
-function FinanzasPage({orders}) {
+/* ══════════════════════════════════════════════
+   COMPROBANTE — diseñador + impresora (usa window.MythosReceipt)
+   El render 80mm vive en public/mythos-receipt.js; acá editamos la
+   config (settings_json.receipt) + la identidad (tabla restaurants) y
+   mostramos la vista previa con el MISMO renderer que imprime caja.
+══════════════════════════════════════════════ */
+function RcToggle({on,onChange,label,hint}){
+  return (
+    <button type="button" onClick={()=>onChange(!on)} style={{display:'flex',alignItems:'center',gap:11,width:'100%',background:'transparent',border:'none',padding:'7px 0',cursor:'pointer',textAlign:'left'}}>
+      <span style={{width:34,height:20,borderRadius:20,background:on?C.ink:C.border,position:'relative',flexShrink:0,transition:'background .15s'}}>
+        <span style={{position:'absolute',top:2,left:on?16:2,width:16,height:16,borderRadius:'50%',background:C.surface,boxShadow:'0 1px 2px rgba(0,0,0,.2)',transition:'left .15s'}}/>
+      </span>
+      <span style={{flex:1,minWidth:0}}>
+        <span style={{fontSize:13,color:C.ink,fontWeight:on?600:400}}>{label}</span>
+        {hint&&<span style={{display:'block',fontSize:11,color:C.dim,marginTop:1}}>{hint}</span>}
+      </span>
+    </button>
+  );
+}
+
+// Carga settings_json.receipt mergeada con los defaults del renderer.
+async function _loadReceiptCfg(){
+  const base=(window.MythosReceipt&&window.MythosReceipt.defaultConfig)||{};
+  let rc={};
+  try{
+    const{data}=await db.from('restaurant_settings').select('settings_json').eq('restaurant_id',RID).maybeSingle();
+    rc=(data&&data.settings_json&&data.settings_json.receipt)||{};
+  }catch(e){}
+  return {
+    ...base, ...rc,
+    fields:{...(base.fields||{}),...(rc.fields||{})},
+    header:{...(base.header||{}),...(rc.header||{})},
+    social:{...(base.social||{}),...(rc.social||{})},
+  };
+}
+// Guarda un parche en settings_json.receipt sin pisar otras keys (read-merge-write).
+async function _saveReceiptCfg(patch){
+  const{data:cur}=await db.from('restaurant_settings').select('settings_json').eq('restaurant_id',RID).maybeSingle();
+  const sj={...((cur&&cur.settings_json)||{})};
+  sj.receipt={...(sj.receipt||{}),...patch};
+  const{error}=await db.from('restaurant_settings').upsert({restaurant_id:RID,settings_json:sj},{onConflict:'restaurant_id'});
+  if(error) throw error;
+}
+
+function ComprobanteDesign({restaurant,onRefresh}){
+  const MR=window.MythosReceipt;
+  const [cfg,setCfg]=useState(()=> (MR&&MR.defaultConfig)||{});
+  const [biz,setBiz]=useState({name:'',address:'',phone:'',instagram:'',logo_url:''});
+  const [loaded,setLoaded]=useState(false);
+  const [saving,setSaving]=useState(false);
+
+  useEffect(()=>{
+    let alive=true;
+    (async()=>{
+      const c=await _loadReceiptCfg();
+      const r=restaurant||{};
+      if(!alive)return;
+      setBiz({name:r.name||'',address:r.address||'',phone:r.phone||'',instagram:r.instagram||'',logo_url:r.logo_url||''});
+      setCfg(c); setLoaded(true);
+    })();
+    return ()=>{alive=false;};
+  },[]);
+
+  const setField =(k,v)=>setCfg(c=>({...c,fields:{...c.fields,[k]:v}}));
+  const setHeader=(k,v)=>setCfg(c=>({...c,header:{...c.header,[k]:v}}));
+
+  async function save(){
+    setSaving(true);
+    try{
+      await db.from('restaurants').update({name:biz.name||null,address:biz.address||null,phone:biz.phone||null,instagram:biz.instagram||null,logo_url:biz.logo_url||null}).eq('id',RID);
+      await _saveReceiptCfg({showLogo:cfg.showLogo,fields:cfg.fields,header:cfg.header,footer:cfg.footer,social:cfg.social});
+      toast('Diseño del comprobante guardado');
+      if(onRefresh) onRefresh(true);
+    }catch(e){ toast('No se pudo guardar: '+(e.message||e),false); }
+    setSaving(false);
+  }
+
+  const previewBiz={name:biz.name,address:biz.address,phone:biz.phone,instagram:biz.instagram,logoUrl:biz.logo_url,ruc:(restaurant||{}).ruc,legalName:(restaurant||{}).legal_name,facebook:(cfg.social&&cfg.social.facebook)||''};
+  const previewHtml=(loaded&&MR)? MR.buildHTML(MR.sampleData,{...cfg,business:previewBiz}) : '';
+
+  const FIELDS=[['orderNumber','N° de pedido'],['customerName','Nombre del cliente (o "Anónimo")'],['table','N° de mesa'],['cashier','Cajero'],['dateTime','Fecha y hora'],['paymentMethod','Método de pago'],['change','Vuelto'],['ruc','RUC del cliente (si lo dio)']];
+  const HEAD=[['showName','Nombre comercial'],['showRuc','RUC / Razón social'],['showAddress','Dirección'],['showPhone','Teléfono'],['showInstagram','Instagram'],['showFacebook','Facebook']];
+
+  if(!loaded) return <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}><span className="spin"/> Cargando…</div>;
+
+  return (
+    <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:18,alignItems:'start'}}>
+      <div style={{display:'flex',flexDirection:'column',gap:16,minWidth:0}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>DATOS DEL NEGOCIO</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div><Lbl>NOMBRE COMERCIAL</Lbl><Inp value={biz.name} onChange={e=>setBiz({...biz,name:e.target.value})}/></div>
+            <div><Lbl>TELÉFONO</Lbl><Inp value={biz.phone} onChange={e=>setBiz({...biz,phone:e.target.value})}/></div>
+            <div style={{gridColumn:'1 / -1'}}><Lbl>DIRECCIÓN</Lbl><Inp value={biz.address} onChange={e=>setBiz({...biz,address:e.target.value})}/></div>
+            <div><Lbl>INSTAGRAM</Lbl><Inp value={biz.instagram} onChange={e=>setBiz({...biz,instagram:e.target.value})} placeholder="kamuipoolbar"/></div>
+            <div><Lbl>FACEBOOK</Lbl><Inp value={(cfg.social&&cfg.social.facebook)||''} onChange={e=>setCfg({...cfg,social:{...cfg.social,facebook:e.target.value}})}/></div>
+            <div style={{gridColumn:'1 / -1'}}><Lbl>TEXTO AL PIE</Lbl><Inp value={cfg.footer||''} onChange={e=>setCfg({...cfg,footer:e.target.value})} placeholder="¡Gracias por su visita!"/></div>
+          </div>
+          <div style={{marginTop:14,display:'flex',gap:14,alignItems:'flex-start'}}>
+            <div style={{flexShrink:0}}>
+              {biz.logo_url
+                ? <div style={{position:'relative',width:64,height:64}}>
+                    <img src={biz.logo_url} alt="" style={{width:64,height:64,objectFit:'cover',borderRadius:10,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
+                    <button onClick={()=>setBiz({...biz,logo_url:''})} title="Quitar logo" style={{position:'absolute',top:-6,right:-6,width:18,height:18,borderRadius:'50%',background:'#FF3B30',border:'none',color:'#fff',fontSize:10,cursor:'pointer',fontWeight:700}}>✕</button>
+                  </div>
+                : <div style={{width:64,height:64,borderRadius:10,background:C.white,border:`1px dashed ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:C.dim}}>Sin logo</div>}
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <Lbl>LOGO</Lbl>
+              <ImageUploader compact value={biz.logo_url||''} onChange={url=>setBiz({...biz,logo_url:url})} bucket="restaurant-images"/>
+              <div style={{marginTop:8}}><RcToggle on={!!cfg.showLogo} onChange={v=>setCfg({...cfg,showLogo:v})} label="Mostrar logo en el comprobante" hint="Algunas térmicas rinden mal las imágenes."/></div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>ENCABEZADO — QUÉ MOSTRAR</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 18px'}}>
+            {HEAD.map(([k,l])=><RcToggle key={k} on={cfg.header?.[k]!==false} onChange={v=>setHeader(k,v)} label={l}/>)}
+          </div>
+        </div>
+
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>CAMPOS DEL COMPROBANTE</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 18px'}}>
+            {FIELDS.map(([k,l])=><RcToggle key={k} on={cfg.fields?.[k]!==false} onChange={v=>setField(k,v)} label={l}/>)}
+          </div>
+        </div>
+
+        <div><Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar diseño'}</Btn></div>
+      </div>
+
+      <div style={{position:'sticky',top:12}}>
+        <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>VISTA PREVIA · 80MM</div>
+        <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:10,padding:14,display:'flex',justifyContent:'center'}}>
+          <iframe title="preview-comprobante" srcDoc={previewHtml} style={{width:'80mm',minHeight:360,border:'none',background:'#fff'}}/>
+        </div>
+        <div style={{fontSize:11,color:C.dim,marginTop:8}}>Con datos de ejemplo. Lo que ves es lo que se imprime.</div>
+      </div>
+    </div>
+  );
+}
+
+function ImpresoraConfig({restaurant}){
+  const MR=window.MythosReceipt;
+  const [cfg,setCfg]=useState(()=>(MR&&MR.defaultConfig)||{paperWidth:80,charsPerLine:32});
+  const [loaded,setLoaded]=useState(false);
+  const [saving,setSaving]=useState(false);
+
+  useEffect(()=>{ let alive=true; (async()=>{ const c=await _loadReceiptCfg(); if(alive){setCfg(c);setLoaded(true);} })(); return ()=>{alive=false;}; },[]);
+
+  async function save(){
+    setSaving(true);
+    try{ await _saveReceiptCfg({paperWidth:Number(cfg.paperWidth)||80,charsPerLine:Number(cfg.charsPerLine)||32}); toast('Configuración de impresora guardada'); }
+    catch(e){ toast('No se pudo guardar: '+(e.message||e),false); }
+    setSaving(false);
+  }
+  function testPrint(){
+    if(!MR){toast('Módulo de impresión no disponible',false);return;}
+    const r=restaurant||{};
+    const biz={name:r.name||'Mythos',address:r.address||'',phone:r.phone||'',instagram:r.instagram||'',logoUrl:r.logo_url||'',ruc:r.ruc||'',legalName:r.legal_name||'',facebook:(cfg.social&&cfg.social.facebook)||''};
+    const ok=MR.print(MR.sampleData,{...cfg,business:biz});
+    if(ok===false) toast('Permití ventanas emergentes para imprimir',false);
+  }
+
+  if(!loaded) return <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}><span className="spin"/> Cargando…</div>;
+
+  return (
+    <div style={{maxWidth:560,display:'flex',flexDirection:'column',gap:16}}>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
+        <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>PAPEL</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+          <div><Lbl>ANCHO DE PAPEL</Lbl>
+            <Sel value={String(cfg.paperWidth||80)} onChange={e=>setCfg({...cfg,paperWidth:Number(e.target.value)})}>
+              <option value="80">80 mm</option><option value="58">58 mm</option>
+            </Sel>
+          </div>
+          <div><Lbl>CARACTERES POR LÍNEA</Lbl><Inp type="number" value={cfg.charsPerLine||32} onChange={e=>setCfg({...cfg,charsPerLine:e.target.value})}/></div>
+        </div>
+      </div>
+
+      <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+        <Btn variant="secondary" onClick={testPrint}><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir prueba</Btn>
+      </div>
+
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 18px',fontSize:12,color:C.mid,lineHeight:1.6}}>
+        <strong style={{color:C.ink}}>Cómo imprime Mythos:</strong> al cobrar (o con “Imprimir prueba”) se abre el
+        diálogo de impresión del navegador — elegí ahí tu impresora térmica (ej. POS-80C) y poné los márgenes en
+        “Ninguno”. El <strong>corte de papel</strong> y la <strong>apertura del cajón</strong> los maneja el
+        <em> driver</em> de Windows de la impresora (configurables en sus propiedades), no Mythos: una web no
+        envía comandos ESC/POS directos. Para control de hardware por software haría falta un agente de escritorio.
+      </div>
+    </div>
+  );
+}
+
+function FinanzasPage({orders, restaurant, onRefresh}) {
   const [finTab,setFinTab] = useState('resumen');
   const [period,setPeriod] = useState('semana');
   const [egresos,setEgresos] = useState([]);
@@ -4217,7 +4413,7 @@ function FinanzasPage({orders}) {
 
       {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:18}}>
-        {[['resumen','Resumen del mes'],['movimientos','Movimientos'],['alertas','Alertas contables'],['exportar','Exportar para contador']].map(([id,lbl])=>(
+        {[['resumen','Resumen del mes'],['movimientos','Movimientos'],['comprobantes','Comprobantes'],['diseno','Diseño del comprobante'],['impresora','Impresora'],['alertas','Alertas contables'],['exportar','Exportar para contador']].map(([id,lbl])=>(
           <button key={id} onClick={()=>setFinTab(id)} style={{background:'none',border:'none',color:finTab===id?C.ink:C.dim,padding:'8px 16px',fontSize:13,fontWeight:finTab===id?700:400,borderBottom:finTab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
@@ -4400,6 +4596,15 @@ function FinanzasPage({orders}) {
           </div>
         </div>
       )}
+
+      {/* ── TAB COMPROBANTES (ex módulo Facturas) ── */}
+      {finTab==='comprobantes'&&<FacturasAdminPage/>}
+
+      {/* ── TAB DISEÑO DEL COMPROBANTE ── */}
+      {finTab==='diseno'&&<ComprobanteDesign restaurant={restaurant} onRefresh={onRefresh}/>}
+
+      {/* ── TAB IMPRESORA ── */}
+      {finTab==='impresora'&&<ImpresoraConfig restaurant={restaurant}/>}
     </div>
   );
 }
@@ -9546,8 +9751,7 @@ function AdminApp() {
       case 'clientes':  return caps.hasFeature('admin:crm') ? <ClientesPage orders={orders}/> : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;
       case 'caja':      return <CajaAdminPage/>;
       case 'reportes':  return <ReportesPage orders={orders}/>;
-      case 'facturas':  return <FacturasAdminPage/>;
-      case 'finanzas':  return <FinanzasPage orders={orders}/>;
+      case 'finanzas':  return <FinanzasPage orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'marketing': return <MarketingPage coupons={coupons} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'ratings':   return <RatingsPage ratings={ratings}/>;
       case 'stock':     return caps.hasFeature('admin:inventory') ? <StockPage/> : <window.MythosGating.FeatureLock featureKey="admin:inventory" variant="inline"/>;
