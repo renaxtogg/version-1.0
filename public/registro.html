@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Probar gratis — MYTHOS</title>
-  <meta name="description" content="Creá tu cuenta de restaurante y probá MYTHOS 14 días gratis, sin tarjeta.">
+  <title>Creá tu cuenta — MYTHOS</title>
+  <meta name="description" content="¿Sos dueño de un local gastronómico? Creá tu cuenta MYTHOS, verificá tu email y empezá.">
   <meta name="theme-color" content="#FFFFFF">
   <link rel="canonical" href="/registro">
   <meta name="robots" content="noindex">
@@ -12,16 +12,36 @@
   <meta property="og:type" content="website">
   <meta property="og:locale" content="es_PY">
   <meta property="og:site_name" content="MYTHOS">
-  <meta property="og:title" content="Probar gratis — MYTHOS">
-  <meta property="og:description" content="Creá tu cuenta de restaurante y probá MYTHOS 14 días gratis, sin tarjeta.">
+  <meta property="og:title" content="Creá tu cuenta — MYTHOS">
+  <meta property="og:description" content="¿Sos dueño de un local gastronómico? Creá tu cuenta MYTHOS, verificá tu email y empezá.">
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="web-marketing.css">
   <script src="mythos-theme.js"></script>
   <script>if(!localStorage.getItem('mythos-theme')&&window.MythosTheme){window.MythosTheme.init('light');}</script>
-  <!-- Capa de datos (WEB-3): WhatsApp dinámico + tracking (degrada si faltan) -->
+  <!-- Capa de datos (WEB-3): chrome dinámico + WhatsApp + kill-switch (degrada si faltan) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
   <script src="web-marketing-data.js"></script>
+  <style>
+    /* OWNER-SIGNUP-1: estilos puntuales del registro de dueños (sobre web-marketing.css). */
+    .biz-types { border: 0; margin: 0 0 12px; padding: 0; }
+    .biz-types legend { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-secondary); margin-bottom: 8px; padding: 0; }
+    .biz-opt { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; }
+    .biz-opt.calc-opt { padding: 12px 13px; }
+    .biz-opt input { accent-color: var(--primary); }
+    .biz-opt:has(input:checked) { border-color: var(--text-primary); }
+    /* Opción futura: botón REAL estilizado como una opción (no es un radio). */
+    .biz-soon { width: 100%; margin: 0 0 18px; background: var(--surface); color: inherit; font: inherit; text-align: left; }
+    .pill-soon { margin-left: auto; font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--text-secondary); background: var(--bg-subtle); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 3px 10px; white-space: nowrap; align-self: center; }
+    .terms { display: flex; gap: 10px; align-items: flex-start; font-size: var(--text-sm); color: var(--text-secondary); margin: 4px 0 18px; text-align: left; }
+    .terms input { width: 18px; height: 18px; accent-color: var(--primary); flex: none; margin-top: 1px; }
+    .terms a { color: var(--text-primary); text-decoration: underline; }
+    .field-hint { font-size: var(--text-xs); color: var(--text-secondary); margin-top: -2px; }
+    .form-foot { text-align: center; margin: 14px 0 0; font-size: var(--text-sm); color: var(--text-tertiary); }
+    .form-foot a { color: var(--text-primary); font-weight: var(--weight-semibold); }
+    /* Error con mejor contraste (rojo de texto más oscuro; el borde sigue --error). */
+    .lead-status--error { color: color-mix(in srgb, var(--error) 70%, #000); }
+  </style>
 </head>
 <body>
   <div id="site-header"></div>
@@ -35,55 +55,86 @@
 
   <main>
     <section class="page-hero wrap">
-      <h1>Probá MYTHOS gratis</h1>
-      <p class="lead">14 días gratis para tu restaurante. Sin tarjeta. Cancelás cuando quieras.</p>
+      <span class="eyebrow">¿Sos dueño de un local?</span>
+      <h1>Creá tu cuenta</h1>
+      <p class="lead">Registrate, verificá tu email y empezá. Es gratis crear la cuenta — sin tarjeta.</p>
     </section>
 
     <section class="block wrap" style="padding-top:20px">
       <div class="notice">
         <span data-icon="info"></span>
-        <span><b>La prueba gratis está en activación.</b> Dejanos tus datos y te contactamos para habilitar tu cuenta. <b>El registro es solo para dueños de restaurante</b>; el personal (mozos, caja, cocina, riders) se crea desde el panel del restaurante y entra por <a href="/login">Iniciar sesión</a>.</span>
+        <span><b>El registro es solo para dueños de local.</b> El personal (mozos, caja, cocina, riders) lo crea el dueño desde su panel y entra por <a href="/login">Iniciar sesión</a>.</span>
       </div>
 
       <!--
-        WEB-5: el alta automática (Auth + restaurante + trial) sigue APAGADA. Este
-        formulario SOLO registra un lead de interés en `marketing_leads`
-        (type='trial_interest', anon INSERT-only, RLS mig 110) vía
-        MythosWebData.submitLead. NO crea Auth, NO restaurantes, NO subscriptions,
-        NO usa service_role. El alta real llega en WEB-4B-2 detrás del flag
-        trial_signup_enabled. Conserva ?plan / ?addons en plan_slug / selected_addons.
+        OWNER-SIGNUP-1: este formulario crea la cuenta del DUEÑO con
+        supabase.auth.signUp (con verificación de email cuando "Confirm email"
+        esté activado en Supabase) con emailRedirectTo a producción, y guarda
+        SIEMPRE un lead en `leads_prospectos` (anon INSERT-only, RLS mig 117).
+        NO crea restaurante, NI roles, NI subscription, NO usa service_role
+        (eso es el wizard, fase siguiente).
+
+        VERIFICACIÓN PREPARADA PERO NO FORZADA AÚN: el código maneja los DOS
+        modos sin cambios. Con "Confirm email" APAGADO (estado actual, para no
+        molestar las cuentas demo), signUp devuelve sesión → cerramos la sesión
+        y mostramos "cuenta creada". Cuando se ACTIVE "Confirm email", signUp no
+        devuelve sesión → mostramos "revisá tu correo" y queda obligatoria.
+
+        Kill-switch (sin redeploy): marketing_config.owner_signup_enabled=false
+        cierra el registro.
       -->
-      <form class="form-card" aria-label="Interés en la prueba gratis" novalidate>
-        <p id="planTag" class="microcopy" style="margin:0 0 16px"></p>
-        <div class="field">
-          <label for="r-rest">Nombre del restaurante</label>
-          <input id="r-rest" name="business_name" type="text" placeholder="Mi Restaurante" autocomplete="organization">
-        </div>
-        <div class="field">
-          <label for="r-owner">Nombre del dueño</label>
-          <input id="r-owner" name="name" type="text" placeholder="Tu nombre" autocomplete="name">
-        </div>
+
+      <!-- Estado final (éxito / verificado / ya registrado / cerrado). Oculto hasta que aplique. -->
+      <div id="signupDone" class="notice lead-success" role="status" aria-live="polite" hidden></div>
+
+      <form id="ownerSignupForm" class="form-card" aria-label="Crear cuenta de dueño" novalidate>
+        <fieldset class="biz-types">
+          <legend>¿Qué tipo de negocio tenés? <span aria-hidden="true">*</span><span class="sr-only">(obligatorio)</span></legend>
+
+          <label class="calc-opt biz-opt">
+            <input type="radio" name="tipo_negocio" value="restaurante" id="r-tipo-1">
+            <span class="calc-opt-main"><b>Tengo un restaurante / local gastronómico</b></span>
+          </label>
+
+          <label class="calc-opt biz-opt">
+            <input type="radio" name="tipo_negocio" value="foodpark_local">
+            <span class="calc-opt-main"><b>Tengo un local en un foodpark o patio de comidas</b></span>
+          </label>
+        </fieldset>
+
+        <!-- Opción futura: NO es parte del grupo de radios. Botón real → registra interés. -->
+        <button type="button" class="calc-opt biz-opt biz-soon" id="bizFoodparkOwner" aria-describedby="bizSoonNote">
+          <span class="calc-opt-main">
+            <b>Soy dueño de un foodpark / patio de comidas</b>
+            <span class="calc-opt-sub" id="bizSoonNote">Todavía no disponible — tocá para que te avisemos</span>
+          </span>
+          <span class="pill-soon">Próximamente</span>
+        </button>
+
         <div class="field">
           <label for="r-email">Email</label>
-          <input id="r-email" name="email" type="email" placeholder="vos@turestaurante.com" autocomplete="email">
+          <input id="r-email" name="email" type="email" placeholder="vos@turestaurante.com" autocomplete="email" inputmode="email" aria-required="true">
         </div>
         <div class="field">
-          <label for="r-wsp">WhatsApp</label>
-          <input id="r-wsp" name="whatsapp" type="tel" placeholder="+595 9xx xxx xxx" autocomplete="tel">
+          <label for="r-pass">Contraseña</label>
+          <input id="r-pass" name="password" type="password" placeholder="••••••••" autocomplete="new-password" aria-required="true">
+          <span class="field-hint">Mínimo 8 caracteres.</span>
         </div>
         <div class="field">
-          <label for="r-msg">Mensaje (opcional)</label>
-          <textarea id="r-msg" name="message" rows="3" placeholder="Contanos algo de tu restaurante (opcional)"></textarea>
+          <label for="r-pass2">Confirmar contraseña</label>
+          <input id="r-pass2" name="password2" type="password" placeholder="••••••••" autocomplete="new-password" aria-required="true">
         </div>
-        <p class="microcopy" style="margin:0 0 12px">Dejanos al menos un WhatsApp o un email. Te contactamos para habilitar tu cuenta.</p>
-        <p data-lead-status class="lead-status" style="display:none" role="status" aria-live="polite"></p>
-        <button class="btn btn-primary" type="submit" data-lead-submit>Quiero que me contacten</button>
-      </form>
 
-      <div style="max-width:520px;margin:24px auto 0;display:flex;flex-direction:column;gap:12px">
-        <a class="btn btn-primary btn-lg" data-wa="Hola, quiero empezar mi prueba gratis de 14 días en MYTHOS.">Empezar por WhatsApp</a>
-        <a class="btn btn-secondary" href="/login">Ya tengo cuenta — Iniciar sesión</a>
-      </div>
+        <label class="terms">
+          <input id="r-terms" type="checkbox" aria-required="true">
+          <span>Acepto los <a href="/terminos" target="_blank" rel="noopener">Términos</a> y la <a href="/privacidad" target="_blank" rel="noopener">Política de Privacidad</a>.</span>
+        </label>
+
+        <p data-lead-status class="lead-status" style="display:none"></p>
+        <button class="btn btn-primary" type="submit" data-signup-submit style="width:100%">Crear mi cuenta</button>
+
+        <p class="form-foot">¿Ya tenés cuenta? <a href="/login">Iniciar sesión</a></p>
+      </form>
     </section>
   </main>
 
@@ -92,32 +143,225 @@
   <script src="web-marketing.js"></script>
   <script>
     MythosWeb.init({ active: '' });
+
+    /* ═══════════════════════════════════════════════════════════════════
+       OWNER-SIGNUP-1 — registro público de DUEÑOS
+       ───────────────────────────────────────────────────────────────────
+       • supabase.auth.signUp con emailRedirectTo → producción. No deja al
+         usuario logueado (persistSession:false). Maneja los DOS modos de
+         "Confirm email" (apagado: cuenta activa; encendido: verificación).
+       • Guarda SIEMPRE un lead en leads_prospectos (anon INSERT-only).
+       • NO crea restaurante, NI roles, NI subscription. No service_role.
+       Patrón vanilla (panel NO migrado a Vite): window.*, sin import/export.
+       ═══════════════════════════════════════════════════════════════════ */
     (function () {
-      var plan = '', addons = [];
+      'use strict';
+
+      // URL de producción para el enlace de verificación (configurable; cae al
+      // dominio prod conocido). El email DEBE apuntar a producción, no a localhost.
+      var SITE_URL = (window.MYTHOS_CONFIG && window.MYTHOS_CONFIG.siteUrl) || 'https://mythos-pos.vercel.app';
+      var EMAIL_REDIRECT = SITE_URL.replace(/\/+$/, '') + '/registro?verificado=1';
+
+      // Cliente Auth propio (como login.html). Sin persistir sesión ni detectarla
+      // en la URL: el registro nunca deja al usuario logueado.
+      var db = null;
       try {
-        var qp = new URLSearchParams(location.search);
-        plan = (qp.get('plan') || '').toLowerCase().trim();
-        var raw = qp.get('addons') || '';
-        addons = raw ? raw.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [];
-      } catch (e) {}
-      // Etiqueta informativa del plan/add-ons elegidos (sin lógica de cobro).
-      try {
-        var map = { carta: 'Carta', servicio: 'Servicio', full: 'Full', enterprise: 'Enterprise' };
-        var el = document.getElementById('planTag');
-        if (el && plan) {
-          el.textContent = 'Plan de interés: ' + (map[plan] || plan) +
-            (addons.length ? ' · add-ons: ' + addons.join(', ') : '');
+        var cfg = window.SUPABASE_CONFIG || {};
+        var url = String(cfg.url || '').replace(/^﻿/, '').trim();
+        var key = String(cfg.anonKey || '').replace(/^﻿/, '').trim();
+        if (window.supabase && url && url.indexOf('YOUR_') === -1 && key) {
+          db = window.supabase.createClient(url, key, {
+            auth: { persistSession: false, detectSessionInUrl: false, autoRefreshToken: false }
+          });
         }
-      } catch (e) {}
-      // Lead de interés (type=trial_interest) — NO crea cuenta; conserva plan/addons.
-      var form = document.querySelector('form[aria-label="Interés en la prueba gratis"]');
-      if (form && window.MythosWeb && MythosWeb.wireLeadForm) {
-        MythosWeb.wireLeadForm(form, {
-          fixedType: 'trial_interest',
-          successMsg: '¡Gracias! Recibimos tu interés. Te contactamos para activar tu prueba.',
-          extra: function () { return { plan_slug: plan || null, selected_addons: addons }; }
+      } catch (e) { db = null; }
+
+      var form      = document.getElementById('ownerSignupForm');
+      var doneBox   = document.getElementById('signupDone');
+      var statusEl  = form ? form.querySelector('[data-lead-status]') : null;
+      var submitBtn = form ? form.querySelector('[data-signup-submit]') : null;
+      var finalized = false;   // true cuando se mostró un panel final (éxito/verificado/cerrado)
+
+      function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+          return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
         });
       }
+      function emailValid(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+      function val(id) { var el = document.getElementById(id); return el ? String(el.value == null ? '' : el.value).trim() : ''; }
+
+      function setStatus(msg, kind) {
+        if (!statusEl) return;
+        statusEl.textContent = msg || '';
+        statusEl.className = 'lead-status' + (kind ? ' lead-status--' + kind : '');
+        statusEl.style.display = msg ? '' : 'none';
+        // Errores: anunciar al instante (alert/assertive). Info: polite.
+        if (kind === 'error') { statusEl.setAttribute('role', 'alert'); statusEl.setAttribute('aria-live', 'assertive'); }
+        else { statusEl.setAttribute('role', 'status'); statusEl.setAttribute('aria-live', 'polite'); }
+      }
+
+      var INVALID_IDS = ['r-tipo-1', 'r-email', 'r-pass', 'r-pass2', 'r-terms'];
+      function clearInvalid() {
+        INVALID_IDS.forEach(function (id) { var el = document.getElementById(id); if (el) el.removeAttribute('aria-invalid'); });
+      }
+      // Muestra error, marca el campo inválido y le pasa el foco. Devuelve false (corta el submit).
+      function fail(msg, focusId) {
+        setStatus(msg, 'error');
+        var el = focusId ? document.getElementById(focusId) : null;
+        if (el) { el.setAttribute('aria-invalid', 'true'); try { el.focus(); } catch (e) {} }
+        return false;
+      }
+
+      // Panel final (oculta el formulario). `html` ya viene escapado/seguro.
+      function showDone(html, plain) {
+        finalized = true;
+        if (doneBox) { doneBox.className = plain ? 'notice' : 'notice lead-success'; doneBox.innerHTML = html; doneBox.hidden = false; }
+        if (form) form.style.display = 'none';
+        try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {}
+      }
+
+      // Lead SIEMPRE (best-effort, no bloquea ni rompe). anon INSERT-only,
+      // return=minimal (anon no tiene SELECT; en supabase-js v2 ya es el default).
+      function saveLead(email, tipoNegocio, origen) {
+        if (!db) return Promise.resolve({ ok: false, error: 'no-client' });
+        var row = { email: email || null, tipo_negocio: tipoNegocio, estado: 'registrado', origen: origen || 'web_registro', verificado: false };
+        return db.from('leads_prospectos').insert(row, { returning: 'minimal' })
+          .then(function (r) {
+            if (r && r.error) { try { console.warn('[registro] lead no guardado:', r.error.message); } catch (e) {} }
+            return { ok: !(r && r.error), error: r && r.error ? r.error.message : null };
+          })
+          .catch(function (e) { try { console.warn('[registro] lead no guardado:', e); } catch (x) {} return { ok: false, error: String(e) }; });
+      }
+
+      // ── Landing de verificación (volver del email): /registro?verificado=1 ──
+      (function handleVerified() {
+        var verified = false;
+        try { verified = new URLSearchParams(location.search).get('verificado') === '1'; } catch (e) {}
+        if (!verified) return;
+        // Limpiar la URL (saca ?verificado=1 y cualquier #token que agregue Supabase).
+        try { history.replaceState(null, '', location.pathname); } catch (e) {}
+        showDone(
+          '<span class="lead-ok" aria-hidden="true">✓</span> ' +
+          '<span><b>¡Tu correo fue verificado!</b> Ya podés ' +
+          '<a href="/login" style="color:var(--text-primary);font-weight:600">iniciar sesión</a>.</span>'
+        );
+      })();
+
+      // ── Kill-switch (finding #1): el superadmin puede cerrar el registro sin
+      //    redeploy con marketing_config.owner_signup_enabled=false. Ausente /
+      //    true / error → habilitado (registro vivo). No bloquea el render.
+      function closeSignup() {
+        if (finalized) return;
+        showDone('<span><b>El registro está temporalmente cerrado.</b> Volvé pronto o escribinos desde ' +
+          '<a href="/contacto" style="color:var(--text-primary);font-weight:600">Contacto</a>.</span>', true);
+      }
+      if (window.MythosWebData && MythosWebData.getPublicConfig) {
+        MythosWebData.getPublicConfig().then(function (c) {
+          if (c && c.owner_signup_enabled === false) closeSignup();
+        }).catch(function () {});
+      }
+
+      // ── Opción "Soy dueño de un foodpark" — Próximamente (botón real) ──────
+      // Botón nativo: teclado (Enter/Espacio) y click salen gratis. Registra interés.
+      var foodparkOwnerInterested = false;
+      function expressFoodparkInterest() {
+        setStatus('Aún no abrimos el registro de foodparks/patios de comida. Te avisamos cuando esté disponible.', null);
+        if (foodparkOwnerInterested) return;
+        foodparkOwnerInterested = true;
+        // Si ya escribió un email, lo guardamos con el interés; si no, igual queda el conteo.
+        saveLead(val('r-email') || null, 'foodpark_owner', 'interes_foodpark');
+      }
+      var bizSoon = document.getElementById('bizFoodparkOwner');
+      if (bizSoon) bizSoon.addEventListener('click', expressFoodparkInterest);
+
+      // ── Envío del formulario ──────────────────────────────────────────────
+      if (form) form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        setStatus('', null);
+        clearInvalid();
+
+        var checked = form.querySelector('input[name="tipo_negocio"]:checked');
+        var tipo = checked ? checked.value : '';
+        var email = val('r-email'), pass = val('r-pass'), pass2 = val('r-pass2');
+        var terms = document.getElementById('r-terms');
+
+        // Validación (mensajes claros; mueve el foco al primer campo inválido).
+        if (!tipo) return fail('Elegí qué tipo de negocio tenés.', 'r-tipo-1');
+        if (!email || !emailValid(email)) return fail('Ingresá un email válido.', 'r-email');
+        if (pass.length < 8) return fail('La contraseña debe tener al menos 8 caracteres.', 'r-pass');
+        if (pass !== pass2) return fail('Las contraseñas no coinciden.', 'r-pass2');
+        if (!terms || !terms.checked) return fail('Necesitás aceptar los Términos y la Privacidad.', 'r-terms');
+
+        if (!db) { setStatus('No pudimos conectar con el servidor. Probá de nuevo en un momento.', 'error'); return; }
+
+        var prev = submitBtn ? submitBtn.textContent : '';
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Creando cuenta…'; }
+
+        // El lead se guarda SIEMPRE (aunque después no verifique ni contrate),
+        // antes del signUp, para no perderlo por errores aguas abajo.
+        try { await saveLead(email, tipo, 'web_registro'); } catch (x) {}
+
+        try {
+          var res = await db.auth.signUp({
+            email: email,
+            password: pass,
+            options: { emailRedirectTo: EMAIL_REDIRECT }
+          });
+
+          if (res && res.error) {
+            var m = (res.error.message || '').toLowerCase();
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prev; }
+            if (m.indexOf('already') !== -1 || m.indexOf('registered') !== -1 || m.indexOf('exists') !== -1) {
+              setStatus('Ese email ya tiene una cuenta. Probá iniciar sesión o recuperar tu contraseña desde Iniciar sesión.', 'error');
+            } else if (m.indexOf('password') !== -1) {
+              setStatus('La contraseña no cumple los requisitos. Usá al menos 8 caracteres.', 'error');
+            } else {
+              setStatus('No pudimos crear tu cuenta ahora. Probá de nuevo en un momento.', 'error');
+            }
+            return;
+          }
+
+          var data = (res && res.data) || {};
+          var user = data.user;
+
+          // Email ya registrado: Supabase lo obfusca (enumeration-safe) devolviendo
+          // un user con identities = [] en lugar de error.
+          if (user && Array.isArray(user.identities) && user.identities.length === 0) {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prev; }
+            setStatus('Ese email ya tiene una cuenta. Probá iniciar sesión o recuperar tu contraseña desde Iniciar sesión.', 'error');
+            return;
+          }
+
+          // ── PREPARADO PARA AMBOS MODOS (finding #2) ──────────────────────────
+          // Si signUp devolvió SESIÓN, "Confirm email" está APAGADO en Supabase:
+          // la cuenta quedó activa SIN verificar (estado actual, para no molestar
+          // las cuentas demo). No mentimos con "te enviamos un correo": cerramos la
+          // sesión (no dejarla activa) y avisamos que ya puede iniciar sesión.
+          // Cuando se ACTIVE "Confirm email", signUp NO devuelve sesión y caemos al
+          // mensaje de verificación de abajo — sin tocar una línea de código.
+          if (data.session) {
+            try { await db.auth.signOut(); } catch (e) {}
+            try { console.warn('[registro] signUp devolvió sesión: "Confirm email" está DESACTIVADO en Supabase (verificación NO obligatoria todavía).'); } catch (e) {}
+            showDone(
+              '<span class="lead-ok" aria-hidden="true">✓</span> ' +
+              '<span><b>¡Tu cuenta fue creada!</b> Ya podés ' +
+              '<a href="/login" style="color:var(--text-primary);font-weight:600">iniciar sesión</a>.</span>'
+            );
+            return;
+          }
+
+          // "Confirm email" activado: verificación pendiente. NO se loguea hasta verificar.
+          showDone(
+            '<span class="lead-ok" aria-hidden="true">✓</span> ' +
+            '<span><b>Te enviamos un correo de verificación a ' + esc(email) + '.</b> ' +
+            'Revisá tu bandeja de entrada (y la carpeta de spam) y abrí el enlace para confirmar tu cuenta. ' +
+            'Después vas a poder <a href="/login" style="color:var(--text-primary);font-weight:600">iniciar sesión</a>.</span>'
+          );
+        } catch (err) {
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prev; }
+          setStatus('No pudimos crear tu cuenta ahora. Probá de nuevo en un momento.', 'error');
+        }
+      });
     })();
   </script>
 </body>

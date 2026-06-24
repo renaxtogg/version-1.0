@@ -85,6 +85,7 @@
 
   <div id="forgotWrap" style="text-align:center;margin-top:16px">
     <a href="#" id="forgotLink" style="font-size:13px;color:var(--text-secondary);text-decoration:none">¿Olvidaste tu contraseña?</a>
+    <div style="margin-top:10px;font-size:13px;color:var(--text-tertiary)">¿No tenés cuenta? <a href="/registro" style="color:var(--text-secondary);text-decoration:none">Registrá tu local</a></div>
   </div>
 
   <div class="divider">o</div>
@@ -249,13 +250,36 @@
   // si no, usar el flujo single-role probado (validateAndRedirect). Reutiliza
   // homeForRole. Best-effort: si la lectura de roles falla, cae al single-role.
   async function resolveAndRoute(profile) {
-    if (!profile || !profile.role) return 'Tu cuenta no tiene un rol asignado. Contactá al administrador.';
+    // OWNER-ONBOARDING (Bloque C): sesión válida pero SIN rol asignado = dueño recién
+    // registrado que todavía no creó su local → al onboarding (no es un error). El
+    // resto de casos (rol no reconocido, sin comercio, varios roles) sigue igual.
+    if (!profile || !profile.role) { window.location.replace('onboarding.html'); return null; }
+
+    // Filas de rol activas del propio usuario (RLS: policy user_read_own_role, mig 029).
     let rows = null;
     try {
-      // RLS (policy user_read_own_role, mig 029) limita a las filas del propio usuario.
       const { data, error } = await db.from('user_roles').select('role, restaurant_id').eq('is_active', true);
       if (!error && Array.isArray(data)) rows = data;
     } catch (_) { rows = null; }
+
+    // OWNER-ONBOARDING (Bloque C p.1): si CUALQUIER rol admin activo tiene el wizard SIN
+    // terminar (onboarding_completed_at IS NULL) → retomar onboarding, NO entrar al panel,
+    // sea cual sea el rol que devolvió get_my_profile. Cubre cuentas multi-rol (get_my_profile
+    // es LIMIT 1 sin ORDER BY → podría no devolver el rol admin) y cierra el bypass por el
+    // "Elegí tu panel". Otros roles sin cambios. Fail-open ante error de consulta.
+    try {
+      const adminRows = ((rows && rows.length) ? rows
+          : (String(profile.role).toLowerCase() === 'admin' && profile.restaurant_id
+              ? [{ role: 'admin', restaurant_id: profile.restaurant_id }] : []))
+        .filter(r => String(r.role).toLowerCase() === 'admin' && r.restaurant_id);
+      for (const ar of adminRows) {
+        const { data, error } = await db.from('restaurants')
+          .select('onboarding_completed_at').eq('id', ar.restaurant_id).maybeSingle();
+        if (!error && data && !data.onboarding_completed_at) {
+          window.location.replace('onboarding.html'); return null;
+        }
+      }
+    } catch (_) { /* fail-open */ }
 
     if (rows && rows.length > 1) {
       const items = [];

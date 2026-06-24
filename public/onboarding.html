@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mythos · Configurá tu local</title>
+  <meta name="robots" content="noindex">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <link rel="stylesheet" href="tokens.css">
+  <script src="mythos-theme.js"></script>
+  <script>MythosTheme.init();</script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:var(--bg-subtle);color:var(--text-primary);font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:32px 18px;-webkit-font-smoothing:antialiased}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:34px 32px;width:100%;max-width:560px;box-shadow:0 4px 24px rgba(0,0,0,0.08),0 0 1px rgba(0,0,0,0.04)}
+    .logo{text-align:center;margin-bottom:6px}
+    .logo-title{font-size:26px;font-weight:800;color:var(--primary);letter-spacing:-1px}
+    .logo-sub{font-size:13px;font-weight:500;color:var(--text-secondary);margin-top:3px}
+    /* progreso */
+    .prog{display:flex;gap:6px;margin:18px 0 6px}
+    .prog span{flex:1;height:4px;border-radius:2px;background:var(--border)}
+    .prog span.on{background:var(--primary)}
+    .step-h{font-size:18px;font-weight:700;margin:14px 0 2px}
+    .step-d{font-size:13px;color:var(--text-secondary);margin-bottom:16px}
+    /* campos */
+    .fld{margin-bottom:14px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+    @media(max-width:460px){.grid2{grid-template-columns:1fr}}
+    label.lbl{display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:5px}
+    label.lbl .opt{font-weight:400;color:var(--text-tertiary)}
+    input[type=text],input[type=number]{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text-primary);padding:10px 13px;border-radius:10px;font-size:15px;outline:none;transition:border-color .15s;font-family:inherit}
+    input:focus{border-color:var(--primary)}
+    input::placeholder{color:var(--text-disabled)}
+    /* opciones (checkbox / radio cards) */
+    .opts{display:flex;flex-direction:column;gap:9px}
+    .opt-card{display:flex;gap:11px;align-items:center;border:1px solid var(--border);border-radius:11px;padding:13px 14px;cursor:pointer;transition:border-color .15s,background .15s}
+    .opt-card:hover{background:var(--bg-subtle)}
+    .opt-card:has(input:checked){border-color:var(--primary);border-width:2px;padding:12px 13px}
+    .opt-card input{width:18px;height:18px;accent-color:var(--primary);flex:none;cursor:pointer}
+    .opt-card b{font-size:14px;font-weight:600}
+    /* menú */
+    .cat{border:1px solid var(--border);border-radius:12px;padding:13px;margin-bottom:12px}
+    .cat-h{font-size:14px;font-weight:700;margin-bottom:8px}
+    .it{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;padding:7px 0;border-top:1px solid var(--border)}
+    .it .nm{flex:1;min-width:0}
+    .it .pr{color:var(--text-secondary);white-space:nowrap;font-variant-numeric:tabular-nums}
+    .it .rm{border:none;background:none;color:var(--error);cursor:pointer;font-size:18px;line-height:1;padding:0 4px}
+    .row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+    .row input{flex:1;min-width:90px}
+    .mini{height:38px;padding:0 14px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-weight:600;font-size:13px;cursor:pointer;font-family:inherit;white-space:nowrap}
+    .mini:hover{background:var(--bg-subtle)}
+    .empty{font-size:13px;color:var(--text-tertiary);text-align:center;padding:8px 0}
+    /* QR */
+    .qrbox{text-align:center}
+    .qrbox img{border-radius:12px;border:1px solid var(--border);margin:6px auto 14px}
+    .urlbox{background:var(--bg-subtle);border-radius:9px;padding:10px 12px;font-size:12px;word-break:break-all;font-family:'SF Mono',ui-monospace,monospace;margin-bottom:6px}
+    /* nav + estados */
+    .nav{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:22px}
+    .btn{background:var(--primary);color:var(--on-primary);border:none;border-radius:10px;padding:13px 22px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;font-family:inherit}
+    .btn:hover{opacity:.84}.btn:disabled{opacity:.4;cursor:not-allowed}
+    .btn-ghost{background:none;border:none;color:var(--text-secondary);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;padding:8px 4px}
+    .btn-ghost:hover{color:var(--text-primary)}
+    .error{background:var(--surface);border:1px solid #FFCDD0;color:#C0190F;border-radius:10px;padding:10px 14px;font-size:13px;margin-top:16px;display:none}
+    .error.show{display:block}
+    [data-theme="dark"] .error{border-color:color-mix(in srgb, var(--error) 45%, transparent);color:var(--error)}
+    .loading{text-align:center;color:var(--text-secondary);font-size:14px;padding:30px 0}
+    .hint{font-size:12px;color:var(--text-tertiary);text-align:center;margin-top:18px}
+    .hint a{color:var(--text-secondary)}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .spinner{width:15px;height:15px;border:2px solid color-mix(in srgb, var(--on-primary) 30%, transparent);border-top-color:var(--on-primary);border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+  </style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="logo"><div class="logo-title">Mythos</div></div>
+  <div id="app"><div class="loading">Cargando…</div></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var cfg = window.SUPABASE_CONFIG || {};
+  var url = String(cfg.url || '').replace(/^﻿/, '').trim();
+  var key = String(cfg.anonKey || '').replace(/^﻿/, '').trim();
+  var db = (window.supabase && url && url.indexOf('YOUR_') === -1 && key)
+    ? window.supabase.createClient(url, key) : null;
+
+  var app = document.getElementById('app');
+  var st = { step: 1, restaurantId: null, rest: {}, plans: [], menuCats: [], session: null, busy: false };
+
+  var TITLES = { 1: ['Creá tu local', '¿Cómo se llama y qué plan querés probar?'],
+                 2: ['Tu local', 'Datos de contacto y ubicación.'],
+                 3: ['Cobro', '¿Qué medios de pago usás?'],
+                 4: ['Facturación', '¿Emitís factura electrónica?'],
+                 5: ['Tu carta', 'Cargá al menos una categoría y un producto.'],
+                 6: ['Tu QR', 'El código que tus clientes escanean para ver el menú.'] };
+
+  var PAY = [
+    { k: 'efectivo', label: 'Efectivo' },
+    { k: 'tarjeta',  label: 'Tarjeta / POS' },
+    { k: 'qr',       label: 'QR' },
+    { k: 'bancard',  label: 'Bancard' },
+    { k: 'dinelco',  label: 'Dinelco' }
+  ];
+  var EINV = [
+    { k: 'ya_tengo',     label: 'Ya tengo factura electrónica' },
+    { k: 'me_interesa',  label: 'Me interesa activarla' },
+    { k: 'no_por_ahora', label: 'No por ahora' }
+  ];
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+  function gs(n) { return '₲ ' + (Number(n) || 0).toLocaleString('es-PY'); }
+  function money(n) { var v = Number(n); return (!isFinite(v) || v <= 0) ? 'Gratis' : 'USD ' + (Math.round(v * 100) / 100).toLocaleString('es-PY'); }
+  function v(id) { var el = document.getElementById(id); return el ? String(el.value == null ? '' : el.value).trim() : ''; }
+  function fatal(msg, retry) {
+    app.innerHTML = '<div class="error show" style="margin-top:18px">' + esc(msg) + '</div>' +
+      (retry ? '<div class="nav"><span></span><button class="btn" id="btnRetry" type="button">Reintentar</button></div>' : '');
+    var b = document.getElementById('btnRetry');
+    if (b) b.addEventListener('click', function () { app.innerHTML = '<div class="loading">Cargando…</div>'; boot(); });
+  }
+  function setErr(msg) { var e = document.getElementById('err'); if (e) { e.textContent = msg || ''; e.classList[msg ? 'add' : 'remove']('show'); } }
+
+  if (!db) { fatal('Sin configuración de Supabase. Verificá config.js'); return; }
+  boot();
+
+  // ── Detección de estado al cargar ─────────────────────────────────────────
+  async function boot() {
+    try {
+      var sres = await db.auth.getSession();
+      st.session = sres && sres.data ? sres.data.session : null;
+      if (!st.session) { window.location.replace('login.html'); return; }
+
+      // Roles activos del propio usuario (RLS: solo sus filas). NO usamos get_my_profile
+      // (LIMIT 1 sin ORDER BY → no determinista en cuentas multi-rol; podría no devolver
+      // el rol admin). Distinguimos error de consulta de "sin rol".
+      var rr = await db.from('user_roles').select('role, restaurant_id').eq('is_active', true);
+      if (rr.error) { fatal('No pudimos verificar tu cuenta. Reintentá.', true); return; }
+      var rows = rr.data || [];
+
+      if (!rows.length) { st.step = 1; await loadPlans(); render(); return; }                 // sin rol → crear local
+
+      var adminRow = rows.filter(function (r) { return String(r.role).toLowerCase() === 'admin' && r.restaurant_id; })[0];
+      if (!adminRow) { window.location.replace('login.html'); return; }                        // rol no-admin → su panel
+
+      st.restaurantId = adminRow.restaurant_id;
+      var r = await db.from('restaurants').select('*').eq('id', adminRow.restaurant_id).maybeSingle();
+      if (r.error || !r.data) { fatal('No pudimos cargar tu local. Reintentá en un momento.', true); return; }
+      st.rest = r.data;
+      if (st.rest.onboarding_completed_at) { window.location.replace('admin.html'); return; }  // ya completó
+      st.step = 2;                                                                             // retomar wizard
+      await loadMenu();
+      render();
+    } catch (e) { fatal('No pudimos cargar el onboarding. Reintentá.', true); }
+  }
+
+  async function loadPlans() {
+    try {
+      var r = await db.from('subscription_plans')
+        .select('id,name,price_usd,billing_cycle,features').eq('is_active', true)
+        .order('price_usd', { ascending: true });
+      st.plans = (r && r.data) ? r.data : [];
+    } catch (e) { st.plans = []; }
+  }
+
+  async function loadMenu() {
+    try {
+      var c = await db.from('menu_categories').select('id,name,sort_order')
+        .eq('restaurant_id', st.restaurantId).order('sort_order', { ascending: true });
+      var cats = ((c && c.data) || []).map(function (x) { return { id: x.id, name: x.name, items: [] }; });
+      if (cats.length) {
+        var it = await db.from('menu_items').select('id,name,price_guarani,description,category_id')
+          .eq('restaurant_id', st.restaurantId);
+        ((it && it.data) || []).forEach(function (m) {
+          var cat = cats.filter(function (c) { return c.id === m.category_id; })[0];
+          if (cat) cat.items.push(m);
+        });
+      }
+      st.menuCats = cats;
+    } catch (e) { st.menuCats = []; }
+  }
+
+  // ── UPDATE del propio restaurante (RLS: admin puede su local) ──────────────
+  async function saveRest(patch) {
+    var r = await db.from('restaurants').update(patch).eq('id', st.restaurantId).select('id').maybeSingle();
+    if (r.error) throw new Error(r.error.message || 'No se pudo guardar.');
+    Object.assign(st.rest, patch);
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  function header() {
+    var t = TITLES[st.step];
+    var bars = '';
+    for (var i = 1; i <= 6; i++) bars += '<span class="' + (i <= st.step ? 'on' : '') + '"></span>';
+    return '<div class="logo-sub">Paso ' + st.step + ' de 6</div>' +
+      '<div class="prog">' + bars + '</div>' +
+      '<div class="step-h">' + esc(t[0]) + '</div><div class="step-d">' + esc(t[1]) + '</div>';
+  }
+  function field(id, label, value, ph, optional) {
+    return '<div class="fld"><label class="lbl" for="' + id + '">' + esc(label) +
+      (optional ? ' <span class="opt">(opcional)</span>' : '') + '</label>' +
+      '<input id="' + id + '" type="text" value="' + esc(value == null ? '' : value) + '" placeholder="' + esc(ph || '') + '"></div>';
+  }
+  function nav(label, withBack) {
+    return '<div id="err" class="error"></div><div class="nav">' +
+      (withBack ? '<button class="btn-ghost" id="btnBack" type="button">Volver</button>' : '<span></span>') +
+      '<button class="btn" id="btnNext" type="button">' + esc(label) + '</button></div>';
+  }
+
+  function render() {
+    var html = (st.step === 1) ? '' : header();
+    switch (st.step) {
+      case 1: html += step1(); break;
+      case 2: html += step2(); break;
+      case 3: html += step3(); break;
+      case 4: html += step4(); break;
+      case 5: html += step5(); break;
+      case 6: html += step6(); break;
+    }
+    app.innerHTML = html;
+    wire();
+  }
+
+  // STEP 1 — crear local (nombre + plan) → /api/onboarding
+  function step1() {
+    var plans = st.plans.map(function (p, i) {
+      var price = Number(p.price_usd) > 0 ? '14 días gratis · luego ' + esc(money(p.price_usd)) + '/mes' : 'Gratis';
+      return '<label class="opt-card"><input type="radio" name="plan" value="' + esc(p.id) + '"' + (i === 0 ? ' checked' : '') + '>' +
+        '<span><b>' + esc(p.name) + '</b><div class="step-d" style="margin:0">' + price + '</div></span></label>';
+    }).join('');
+    return '<div class="logo-sub" style="text-align:center;margin-bottom:14px">¿Sos dueño de un local? Configurá tu cuenta</div>' +
+      '<div class="step-h">Creá tu local</div><div class="step-d">Empezá tu prueba de 14 días gratis.</div>' +
+      field('f_name', 'Nombre del local', st.rest.name, 'Mi Restaurante', false) +
+      '<label class="lbl">Plan a probar</label><div class="opts" style="margin-bottom:4px">' +
+      (plans || '<div class="empty">No hay planes disponibles ahora.</div>') + '</div>' +
+      nav('Crear mi local', false);
+  }
+
+  // STEP 2 — datos del local
+  function step2() {
+    var r = st.rest;
+    return '<div class="grid2">' +
+        field('f_logo', 'Logo (iniciales)', r.logo_initials, 'MR', true) +
+        field('f_phone', 'Teléfono', r.phone, '+595 9xx xxx xxx', false) +
+      '</div>' +
+      '<div class="grid2">' +
+        field('f_ig', 'Instagram', r.instagram, '@turestaurante', true) +
+        field('f_fb', 'Facebook', r.facebook, 'facebook.com/turestaurante', true) +
+      '</div>' +
+      '<div class="grid2">' +
+        field('f_wa', 'WhatsApp', r.whatsapp, '+595 9xx xxx xxx', true) +
+        field('f_ruc', 'RUC', r.ruc, '80012345-6', true) +
+      '</div>' +
+      field('f_addr', 'Dirección', r.address, 'Av. España 1234', false) +
+      '<div class="grid2">' +
+        field('f_city', 'Ciudad', r.city, 'Asunción', false) +
+        field('f_country', 'País', r.country || 'Paraguay', 'Paraguay', false) +
+      '</div>' +
+      field('f_legal', 'Razón social', r.legal_name, 'Mi Restaurante S.A.', true) +
+      '<div class="grid2">' +
+        field('f_lat', 'Latitud', r.lat, '-25.30', true) +
+        field('f_lng', 'Longitud', r.lng, '-57.63', true) +
+      '</div>' +
+      nav('Continuar', true);
+  }
+
+  // STEP 3 — cobro
+  function step3() {
+    var sel = Array.isArray(st.rest.payment_methods) ? st.rest.payment_methods : [];
+    var cards = PAY.map(function (m) {
+      return '<label class="opt-card"><input type="checkbox" name="pay" value="' + m.k + '"' +
+        (sel.indexOf(m.k) !== -1 ? ' checked' : '') + '><b>' + esc(m.label) + '</b></label>';
+    }).join('');
+    return '<div class="opts">' + cards + '</div>' + nav('Continuar', true);
+  }
+
+  // STEP 4 — facturación
+  function step4() {
+    var cur = st.rest.einvoicing_status || '';
+    var cards = EINV.map(function (m) {
+      return '<label class="opt-card"><input type="radio" name="einv" value="' + m.k + '"' +
+        (cur === m.k ? ' checked' : '') + '><b>' + esc(m.label) + '</b></label>';
+    }).join('');
+    return '<div class="opts">' + cards + '</div>' + nav('Continuar', true);
+  }
+
+  // STEP 5 — carta (categorías + ítems)
+  function step5() {
+    var cats = st.menuCats.map(function (c) {
+      var items = c.items.length
+        ? c.items.map(function (it) {
+            return '<div class="it"><span class="nm">' + esc(it.name) + '</span>' +
+              '<span class="pr">' + gs(it.price_guarani) + '</span>' +
+              '<button class="rm" type="button" data-rm="' + esc(it.id) + '" title="Quitar">&times;</button></div>';
+          }).join('')
+        : '<div class="empty">Sin productos todavía.</div>';
+      return '<div class="cat"><div class="cat-h">' + esc(c.name) + '</div>' + items +
+        '<div class="row">' +
+          '<input type="text" id="in_' + esc(c.id) + '" placeholder="Producto (ej: Lomito)">' +
+          '<input type="text" id="ip_' + esc(c.id) + '" placeholder="₲ Precio" inputmode="numeric" style="max-width:110px">' +
+          '<button class="mini" type="button" data-add-item="' + esc(c.id) + '">+ Producto</button>' +
+        '</div>' +
+        '<div class="row"><input type="text" id="id_' + esc(c.id) + '" placeholder="Descripción (opcional)"></div>' +
+      '</div>';
+    }).join('');
+    return (cats || '<div class="empty">Todavía no agregaste categorías.</div>') +
+      '<div class="row" style="margin-top:4px">' +
+        '<input type="text" id="newCat" placeholder="Nueva categoría (ej: Hamburguesas)">' +
+        '<button class="mini" type="button" id="addCat">+ Categoría</button>' +
+      '</div>' +
+      nav('Continuar', true);
+  }
+
+  // STEP 6 — QR del menú
+  function step6() {
+    var menuUrl = window.location.protocol + '//' + window.location.host + '/?r=' + encodeURIComponent(st.restaurantId);
+    var qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(menuUrl) + '&margin=10';
+    return '<div class="qrbox">' +
+        '<img src="' + qrImg + '" width="220" height="220" alt="QR del menú"/>' +
+        '<div class="urlbox">' + esc(menuUrl) + '</div>' +
+        '<button class="mini" type="button" id="printQr" style="width:100%">Ver / imprimir QR</button>' +
+      '</div>' +
+      '<div class="step-d" style="margin-top:14px">Imprimílo y ponelo en tus mesas. Tus clientes escanean y ven el menú al instante.</div>' +
+      nav('Finalizar y entrar al panel', true);
+  }
+
+  // ── Wiring por paso ─────────────────────────────────────────────────────────
+  function wire() {
+    var back = document.getElementById('btnBack');
+    if (back) back.addEventListener('click', function () { if (st.step > 2) { st.step--; render(); } });
+
+    var next = document.getElementById('btnNext');
+    if (next) next.addEventListener('click', onNext);
+
+    if (st.step === 5) {
+      var addCat = document.getElementById('addCat');
+      if (addCat) addCat.addEventListener('click', onAddCategory);
+      Array.prototype.forEach.call(document.querySelectorAll('[data-add-item]'), function (b) {
+        b.addEventListener('click', function () { onAddItem(b.getAttribute('data-add-item')); });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('[data-rm]'), function (b) {
+        b.addEventListener('click', function () { onRemoveItem(b.getAttribute('data-rm')); });
+      });
+    }
+    if (st.step === 6) {
+      var pq = document.getElementById('printQr');
+      if (pq) pq.addEventListener('click', printQr);
+    }
+  }
+
+  function busy(on, label) {
+    st.busy = on;
+    var b = document.getElementById('btnNext');
+    if (!b) return;
+    b.disabled = on;
+    b.innerHTML = on ? '<span class="spinner"></span>Guardando…' : esc(label);
+  }
+
+  async function onNext() {
+    if (st.busy) return;
+    setErr('');
+    try {
+      if (st.step === 1) return await createLocal();
+      if (st.step === 2) return await saveStep2();
+      if (st.step === 3) return await saveStep3();
+      if (st.step === 4) return await saveStep4();
+      if (st.step === 5) return saveStep5();
+      if (st.step === 6) return await finish();
+    } catch (e) {
+      setErr((e && e.message) || 'No se pudo guardar. Probá de nuevo.');
+      busy(false, st.step === 6 ? 'Finalizar y entrar al panel' : (st.step === 1 ? 'Crear mi local' : 'Continuar'));
+    }
+  }
+
+  // STEP 1 → crear local por el endpoint seguro y avanzar al paso 2
+  async function createLocal() {
+    var name = v('f_name');
+    var checked = document.querySelector('input[name="plan"]:checked');
+    var planId = checked ? checked.value : '';
+    if (name.length < 2) { setErr('Decinos el nombre de tu local.'); return; }
+    if (!planId) { setErr('Elegí un plan para tu prueba.'); return; }
+
+    busy(true, 'Crear mi local');
+    var sres = await db.auth.getSession();
+    var token = sres && sres.data && sres.data.session ? sres.data.session.access_token : null;
+    if (!token) { window.location.replace('login.html'); return; }
+
+    var resp = await fetch('/api/onboarding', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ restaurant_name: name, plan_id: planId })
+    });
+    var out = null; try { out = await resp.json(); } catch (x) { out = null; }
+
+    if (resp.ok && out && out.success) {
+      st.restaurantId = out.restaurant_id;
+      var r = await db.from('restaurants').select('*').eq('id', st.restaurantId).maybeSingle();
+      st.rest = (r && r.data) ? r.data : { name: name };
+      await loadMenu();
+      st.step = 2; render(); return;
+    }
+    if (resp.status === 409) { window.location.replace('login.html'); return; } // ya tenía local
+    busy(false, 'Crear mi local');
+    setErr((out && out.error) || 'No pudimos crear tu local ahora. Probá de nuevo.');
+  }
+
+  // STEP 2 → UPDATE datos del local
+  async function saveStep2() {
+    var phone = v('f_phone'), addr = v('f_addr'), city = v('f_city'), country = v('f_country');
+    if (!phone) { setErr('Ingresá un teléfono de contacto.'); return; }
+    if (!addr)  { setErr('Ingresá la dirección de tu local.'); return; }
+    if (!city)  { setErr('Ingresá la ciudad.'); return; }
+    if (!country) { setErr('Ingresá el país.'); return; }
+    var lat = v('f_lat'), lng = v('f_lng');
+    if ((lat && isNaN(parseFloat(lat))) || (lng && isNaN(parseFloat(lng)))) { setErr('La ubicación (lat/lng) debe ser numérica.'); return; }
+
+    busy(true, 'Continuar');
+    await saveRest({
+      logo_initials: v('f_logo') || null,
+      phone: phone, address: addr, city: city, country: country,
+      instagram: v('f_ig') || null, facebook: v('f_fb') || null, whatsapp: v('f_wa') || null,
+      ruc: v('f_ruc') || null, legal_name: v('f_legal') || null,
+      lat: lat ? parseFloat(lat) : null, lng: lng ? parseFloat(lng) : null
+    });
+    st.step = 3; render();
+  }
+
+  // STEP 3 → UPDATE payment_methods
+  async function saveStep3() {
+    var sel = Array.prototype.map.call(document.querySelectorAll('input[name="pay"]:checked'), function (c) { return c.value; });
+    if (!sel.length) { setErr('Elegí al menos un medio de cobro.'); return; }
+    busy(true, 'Continuar');
+    await saveRest({ payment_methods: sel });
+    st.step = 4; render();
+  }
+
+  // STEP 4 → UPDATE einvoicing_status
+  async function saveStep4() {
+    var pick = document.querySelector('input[name="einv"]:checked');
+    if (!pick) { setErr('Elegí una opción de facturación.'); return; }
+    busy(true, 'Continuar');
+    await saveRest({ einvoicing_status: pick.value });
+    st.step = 5; render();
+  }
+
+  // STEP 5 → exige ≥1 ítem (ya persistido) y avanza
+  function saveStep5() {
+    var totalItems = st.menuCats.reduce(function (n, c) { return n + c.items.length; }, 0);
+    if (!st.menuCats.length) { setErr('Agregá al menos una categoría.'); return; }
+    if (!totalItems) { setErr('Agregá al menos un producto a tu carta.'); return; }
+    st.step = 6; render();
+  }
+
+  // STEP 6 → marcar completado + entrar al panel
+  async function finish() {
+    busy(true, 'Finalizar y entrar al panel');
+    await saveRest({ onboarding_completed_at: new Date().toISOString() });
+    var u = st.session && st.session.user;
+    var ownerName = (u && u.user_metadata && (u.user_metadata.full_name || u.user_metadata.display_name)) || (u && u.email) || '';
+    try {
+      localStorage.setItem('mythos_restaurant_id', st.restaurantId || '');
+      localStorage.setItem('mythos_role', 'admin');
+      localStorage.setItem('mythos_user_id', (u && u.id) || '');
+      localStorage.setItem('mythos_display_name', ownerName);
+      localStorage.setItem('mythos_last_activity', String(Date.now()));
+    } catch (x) {}
+    window.location.replace('admin.html');
+  }
+
+  // ── Menú: insertar/borrar (RLS: admin puede su menú) ────────────────────────
+  async function onAddCategory() {
+    if (st.busy) return;
+    var name = v('newCat');
+    if (name.length < 2) { setErr('Escribí el nombre de la categoría.'); return; }
+    if (st.menuCats.some(function (c) { return c.name.trim().toLowerCase() === name.toLowerCase(); })) {
+      setErr('Ya tenés una categoría con ese nombre.'); return;
+    }
+    setErr('');
+    var btn = document.getElementById('addCat'); if (btn) btn.disabled = true;
+    try {
+      var r = await db.from('menu_categories')
+        .insert({ restaurant_id: st.restaurantId, name: name, sort_order: st.menuCats.length + 1 })
+        .select('id').maybeSingle();
+      if (r.error || !r.data) throw new Error(r.error ? r.error.message : 'No se pudo crear la categoría.');
+      st.menuCats.push({ id: r.data.id, name: name, items: [] });
+      render();
+    } catch (e) { setErr((e && e.message) || 'No se pudo crear la categoría.'); var b = document.getElementById('addCat'); if (b) b.disabled = false; }
+  }
+
+  async function onAddItem(catId) {
+    if (st.busy) return;
+    var cat = st.menuCats.filter(function (c) { return String(c.id) === String(catId); })[0];
+    if (!cat) return;
+    var name = v('in_' + catId);
+    var priceRaw = v('ip_' + catId).replace(/[^\d]/g, '');
+    var price = parseInt(priceRaw, 10);
+    var desc = v('id_' + catId);
+    if (name.length < 1) { setErr('Escribí el nombre del producto.'); return; }
+    if (!priceRaw || isNaN(price) || price <= 0) { setErr('Ingresá un precio válido para el producto.'); return; }
+    if (price > 100000000) { setErr('El precio es demasiado alto.'); return; }
+    setErr('');
+    try {
+      var r = await db.from('menu_items')
+        .insert({ name: name, description: desc || null, price_guarani: price, category_id: cat.id, restaurant_id: st.restaurantId, is_available: true })
+        .select('id').maybeSingle();
+      if (r.error || !r.data) throw new Error(r.error ? r.error.message : 'No se pudo agregar el producto.');
+      cat.items.push({ id: r.data.id, name: name, price_guarani: price, description: desc || null, category_id: cat.id });
+      render();
+    } catch (e) { setErr((e && e.message) || 'No se pudo agregar el producto.'); }
+  }
+
+  async function onRemoveItem(itemId) {
+    if (st.busy) return;
+    setErr('');
+    try {
+      var r = await db.from('menu_items').delete().eq('id', itemId).eq('restaurant_id', st.restaurantId);
+      if (r.error) throw new Error(r.error.message);
+      st.menuCats.forEach(function (c) { c.items = c.items.filter(function (it) { return String(it.id) !== String(itemId); }); });
+      render();
+    } catch (e) { setErr((e && e.message) || 'No se pudo quitar el producto.'); }
+  }
+
+  function printQr() {
+    var menuUrl = window.location.protocol + '//' + window.location.host + '/?r=' + encodeURIComponent(st.restaurantId);
+    var qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(menuUrl) + '&margin=10';
+    var restName = st.rest && st.rest.name ? st.rest.name : 'Mi local';
+    var w = window.open('', '_blank', 'width=520,height=680');
+    if (!w) return;
+    w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR menú</title>' +
+      '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui,sans-serif;background:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:32px}div.card{text-align:center;border:1.5px solid #E5E5E7;border-radius:16px;padding:32px;max-width:340px;width:100%}img{border-radius:8px;margin-bottom:18px}h1{font-size:26px;font-weight:900;color:#000;margin-bottom:6px}p{font-size:13px;color:#86868B}@media print{body{padding:0}div.card{border:none}}</style>' +
+      '</head><body><div class="card"><img src="' + qrImg + '" width="260" height="260"/>' +
+      '<h1>' + esc(restName) + '</h1><p>Escaneá para ver el menú</p></div>' +
+      '<scr' + 'ipt>window.onload=function(){window.print();}</scr' + 'ipt></body></html>');
+    w.document.close();
+  }
+})();
+</script>
+</body>
+</html>
