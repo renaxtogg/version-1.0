@@ -1433,7 +1433,9 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
     return da - db2;
   });
 
-  const mrrTotal = enriched.filter(r=>r.status!=='suspended').reduce((s,r)=>s+(r.plan?.price_usd||0),0);
+  // Grandfathering: el MRR de suscripciones EXISTENTES usa el snapshot congelado
+  // (subscriptions.monthly_amount), NO el precio vivo del plan (price_usd).
+  const mrrTotal = enriched.filter(r=>r.status!=='suspended').reduce((s,r)=>s+(Number(r.subscription?.monthly_amount)||0),0);
 
   const openEditPlan = p => {
     const mubr = asObj(p.max_users_by_role);
@@ -1482,7 +1484,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
 
   const openEditSub = r => {
     const s = r.subscription||{};
-    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||r.plan?.price_usd||'',addonKeys:(r.addons||[]).map(a=>a.addon_key)});
+    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||'',addonKeys:(r.addons||[]).map(a=>a.addon_key)});
     setSubModal(r);
   };
 
@@ -1646,7 +1648,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
                   <tr key={r.id} style={{background:vencePronto?TINT.warnBg:vencido?TINT.dangerBg:'',transition:'background .1s'}}>
                     <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
                     <Td><PlanBadge name={r.plan?.name}/></Td>
-                    <Td style={{fontWeight:600}}>{s?.monthly_amount?fmtGuarani(s.monthly_amount):r.plan?.price_usd?fmtGuarani(r.plan.price_usd):'—'}</Td>
+                    <Td style={{fontWeight:600}}>{s?fmtGuarani(s.monthly_amount||0):'—'}</Td>
                     <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{fmtDate(s?.start_date)}</Td>
                     <Td style={{fontSize:12,whiteSpace:'nowrap'}}>
                       <div style={{display:'flex',flexDirection:'column',gap:3}}>
@@ -1769,8 +1771,8 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
                 {['active','trial','suspended','expired','cancelled','past_due'].map(s=><option key={s} value={s}>{statusMeta[s]?.label||s}</option>)}
               </select>
             </FormField>
-            <FormField label="Monto mensual (USD)">
-              <input type="number" step=".01" value={subForm.monthly_amount} onChange={ssf('monthly_amount')} placeholder="59.00"/>
+            <FormField label="Monto mensual (₲)">
+              <input type="number" step="1000" min="0" value={subForm.monthly_amount} onChange={ssf('monthly_amount')} placeholder="400000"/>
             </FormField>
             <FormField label="Método de pago">
               <select value={subForm.payment_method} onChange={ssf('payment_method')}>
@@ -2428,7 +2430,7 @@ function PageReportes({enriched, orders, ratings, subscriptions, plans, events})
         const r   = enriched.find(x=>x.id===s.restaurant_id);
         const pl  = s.plan || plans.find(p=>p.id===s.plan_id);
         const days = daysUntil(s.end_date);
-        return {rest:r?.name||'—', plan:pl?.name||'—', status:s.status||'—', start:s.start_date||'—', end:s.end_date||'—', mrr:Number(s.monthly_amount||pl?.price_usd||0), days, renew:s.auto_renew?'Sí':'No'};
+        return {rest:r?.name||'—', plan:pl?.name||'—', status:s.status||'—', start:s.start_date||'—', end:s.end_date||'—', mrr:Number(s.monthly_amount||0), days, renew:s.auto_renew?'Sí':'No'};
       });
       const activos  = data.filter(s=>s.status==='active').length;
       const trials   = data.filter(s=>s.status==='trial').length;
@@ -2453,7 +2455,7 @@ function PageReportes({enriched, orders, ratings, subscriptions, plans, events})
       subscriptions.filter(s=>s.status==='active').forEach(s=>{
         const pl   = s.plan || plans.find(p=>p.id===s.plan_id);
         const name = pl?.name||'Sin plan';
-        const mrr  = Number(s.monthly_amount||pl?.price_usd||0);
+        const mrr  = Number(s.monthly_amount||0);
         if(!planMap[name]) planMap[name]={plan:name,cnt:0,mrr:0};
         planMap[name].cnt++;
         planMap[name].mrr+=mrr;
@@ -3964,6 +3966,10 @@ function PlanEditModal({plan, onClose, setFlash, reload}) {
   const [isActive, setIsActive]       = useState(plan.is_active!==false);
   const [order, setOrder]             = useState(plan.sort_order==null?'0':String(plan.sort_order));
   const [saving, setSaving]           = useState(false);
+  // Si el plan está vinculado a uno operativo (subscription_plans, mig 119), su precio
+  // se sincroniza desde ahí (trigger en BD) → acá es SOLO-LECTURA, para no reintroducir
+  // a mano la desincronización. El "Enterprise a cotizar" (sin link) sigue editable.
+  const linked = !!plan.subscription_plan_id;
 
   const save = async () => {
     if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
@@ -3978,8 +3984,9 @@ function PlanEditModal({plan, onClose, setFlash, reload}) {
       name: name.trim(),
       headline: headline.trim() || null,
       description: description.trim() || null,
-      price_monthly_gs: m.value,
-      price_annual_gs: a.value,
+      // Precio: solo si NO está vinculado. Si lo está, lo maneja el trigger de sync
+      // desde subscription_plans (no se pisa la fuente única desde la vidriera).
+      ...(linked ? {} : { price_monthly_gs: m.value, price_annual_gs: a.value }),
       badge: badge.trim() || null,
       features: feats,           // jsonb array de strings
       is_recommended: isRec,
@@ -4009,11 +4016,11 @@ function PlanEditModal({plan, onClose, setFlash, reload}) {
         <textarea value={description} onChange={e=>setDescription(e.target.value)} rows={2}/>
       </FormField>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-        <FormField label="Precio mensual (₲)" hint="Vacío = a cotizar">
-          <input value={monthly} onChange={e=>setMonthly(e.target.value)} placeholder="229000"/>
+        <FormField label="Precio mensual (₲)" hint={linked ? 'Sincronizado desde el plan operativo (Superadmin → Planes)' : 'Vacío = a cotizar'}>
+          <input value={monthly} onChange={e=>setMonthly(e.target.value)} placeholder="229000" disabled={linked} readOnly={linked}/>
         </FormField>
-        <FormField label="Precio anual (₲)" hint="Vacío = a cotizar">
-          <input value={annual} onChange={e=>setAnnual(e.target.value)} placeholder="2290000"/>
+        <FormField label="Precio anual (₲)" hint={linked ? 'Derivado (mensual × 10)' : 'Vacío = a cotizar'}>
+          <input value={annual} onChange={e=>setAnnual(e.target.value)} placeholder="2290000" disabled={linked} readOnly={linked}/>
         </FormField>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>

@@ -16,18 +16,19 @@
 (function () {
   'use strict';
 
-  // ── Fallback estático (refleja las semillas de la migración 110) ───────
+  // ── Fallback estático (precios ALINEADOS a subscription_plans, fuente única;
+  //    mig 119 los sincroniza en BD — acá se replica para modo offline) ──────
   var FALLBACK_PLANS = [
     { slug: 'carta', name: 'MYTHOS Carta', headline: 'Tu carta, siempre lista',
-      price_monthly_gs: 99000, price_annual_gs: 990000, currency: 'PYG',
+      price_monthly_gs: 200000, price_annual_gs: 2000000, currency: 'PYG',
       features: ['Menú digital QR', 'Productos ilimitados', 'Pedidos por WhatsApp', 'Analytics básico', '1 sucursal incluida'],
       badge: null, is_recommended: false, is_enterprise: false },
     { slug: 'servicio', name: 'MYTHOS Servicio', headline: 'Sala y cocina, sincronizadas',
-      price_monthly_gs: 229000, price_annual_gs: 2290000, currency: 'PYG',
+      price_monthly_gs: 400000, price_annual_gs: 4000000, currency: 'PYG',
       features: ['Todo lo de Carta', 'Caja/POS', 'Cocina/KDS', 'Mesas y Mozos', 'Gestión de equipo', 'Soporte prioritario'],
       badge: 'Recomendado', is_recommended: true, is_enterprise: false },
     { slug: 'full', name: 'MYTHOS Full', headline: 'Control total',
-      price_monthly_gs: 399000, price_annual_gs: 3990000, currency: 'PYG',
+      price_monthly_gs: 800000, price_annual_gs: 8000000, currency: 'PYG',
       features: ['Todo lo de Servicio', 'Delivery con tracking', 'Reservas', 'Analytics avanzado', 'Multi-usuario', 'Soporte 24/7'],
       badge: null, is_recommended: false, is_enterprise: false },
     { slug: 'enterprise', name: 'MYTHOS Enterprise', headline: 'Cadenas y multi-local',
