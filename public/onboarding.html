@@ -116,7 +116,8 @@
     });
   }
   function gs(n) { return '₲ ' + (Number(n) || 0).toLocaleString('es-PY'); }
-  function money(n) { var v = Number(n); return (!isFinite(v) || v <= 0) ? 'Gratis' : 'USD ' + (Math.round(v * 100) / 100).toLocaleString('es-PY'); }
+  // price_usd está en GUARANÍES a pesar del nombre de la columna (decisión de billing).
+  function money(n) { var v = Number(n); return (!isFinite(v) || v <= 0) ? 'Gratis' : '₲ ' + Math.round(v).toLocaleString('es-PY'); }
   function v(id) { var el = document.getElementById(id); return el ? String(el.value == null ? '' : el.value).trim() : ''; }
   function fatal(msg, retry) {
     app.innerHTML = '<div class="error show" style="margin-top:18px">' + esc(msg) + '</div>' +
@@ -136,10 +137,13 @@
       st.session = sres && sres.data ? sres.data.session : null;
       if (!st.session) { window.location.replace('login.html'); return; }
 
-      // Roles activos del propio usuario (RLS: solo sus filas). NO usamos get_my_profile
-      // (LIMIT 1 sin ORDER BY → no determinista en cuentas multi-rol; podría no devolver
-      // el rol admin). Distinguimos error de consulta de "sin rol".
-      var rr = await db.from('user_roles').select('role, restaurant_id').eq('is_active', true);
+      // Roles activos del propio usuario. FILTRAMOS por user_id explícito: la RLS de
+      // user_roles hoy es PERMISIVA (un authenticated ve TODAS las filas, 23 en prod) →
+      // confiar en ella mezclaba locales de otros tenants (se agarraba el primer admin
+      // ajeno). No usamos get_my_profile (LIMIT 1 sin ORDER BY → no determinista en
+      // multi-rol). Distinguimos error de consulta de "sin rol".
+      var uid = st.session.user.id;
+      var rr = await db.from('user_roles').select('role, restaurant_id').eq('user_id', uid).eq('is_active', true);
       if (rr.error) { fatal('No pudimos verificar tu cuenta. Reintentá.', true); return; }
       var rows = rr.data || [];
 

@@ -255,10 +255,15 @@
     // resto de casos (rol no reconocido, sin comercio, varios roles) sigue igual.
     if (!profile || !profile.role) { window.location.replace('onboarding.html'); return null; }
 
-    // Filas de rol activas del propio usuario (RLS: policy user_read_own_role, mig 029).
+    // Filas de rol activas del propio usuario. FILTRAMOS por user_id explícito: la RLS de
+    // user_roles hoy es PERMISIVA (un authenticated ve TODAS las filas), así que sin este
+    // filtro el "Elegí tu panel" y el gate de onboarding verían roles de otros tenants
+    // (cualquier admin SIM con onboarding incompleto desviaría TODOS los logins). profile.id
+    // = user_id (get_my_profile). No tocamos RLS (eso es el Sprint 1).
     let rows = null;
     try {
-      const { data, error } = await db.from('user_roles').select('role, restaurant_id').eq('is_active', true);
+      const { data, error } = await db.from('user_roles')
+        .select('role, restaurant_id').eq('user_id', profile.id).eq('is_active', true);
       if (!error && Array.isArray(data)) rows = data;
     } catch (_) { rows = null; }
 
