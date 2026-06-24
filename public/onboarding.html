@@ -279,8 +279,12 @@
 
   async function loadPlans() {
     try {
+      // select('*'): el wizard solo usa id/name/price_usd/allowed_panels/allowed_features
+      // y los lee de forma defensiva. Pedir columnas por nombre rompía en prod cuando
+      // alguna no existe (p.ej. marketing_slug daba 400 → "No hay planes"). '*' devuelve
+      // lo que exista y nunca falla por schema-drift. (is_active/price_usd son columnas core.)
       var r = await db.from('subscription_plans')
-        .select('id,name,price_usd,billing_cycle,allowed_panels,allowed_features,features,marketing_slug')
+        .select('*')
         .eq('is_active', true).order('price_usd', { ascending: true });
       st.plans = (r && r.data) ? r.data : [];
     } catch (e) { st.plans = []; }
