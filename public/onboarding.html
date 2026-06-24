@@ -14,22 +14,23 @@
     *{box-sizing:border-box;margin:0;padding:0}
     body{background:var(--bg-subtle);color:var(--text-primary);font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:32px 18px;-webkit-font-smoothing:antialiased}
     .card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:34px 32px;width:100%;max-width:560px;box-shadow:0 4px 24px rgba(0,0,0,0.08),0 0 1px rgba(0,0,0,0.04)}
+    @media(max-width:520px){.card{padding:26px 20px}}
     .logo{text-align:center;margin-bottom:6px}
     .logo-title{font-size:26px;font-weight:800;color:var(--primary);letter-spacing:-1px}
-    .logo-sub{font-size:13px;font-weight:500;color:var(--text-secondary);margin-top:3px}
+    .logo-sub{font-size:12px;font-weight:600;color:var(--text-tertiary);margin-top:3px;letter-spacing:.01em}
     /* progreso */
-    .prog{display:flex;gap:6px;margin:18px 0 6px}
+    .prog{display:flex;gap:6px;margin:14px 0 4px}
     .prog span{flex:1;height:4px;border-radius:2px;background:var(--border)}
     .prog span.on{background:var(--primary)}
-    .step-h{font-size:18px;font-weight:700;margin:14px 0 2px}
-    .step-d{font-size:13px;color:var(--text-secondary);margin-bottom:16px}
+    .step-h{font-size:21px;font-weight:800;margin:16px 0 3px;letter-spacing:-.4px}
+    .step-d{font-size:13.5px;color:var(--text-secondary);margin-bottom:18px;line-height:1.45}
     /* campos */
     .fld{margin-bottom:14px}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
     @media(max-width:460px){.grid2{grid-template-columns:1fr}}
     label.lbl{display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:5px}
     label.lbl .opt{font-weight:400;color:var(--text-tertiary)}
-    input[type=text],input[type=number]{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text-primary);padding:10px 13px;border-radius:10px;font-size:15px;outline:none;transition:border-color .15s;font-family:inherit}
+    input[type=text],input[type=number]{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text-primary);padding:11px 13px;border-radius:10px;font-size:15px;outline:none;transition:border-color .15s;font-family:inherit}
     input:focus{border-color:var(--primary)}
     input::placeholder{color:var(--text-disabled)}
     /* opciones (checkbox / radio cards) */
@@ -39,6 +40,30 @@
     .opt-card:has(input:checked){border-color:var(--primary);border-width:2px;padding:12px 13px}
     .opt-card input{width:18px;height:18px;accent-color:var(--primary);flex:none;cursor:pointer}
     .opt-card b{font-size:14px;font-weight:600}
+    .q-h{font-size:13.5px;font-weight:700;margin:20px 0 9px}
+    .q-h:first-child{margin-top:2px}
+    /* planes (cards reales, look premium) */
+    .plan-card{display:block;border:1px solid var(--border);border-radius:14px;padding:16px 16px 15px;cursor:pointer;transition:border-color .15s,box-shadow .15s;position:relative;margin-bottom:11px}
+    .plan-card:hover{border-color:var(--border-strong)}
+    .plan-card:has(input:checked){border-color:var(--primary);border-width:2px;padding:15px 15px 14px}
+    .plan-card input{position:absolute;opacity:0;pointer-events:none}
+    .plan-tag{display:inline-block;background:var(--primary);color:var(--on-primary);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:3px 9px;border-radius:999px;margin-bottom:9px}
+    .plan-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+    .plan-name{font-size:17px;font-weight:800;letter-spacing:-.3px}
+    .plan-price{font-size:15px;font-weight:800;white-space:nowrap}
+    .plan-price small{font-weight:500;font-size:12px;color:var(--text-secondary)}
+    .plan-frase{font-size:12.5px;color:var(--text-secondary);margin:3px 0 11px;line-height:1.4}
+    .plan-bullets{list-style:none;display:flex;flex-direction:column;gap:6px}
+    .plan-bullets li{font-size:12.5px;display:flex;gap:8px;align-items:flex-start;color:var(--text-primary)}
+    .plan-bullets li::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--primary);margin-top:6px;flex:none}
+    .plan-trial{font-size:11.5px;color:var(--text-tertiary);margin-top:11px}
+    /* colapsable redes */
+    .collapse{border-top:1px solid var(--border);margin-top:4px}
+    .collapse summary{font-size:12.5px;font-weight:600;color:var(--text-secondary);cursor:pointer;padding:12px 0 4px;list-style:none}
+    .collapse summary::-webkit-details-marker{display:none}
+    .collapse summary::before{content:'+  ';font-weight:700}
+    .collapse[open] summary::before{content:'\2013  '}
+    .collapse[open]{padding-bottom:4px}
     /* menú */
     .cat{border:1px solid var(--border);border-radius:12px;padding:13px;margin-bottom:12px}
     .cat-h{font-size:14px;font-weight:700;margin-bottom:8px}
@@ -53,14 +78,26 @@
     .empty{font-size:13px;color:var(--text-tertiary);text-align:center;padding:8px 0}
     /* QR */
     .qrbox{text-align:center}
-    .qrbox img{border-radius:12px;border:1px solid var(--border);margin:6px auto 14px}
-    .urlbox{background:var(--bg-subtle);border-radius:9px;padding:10px 12px;font-size:12px;word-break:break-all;font-family:'SF Mono',ui-monospace,monospace;margin-bottom:6px}
+    .qrbox img{border-radius:12px;border:1px solid var(--border);margin:6px auto 12px}
+    .qr-meta{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .chip{font-size:12px;font-weight:600;background:var(--bg-subtle);border:1px solid var(--border);border-radius:999px;padding:5px 12px}
+    .urlbox{background:var(--bg-subtle);border-radius:9px;padding:10px 12px;font-size:12px;word-break:break-all;font-family:'SF Mono',ui-monospace,monospace;margin-bottom:8px}
+    .qr-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px}
+    @media(max-width:420px){.qr-actions{grid-template-columns:1fr}}
+    .checklist{list-style:none;border:1px solid var(--border);border-radius:12px;padding:4px 14px;margin-top:18px}
+    .checklist-h{font-size:13px;font-weight:700;margin:18px 0 0}
+    .checklist li{font-size:13px;padding:10px 0;border-top:1px solid var(--border);display:flex;gap:10px;align-items:center;color:var(--text-secondary)}
+    .checklist li:first-child{border-top:none}
+    .checklist li::before{content:'';width:15px;height:15px;border:1.5px solid var(--border-strong);border-radius:4px;flex:none}
     /* nav + estados */
-    .nav{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:22px}
+    .nav{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:24px}
     .btn{background:var(--primary);color:var(--on-primary);border:none;border-radius:10px;padding:13px 22px;font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;font-family:inherit}
     .btn:hover{opacity:.84}.btn:disabled{opacity:.4;cursor:not-allowed}
     .btn-ghost{background:none;border:none;color:var(--text-secondary);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;padding:8px 4px}
     .btn-ghost:hover{color:var(--text-primary)}
+    .btn-ghost:disabled{opacity:.4;cursor:not-allowed}
+    .link-sec{display:inline-block;margin-top:12px;font-size:12.5px;color:var(--text-secondary);text-decoration:underline;cursor:pointer}
+    .link-sec:hover{color:var(--text-primary)}
     .error{background:var(--surface);border:1px solid #FFCDD0;color:#C0190F;border-radius:10px;padding:10px 14px;font-size:13px;margin-top:16px;display:none}
     .error.show{display:block}
     [data-theme="dark"] .error{border-color:color-mix(in srgb, var(--error) 45%, transparent);color:var(--error)}
@@ -88,26 +125,90 @@
     ? window.supabase.createClient(url, key) : null;
 
   var app = document.getElementById('app');
-  var st = { step: 1, restaurantId: null, rest: {}, plans: [], menuCats: [], session: null, busy: false };
+  var st = {
+    step: 1, restaurantId: null, rest: {}, plans: [], menuCats: [], session: null, busy: false,
+    biz: { name: '', type: '' },   // Paso 1 (en memoria hasta crear el local)
+    planId: '', planName: '',       // Paso 2
+    ops: { tableCount: '' },         // Paso 4 (semilla de mesas, en memoria)
+    menuChoice: '', exampleSeeded: false  // Paso 6
+  };
 
-  var TITLES = { 1: ['Creá tu local', '¿Cómo se llama y qué plan querés probar?'],
-                 2: ['Tu local', 'Datos de contacto y ubicación.'],
-                 3: ['Cobro', '¿Qué medios de pago usás?'],
-                 4: ['Facturación', '¿Emitís factura electrónica?'],
-                 5: ['Tu carta', 'Cargá al menos una categoría y un producto.'],
-                 6: ['Tu QR', 'El código que tus clientes escanean para ver el menú.'] };
+  // [título, subtítulo] por paso (7 pasos).
+  var TITLES = {
+    1: ['Contanos sobre tu local', 'Esto nos ayuda a dejar tu panel listo desde el primer ingreso.'],
+    2: ['Elegí tu prueba gratuita', 'Podés cambiar de plan después. La prueba dura 14 días y no requiere tarjeta.'],
+    3: ['Datos públicos del local', 'Esta información puede aparecer en tu menú QR y en el panel.'],
+    4: ['Cómo trabaja tu local', 'Configuramos Mythos según tu forma actual de operar.'],
+    5: ['Pagos y comprobantes', 'Marcá lo que usás hoy. Podés cambiarlo después.'],
+    6: ['Creá tu carta inicial', 'Podés empezar simple y completar el menú desde el panel.'],
+    7: ['Tu local ya está listo', 'Este es el QR que tus clientes van a escanear para ver tu menú.']
+  };
+  var STEP_NAMES = ['', 'Tu negocio', 'Plan', 'Contacto', 'Operación', 'Pagos', 'Carta', 'Listo'];
+  var BTN_LABELS = { 1: 'Continuar', 2: 'Empezar prueba gratis', 3: 'Continuar', 4: 'Continuar', 5: 'Continuar', 6: 'Continuar', 7: 'Entrar al panel' };
 
+  // ── Catálogos de opciones ─────────────────────────────────────────────────
+  var BIZ = [
+    ['restaurante', 'Restaurante, bar o cafetería'],
+    ['foodpark_local', 'Local gastronómico dentro de un foodpark'],
+    ['delivery_dark', 'Delivery o cocina oculta'],
+    ['otro', 'Otro tipo de local gastronómico']
+  ];
+  var OPS_MODES = [
+    ['mesas_salon', 'Mesas en salón'], ['retiro_local', 'Retiro en el local'],
+    ['delivery_propio', 'Delivery propio'], ['whatsapp', 'Pedidos por WhatsApp'],
+    ['apps_externas', 'Pedidos por apps externas']
+  ];
+  var OPS_INTAKE = [
+    ['mozo', 'Los toma el mozo'], ['caja', 'Los carga la caja'],
+    ['qr_cliente', 'El cliente pide desde el QR'], ['papel', 'Por ahora, papel o manual']
+  ];
+  var OPS_KITCHEN = [
+    ['kds', 'Pantalla de cocina (KDS)'], ['tablet', 'Tablet o celular'],
+    ['impresora', 'Impresora de comandas'], ['manual', 'Todavía manual']
+  ];
   var PAY = [
-    { k: 'efectivo', label: 'Efectivo' },
-    { k: 'tarjeta',  label: 'Tarjeta / POS' },
-    { k: 'qr',       label: 'QR' },
-    { k: 'bancard',  label: 'Bancard' },
-    { k: 'dinelco',  label: 'Dinelco' }
+    ['efectivo', 'Efectivo'], ['transferencia', 'Transferencia'], ['tarjeta', 'Tarjeta / POS'],
+    ['qr_bancard', 'QR Bancard'], ['qr_billetera', 'QR de otra billetera'], ['contra_entrega', 'Pago contra entrega']
   ];
   var EINV = [
-    { k: 'ya_tengo',     label: 'Ya tengo factura electrónica' },
-    { k: 'me_interesa',  label: 'Me interesa activarla' },
-    { k: 'no_por_ahora', label: 'No por ahora' }
+    ['no', 'No por ahora'], ['impresa', 'Sí, factura impresa o preimpresa'],
+    ['electronica', 'Sí, factura electrónica'], ['interesa', 'Me interesa activarla más adelante']
+  ];
+  var PRINTS = [
+    ['ticket_cliente', 'Ticket / cuenta para el cliente'], ['comanda_cocina', 'Comanda para cocina'],
+    ['comanda_barra', 'Comanda para barra'], ['factura_legal', 'Factura legal'], ['ninguno', 'No imprimo por ahora']
+  ];
+  var MENU_CHOICE = [
+    ['ahora', 'Agregar productos ahora'], ['ejemplo', 'Usar una carta de ejemplo'],
+    ['despues', 'Cargar después desde el panel']
+  ];
+
+  // Etiquetas legibles para construir las cards de plan desde los DATOS REALES
+  // (allowed_panels / allowed_features de subscription_plans) — no copy inventado.
+  var PANEL_LABELS = {
+    'admin': 'Administración del local', 'caja': 'Caja / POS', 'mozo': 'Mesas y mozos',
+    'cocina': 'Cocina (KDS)', 'delivery-cliente': 'Delivery a clientes',
+    'delivery-rider': 'Repartidores propios', 'gerente': 'Panel de gerente'
+  };
+  var FEATURE_LABELS = {
+    'admin:inventory': 'Inventario y recetas', 'admin:delivery_zones': 'Zonas de delivery',
+    'admin:crm': 'Clientes (CRM)', 'mozo:digital_qr_pay': 'Cobro en mesa por QR',
+    'caja:digital_payments': 'Pagos digitales (Bancard)', 'caja:sifen': 'Factura electrónica (SIFEN)'
+  };
+  var FALLBACK_FRASE = {
+    'Starter': 'Para ordenar el salón y operar lo básico.',
+    'Pro': 'Para locales que también venden por delivery o quieren más control.',
+    'Enterprise': 'Para operación completa, con equipo y delivery propio.'
+  };
+  var FALLBACK_BULLETS = {
+    'Starter': ['Menú digital con QR', 'Mesas y mozos', 'Cocina (KDS)', 'Caja / POS'],
+    'Pro': ['Todo lo de Starter', 'Delivery a clientes', 'Clientes (CRM)', 'Pagos digitales'],
+    'Enterprise': ['Todo lo de Pro', 'Repartidores propios', 'Panel de gerente', 'Factura electrónica']
+  };
+  var EXAMPLE_MENU = [
+    { cat: 'Entradas', items: [['Empanada de carne', 15000], ['Provoleta a la parrilla', 38000]] },
+    { cat: 'Platos principales', items: [['Lomito completo', 38000], ['Milanesa con papas', 42000]] },
+    { cat: 'Bebidas', items: [['Gaseosa', 12000], ['Agua mineral', 8000]] }
   ];
 
   function esc(s) {
@@ -117,8 +218,19 @@
   }
   function gs(n) { return '₲ ' + (Number(n) || 0).toLocaleString('es-PY'); }
   // price_usd está en GUARANÍES a pesar del nombre de la columna (decisión de billing).
-  function money(n) { var v = Number(n); return (!isFinite(v) || v <= 0) ? 'Gratis' : '₲ ' + Math.round(v).toLocaleString('es-PY'); }
+  function money(n) { var x = Number(n); return (!isFinite(x) || x <= 0) ? 'Gratis' : '₲ ' + Math.round(x).toLocaleString('es-PY'); }
   function v(id) { var el = document.getElementById(id); return el ? String(el.value == null ? '' : el.value).trim() : ''; }
+  function hasCol(c) { return st.rest && Object.prototype.hasOwnProperty.call(st.rest, c); }
+  function asArr(x) { return Array.isArray(x) ? x : []; }
+  function initialsOf(name) {
+    var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return null;
+    var s = parts.length >= 2 ? (parts[0][0] + parts[1][0]) : parts[0].slice(0, 2);
+    return s.toUpperCase();
+  }
+  function menuUrl() { return window.location.protocol + '//' + window.location.host + '/?r=' + encodeURIComponent(st.restaurantId); }
+  function qrSrc() { return 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(menuUrl()) + '&margin=10'; }
+
   function fatal(msg, retry) {
     app.innerHTML = '<div class="error show" style="margin-top:18px">' + esc(msg) + '</div>' +
       (retry ? '<div class="nav"><span></span><button class="btn" id="btnRetry" type="button">Reintentar</button></div>' : '');
@@ -157,7 +269,9 @@
       if (r.error || !r.data) { fatal('No pudimos cargar tu local. Reintentá en un momento.', true); return; }
       st.rest = r.data;
       if (st.rest.onboarding_completed_at) { window.location.replace('admin.html'); return; }  // ya completó
-      st.step = 2;                                                                             // retomar wizard
+      st.biz.name = st.rest.name || '';
+      st.biz.type = st.rest.business_type || '';
+      st.step = 3;                                                                             // local ya creado → retomar en Contacto
       await loadMenu();
       render();
     } catch (e) { fatal('No pudimos cargar el onboarding. Reintentá.', true); }
@@ -166,8 +280,8 @@
   async function loadPlans() {
     try {
       var r = await db.from('subscription_plans')
-        .select('id,name,price_usd,billing_cycle,features').eq('is_active', true)
-        .order('price_usd', { ascending: true });
+        .select('id,name,price_usd,billing_cycle,allowed_panels,allowed_features,features,marketing_slug')
+        .eq('is_active', true).order('price_usd', { ascending: true });
       st.plans = (r && r.data) ? r.data : [];
     } catch (e) { st.plans = []; }
   }
@@ -200,20 +314,30 @@
   function header() {
     var t = TITLES[st.step];
     var bars = '';
-    for (var i = 1; i <= 6; i++) bars += '<span class="' + (i <= st.step ? 'on' : '') + '"></span>';
-    return '<div class="logo-sub">Paso ' + st.step + ' de 6</div>' +
+    for (var i = 1; i <= 7; i++) bars += '<span class="' + (i <= st.step ? 'on' : '') + '"></span>';
+    return '<div class="logo-sub">Paso ' + st.step + ' de 7 · ' + esc(STEP_NAMES[st.step]) + '</div>' +
       '<div class="prog">' + bars + '</div>' +
       '<div class="step-h">' + esc(t[0]) + '</div><div class="step-d">' + esc(t[1]) + '</div>';
   }
-  function field(id, label, value, ph, optional) {
-    return '<div class="fld"><label class="lbl" for="' + id + '">' + esc(label) +
-      (optional ? ' <span class="opt">(opcional)</span>' : '') + '</label>' +
+  // opt: 'req' → marca *, 'opt' → (opcional), '' → plano.
+  function field(id, label, value, ph, opt) {
+    var suffix = opt === 'req' ? ' <span style="color:var(--error)">*</span>' :
+                 opt === 'opt' ? ' <span class="opt">(opcional)</span>' : '';
+    return '<div class="fld"><label class="lbl" for="' + id + '">' + esc(label) + suffix + '</label>' +
       '<input id="' + id + '" type="text" value="' + esc(value == null ? '' : value) + '" placeholder="' + esc(ph || '') + '"></div>';
   }
-  function nav(label, withBack) {
+  function checkCards(group, opts, selected, type) {
+    selected = selected || [];
+    return '<div class="opts">' + opts.map(function (o) {
+      var on = (type === 'radio') ? (selected === o[0]) : (selected.indexOf(o[0]) !== -1);
+      return '<label class="opt-card"><input type="' + type + '" name="' + group + '" value="' + esc(o[0]) + '"' +
+        (on ? ' checked' : '') + '><b>' + esc(o[1]) + '</b></label>';
+    }).join('') + '</div>';
+  }
+  function nav(withBack) {
     return '<div id="err" class="error"></div><div class="nav">' +
       (withBack ? '<button class="btn-ghost" id="btnBack" type="button">Volver</button>' : '<span></span>') +
-      '<button class="btn" id="btnNext" type="button">' + esc(label) + '</button></div>';
+      '<button class="btn" id="btnNext" type="button">' + esc(BTN_LABELS[st.step]) + '</button></div>';
   }
 
   function render() {
@@ -222,7 +346,9 @@
     // el await del save; si no se resetea acá, el paso siguiente queda trabado en
     // onNext() por `if (st.busy) return` (este era el bug del Step 3 que no avanzaba).
     st.busy = false;
-    var html = (st.step === 1) ? '' : header();
+    // Volver disponible solo en pasos editables previos a la creación (2) o post-creación (≥4).
+    var withBack = (st.step === 2) || (st.step >= 4);
+    var html = header();
     switch (st.step) {
       case 1: html += step1(); break;
       case 2: html += step2(); break;
@@ -230,76 +356,100 @@
       case 4: html += step4(); break;
       case 5: html += step5(); break;
       case 6: html += step6(); break;
+      case 7: html += step7(); break;
     }
+    html += nav(withBack);
     app.innerHTML = html;
     wire();
   }
 
-  // STEP 1 — crear local (nombre + plan) → /api/onboarding
+  // STEP 1 — tu negocio (nombre + tipo)
   function step1() {
-    var plans = st.plans.map(function (p, i) {
-      var price = Number(p.price_usd) > 0 ? '14 días gratis · luego ' + esc(money(p.price_usd)) + '/mes' : 'Gratis';
-      return '<label class="opt-card"><input type="radio" name="plan" value="' + esc(p.id) + '"' + (i === 0 ? ' checked' : '') + '>' +
-        '<span><b>' + esc(p.name) + '</b><div class="step-d" style="margin:0">' + price + '</div></span></label>';
-    }).join('');
-    return '<div class="logo-sub" style="text-align:center;margin-bottom:14px">¿Sos dueño de un local? Configurá tu cuenta</div>' +
-      '<div class="step-h">Creá tu local</div><div class="step-d">Empezá tu prueba de 14 días gratis.</div>' +
-      field('f_name', 'Nombre del local', st.rest.name, 'Mi Restaurante', false) +
-      '<label class="lbl">Plan a probar</label><div class="opts" style="margin-bottom:4px">' +
-      (plans || '<div class="empty">No hay planes disponibles ahora.</div>') + '</div>' +
-      nav('Crear mi local', false);
+    return field('f_name', 'Nombre comercial del local', st.biz.name || st.rest.name, 'Ej: La Parrilla de Don José', 'req') +
+      '<label class="lbl">¿Qué tipo de negocio es? <span style="color:var(--error)">*</span></label>' +
+      checkCards('biz', BIZ, st.biz.type, 'radio') +
+      '<a class="link-sec" href="/contacto">¿Tenés un foodpark y querés sumar tus locales? Escribinos</a>';
   }
 
-  // STEP 2 — datos del local
+  // STEP 2 — plan a probar (cards desde datos reales)
   function step2() {
-    var r = st.rest;
-    return '<div class="grid2">' +
-        field('f_logo', 'Logo (iniciales)', r.logo_initials, 'MR', true) +
-        field('f_phone', 'Teléfono', r.phone, '+595 9xx xxx xxx', false) +
-      '</div>' +
-      '<div class="grid2">' +
-        field('f_ig', 'Instagram', r.instagram, '@turestaurante', true) +
-        field('f_fb', 'Facebook', r.facebook, 'facebook.com/turestaurante', true) +
-      '</div>' +
-      '<div class="grid2">' +
-        field('f_wa', 'WhatsApp', r.whatsapp, '+595 9xx xxx xxx', true) +
-        field('f_ruc', 'RUC', r.ruc, '80012345-6', true) +
-      '</div>' +
-      field('f_addr', 'Dirección', r.address, 'Av. España 1234', false) +
-      '<div class="grid2">' +
-        field('f_city', 'Ciudad', r.city, 'Asunción', false) +
-        field('f_country', 'País', r.country || 'Paraguay', 'Paraguay', false) +
-      '</div>' +
-      field('f_legal', 'Razón social', r.legal_name, 'Mi Restaurante S.A.', true) +
-      '<div class="grid2">' +
-        field('f_lat', 'Latitud', r.lat, '-25.30', true) +
-        field('f_lng', 'Longitud', r.lng, '-57.63', true) +
-      '</div>' +
-      nav('Continuar', true);
+    if (!st.plans.length) return '<div class="empty">No hay planes disponibles ahora. Probá de nuevo en un momento.</div>';
+    return st.plans.map(function (p) {
+      var feat = String(p.name) === 'Pro';
+      var checked = st.planId ? (st.planId === p.id) : feat;  // por defecto, el recomendado
+      var bullets = asArr(p.allowed_panels).map(function (k) { return PANEL_LABELS[k]; }).filter(Boolean)
+        .concat(asArr(p.allowed_features).map(function (k) { return FEATURE_LABELS[k]; }).filter(Boolean));
+      if (!bullets.length) bullets = FALLBACK_BULLETS[p.name] || ['Menú digital con QR', 'Pedidos y mesas', 'Caja'];
+      var shown = bullets.slice(0, 5);
+      if (bullets.length > 5) shown.push('y más');
+      var frase = FALLBACK_FRASE[p.name] || '';
+      var trial = Number(p.price_usd) > 0 ? '14 días gratis · luego ' + money(p.price_usd) + ' / mes' : 'Gratis';
+      return '<label class="plan-card' + (feat ? ' feat' : '') + '">' +
+        '<input type="radio" name="plan" value="' + esc(p.id) + '"' + (checked ? ' checked' : '') + '>' +
+        (feat ? '<div class="plan-tag">Más recomendado</div>' : '') +
+        '<div class="plan-top"><div class="plan-name">' + esc(p.name) + '</div>' +
+          '<div class="plan-price">' + esc(money(p.price_usd)) + '<small> / mes</small></div></div>' +
+        (frase ? '<div class="plan-frase">' + esc(frase) + '</div>' : '') +
+        '<ul class="plan-bullets">' + shown.map(function (b) { return '<li>' + esc(b) + '</li>'; }).join('') + '</ul>' +
+        '<div class="plan-trial">' + esc(trial) + '</div>' +
+      '</label>';
+    }).join('');
   }
 
-  // STEP 3 — cobro
+  // STEP 3 — contacto y ubicación
   function step3() {
-    var sel = Array.isArray(st.rest.payment_methods) ? st.rest.payment_methods : [];
-    var cards = PAY.map(function (m) {
-      return '<label class="opt-card"><input type="checkbox" name="pay" value="' + m.k + '"' +
-        (sel.indexOf(m.k) !== -1 ? ' checked' : '') + '><b>' + esc(m.label) + '</b></label>';
-    }).join('');
-    return '<div class="opts">' + cards + '</div>' + nav('Continuar', true);
+    var r = st.rest;
+    return field('f_wa', 'WhatsApp del local', r.whatsapp, '+595 9xx xxx xxx', 'req') +
+      field('f_phone', 'Teléfono alternativo', r.phone, '+595 21 xxx xxx', 'opt') +
+      field('f_addr', 'Dirección', r.address, 'Av. España 1234', 'req') +
+      '<div class="grid2">' +
+        field('f_city', 'Ciudad', r.city, 'Asunción', 'req') +
+        field('f_country', 'País', r.country || 'Paraguay', 'Paraguay', 'req') +
+      '</div>' +
+      '<details class="collapse"' + ((r.instagram || r.facebook || r.website) ? ' open' : '') + '>' +
+        '<summary>Redes sociales y sitio web (opcional)</summary>' +
+        field('f_ig', 'Instagram', r.instagram, '@turestaurante', 'opt') +
+        field('f_fb', 'Facebook', r.facebook, 'facebook.com/turestaurante', 'opt') +
+        field('f_web', 'Sitio web', r.website, 'www.turestaurante.com', 'opt') +
+      '</details>';
   }
 
-  // STEP 4 — facturación
+  // STEP 4 — operación diaria
   function step4() {
-    var cur = st.rest.einvoicing_status || '';
-    var cards = EINV.map(function (m) {
-      return '<label class="opt-card"><input type="radio" name="einv" value="' + m.k + '"' +
-        (cur === m.k ? ' checked' : '') + '><b>' + esc(m.label) + '</b></label>';
-    }).join('');
-    return '<div class="opts">' + cards + '</div>' + nav('Continuar', true);
+    var r = st.rest;
+    var tc = (st.ops.tableCount !== '' ? st.ops.tableCount : (r.table_count != null ? r.table_count : ''));
+    return '<div class="q-h">¿Cómo atendés hoy?</div>' + checkCards('mode', OPS_MODES, asArr(r.operation_modes), 'checkbox') +
+      '<div class="q-h">¿Cómo se cargan los pedidos?</div>' + checkCards('intake', OPS_INTAKE, asArr(r.order_intake), 'checkbox') +
+      '<div class="q-h">¿Cómo llega el pedido a cocina o barra?</div>' + checkCards('kitchen', OPS_KITCHEN, r.kitchen_routing || '', 'radio') +
+      '<div class="q-h">Cantidad aproximada de mesas <span class="opt" style="font-weight:400">(opcional)</span></div>' +
+      '<input id="f_tables" type="number" inputmode="numeric" min="0" max="200" value="' + esc(tc) + '" placeholder="Ej: 12">' +
+      '<div class="step-d" style="margin:8px 0 0">Si lo completás, dejamos esas mesas creadas en tu panel.</div>';
   }
 
-  // STEP 5 — carta (categorías + ítems)
+  // STEP 5 — pagos y comprobantes
   function step5() {
+    var r = st.rest;
+    var einv = r.einvoicing_status || '';
+    var showFiscal = (einv === 'impresa' || einv === 'electronica');
+    return '<div class="q-h">¿Qué medios de pago aceptás?</div>' + checkCards('pay', PAY, asArr(r.payment_methods), 'checkbox') +
+      '<div class="q-h">¿Emitís factura actualmente?</div>' + checkCards('einv', EINV, einv, 'radio') +
+      '<div id="fiscalBox" style="display:' + (showFiscal ? 'block' : 'none') + ';margin-top:4px">' +
+        '<div class="grid2">' +
+          field('f_ruc', 'RUC', r.ruc, '80012345-6', 'opt') +
+          field('f_legal', 'Razón social', r.legal_name, 'Mi Restaurante S.A.', 'opt') +
+        '</div>' +
+      '</div>' +
+      '<div class="q-h">¿Qué necesitás imprimir?</div>' + checkCards('print', PRINTS, asArr(r.print_needs), 'checkbox');
+  }
+
+  // STEP 6 — carta inicial (3 caminos, sin bloquear el avance)
+  function step6() {
+    var html = checkCards('mchoice', MENU_CHOICE, st.menuChoice, 'radio');
+    if (st.menuChoice === 'ahora' || st.menuChoice === 'ejemplo') html += menuEditor();
+    else if (st.menuChoice === 'despues') html += '<div class="step-d" style="margin-top:14px">Sin problema. Tu QR va a funcionar y vas a poder cargar la carta desde el panel cuando quieras.</div>';
+    return html;
+  }
+  function menuEditor() {
     var cats = st.menuCats.map(function (c) {
       var items = c.items.length
         ? c.items.map(function (it) {
@@ -310,43 +460,65 @@
         : '<div class="empty">Sin productos todavía.</div>';
       return '<div class="cat"><div class="cat-h">' + esc(c.name) + '</div>' + items +
         '<div class="row">' +
-          '<input type="text" id="in_' + esc(c.id) + '" placeholder="Producto (ej: Lomito)">' +
-          '<input type="text" id="ip_' + esc(c.id) + '" placeholder="₲ Precio" inputmode="numeric" style="max-width:110px">' +
+          '<input type="text" id="in_' + esc(c.id) + '" placeholder="Ej: Hamburguesa clásica">' +
+          '<input type="text" id="ip_' + esc(c.id) + '" placeholder="Ej: 25000" inputmode="numeric" style="max-width:120px">' +
           '<button class="mini" type="button" data-add-item="' + esc(c.id) + '">+ Producto</button>' +
         '</div>' +
         '<div class="row"><input type="text" id="id_' + esc(c.id) + '" placeholder="Descripción (opcional)"></div>' +
       '</div>';
     }).join('');
-    return (cats || '<div class="empty">Todavía no agregaste categorías.</div>') +
+    return '<div style="margin-top:16px">' +
+      (cats || '<div class="empty">Todavía no agregaste categorías.</div>') +
       '<div class="row" style="margin-top:4px">' +
-        '<input type="text" id="newCat" placeholder="Nueva categoría (ej: Hamburguesas)">' +
+        '<input type="text" id="newCat" placeholder="Ej: Hamburguesas">' +
         '<button class="mini" type="button" id="addCat">+ Categoría</button>' +
-      '</div>' +
-      nav('Continuar', true);
+      '</div></div>';
   }
 
-  // STEP 6 — QR del menú
-  function step6() {
-    var menuUrl = window.location.protocol + '//' + window.location.host + '/?r=' + encodeURIComponent(st.restaurantId);
-    var qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(menuUrl) + '&margin=10';
+  // STEP 7 — QR + próximos pasos
+  function step7() {
+    var planChip = st.planName ? '<span class="chip">Plan ' + esc(st.planName) + '</span>' : '';
     return '<div class="qrbox">' +
-        '<img src="' + qrImg + '" width="220" height="220" alt="QR del menú"/>' +
-        '<div class="urlbox">' + esc(menuUrl) + '</div>' +
-        '<button class="mini" type="button" id="printQr" style="width:100%">Ver / imprimir QR</button>' +
+        '<div class="qr-meta"><span class="chip">' + esc(st.rest.name || 'Tu local') + '</span>' + planChip + '</div>' +
+        '<img src="' + qrSrc() + '" width="220" height="220" alt="QR del menú"/>' +
+        '<div class="urlbox">' + esc(menuUrl()) + '</div>' +
+        '<div class="qr-actions">' +
+          '<button class="mini" type="button" id="btnCopy">Copiar enlace</button>' +
+          '<button class="mini" type="button" id="btnView">Ver menú</button>' +
+          '<button class="mini" type="button" id="btnPrint" style="grid-column:1/-1">Descargar / imprimir QR</button>' +
+        '</div>' +
       '</div>' +
-      '<div class="step-d" style="margin-top:14px">Imprimílo y ponelo en tus mesas. Tus clientes escanean y ven el menú al instante.</div>' +
-      nav('Finalizar y entrar al panel', true);
+      '<div class="checklist-h">Próximos pasos recomendados</div>' +
+      '<ul class="checklist">' +
+        '<li>Completar tu carta</li><li>Cargar el logo de tu local</li>' +
+        '<li>Invitar a tu personal</li><li>Configurar la caja</li>' +
+        '<li>Probar un pedido desde el QR</li>' +
+      '</ul>';
   }
 
   // ── Wiring por paso ─────────────────────────────────────────────────────────
   function wire() {
     var back = document.getElementById('btnBack');
-    if (back) back.addEventListener('click', function () { if (st.step > 2) { st.step--; render(); } });
-
+    if (back) back.addEventListener('click', function () {
+      if (st.busy) return;  // no navegar mientras un guardado/creación está en vuelo
+      if (st.step === 2) { st.step = 1; render(); }
+      else if (st.step > 3) { st.step--; render(); }
+    });
     var next = document.getElementById('btnNext');
     if (next) next.addEventListener('click', onNext);
 
     if (st.step === 5) {
+      Array.prototype.forEach.call(document.querySelectorAll('input[name="einv"]'), function (r) {
+        r.addEventListener('change', function () {
+          var box = document.getElementById('fiscalBox');
+          if (box) box.style.display = (r.value === 'impresa' || r.value === 'electronica') ? 'block' : 'none';
+        });
+      });
+    }
+    if (st.step === 6) {
+      Array.prototype.forEach.call(document.querySelectorAll('input[name="mchoice"]'), function (r) {
+        r.addEventListener('change', function () { onMenuChoice(r.value); });
+      });
       var addCat = document.getElementById('addCat');
       if (addCat) addCat.addEventListener('click', onAddCategory);
       Array.prototype.forEach.call(document.querySelectorAll('[data-add-item]'), function (b) {
@@ -356,45 +528,62 @@
         b.addEventListener('click', function () { onRemoveItem(b.getAttribute('data-rm')); });
       });
     }
-    if (st.step === 6) {
-      var pq = document.getElementById('printQr');
-      if (pq) pq.addEventListener('click', printQr);
+    if (st.step === 7) {
+      var bc = document.getElementById('btnCopy'); if (bc) bc.addEventListener('click', copyLink);
+      var bv = document.getElementById('btnView'); if (bv) bv.addEventListener('click', function () { window.open(menuUrl(), '_blank'); });
+      var bp = document.getElementById('btnPrint'); if (bp) bp.addEventListener('click', printQr);
     }
   }
 
-  function busy(on, label) {
+  function busy(on) {
     st.busy = on;
+    var bk = document.getElementById('btnBack');
+    if (bk) bk.disabled = on;  // bloquea "Volver" durante el await (evita re-entrada / doble POST)
     var b = document.getElementById('btnNext');
     if (!b) return;
     b.disabled = on;
-    b.innerHTML = on ? '<span class="spinner"></span>Guardando…' : esc(label);
+    b.innerHTML = on ? '<span class="spinner"></span>Guardando…' : esc(BTN_LABELS[st.step]);
   }
 
   async function onNext() {
     if (st.busy) return;
     setErr('');
     try {
-      if (st.step === 1) return await createLocal();
-      if (st.step === 2) return await saveStep2();
+      if (st.step === 1) return goToPlan();
+      if (st.step === 2) return await createLocal();
       if (st.step === 3) return await saveStep3();
       if (st.step === 4) return await saveStep4();
-      if (st.step === 5) return saveStep5();
-      if (st.step === 6) return await finish();
+      if (st.step === 5) return await saveStep5();
+      if (st.step === 6) return await saveStep6();
+      if (st.step === 7) return await finish();
     } catch (e) {
       setErr((e && e.message) || 'No se pudo guardar. Probá de nuevo.');
-      busy(false, st.step === 6 ? 'Finalizar y entrar al panel' : (st.step === 1 ? 'Crear mi local' : 'Continuar'));
+      busy(false);
     }
   }
 
-  // STEP 1 → crear local por el endpoint seguro y avanzar al paso 2
-  async function createLocal() {
+  // STEP 1 → validar y pasar a Plan (sin escribir nada todavía)
+  async function goToPlan() {
     var name = v('f_name');
+    var pick = document.querySelector('input[name="biz"]:checked');
+    if (name.length < 2) { setErr('Decinos el nombre de tu local.'); return; }
+    if (!pick) { setErr('Elegí el tipo de negocio.'); return; }
+    st.biz = { name: name, type: pick.value };
+    if (!st.plans.length) { busy(true); await loadPlans(); }
+    st.step = 2; render();
+  }
+
+  // STEP 2 → crear el local por el endpoint seguro y avanzar a Contacto
+  async function createLocal() {
     var checked = document.querySelector('input[name="plan"]:checked');
     var planId = checked ? checked.value : '';
-    if (name.length < 2) { setErr('Decinos el nombre de tu local.'); return; }
+    if (!st.biz.name || st.biz.name.length < 2) { st.step = 1; render(); return; }
     if (!planId) { setErr('Elegí un plan para tu prueba.'); return; }
+    st.planId = planId;
+    var planObj = st.plans.filter(function (p) { return p.id === planId; })[0];
+    st.planName = planObj ? planObj.name : '';
 
-    busy(true, 'Crear mi local');
+    busy(true);
     var sres = await db.auth.getSession();
     var token = sres && sres.data && sres.data.session ? sres.data.session.access_token : null;
     if (!token) { window.location.replace('login.html'); return; }
@@ -402,73 +591,88 @@
     var resp = await fetch('/api/onboarding', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify({ restaurant_name: name, plan_id: planId })
+      body: JSON.stringify({ restaurant_name: st.biz.name, plan_id: planId })
     });
     var out = null; try { out = await resp.json(); } catch (x) { out = null; }
 
     if (resp.ok && out && out.success) {
       st.restaurantId = out.restaurant_id;
       var r = await db.from('restaurants').select('*').eq('id', st.restaurantId).maybeSingle();
-      st.rest = (r && r.data) ? r.data : { name: name };
+      st.rest = (r && r.data) ? r.data : { name: st.biz.name };
+      // Avatar automático desde el nombre + tipo de negocio (feature-detect: si la
+      // mig 120 aún no está aplicada, business_type no existe → no se intenta escribir).
+      var patch = {};
+      var ini = initialsOf(st.biz.name); if (ini && hasCol('logo_initials')) patch.logo_initials = ini;
+      if (st.biz.type && hasCol('business_type')) patch.business_type = st.biz.type;
+      if (Object.keys(patch).length) { try { await saveRest(patch); } catch (e) {} }
       await loadMenu();
-      st.step = 2; render(); return;
+      st.step = 3; render(); return;
     }
     if (resp.status === 409) { window.location.replace('login.html'); return; } // ya tenía local
-    busy(false, 'Crear mi local');
+    busy(false);
     setErr((out && out.error) || 'No pudimos crear tu local ahora. Probá de nuevo.');
   }
 
-  // STEP 2 → UPDATE datos del local
-  async function saveStep2() {
-    var phone = v('f_phone'), addr = v('f_addr'), city = v('f_city'), country = v('f_country');
-    if (!phone) { setErr('Ingresá un teléfono de contacto.'); return; }
-    if (!addr)  { setErr('Ingresá la dirección de tu local.'); return; }
-    if (!city)  { setErr('Ingresá la ciudad.'); return; }
-    if (!country) { setErr('Ingresá el país.'); return; }
-    var lat = v('f_lat'), lng = v('f_lng');
-    if ((lat && isNaN(parseFloat(lat))) || (lng && isNaN(parseFloat(lng)))) { setErr('La ubicación (lat/lng) debe ser numérica.'); return; }
-
-    busy(true, 'Continuar');
-    await saveRest({
-      logo_initials: v('f_logo') || null,
-      phone: phone, address: addr, city: city, country: country,
-      instagram: v('f_ig') || null, facebook: v('f_fb') || null, whatsapp: v('f_wa') || null,
-      ruc: v('f_ruc') || null, legal_name: v('f_legal') || null,
-      lat: lat ? parseFloat(lat) : null, lng: lng ? parseFloat(lng) : null
-    });
-    st.step = 3; render();
-  }
-
-  // STEP 3 → UPDATE payment_methods
+  // STEP 3 → contacto y ubicación
   async function saveStep3() {
-    var sel = Array.prototype.map.call(document.querySelectorAll('input[name="pay"]:checked'), function (c) { return c.value; });
-    if (!sel.length) { setErr('Elegí al menos un medio de cobro.'); return; }
-    busy(true, 'Continuar');
-    await saveRest({ payment_methods: sel });
+    var wa = v('f_wa'), addr = v('f_addr'), city = v('f_city'), country = v('f_country');
+    if (!wa)   { setErr('Ingresá el WhatsApp del local.'); return; }
+    if (!addr) { setErr('Ingresá la dirección de tu local.'); return; }
+    if (!city) { setErr('Ingresá la ciudad.'); return; }
+    if (!country) { setErr('Ingresá el país.'); return; }
+    busy(true);
+    await saveRest({
+      whatsapp: wa, phone: v('f_phone') || null, address: addr, city: city, country: country,
+      instagram: v('f_ig') || null, facebook: v('f_fb') || null, website: v('f_web') || null
+    });
     st.step = 4; render();
   }
 
-  // STEP 4 → UPDATE einvoicing_status
+  // STEP 4 → operación (columnas nuevas con feature-detect; nada obligatorio)
   async function saveStep4() {
-    var pick = document.querySelector('input[name="einv"]:checked');
-    if (!pick) { setErr('Elegí una opción de facturación.'); return; }
-    busy(true, 'Continuar');
-    await saveRest({ einvoicing_status: pick.value });
+    var modes = checkedVals('mode'), intake = checkedVals('intake');
+    var kitchen = document.querySelector('input[name="kitchen"]:checked');
+    var tablesRaw = v('f_tables').replace(/[^\d]/g, '');
+    st.ops.tableCount = tablesRaw;  // recordado en memoria para sembrar mesas al finalizar
+    var tcount = tablesRaw ? parseInt(tablesRaw, 10) : null;
+    if (tcount != null && tcount > 200) { setErr('Esa cantidad de mesas es demasiado alta.'); return; }
+
+    var patch = {};
+    if (hasCol('operation_modes')) patch.operation_modes = modes;
+    if (hasCol('order_intake'))    patch.order_intake = intake;
+    if (hasCol('kitchen_routing')) patch.kitchen_routing = kitchen ? kitchen.value : null;
+    if (hasCol('table_count'))     patch.table_count = tcount;
+    if (Object.keys(patch).length) { busy(true); await saveRest(patch); }
     st.step = 5; render();
   }
 
-  // STEP 5 → exige ≥1 ítem (ya persistido) y avanza
-  function saveStep5() {
-    var totalItems = st.menuCats.reduce(function (n, c) { return n + c.items.length; }, 0);
-    if (!st.menuCats.length) { setErr('Agregá al menos una categoría.'); return; }
-    if (!totalItems) { setErr('Agregá al menos un producto a tu carta.'); return; }
+  // STEP 5 → pagos y comprobantes
+  async function saveStep5() {
+    var pay = checkedVals('pay');
+    if (!pay.length) { setErr('Elegí al menos un medio de pago.'); return; }
+    var einv = document.querySelector('input[name="einv"]:checked');
+    var einvVal = einv ? einv.value : null;
+    busy(true);
+    var patch = { payment_methods: pay, einvoicing_status: einvVal };
+    if (einvVal === 'impresa' || einvVal === 'electronica') {
+      patch.ruc = v('f_ruc') || null;
+      patch.legal_name = v('f_legal') || null;
+    }
+    if (hasCol('print_needs')) patch.print_needs = checkedVals('print');
+    await saveRest(patch);
     st.step = 6; render();
   }
 
-  // STEP 6 → marcar completado + entrar al panel
+  // STEP 6 → carta (no bloquea: se puede avanzar con menú pendiente)
+  async function saveStep6() {
+    st.step = 7; render();
+  }
+
+  // STEP 7 → marcar completado + sembrar mesas + entrar al panel
   async function finish() {
-    busy(true, 'Finalizar y entrar al panel');
+    busy(true);
     await saveRest({ onboarding_completed_at: new Date().toISOString() });
+    await seedTables();  // best-effort, nunca bloquea
     var u = st.session && st.session.user;
     var ownerName = (u && u.user_metadata && (u.user_metadata.full_name || u.user_metadata.display_name)) || (u && u.email) || '';
     try {
@@ -479,6 +683,74 @@
       localStorage.setItem('mythos_last_activity', String(Date.now()));
     } catch (x) {}
     window.location.replace('admin.html');
+  }
+
+  // Pre-config REAL del Admin: deja N mesas creadas (solo si el dueño puso una
+  // cantidad y el local todavía no tiene mesas). Best-effort: si falla, no rompe.
+  async function seedTables() {
+    try {
+      var n = parseInt(st.ops.tableCount, 10);
+      if (!(n > 0 && n <= 200)) return;
+      var ex = await db.from('tables').select('id').eq('restaurant_id', st.restaurantId).limit(1);
+      if (ex.error || (ex.data && ex.data.length)) return;  // ya hay mesas → no duplicar
+      var rows = [];
+      for (var i = 1; i <= n; i++) rows.push({ restaurant_id: st.restaurantId, number: i, capacity: 4, qr_token: uid(), zona: 'salon', shape: 'square' });
+      await db.from('tables').insert(rows);
+    } catch (e) { /* best-effort */ }
+  }
+  function uid() {
+    try { if (window.crypto && crypto.randomUUID) return 'tbl_' + crypto.randomUUID(); } catch (e) {}
+    return 'tbl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+
+  function checkedVals(group) {
+    return Array.prototype.map.call(document.querySelectorAll('input[name="' + group + '"]:checked'), function (c) { return c.value; });
+  }
+
+  // ── Paso 6: elección de carta ───────────────────────────────────────────────
+  async function onMenuChoice(choice) {
+    st.menuChoice = choice;
+    if (choice === 'ejemplo' && !st.exampleSeeded) {
+      setErr('');
+      st.exampleSeeded = true;
+      var warn = '';
+      try { warn = await seedExampleMenu(); }
+      catch (e) {
+        // Falló la categoría: reseteamos la elección a '' para que volver a tocar
+        // "ejemplo" dispare otro 'change' (un radio ya seleccionado no lo emite).
+        st.exampleSeeded = false; st.menuChoice = '';
+        render(); setErr((e && e.message) || 'No pudimos cargar la carta de ejemplo. Probá de nuevo.');
+        return;
+      }
+      render();
+      if (warn) setErr(warn);  // setErr DESPUÉS del render (render reconstruye el #err vacío)
+      return;
+    }
+    render();
+  }
+
+  // Devuelve '' si todo ok, o un aviso suave si algún producto no se pudo insertar.
+  async function seedExampleMenu() {
+    var failed = 0;
+    for (var i = 0; i < EXAMPLE_MENU.length; i++) {
+      var blk = EXAMPLE_MENU[i];
+      if (st.menuCats.some(function (c) { return c.name.trim().toLowerCase() === blk.cat.toLowerCase(); })) continue;
+      var rc = await db.from('menu_categories')
+        .insert({ restaurant_id: st.restaurantId, name: blk.cat, sort_order: st.menuCats.length + 1 })
+        .select('id').maybeSingle();
+      if (rc.error || !rc.data) throw new Error(rc.error ? rc.error.message : 'No se pudo crear la categoría de ejemplo.');
+      var cat = { id: rc.data.id, name: blk.cat, items: [] };
+      st.menuCats.push(cat);
+      for (var j = 0; j < blk.items.length; j++) {
+        var it = blk.items[j];
+        var ri = await db.from('menu_items')
+          .insert({ name: it[0], price_guarani: it[1], category_id: cat.id, restaurant_id: st.restaurantId, is_available: true })
+          .select('id').maybeSingle();
+        if (!ri.error && ri.data) cat.items.push({ id: ri.data.id, name: it[0], price_guarani: it[1], category_id: cat.id });
+        else failed++;
+      }
+    }
+    return failed ? 'Algunos productos de ejemplo no se cargaron. Podés agregarlos desde el editor.' : '';
   }
 
   // ── Menú: insertar/borrar (RLS: admin puede su menú) ────────────────────────
@@ -534,15 +806,23 @@
     } catch (e) { setErr((e && e.message) || 'No se pudo quitar el producto.'); }
   }
 
+  // ── Paso 7: utilidades ───────────────────────────────────────────────────────
+  function copyLink() {
+    var u = menuUrl();
+    var btn = document.getElementById('btnCopy');
+    function done() { if (btn) { var t = btn.textContent; btn.textContent = '¡Enlace copiado!'; setTimeout(function () { btn.textContent = t; }, 1600); } }
+    function fallback() { try { var i = document.createElement('input'); i.value = u; document.body.appendChild(i); i.select(); document.execCommand('copy'); document.body.removeChild(i); done(); } catch (x) {} }
+    try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(u).then(done, fallback); } else fallback(); }
+    catch (e) { fallback(); }
+  }
+
   function printQr() {
-    var menuUrl = window.location.protocol + '//' + window.location.host + '/?r=' + encodeURIComponent(st.restaurantId);
-    var qrImg = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(menuUrl) + '&margin=10';
     var restName = st.rest && st.rest.name ? st.rest.name : 'Mi local';
     var w = window.open('', '_blank', 'width=520,height=680');
     if (!w) return;
     w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR menú</title>' +
       '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui,sans-serif;background:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:32px}div.card{text-align:center;border:1.5px solid #E5E5E7;border-radius:16px;padding:32px;max-width:340px;width:100%}img{border-radius:8px;margin-bottom:18px}h1{font-size:26px;font-weight:900;color:#000;margin-bottom:6px}p{font-size:13px;color:#86868B}@media print{body{padding:0}div.card{border:none}}</style>' +
-      '</head><body><div class="card"><img src="' + qrImg + '" width="260" height="260"/>' +
+      '</head><body><div class="card"><img src="' + qrSrc() + '" width="260" height="260"/>' +
       '<h1>' + esc(restName) + '</h1><p>Escaneá para ver el menú</p></div>' +
       '<scr' + 'ipt>window.onload=function(){window.print();}</scr' + 'ipt></body></html>');
     w.document.close();
