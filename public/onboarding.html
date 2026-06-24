@@ -217,6 +217,11 @@
   }
 
   function render() {
+    // Cada render reconstruye la UI (nuevo btnNext): el paso recién mostrado debe
+    // arrancar INTERACTIVO. El guard de doble-submit (st.busy) solo debe valer DURANTE
+    // el await del save; si no se resetea acá, el paso siguiente queda trabado en
+    // onNext() por `if (st.busy) return` (este era el bug del Step 3 que no avanzaba).
+    st.busy = false;
     var html = (st.step === 1) ? '' : header();
     switch (st.step) {
       case 1: html += step1(); break;
