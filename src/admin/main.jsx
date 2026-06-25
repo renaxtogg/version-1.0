@@ -1195,7 +1195,8 @@ function DashboardPage({orders, ratings, setPage}) {
 /* ══════════════════════════════════════════════
    PEDIDOS
 ══════════════════════════════════════════════ */
-function PedidosPage({orders, tables, onRefresh}) {
+function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
+  const refreshOrders = onRefreshOrders || onRefresh;   // refresco liviano (fallback al pesado)
   const [typeFilter,setTypeFilter]     = useState('all');
   const [statusFilter,setStatusFilter] = useState('all');
   const [period,setPeriod]             = useState('hoy');
@@ -1271,10 +1272,12 @@ function PedidosPage({orders, tables, onRefresh}) {
 
   useEffect(()=>{
     if(!db) return;
+    // Refresco LIVIANO + sin gate: el pedido nuevo entra a la lista aunque haya un input
+    // con foco o un modal abierto (es una lista de monitoreo). El badge "Nuevo" se mantiene.
+    // Coalescido en el padre (debounce compartido) → un solo refresco por pedido.
     const ch = db.channel('pedidos-rt')
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ setNewBadge(n=>n+1); if(!_shouldPause()) onRefresh(); })
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) onRefresh(); })
-      .on('postgres_changes',{event:'*',schema:'public',table:'waiter_calls',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) onRefresh(); })
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ setNewBadge(n=>n+1); refreshOrders(); })
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ refreshOrders(); })
       .subscribe();
     return ()=>{ db.removeChannel(ch); };
   },[]);
@@ -1308,7 +1311,7 @@ function PedidosPage({orders, tables, onRefresh}) {
     const{data,error}=await db.from('orders').update({status:newStatus,...(newStatus==='delivered'?{completed_at:new Date().toISOString()}:{})}).eq('id',orderId).select('id');
     if(error){toast('Error: '+error.message,false);}
     else if(!data||data.length===0){toast('No se pudo actualizar el estado — verificá RLS en Supabase',false);}
-    else{toast('Estado actualizado');setSelected(s=>s?.id===orderId?{...s,status:newStatus}:s);onRefresh();}
+    else{toast('Estado actualizado');setSelected(s=>s?.id===orderId?{...s,status:newStatus}:s);refreshOrders();}
     setUpd(false);
   }
 
@@ -9961,6 +9964,8 @@ function AdminApp() {
   }, []);
   function toggleTheme(){ if (window.MythosTheme) window.MythosTheme.toggle(); }
   const [orders,setOrders] = useState([]);
+  const tablesRef   = useRef([]);    // espejo de `tables` para el mapeo liviano sin closures viejos
+  const ordersTimer = useRef(null);  // debounce del refresco liviano de pedidos
   const [categories,setCategories] = useState([]);
   const [menuItems,setMenuItems] = useState([]);
   const [tables,setTables] = useState([]);
@@ -10009,8 +10014,12 @@ function AdminApp() {
   useEffect(()=>{
     if(!db) return;
     const ch = db.channel('admin-global-rt')
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadAll(true); })
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadAll(true); })
+      // Pedidos → refresco LIVIANO (solo orders), sin gate: aparecen aun con foco/modal.
+      // El recuento de items se recalcula en refreshOrders, así que el INSERT/UPDATE de
+      // la orden ya cubre los items asociados (order_items no tiene restaurant_id para filtrar).
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ refreshOrders(); })
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ refreshOrders(); })
+      // Mesas/menú → recarga completa (afectan otras vistas), gateada por interacción.
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadAll(true); })
       .on('postgres_changes',{event:'*',schema:'public',table:'menu_items',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadAll(true); })
       .subscribe();
@@ -10045,13 +10054,36 @@ function AdminApp() {
     }
     if(rR.data?.name) document.title=`Admin — ${rR.data.name}`;
     setRestaurant(rR.data);
-    setTables(tbls);
+    setTables(tbls); tablesRef.current=tbls;
     setOrders(rawOrds.map(o=>({...o,table_number:o.table_id?tableMap[o.table_id]:null,items_count:countsMap[o.id]||0})));
     setCategories(cR.data||[]);
     setMenuItems(iR.data||[]);
     setCoupons(cpR.data||[]);
     setRatings(raR.data||[]);
     if(!silent) setLoading(false);
+  }
+
+  // Refresco LIVIANO de la lista de pedidos: recarga SOLO orders (+conteo de items),
+  // nunca el bootstrap completo (menú/mesas/ratings/cupones/restaurante quedan intactos).
+  // Coalescido ~400ms: el INSERT + los UPDATEs + los eventos de items de un mismo
+  // pedido se funden en UNA sola recarga. SIN gate de _shouldPause: la lista de
+  // monitoreo debe actualizarse aunque haya un input con foco o un modal abierto.
+  function refreshOrders() {
+    clearTimeout(ordersTimer.current);
+    ordersTimer.current = setTimeout(async () => {
+      if(!db) return;
+      const oR = await db.from('orders').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(500);
+      if(oR.error){ console.error('[admin] refreshOrders error | code:',oR.error.code,'| message:',oR.error.message); return; }
+      const rawOrds = oR.data||[];
+      const orderIds = rawOrds.slice(0,150).map(o=>o.id);
+      let countsMap={};
+      if(orderIds.length){
+        const{data:cd}=await db.from('order_items').select('order_id').in('order_id',orderIds);
+        (cd||[]).forEach(it=>{countsMap[it.order_id]=(countsMap[it.order_id]||0)+1;});
+      }
+      const tableMap={}; (tablesRef.current||[]).forEach(t=>{tableMap[t.id]=t.number;});
+      setOrders(rawOrds.map(o=>({...o,table_number:o.table_id?tableMap[o.table_id]:null,items_count:countsMap[o.id]||0})));
+    }, 400);
   }
 
   function renderPage() {
@@ -10067,7 +10099,7 @@ function AdminApp() {
     switch(page){
       case 'dashboard': return <DashboardPage orders={orders} ratings={ratings} setPage={setPage}/>;
       case 'paneles':   return <PanelesPage caps={caps}/>;
-      case 'pedidos':   return <PedidosPage orders={orders} tables={tables} onRefresh={loadAll}/>;
+      case 'pedidos':   return <PedidosPage orders={orders} tables={tables} onRefresh={loadAll} onRefreshOrders={refreshOrders}/>;
       case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
       case 'mesas':     return <MesasPage tables={tables} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'reservas':  return <ReservasPage tables={tables}/>;
