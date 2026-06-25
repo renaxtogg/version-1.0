@@ -6738,9 +6738,39 @@ function EstacionesAudit({stations}) {
 /* ══════════════════════════════════════════════
    CONFIG
 ══════════════════════════════════════════════ */
+// Horario estructurado (mig 125). Semana en orden lunes-primero (índices 0=Dom…6=Sáb).
+const WEEK_DAYS = [{i:1,l:'Lunes'},{i:2,l:'Martes'},{i:3,l:'Miércoles'},{i:4,l:'Jueves'},{i:5,l:'Viernes'},{i:6,l:'Sábado'},{i:0,l:'Domingo'}];
+const _DOW_FULL  = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+const _DOW_SHORT = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+// Deriva el texto display (lista {day,hours}) desde el horario estructurado,
+// agrupando días consecutivos (lun-primero) con el mismo horario → "Lun–Vie 12:00–23:00".
+function deriveHoursDisplay(bh){
+  const order=[1,2,3,4,5,6,0];
+  const dayStr=(d)=>{ const rs=Array.isArray(bh[String(d)])?bh[String(d)]:[]; if(!rs.length) return null; return rs.filter(r=>r.start&&r.end).map(r=>`${r.start}–${r.end}`).join(' · ')||null; };
+  const out=[]; let i=0;
+  while(i<order.length){
+    const s=dayStr(order[i]);
+    if(s==null){ i++; continue; }
+    let j=i; while(j+1<order.length && dayStr(order[j+1])===s) j++;
+    out.push({day: i===j?_DOW_FULL[order[i]]:`${_DOW_SHORT[order[i]]}–${_DOW_SHORT[order[j]]}`, hours:s});
+    i=j+1;
+  }
+  return out;
+}
+// Limpia el horario estructurado: descarta rangos sin start/end y días vacíos.
+function cleanBusinessHours(bhDays){
+  const clean={};
+  for(let d=0; d<7; d++){
+    const rs=Array.isArray(bhDays[String(d)])?bhDays[String(d)].filter(r=>r.start&&r.end):[];
+    if(rs.length) clean[String(d)]=rs.map(r=>({start:r.start,end:r.end}));
+  }
+  return clean;
+}
+
 function ConfigPage({restaurant,onRefresh}) {
   const [form,setForm] = useState({});
-  const [hours,setHours] = useState([]);
+  const [bhDays,setBhDays] = useState({});            // { '0':[{start,end}], … } (mig 125)
+  const [openOverride,setOpenOverride] = useState('auto'); // 'auto' | 'open' | 'closed'
   const [saving,setSaving] = useState(false);
   const [savingH,setSavingH] = useState(false);
   const [savingR,setSavingR] = useState(false);
@@ -6748,10 +6778,16 @@ function ConfigPage({restaurant,onRefresh}) {
   useEffect(()=>{
     if(restaurant){
       setForm(restaurant);
-      const h=restaurant.opening_hours;
-      setHours(Array.isArray(h)&&h.length>0?h:[{day:'Lun–Vie',hours:'12:00–15:00 · 19:00–23:00'},{day:'Sábados',hours:'12:00–23:30'},{day:'Domingos',hours:'12:00–16:00'}]);
+      const bh=(restaurant.business_hours && typeof restaurant.business_hours==='object')?restaurant.business_hours:{};
+      const norm={}; for(let d=0; d<7; d++){ const r=bh[String(d)]; norm[String(d)]=Array.isArray(r)?r.map(x=>({start:x.start||'',end:x.end||''})):[]; }
+      setBhDays(norm);
+      setOpenOverride(restaurant.open_override || 'auto');
     }
   },[restaurant]);
+
+  const addRange    = (d)=>setBhDays(p=>({...p,[d]:[...(p[d]||[]),{start:'12:00',end:'23:00'}]}));
+  const removeRange = (d,idx)=>setBhDays(p=>({...p,[d]:(p[d]||[]).filter((_,j)=>j!==idx)}));
+  const setRange    = (d,idx,field,val)=>setBhDays(p=>({...p,[d]:(p[d]||[]).map((r,j)=>j===idx?{...r,[field]:val}:r)}));
 
   async function save(){
     if(!db)return;setSaving(true);
@@ -6764,12 +6800,11 @@ function ConfigPage({restaurant,onRefresh}) {
   }
   async function saveHours(){
     if(!db)return;setSavingH(true);
-    if(!('opening_hours' in (restaurant||{}))){
-      toast('Columna opening_hours no existe aún — ejecutá migración 009 en Supabase',false);
-      setSavingH(false);return;
-    }
-    const{data,error}=await db.from('restaurants').update({opening_hours:hours}).eq('id',RID).select('id');
-    if(error){toast('Error: '+error.message,false);}
+    const clean=cleanBusinessHours(bhDays);
+    const display=deriveHoursDisplay(clean);
+    const upd={business_hours:clean, opening_hours:display, open_override:openOverride};
+    const{data,error}=await db.from('restaurants').update(upd).eq('id',RID).select('id');
+    if(error){toast('Error al guardar horarios: '+error.message+' — ¿está aplicada la migración 125?',false);}
     else if(!data||data.length===0){toast('No se pudo guardar los horarios — verificá RLS en Supabase',false);}
     else{toast('Horarios guardados');onRefresh();}
     setSavingH(false);
@@ -6849,18 +6884,46 @@ function ConfigPage({restaurant,onRefresh}) {
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
-              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>HORARIOS</div>
-              <Btn small variant="secondary" onClick={()=>setHours(h=>[...h,{day:'',hours:''}])}>+ Añadir</Btn>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>ESTADO DEL LOCAL AHORA</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:12,lineHeight:1.5}}>El modo manual <strong>gana</strong> sobre el horario (feriados, imprevistos). En "Automático" el cliente abre/cierra según el horario de abajo.</div>
+            <div style={{display:'flex',gap:6,marginBottom:6}}>
+              {[{v:'auto',l:'Automático',d:'Según horario'},{v:'open',l:'Abierto ahora',d:'Forzar abierto'},{v:'closed',l:'Cerrado ahora',d:'Forzar cerrado'}].map(o=>{
+                const sel=openOverride===o.v;
+                const clr=o.v==='closed'?'#FF3B30':o.v==='open'?C.green:C.ink;
+                return (
+                  <button key={o.v} onClick={()=>setOpenOverride(o.v)} style={{flex:1,textAlign:'center',padding:'10px 6px',border:`2px solid ${sel?clr:C.border}`,borderRadius:10,background:sel?'var(--bg-subtle)':'transparent',cursor:'pointer',transition:'all 150ms'}}>
+                    <div style={{fontSize:12.5,fontWeight:800,color:sel?clr:C.mid}}>{o.l}</div>
+                    <div style={{fontSize:10,color:C.dim,marginTop:2}}>{o.d}</div>
+                  </button>
+                );
+              })}
             </div>
-            <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
-              {hours.map((h,i)=>(
-                <div key={i} style={{display:'flex',gap:6}}>
-                  <Inp value={h.day} onChange={e=>setHours(hs=>hs.map((x,j)=>j===i?{...x,day:e.target.value}:x))} placeholder="Lun–Vie" style={{flex:'0 0 110px'}}/>
-                  <Inp value={h.hours} onChange={e=>setHours(hs=>hs.map((x,j)=>j===i?{...x,hours:e.target.value}:x))} placeholder="12:00–23:00"/>
-                  <button onClick={()=>setHours(hs=>hs.filter((_,j)=>j!==i))} style={{background:'none',border:`1px solid rgba(239,68,68,0.25)`,color:'rgba(239,68,68,0.6)',padding:'0 9px',borderRadius:6,cursor:'pointer',flexShrink:0}}>✕</button>
-                </div>
-              ))}
+            <div style={{height:1,background:C.border,margin:'16px 0'}}/>
+
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>HORARIO POR DÍA</div>
+            </div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:12,lineHeight:1.5}}>Cargá los rangos de cada día (admite turnos partidos). Si un turno cruza la medianoche, poné el fin menor al inicio (ej. 20:00 → 02:00). Un día sin rangos = cerrado.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
+              {WEEK_DAYS.map(({i,l})=>{
+                const ranges=bhDays[String(i)]||[];
+                return (
+                  <div key={i} style={{borderBottom:`1px solid ${C.border}`,paddingBottom:10}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:ranges.length?8:0}}>
+                      <span style={{fontSize:13,fontWeight:700,color:C.ink}}>{l}{ranges.length?'':<span style={{fontSize:11,fontWeight:600,color:C.dim,marginLeft:8}}>Cerrado</span>}</span>
+                      <Btn small variant="secondary" onClick={()=>addRange(String(i))}>+ Rango</Btn>
+                    </div>
+                    {ranges.map((r,idx)=>(
+                      <div key={idx} style={{display:'flex',gap:6,alignItems:'center',marginBottom:6}}>
+                        <input type="time" value={r.start} onChange={e=>setRange(String(i),idx,'start',e.target.value)} style={{flex:1,padding:'7px 8px',fontSize:13,borderRadius:6,border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/>
+                        <span style={{fontSize:12,color:C.dim}}>a</span>
+                        <input type="time" value={r.end} onChange={e=>setRange(String(i),idx,'end',e.target.value)} style={{flex:1,padding:'7px 8px',fontSize:13,borderRadius:6,border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/>
+                        <button onClick={()=>removeRange(String(i),idx)} style={{background:'none',border:`1px solid rgba(239,68,68,0.25)`,color:'rgba(239,68,68,0.7)',padding:'0 9px',height:32,borderRadius:6,cursor:'pointer',flexShrink:0}}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
             <Btn onClick={saveHours} disabled={savingH}>{savingH?'Guardando…':'Guardar horarios'}</Btn>
           </div>

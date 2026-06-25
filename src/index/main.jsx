@@ -133,8 +133,14 @@ async function dbLoadRestaurant() {
     const { data, error } = await db.from('restaurants')
       .select('id,name,address,phone,instagram,website,logo_initials,cover_style,timezone,is_active,created_at,updated_at,status,country,city,cover_image_url,logo_url,currency,maintenance_mode,maintenance_message,lat,lng,reservation_window_hours,reservation_alert_minutes,opening_hours,is_open,auto_provisioned,parent_company_id')
       .eq('id', RESTAURANT_ID).maybeSingle();
-    if (!error && data) return data;
-    return null;
+    if (error || !data) return null;
+    // Horario estructurado (mig 125) — best-effort: si la columna aún no existe,
+    // se ignora y el cliente degrada a ABIERTO (no rompe la carga del restaurante).
+    try {
+      const bh = await db.from('restaurants').select('business_hours,open_override').eq('id', RESTAURANT_ID).maybeSingle();
+      if (bh && !bh.error && bh.data) { data.business_hours = bh.data.business_hours; data.open_override = bh.data.open_override; }
+    } catch (_) {}
+    return data;
   } catch(e) { return null; }
 }
 
@@ -389,8 +395,67 @@ function QRScreen({ onScan }) {
   );
 }
 
+/* ── ESTADO ABIERTO/CERRADO (horario estructurado + override manual) ─────────
+   business_hours: { "0":[{start:"HH:MM",end:"HH:MM"}], … "6":[…] } (0=Dom…6=Sáb).
+   open_override: 'auto' | 'open' | 'closed' (override del dueño; gana al horario).
+   Defensivo: sin business_hours válido en 'auto' → ABIERTO (no bloquear ventas).
+   Calcula la hora en la zona horaria del local (restaurants.timezone) vía Intl.
+   ⚠ Mantener IDÉNTICO a src/delivery-cliente/main.jsx. */
+const _DOW_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+function _hhmmToMin(s) { const p = String(s || '').split(':'); const h = parseInt(p[0], 10), m = parseInt(p[1], 10); return (isFinite(h) ? h : 0) * 60 + (isFinite(m) ? m : 0); }
+function _nowInTz(tz) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz || 'America/Asuncion', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+    const map = {}; parts.forEach(p => { map[p.type] = p.value; });
+    const wd = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    let h = parseInt(map.hour, 10); if (h === 24) h = 0;
+    const dow = (map.weekday in wd) ? wd[map.weekday] : new Date().getDay();
+    return { dow, min: (isFinite(h) ? h : 0) * 60 + (parseInt(map.minute, 10) || 0) };
+  } catch (_) { const d = new Date(); return { dow: d.getDay(), min: d.getHours() * 60 + d.getMinutes() }; }
+}
+function _bhHasHours(bh) { try { return !!bh && typeof bh === 'object' && Object.keys(bh).some(k => Array.isArray(bh[k]) && bh[k].length > 0); } catch (_) { return false; } }
+function _bhRanges(bh, d) { const r = bh && bh[String(d)]; return Array.isArray(r) ? r : []; }
+function _openNow(bh, dow, min) {
+  for (const r of _bhRanges(bh, dow)) {
+    const s = _hhmmToMin(r.start), e = _hhmmToMin(r.end);
+    if (e > s) { if (min >= s && min < e) return true; }
+    else if (e < s) { if (min >= s) return true; }            // cruza medianoche → abierto hasta 24:00
+  }
+  const prev = (dow + 6) % 7;
+  for (const r of _bhRanges(bh, prev)) {
+    const s = _hhmmToMin(r.start), e = _hhmmToMin(r.end);
+    if (e < s && min < e) return true;                         // cola del turno que cruzó medianoche
+  }
+  return false;
+}
+function _nextOpen(bh, dow, min) {
+  for (let off = 0; off < 8; off++) {
+    const d = (dow + off) % 7;
+    const ranges = _bhRanges(bh, d).slice().sort((a, b) => _hhmmToMin(a.start) - _hhmmToMin(b.start));
+    for (const r of ranges) {
+      const s = _hhmmToMin(r.start);
+      if (off === 0 && s <= min) continue;
+      const lbl = off === 0 ? 'hoy' : off === 1 ? 'mañana' : _DOW_ES[d];
+      return `${lbl} ${r.start}`;
+    }
+  }
+  return null;
+}
+function restaurantOpenState(restaurant) {
+  const ov = (restaurant && restaurant.open_override) || 'auto';
+  const tz = (restaurant && restaurant.timezone) || 'America/Asuncion';
+  const bh = restaurant && restaurant.business_hours;
+  if (ov === 'open') return { open: true, manual: true, next: null };
+  const { dow, min } = _nowInTz(tz);
+  if (ov === 'closed') return { open: false, manual: true, next: _bhHasHours(bh) ? _nextOpen(bh, dow, min) : null };
+  if (!_bhHasHours(bh)) return { open: true, noSchedule: true, next: null };   // defensivo: sin horario → abierto
+  const open = _openNow(bh, dow, min);
+  return { open, next: open ? null : _nextOpen(bh, dow, min) };
+}
+function openBadgeLabel(st) { return st.open ? 'Abierto ahora' : (st.next ? `Cerrado · Abre ${st.next}` : 'Cerrado'); }
+
 /* ══ SCREEN: PERFIL ══════════════════════ */
-function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCallWaiter, onReserve, assignedWaiterName }) {
+function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCallWaiter, onReserve, assignedWaiterName, openState }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
   const [showHours, setShowHours] = useState(false);
@@ -408,14 +473,11 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
   const restInitials = restaurant?.logo_initials || (restaurant?.name ? restaurant.name.trim().slice(0,2).toUpperCase() : '·');
   const coverUrl     = restaurant?.cover_image_url || null;
 
-  // Estado abierto/cerrado (heurístico — reemplazar con campo real en producción)
-  const now = new Date();
-  const hh = now.getHours() + now.getMinutes() / 60;
-  const dow = now.getDay();
-  let isOpen = false, closingHint = '';
-  if (dow === 0) { isOpen = hh >= 12 && hh < 16; closingHint = isOpen ? 'Cierra a las 16:00' : ''; }
-  else if (dow === 6) { isOpen = hh >= 12 && hh < 23.5; closingHint = isOpen ? 'Cierra a las 23:30' : ''; }
-  else { isOpen = (hh >= 12 && hh < 15) || (hh >= 19 && hh < 23); closingHint = isOpen ? (hh < 15 ? 'Cierra a las 15:00' : 'Cierra a las 23:00') : ''; }
+  // Estado abierto/cerrado REAL: horario estructurado (business_hours) en la zona
+  // horaria del local + override manual. Lo computa el App y lo pasa por prop.
+  const st = openState || restaurantOpenState(restaurant);
+  const isOpen = st.open;
+  const badgeText = openBadgeLabel(st);
 
   const LANGS = [{ c: 'es', l: 'Español' }, { c: 'en', l: 'English' }, { c: 'pt', l: 'Português' }, { c: 'de', l: 'Deutsch' }];
   const COPY = {
@@ -449,7 +511,7 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: isOpen ? 'rgba(22,163,74,0.88)' : 'rgba(220,38,38,0.82)', backdropFilter: 'blur(6px)', borderRadius: 20, padding: '5px 11px' }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff', animation: isOpen ? 'pulse 2s ease infinite' : 'none' }} />
             <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.04em' }}>
-              {closingHint || (isOpen ? 'Abierto ahora' : 'Cerrado')}
+              {badgeText}
             </span>
           </div>
         </div>
@@ -540,7 +602,7 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
 }
 
 /* ══ SCREEN: MENÚ ════════════════════════ */
-function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWaiter, orderMode, assignedWaiterName, menuStatus, hasActiveOrder, onViewOrders }) {
+function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWaiter, orderMode, assignedWaiterName, menuStatus, hasActiveOrder, onViewOrders, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
   const liveMenu = useContext(MenuCtx) || {};
@@ -592,6 +654,15 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWait
           {CATS.map(cat => <button key={cat} onClick={() => goTo(cat)} style={{ flexShrink: 0, background: 'none', border: 'none', borderBottom: `2px solid ${activeCat === cat ? T.black : 'transparent'}`, cursor: 'pointer', padding: '11px 18px', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 13, fontWeight: 700, color: activeCat === cat ? T.black : T.gray, whiteSpace: 'nowrap', transition: 'all 150ms' }}>{cat}</button>)}
         </div>
       </div>
+      {/* Banner CERRADO: el menú queda navegable (solo lectura), sin agregar al carrito. */}
+      {!canOrder && (
+        <div style={{ flexShrink: 0, background: 'rgba(220,38,38,0.10)', borderBottom: '1px solid rgba(220,38,38,0.25)', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#DC2626', flexShrink: 0 }} />
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#B91C1C' }}>
+            {openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Cerrado'} — podés ver el menú, pero no pedir ahora.
+          </span>
+        </div>
+      )}
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
         {CATS.length === 0 ?
           <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '60px 32px', gap: 12 }}>
@@ -733,7 +804,7 @@ const PROMO_TYPE_LABEL = {pizza_corrida:'Pizza corrida',hamburgesa_corrida:'Hamb
 const COMBO_PRICE  = COMBO_EXTRAS.reduce((s, e) => s + e.p, 0);
 const BURGER_CATS  = ['hamburguesas', 'burger'];
 
-function ProductModal({ item, onClose, onAdd }) {
+function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
   const [qty, setQty]         = useState(1);
   const [selEx, setSelEx]     = useState([]);
@@ -824,10 +895,16 @@ function ProductModal({ item, onClose, onAdd }) {
               <span style={{ fontSize: 11, color: '#92400E', lineHeight: 1.5 }}>Si tenés alergias o intolerancias, indicalas arriba. El local tomará las precauciones necesarias.</span>
             </div>
           </div>
+          {canOrder ? (
           <button onClick={() => { onAdd(item, qty, allExtras, notes); onClose(); }} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
             <span>Agregar al pedido</span>
             <span style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz }}>{fmt(total)}</span>
           </button>
+          ) : (
+          <button disabled style={{ width: '100%', height: 54, background: T.light, color: T.gray, border: `1px solid ${T.border}`, borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 14, fontWeight: 800, cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 20px', textAlign: 'center' }}>
+            {openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Local cerrado — no se puede pedir ahora'}
+          </button>
+          )}
         </div>
       </div>
     </div>
@@ -835,7 +912,7 @@ function ProductModal({ item, onClose, onAdd }) {
 }
 
 /* ══ SCREEN: PEDIDO ══════════════════════ */
-function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, onSplit, orderMode }) {
+function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, onSplit, orderMode, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
   const [coupon, setCoupon] = useState('');
   const [applied, setApplied] = useState(false);
@@ -949,14 +1026,18 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
             <Icon name="plus" size={15} color={T.ink} />Agregar más productos
           </button>
         )}
-        <button onClick={() => onPay(total, sub, discAmount, applied ? appliedCode : '')} disabled={items.length === 0} style={{ width: '100%', height: 54, background: items.length === 0 ? T.light : T.btnPrimary, color: items.length === 0 ? T.silver : T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: items.length === 0 ? 'default' : 'pointer', transition: 'all 200ms' }}>Pasar a pagar</button>
+        {(() => { const blocked = items.length === 0 || !canOrder; return (
+        <button onClick={() => { if (!blocked) onPay(total, sub, discAmount, applied ? appliedCode : ''); }} disabled={blocked} style={{ width: '100%', height: 54, background: blocked ? T.light : T.btnPrimary, color: blocked ? T.silver : T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: blocked ? 'default' : 'pointer', transition: 'all 200ms' }}>
+          {!canOrder ? (openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Local cerrado') : 'Pasar a pagar'}
+        </button>
+        ); })()}
       </div>
     </div>
   );
 }
 
 /* ══ SCREEN: PAGO ════════════════════════ */
-function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone, onNewOrder, cartItems, orderMode, lang }) {
+function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone, onNewOrder, cartItems, orderMode, lang, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
   const [step, setStep] = useState('form');
   const [method, setMethod] = useState('efectivo');
@@ -981,6 +1062,8 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   const handleConfirm = async () => {
     if (submittingRef.current) return;   // un 2º click rápido NO dispara otro insert
     setSubmitError(null);
+    // Bloqueo con el local CERRADO (cubre carrito/pantalla persistidos y cierre en vivo).
+    if (!canOrder) { setSubmitError(openState && openState.next ? `El local está cerrado · Abre ${openState.next}. No se puede confirmar el pedido ahora.` : 'El local está cerrado. No se puede confirmar el pedido ahora.'); return; }
     if (!cartItems || cartItems.length === 0) { setSubmitError('Tu carrito está vacío'); return; }
     const effectiveTotal = total > 0 ? total : cartItems.reduce((s, ci) => s + (ci.total || 0), 0);
     if (effectiveTotal <= 0) { setSubmitError('El total del pedido es inválido. Volvé al carrito y revisá los precios.'); return; }
@@ -1139,8 +1222,8 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
       </div>
       <div style={{ padding: '12px 20px 32px', background: T.offwhite }}>
         {submitError && <div style={{ background: '#FEE2E2', border: '1px solid #FECACA', borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>Error: {submitError}</div>}
-        <button onClick={handleConfirm} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
-          {method === 'efectivo' || method === 'pos' ? 'Confirmar pedido' : `Confirmar y pagar ${fmt(total)}`}
+        <button onClick={handleConfirm} disabled={!canOrder} style={{ width: '100%', height: 54, background: canOrder ? T.btnPrimary : T.light, color: canOrder ? T.btnPrimaryText : T.silver, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: canOrder ? 'pointer' : 'default', boxShadow: canOrder ? '0 8px 24px rgba(0,0,0,0.15)' : 'none' }}>
+          {!canOrder ? (openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Local cerrado') : (method === 'efectivo' || method === 'pos' ? 'Confirmar pedido' : `Confirmar y pagar ${fmt(total)}`)}
         </button>
       </div>
       {showBancardToast && (() => {
@@ -1940,7 +2023,23 @@ function App() {
   const cartCount = cartItems.reduce((s, ci) => s + ci.qty, 0);
   const cartTotal = cartItems.reduce((s, ci) => s + ci.total, 0);
 
+  // Estado abierto/cerrado real. El tick re-evalúa cada 60s para que el badge y el
+  // bloqueo se actualicen al cruzar un borde de horario sin recargar.
+  const [, setOpenTick] = useState(0);
+  useEffect(() => { const id = setInterval(() => setOpenTick(t => t + 1), 60000); return () => clearInterval(id); }, []);
+  const openState = restaurantOpenState(restaurant);
+  const canOrder = openState.open;
+
+  // Local CERRADO con carrito/pantalla persistidos (o cierre en vivo): rebotar a 'menu'
+  // (muestra el banner "Cerrado"). Evita concretar un pedido fuera de horario por una
+  // sesión de pago/carrito que sobrevivió al cierre. Corre cuando se resuelve canOrder.
+  useEffect(() => {
+    if (!canOrder && (screen === 'pay' || screen === 'cart')) setScreen('menu');
+  }, [canOrder, screen]);
+
   const addToCart = (item, qty, extras, notes) => {
+    // Bloqueo de venta con el local CERRADO: se puede ver el menú, pero no pedir.
+    if (!canOrder) { showToast(openState.next ? `Cerrado · Abre ${openState.next}. Podés ver el menú, pero no pedir ahora.` : 'El local está cerrado. Podés ver el menú, pero no pedir ahora.'); return; }
     const et = extras.reduce((s, e) => s + e.p, 0);
     setCartItems(prev => [...prev, { item, qty, extras, notes, total: (item.price + et) * qty }]);
     showToast('Agregado al pedido');
@@ -1982,14 +2081,14 @@ function App() {
                 {scanStatus === 'ok' && <>
                 <OfflineBanner />
                 {toast && <Toast msg={toast} onHide={() => setToast(null)} />}
-                {selItem && <ProductModal item={selItem} onClose={() => setSelItem(null)} onAdd={addToCart} />}
+                {selItem && <ProductModal item={selItem} onClose={() => setSelItem(null)} onAdd={addToCart} canOrder={canOrder} openState={openState} />}
                 {showSplit && <SplitBillModal items={cartItems} total={cartTotal} onClose={() => setShowSplit(false)} />}
                 {screen === 'qr'      && <QRScreen onScan={() => setScreen('profile')} />}
-                {screen === 'profile' && <ProfileScreen onEnter={() => setScreen('menu')} orderMode={orderMode} setOrderMode={setOrderMode} lang={lang} setLang={setLang} onCallWaiter={handleCallWaiter} onReserve={() => setScreen('reserve')} assignedWaiterName={assignedWaiterName} />}
+                {screen === 'profile' && <ProfileScreen onEnter={() => setScreen('menu')} orderMode={orderMode} setOrderMode={setOrderMode} lang={lang} setLang={setLang} onCallWaiter={handleCallWaiter} onReserve={() => setScreen('reserve')} assignedWaiterName={assignedWaiterName} openState={openState} />}
                 {screen === 'reserve' && <ReservationScreen onBack={() => setScreen('profile')} onDone={() => setScreen('profile')} />}
-                {screen === 'menu'    && <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} onCallWaiter={handleCallWaiter} orderMode={orderMode} assignedWaiterName={assignedWaiterName} menuStatus={menuStatus} hasActiveOrder={!!currentOrderNum} onViewOrders={() => setScreen('track')} />}
-                {screen === 'cart'    && <CartScreen items={cartItems} onBack={() => setScreen('menu')} onPay={(t, sub, disc, code) => { setPayTotal(t); setPaySubtotal(sub); setPayDiscount(disc); setPayCoupon(code); setScreen('pay'); }} onRemove={removeItem} onQty={updateQty} onCouponApplied={() => {}} onSplit={() => setShowSplit(true)} orderMode={orderMode} />}
-                {screen === 'pay'     && <PayScreen total={payTotal} subtotal={paySubtotal} discountAmount={payDiscount} couponCode={payCoupon} cartItems={cartItems} orderMode={orderMode} lang={lang} onBack={() => setScreen('cart')} onDone={(ordNum, method) => { registerOrder(ordNum); if (method) setPayMethod(method); setScreen('track'); }} onNewOrder={goNewOrder} />}
+                {screen === 'menu'    && <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} onCallWaiter={handleCallWaiter} orderMode={orderMode} assignedWaiterName={assignedWaiterName} menuStatus={menuStatus} hasActiveOrder={!!currentOrderNum} onViewOrders={() => setScreen('track')} canOrder={canOrder} openState={openState} />}
+                {screen === 'cart'    && <CartScreen items={cartItems} onBack={() => setScreen('menu')} onPay={(t, sub, disc, code) => { if (!canOrder) { showToast('El local está cerrado. No se puede pedir ahora.'); return; } setPayTotal(t); setPaySubtotal(sub); setPayDiscount(disc); setPayCoupon(code); setScreen('pay'); }} onRemove={removeItem} onQty={updateQty} onCouponApplied={() => {}} onSplit={() => setShowSplit(true)} orderMode={orderMode} canOrder={canOrder} openState={openState} />}
+                {screen === 'pay'     && <PayScreen total={payTotal} subtotal={paySubtotal} discountAmount={payDiscount} couponCode={payCoupon} cartItems={cartItems} orderMode={orderMode} lang={lang} onBack={() => setScreen('cart')} onDone={(ordNum, method) => { registerOrder(ordNum); if (method) setPayMethod(method); setScreen('track'); }} onNewOrder={goNewOrder} canOrder={canOrder} openState={openState} />}
                 {screen === 'track'   && <TrackingScreen onRate={() => setScreen('rate')} orderNumber={currentOrderNum} orderMode={orderMode} cartItems={cartItems} onCallWaiter={handleCallWaiter} assignedWaiterName={assignedWaiterName} sessionOrders={sessionOrders} onSelectOrder={setCurrentOrderNum} onNewOrder={() => goNewOrder()} />}
                 {screen === 'rate'    && <RatingScreen onDone={clearSession} orderId={null} tableId={null} />}
                 </>}

@@ -186,8 +186,15 @@ function zoneColors(z) { return ZONE_COLOR_MAP[z?.color] || ZONE_COLOR_MAP.red; 
 async function dbLoadRestaurant() {
   if (!db) return null;
   try {
-    const { data } = await db.from('restaurants').select('id,name,address,phone,instagram,website,logo_initials,cover_style,timezone,is_active,created_at,updated_at,status,country,city,cover_image_url,logo_url,currency,maintenance_mode,maintenance_message,lat,lng,reservation_window_hours,reservation_alert_minutes,opening_hours,is_open,auto_provisioned,parent_company_id').eq('id', RESTAURANT_ID).maybeSingle();
-    return data || null;
+    const { data, error } = await db.from('restaurants').select('id,name,address,phone,instagram,website,logo_initials,cover_style,timezone,is_active,created_at,updated_at,status,country,city,cover_image_url,logo_url,currency,maintenance_mode,maintenance_message,lat,lng,reservation_window_hours,reservation_alert_minutes,opening_hours,is_open,auto_provisioned,parent_company_id').eq('id', RESTAURANT_ID).maybeSingle();
+    if (error || !data) return null;
+    // Horario estructurado (mig 125) — best-effort: si la columna aún no existe,
+    // se ignora y el cliente degrada a ABIERTO (no rompe la carga del restaurante).
+    try {
+      const bh = await db.from('restaurants').select('business_hours,open_override').eq('id', RESTAURANT_ID).maybeSingle();
+      if (bh && !bh.error && bh.data) { data.business_hours = bh.data.business_hours; data.open_override = bh.data.open_override; }
+    } catch (_) {}
+    return data;
   } catch(e) { return null; }
 }
 
@@ -494,11 +501,72 @@ const inputStyle = (T) => ({
 });
 
 /* ══ PANTALLA 1 — BIENVENIDA ════════════ */
-function WelcomeScreen({ restaurant, onDelivery, onPickup, onReserva }) {
+/* ── ESTADO ABIERTO/CERRADO (horario estructurado + override manual) ─────────
+   business_hours: { "0":[{start:"HH:MM",end:"HH:MM"}], … "6":[…] } (0=Dom…6=Sáb).
+   open_override: 'auto' | 'open' | 'closed' (override del dueño; gana al horario).
+   Defensivo: sin business_hours válido en 'auto' → ABIERTO (no bloquear ventas).
+   Calcula la hora en la zona horaria del local (restaurants.timezone) vía Intl.
+   ⚠ Mantener IDÉNTICO a src/index/main.jsx. */
+const _DOW_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+function _hhmmToMin(s) { const p = String(s || '').split(':'); const h = parseInt(p[0], 10), m = parseInt(p[1], 10); return (isFinite(h) ? h : 0) * 60 + (isFinite(m) ? m : 0); }
+function _nowInTz(tz) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz || 'America/Asuncion', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+    const map = {}; parts.forEach(p => { map[p.type] = p.value; });
+    const wd = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    let h = parseInt(map.hour, 10); if (h === 24) h = 0;
+    const dow = (map.weekday in wd) ? wd[map.weekday] : new Date().getDay();
+    return { dow, min: (isFinite(h) ? h : 0) * 60 + (parseInt(map.minute, 10) || 0) };
+  } catch (_) { const d = new Date(); return { dow: d.getDay(), min: d.getHours() * 60 + d.getMinutes() }; }
+}
+function _bhHasHours(bh) { try { return !!bh && typeof bh === 'object' && Object.keys(bh).some(k => Array.isArray(bh[k]) && bh[k].length > 0); } catch (_) { return false; } }
+function _bhRanges(bh, d) { const r = bh && bh[String(d)]; return Array.isArray(r) ? r : []; }
+function _openNow(bh, dow, min) {
+  for (const r of _bhRanges(bh, dow)) {
+    const s = _hhmmToMin(r.start), e = _hhmmToMin(r.end);
+    if (e > s) { if (min >= s && min < e) return true; }
+    else if (e < s) { if (min >= s) return true; }            // cruza medianoche → abierto hasta 24:00
+  }
+  const prev = (dow + 6) % 7;
+  for (const r of _bhRanges(bh, prev)) {
+    const s = _hhmmToMin(r.start), e = _hhmmToMin(r.end);
+    if (e < s && min < e) return true;                         // cola del turno que cruzó medianoche
+  }
+  return false;
+}
+function _nextOpen(bh, dow, min) {
+  for (let off = 0; off < 8; off++) {
+    const d = (dow + off) % 7;
+    const ranges = _bhRanges(bh, d).slice().sort((a, b) => _hhmmToMin(a.start) - _hhmmToMin(b.start));
+    for (const r of ranges) {
+      const s = _hhmmToMin(r.start);
+      if (off === 0 && s <= min) continue;
+      const lbl = off === 0 ? 'hoy' : off === 1 ? 'mañana' : _DOW_ES[d];
+      return `${lbl} ${r.start}`;
+    }
+  }
+  return null;
+}
+function restaurantOpenState(restaurant) {
+  const ov = (restaurant && restaurant.open_override) || 'auto';
+  const tz = (restaurant && restaurant.timezone) || 'America/Asuncion';
+  const bh = restaurant && restaurant.business_hours;
+  if (ov === 'open') return { open: true, manual: true, next: null };
+  const { dow, min } = _nowInTz(tz);
+  if (ov === 'closed') return { open: false, manual: true, next: _bhHasHours(bh) ? _nextOpen(bh, dow, min) : null };
+  if (!_bhHasHours(bh)) return { open: true, noSchedule: true, next: null };   // defensivo: sin horario → abierto
+  const open = _openNow(bh, dow, min);
+  return { open, next: open ? null : _nextOpen(bh, dow, min) };
+}
+function openBadgeLabel(st) { return st.open ? 'Abierto ahora' : (st.next ? `Cerrado · Abre ${st.next}` : 'Cerrado'); }
+
+function WelcomeScreen({ restaurant, onDelivery, onPickup, onReserva, onBrowse, openState }) {
   const T = useContext(ThemeCtx);
   const restName = restaurant?.name || 'Restaurante';
   const logoUrl  = restaurant?.logo_url || null;
   const initials = restaurant?.logo_initials || restName.slice(0,2).toUpperCase();
+  const st = openState || restaurantOpenState(restaurant);
+  const closed = !st.open;
 
   return (
     <div style={{ minHeight: '100%', background: T.white, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 24px 40px' }}>
@@ -512,15 +580,19 @@ function WelcomeScreen({ restaurant, onDelivery, onPickup, onReserva }) {
         }
       </div>
 
-      <div style={{ fontSize: 22, fontWeight: 800, color: T.ink, textAlign: 'center', marginBottom: 6 }}>{restName}</div>
-      <div style={{ fontSize: 14, color: T.gray, textAlign: 'center', marginBottom: 48, lineHeight: 1.6 }}>
-        ¿Cómo querés recibir tu pedido?
+      <div style={{ fontSize: 22, fontWeight: 800, color: T.ink, textAlign: 'center', marginBottom: 10 }}>{restName}</div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: closed ? 'rgba(220,38,38,0.10)' : 'rgba(22,163,74,0.10)', border: `1px solid ${closed ? 'rgba(220,38,38,0.30)' : 'rgba(22,163,74,0.30)'}`, borderRadius: 9999, padding: '5px 12px', marginBottom: 14 }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: closed ? '#DC2626' : '#16A34A' }} />
+        <span style={{ fontSize: 12, fontWeight: 700, color: closed ? '#B91C1C' : '#15803D' }}>{openBadgeLabel(st)}</span>
+      </div>
+      <div style={{ fontSize: 14, color: T.gray, textAlign: 'center', marginBottom: 32, lineHeight: 1.6 }}>
+        {closed ? 'Por ahora no estamos tomando pedidos. Podés ver el menú mientras tanto.' : '¿Cómo querés recibir tu pedido?'}
       </div>
 
       {/* Opciones */}
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {/* Delivery */}
-        <button onClick={onDelivery} style={{ width: '100%', height: 80, background: T.black, color: T.white, border: 'none', borderRadius: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 18, textAlign: 'left', transition: 'opacity 150ms' }}>
+        <button onClick={closed ? undefined : onDelivery} disabled={closed} style={{ width: '100%', height: 80, background: T.black, color: T.white, border: 'none', borderRadius: 18, cursor: closed ? 'not-allowed' : 'pointer', opacity: closed ? 0.4 : 1, display: 'flex', alignItems: 'center', padding: '0 24px', gap: 18, textAlign: 'left', transition: 'opacity 150ms' }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Icon name="moto" size={22} color="#fff" />
           </div>
@@ -532,7 +604,7 @@ function WelcomeScreen({ restaurant, onDelivery, onPickup, onReserva }) {
         </button>
 
         {/* Pickup */}
-        <button onClick={onPickup} style={{ width: '100%', height: 80, background: T.white, color: T.ink, border: `2px solid ${T.border}`, borderRadius: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 18, textAlign: 'left', transition: 'border-color 150ms' }}>
+        <button onClick={closed ? undefined : onPickup} disabled={closed} style={{ width: '100%', height: 80, background: T.white, color: T.ink, border: `2px solid ${T.border}`, borderRadius: 18, cursor: closed ? 'not-allowed' : 'pointer', opacity: closed ? 0.4 : 1, display: 'flex', alignItems: 'center', padding: '0 24px', gap: 18, textAlign: 'left', transition: 'border-color 150ms' }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: T.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Icon name="bag" size={22} color={T.ink} />
           </div>
@@ -554,6 +626,14 @@ function WelcomeScreen({ restaurant, onDelivery, onPickup, onReserva }) {
           </div>
           <Icon name="chevdown" size={18} color={T.silver} sw={2} />
         </button>
+
+        {/* Ver el menú (solo lectura) — acceso al menú SOLO con el local cerrado.
+            Abierto, el menú se entra por Delivery/Pickup (que capturan datos del cliente). */}
+        {closed && onBrowse && (
+          <button onClick={onBrowse} style={{ width: '100%', height: 52, background: 'transparent', color: T.ink, border: `1.5px solid ${T.border}`, borderRadius: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontSize: 14, fontWeight: 700, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
+            <Icon name="bag" size={16} color={T.ink} />Ver el menú
+          </button>
+        )}
       </div>
 
       {/* Powered */}
@@ -1255,7 +1335,7 @@ function ProdCard({ item, onSelect }) {
 }
 
 /* ══ MODAL PRODUCTO ═════════════════════ */
-function ProductModal({ item, onClose, onAdd }) {
+function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
   const [qty, setQty]     = useState(1);
   const [selEx, setSelEx] = useState([]);
@@ -1318,10 +1398,16 @@ function ProductModal({ item, onClose, onAdd }) {
             </div>
           </div>
 
+          {canOrder ? (
           <button onClick={() => { onAdd(item, qty, selEx, notes); onClose(); }} style={{ width: '100%', height: 54, background: T.black, color: T.white, border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
             <span>Agregar al pedido</span>
             <span style={{ fontSize: 15, fontWeight: 800 }}>{fmt(total)}</span>
           </button>
+          ) : (
+          <button disabled style={{ width: '100%', height: 54, background: T.light, color: T.gray, border: `1px solid ${T.border}`, borderRadius: 14, fontSize: 14, fontWeight: 800, cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 20px', textAlign: 'center', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
+            {openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Local cerrado — no se puede pedir ahora'}
+          </button>
+          )}
         </div>
       </div>
     </div>
@@ -1329,7 +1415,7 @@ function ProductModal({ item, onClose, onAdd }) {
 }
 
 /* ══ PANTALLA 4 — MENÚ ══════════════════ */
-function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, orderType, menuStatus }) {
+function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, orderType, menuStatus, canOrder = true, openState }) {
   const T        = useContext(ThemeCtx);
   const liveMenu = useContext(MenuCtx) || {};
   const restaurant = useContext(RestaurantCtx);
@@ -1378,6 +1464,16 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, orderType,
           ))}
         </div>
       </div>
+
+      {/* Banner CERRADO: menú navegable (solo lectura), sin agregar al carrito. */}
+      {!canOrder && (
+        <div style={{ flexShrink: 0, background: 'rgba(220,38,38,0.10)', borderBottom: '1px solid rgba(220,38,38,0.25)', padding: '10px 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#DC2626', flexShrink: 0 }} />
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#B91C1C' }}>
+            {openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Cerrado'} — podés ver el menú, pero no pedir ahora.
+          </span>
+        </div>
+      )}
 
       {/* Scroll de items */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
@@ -1468,7 +1564,7 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, orderType,
 }
 
 /* ══ PANTALLA 5 — CARRITO ═══════════════ */
-function CartScreen({ items, orderType, deliveryFee, deliveryResult, onBack, onCheckout, onRemove, onQty }) {
+function CartScreen({ items, orderType, deliveryFee, deliveryResult, onBack, onCheckout, onRemove, onQty, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
   const [pendingDelete, setPendingDelete] = useState(null);
   const isDelivery = orderType === 'delivery';
@@ -1577,16 +1673,18 @@ function CartScreen({ items, orderType, deliveryFee, deliveryResult, onBack, onC
             <Icon name="plus" size={15} color={T.ink} />Agregar más productos
           </button>
         )}
-        <button onClick={() => items.length > 0 && onCheckout(subtotal, fee, total)} disabled={items.length === 0} style={{ width: '100%', height: 54, background: items.length === 0 ? T.light : T.black, color: items.length === 0 ? T.silver : T.white, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: items.length === 0 ? 'default' : 'pointer', transition: 'all 200ms' }}>
-          Ir a pagar
+        {(() => { const blocked = items.length === 0 || !canOrder; return (
+        <button onClick={() => { if (!blocked) onCheckout(subtotal, fee, total); }} disabled={blocked} style={{ width: '100%', height: 54, background: blocked ? T.light : T.black, color: blocked ? T.silver : T.white, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: blocked ? 'default' : 'pointer', transition: 'all 200ms' }}>
+          {!canOrder ? (openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Local cerrado') : 'Ir a pagar'}
         </button>
+        ); })()}
       </div>
     </div>
   );
 }
 
 /* ══ PANTALLA 6 — PAGO ══════════════════ */
-function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deliveryResult, cartItems, onBack, onConfirmed }) {
+function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deliveryResult, cartItems, onBack, onConfirmed, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
   const isDelivery = orderType === 'delivery';
   const [method, setMethod] = useState('efectivo');
@@ -1618,6 +1716,8 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
   const handleConfirm = async () => {
     if (submittingRef.current) return;   // un 2º click rápido NO dispara otro insert
     setSubmitError(null);
+    // Bloqueo con el local CERRADO (cubre cierre en vivo durante el checkout).
+    if (!canOrder) { setSubmitError(openState && openState.next ? `El local está cerrado · Abre ${openState.next}. No se puede confirmar el pedido ahora.` : 'El local está cerrado. No se puede confirmar el pedido ahora.'); return; }
     // WS3 · No enviar un pedido vacío ni con total inválido (alineado al cliente QR /index).
     if (!cartItems || cartItems.length === 0) { setSubmitError('Tu carrito está vacío. Volvé al menú.'); return; }
     if (!(total > 0)) { setSubmitError('El total del pedido es inválido. Volvé al carrito y revisá tu pedido.'); return; }
@@ -1836,8 +1936,8 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
             Error: {submitError}
           </div>
         )}
-        <button onClick={handleConfirm} style={{ width: '100%', height: 54, background: T.black, color: T.white, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
-          Confirmar pedido
+        <button onClick={handleConfirm} disabled={!canOrder} style={{ width: '100%', height: 54, background: canOrder ? T.black : T.light, color: canOrder ? T.white : T.silver, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: canOrder ? 'pointer' : 'default', boxShadow: canOrder ? '0 8px 24px rgba(0,0,0,0.15)' : 'none' }}>
+          {canOrder ? 'Confirmar pedido' : (openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Local cerrado')}
         </button>
       </div>
       {showBancardToast && (() => {
@@ -2422,7 +2522,15 @@ function App() {
     ? ((_freeOver && Number(_freeOver) > 0 && cartTotal >= Number(_freeOver)) ? 0 : _rawFee)
     : 0;
 
+  // Estado abierto/cerrado real + tick de 60s para refrescar al cruzar un borde de horario.
+  const [, setOpenTick] = useState(0);
+  useEffect(() => { const id = setInterval(() => setOpenTick(t => t + 1), 60000); return () => clearInterval(id); }, []);
+  const openState = restaurantOpenState(restaurant);
+  const canOrder = openState.open;
+
   const addToCart = (item, qty, extras, notes) => {
+    // Bloqueo de venta con el local CERRADO: se puede ver el menú, pero no pedir.
+    if (!canOrder) { showToast(openState.next ? `Cerrado · Abre ${openState.next}. Podés ver el menú, pero no pedir ahora.` : 'El local está cerrado. Podés ver el menú, pero no pedir ahora.'); return; }
     const et = extras.reduce((s, e) => s + e.p, 0);
     setCartItems(prev => [...prev, { item, qty, extras, notes, total: (item.price + et) * qty }]);
     showToast('Agregado al pedido');
@@ -2439,6 +2547,8 @@ function App() {
   const handleDelivery = () => { setOrderType('delivery'); setScreen('coverage'); };
   const handlePickup   = () => { setOrderType('pickup');   setScreen('customer'); };
   const handleReserva  = () => { setScreen('reserva'); };
+  // Browse: ver el menú en modo solo-lectura (addToCart bloqueado si está cerrado).
+  const handleBrowse   = () => { setOrderType('pickup'); setScreen('menu'); };
 
   const handleCovered  = (result) => { setDeliveryResult(result); setScreen('customer'); };
   const handlePickupFallback = () => { setOrderType('pickup'); setDeliveryResult(null); setScreen('customer'); };
@@ -2446,6 +2556,7 @@ function App() {
   const handleCustomerNext = (data) => { setCustomerData(data); setScreen('menu'); };
 
   const handleCheckout = (sub, fee, total) => {
+    if (!canOrder) { showToast('El local está cerrado. No se puede pedir ahora.'); return; }
     setPayData({ subtotal: sub, fee, total });
     setScreen('pay');
   };
@@ -2488,10 +2599,10 @@ function App() {
                   ? <GateScreen kind="not-found" />
                   : <>
                 {toast && <Toast msg={toast} onHide={() => setToast(null)} />}
-                {selItem && <ProductModal item={selItem} onClose={() => setSelItem(null)} onAdd={addToCart} />}
+                {selItem && <ProductModal item={selItem} onClose={() => setSelItem(null)} onAdd={addToCart} canOrder={canOrder} openState={openState} />}
 
                 {screen === 'welcome' && (
-                  <WelcomeScreen restaurant={restaurant} onDelivery={handleDelivery} onPickup={handlePickup} onReserva={handleReserva} />
+                  <WelcomeScreen restaurant={restaurant} onDelivery={handleDelivery} onPickup={handlePickup} onReserva={handleReserva} onBrowse={handleBrowse} openState={openState} />
                 )}
                 {screen === 'reserva' && (
                   <ReservaScreen onBack={() => setScreen('welcome')} onDone={() => setScreen('welcome')} />
@@ -2503,13 +2614,13 @@ function App() {
                   <CustomerDataScreen orderType={orderType} deliveryResult={deliveryResult} onNext={handleCustomerNext} onBack={() => setScreen(orderType === 'delivery' ? 'coverage' : 'welcome')} />
                 )}
                 {screen === 'menu' && (
-                  <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} orderType={orderType} menuStatus={menuStatus} />
+                  <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} orderType={orderType} menuStatus={menuStatus} canOrder={canOrder} openState={openState} />
                 )}
                 {screen === 'cart' && (
-                  <CartScreen items={cartItems} orderType={orderType} deliveryFee={deliveryFee} deliveryResult={deliveryResult} onBack={() => setScreen('menu')} onCheckout={handleCheckout} onRemove={removeItem} onQty={updateQty} />
+                  <CartScreen items={cartItems} orderType={orderType} deliveryFee={deliveryFee} deliveryResult={deliveryResult} onBack={() => setScreen('menu')} onCheckout={handleCheckout} onRemove={removeItem} onQty={updateQty} canOrder={canOrder} openState={openState} />
                 )}
                 {screen === 'pay' && (
-                  <PayScreen orderType={orderType} subtotal={payData.subtotal} deliveryFee={payData.fee} total={payData.total} customerData={customerData} deliveryResult={deliveryResult} cartItems={cartItems} onBack={() => setScreen('cart')} onConfirmed={handleConfirmed} />
+                  <PayScreen orderType={orderType} subtotal={payData.subtotal} deliveryFee={payData.fee} total={payData.total} customerData={customerData} deliveryResult={deliveryResult} cartItems={cartItems} onBack={() => setScreen('cart')} onConfirmed={handleConfirmed} canOrder={canOrder} openState={openState} />
                 )}
                 {screen === 'confirm' && (
                   <ConfirmScreen order={confirmedOrder} orderType={orderType} customerData={customerData} deliveryResult={deliveryResult} deliveryFee={deliveryFee} onNewOrder={handleNewOrder} />
