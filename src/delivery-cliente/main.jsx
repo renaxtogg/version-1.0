@@ -198,7 +198,7 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
   // Registrar en delivery_orders ANTES de order_status_history para que cocina
   // ya tenga el row de delivery cuando recibe el evento realtime
   if (orderType === 'delivery' || orderType === 'pickup') {
-    const { data: delRow, error: delErr } = await db.from('delivery_orders').insert({
+    const baseDelivery = {
       order_id:           order.id,
       restaurant_id:      RESTAURANT_ID,
       order_type:         orderType,
@@ -216,7 +216,26 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
       canal:              canal || 'web',
       status:             'pending',
       cash_amount:        (payMethod === 'efectivo' && cashAmount > 0) ? cashAmount : null,
-    }).select('id').single();
+    };
+    // Geolocalización (mig. 121): el pin del cliente es la fuente de verdad.
+    // Columnas nuevas → si la migración aún no se aplicó en prod, el insert con
+    // extras falla por columna inexistente y reintentamos sin ellas (fix-forward).
+    const geoExtras = (orderType === 'delivery') ? {
+      delivery_corner: customerData.corner || null,
+      delivery_lat:    Number.isFinite(customerData.lat) ? customerData.lat : null,
+      delivery_lng:    Number.isFinite(customerData.lng) ? customerData.lng : null,
+    } : {};
+    let { data: delRow, error: delErr } = await db.from('delivery_orders').insert({ ...baseDelivery, ...geoExtras }).select('id').single();
+    // Reintentar SÓLO si el fallo es por columnas geo inexistentes (migración 121 sin aplicar).
+    // Acotar a ese caso evita un 2º insert ante errores no relacionados (RLS/red) — que además
+    // podría duplicar la fila si el 1º se grabó pero se perdió la respuesta. Esos se loguean tal cual.
+    const geoColMissing = !!delErr && Object.keys(geoExtras).length > 0 &&
+      /delivery_(lat|lng|corner)|column|schema cache|PGRST204|42703/i.test(`${delErr.message || ''} ${delErr.code || ''}`);
+    if (geoColMissing) {
+      const r = await db.from('delivery_orders').insert(baseDelivery).select('id').single();
+      delRow = r.data; delErr = r.error;
+      if (!delErr) console.warn('[delivery] columnas geo (delivery_lat/lng/corner) no disponibles aún — pedido creado sin coordenadas. Aplicar migración 121.');
+    }
     if (delErr) {
       console.error('[delivery] delivery_orders insert error:', delErr.message, delErr);
     } else if (delRow?.id && orderType === 'delivery') {
@@ -495,6 +514,63 @@ function MapPicker({ center, onPick, T }) {
   return <div ref={ref} style={{ width: '100%', height: 220, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 8 }} />;
 }
 
+/* ── REVERSE GEOCODING ───────────────────────────────────────────────────────
+   lat/lng → dirección legible (calle + número) vía google.maps.Geocoder.
+   Autocontenido y defensivo: si Maps no carga / la API está deshabilitada /
+   sin red, resuelve null y el campo de dirección queda como texto manual. */
+async function reverseGeocode(lat, lng) {
+  if (!MAPS_API_KEY || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  try {
+    const maps = await loadGoogleMaps(MAPS_API_KEY);
+    return await new Promise((resolve) => {
+      try {
+        new maps.Geocoder().geocode({ location: { lat, lng }, language: 'es' }, (results, status) => {
+          resolve((status === 'OK' && results && results[0]) ? results[0].formatted_address : null);
+        });
+      } catch (e) { resolve(null); }
+    });
+  } catch (e) { return null; }
+}
+
+/* ── MAP PICKER (captura de ubicación) ───────────────────────────────────────
+   Mapa con pin ARRASTRABLE para la pantalla de dirección. A diferencia de
+   MapPicker (cobertura), expone un handle imperativo (controlRef.moveTo) para
+   reposicionar el pin desde GPS / Places Autocomplete sin re-montar el mapa.
+   El pin es la fuente de verdad de la coordenada: drag/click → onPick(lat,lng). */
+function DeliveryMapPicker({ initial, onPick, controlRef, T }) {
+  const ref = useRef(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    loadGoogleMaps(MAPS_API_KEY).then((maps) => {
+      if (cancelled || !ref.current) return;
+      const c = {
+        lat: (initial && Number.isFinite(initial.lat)) ? initial.lat : -25.2867,
+        lng: (initial && Number.isFinite(initial.lng)) ? initial.lng : -57.6470,
+      };
+      const map = new maps.Map(ref.current, { center: c, zoom: 16, disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy' });
+      const marker = new maps.Marker({ position: c, map, draggable: true });
+      const emit = () => { const p = marker.getPosition(); if (p) onPick(p.lat(), p.lng()); };
+      marker.addListener('dragend', emit);
+      map.addListener('click', (e) => { marker.setPosition(e.latLng); map.panTo(e.latLng); emit(); });
+      // Handle imperativo: reposicionar el pin desde fuera (GPS / autocomplete).
+      // doEmit=false cuando el llamador ya conoce la dirección (no re-geocodificar).
+      if (controlRef) controlRef.current = {
+        moveTo: (lat, lng, doEmit = true) => {
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const pos = { lat, lng };
+          marker.setPosition(pos); map.panTo(pos); map.setZoom(17);
+          if (doEmit) onPick(lat, lng);
+        }
+      };
+    }).catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; if (controlRef) controlRef.current = null; };
+  }, []);
+  // Fallback silencioso: si el mapa no carga, se oculta y queda el flujo manual de texto.
+  if (failed) return null;
+  return <div ref={ref} style={{ width: '100%', height: 200, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 8 }} />;
+}
+
 /* ══ PANTALLA 2A — COBERTURA ════════════ */
 function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManual, onBack }) {
   const T = useContext(ThemeCtx);
@@ -761,21 +837,146 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
 /* ══ PANTALLA 3 — DATOS DE ENTREGA ══════ */
 function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
   const T = useContext(ThemeCtx);
+  const restaurant = useContext(RestaurantCtx);
   const isDelivery = orderType === 'delivery';
+
+  // Coordenada inicial: la que ya capturó CoverageScreen por GPS (deliveryResult.userLat/userLng).
+  const initLat = (typeof deliveryResult?.userLat === 'number') ? deliveryResult.userLat : null;
+  const initLng = (typeof deliveryResult?.userLng === 'number') ? deliveryResult.userLng : null;
+
   const [form, setForm] = useState({
     name: '', phone: '',
     address: deliveryResult?.manualAddr || '',
     detail: '',
+    corner: '',
     references: deliveryResult?.manualRef || ''
   });
+  // lat/lng viven aparte del form: el PIN del mapa es la fuente de verdad de la ubicación.
+  const [lat, setLat] = useState(initLat);
+  const [lng, setLng] = useState(initLng);
+  const [preds, setPreds]     = useState([]);    // sugerencias de Places Autocomplete
+  const [geoBusy, setGeoBusy] = useState(false); // reverse geocoding en curso
+  const [gpsBusy, setGpsBusy] = useState(false); // detección GPS en curso
+
+  const pickerCtl    = useRef(null);  // handle imperativo de DeliveryMapPicker
+  const autoSvc      = useRef(null);  // google.maps.places.AutocompleteService
+  const placesSvc    = useRef(null);  // google.maps.places.PlacesService
+  const placesDivRef = useRef(null);  // nodo oculto requerido por PlacesService
+  const predTimer    = useRef(null);
+  const geoReq       = useRef(0);     // secuenciador reverse-geocode: latest-wins + no pisar lo tipeado
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  // Init Maps (solo delivery + key presente): servicios de Places + prefill de la
+  // dirección por reverse geocoding desde la coordenada GPS inicial (si la hay).
+  useEffect(() => {
+    if (!isDelivery || !MAPS_READY) return;
+    let on = true;
+    loadGoogleMaps(MAPS_API_KEY).then((maps) => {
+      if (!on) return;
+      try {
+        autoSvc.current   = new maps.places.AutocompleteService();
+        placesSvc.current = new maps.places.PlacesService(placesDivRef.current || document.createElement('div'));
+      } catch (e) {}
+      if (Number.isFinite(initLat) && Number.isFinite(initLng)) {
+        const reqId = ++geoReq.current;
+        setGeoBusy(true);
+        reverseGeocode(initLat, initLng).then(addr => {
+          if (!on || reqId !== geoReq.current) return;   // el usuario tipeó / movió el pin: descartar
+          if (addr) setForm(p => p.address.trim() ? p : ({ ...p, address: addr }));
+          setGeoBusy(false);
+        });
+      }
+    }).catch(() => {});
+    return () => { on = false; clearTimeout(predTimer.current); };
+  }, []);
+
+  // Pin movido (arrastre/click): re-geocodificar y refrescar la dirección (editable).
+  const handlePinPick = useCallback((plat, plng) => {
+    setLat(plat); setLng(plng);
+    setPreds([]);
+    const reqId = ++geoReq.current;
+    setGeoBusy(true);
+    reverseGeocode(plat, plng).then(addr => {
+      if (reqId !== geoReq.current) return;   // superado por otro arrastre / edición manual
+      if (addr) setForm(p => ({ ...p, address: addr }));
+      setGeoBusy(false);
+    });
+  }, []);
+
+  // Escribir en "Dirección": pedir sugerencias a Places (debounced, restringido a PY).
+  const handleAddressType = (v) => {
+    geoReq.current++;     // edición manual: invalida cualquier reverse-geocode en vuelo (no pisar lo tipeado)
+    setGeoBusy(false);
+    setForm(p => ({ ...p, address: v }));
+    clearTimeout(predTimer.current);
+    if (!autoSvc.current || v.trim().length < 3) { setPreds([]); return; }
+    predTimer.current = setTimeout(() => {
+      autoSvc.current.getPlacePredictions(
+        { input: v, language: 'es', componentRestrictions: { country: 'py' } },
+        (predictions, status) => {
+          if (status === 'REQUEST_DENIED') console.warn('[maps] Places (clásico) probablemente no habilitado en la API key — el autocompletado no devolverá sugerencias.');
+          setPreds((status === 'OK' && predictions) ? predictions.slice(0, 5) : []);
+        }
+      );
+    }, 350);
+  };
+
+  // Elegir una sugerencia: setea dirección + coordenada + mueve el pin (sin re-geocodificar).
+  const handlePickPrediction = (p) => {
+    setPreds([]);
+    if (!placesSvc.current) return;
+    placesSvc.current.getDetails(
+      { placeId: p.place_id, fields: ['geometry', 'formatted_address'] },
+      (place, status) => {
+        if (status !== 'OK' || !place?.geometry) return;
+        const plat = place.geometry.location.lat();
+        const plng = place.geometry.location.lng();
+        geoReq.current++;   // dirección elegida explícitamente: invalida geocodes en vuelo
+        setLat(plat); setLng(plng);
+        setGeoBusy(false);
+        setForm(prev => ({ ...prev, address: place.formatted_address || prev.address }));
+        if (pickerCtl.current) pickerCtl.current.moveTo(plat, plng, false);
+      }
+    );
+  };
+
+  // "Detectar mi ubicación" en esta pantalla (cubre GPS denegado en cobertura o reubicar).
+  // navigator.geolocation NO depende de Google Maps; si Maps no cargó, igual setea lat/lng.
+  const handleDetect = () => {
+    if (!navigator.geolocation) return;
+    setGpsBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setLat(latitude); setLng(longitude);
+        setGpsBusy(false);
+        if (pickerCtl.current) pickerCtl.current.moveTo(latitude, longitude, false);
+        const reqId = ++geoReq.current;
+        setGeoBusy(true);
+        reverseGeocode(latitude, longitude).then(addr => {
+          if (reqId !== geoReq.current) return;
+          if (addr) setForm(p => ({ ...p, address: addr }));
+          setGeoBusy(false);
+        });
+      },
+      () => setGpsBusy(false),
+      { timeout: 8000, enableHighAccuracy: true }
+    );
+  };
 
   const zoneName = deliveryResult?.zone?.name || null;
   const zoneFee  = deliveryResult?.price != null ? deliveryResult.price : null;
   const zoneMins = deliveryResult?.minutes || null;
 
   const canNext = form.name.trim() && form.phone.trim() && (!isDelivery || form.address.trim());
+  const submit  = () => { if (canNext) onNext({ ...form, lat, lng }); };
+
+  // Centro inicial del mapa: coordenada GPS si la hay, si no el local, si no Asunción (default interno).
+  const mapCenter = {
+    lat: Number.isFinite(lat) ? lat : (typeof restaurant?.lat === 'number' ? restaurant.lat : null),
+    lng: Number.isFinite(lng) ? lng : (typeof restaurant?.lng === 'number' ? restaurant.lng : null),
+  };
 
   return (
     <div style={{ minHeight: '100%', background: T.offwhite, display: 'flex', flexDirection: 'column' }}>
@@ -826,20 +1027,61 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
             <input value={form.phone} onChange={e => f('phone', e.target.value)} placeholder="+595 9XX XXX XXX" type="tel" style={inputStyle(T)} />
           </div>
 
-          {/* Solo delivery: dirección */}
+          {/* Solo delivery: ubicación + dirección estructurada */}
           {isDelivery && <>
+            {/* Punto de entrega — mapa con pin ARRASTRABLE (si hay key de Maps).
+                El pin es la fuente de verdad de la coordenada. Sin key/red, este
+                bloque no se monta y queda la dirección como texto manual (defensivo). */}
+            {MAPS_READY && (
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Punto de entrega</label>
+                <DeliveryMapPicker initial={mapCenter} onPick={handlePinPick} controlRef={pickerCtl} T={T} />
+                <button onClick={handleDetect} disabled={gpsBusy} style={{ width: '100%', height: 44, background: 'transparent', color: T.ink, border: `1.5px solid ${T.border}`, borderRadius: 12, fontSize: 13, fontWeight: 700, cursor: gpsBusy ? 'default' : 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <Icon name="location" size={15} color={T.ink} />
+                  {gpsBusy ? 'Detectando…' : 'Detectar mi ubicación'}
+                </button>
+                <div style={{ fontSize: 11, color: T.gray, marginTop: 8, lineHeight: 1.5 }}>
+                  Arrastrá el pin o tocá el mapa para fijar tu ubicación exacta.
+                </div>
+              </div>
+            )}
+
+            {/* Dirección — autocompletada (reverse geocoding / Places Autocomplete), editable */}
+            <div style={{ position: 'relative' }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                Dirección *{geoBusy && <span style={{ fontWeight: 500, color: T.silver, textTransform: 'none', letterSpacing: 0 }}> · buscando…</span>}
+              </label>
+              <input value={form.address} onChange={e => handleAddressType(e.target.value)} onBlur={() => setTimeout(() => setPreds([]), 150)} placeholder="Calle y número — ej: Av. España 1840" autoComplete="off" style={inputStyle(T)} />
+              {preds.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 4, overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.14)' }}>
+                  {preds.map(p => (
+                    <div key={p.place_id} onMouseDown={() => handlePickPrediction(p)} style={{ padding: '11px 14px', cursor: 'pointer', borderBottom: `1px solid ${T.light}`, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                      <span style={{ flexShrink: 0, marginTop: 1 }}><Icon name="location" size={14} color={T.gray} /></span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: T.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.structured_formatting?.main_text || p.description}</div>
+                        {p.structured_formatting?.secondary_text && <div style={{ fontSize: 11, color: T.gray, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.structured_formatting.secondary_text}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Dirección *</label>
-              <input value={form.address} onChange={e => f('address', e.target.value)} placeholder="Ej: Av. España 1840" style={inputStyle(T)} />
+              <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Piso / Departamento (opcional)</label>
+              <input value={form.detail} onChange={e => f('detail', e.target.value)} placeholder="Depto 5B / Casa / Piso 3" style={inputStyle(T)} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Detalle (opcional)</label>
-              <input value={form.detail} onChange={e => f('detail', e.target.value)} placeholder="Depto 5B / Casa / Piso 3" style={inputStyle(T)} />
+              <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Esquina (opcional)</label>
+              <input value={form.corner} onChange={e => f('corner', e.target.value)} placeholder="Entre qué calles — ej: c/ Tte. Genaro Ruíz" style={inputStyle(T)} />
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Referencias (opcional)</label>
               <input value={form.references} onChange={e => f('references', e.target.value)} placeholder="Portón verde, frente al Banco…" style={inputStyle(T)} />
             </div>
+
+            {/* Nodo oculto requerido por google.maps.places.PlacesService */}
+            <div ref={placesDivRef} style={{ display: 'none' }} />
           </>}
 
           {/* Solo pickup: mensaje */}
@@ -855,7 +1097,7 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
       </div>
 
       <div style={{ padding: '12px 20px 32px', background: T.offwhite }}>
-        <button onClick={() => canNext && onNext(form)} disabled={!canNext} style={{ width: '100%', height: 54, background: canNext ? T.black : T.light, color: canNext ? T.white : T.silver, border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: canNext ? 'pointer' : 'default', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 200ms', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <button onClick={submit} disabled={!canNext} style={{ width: '100%', height: 54, background: canNext ? T.black : T.light, color: canNext ? T.white : T.silver, border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 800, cursor: canNext ? 'pointer' : 'default', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", transition: 'all 200ms', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           Ver el menú
           <Icon name="chevdown" size={16} color={canNext ? '#fff' : T.silver} sw={2} />
         </button>

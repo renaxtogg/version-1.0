@@ -14,6 +14,14 @@ RESTAURANT_ID=$(strip_bom "${RESTAURANT_ID:-}")
 # Si la env var falta, el frontend degrada con gracia (Maps usa GPS+deep-links;
 # el login social muestra "pendiente de configuración"). NUNCA hardcodear claves acá:
 # se inyectan por Vercel → Settings → Environment Variables.
+#
+# GOOGLE_MAPS_API_KEY: la captura de ubicación del cliente delivery (mapa + pin +
+# reverse geocoding + autocompletado de dirección) necesita estas APIs HABILITADAS
+# en Google Cloud para la key (si está restringida por API):
+#   • Maps JavaScript API  → mapa interactivo + pin arrastrable
+#   • Geocoding API        → reverse geocoding (coordenada → dirección)
+#   • Places API (CLÁSICA)  → autocompletado de dirección (AutocompleteService/PlacesService).
+#                            OJO: "Places API (New)" sola NO alcanza → devuelve REQUEST_DENIED.
 GOOGLE_MAPS_API_KEY=$(strip_bom "${GOOGLE_MAPS_API_KEY:-}")
 AUTH_GOOGLE_RAW=$(strip_bom "${MYTHOS_AUTH_GOOGLE:-}")
 AUTH_FACEBOOK_RAW=$(strip_bom "${MYTHOS_AUTH_FACEBOOK:-}")
