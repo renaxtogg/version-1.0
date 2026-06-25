@@ -348,8 +348,7 @@ const NAV = [
   null,
   {id:'menu',       label:'Menú',         icon:'book', group:'GESTIÓN'},
   {id:'mesas',      label:'Mesas',        icon:'table'},
-  {id:'reservas',   label:'Reservas',     icon:'calendar'},
-  {id:'calendario', label:'Calendario',   icon:'layout'},
+  {id:'agenda',     label:'Agenda',       icon:'calendar'},
   {id:'estaciones', label:'Estaciones',   icon:'boxes'},
   {id:'personal',   label:'Personal',     icon:'users'},
   {id:'stock',      label:'Stock',        icon:'package'},
@@ -8550,7 +8549,7 @@ function DeliveryModule() {
 /* ══════════════════════════════════════════════
    PÁGINA: RESERVAS (ADMIN)
 ══════════════════════════════════════════════ */
-function ReservasPage({tables}) {
+function ReservasPage({tables,embedded}) {
   const [reservas,setReservas] = useState([]);
   const [loading,setLoading]   = useState(true);
   const [dateFilter,setDateFilter] = useState(new Date().toISOString().slice(0,10));
@@ -8608,8 +8607,8 @@ function ReservasPage({tables}) {
       {/* Header */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:12}}>
         <div>
-          <h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Reservas</h1>
-          <div style={{fontSize:12,color:C.mid,marginTop:3}}>{pending} pendientes · {confirmed} confirmadas</div>
+          {!embedded && <h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Reservas</h1>}
+          <div style={{fontSize:12,color:C.mid,marginTop:embedded?0:3}}>{pending} pendientes · {confirmed} confirmadas</div>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
           <input type="date" value={dateFilter} onChange={e=>setDateFilter(e.target.value)}
@@ -8712,7 +8711,7 @@ function ReservasPage({tables}) {
   );
 }
 
-function ReservaFormModal({reserva,tables,onClose,onSaved}){
+function ReservaFormModal({reserva,tables,onClose,onSaved,defaultDate}){
   const isNew=!reserva;
   const now=new Date();
   const todayStr=now.toISOString().slice(0,10);
@@ -8723,7 +8722,7 @@ function ReservaFormModal({reserva,tables,onClose,onSaved}){
   const TIME_SLOTS=[];
   for(let h=10;h<=23;h++){TIME_SLOTS.push(`${String(h).padStart(2,'0')}:00`);TIME_SLOTS.push(`${String(h).padStart(2,'0')}:30`);}
 
-  const initDate=reserva?.reservation_date||todayStr;
+  const initDate=reserva?.reservation_date||defaultDate||todayStr;
   const [selYear,selMonth,selDay]=initDate.split('-').map(Number);
 
   const [form,setForm]=useState({
@@ -9898,29 +9897,45 @@ function calGridDays(year, month) {
   return days;
 }
 
-function CalendarioPage() {
+// Estados de reserva (compartidos con ReservasPage) para los indicadores del calendario.
+const CAL_RES_STATUS = {
+  pending:   {label:'Pendiente', color:'#FF9500'},
+  confirmed: {label:'Confirmada',color:'#34C759'},
+  seated:    {label:'En mesa',   color:'#007AFF'},
+  no_show:   {label:'No llegó',  color:'#8E8E93'},
+  cancelled: {label:'Cancelada', color:'#FF3B30'},
+};
+
+function CalendarioPage({tables, embedded}) {
   const now = new Date();
   const [year,  setYear]  = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [events, setEvents] = useState([]);
+  const [reservas, setReservas] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState({title:'', type:'event', end_date:'', expected_crowd:'medium', notes:''});
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [resModal, setResModal] = useState(null);   // null=cerrado · {}=nueva · objeto reserva=editar
 
   const loadEvents = useCallback(async () => {
     if (!db) return;
     setLoading(true);
     const mm   = String(month + 1).padStart(2,'0');
     const days = new Date(year, month + 1, 0).getDate();
-    const {data} = await db.from('calendar_events')
-      .select('*')
-      .or(`restaurant_id.eq.${RID},is_global.eq.true`)
-      .gte('date', `${year}-${mm}-01`)
-      .lte('date', `${year}-${mm}-${days}`)
-      .order('date');
-    setEvents(data || []);
+    const start = `${year}-${mm}-01`, end = `${year}-${mm}-${String(days).padStart(2,'0')}`;
+    const [evR, reR] = await Promise.all([
+      db.from('calendar_events').select('*')
+        .or(`restaurant_id.eq.${RID},is_global.eq.true`)
+        .gte('date', start).lte('date', end).order('date'),
+      db.from('reservations').select('*')
+        .eq('restaurant_id', RID)
+        .gte('reservation_date', start).lte('reservation_date', end)
+        .order('reservation_time'),
+    ]);
+    setEvents(evR.data || []);
+    setReservas(reR.data || []);
     setLoading(false);
   }, [year, month]);
 
@@ -9938,11 +9953,26 @@ function CalendarioPage() {
     const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     return events.filter(e => e.date <= ds && (e.end_date ? e.end_date >= ds : e.date === ds));
   };
+  const resForDay = d => {
+    if (!d) return [];
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    return reservas.filter(r => r.reservation_date === ds);
+  };
+  // Indicador de reservas por día: cuenta activas (no canceladas) y color por estado dominante.
+  const resBadge = list => {
+    const active = list.filter(r => r.status !== 'cancelled');
+    if (!active.length) return null;
+    const color = active.some(r => r.status === 'pending') ? '#FF9500' : '#34C759';
+    return { count: active.length, color };
+  };
 
   const selDate = selected
     ? `${year}-${String(month+1).padStart(2,'0')}-${String(selected).padStart(2,'0')}`
     : null;
   const selEvts = selected ? evtsForDay(selected) : [];
+  const selRes  = selected ? resForDay(selected) : [];
+
+  const fmtResTime = t => t ? t.slice(0,5) : '—';
 
   const resetForm = () => { setForm({title:'', type:'event', end_date:'', expected_crowd:'medium', notes:''}); setEditId(null); };
   const startEdit = e => { setForm({title:e.title, type:e.type, end_date:e.end_date||'', expected_crowd:e.expected_crowd||'medium', notes:e.notes||''}); setEditId(e.id); };
@@ -9983,18 +10013,22 @@ function CalendarioPage() {
   const highCrowdCount = events.filter(e => e.expected_crowd === 'high').length;
 
   return (
-    <div className="page">
-      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:20,gap:12}}>
+    <div className={embedded?'':'page'}>
+      {(!embedded || highCrowdCount > 0) && (
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:embedded?14:20,gap:12}}>
+        {!embedded && (
         <div>
           <h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Calendario de Eventos</h1>
           <div style={{fontSize:12,color:C.mid,marginTop:3}}>Planificá feriados, eventos y movimiento de público</div>
         </div>
+        )}
         {highCrowdCount > 0 && (
-          <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:TINT.amberText,flexShrink:0}}>
+          <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:TINT.amberText,flexShrink:0,marginLeft:'auto'}}>
             <span style={{color:'#FF3B30'}}>●</span> {highCrowdCount} evento{highCrowdCount>1?'s':''} de alta afluencia este mes
           </div>
         )}
       </div>
+      )}
 
       <div style={{display:'flex',gap:20,alignItems:'flex-start'}}>
         {/* ── Grilla mensual ── */}
@@ -10019,6 +10053,7 @@ function CalendarioPage() {
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
               {days.map((d, i) => {
                 const dayEvts = evtsForDay(d);
+                const rb      = d ? resBadge(resForDay(d)) : null;
                 const sel     = d && selected === d;
                 const isTdy   = isToday(d);
                 return (
@@ -10032,7 +10067,15 @@ function CalendarioPage() {
                       transition: 'all .1s',
                     }}>
                     {d && <>
-                      <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?C.surface:isTdy?C.blue:C.ink,lineHeight:1,marginBottom:4}}>{d}</div>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:4,marginBottom:4}}>
+                        <div style={{fontSize:12,fontWeight:isTdy?800:500,color:sel?C.surface:isTdy?C.blue:C.ink,lineHeight:1}}>{d}</div>
+                        {rb && (
+                          <div title={`${rb.count} reserva${rb.count!==1?'s':''}`}
+                            style={{display:'flex',alignItems:'center',gap:2,background:rb.color,color:'#fff',borderRadius:8,padding:'0 5px',height:14,fontSize:9,fontWeight:800,lineHeight:'14px',flexShrink:0}}>
+                            <Icon name="users" size={8}/>{rb.count}
+                          </div>
+                        )}
+                      </div>
                       <div style={{display:'flex',flexWrap:'wrap',gap:2}}>
                         {dayEvts.slice(0,3).map(e => (
                           <div key={e.id} style={{width:7,height:7,borderRadius:'50%',background:CAL_TYPES[e.type]?.color||'#007AFF',opacity:sel?.85:1,flexShrink:0}}/>
@@ -10114,6 +10157,33 @@ function CalendarioPage() {
                   </div>
                 </div>
               </div>
+
+              {/* ── Reservas del día ── */}
+              <div style={{borderTop:`1px solid ${C.border}`,marginTop:14,paddingTop:12}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                  <div style={{fontSize:10,fontWeight:800,color:C.mid,textTransform:'uppercase',letterSpacing:.5}}>
+                    Reservas del día{selRes.length>0 && <span style={{fontWeight:600}}> · {selRes.length}</span>}
+                  </div>
+                  <button onClick={()=>setResModal({})} style={{background:C.ink,color:C.sidebar,border:'none',borderRadius:6,padding:'4px 10px',fontSize:11,fontWeight:700,cursor:'pointer'}}>+ Nueva</button>
+                </div>
+                {selRes.length===0 ? (
+                  <div style={{fontSize:11,color:C.mid,padding:'2px 0 4px'}}>Sin reservas para este día.</div>
+                ) : selRes.map(r=>{
+                  const sc=CAL_RES_STATUS[r.status]||CAL_RES_STATUS.pending;
+                  return (
+                    <div key={r.id} onClick={()=>setResModal(r)}
+                      style={{background:C.bg,borderRadius:8,padding:'8px 10px',marginBottom:6,cursor:'pointer',borderLeft:`3px solid ${sc.color}`}}>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.customer_name}</div>
+                          <div style={{fontSize:10,color:C.mid}}>{fmtResTime(r.reservation_time)} · {r.guests} pers.{r.confirm_num?` · ${r.confirm_num}`:''}</div>
+                        </div>
+                        <span style={{fontSize:9,fontWeight:700,color:sc.color,border:`1px solid ${sc.color}`,borderRadius:20,padding:'1px 7px',flexShrink:0,whiteSpace:'nowrap'}}>{sc.label}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : (
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:16}}>
@@ -10146,6 +10216,42 @@ function CalendarioPage() {
           )}
         </div>
       </div>
+
+      {/* Modal nueva/editar reserva (reusa el modal de ReservasPage) */}
+      {resModal && (
+        <ReservaFormModal
+          reserva={resModal.id ? resModal : null}
+          defaultDate={selDate}
+          tables={tables||[]}
+          onClose={()=>setResModal(null)}
+          onSaved={()=>{setResModal(null);loadEvents();}}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   AGENDA — módulo unificado (Calendario + Reservas)
+══════════════════════════════════════════════ */
+function AgendaPage({tables, initialView='calendario'}) {
+  const [view,setView] = useState(initialView);
+  const TABS = [['calendario','Calendario'],['lista','Lista']];
+  return (
+    <div className="page">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,gap:12,flexWrap:'wrap'}}>
+        <h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Agenda</h1>
+        <div style={{display:'inline-flex',background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:2}}>
+          {TABS.map(([v,l])=>(
+            <button key={v} onClick={()=>setView(v)}
+              style={{padding:'6px 16px',fontSize:13,fontWeight:700,border:'none',borderRadius:6,cursor:'pointer',
+                background:view===v?C.ink:'transparent',color:view===v?C.sidebar:C.mid}}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {view==='calendario'
+        ? <CalendarioPage tables={tables} embedded/>
+        : <ReservasPage tables={tables} embedded/>}
     </div>
   );
 }
@@ -10304,8 +10410,9 @@ function AdminApp() {
       case 'pedidos':   return <PedidosPage orders={orders} tables={tables} onRefresh={loadAll} onRefreshOrders={refreshOrders}/>;
       case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
       case 'mesas':     return <MesasPage tables={tables} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
-      case 'reservas':  return <ReservasPage tables={tables}/>;
-      case 'calendario':return <CalendarioPage/>;
+      case 'agenda':
+      case 'reservas':
+      case 'calendario':return <AgendaPage tables={tables} initialView={page==='reservas'?'lista':'calendario'}/>;
       case 'estaciones':return <EstacionesPage categories={categories} tables={tables}/>;
       case 'personal':  return <PersonalPage/>;
       case 'clientes':  return caps.hasFeature('admin:crm') ? <ClientesPage orders={orders}/> : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;
