@@ -159,7 +159,12 @@ module.exports = async function handler(req, res) {
       JSON.stringify({ email, password, email_confirm: true, user_metadata: { display_name: display_name || username, username: usernameClean } })
     );
     if (!createResp.ok) {
-      const msg = createResp.data?.msg || createResp.data?.message || JSON.stringify(createResp.data);
+      const msg  = createResp.data?.msg || createResp.data?.message || JSON.stringify(createResp.data);
+      const code = createResp.data?.error_code || createResp.data?.code || '';
+      // Usuario/email ya registrado: mensaje claro (no el crudo de Supabase).
+      if (/already.*regist|email_exists|user_already_exists/i.test(`${msg} ${code}`)) {
+        res.status(409).json({ error: 'Ese nombre de usuario ya está en uso. Elegí otro.' }); return;
+      }
       res.status(400).json({ error: `Error al crear usuario: ${msg}` }); return;
     }
 
