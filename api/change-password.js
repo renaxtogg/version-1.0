@@ -16,7 +16,7 @@
 //     (must_change_password=false, password_changed_at=now(), forced_reason
 //     =null) con service_role (la RLS no permite que el usuario apague su
 //     propio flag — ver mig 113).
-//   • Validación de contraseña server-side (mín. 10, no trivial, ≠ email).
+//   • Validación de contraseña server-side (mín. 8, no trivial, ≠ email).
 //   • Nunca loguea la contraseña. Nunca devuelve secretos ni detalle técnico.
 //   • service_role SOLO server-side (env). Igual patrón que create-user.js.
 // ════════════════════════════════════════════════════════════════════════
@@ -48,18 +48,18 @@ function httpsRequest(method, url, headers, body) {
 
 function clean(v) { return (v == null ? '' : String(v)).replace(/^[﻿\s]+|[\s]+$/g, ''); }
 
-// Bloqueo de contraseñas triviales (además de mín. 10). No es exhaustivo:
+// Bloqueo de contraseñas triviales (además de mín. 8). No es exhaustivo:
 // evita las obvias, el resto lo cubre la longitud.
 const TRIVIAL = [
   '1234567890', '123456789', '0123456789', 'password', 'password1', 'passw0rd',
-  'contrasena', 'contraseña', 'mythos123', 'mythos2026', 'mythos1234',
+  'contrasena', 'contraseña',
   'qwertyuiop', 'qwerty1234', 'abcdefghij', 'aaaaaaaaaa', '0000000000', '1111111111'
 ];
 function isTrivial(pw) {
   const l = pw.toLowerCase();
   if (TRIVIAL.indexOf(l) !== -1) return true;
   if (/^(.)\1+$/.test(pw)) return true;                 // todos los caracteres iguales
-  if (/mythos|password|contrasen/i.test(pw)) return true; // contiene términos obvios
+  if (/password|contrasen/i.test(pw)) return true;      // términos obvios (la marca NO se bloquea)
   return false;
 }
 
@@ -95,8 +95,8 @@ module.exports = async function handler(req, res) {
     // 2. Validar la nueva contraseña server-side.
     const body = (req.body && typeof req.body === 'object') ? req.body : {};
     const password = typeof body.password === 'string' ? body.password : '';
-    if (password.length < 10 || password.length > 128) {
-      res.status(400).json({ error: 'La contraseña debe tener entre 10 y 128 caracteres.' }); return;
+    if (password.length < 8 || password.length > 128) {
+      res.status(400).json({ error: 'La contraseña debe tener entre 8 y 128 caracteres.' }); return;
     }
     if (userEmail && password.toLowerCase() === userEmail) {
       res.status(400).json({ error: 'La contraseña no puede ser igual a tu correo.' }); return;
