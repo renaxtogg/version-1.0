@@ -7487,6 +7487,26 @@ function DelivRiders({riders, onRefresh}) {
   );
 }
 
+/* Reverse-geocode una coordenada → dirección legible. Usa Google Geocoder si la
+   API está cargada; si no, cae a Nominatim/OSM. Resuelve a string o null (defensivo). */
+function reverseGeocode(lat, lng) {
+  return new Promise((resolve) => {
+    try {
+      if (window.google?.maps?.Geocoder) {
+        const geo = new window.google.maps.Geocoder();
+        geo.geocode({ location: { lat, lng }, language: 'es' }, (results, status) => {
+          resolve((status === 'OK' && results && results[0]) ? results[0].formatted_address : null);
+        });
+        return;
+      }
+    } catch (_) { /* cae al fallback */ }
+    fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=es`)
+      .then(r => r.json())
+      .then(d => resolve(d?.display_name || null))
+      .catch(() => resolve(null));
+  });
+}
+
 /* ── MapEditor ── */
 function MapEditor({zones, restaurant, onSave, onClose}) {
   const mapDivRef = useRef(null);
@@ -7506,13 +7526,19 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
   const activeIdxRef = useRef(0);
   const setActive = (i) => { activeIdxRef.current = i; setActiveIdx(i); if(mapRef.current) mapRef.current._activeIdxRef = activeIdxRef; };
   const [saving, setSaving] = useState(false);
-  const [hint, setHint] = useState('Tocá el mapa para definir el alcance de la zona activa');
+  const [geoBusy, setGeoBusy] = useState(false);
+  const [hint, setHint] = useState(zones.length
+    ? 'Tocá el mapa para definir el alcance de la zona activa'
+    : 'Arrastrá el pin (o usá "Mi ubicación") para fijar dónde está el local');
 
   // Bloquear polling global mientras el editor esté abierto
   useEffect(()=>{ _modalCount++; return ()=>{ _modalCount=Math.max(0,_modalCount-1); }; },[]);
 
-  // Buscador de lugares — Google Places API (si hay googleMapsKey en config.js) o Nominatim
-  const GKEY = window.SUPABASE_CONFIG?.googleMapsKey || '';
+  // Buscador de lugares — Google Places API o Nominatim (fallback).
+  // La key REAL del proyecto la inyecta build.sh en window.MYTHOS_CONFIG.googleMapsApiKey
+  // (env var GOOGLE_MAPS_API_KEY) — la misma que usa el panel cliente. Se mantiene el
+  // path viejo como fallback defensivo y se limpia BOM/espacios.
+  const GKEY = (window.MYTHOS_CONFIG?.googleMapsApiKey || window.SUPABASE_CONFIG?.googleMapsKey || '').replace(/^﻿/, '').trim();
   const [searchQ, setSearchQ]     = useState('');
   const [searchRes, setSearchRes] = useState([]);
   const [searching, setSearching] = useState(false);
@@ -7592,6 +7618,25 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
     }, 420);
   }
 
+  // "Usar mi ubicación": geolocaliza, centra/suelta el pin del local y muestra la
+  // dirección (reverse geocode). Degradación elegante si el permiso es negado.
+  function useMyLocation() {
+    if(!navigator.geolocation){ setHint('Tu navegador no permite ubicación automática — movés el pin a mano.'); return; }
+    setGeoBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos)=>{
+        const { latitude, longitude } = pos.coords;
+        _movePinTo(latitude, longitude);
+        setHint('Ubicación detectada — guardá para confirmar');
+        const addr = await reverseGeocode(latitude, longitude);
+        if(addr){ setSearchQ(addr); setHint(`${addr} — guardá para confirmar`); }
+        setGeoBusy(false);
+      },
+      ()=>{ setGeoBusy(false); setHint('No pudimos acceder a tu ubicación. Movés el pin a mano o buscás por nombre.'); },
+      { timeout: 8000, enableHighAccuracy: true }
+    );
+  }
+
   function goToPlace(item) {
     if(item._type==='google' && placesSvcRef.current) {
       placesSvcRef.current.getDetails(
@@ -7630,11 +7675,13 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
         iconSize:[22,22],iconAnchor:[11,11]
       })
     }).addTo(map).bindTooltip('Local (arrastrar)',{permanent:false});
-    pin.on('dragend',e=>{
+    pin.on('dragend',async e=>{
       const {lat,lng}=e.target.getLatLng();
       latRef.current=lat; lngRef.current=lng;
       Object.values(circlesRef.current).forEach(c=>c.setLatLng([lat,lng]));
-      setHint('Ubicación del local actualizada');
+      setHint('Ubicación del local actualizada — guardá para confirmar');
+      const addr = await reverseGeocode(lat,lng);
+      if(addr) setSearchQ(addr);
     });
     pinRef.current = pin;
 
@@ -7719,8 +7766,8 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
         <div style={{padding:'16px 20px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
           <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:12}}>
             <div>
-              <div style={{fontSize:17,fontWeight:800,color:C.ink}}>Ubicación del local y zonas</div>
-              <div style={{fontSize:12,color:C.dim,marginTop:2}}>Buscá el local por nombre · Arrastrá el pin · Tocá el mapa para ajustar radios</div>
+              <div style={{fontSize:17,fontWeight:800,color:C.ink}}>Ubicación del local{zones.length?' y zonas':''}</div>
+              <div style={{fontSize:12,color:C.dim,marginTop:2}}>Buscá por nombre · Usá tu ubicación · Arrastrá el pin{zones.length?' · Tocá el mapa para ajustar radios':''}</div>
             </div>
             <button onClick={e=>{e.stopPropagation();onClose();}} style={{background:C.bg,border:'none',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:18,color:C.dim,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginLeft:12}}>×</button>
           </div>
@@ -7749,15 +7796,17 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
               )}
             </div>
 
-            {/* Aviso Maps — siempre visible en modo demo */}
-            <div style={{marginTop:6,padding:'7px 10px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:7,fontSize:11,color:TINT.amberText,display:'flex',gap:6,alignItems:'center'}}>
-              <span style={{flexShrink:0,display:'flex'}}><Icon name="pin" size={13}/></span>
-              <span>Usando cálculo estimado por zonas (Google Maps en modo demostración)</span>
-            </div>
+            {/* Usar mi ubicación (geolocalización del dispositivo) */}
+            <button onClick={useMyLocation} disabled={geoBusy} style={{marginTop:8,width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:8,height:38,background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,color:C.ink,fontSize:13,fontWeight:700,cursor:geoBusy?'default':'pointer',opacity:geoBusy?0.6:1,fontFamily:'inherit'}}>
+              {geoBusy ? <span className="spin" style={{width:14,height:14,borderWidth:1.5}}/> : <Icon name="pin" size={15}/>}
+              {geoBusy ? 'Detectando…' : 'Usar mi ubicación'}
+            </button>
+
+            {/* Con key → Google Places activo (badge ✓, sin aviso). Sin key → fallback OSM + cómo activarlo. */}
             {!GKEY&&(
-              <div style={{marginTop:4,padding:'7px 10px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:7,fontSize:10,color:TINT.amberText,display:'flex',gap:6,alignItems:'flex-start'}}>
-                <span style={{flexShrink:0,display:'flex'}}><Icon name="alert" size={12}/></span>
-                <span>Para activar búsqueda por nombre de negocio agregá <code style={{fontFamily:"'SF Mono',monospace",fontSize:10}}>googleMapsKey: 'AIza…'</code> en <strong>config.js</strong> y habilitá <em>Maps JS API + Places API</em> en Google Cloud Console.</span>
+              <div style={{marginTop:6,padding:'7px 10px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:7,fontSize:11,color:TINT.amberText,display:'flex',gap:6,alignItems:'flex-start'}}>
+                <span style={{flexShrink:0,display:'flex'}}><Icon name="alert" size={13}/></span>
+                <span>Búsqueda por dirección (OpenStreetMap). Para buscar negocios por nombre, configurá la env var <code style={{fontFamily:"'SF Mono',monospace",fontSize:10}}>GOOGLE_MAPS_API_KEY</code> en Vercel (Maps JS + Places API).</span>
               </div>
             )}
 
@@ -7801,6 +7850,11 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
 
         {/* Panel de edición zona activa */}
         <div style={{flex:1,overflowY:'auto',padding:'16px 20px'}}>
+          {editZones.length===0 && (
+            <div style={{background:'var(--bg-subtle)',border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px',fontSize:13,color:C.dim,lineHeight:1.6}}>
+              Estás fijando la <strong style={{color:C.ink}}>ubicación del local</strong>. Buscala por nombre, usá “Mi ubicación” o arrastrá el pin, y guardá. Las zonas de delivery las agregás después en la tarjeta de Zonas.
+            </div>
+          )}
           {/* Tabs selector */}
           <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
             {editZones.map((z,i)=>{
@@ -7861,7 +7915,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
         {/* Footer */}
         <div style={{padding:'12px 20px 16px',borderTop:`1px solid ${C.border}`,flexShrink:0,display:'flex',gap:8}}>
           <button onClick={handleSave} disabled={saving} style={{flex:1,height:44,background:C.ink,color:C.sidebar,border:'none',borderRadius:10,fontSize:14,fontWeight:800,cursor:saving?'default':'pointer',opacity:saving?0.6:1,fontFamily:'inherit'}}>
-            {saving?'Guardando…':'Guardar zonas en el mapa'}
+            {saving?'Guardando…':(editZones.length?'Guardar ubicación y zonas':'Guardar ubicación del local')}
           </button>
           <button onClick={onClose} style={{height:44,padding:'0 18px',background:'transparent',color:C.dim,border:'1.5px solid #E5E5EA',borderRadius:10,fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>Cancelar</button>
         </div>
@@ -8106,7 +8160,9 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
         </Modal>
       )}
 
-      {mapOpen&&zones.length>0&&(
+      {/* El editor de mapa se abre SIEMPRE: sirve para fijar la ubicación del local
+          (con o sin zonas). Si hay zonas, además se editan sus radios. */}
+      {mapOpen&&(
         <MapEditor
           zones={zones}
           restaurant={restaurant}
@@ -8115,20 +8171,10 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
             const mapped = updatedZones.map(z=>({...z,radius:z.radius_km}));
             setZones(mapped);
             setMapOpen(false);
-            toast('Zonas y ubicación del local guardadas');
+            toast(updatedZones.length?'Zonas y ubicación del local guardadas':'Ubicación del local guardada');
           }}
           onClose={()=>setMapOpen(false)}
         />
-      )}
-      {mapOpen&&zones.length===0&&(
-        <div style={{position:'fixed',inset:0,zIndex:9999,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center'}}>
-          <div style={{background:C.surface,borderRadius:14,padding:28,maxWidth:360,textAlign:'center'}}>
-            <div style={{marginBottom:12,display:'flex',justifyContent:'center',color:C.mid}}><Icon name="pin" size={32}/></div>
-            <div style={{fontSize:15,fontWeight:800,marginBottom:8}}>Primero creá al menos una zona</div>
-            <div style={{fontSize:13,color:C.dim,marginBottom:20}}>Necesitás tener zonas configuradas para editarlas en el mapa.</div>
-            <Btn onClick={()=>setMapOpen(false)}>Entendido</Btn>
-          </div>
-        </div>
       )}
 
       {chanModal&&(
