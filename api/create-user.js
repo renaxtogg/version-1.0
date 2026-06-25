@@ -92,16 +92,13 @@ module.exports = async function handler(req, res) {
     const callerRole = roleResp.data[0];
 
     const body = req.body || {};
-    const { username, password, display_name, role, restaurant_id } = body;
+    const { password, display_name, role, restaurant_id } = body;
     // Campos opcionales del perfil operativo de rider (sólo se usan si role === 'rider').
     const riderVehicle   = typeof body.vehicle === 'string' ? body.vehicle : 'moto';
     const riderCommType  = typeof body.commission_type === 'string' ? body.commission_type : 'pct';
     const riderCommValue = Number.isFinite(+body.commission_value) ? +body.commission_value : 0;
     const riderPhone     = (typeof body.phone === 'string' && body.phone.trim()) ? body.phone.trim() : null;
 
-    if (!username || typeof username !== 'string' || username.trim().length < 2) {
-      res.status(400).json({ error: 'Nombre de usuario requerido (mínimo 2 caracteres)' }); return;
-    }
     if (typeof password !== 'string' || password.trim().length === 0 || password.length < 8) {
       res.status(400).json({ error: 'La contraseña es obligatoria y debe tener al menos 8 caracteres.' }); return;
     }
@@ -126,6 +123,32 @@ module.exports = async function handler(req, res) {
 
     const finalRestaurantId = callerRole.role === 'admin' ? callerRole.restaurant_id : (restaurant_id || null);
 
+    // ── Identidad: empleados por CÉDULA (única); admin/superadmin por username ──
+    const EMPLOYEE_ROLES = ['cajero', 'mozo', 'cocina', 'rider', 'supervisor_local'];
+    const isEmployee = EMPLOYEE_ROLES.includes(role);
+    let cedulaDigits = null, recoveryEmail = null, usernameClean, email;
+    if (isEmployee) {
+      cedulaDigits = String(body.cedula || '').replace(/\D/g, '');
+      if (cedulaDigits.length < 4 || cedulaDigits.length > 10) {
+        res.status(400).json({ error: 'Cédula inválida' }); return;
+      }
+      if (body.recovery_email != null && String(body.recovery_email).trim() !== '') {
+        recoveryEmail = String(body.recovery_email).trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recoveryEmail)) {
+          res.status(400).json({ error: 'Email de recuperación inválido' }); return;
+        }
+      }
+      usernameClean = cedulaDigits;
+      email = `${cedulaDigits}@mythos.internal`;
+    } else {
+      const username = body.username;
+      if (!username || typeof username !== 'string' || username.trim().length < 2) {
+        res.status(400).json({ error: 'Nombre de usuario requerido (mínimo 2 caracteres)' }); return;
+      }
+      usernameClean = username.trim().toLowerCase();
+      email = `${usernameClean.replace(/[^a-z0-9._-]/g, '')}@mythos.internal`;
+    }
+
     // Hard-limit por plan: rechazar antes de crear el usuario auth (evita huérfanos).
     // El trigger DB enforce_role_user_limit es el respaldo final.
     const LIMITED_ROLES = ['mozo', 'cajero', 'cocina', 'rider'];
@@ -149,21 +172,18 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    const usernameClean = username.trim().toLowerCase();
-    const email = `${usernameClean.replace(/[^a-z0-9._-]/g, '')}@mythos.internal`;
-
     // Crear usuario en auth.users
     const createResp = await httpsPost(
       `${SUPABASE_URL}/auth/v1/admin/users`,
       { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY },
-      JSON.stringify({ email, password, email_confirm: true, user_metadata: { display_name: display_name || username, username: usernameClean } })
+      JSON.stringify({ email, password, email_confirm: true, user_metadata: { display_name: display_name || usernameClean, username: usernameClean } })
     );
     if (!createResp.ok) {
       const msg  = createResp.data?.msg || createResp.data?.message || JSON.stringify(createResp.data);
       const code = createResp.data?.error_code || createResp.data?.code || '';
       // Usuario/email ya registrado: mensaje claro (no el crudo de Supabase).
       if (/already.*regist|email_exists|user_already_exists/i.test(`${msg} ${code}`)) {
-        res.status(409).json({ error: 'Ese nombre de usuario ya está en uso. Elegí otro.' }); return;
+        res.status(409).json({ error: isEmployee ? 'Esa cédula ya tiene una cuenta. Verificá el número.' : 'Ese nombre de usuario ya está en uso. Elegí otro.' }); return;
       }
       res.status(400).json({ error: `Error al crear usuario: ${msg}` }); return;
     }
@@ -174,7 +194,7 @@ module.exports = async function handler(req, res) {
     const roleInsertResp = await httpsPost(
       `${SUPABASE_URL}/rest/v1/user_roles`,
       { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY, 'Prefer': 'return=representation' },
-      JSON.stringify({ user_id: newUserId, username: usernameClean, display_name: display_name || username, role, restaurant_id: finalRestaurantId, email, is_active: true })
+      JSON.stringify({ user_id: newUserId, username: usernameClean, display_name: display_name || usernameClean, role, restaurant_id: finalRestaurantId, email, cedula: cedulaDigits, recovery_email: recoveryEmail, is_active: true })
     );
     if (!roleInsertResp.ok) {
       const roleErr = roleInsertResp.data;
@@ -214,11 +234,12 @@ module.exports = async function handler(req, res) {
         JSON.stringify({
           restaurant_id: finalRestaurantId,
           user_id: newUserId,
-          name: display_name || username,
+          name: display_name || usernameClean,
           phone: riderPhone,
           vehicle: riderVehicle,
           commission_type: riderCommType,
           commission_value: riderCommValue,
+          cedula: cedulaDigits,
           active: true
         })
       );
