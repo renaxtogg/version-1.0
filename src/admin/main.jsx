@@ -2644,7 +2644,9 @@ function PersonalPage() {
     // Riders: ahora se crean como el resto del personal (cuenta auth con usuario+contraseña).
     // El endpoint /api/create-user, además de la cuenta, crea su ficha en delivery_riders
     // vinculada por user_id (vehículo/comisión por defecto, editables en Delivery → Riders).
-    if(!username.trim()){toast('Ingresá un nombre de usuario',false);return;}
+    const cedDigits=(username||'').replace(/\D/g,'');
+    if(cedDigits.length<4||cedDigits.length>10){toast('Ingresá una cédula válida (solo números)',false);return;}
+    if(email&&email.trim()&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())){toast('El email de recuperación no es válido',false);return;}
     if(typeof password!=='string'||!password.trim()||password.length<8){toast('Ingresá una contraseña de al menos 8 caracteres para crear el usuario.',false);return;}
     setAddLoading(true);
     try {
@@ -2654,7 +2656,7 @@ function PersonalPage() {
       const resp=await fetch('/api/create-user',{
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
-        body:JSON.stringify({username:username.trim(),password,display_name:full_name.trim(),role,restaurant_id:RID,email:email.trim()||undefined,phone:phone||undefined})
+        body:JSON.stringify({cedula:cedDigits,recovery_email:email.trim()||undefined,password,display_name:full_name.trim(),role,restaurant_id:RID,phone:phone||undefined})
       });
       const result=await resp.json();
       if(!resp.ok) throw new Error(result.error||'Error desconocido');
@@ -2672,7 +2674,7 @@ function PersonalPage() {
   }
 
   function openApprove(req) {
-    setAddForm({full_name:req.full_name||'',username:req.username||'',password:'',pin:(req.role==='rider'?genRiderPin():''),role:req.role||'mozo',dni:req.dni||'',phone:req.phone||'',email:req.email||'',notes:req.notes||'',_reqId:req.id});
+    setAddForm({full_name:req.full_name||'',username:(req.dni||req.username||'').replace(/\D/g,''),password:'',pin:(req.role==='rider'?genRiderPin():''),role:req.role||'mozo',dni:req.dni||'',phone:req.phone||'',email:req.email||'',notes:req.notes||'',_reqId:req.id});
     setAddModal(true);
   }
 
@@ -2799,8 +2801,8 @@ function PersonalPage() {
                 </Sel>
               </div>
               <div>
-                <Lbl>Usuario *</Lbl>
-                <Inp value={addForm.username} onChange={e=>setAddForm(f=>({...f,username:e.target.value}))} placeholder={addForm.role==='rider'?'ej: juanrider':'ej: juanmozo'} mono/>
+                <Lbl>Cédula *</Lbl>
+                <Inp value={addForm.username} onChange={e=>setAddForm(f=>({...f,username:e.target.value.replace(/\D/g,'')}))} placeholder="ej: 4123456" inputMode="numeric" mono/>
               </div>
               <div>
                 <Lbl>Contraseña * (mínimo 8 caracteres)</Lbl>
@@ -2808,15 +2810,11 @@ function PersonalPage() {
                 <div style={{fontSize:11,color:C.dim,marginTop:4}}>El usuario deberá cambiar esta contraseña en su primer ingreso.</div>
               </div>
               <div>
-                <Lbl>DNI / Cédula</Lbl>
-                <Inp value={addForm.dni} onChange={e=>setAddForm(f=>({...f,dni:e.target.value}))} placeholder="ej: 4.123.456"/>
-              </div>
-              <div>
                 <Lbl>Teléfono</Lbl>
                 <Inp value={addForm.phone} onChange={e=>setAddForm(f=>({...f,phone:e.target.value}))} placeholder="ej: 0981 123456"/>
               </div>
               <div style={{gridColumn:'1/-1'}}>
-                <Lbl>Email</Lbl>
+                <Lbl>Email (recuperación) — opcional</Lbl>
                 <Inp type="email" value={addForm.email} onChange={e=>setAddForm(f=>({...f,email:e.target.value}))} placeholder="ej: juan@email.com"/>
               </div>
               <div style={{gridColumn:'1/-1'}}>
@@ -2831,7 +2829,7 @@ function PersonalPage() {
             )}
             <div style={{marginTop:14,padding:'8px 12px',background:C.bg,borderRadius:8,fontSize:12,color:C.dim}}>
               {addForm.role==='rider'
-                ? 'El rider inicia sesión con su usuario y contraseña en el panel Delivery. Su ficha (vehículo, comisión) se crea automáticamente y se edita en Delivery → Riders.'
+                ? 'El rider inicia sesión con su cédula y contraseña. Su ficha (vehículo, comisión) se crea automáticamente y se edita en Delivery → Riders.'
                 : 'El empleado iniciará sesión con su usuario y contraseña en el panel correspondiente a su rol.'}
             </div>
             <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:16}}>
@@ -7338,7 +7336,9 @@ function DelivRiders({riders, onRefresh}) {
     if(modal==='new'){
       // Alta: crear cuenta auth (usuario+contraseña) + ficha de rider vía endpoint seguro
       // (service_role en backend). El panel rider resuelve la ficha por user_id (sin PIN).
-      if(!form.username.trim()){toast('Ingresá un usuario',false);setSaving(false);return;}
+      const ced=(form.cedula||'').replace(/\D/g,'');
+      if(ced.length<4||ced.length>10){toast('Ingresá una cédula válida (solo números)',false);setSaving(false);return;}
+      if(form.recovery_email&&form.recovery_email.trim()&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.recovery_email.trim())){toast('El email de recuperación no es válido',false);setSaving(false);return;}
       if(typeof form.password!=='string'||!form.password.trim()||form.password.length<8){toast('Ingresá una contraseña de al menos 8 caracteres para crear el usuario.',false);setSaving(false);return;}
       try{
         const{data:{session}}=await db.auth.getSession();
@@ -7348,7 +7348,8 @@ function DelivRiders({riders, onRefresh}) {
           method:'POST',
           headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
           body:JSON.stringify({
-            username:form.username.trim(), password:form.password, display_name:form.name.trim(),
+            cedula:ced, recovery_email:(form.recovery_email||'').trim()||undefined,
+            password:form.password, display_name:form.name.trim(),
             role:'rider', restaurant_id:RID,
             vehicle:form.vehicle, commission_type:form.commission_type, commission_value:Number(form.commission_value),
             phone:form.phone||undefined
@@ -7455,13 +7456,17 @@ function DelivRiders({riders, onRefresh}) {
             </div>
             {modal==='new'?(<>
               <div>
-                <Lbl>USUARIO *</Lbl>
-                <Inp value={form.username||''} onChange={e=>setForm({...form,username:e.target.value})} placeholder="ej: juanrider" style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
+                <Lbl>CÉDULA *</Lbl>
+                <Inp value={form.cedula||''} onChange={e=>setForm({...form,cedula:e.target.value.replace(/\D/g,'')})} placeholder="ej: 4123456" inputMode="numeric" style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
+              </div>
+              <div>
+                <Lbl>EMAIL (RECUPERACIÓN) — opcional</Lbl>
+                <Inp type="email" value={form.recovery_email||''} onChange={e=>setForm({...form,recovery_email:e.target.value})} placeholder="ej: juan@email.com"/>
               </div>
               <div>
                 <Lbl>CONTRASEÑA * (mínimo 8 caracteres)</Lbl>
                 <Inp type="password" autoComplete="new-password" value={form.password||''} onChange={e=>setForm({...form,password:e.target.value})} placeholder="Contraseña segura"/>
-                <div style={{fontSize:11,color:C.dim,marginTop:4}}>El rider inicia sesión con este usuario y contraseña en el panel Delivery. Deberá cambiarla en su primer ingreso.</div>
+                <div style={{fontSize:11,color:C.dim,marginTop:4}}>El rider inicia sesión con su <strong>cédula</strong> y contraseña. Deberá cambiarla en su primer ingreso.</div>
               </div>
             </>):(
               <div style={{fontSize:11,color:C.dim}}>El usuario y la contraseña del rider se gestionan en Personal. Acá editás su perfil operativo.</div>
