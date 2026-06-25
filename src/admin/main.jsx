@@ -472,6 +472,7 @@ function SucursalSwitcher({caps}) {
    Gating por caps.allowed_panels (fail-open: plan sin configurar = todo abierto).
 ══════════════════════════════════════════════ */
 const PANEL_HUB = [
+  {key:'menu-cliente',     l:'Menú Cliente (QR)', h:'index.html',           ic:'cart',    rol:'cliente',     desc:'Carta digital que escanea el cliente para pedir en el local'},
   {key:'caja',             l:'Caja',             h:'caja.html',             ic:'money',   rol:'cajero/a',    desc:'Cobros, turnos, fondo fijo y facturación'},
   {key:'mozo',             l:'Mozo',             h:'mozo.html',             ic:'coffee',  rol:'mozo/a',      desc:'Mesas, comandas y transferencia entre mozos'},
   {key:'cocina',           l:'Cocina (KDS)',     h:'cocina.html',           ic:'flame',   rol:'cocina',      desc:'Tablero de comandas y despacho por estación'},
@@ -517,7 +518,7 @@ function PanelShareModal({panel, url, onClose}) {
 
 /* Modal de mejora de plan: lista los planes activos, marca cuál incluye el
    panel bloqueado y ofrece el contacto de WhatsApp pre-cargado. */
-const PANEL_LABEL_SHORT = {caja:'Caja',mozo:'Mozo',cocina:'Cocina',gerente:'Gerente','delivery-cliente':'Delivery Cliente','delivery-rider':'Rider'};
+const PANEL_LABEL_SHORT = {'menu-cliente':'Menú Cliente',caja:'Caja',mozo:'Mozo',cocina:'Cocina',gerente:'Gerente','delivery-cliente':'Delivery Cliente','delivery-rider':'Rider'};
 
 function UpgradeModal({panel, onClose}) {
   const [plans, setPlans] = useState(null);
@@ -578,7 +579,10 @@ function PanelesPage({caps}) {
   const [qr, setQr] = useState(null);
   const [upgrade, setUpgrade] = useState(null);
   const allowed = caps && caps.caps && Array.isArray(caps.caps.allowed_panels) ? caps.caps.allowed_panels : null;
-  const isLocked = key => allowed ? !allowed.includes(key) : false;   // fail-open
+  // El menú QR del cliente es la función base (en TODOS los planes, incluso el más
+  // bajo) → nunca se bloquea, aunque allowed_panels no lo liste.
+  const ALWAYS_INCLUDED = new Set(['menu-cliente']);
+  const isLocked = key => ALWAYS_INCLUDED.has(key) ? false : (allowed ? !allowed.includes(key) : false);   // fail-open
   // Strip del último segmento de la ruta (sirve igual con admin.html o ruta limpia /admin)
   const base = window.location.origin + window.location.pathname.replace(/[^/]*$/,'');
   const urlFor = p => `${base}${p.h}?r=${encodeURIComponent(RID)}`;
