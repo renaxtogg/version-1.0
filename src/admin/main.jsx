@@ -196,7 +196,7 @@ function KpiCard({label,value,sub,accent,icon,onClick}) {
 }
 function Stars({n}) { return <span style={{color:C.yellow,letterSpacing:2,fontSize:14}}>{'★'.repeat(n)}{'☆'.repeat(5-n)}</span>; }
 function Th({children,right}) { return <th style={{padding:'9px 14px',textAlign:right?'right':'left',fontSize:10,color:C.ink,fontWeight:700,letterSpacing:1,whiteSpace:'nowrap',textTransform:'uppercase'}}>{children}</th>; }
-function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?'#6E6E73':'#000000',textAlign:right?'right':'left',...sx}}>{children}</td>; }
+function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?'var(--text-secondary)':'var(--text-primary)',textAlign:right?'right':'left',...sx}}>{children}</td>; }
 function EmptyRow({cols,label}) { return <tr><td colSpan={cols} style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>{label||'Sin datos'}</td></tr>; }
 function Lbl({children}) { return <label style={{fontSize:10,color:C.mid,display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}</label>; }
 function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}) {
@@ -6905,9 +6905,12 @@ const DLIV_COLOR = {pending:'#86868B',confirmed:'#1D1D1F',picked_up:'#003F80',on
 
 function DelivBadge({status}) {
   const col = DLIV_COLOR[status]||'#86868B';
+  // Tinte/borde/texto theme-adaptive (color-mix sobre tokens): los estados neutros
+  // (confirmado #1D1D1F, en camino #000000) dejan de quedar negro-sobre-negro en oscuro.
+  const fg = `color-mix(in srgb, ${col} 70%, var(--text-primary))`;
   return (
-    <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,background:col+'22',color:col,border:`1px solid ${col}44`,borderRadius:5}}>
-      <span style={{width:5,height:5,borderRadius:'50%',background:col}}/>{DLIV_LABEL[status]||status}
+    <span style={{display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',fontSize:11,fontWeight:700,background:`color-mix(in srgb, ${col} 15%, var(--surface))`,color:fg,border:`1px solid color-mix(in srgb, ${col} 32%, transparent)`,borderRadius:5}}>
+      <span style={{width:5,height:5,borderRadius:'50%',background:fg}}/>{DLIV_LABEL[status]||status}
     </span>
   );
 }
@@ -7392,7 +7395,7 @@ function DelivRiders({riders, onRefresh}) {
               const offline = r.active===false;
               const statusKey = offline?'offline':(r.current_status||'disponible');
               const statusLabel = offline?'OFFLINE':statusKey==='en_ruta'?'EN RUTA':'DISPONIBLE';
-              const statusCol = offline?'#86868B':statusKey==='en_ruta'?'#000000':C.green;
+              const statusCol = offline?'#86868B':statusKey==='en_ruta'?C.ink:C.green;
               const initials = r.name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
               return (
                 <div key={r.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20}}>
@@ -7942,7 +7945,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
         <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>CANALES EXTERNOS</div>
-          <Btn small onClick={()=>{setCForm({name:'',commission:0,color:C.ink,active:true});setChanModal('new');}}>+ Canal</Btn>
+          <Btn small onClick={()=>{setCForm({name:'',commission:0,color:'#8E8E93',active:true});setChanModal('new');}}>+ Canal</Btn>
         </div>
         <table style={{width:'100%',borderCollapse:'collapse'}}>
           <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}><Th>Canal</Th><Th right>Comisión %</Th><Th>Color</Th><Th>Estado</Th><Th/></tr></thead>
@@ -8055,7 +8058,7 @@ function DeliveryModule() {
   const [restaurant,setRestaurant] = useState(null);
   const [zones,setZonesState] = useState(()=>LS.get(`deliv_zones_${RID}`,[]) );
   const [channels,setChannelsState] = useState(()=>LS.get(`deliv_channels_${RID}`,[
-    {id:'propio',    name:'Propio',     commission:0,  color:C.ink, active:true},
+    {id:'propio',    name:'Propio',     commission:0,  color:'#8E8E93', active:true},
     {id:'pedidosya', name:'PedidosYa',  commission:18, color:'#FF6000', active:true},
     {id:'monchis',   name:'Monchis',    commission:15, color:'#00B04F', active:true},
   ]));
