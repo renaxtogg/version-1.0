@@ -813,7 +813,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
               background: nextStatus === 'listo' ? C.white : 'rgba(255,255,255,0.07)',
               border: `2px solid ${nextStatus === 'listo' ? C.white : isCritical ? URGENCY_BORDER[urgency] : C.borderStrong}`,
               borderRadius: 9,
-              color: nextStatus === 'listo' ? '#000' : isCritical ? URGENCY_BORDER[urgency] : C.white,
+              color: nextStatus === 'listo' ? C.bg : isCritical ? URGENCY_BORDER[urgency] : C.white,
               fontFamily: 'inherit', fontSize: 14, fontWeight: 800,
               cursor: 'pointer', letterSpacing: '0.05em', textTransform: 'uppercase',
               transition: 'all 150ms',
