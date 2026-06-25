@@ -540,7 +540,7 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
 }
 
 /* ══ SCREEN: MENÚ ════════════════════════ */
-function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWaiter, orderMode, assignedWaiterName, menuStatus }) {
+function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWaiter, orderMode, assignedWaiterName, menuStatus, hasActiveOrder, onViewOrders }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
   const liveMenu = useContext(MenuCtx) || {};
@@ -581,6 +581,11 @@ function MenuScreen({ onItemSelect, cartTotal, cartCount, onViewCart, onCallWait
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar en el menú…" style={{ width: '100%', height: 40, background: T.hdrInputBg, border: `1px solid ${T.hdrInputBorder}`, borderRadius: 10, paddingLeft: 36, paddingRight: 32, color: T.hdrInputText, fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", outline: 'none' }} />
           {search && <button onClick={() => setSearch('')} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer' }}><Icon name="x" size={14} color={T.hdrSub} /></button>}
         </div>
+        {hasActiveOrder && onViewOrders && (
+          <button onClick={onViewOrders} style={{ marginTop: 10, width: '100%', height: 40, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.13)', borderRadius: 10, color: T.hdrText, fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
+            <Icon name="check" size={14} color={T.hdrText} /> Ver el estado de mi pedido
+          </button>
+        )}
       </div>
       <div style={{ background: T.white, borderBottom: `1px solid ${T.border}`, flexShrink: 0, overflowX: 'auto' }}>
         <div style={{ display: 'flex', minWidth: 'max-content' }}>
@@ -951,7 +956,7 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
 }
 
 /* ══ SCREEN: PAGO ════════════════════════ */
-function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone, cartItems, orderMode, lang }) {
+function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone, onNewOrder, cartItems, orderMode, lang }) {
   const T = useContext(ThemeCtx);
   const [step, setStep] = useState('form');
   const [method, setMethod] = useState('efectivo');
@@ -1047,6 +1052,9 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
           </div>
         </div>
         <button onClick={() => onDone(ordNum, method)} style={{ width: '100%', height: 52, background: T.white, color: T.black, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', marginTop: 14 }}>Seguir mi pedido</button>
+        {onNewOrder && (
+          <button onClick={() => onNewOrder(ordNum, method)} style={{ width: '100%', height: 50, background: 'transparent', color: T.btnPrimaryText, border: '1.5px solid rgba(255,255,255,0.25)', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15, fontWeight: 700, cursor: 'pointer', marginTop: 10 }}>Hacer otro pedido</button>
+        )}
       </div>
     );
   }
@@ -1152,7 +1160,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
 }
 
 /* ══ SCREEN: SEGUIMIENTO ════════════════ */
-function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaiter, assignedWaiterName }) {
+function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaiter, assignedWaiterName, sessionOrders, onSelectOrder, onNewOrder }) {
   const T = useContext(ThemeCtx);
   const readyLabel = orderMode === 'take' ? 'Listo para retirar' : 'Listo — el mozo lo lleva';
   const readySub   = orderMode === 'take' ? 'Pasá a buscar tu pedido en caja' : 'El mozo está en camino a tu mesa';
@@ -1213,6 +1221,20 @@ function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaite
         <div style={{ fontSize: 11, color: T.trackSub, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>{serviceLabel(orderMode)} · {orderNumber || 'Ticket en proceso'}</div>
         <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.heroSz, color: T.trackText, lineHeight: 1.1, marginBottom: 6 }}>Seguimiento</div>
         <div style={{ fontSize: 13, color: T.trackSub, marginBottom: 16 }}>Actualización en tiempo real</div>
+        {/* Selector de pedidos de la sesión: si hay más de uno, elegí cuál seguir */}
+        {sessionOrders && sessionOrders.length > 1 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 10, color: T.trackSub, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Mis pedidos ({sessionOrders.length})</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {sessionOrders.map(num => {
+                const sel = num === orderNumber;
+                return (
+                  <button key={num} onClick={() => onSelectOrder && onSelectOrder(num)} style={{ background: sel ? T.trackText : 'transparent', color: sel ? T.trackBg : T.trackText, border: `1.5px solid ${T.trackText}30`, borderRadius: 9999, padding: '5px 12px', fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{num}</button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {/* Resumen de ítems */}
         {cartItems && cartItems.length > 0 && (
           <div style={{ background: `${T.trackText}08`, border: `1px solid ${T.trackText}12`, borderRadius: 10, padding: '10px 14px' }}>
@@ -1254,6 +1276,11 @@ function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaite
         {active === STEPS.length - 1 && (
           <button onClick={onRate} style={{ width: '100%', height: 52, background: T.trackText, color: T.trackBg, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', animation: 'fadeIn 400ms' }}>
             Calificar el servicio
+          </button>
+        )}
+        {onNewOrder && (
+          <button onClick={onNewOrder} style={{ width: '100%', height: 46, background: 'transparent', color: T.trackText, border: `1.5px solid ${T.trackText}30`, borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+            Hacer otro pedido
           </button>
         )}
       </div>
@@ -1799,10 +1826,16 @@ function App() {
   const [currentOrderNum, setCurrentOrderNum] = useState(() => {
     try { return localStorage.getItem('app_order_num') || null; } catch { return null; }
   });
+  // Todos los N° de pedido de esta sesión/mesa → "Ver mis pedidos" sin perder el anterior
+  // al hacer otro pedido. Se vacía sólo con clearSession (cierre total de la sesión).
+  const [sessionOrders, setSessionOrders] = useState(() => {
+    try { const a = JSON.parse(localStorage.getItem('app_session_orders') || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+  });
 
   useEffect(() => { try { localStorage.setItem('app_screen', screen); } catch {} }, [screen]);
   useEffect(() => { try { localStorage.setItem('app_cart', JSON.stringify(cartItems)); } catch {} }, [cartItems]);
   useEffect(() => { try { if (currentOrderNum) localStorage.setItem('app_order_num', currentOrderNum); } catch {} }, [currentOrderNum]);
+  useEffect(() => { try { localStorage.setItem('app_session_orders', JSON.stringify(sessionOrders)); } catch {} }, [sessionOrders]);
   // NOTA (PR-5): los efectos que persisten payTotal/paySubtotal/payDiscount/payCoupon se movieron
   // más abajo, justo después de declarar esos estados. Antes estaban acá, ANTES de su `const … =
   // useState(…)`, y sus arrays de dependencias (evaluados en render) los leían adelantados. Babel
@@ -1812,10 +1845,34 @@ function App() {
   const clearSession = () => {
     try {
       localStorage.removeItem('app_screen'); localStorage.removeItem('app_cart'); localStorage.removeItem('app_order_num');
+      localStorage.removeItem('app_session_orders');
       localStorage.removeItem('app_pay_total'); localStorage.removeItem('app_pay_sub');
       localStorage.removeItem('app_pay_disc'); localStorage.removeItem('app_pay_coupon');
     } catch {}
-    setCartItems([]); setCurrentOrderNum(null); setPayTotal(0); setPaySubtotal(0); setPayDiscount(0); setPayCoupon(''); setScreen('profile');
+    setCartItems([]); setCurrentOrderNum(null); setSessionOrders([]); setPayTotal(0); setPaySubtotal(0); setPayDiscount(0); setPayCoupon(''); setScreen('profile');
+  };
+
+  // Registra un pedido enviado: lo deja como "actual" y lo suma a la lista de la sesión
+  // (sin duplicar). Lo llaman tanto "Seguir mi pedido" como "Hacer otro pedido".
+  const registerOrder = (ordNum) => {
+    if (!ordNum) return;
+    setCurrentOrderNum(ordNum);
+    setSessionOrders(prev => prev.includes(ordNum) ? prev : [...prev, ordNum]);
+  };
+
+  // "Hacer otro pedido": vuelve al menú a armar un nuevo pedido limpiando SOLO el carrito
+  // (+ campos de pago). NO toca el seguimiento: currentOrderNum y sessionOrders se conservan.
+  // ordNum/method vienen del paso 'ok' del pago (donde onDone podría no haberse llamado).
+  const goNewOrder = (ordNum, method) => {
+    if (ordNum) registerOrder(ordNum);
+    if (method) setPayMethod(method);
+    try {
+      localStorage.removeItem('app_cart');
+      localStorage.removeItem('app_pay_total'); localStorage.removeItem('app_pay_sub');
+      localStorage.removeItem('app_pay_disc'); localStorage.removeItem('app_pay_coupon');
+    } catch {}
+    setCartItems([]); setPayTotal(0); setPaySubtotal(0); setPayDiscount(0); setPayCoupon('');
+    setScreen('menu');
   };
 
   // ── Estado UI ──
@@ -1930,10 +1987,10 @@ function App() {
                 {screen === 'qr'      && <QRScreen onScan={() => setScreen('profile')} />}
                 {screen === 'profile' && <ProfileScreen onEnter={() => setScreen('menu')} orderMode={orderMode} setOrderMode={setOrderMode} lang={lang} setLang={setLang} onCallWaiter={handleCallWaiter} onReserve={() => setScreen('reserve')} assignedWaiterName={assignedWaiterName} />}
                 {screen === 'reserve' && <ReservationScreen onBack={() => setScreen('profile')} onDone={() => setScreen('profile')} />}
-                {screen === 'menu'    && <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} onCallWaiter={handleCallWaiter} orderMode={orderMode} assignedWaiterName={assignedWaiterName} menuStatus={menuStatus} />}
+                {screen === 'menu'    && <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} onCallWaiter={handleCallWaiter} orderMode={orderMode} assignedWaiterName={assignedWaiterName} menuStatus={menuStatus} hasActiveOrder={!!currentOrderNum} onViewOrders={() => setScreen('track')} />}
                 {screen === 'cart'    && <CartScreen items={cartItems} onBack={() => setScreen('menu')} onPay={(t, sub, disc, code) => { setPayTotal(t); setPaySubtotal(sub); setPayDiscount(disc); setPayCoupon(code); setScreen('pay'); }} onRemove={removeItem} onQty={updateQty} onCouponApplied={() => {}} onSplit={() => setShowSplit(true)} orderMode={orderMode} />}
-                {screen === 'pay'     && <PayScreen total={payTotal} subtotal={paySubtotal} discountAmount={payDiscount} couponCode={payCoupon} cartItems={cartItems} orderMode={orderMode} lang={lang} onBack={() => setScreen('cart')} onDone={(ordNum, method) => { setCurrentOrderNum(ordNum); if (method) setPayMethod(method); setScreen('track'); }} />}
-                {screen === 'track'   && <TrackingScreen onRate={() => setScreen('rate')} orderNumber={currentOrderNum} orderMode={orderMode} cartItems={cartItems} onCallWaiter={handleCallWaiter} assignedWaiterName={assignedWaiterName} />}
+                {screen === 'pay'     && <PayScreen total={payTotal} subtotal={paySubtotal} discountAmount={payDiscount} couponCode={payCoupon} cartItems={cartItems} orderMode={orderMode} lang={lang} onBack={() => setScreen('cart')} onDone={(ordNum, method) => { registerOrder(ordNum); if (method) setPayMethod(method); setScreen('track'); }} onNewOrder={goNewOrder} />}
+                {screen === 'track'   && <TrackingScreen onRate={() => setScreen('rate')} orderNumber={currentOrderNum} orderMode={orderMode} cartItems={cartItems} onCallWaiter={handleCallWaiter} assignedWaiterName={assignedWaiterName} sessionOrders={sessionOrders} onSelectOrder={setCurrentOrderNum} onNewOrder={() => goNewOrder()} />}
                 {screen === 'rate'    && <RatingScreen onDone={clearSession} orderId={null} tableId={null} />}
                 </>}
                 </>}
