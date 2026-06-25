@@ -3922,6 +3922,20 @@ function CajaAdminPage() {
   const [editCajaName,setEditCajaName] = useState('');
   const [busyCaja,setBusyCaja]     = useState(false);
   const [openTurnos,setOpenTurnos] = useState([]);     // turnos ABIERTOS (filtrado por estado, no por la ventana de 30)
+  // Fase 2: config POR CAJA. selCajaCfg = caja cuya config se edita (null = legacy restaurante).
+  const [selCajaCfg,setSelCajaCfg] = useState(null);
+  const [rDefaults,setRDefaults]   = useState({cash_mode_default:'libre',cash_fondo_fijo:0,cash_diff_umbral:50000,cash_auto_retiro_excedente:false});
+
+  // Config efectiva de una caja: su valor propio o, si es NULL, el del restaurante (mig 127).
+  function cfgFromCaja(c, rd){
+    return {
+      cash_mode_default:          c.cash_mode_default || rd.cash_mode_default,
+      cash_fondo_fijo:            c.cash_fondo_fijo!=null            ? Number(c.cash_fondo_fijo)  : rd.cash_fondo_fijo,
+      cash_diff_umbral:           c.cash_diff_umbral!=null           ? Number(c.cash_diff_umbral) : rd.cash_diff_umbral,
+      cash_auto_retiro_excedente: c.cash_auto_retiro_excedente!=null ? !!c.cash_auto_retiro_excedente : rd.cash_auto_retiro_excedente,
+    };
+  }
+  const cajaNombreById = id => (cajas.find(c=>String(c.id)===String(id))||{}).nombre || '—';
 
   useEffect(()=>{ if(db) loadAll(); else setLoading(false); },[]);
 
@@ -3940,15 +3954,21 @@ function CajaAdminPage() {
     setTurnos(ts);
     setQuejas(qR.data||[]);
     setOpenTurnos(oR&&!oR.error ? (oR.data||[]) : []);
-    // Feature-detect multi-caja: si la tabla no existe (migración 126 sin aplicar), cR.error → ocultar card.
-    if(cR.error){ setCajasAvailable(false); }
-    else { setCajasAvailable(true); setCajas(cR.data||[]); setCajaInfo(lR&&!lR.error ? (lR.data||null) : null); }
-    if(rR.data) setCfg({
+    // Defaults del restaurante (fallback de la config por caja).
+    const rd = rR.data ? {
       cash_mode_default: rR.data.cash_mode_default || 'libre',
       cash_fondo_fijo: Number(rR.data.cash_fondo_fijo)||0,
       cash_diff_umbral: Number(rR.data.cash_diff_umbral)||50000,
       cash_auto_retiro_excedente: !!rR.data.cash_auto_retiro_excedente,
-    });
+    } : {cash_mode_default:'libre',cash_fondo_fijo:0,cash_diff_umbral:50000,cash_auto_retiro_excedente:false};
+    setRDefaults(rd);
+    // Feature-detect multi-caja: si la tabla no existe (migración 126 sin aplicar), cR.error → ocultar card.
+    const cajasList = cR.error ? [] : (cR.data||[]);
+    if(cR.error){ setCajasAvailable(false); }
+    else { setCajasAvailable(true); setCajas(cajasList); setCajaInfo(lR&&!lR.error ? (lR.data||null) : null); }
+    // Config POR CAJA (Fase 2): editar la primera caja por defecto; sin cajas → config del restaurante (legacy).
+    if(cajasList.length>0){ setSelCajaCfg(cajasList[0].id); setCfg(cfgFromCaja(cajasList[0], rd)); }
+    else { setSelCajaCfg(null); setCfg(rd); }
     if(ts.length>0){
       const{data:md}=await db.from('movimientos_caja').select('*').eq('turno_id',ts[0].id).order('created_at',{ascending:false});
       setMovs(md||[]);
@@ -3966,15 +3986,19 @@ function CajaAdminPage() {
     }
     if(!(umbral>=0)){toast('Umbral inválido',false);return;}
     setSavingCfg(true);
-    const{data,error}=await db.from('restaurants').update({
+    const payload={
       cash_mode_default: cfg.cash_mode_default,
       cash_fondo_fijo: fondo,
       cash_diff_umbral: umbral,
       cash_auto_retiro_excedente: cfg.cash_auto_retiro_excedente,
-    }).eq('id',RID).select('id');
+    };
+    // Fase 2: si hay caja elegida → guardar SU config; sino (legacy) → restaurante.
+    const{data,error}= selCajaCfg
+      ? await db.from('cajas').update(payload).eq('id',selCajaCfg).select('id')
+      : await db.from('restaurants').update(payload).eq('id',RID).select('id');
     if(error){toast('Error: '+error.message,false);}
-    else if(!data||data.length===0){toast('No se pudo guardar — verificá migración 071 y RLS',false);}
-    else{toast('Configuración de caja guardada');}
+    else if(!data||data.length===0){toast('No se pudo guardar — verificá la migración y RLS',false);}
+    else{toast(selCajaCfg?`Configuración de ${cajaNombreById(selCajaCfg)} guardada`:'Configuración de caja guardada'); if(selCajaCfg) reloadCajas();}
     setSavingCfg(false);
   }
 
@@ -4143,13 +4167,23 @@ function CajaAdminPage() {
 
           {/* Configuración de cierre/apertura */}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:14}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-              <div>
-                <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1}}>CONFIGURACIÓN DE APERTURA / CIERRE</div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12,gap:12,flexWrap:'wrap'}}>
+              <div style={{flex:1,minWidth:240}}>
+                <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1}}>CONFIGURACIÓN DE APERTURA / CIERRE{selCajaCfg?` · ${cajaNombreById(selCajaCfg)}`:''}</div>
                 <div style={{fontSize:11,color:C.dim,marginTop:4,lineHeight:1.5}}>
-                  Definí cómo se abre y cierra la caja cada día. En modo <strong>fondo fijo</strong> el cajero confirma el monto preestablecido al abrir y al cerrar deja ese mismo monto en caja (el excedente puede entregarse automáticamente a administración).
+                  {cajasAvailable&&cajas.length>0
+                    ? <>Cada caja tiene su <strong>propio fondo fijo, umbral y modo</strong>. Elegí una caja para editar su configuración. En modo <strong>fondo fijo</strong> el cajero confirma el monto preestablecido al abrir.</>
+                    : <>Definí cómo se abre y cierra la caja cada día. En modo <strong>fondo fijo</strong> el cajero confirma el monto preestablecido al abrir y al cerrar deja ese mismo monto en caja (el excedente puede entregarse automáticamente a administración).</>}
                 </div>
               </div>
+              {cajasAvailable&&cajas.length>0&&(
+                <div style={{minWidth:180}}>
+                  <Lbl>CAJA</Lbl>
+                  <Sel value={selCajaCfg||''} onChange={e=>{ const id=e.target.value; setSelCajaCfg(id); const c=cajas.find(x=>String(x.id)===String(id)); if(c) setCfg(cfgFromCaja(c,rDefaults)); }}>
+                    {cajas.map(c=><option key={c.id} value={c.id}>{c.nombre}{c.activa?'':' (inactiva)'}</option>)}
+                  </Sel>
+                </div>
+              )}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(2, minmax(0,1fr))',gap:14,marginBottom:14}}>
               <div>
@@ -4228,13 +4262,19 @@ function CajaAdminPage() {
           <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:14}}>
             {/* Movimientos del turno seleccionado */}
             <div>
-              <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>MOVIMIENTOS DEL TURNO</div>
+              <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>MOVIMIENTOS DEL TURNO</div>
+              {selTurno&&(
+                <div style={{fontSize:11,color:C.dim,marginBottom:10}}>
+                  {selTurno.caja_id?<><strong style={{color:C.mid}}>{cajaNombreById(selTurno.caja_id)}</strong> · </>:''}
+                  Cajero: {selTurno.cajero_nombre||'—'}
+                </div>
+              )}
               {selTurno&&(
                 <div style={{marginBottom:10,display:'flex',gap:6,flexWrap:'wrap'}}>
                   {turnos.slice(0,5).map(t=>(
                     <button key={t.id} onClick={()=>loadMovs(t)}
                       style={{padding:'4px 10px',fontSize:11,borderRadius:5,border:`1px solid ${selTurno?.id===t.id?C.ink:C.border}`,background:selTurno?.id===t.id?C.ink:'transparent',color:selTurno?.id===t.id?C.sidebar:C.mid,cursor:'pointer',fontWeight:selTurno?.id===t.id?700:400}}>
-                      {fmtDate(t.fecha_apertura)} {t.cajero_nombre?`(${t.cajero_nombre.split(' ')[0]})`:''} {t.estado==='abierto'?<span style={{color:'#34C759'}}>●</span>:''}
+                      {fmtDate(t.fecha_apertura)} {cajasAvailable&&t.caja_id?`· ${cajaNombreById(t.caja_id)} `:''}{t.cajero_nombre?`(${t.cajero_nombre.split(' ')[0]})`:''} {t.estado==='abierto'?<span style={{color:'#34C759'}}>●</span>:''}
                     </button>
                   ))}
                 </div>
@@ -4242,7 +4282,7 @@ function CajaAdminPage() {
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <table style={{width:'100%',borderCollapse:'collapse'}}>
                   <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
-                    <Th>Hora</Th><Th>Tipo</Th><Th>Descripción</Th><Th>Método</Th><Th right>Monto</Th>
+                    <Th>Hora</Th><Th>Tipo</Th><Th>Descripción</Th><Th>Cajero</Th><Th>Método</Th><Th right>Monto</Th>
                   </tr></thead>
                   <tbody>
                     {movs.slice(0,40).map(m=>(
@@ -4250,13 +4290,14 @@ function CajaAdminPage() {
                         <Td mono dim>{fmtTime(m.created_at)}</Td>
                         <Td><span style={{background:(tipoColor[m.tipo]||'#6E6E73')+'22',color:tipoColor[m.tipo]||'#6E6E73',padding:'2px 7px',fontSize:11,fontWeight:700,borderRadius:4}}>{m.tipo}</span></Td>
                         <Td><span style={{fontSize:12}}>{m.descripcion||'—'}</span></Td>
+                        <Td dim><span style={{fontSize:11}}>{m.usuario_nombre||'—'}</span></Td>
                         <Td dim><span style={{fontSize:11}}>{m.metodo_pago||'—'}</span></Td>
                         <Td mono right style={{color:['cobro','ingreso_manual'].includes(m.tipo)?C.green:['egreso','retiro_parcial'].includes(m.tipo)?C.red:C.mid}}>
                           {['egreso','retiro_parcial'].includes(m.tipo)?'- ':''}{fmt(m.monto)}
                         </Td>
                       </tr>
                     ))}
-                    {movs.length===0&&<EmptyRow cols={5} label="Sin movimientos en este turno"/>}
+                    {movs.length===0&&<EmptyRow cols={6} label="Sin movimientos en este turno"/>}
                   </tbody>
                 </table>
               </div>
@@ -4272,7 +4313,10 @@ function CajaAdminPage() {
                   <tbody>
                     {turnos.slice(0,8).map(t=>(
                       <tr key={t.id} style={{borderBottom:`1px solid #0d0d0d`,cursor:'pointer'}} onClick={()=>loadMovs(t)}>
-                        <Td><span style={{fontSize:12}}>{t.cajero_nombre||'—'}</span></Td>
+                        <Td>
+                          <span style={{fontSize:12}}>{t.cajero_nombre||'—'}</span>
+                          {cajasAvailable&&t.caja_id&&<div style={{fontSize:10,color:C.dim}}>{cajaNombreById(t.caja_id)}</div>}
+                        </Td>
                         <Td mono dim>{fmtDate(t.fecha_apertura)}</Td>
                         <Td right>
                           <span style={{background:t.estado==='abierto'?C.green+'22':C.dim+'22',color:t.estado==='abierto'?C.green:C.dim,border:`1px solid ${t.estado==='abierto'?C.green:C.dim}44`,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>
@@ -6220,7 +6264,7 @@ function ReportesPage({orders}) {
         {label:'Egresos caja',  value:fmt(totEg),          color:'#FF3B30'},
         {label:'Turnos',        value:(turnos||[]).length, color:'#007AFF'},
       ]);
-      setRows({ cols:['Fecha/Hora','Tipo','Descripción','Monto','Cajero'], data:movs.slice(0,300).map(m=>[fmtDT(m.created_at), m.tipo||'—', m.descripcion||'—', fmt(Number(m.monto||0)), m.cajero_nombre||'—']) });
+      setRows({ cols:['Fecha/Hora','Tipo','Descripción','Monto','Cajero'], data:movs.slice(0,300).map(m=>[fmtDT(m.created_at), m.tipo||'—', m.descripcion||'—', fmt(Number(m.monto||0)), m.usuario_nombre||'—']) });
     }
 
     else if(type==='stock_actual') {

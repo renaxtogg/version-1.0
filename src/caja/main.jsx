@@ -324,29 +324,52 @@ function DenomGrid({values,onChange,label=''}){
 /* ═══════════════════════════════════════════
    PANTALLA: APERTURA DE TURNO
 ═══════════════════════════════════════════ */
-function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
+function AperturaTurnoScreen({profile,cajas=[],openTurnos=[],onTurnoAbierto,onRetomar}){
   const [denoms,setDenoms]=useState(emptyDenoms());
   const [obs,setObs]=useState('');
   const [busy,setBusy]=useState(false);
-  const [cfg,setCfg]=useState({cash_mode_default:'libre',cash_fondo_fijo:0,cash_diff_umbral:50000});
+  const [rcfg,setRcfg]=useState({cash_mode_default:'libre',cash_fondo_fijo:0,cash_diff_umbral:50000});
   const [modo,setModo]=useState('libre');
+  const [modoTouched,setModoTouched]=useState(false);
   const [cfgLoaded,setCfgLoaded]=useState(false);
+  const [selCajaId,setSelCajaId]=useState(null);
+
+  // Multi-caja: ocupación = caja con turno abierto. Sin cajas → caja implícita (legacy).
+  const turnoDeCaja = id => (openTurnos||[]).find(t=>String(t.caja_id||'')===String(id||''));
+  const multiCaja = (cajas||[]).length>0;
+  const selCaja = (cajas||[]).find(c=>String(c.id)===String(selCajaId))||null;
+
+  // Config EFECTIVA: la de la caja elegida, con fallback al restaurante (mig 127).
+  const cfg = {
+    cash_mode_default: (selCaja&&selCaja.cash_mode_default) || rcfg.cash_mode_default,
+    cash_fondo_fijo:   (selCaja&&selCaja.cash_fondo_fijo!=null)  ? Number(selCaja.cash_fondo_fijo)  : rcfg.cash_fondo_fijo,
+    cash_diff_umbral:  (selCaja&&selCaja.cash_diff_umbral!=null) ? Number(selCaja.cash_diff_umbral) : rcfg.cash_diff_umbral,
+  };
 
   useEffect(()=>{
     (async()=>{
       const{data}=await db.from('restaurants').select('cash_mode_default,cash_fondo_fijo,cash_diff_umbral').eq('id',RID).maybeSingle();
       if(data){
-        const c={
+        setRcfg({
           cash_mode_default:data.cash_mode_default||'libre',
           cash_fondo_fijo:Number(data.cash_fondo_fijo)||0,
           cash_diff_umbral:Number(data.cash_diff_umbral)||50000,
-        };
-        setCfg(c);
-        setModo(c.cash_mode_default==='fijo'&&c.cash_fondo_fijo>0?'fijo':'libre');
+        });
       }
       setCfgLoaded(true);
     })();
   },[]);
+
+  // Auto-seleccionar cuando hay UNA sola caja activa y está libre (sin selector).
+  useEffect(()=>{
+    if(selCajaId) return;
+    if(multiCaja && cajas.length===1 && !turnoDeCaja(cajas[0].id)) setSelCajaId(cajas[0].id);
+  },[cajas]);
+
+  // Sugerir el modo según la config efectiva, salvo que el cajero ya lo haya tocado.
+  useEffect(()=>{
+    if(!modoTouched) setModo(cfg.cash_mode_default==='fijo'&&cfg.cash_fondo_fijo>0?'fijo':'libre');
+  },[cfg.cash_mode_default,cfg.cash_fondo_fijo,modoTouched]);
 
   const total=calcDenomTotal(denoms);
   const fondoBajo=modo==='libre'&&total>0&&total<FONDO_MINIMO;
@@ -354,8 +377,14 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
   const diffFijo=modo==='fijo'?total-objetivo:0;
   const umbral=cfg.cash_diff_umbral||50000;
   const matchOk=modo==='libre'||Math.abs(diffFijo)<=umbral;
+  const needCaja = multiCaja && !selCajaId;        // falta elegir caja
+  const showFondo = !multiCaja || !!selCajaId;      // mostrar fondo/denoms sólo con caja elegida
+  // Mostrar el selector con varias cajas, o con una sola caja que aún no quedó auto-elegida
+  // (p.ej. la única caja está ocupada) para que el cajero la vea / pueda retomar.
+  const showSelector = multiCaja && (cajas.length>1 || !selCajaId);
 
   async function abrir(){
+    if(needCaja){toast('Elegí una caja para abrir tu turno.',false);return;}
     if(total===0){toast('Ingresá al menos una denominación para el fondo inicial',false);return;}
     if(modo==='fijo'&&Math.abs(diffFijo)>umbral){
       toast(`El conteo difiere del fondo fijo en ${fmt(Math.abs(diffFijo))} (umbral ${fmt(umbral)}). Ajustá las denominaciones.`,false);return;
@@ -381,6 +410,7 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
     try{
       const payload={
         restaurant_id:ridApertura,
+        caja_id:selCajaId||null,
         cajero_id:profile.id,
         cajero_nombre:profile.display_name||profile.username,
         fondo_apertura:{denominaciones:denoms,total},
@@ -392,7 +422,15 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
       if(error)throw error;
       toast('Turno abierto correctamente');
       onTurnoAbierto(data);
-    }catch(e){toast('Error al abrir turno: '+e.message,false);}
+    }catch(e){
+      // El índice único uniq_turno_abierto_por_caja (mig 127) rechaza un 2º turno
+      // abierto en la misma caja (race de dos cajeros eligiendo la misma).
+      if(String(e.code)==='23505'||/duplicate key|uniq_turno_abierto/i.test(e.message||'')){
+        toast('Esa caja ya tiene un turno abierto. Actualizá la página y elegí otra.',false);
+      }else{
+        toast('Error al abrir turno: '+e.message,false);
+      }
+    }
     setBusy(false);
   }
 
@@ -405,26 +443,50 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
           <div style={{fontSize:13,color:C.dim,marginTop:4}}>Cajero: <span style={{color:C.white,fontWeight:700}}>{profile.display_name||profile.username}</span></div>
         </div>
 
-        {turnoAbierto&&(
-          <AlertBox type="error">
-            Hay un turno anterior abierto desde {fmtDT(turnoAbierto.fecha_apertura)} por <strong>{turnoAbierto.cajero_nombre||'otro cajero'}</strong>. Cerralo antes de abrir uno nuevo.
-          </AlertBox>
+        {/* Selector de caja (varias cajas, o una sola aún no auto-elegida) */}
+        {showSelector && (
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'14px 18px',marginBottom:12}}>
+            <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>ELEGÍ TU CAJA</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {cajas.map(c=>{
+                const t=turnoDeCaja(c.id);
+                const ocupada=!!t;
+                const selected=String(selCajaId)===String(c.id);
+                return(
+                  <div key={c.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:8,
+                    border:`1.5px solid ${selected?C.ink:C.border}`,background:selected?'rgba(0,0,0,0.03)':'transparent',opacity:ocupada?0.75:1}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:14,fontWeight:700,color:C.ink}}>{c.nombre}{c.zona?<span style={{fontSize:11,color:C.dim,fontWeight:500}}> · {c.zona}</span>:''}</div>
+                      {ocupada
+                        ? <div style={{fontSize:11,color:'#FF9500',fontWeight:600}}>Ocupada · turno de {t.cajero_nombre||'otro cajero'}</div>
+                        : <div style={{fontSize:11,color:'#34C759',fontWeight:600}}>Libre</div>}
+                    </div>
+                    {ocupada
+                      ? <Btn small variant="ghost" onClick={()=>onRetomar&&onRetomar(t)}>Retomar</Btn>
+                      : <Btn small variant={selected?'primary':'ghost'} onClick={()=>setSelCajaId(c.id)}>{selected?'Elegida':'Elegir'}</Btn>}
+                  </div>
+                );
+              })}
+            </div>
+            {needCaja && <div style={{fontSize:11,color:C.dim,marginTop:10}}>Seleccioná una caja libre para cargar su fondo y abrir el turno.</div>}
+          </div>
         )}
-        {fondoBajo&&(
+
+        {fondoBajo&&showFondo&&(
           <AlertBox type="warn">
             El fondo es menor al mínimo recomendado de {fmt(FONDO_MINIMO)}. Podés continuar igual.
           </AlertBox>
         )}
 
-        {cfgLoaded&&cfg.cash_fondo_fijo>0&&(
+        {showFondo&&cfgLoaded&&cfg.cash_fondo_fijo>0&&(
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'14px 18px',marginBottom:12,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
             <div>
-              <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>MODO DE APERTURA</div>
+              <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>MODO DE APERTURA{selCaja?` · ${selCaja.nombre}`:''}</div>
               <div style={{fontSize:12,color:C.dim}}>{modo==='fijo'?`Fondo fijo definido por admin: ${fmt(cfg.cash_fondo_fijo)}`:'Cajero define el fondo libremente'}</div>
             </div>
             <div style={{display:'flex',gap:6}}>
               {[['libre','Libre'],['fijo','Fondo fijo']].map(([v,lbl])=>(
-                <button key={v} onClick={()=>setModo(v)}
+                <button key={v} onClick={()=>{setModoTouched(true);setModo(v);}}
                   disabled={v==='fijo'&&!(cfg.cash_fondo_fijo>0)}
                   style={{padding:'7px 14px',fontSize:12,borderRadius:6,border:`1px solid ${modo===v?C.ink:C.border}`,background:modo===v?C.ink:'transparent',color:modo===v?C.surface:C.mid,fontWeight:modo===v?700:500,cursor:v==='fijo'&&!(cfg.cash_fondo_fijo>0)?'not-allowed':'pointer',opacity:v==='fijo'&&!(cfg.cash_fondo_fijo>0)?0.4:1}}>{lbl}</button>
               ))}
@@ -432,7 +494,7 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
           </div>
         )}
 
-        {modo==='fijo'&&(
+        {showFondo&&modo==='fijo'&&(
           <div style={{background:matchOk?'rgba(52,199,89,0.06)':'rgba(255,149,0,0.08)',border:`1px solid ${matchOk?'rgba(52,199,89,0.25)':'rgba(255,149,0,0.3)'}`,borderRadius:10,padding:'12px 16px',marginBottom:12,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,fontFamily:"'SF Mono',ui-monospace,monospace"}}>
             <div><div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:2}}>OBJETIVO</div><div style={{fontSize:16,fontWeight:800,color:C.ink}}>{fmt(objetivo)}</div></div>
             <div><div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:2}}>CONTADO</div><div style={{fontSize:16,fontWeight:800,color:C.ink}}>{fmt(total)}</div></div>
@@ -440,17 +502,19 @@ function AperturaTurnoScreen({profile,turnoAbierto,onTurnoAbierto}){
           </div>
         )}
 
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:24,marginBottom:16}}>
-          <DenomGrid values={denoms} onChange={setDenoms} label={modo==='fijo'?`Confirmá el fondo fijo (${fmt(objetivo)}) ingresando billetes y monedas`:'Fondo inicial — ingresá la cantidad de cada denominación'}/>
-          <div style={{marginTop:14}}>
-            <Lbl>OBSERVACIONES {modo==='fijo'&&Math.abs(diffFijo)>0?'(requerido por diferencia)':'(opcional)'}</Lbl>
-            <Textarea value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ej: Fondo recibido de turno anterior, novedades…" rows={2}/>
+        {showFondo&&(
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:24,marginBottom:16}}>
+            <DenomGrid values={denoms} onChange={setDenoms} label={modo==='fijo'?`Confirmá el fondo fijo (${fmt(objetivo)}) ingresando billetes y monedas`:'Fondo inicial — ingresá la cantidad de cada denominación'}/>
+            <div style={{marginTop:14}}>
+              <Lbl>OBSERVACIONES {modo==='fijo'&&Math.abs(diffFijo)>0?'(requerido por diferencia)':'(opcional)'}</Lbl>
+              <Textarea value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ej: Fondo recibido de turno anterior, novedades…" rows={2}/>
+            </div>
           </div>
-        </div>
+        )}
 
         <div style={{display:'flex',gap:10}}>
-          <Btn full onClick={abrir} disabled={busy||!!turnoAbierto||!cfgLoaded}>
-            {busy?<><span className="spin"/> Abriendo…</>:'Abrir Turno →'}
+          <Btn full onClick={abrir} disabled={busy||!cfgLoaded||needCaja}>
+            {busy?<><span className="spin"/> Abriendo…</>:needCaja?'Elegí una caja':'Abrir Turno →'}
           </Btn>
           <Btn variant="ghost" onClick={()=>window.location.href='admin.html'}>Admin</Btn>
           <Btn variant="ghost" onClick={cerrarSesion}>Cambiar usuario</Btn>
@@ -474,7 +538,7 @@ async function cerrarSesion(){
   window.location.replace('login.html');
 }
 
-function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggleTheme,paymentCalls=0,onClickCalls,isOnline=true,pendingOffline=0,broadcastCount=0}){
+function SidebarTurno({turno,cajaNombre,movimientos,panel,setPanel,onCierre,profile,onToggleTheme,paymentCalls=0,onClickCalls,isOnline=true,pendingOffline=0,broadcastCount=0}){
   const [hora,setHora]=useState(new Date());
   useEffect(()=>{const t=setInterval(()=>setHora(new Date()),30000);return()=>clearInterval(t);},[]);
 
@@ -508,7 +572,9 @@ function SidebarTurno({turno,movimientos,panel,setPanel,onCierre,profile,onToggl
       <div style={{padding:'16px 14px 12px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontFamily:'inherit',fontWeight:800,fontSize:18,color:C.ink,letterSpacing:'-1px',marginBottom:2}}>Mythos</div>
-          <div style={{fontSize:11,fontWeight:500,color:C.mid}}>Caja · {profile?.display_name||profile?.username}</div>
+          {cajaNombre
+            ? <div style={{fontSize:11,fontWeight:700,color:C.ink}}>{cajaNombre} · <span style={{fontWeight:500,color:C.mid}}>{profile?.display_name||profile?.username}</span></div>
+            : <div style={{fontSize:11,fontWeight:500,color:C.mid}}>Caja · {profile?.display_name||profile?.username}</div>}
           <div style={{fontSize:11,color:C.mid,marginTop:2}}>Desde {fmtTime(turno.fecha_apertura)}</div>
         </div>
         <button onClick={onToggleTheme} title={themeDark?'Cambiar a claro':'Cambiar a oscuro'}
@@ -3471,7 +3537,7 @@ function SalonPanel({turno,profile}){
    La diferencia se registra en DB (monto_declarado vs monto_sistema)
    pero NO se muestra al cajero. Mensaje neutro + redirect a /login.html.
 ═══════════════════════════════════════════ */
-function CierreCajaPanel({turno,movimientos,profile,onCierre}){
+function CierreCajaPanel({turno,cajaNombre,movimientos,profile,onCierre}){
   const [denoms,setDenoms]=useState(emptyDenoms());
   const [vouchersTxt,setVouchersTxt]=useState('');
   const [transferTxt,setTransferTxt]=useState('');
@@ -3538,7 +3604,7 @@ function CierreCajaPanel({turno,movimientos,profile,onCierre}){
     <div className="page">
       <div style={{maxWidth:640,margin:'0 auto'}}>
         <div style={{textAlign:'center',marginBottom:22}}>
-          <div style={{fontFamily:'DM Serif Display',fontSize:26,marginBottom:6,color:C.ink}}>Cierre de Caja</div>
+          <div style={{fontFamily:'DM Serif Display',fontSize:26,marginBottom:6,color:C.ink}}>Cierre de Caja{cajaNombre?` · ${cajaNombre}`:''}</div>
           <div style={{fontSize:13,color:C.mid}}>Cajero: <strong style={{color:C.ink}}>{profile.display_name||profile.username}</strong> · Apertura {fmtDT(turno.fecha_apertura)}</div>
         </div>
 
@@ -3991,7 +4057,7 @@ function FacturasCajaPanel({turno}){
   useEffect(()=>{
     if(!db)return;
     db.from('movimientos_caja')
-      .select('id,created_at,monto,metodo_pago,descripcion,pedido_id,metadata')
+      .select('id,created_at,monto,metodo_pago,descripcion,pedido_id,metadata,usuario_nombre')
       .eq('turno_id',turno.id).eq('tipo','cobro')
       .order('created_at',{ascending:false})
       .then(({data})=>{setCobros(data||[]);setLoading(false);});
@@ -4354,7 +4420,15 @@ function DashboardCaja({turno,profile,onCierre}){
   const [isOnline,setIsOnline]=useState(navigator.onLine);
   const [pendingOffline,setPendingOffline]=useState(()=>offlineQ.pending().length);
   const [,forceRender]=useReducer(x=>x+1,0);
+  const [cajaNombre,setCajaNombre]=useState('');   // nombre de la caja del turno (multi-caja)
   function changePanel(p){localStorage.setItem('caja_panel',p);setPanel(p);}
+
+  // Nombre de la caja activa (si el turno tiene caja_id) para mostrarlo en el header.
+  useEffect(()=>{
+    if(!db||!turno?.caja_id){setCajaNombre('');return;}
+    db.from('cajas').select('nombre').eq('id',turno.caja_id).maybeSingle()
+      .then(({data})=>setCajaNombre(data?.nombre||''));
+  },[turno?.caja_id]);
 
   useEffect(()=>{
     const onOn=()=>{setIsOnline(true);syncOfflineOrders();};
@@ -4499,14 +4573,14 @@ function DashboardCaja({turno,profile,onCierre}){
       case 'reservas':          return <ReservasPanel/>;
       case 'quejas':           return <QuejasPanel       turno={turno} profile={profile}/>;
       case 'retiro':           return <RetiroPanel       turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
-      case 'cierre':           return <CierreCajaPanel   turno={turno} movimientos={movimientos} profile={profile} onCierre={handleCierre}/>;
+      case 'cierre':           return <CierreCajaPanel   turno={turno} cajaNombre={cajaNombre} movimientos={movimientos} profile={profile} onCierre={handleCierre}/>;
       default: return null;
     }
   };
 
   return(
     <div style={{display:'flex',minHeight:'100vh'}}>
-      <SidebarTurno turno={turno} movimientos={movimientos} panel={panel} setPanel={(p)=>{if(p==='avisos'){const now=Date.now();localStorage.setItem('caja_bc_seen',now);lastSeenBroadcasts.current=now;}changePanel(p);}} profile={profile} onToggleTheme={toggleTheme} paymentCalls={paymentCalls.length} onClickCalls={()=>changePanel('cobros')} isOnline={isOnline} pendingOffline={pendingOffline} broadcastCount={broadcasts.filter(b=>new Date(b.created_at).getTime()>lastSeenBroadcasts.current).length}/>
+      <SidebarTurno turno={turno} cajaNombre={cajaNombre} movimientos={movimientos} panel={panel} setPanel={(p)=>{if(p==='avisos'){const now=Date.now();localStorage.setItem('caja_bc_seen',now);lastSeenBroadcasts.current=now;}changePanel(p);}} profile={profile} onToggleTheme={toggleTheme} paymentCalls={paymentCalls.length} onClickCalls={()=>changePanel('cobros')} isOnline={isOnline} pendingOffline={pendingOffline} broadcastCount={broadcasts.filter(b=>new Date(b.created_at).getTime()>lastSeenBroadcasts.current).length}/>
       <main style={{flex:1,padding:24,overflowY:'auto',minWidth:0}}>
         {paymentCalls.length>0&&(
           <div style={{background:'rgba(255,149,0,0.12)',border:'1px solid rgba(255,149,0,0.5)',borderRadius:10,padding:'12px 16px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
@@ -4545,6 +4619,8 @@ function CajaApp({profile}){
   const [turnoConflicto,setTurnoConflicto]=useState(null);
   const [loading,setLoading]=useState(true);
   const [cerrado,setCerrado]=useState(false);
+  const [cajas,setCajas]=useState([]);            // cajas ACTIVAS del local (multi-caja, mig 126/127)
+  const [openTurnos,setOpenTurnos]=useState([]);  // turnos abiertos del local (para marcar cajas ocupadas)
   // Capacidades del plan (Omni-Gating por feature) — carga única + re-render
   if(window.MythosGating) window.MythosGating.useCapabilities(db, RID);
 
@@ -4561,24 +4637,33 @@ function CajaApp({profile}){
   async function checkTurno(){
     setLoading(true);
     setTurnoConflicto(null);
-    const{data}=await db.from('turnos_caja')
-      .select('*').eq('restaurant_id',RID).eq('estado','abierto')
-      .order('fecha_apertura',{ascending:false}).limit(1);
-    if(data&&data.length>0){
-      const t=data[0];
-      // Comparación robusta (coerción a string evita mismatch por tipo/espacios).
-      const esMiTurno   = String(t.cajero_id||'')===String(profile.id||'');
-      const esPrivilegiado=['admin','superadmin'].includes(profile.role);
-      if(esMiTurno||esPrivilegiado){
-        // Mismo cajero (o admin) reconectándose a mitad del turno → reabrir el
-        // panel directamente, SIN volver a pedir la apertura de caja.
-        setTurno(t);
-      } else {
-        // Otro cajero: caja abierta sin cierre por la sesión anterior.
-        // No es dead-end → pantalla con opción de retomar/arquear (CajaOcupadaScreen).
-        setTurnoConflicto(t);
-      }
+    // Fase 2: varias cajas pueden tener turno abierto a la vez (una por caja).
+    // Traemos TODOS los turnos abiertos + las cajas activas del local.
+    const [openRes, cajasRes] = await Promise.all([
+      db.from('turnos_caja').select('*').eq('restaurant_id',RID).eq('estado','abierto')
+        .order('fecha_apertura',{ascending:false}),
+      db.from('cajas').select('*').eq('restaurant_id',RID).eq('activa',true)
+        .order('sort_order').order('created_at'),
+    ]);
+    const open = openRes.data||[];
+    const activeCajas = cajasRes.error ? [] : (cajasRes.data||[]);  // sin tabla cajas (mig 126/127) → legacy
+    setOpenTurnos(open);
+    setCajas(activeCajas);
+
+    // Comparación robusta (coerción a string evita mismatch por tipo/espacios).
+    const mine = open.find(t=>String(t.cajero_id||'')===String(profile.id||''));
+    const priv = ['admin','superadmin'].includes(profile.role);
+    if(mine){
+      // Un cajero = un turno. Si ya tengo el mío abierto, reconecto directo.
+      setTurno(mine); setLoading(false); return;
     }
+    // Legacy (sin cajas activas / migración no aplicada): conservar el flujo de
+    // retomar la caja única que otro dejó abierta sin cierre.
+    if(activeCajas.length===0 && open.length>0){
+      if(priv) setTurno(open[0]); else setTurnoConflicto(open[0]);
+      setLoading(false); return;
+    }
+    // Multi-caja, o sin turno abierto → pantalla de apertura con SELECTOR de caja.
     setLoading(false);
   }
 
@@ -4629,7 +4714,9 @@ function CajaApp({profile}){
     </div>
   );
 
-  return <AperturaTurnoScreen profile={profile} turnoAbierto={null} onTurnoAbierto={t=>{setTurno(t);setTurnoConflicto(null);}}/>;
+  return <AperturaTurnoScreen profile={profile} cajas={cajas} openTurnos={openTurnos}
+    onTurnoAbierto={t=>{setTurno(t);setTurnoConflicto(null);}}
+    onRetomar={t=>{setTurno(t);setTurnoConflicto(null);}}/>;
 }
 
 /* ── AUTH GUARD ── */
