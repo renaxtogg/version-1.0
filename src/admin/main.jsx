@@ -84,13 +84,13 @@ function genRiderPin() { return String(Math.floor(1000 + Math.random() * 9000));
 /* ── PALETTE ── reactiva al tema MythosTheme */
 const C_LIGHT = {
   bg:'var(--bg-subtle)',sidebar:'#FFFFFF',surface:'#FFFFFF',card:'#FFFFFF',
-  border:'#D2D2D7',bs:'#86868B',
-  white:'#FFFFFF',ink:'#1D1D1F',mid:'#6E6E73',dim:'#86868B',
+  border:'#C2C2C8',bs:'#5E5E62',
+  white:'#FFFFFF',ink:'#1D1D1F',mid:'#48484A',dim:'#5E5E62',
   green:'#34C759',orange:'#FF9500',red:'#FF3B30',yellow:'#FF9500',blue:'#007AFF',purple:'#000000',
 };
 const C_DARK = {
   bg:'#000000',sidebar:'#1C1C1E',surface:'#1C1C1E',card:'#2C2C2E',
-  border:'#38383A',bs:'#636366',
+  border:'#48484A',bs:'#636366',
   white:'#1C1C1E',ink:'#F5F5F7',mid:'#AEAEB2',dim:'#8E8E93',
   green:'#30D158',orange:'#FF9F0A',red:'#FF453A',yellow:'#FFD60A',blue:'#0A84FF',purple:'#F5F5F7',
 };
@@ -686,6 +686,8 @@ function DashboardPage({orders, ratings, setPage}) {
   const [lowStock, setLowStock]       = useState([]);
   const [pendingInvoices, setPendingInvoices] = useState([]);
   const [todaySuppliers, setTodaySuppliers]   = useState([]);
+  const [subscription, setSubscription]       = useState(undefined); // undefined=cargando · null=sin dato · obj=ok
+  const [supplierSpend, setSupplierSpend]     = useState(null);      // null=cargando · []=sin compras
   const now = new Date();
   const todayStr = now.toDateString();
   const ayer = new Date(now); ayer.setDate(ayer.getDate()-1);
@@ -805,6 +807,21 @@ function DashboardPage({orders, ratings, setPage}) {
         return dd.includes(todayName) || dd.includes(todayShort);
       }));
     });
+  },[]);
+
+  // PR-C: suscripción del restaurante (RPC tenant-safe — el rol admin no puede
+  // leer `subscriptions` directo por RLS, mig 103) + gasto de proveedores del mes.
+  useEffect(()=>{
+    if(!db) return;
+    const d0 = new Date();
+    const monthStart = new Date(d0.getFullYear(), d0.getMonth(), 1).toLocaleDateString('en-CA');
+    db.rpc('get_my_subscription',{p_restaurant_id:RID}).then(({data,error})=>{
+      setSubscription(error ? null : (data||null));
+    });
+    db.from('supplier_purchases')
+      .select('total,paid_amount,status,purchase_date,supplier_name,supplier:suppliers(name)')
+      .eq('restaurant_id',RID).gte('purchase_date',monthStart).neq('status','anulada')
+      .then(({data,error})=>setSupplierSpend(error ? [] : (data||[])));
   },[]);
 
 
@@ -1053,6 +1070,118 @@ function DashboardPage({orders, ratings, setPage}) {
           </div>
         );
       })()}
+
+      {/* ── PR-C · 3 tarjetas: alerta de stock · suscripción · gastos de proveedores ── */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,marginTop:20}}>
+
+        {/* 1 · ALERTA DE STOCK (ítems bajo umbral mínimo) */}
+        {(()=>{
+          const items = stockAlerts.map(a=>({
+            name: a.ingredient?.name || 'Ingrediente',
+            detail: a.ingredient ? `${Number(a.ingredient.stock_quantity||0).toFixed(1)} ${a.ingredient.unit||''}`.trim() : '',
+            crit: a.alert_type==='critical_stock' || a.alert_type==='expired',
+          }));
+          const seen = new Set(stockAlerts.map(a=>a.ingredient?.name));
+          lowStock.filter(i=>!seen.has(i.name)).forEach(i=>items.push({
+            name:i.name,
+            detail:`${Number(i.stock_quantity||0).toFixed(1)} ${i.unit||''} · mín ${Number(i.min_threshold||0).toFixed(1)}`,
+            crit:false,
+          }));
+          const n = items.length;
+          return (
+            <div style={{background:C.surface,border:`1px solid ${n>0?C.orange:C.border}`,borderRadius:8,padding:20}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+                <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>ALERTA DE STOCK</div>
+                <Icon name="alert" size={16} style={{color:n>0?C.orange:C.dim}}/>
+              </div>
+              {n===0
+                ? <div style={{display:'flex',alignItems:'center',gap:8,color:C.green,fontSize:14,padding:'8px 0'}}><Icon name="checkCircle" size={18}/> Stock OK</div>
+                : <>
+                    <div style={{fontSize:28,fontWeight:800,color:C.orange,lineHeight:1,marginBottom:12}}>{n} <span style={{fontSize:13,fontWeight:600,color:C.mid}}>{n===1?'ítem en alerta':'ítems en alerta'}</span></div>
+                    {items.slice(0,4).map((it,i)=>(
+                      <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:6}}>
+                        <span style={{fontSize:13,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:6,minWidth:0}}>
+                          <span style={{width:6,height:6,borderRadius:'50%',background:it.crit?C.red:C.orange,flexShrink:0}}/>{it.name}
+                        </span>
+                        <span style={{fontSize:12,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace",flexShrink:0}}>{it.detail}</span>
+                      </div>
+                    ))}
+                    {n>4 && <div style={{fontSize:12,color:C.dim,marginTop:2}}>+{n-4} más</div>}
+                    <button onClick={()=>setPage('stock')} style={{marginTop:12,background:'none',border:`1px solid ${C.orange}`,color:C.orange,fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:6,cursor:'pointer'}}>Ver stock →</button>
+                  </>
+              }
+            </div>
+          );
+        })()}
+
+        {/* 2 · ESTADO DE SUSCRIPCIÓN (del restaurante logueado) */}
+        {(()=>{
+          const s = subscription; // undefined=cargando · null=sin dato · obj=ok
+          const head = (
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>ESTADO DE SUSCRIPCIÓN</div>
+              <Icon name="receipt" size={16} style={{color:C.dim}}/>
+            </div>
+          );
+          if(s===undefined) return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>{head}<div style={{color:C.dim,fontSize:14,padding:'8px 0'}}>Cargando…</div></div>;
+          if(!s) return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>{head}<div style={{color:C.dim,fontSize:14,padding:'8px 0'}}>Sin suscripción activa registrada</div></div>;
+          const days = s.days_remaining==null ? null : Number(s.days_remaining);
+          const expired = s.status==='expired' || (days!=null && days<0);
+          const soon = days!=null && days>=0 && days<=7;
+          const fg = expired ? C.red : soon ? C.orange : C.green;
+          const bg = expired ? TINT.redBg : soon ? TINT.amberBg : TINT.greenBg;
+          const bd = expired ? TINT.redBorder : soon ? TINT.amberBorder : TINT.greenBorder;
+          const STL = {active:'Activa',trial:'Prueba',expired:'Vencida',cancelled:'Cancelada',suspended:'Suspendida'};
+          return (
+            <div style={{background:C.surface,border:`1px solid ${(expired||soon)?bd:C.border}`,borderRadius:8,padding:20}}>
+              {head}
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,flexWrap:'wrap'}}>
+                <span style={{fontSize:20,fontWeight:800,color:C.ink}}>{s.plan_name||'Plan'}</span>
+                <span style={{fontSize:11,fontWeight:700,color:fg,background:bg,padding:'2px 9px',borderRadius:999,border:`1px solid ${bd}`,textTransform:'uppercase',letterSpacing:.5}}>{STL[s.status]||s.status}</span>
+              </div>
+              <div style={{fontSize:28,fontWeight:800,color:fg,lineHeight:1}}>
+                {days==null ? '—' : days<0 ? `Vencida hace ${Math.abs(days)}d` : days===0 ? 'Vence hoy' : `${days} ${days===1?'día':'días'}`}
+              </div>
+              <div style={{fontSize:12,color:C.mid,marginTop:6}}>
+                {expired ? 'Renová para reactivar el servicio' : `hasta el vencimiento · ${s.auto_renew?'renovación automática':'sin renovación auto'}`}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* 3 · GASTOS DE PROVEEDORES (compras del mes en curso) */}
+        {(()=>{
+          const rows = supplierSpend; // null=cargando · []=sin compras
+          const mes = new Date().toLocaleDateString('es-PY',{month:'long'});
+          const head = (
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>GASTOS DE PROVEEDORES</div>
+              <Icon name="money" size={16} style={{color:C.dim}}/>
+            </div>
+          );
+          const shell = body => <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>{head}{body}</div>;
+          if(rows===null) return shell(<div style={{color:C.dim,fontSize:14,padding:'8px 0'}}>Cargando…</div>);
+          if(rows.length===0) return shell(<div style={{color:C.dim,fontSize:14,padding:'8px 0',textTransform:'capitalize'}}>Sin compras registradas en {mes}</div>);
+          const total = rows.reduce((a,r)=>a+Number(r.total||0),0);
+          const pend  = rows.reduce((a,r)=>a+(Number(r.total||0)-Number(r.paid_amount||0)),0);
+          const byV = {};
+          rows.forEach(r=>{ const k=r.supplier?.name||r.supplier_name||'Sin proveedor'; byV[k]=(byV[k]||0)+Number(r.total||0); });
+          const top = Object.entries(byV).sort((a,b)=>b[1]-a[1]).slice(0,4);
+          return shell(<>
+            <div style={{fontSize:28,fontWeight:800,color:C.ink,lineHeight:1,marginBottom:2}}>{fmt(total)}</div>
+            <div style={{fontSize:12,color:C.mid,marginBottom:12,textTransform:'capitalize'}}>gasto de {mes} · {rows.length} {rows.length===1?'compra':'compras'}</div>
+            {top.map(([name,amt],i)=>(
+              <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:6}}>
+                <span style={{fontSize:13,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{name}</span>
+                <span style={{fontSize:12,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace",flexShrink:0}}>{fmt(amt)}</span>
+              </div>
+            ))}
+            {pend>0 && <div style={{marginTop:10,fontSize:12,color:C.orange,fontWeight:600}}>Saldo pendiente: {fmt(pend)}</div>}
+            <button onClick={()=>setPage('proveedores')} style={{marginTop:12,background:'none',border:`1px solid ${C.bs}`,color:C.mid,fontSize:12,fontWeight:600,padding:'6px 11px',borderRadius:6,cursor:'pointer'}}>Ver proveedores →</button>
+          </>);
+        })()}
+
+      </div>
     </div>
   );
 }
