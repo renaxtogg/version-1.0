@@ -3914,19 +3914,36 @@ function CajaAdminPage() {
   const [selTurno,setSelTurno] = useState(null);
   const [cfg,setCfg]         = useState({cash_mode_default:'libre',cash_fondo_fijo:0,cash_diff_umbral:50000,cash_auto_retiro_excedente:false});
   const [savingCfg,setSavingCfg] = useState(false);
+  // Multi-caja (mig 126). cajasAvailable=false ⇒ migración aún no aplicada → ocultar card (sin romper la página).
+  const [cajas,setCajas]           = useState([]);
+  const [cajaInfo,setCajaInfo]     = useState(null);   // {max_cajas,extra_cajas,effective_limit,active_count} | null
+  const [cajasAvailable,setCajasAvailable] = useState(false);
+  const [newCajaName,setNewCajaName] = useState('');
+  const [editingCaja,setEditingCaja] = useState(null); // id en edición
+  const [editCajaName,setEditCajaName] = useState('');
+  const [busyCaja,setBusyCaja]     = useState(false);
+  const [openTurnos,setOpenTurnos] = useState([]);     // turnos ABIERTOS (filtrado por estado, no por la ventana de 30)
 
   useEffect(()=>{ if(db) loadAll(); else setLoading(false); },[]);
 
   async function loadAll() {
     setLoading(true);
-    const [tR,qR,rR] = await Promise.all([
+    const [tR,qR,rR,cR,lR,oR] = await Promise.all([
       db.from('turnos_caja').select('*').eq('restaurant_id',RID).order('fecha_apertura',{ascending:false}).limit(30),
       db.from('quejas_sugerencias').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(50),
       db.from('restaurants').select('cash_mode_default,cash_fondo_fijo,cash_diff_umbral,cash_auto_retiro_excedente').eq('id',RID).maybeSingle(),
+      db.from('cajas').select('*').eq('restaurant_id',RID).order('sort_order').order('created_at'),
+      db.rpc('get_my_caja_limit',{p_restaurant_id:RID}),
+      // Turnos ABIERTOS sin recortar por la ventana de 30 (para el guard "no desactivar con turno abierto").
+      db.from('turnos_caja').select('id,caja_id,estado').eq('restaurant_id',RID).eq('estado','abierto'),
     ]);
     const ts = tR.data||[];
     setTurnos(ts);
     setQuejas(qR.data||[]);
+    setOpenTurnos(oR&&!oR.error ? (oR.data||[]) : []);
+    // Feature-detect multi-caja: si la tabla no existe (migración 126 sin aplicar), cR.error → ocultar card.
+    if(cR.error){ setCajasAvailable(false); }
+    else { setCajasAvailable(true); setCajas(cR.data||[]); setCajaInfo(lR&&!lR.error ? (lR.data||null) : null); }
     if(rR.data) setCfg({
       cash_mode_default: rR.data.cash_mode_default || 'libre',
       cash_fondo_fijo: Number(rR.data.cash_fondo_fijo)||0,
@@ -3968,6 +3985,59 @@ function CajaAdminPage() {
     setMovs(data||[]);
   }
 
+  // ─── Multi-caja (mig 126): CRUD + gating por plan ───
+  async function reloadCajas(){
+    const cR = await db.from('cajas').select('*').eq('restaurant_id',RID).order('sort_order').order('created_at');
+    if(!cR.error){ setCajas(cR.data||[]); }
+    const lR = await db.rpc('get_my_caja_limit',{p_restaurant_id:RID});
+    if(!lR.error){ setCajaInfo(lR.data||null); }
+  }
+  async function createCaja(){
+    const nombre=(newCajaName||'').trim();
+    if(!nombre){ toast('Poné un nombre para la caja',false); return; }
+    if(!puedeAgregarCaja){ toast('Llegaste al máximo de cajas de tu plan. Ampliá el plan o sumá una caja adicional.',false); return; }
+    setBusyCaja(true);
+    const maxOrder = cajas.reduce((m,c)=>Math.max(m, c.sort_order||0), -1);
+    const{error}=await db.from('cajas').insert({restaurant_id:RID, nombre, activa:true, sort_order:maxOrder+1}).select('id');
+    setBusyCaja(false);
+    if(error){ toast('Error al crear caja: '+error.message,false); return; }
+    setNewCajaName('');
+    await reloadCajas();
+    toast('Caja creada');
+  }
+  async function saveRenameCaja(c){
+    const nombre=(editCajaName||'').trim();
+    if(!nombre){ toast('El nombre no puede quedar vacío',false); return; }
+    setBusyCaja(true);
+    const{error}=await db.from('cajas').update({nombre}).eq('id',c.id).select('id');
+    setBusyCaja(false);
+    if(error){ toast('Error: '+error.message,false); return; }
+    setEditingCaja(null); setEditCajaName('');
+    await reloadCajas();
+    toast('Caja renombrada');
+  }
+  async function toggleCaja(c){
+    if(c.activa && cajaTieneTurnoAbierto(c)){ toast('No se puede desactivar: esta caja tiene un turno ABIERTO. Cerrá el turno primero.',false); return; }
+    if(!c.activa && !sinTopeCajas && cajasActivas>=cajaLimitEff){ toast('Llegaste al máximo de cajas activas de tu plan.',false); return; }
+    setBusyCaja(true);
+    const{error}=await db.from('cajas').update({activa:!c.activa}).eq('id',c.id).select('id');
+    setBusyCaja(false);
+    if(error){ toast('Error: '+error.message,false); return; }
+    await reloadCajas();
+  }
+
+  const cajasActivas  = cajas.filter(c=>c.activa).length;
+  const cajaLimitEff  = cajaInfo ? cajaInfo.effective_limit : null;   // null = ilimitado
+  const sinTopeCajas  = !cajaInfo || cajaLimitEff==null;              // sin dato o sin tope → no bloquear
+  const puedeAgregarCaja = sinTopeCajas || cajasActivas < cajaLimitEff;
+  // Caja "principal" implícita: primera activa por orden. En Fase 1 el panel caja sigue
+  // abriendo turnos con caja_id=NULL (no se modifica) → esos turnos abiertos cuentan para
+  // la caja principal. Un turno abierto bloquea desactivar la caja a la que pertenece.
+  const primaryActiveCajaId = (cajas.find(c=>c.activa)||{}).id || null;
+  function cajaTieneTurnoAbierto(c){
+    return openTurnos.some(t=> t.caja_id===c.id || (t.caja_id==null && c.id===primaryActiveCajaId));
+  }
+
   const turnoActivo = turnos.find(t=>t.estado==='abierto');
   const hoy = new Date().toISOString().slice(0,10);
   const turnosHoy = turnos.filter(t=>t.fecha_apertura.slice(0,10)===hoy);
@@ -4003,6 +4073,75 @@ function CajaAdminPage() {
       {loading && <div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
       {!loading && (
         <>
+          {/* TUS CAJAS (multi-caja · mig 126) */}
+          {cajasAvailable && (
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12,gap:12,flexWrap:'wrap'}}>
+              <div>
+                <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1}}>TUS CAJAS</div>
+                <div style={{fontSize:11,color:C.dim,marginTop:4,lineHeight:1.5}}>
+                  Puntos de cobro (POS) del local. En el panel de Caja, el cajero elegirá con cuál abre su turno.
+                </div>
+              </div>
+              <div style={{fontSize:11,color:C.dim,textAlign:'right',whiteSpace:'nowrap'}}>
+                <span style={{fontWeight:700,color:C.ink}}>{cajasActivas}</span> activa{cajasActivas===1?'':'s'}
+                {sinTopeCajas
+                  ? <span style={{color:C.dim}}> · sin tope</span>
+                  : <span style={{color:C.dim}}> / {cajaLimitEff} del plan{cajaInfo?.extra_cajas?` (+${cajaInfo.extra_cajas} extra)`:''}</span>}
+              </div>
+            </div>
+
+            {cajas.length===0 && (
+              <div style={{fontSize:13,color:C.dim,padding:'8px 0 12px'}}>Todavía no tenés cajas. Creá la primera para empezar.</div>
+            )}
+
+            {cajas.length>0 && (
+              <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
+                {cajas.map(c=>{
+                  const turnoAbierto = cajaTieneTurnoAbierto(c);
+                  const bloqueaReactivar = !c.activa && !sinTopeCajas && cajasActivas>=cajaLimitEff;
+                  return (
+                    <div key={c.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:6,background:c.activa?'transparent':'rgba(0,0,0,0.02)',opacity:c.activa?1:0.7}}>
+                      <div style={{width:8,height:8,borderRadius:'50%',background:c.activa?C.green:'#C7C7CC',flexShrink:0}}/>
+                      {editingCaja===c.id ? (
+                        <>
+                          <Inp value={editCajaName} onChange={e=>setEditCajaName(e.target.value)} full={false} style={{flex:1,minWidth:0}}/>
+                          <Btn small onClick={()=>saveRenameCaja(c)} disabled={busyCaja}>Guardar</Btn>
+                          <Btn small variant="ghost" onClick={()=>{setEditingCaja(null);setEditCajaName('');}}>Cancelar</Btn>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{flex:1,minWidth:0}}>
+                            <span style={{fontSize:14,fontWeight:600,color:C.ink}}>{c.nombre}</span>
+                            {c.zona && <span style={{fontSize:11,color:C.dim,marginLeft:8}}>· {c.zona}</span>}
+                            {!c.activa && <span style={{fontSize:11,color:C.dim,marginLeft:8}}>· inactiva</span>}
+                            {turnoAbierto && <span style={{fontSize:11,color:C.green,marginLeft:8,fontWeight:700}}>· turno abierto</span>}
+                          </div>
+                          <Btn small variant="ghost" onClick={()=>{setEditingCaja(c.id);setEditCajaName(c.nombre);}}>Renombrar</Btn>
+                          <Btn small variant="ghost" onClick={()=>toggleCaja(c)} disabled={busyCaja || (c.activa && turnoAbierto) || bloqueaReactivar}
+                            title={bloqueaReactivar?'Llegaste al máximo de cajas activas de tu plan':(c.activa&&turnoAbierto?'La caja tiene un turno abierto':undefined)}>
+                            {c.activa?'Desactivar':'Activar'}
+                          </Btn>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <Inp value={newCajaName} onChange={e=>setNewCajaName(e.target.value)} placeholder="Nombre de la nueva caja (ej: Caja 2, Terraza)" full={false} style={{flex:1,minWidth:200}} disabled={!puedeAgregarCaja}/>
+              <Btn onClick={createCaja} disabled={busyCaja || !puedeAgregarCaja || !newCajaName.trim()}>+ Agregar caja</Btn>
+            </div>
+            {!puedeAgregarCaja && (
+              <div style={{fontSize:12,color:C.orange,marginTop:8,fontWeight:600}}>
+                Llegaste al máximo de cajas de tu plan. Ampliá el plan o sumá una caja adicional.
+              </div>
+            )}
+          </div>
+          )}
+
           {/* Configuración de cierre/apertura */}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:14}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
