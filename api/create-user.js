@@ -200,7 +200,7 @@ module.exports = async function handler(req, res) {
       const roleErr = roleInsertResp.data;
       await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
         { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
-      res.status(400).json({ error: roleErr?.message || 'Error al asignar rol' }); return;
+      res.status(400).json({ error: (roleErr?.message || 'Error al asignar rol') + ' · detalle: [' + roleInsertResp.status + '] ' + (typeof roleErr === 'string' ? roleErr : JSON.stringify(roleErr)), detail: { status: roleInsertResp.status, body: roleInsertResp.data } }); return;
     }
 
     // AUTH-1: forzar cambio de contraseña en el primer ingreso. El admin/superadmin
@@ -220,7 +220,7 @@ module.exports = async function handler(req, res) {
           { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
         await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
           { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
-        res.status(500).json({ error: 'No se pudo configurar la cuenta (seguridad). Intentá de nuevo.' }); return;
+        res.status(500).json({ error: 'No se pudo configurar la cuenta (seguridad). Intentá de nuevo. · detalle: [' + flagResp.status + '] ' + (typeof flagResp.data === 'string' ? flagResp.data : JSON.stringify(flagResp.data)), detail: { status: flagResp.status, body: flagResp.data } }); return;
       }
     }
 
@@ -250,7 +250,7 @@ module.exports = async function handler(req, res) {
           { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
         await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
           { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
-        res.status(400).json({ error: (rErr && (rErr.message || rErr.msg)) || 'Error al crear la ficha del rider' });
+        res.status(400).json({ error: ((rErr && (rErr.message || rErr.msg)) || 'Error al crear la ficha del rider') + ' · detalle: [' + riderInsertResp.status + '] ' + (typeof rErr === 'string' ? rErr : JSON.stringify(rErr)), detail: { status: riderInsertResp.status, body: riderInsertResp.data } });
         return;
       }
     }
