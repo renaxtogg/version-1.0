@@ -91,6 +91,83 @@ function calcDeliveryFee(userLat, userLng, zones, restLat, restLng) {
   return match ? { zone: match, price: match.price_guarani || 0, minutes: match.estimated_minutes || 30, distKm: dist } : null;
 }
 
+/* ── COTIZACIÓN GENERALIZADA (mig 124) ──────────────────────────────────────
+   Generaliza el costo de envío a 4 modos elegibles por el dueño en
+   delivery_settings. DEFENSIVO: si settings es null (tabla aún no aplicada),
+   cae al modo 'zone' (calcDeliveryFee) sin romperse. */
+function roundTo(n, step) {
+  const s = Number(step) || 0;
+  return s > 0 ? Math.round(n / s) * s : Math.round(n);
+}
+// ETA aproximado por distancia cuando el modo no trae tiempo de zona.
+function estMinutesFromKm(km) {
+  if (!Number.isFinite(km)) return 30;
+  return Math.min(90, Math.max(15, Math.round(12 + km * 4)));
+}
+// Distancia de manejo (km) vía Google Distance Matrix. Resuelve a null si la API
+// no está disponible o falla → el caller cae a la distancia en línea recta.
+function routeDistanceKm(oLat, oLng, dLat, dLng) {
+  return new Promise((resolve) => {
+    try {
+      const g = window.google;
+      if (!(g && g.maps && g.maps.DistanceMatrixService)) { resolve(null); return; }
+      const svc = new g.maps.DistanceMatrixService();
+      svc.getDistanceMatrix({
+        origins: [{ lat: oLat, lng: oLng }],
+        destinations: [{ lat: dLat, lng: dLng }],
+        travelMode: g.maps.TravelMode ? g.maps.TravelMode.DRIVING : 'DRIVING',
+      }, (resp, status) => {
+        try {
+          const el = (status === 'OK') && resp && resp.rows && resp.rows[0] && resp.rows[0].elements && resp.rows[0].elements[0];
+          if (el && el.status === 'OK' && el.distance && Number.isFinite(el.distance.value)) resolve(el.distance.value / 1000);
+          else resolve(null);
+        } catch (_) { resolve(null); }
+      });
+    } catch (_) { resolve(null); }
+  });
+}
+// Devuelve { zone, price, minutes, distKm, mode, outOfCoverage } o null (sin cobertura).
+async function quoteDelivery({ userLat, userLng, zones, settings, restLat, restLng }) {
+  const mode = settings?.pricing_mode || 'zone';
+
+  // Modo por zonas (default) — comportamiento actual intacto.
+  if (mode === 'zone' || !settings) {
+    return calcDeliveryFee(userLat, userLng, zones, restLat, restLng);
+  }
+
+  const hasOrigin = Number.isFinite(restLat) && Number.isFinite(restLng);
+
+  // Tarifa fija — no depende de la distancia ni de la ubicación del local.
+  if (mode === 'fixed') {
+    const price = roundTo(Number(settings.base_fee) || 0, settings.round_to);
+    const distKm = hasOrigin ? haversineKm(userLat, userLng, restLat, restLng) : NaN;
+    return { zone: null, price, minutes: estMinutesFromKm(distKm), distKm: Number.isFinite(distKm) ? distKm : null, mode };
+  }
+
+  // Por km: requiere la ubicación real del local. Sin ella NO inventamos un origen
+  // (evita cotizar desde un punto arbitrario) → fuera de cobertura, se ofrece retiro.
+  if (!hasOrigin) {
+    return { zone: null, price: 0, minutes: null, distKm: null, mode, outOfCoverage: true };
+  }
+
+  // 'radial_km' (línea recta) o 'route_km' (manejo, con fallback a recta).
+  let distKm = haversineKm(userLat, userLng, restLat, restLng);
+  if (mode === 'route_km') {
+    const routeKm = await routeDistanceKm(restLat, restLng, userLat, userLng);
+    if (Number.isFinite(routeKm)) distKm = routeKm;
+    else console.warn('[delivery] route_km: Distance Matrix no disponible — usando distancia en línea recta.');
+  }
+  const maxKm = (settings.max_km == null || settings.max_km === '') ? null : Number(settings.max_km);
+  if (maxKm != null && distKm > maxKm) {
+    return { zone: null, price: 0, minutes: null, distKm, mode, outOfCoverage: true };
+  }
+  const base = Number(settings.base_fee) || 0;
+  const perKm = Number(settings.price_per_km) || 0;
+  const minFee = Number(settings.min_fee) || 0;
+  const price = roundTo(Math.max(minFee, base + perKm * distKm), settings.round_to);
+  return { zone: null, price, minutes: estMinutesFromKm(distKm), distKm, mode };
+}
+
 /* ── ZONE COLORS ────────────────────────── */
 const ZONE_COLOR_MAP = {
   red:    { bg: '#FEF2F2', border: '#FECACA', dot: '#EF4444', text: '#B91C1C', label: 'Roja' },
@@ -145,7 +222,21 @@ async function dbLoadDeliveryZones() {
   } catch(e) { return []; }
 }
 
-async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryFee, total, payMethod, customerData, zone, canal, cashAmount, requiresInvoice, custRuc, custEmail, invoiceDeliveryMethod }) {
+// Modo de cotización (mig 124). Feature-detect: si la tabla no existe todavía,
+// devuelve null y el cliente cotiza por zonas como hasta ahora (sin romperse).
+async function dbLoadDeliverySettings() {
+  if (!db) return null;
+  try {
+    const { data, error } = await db.from('delivery_settings')
+      .select('pricing_mode,base_fee,price_per_km,min_fee,max_km,free_over_amount,round_to')
+      .eq('restaurant_id', RESTAURANT_ID)
+      .maybeSingle();
+    if (error) return null;
+    return data || null;
+  } catch (e) { return null; }
+}
+
+async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryFee, total, payMethod, customerData, zone, estimatedMinutes, canal, cashAmount, requiresInvoice, custRuc, custEmail, invoiceDeliveryMethod }) {
   const orderNum = 'D-' + String(Math.floor(Date.now() % 90000) + 10000);
   if (!db) return { id: null, order_number: orderNum };
   if (!RESTAURANT_ID) throw new Error('No se identificó el restaurante. Abrí el link de delivery con ?r=<restaurante>.');
@@ -212,7 +303,7 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
       zone_id:            zone?.id || null,
       zone_name:          zone?.name || null,
       delivery_fee:       deliveryFee || 0,
-      estimated_minutes:  zone?.estimated_minutes || null,
+      estimated_minutes:  zone?.estimated_minutes || estimatedMinutes || null,
       canal:              canal || 'web',
       status:             'pending',
       cash_amount:        (payMethod === 'efectivo' && cashAmount > 0) ? cashAmount : null,
@@ -572,7 +663,7 @@ function DeliveryMapPicker({ initial, onPick, controlRef, T }) {
 }
 
 /* ══ PANTALLA 2A — COBERTURA ════════════ */
-function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManual, onBack }) {
+function CoverageScreen({ zones, restaurant, settings, onCovered, onPickupFallback, onManual, onBack }) {
   const T = useContext(ThemeCtx);
   const [status, setStatus]       = useState('idle'); // idle | loading | ok | no | denied | manual
   const [result, setResult]       = useState(null);
@@ -582,9 +673,28 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
 
   const restLat = restaurant?.lat || null;
   const restLng = restaurant?.lng || null;
+  // Modo de cotización (mig 124). Sin settings → 'zone' (comportamiento actual).
+  const mode = settings?.pricing_mode || 'zone';
+  const zoneMode = mode === 'zone';
   // Sin zonas demo: si el local todavía no configuró cobertura, no inventamos
   // zonas/precios. La búsqueda devolverá "fuera de cobertura" y se ofrece retiro.
   const activeZones = zones;
+
+  // Cotiza una coordenada según el modo y actualiza el estado de la pantalla.
+  // Sequencer "latest-wins": en route_km la cotización es async (Distance Matrix),
+  // así que descartamos respuestas viejas si llegó un pin más nuevo.
+  const quoteReq = useRef(0);
+  const quoteCoord = async (lat, lng) => {
+    const reqId = ++quoteReq.current;
+    const found = await quoteDelivery({ userLat: lat, userLng: lng, zones: activeZones, settings, restLat, restLng });
+    if (reqId !== quoteReq.current) return;   // llegó una cotización más reciente → descartar ésta
+    if (found && !found.outOfCoverage) {
+      setResult({ ...found, userLat: lat, userLng: lng });
+      setStatus('ok');
+    } else {
+      setStatus('no');
+    }
+  };
 
   const tryGeo = () => {
     if (!navigator.geolocation) { setStatus('manual'); return; }
@@ -592,13 +702,7 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords;
-        const found = calcDeliveryFee(latitude, longitude, activeZones, restLat, restLng);
-        if (found) {
-          setResult({ ...found, userLat: latitude, userLng: longitude });
-          setStatus('ok');
-        } else {
-          setStatus('no');
-        }
+        quoteCoord(latitude, longitude);
       },
       () => setStatus('denied'),
       { timeout: 8000 }
@@ -609,7 +713,16 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
     if (manualZone) {
       onCovered({ zone: manualZone, price: manualZone.price_guarani, minutes: manualZone.estimated_minutes, userLat: null, userLng: null, manualAddr: manualAddr.trim() || null, manualRef: manualRef.trim() || null });
     } else if (manualAddr.trim()) {
-      onCovered({ zone: null, price: 0, minutes: null, userLat: null, userLng: null, pendingConfirm: true, manualAddr: manualAddr.trim(), manualRef: manualRef.trim() || null });
+      // Tarifa fija: no depende de coordenadas → se cobra igual aunque la dirección
+      // sea texto libre (no dejar el envío en ₲0 cuando el precio es conocido).
+      if (mode === 'fixed') {
+        const price = roundTo(Number(settings?.base_fee) || 0, settings?.round_to);
+        onCovered({ zone: null, price, minutes: estMinutesFromKm(NaN), userLat: null, userLng: null, manualAddr: manualAddr.trim(), manualRef: manualRef.trim() || null });
+      } else {
+        // zone / radial_km / route_km sin coordenadas: el costo por distancia no se
+        // puede calcular desde texto libre → el equipo lo confirma al despachar.
+        onCovered({ zone: null, price: 0, minutes: null, userLat: null, userLng: null, pendingConfirm: true, manualAddr: manualAddr.trim(), manualRef: manualRef.trim() || null });
+      }
     }
   };
 
@@ -646,7 +759,8 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
               </div>
             )}
 
-            {/* Mapa visual de zonas */}
+            {/* Mapa visual de zonas (sólo modo por zonas) */}
+            {zoneMode && (
             <div style={{ background: T.offwhite, border: `1px solid ${T.border}`, borderRadius: 14, padding: '16px', marginBottom: 14 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.gray, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>Zonas de cobertura desde el local</div>
               {/* Diagrama de anillos */}
@@ -674,9 +788,16 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
                 );
               })}
             </div>
+            )}
+
+            {!zoneMode && (
+              <div style={{ background: T.offwhite, border: `1px solid ${T.border}`, borderRadius: 14, padding: '16px', marginBottom: 14, fontSize: 13, color: T.gray, lineHeight: 1.6 }}>
+                Marcá tu ubicación y te mostramos el <strong style={{ color: T.ink }}>costo exacto de envío</strong> al instante, según la distancia al local.
+              </div>
+            )}
 
             <button onClick={() => setStatus('manual')} style={{ background: 'none', border: `1.5px solid ${T.border}`, borderRadius: 12, cursor: 'pointer', width: '100%', textAlign: 'center', fontSize: 13, fontWeight: 700, color: T.ink, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", padding: '12px 0' }}>
-              Seleccionar zona manualmente
+              {zoneMode ? 'Seleccionar zona manualmente' : 'Ingresar dirección manualmente'}
             </button>
           </>
         )}
@@ -689,17 +810,21 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
           </div>
         )}
 
-        {/* Estado: OK — zona encontrada por GPS */}
+        {/* Estado: OK — cobertura confirmada (zona o cotización por distancia) */}
         {status === 'ok' && result && (() => {
-          const c = zoneColors(result.zone);
+          const c = result.zone ? zoneColors(result.zone) : ZONE_COLOR_MAP.green;
+          const title = result.zone ? '¡Llegamos a tu zona!' : '¡Llegamos a tu ubicación!';
+          const sub = result.zone
+            ? (result.zone?.name || 'Zona detectada')
+            : (Number.isFinite(result.distKm) ? `~${result.distKm.toFixed(1)} km del local` : 'Dentro de cobertura');
           return (
             <div style={{ animation: 'fadeIn 300ms' }}>
               <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 14, padding: '20px', marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                  <ZoneDot color={result.zone?.color} size={36} />
+                  <ZoneDot color={result.zone?.color || 'green'} size={36} />
                   <div>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: c.text }}>¡Llegamos a tu zona!</div>
-                    <div style={{ fontSize: 13, color: c.text, fontWeight: 600 }}>{result.zone?.name || 'Zona detectada'}</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: c.text }}>{title}</div>
+                    <div style={{ fontSize: 13, color: c.text, fontWeight: 600 }}>{sub}</div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
@@ -751,17 +876,17 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
                 <MapPicker
                   center={{ lat: restLat, lng: restLng }}
                   T={T}
-                  onPick={(lat, lng) => {
-                    const found = calcDeliveryFee(lat, lng, activeZones, restLat, restLng);
-                    if (found) { setResult({ ...found, userLat: lat, userLng: lng }); setStatus('ok'); }
-                    else { setStatus('no'); }
-                  }}
+                  onPick={(lat, lng) => quoteCoord(lat, lng)}
                 />
                 <div style={{ fontSize: 12, color: T.gray, marginBottom: 16, lineHeight: 1.5 }}>
                   Arrastrá el pin o tocá el mapa para fijar tu ubicación exacta. También podés elegir la zona manualmente abajo.
                 </div>
               </div>
             )}
+            {!zoneMode && (
+              <div style={{ fontSize: 15, fontWeight: 800, color: T.ink, marginBottom: 12 }}>Ingresá tu dirección</div>
+            )}
+            {zoneMode && <>
             <div style={{ fontSize: 15, fontWeight: 800, color: T.ink, marginBottom: 4 }}>Seleccioná tu zona</div>
             <div style={{ fontSize: 13, color: T.gray, marginBottom: 16, lineHeight: 1.5 }}>
               Las zonas se miden desde el local. Si no sabés cuál es, elegí la más cercana a donde estés y el repartidor confirma al salir.
@@ -793,6 +918,7 @@ function CoverageScreen({ zones, restaurant, onCovered, onPickupFallback, onManu
             })}
 
             <div style={{ height: 1, background: T.border, margin: '16px 0' }} />
+            </>}
 
             {/* Dirección libre */}
             <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, marginBottom: 8, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
@@ -995,14 +1121,14 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
         {/* Zona seleccionada (solo delivery) */}
-        {isDelivery && zoneName && (() => {
-          const c = zoneColors(deliveryResult?.zone);
+        {isDelivery && (zoneName || zoneFee != null) && (() => {
+          const c = deliveryResult?.zone ? zoneColors(deliveryResult.zone) : ZONE_COLOR_MAP.green;
           return (
             <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ width: 14, height: 14, borderRadius: '50%', background: c.dot, display: 'inline-block', flexShrink: 0 }} />
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: c.text }}>{zoneName}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: c.text }}>{zoneName || 'Envío a tu ubicación'}</div>
                   {deliveryResult?.pendingConfirm && <div style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }}>Pendiente de confirmación</div>}
                 </div>
               </div>
@@ -1507,6 +1633,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
         payMethod: method,
         customerData,
         zone: deliveryResult?.zone || null,
+        estimatedMinutes: deliveryResult?.minutes || null,
         canal: CANAL,
         cashAmount: (method === 'efectivo' && cashOption === 'change' && cashAmountNum > total) ? cashAmountNum : null,
         requiresInvoice: invoiceType !== 'none',
@@ -1561,13 +1688,14 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
                 </span>
               </div>
             )}
-            {isDelivery && deliveryResult?.zone?.name && (() => {
-              const c = zoneColors(deliveryResult.zone);
+            {isDelivery && deliveryResult && (deliveryResult.zone?.name || deliveryResult.price != null) && (() => {
+              const c = deliveryResult.zone ? zoneColors(deliveryResult.zone) : ZONE_COLOR_MAP.green;
+              const label = deliveryResult.zone?.name || 'Envío';
               return (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.dot, display: 'inline-block', flexShrink: 0 }} />
                   <span style={{ fontSize: 13, color: T.mid }}>
-                    {deliveryResult.zone.name} · {fmt(deliveryFee || 0)} · ~{deliveryResult.minutes} min
+                    {label} · {fmt(deliveryFee || 0)}{deliveryResult.minutes ? ` · ~${deliveryResult.minutes} min` : ''}
                   </span>
                 </div>
               );
@@ -2245,6 +2373,7 @@ function App() {
     try { const s = localStorage.getItem('dc_customer'); return s ? JSON.parse(s) : null; } catch { return null; }
   });
   const [zones, setZones]           = useState([]);
+  const [deliverySettings, setDeliverySettings] = useState(null);  // modo de cotización (mig 124)
   const [cartItems, setCartItems]           = useState([]);
   const [selItem, setSelItem]               = useState(null);
   const [toast, setToast]                   = useState(null);
@@ -2276,6 +2405,7 @@ function App() {
       dbLoadRestaurant().then(r => { if (!on) return; if (r) { setRestaurant(r); setRestaurantStatus('ready'); } else { setRestaurantStatus('notfound'); } });
       dbLoadMenu().then(m => { if (!on) return; if (m) { setLiveMenu(m); setMenuStatus('ready'); } else { setMenuStatus('empty'); } });
       dbLoadDeliveryZones().then(z => { if (on) setZones(z); });
+      dbLoadDeliverySettings().then(s => { if (on) setDeliverySettings(s); });
     })();
     return () => { on = false; };
   }, []);
@@ -2284,7 +2414,13 @@ function App() {
 
   const cartCount = cartItems.reduce((s, ci) => s + ci.qty, 0);
   const cartTotal = cartItems.reduce((s, ci) => s + ci.total, 0);
-  const deliveryFee = orderType === 'delivery' ? (deliveryResult?.price || 0) : 0;
+  // Envío gratis por monto (mig 124): se aplica recién acá, donde ya se conoce el
+  // subtotal del carrito (la cobertura se cotiza antes de armar el pedido).
+  const _freeOver = deliverySettings?.free_over_amount;
+  const _rawFee = deliveryResult?.price || 0;
+  const deliveryFee = orderType === 'delivery'
+    ? ((_freeOver && Number(_freeOver) > 0 && cartTotal >= Number(_freeOver)) ? 0 : _rawFee)
+    : 0;
 
   const addToCart = (item, qty, extras, notes) => {
     const et = extras.reduce((s, e) => s + e.p, 0);
@@ -2361,7 +2497,7 @@ function App() {
                   <ReservaScreen onBack={() => setScreen('welcome')} onDone={() => setScreen('welcome')} />
                 )}
                 {screen === 'coverage' && (
-                  <CoverageScreen zones={zones} restaurant={restaurant} onCovered={handleCovered} onPickupFallback={handlePickupFallback} onManual={() => {}} onBack={() => setScreen('welcome')} />
+                  <CoverageScreen zones={zones} restaurant={restaurant} settings={deliverySettings} onCovered={handleCovered} onPickupFallback={handlePickupFallback} onManual={() => {}} onBack={() => setScreen('welcome')} />
                 )}
                 {screen === 'customer' && (
                   <CustomerDataScreen orderType={orderType} deliveryResult={deliveryResult} onNext={handleCustomerNext} onBack={() => setScreen(orderType === 'delivery' ? 'coverage' : 'welcome')} />

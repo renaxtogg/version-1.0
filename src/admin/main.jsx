@@ -7871,12 +7871,50 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
 }
 
 /* ── DelivConfig ── */
-function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRestaurant}) {
+const PRICING_MODE_OPTS = [
+  {v:'fixed',     label:'Tarifa fija',      desc:'Un precio único de envío'},
+  {v:'radial_km', label:'Por km a la redonda', desc:'Base + ₲/km en línea recta'},
+  {v:'route_km',  label:'Por km recorrido', desc:'Distancia real de manejo (Google)'},
+  {v:'zone',      label:'Por zonas',        desc:'Bandas por radio desde el local'},
+];
+function pricingFromSettings(s){
+  return {
+    pricing_mode:     s?.pricing_mode || 'zone',
+    base_fee:         s?.base_fee ?? 0,
+    price_per_km:     s?.price_per_km ?? 0,
+    min_fee:          s?.min_fee ?? 0,
+    max_km:           (s?.max_km ?? '') === null ? '' : (s?.max_km ?? ''),
+    free_over_amount: (s?.free_over_amount ?? '') === null ? '' : (s?.free_over_amount ?? ''),
+    round_to:         s?.round_to ?? 500,
+  };
+}
+function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRestaurant, settings, onSaveSettings}) {
   const [zoneModal,setZoneModal] = useState(null);
   const [chanModal,setChanModal] = useState(null);
   const [mapOpen,setMapOpen] = useState(false);
   const [zForm,setZForm] = useState({name:'',radius:'',price:0,time:30,active:true,color:'red'});
   const [cForm,setCForm] = useState({name:'',commission:0,color:C.ink,active:true});
+
+  // ── Modo de cotización (mig 124) ──
+  const [pm,setPm] = useState(()=>pricingFromSettings(settings));
+  const [savingPm,setSavingPm] = useState(false);
+  useEffect(()=>{ if(settings) setPm(pricingFromSettings(settings)); },[settings]);
+  const pf = (k,v)=>setPm(p=>({...p,[k]:v}));
+  const byKm = pm.pricing_mode==='radial_km' || pm.pricing_mode==='route_km';
+  const needsLoc = byKm && (!restaurant?.lat || !restaurant?.lng);
+  async function handleSavePm(){
+    // No persistir un modo por km sin ubicación del local: el cliente cotizaría
+    // la distancia desde un origen inválido. Forzar a fijar el pin primero.
+    if(byKm && needsLoc){
+      toast('Configurá primero la ubicación del local (Editor de mapa, en la tarjeta de Zonas) para cotizar por distancia.',false);
+      return;
+    }
+    setSavingPm(true);
+    const r = onSaveSettings ? await onSaveSettings(pm) : {ok:false};
+    setSavingPm(false);
+    if(r?.ok) toast('Modo de cotización guardado');
+    else toast('No se pudo guardar el modo'+(r?.error?.message?` · ${r.error.message}`:'')+'. Verificá que la migración 124 esté aplicada.',false);
+  }
 
   function saveZone() {
     if(!zForm.name.trim()){toast('El nombre es obligatorio',false);return;}
@@ -7903,6 +7941,71 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
 
   return (
     <div style={{display:'flex',flexDirection:'column',gap:20,maxWidth:820}}>
+
+      {/* ── Modo de cotización de delivery (mig 124) ── */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+        <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>MODO DE COTIZACIÓN DE DELIVERY</div>
+          <div style={{fontSize:12,color:C.dim,marginTop:4}}>Cómo se calcula el costo de envío que ve el cliente al marcar su ubicación, antes de pagar.</div>
+        </div>
+        <div style={{padding:18,display:'flex',flexDirection:'column',gap:16}}>
+          {/* Selector de modo */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:8}}>
+            {PRICING_MODE_OPTS.map(opt=>{
+              const sel = pm.pricing_mode===opt.v;
+              return (
+                <button key={opt.v} onClick={()=>pf('pricing_mode',opt.v)} style={{textAlign:'left',padding:'12px 14px',border:`2px solid ${sel?C.ink:C.border}`,borderRadius:10,background:sel?'var(--bg-subtle)':'transparent',cursor:'pointer',transition:'all 150ms'}}>
+                  <div style={{fontSize:13,fontWeight:800,color:sel?C.ink:C.mid}}>{opt.label}</div>
+                  <div style={{fontSize:11,color:C.dim,marginTop:2}}>{opt.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Aviso: ubicación del local requerida para cotizar por distancia */}
+          {needsLoc && (
+            <div style={{padding:'9px 12px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,fontSize:12,color:TINT.amberText,display:'flex',gap:8,alignItems:'center',lineHeight:1.4}}>
+              <span style={{flexShrink:0,display:'flex'}}><Icon name="alert" size={14}/></span>
+              Configurá la ubicación del local para cotizar por distancia (abrí el <strong>Editor de mapa</strong> en la tarjeta de Zonas y guardá el pin del local).
+            </div>
+          )}
+
+          {/* Campos según modo */}
+          {pm.pricing_mode==='fixed' && (
+            <div style={{maxWidth:280}}><Lbl>TARIFA FIJA (₲)</Lbl><MoneyInp value={pm.base_fee} onChange={v=>pf('base_fee',v)} placeholder="15000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
+          )}
+
+          {byKm && (
+            <>
+              {pm.pricing_mode==='route_km' && (
+                <div style={{padding:'9px 12px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,fontSize:11,color:TINT.amberText,lineHeight:1.5}}>
+                  Requiere activar <strong>Distance Matrix de Google</strong> (pago por cotización). Hasta activarlo, el cliente cotiza con la distancia en línea recta.
+                </div>
+              )}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                <div><Lbl>CARGO BASE (₲)</Lbl><MoneyInp value={pm.base_fee} onChange={v=>pf('base_fee',v)} placeholder="5000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
+                <div><Lbl>PRECIO POR KM (₲)</Lbl><MoneyInp value={pm.price_per_km} onChange={v=>pf('price_per_km',v)} placeholder="3000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
+                <div><Lbl>COBRO MÍNIMO (₲)</Lbl><MoneyInp value={pm.min_fee} onChange={v=>pf('min_fee',v)} placeholder="10000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
+                <div><Lbl>DISTANCIA MÁX (km · vacío = sin límite)</Lbl><Inp type="number" value={pm.max_km} onChange={e=>pf('max_km',e.target.value)} placeholder="10" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
+                <div><Lbl>REDONDEO (₲)</Lbl><Inp type="number" value={pm.round_to} onChange={e=>pf('round_to',e.target.value)} placeholder="500" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
+                <div><Lbl>ENVÍO GRATIS DESDE (₲ · opcional)</Lbl><MoneyInp value={pm.free_over_amount} onChange={v=>pf('free_over_amount',v)} placeholder="100000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
+              </div>
+            </>
+          )}
+
+          {pm.pricing_mode==='zone' && (
+            <div style={{fontSize:12,color:C.dim,lineHeight:1.6}}>
+              El costo se calcula por las <strong>zonas de cobertura</strong> definidas abajo (banda por radio desde el local, con su precio y tiempo). Editá las zonas en la tarjeta siguiente.
+            </div>
+          )}
+
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <Btn onClick={handleSavePm} disabled={savingPm}>{savingPm?'Guardando…':'Guardar modo'}</Btn>
+            <span style={{fontSize:11,color:C.dim}}>Modo actual: <strong style={{color:C.mid}}>{(PRICING_MODE_OPTS.find(o=>o.v===(settings?.pricing_mode||'zone'))||{}).label}</strong></span>
+          </div>
+        </div>
+      </div>
+
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
         <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>ZONAS DE COBERTURA</div>
@@ -8068,8 +8171,34 @@ function DeliveryModule() {
     {id:'monchis',   name:'Monchis',    commission:15, color:'#00B04F', active:true},
   ]));
 
+  const [settings,setSettings] = useState(null);   // delivery_settings (mig 124) · null = modo 'zone' por defecto
+
   function setZones(z)    { setZonesState(z);    LS.set(`deliv_zones_${RID}`,z); }
   function setChannels(ch){ setChannelsState(ch); LS.set(`deliv_channels_${RID}`,ch); }
+
+  // Guarda el modo de cotización (upsert por restaurant_id). Defensivo: devuelve
+  // {ok,error} y DelivConfig avisa si la migración 124 todavía no está aplicada.
+  async function saveSettings(next){
+    if(!db) return { ok:false, error:{message:'Sin conexión'} };
+    const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    const optNum = v => { if(v===''||v==null) return null; const n=Number(v); return Number.isFinite(n)&&n>0 ? n : null; };
+    const payload = {
+      restaurant_id:    RID,
+      pricing_mode:     next.pricing_mode || 'zone',
+      base_fee:         num(next.base_fee),
+      price_per_km:     num(next.price_per_km),
+      min_fee:          num(next.min_fee),
+      max_km:           optNum(next.max_km),
+      free_over_amount: optNum(next.free_over_amount),
+      // round_to: 0 = sin redondeo (válido); negativo/NaN → default 500.
+      round_to:         (() => { const n = Number(next.round_to); return Number.isFinite(n) && n >= 0 ? n : 500; })(),
+      updated_at:       new Date().toISOString(),
+    };
+    const { data, error } = await db.from('delivery_settings').upsert(payload,{onConflict:'restaurant_id'}).select().maybeSingle();
+    if(error) return { ok:false, error };
+    setSettings(data || payload);
+    return { ok:true };
+  }
 
   useEffect(()=>{ loadDelivery(); },[]);
 
@@ -8093,6 +8222,12 @@ function DeliveryModule() {
       }));
       setZones(mapped);
     }
+    // Modo de cotización (mig 124) · feature-detect: si la tabla aún no existe,
+    // settings queda null y DelivConfig cae al modo 'zone' (comportamiento actual).
+    try {
+      const sR = await db.from('delivery_settings').select('*').eq('restaurant_id',RID).maybeSingle();
+      setSettings(sR && !sR.error ? (sR.data || null) : null);
+    } catch(_) { setSettings(null); }
     setLoading(false);
   }
 
@@ -8134,7 +8269,7 @@ function DeliveryModule() {
       case 'dashboard': return <DelivDashboard deliveryOrders={deliveryOrders} channels={channels}/>;
       case 'pedidos':   return <DelivPedidos deliveryOrders={deliveryOrders} riders={riders} channels={channels} zones={zones} onRefresh={loadDelivery}/>;
       case 'riders':    return <DelivRiders riders={riders} onRefresh={loadDelivery}/>;
-      case 'config':    return <DelivConfig zones={zones} setZones={setZones} channels={channels} setChannels={setChannels} restaurant={restaurant} setRestaurant={setRestaurant}/>;
+      case 'config':    return <DelivConfig zones={zones} setZones={setZones} channels={channels} setChannels={setChannels} restaurant={restaurant} setRestaurant={setRestaurant} settings={settings} onSaveSettings={saveSettings}/>;
       default: return null;
     }
   }
