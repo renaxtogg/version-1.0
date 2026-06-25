@@ -28,14 +28,15 @@
   --surface:       #FFFFFF;   /* cards, modales, inputs */
   --surface-hover: #F5F5F7;
 
-  /* Bordes */
-  --border:        #D2D2D7;
-  --border-strong: #86868B;
+  /* Bordes — contraste subido (PR contraste 2026-06-24): hairlines más
+     visibles y border-strong claramente más oscuro para contornos fuertes. */
+  --border:        #C2C2C8;
+  --border-strong: #5E5E62;
 
-  /* Texto */
+  /* Texto — secundario/terciario más oscuros para que el light deje de verse "lavado" */
   --text-primary:   #1D1D1F;
-  --text-secondary: #6E6E73;
-  --text-tertiary:  #86868B;
+  --text-secondary: #48484A;
+  --text-tertiary:  #5E5E62;
   --text-disabled:  #AEAEB2;
   --text-inverse:   #FFFFFF;
 
@@ -63,8 +64,8 @@
   /* Tipografía */
   --font:      system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'SF Mono', ui-monospace, monospace;
-  --text-xs:   11px;
-  --text-sm:   13px;
+  --text-xs:   12px;
+  --text-sm:   14px;
   --text-base: 15px;
   --text-md:   17px;
   --text-lg:   20px;
@@ -128,7 +129,7 @@
   --surface:       #1C1C1E;
   --surface-hover: #2C2C2E;
 
-  --border:        #38383A;
+  --border:        #48484A;
   --border-strong: #636366;
 
   --text-primary:   #F5F5F7;

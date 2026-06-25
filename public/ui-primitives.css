@@ -60,7 +60,7 @@
 .my-btn--secondary {
   background: var(--surface);
   color: var(--text-primary);
-  border-color: var(--border);
+  border-color: var(--border-strong);
 }
 .my-btn--secondary:hover { background: var(--surface-hover); border-color: var(--border-strong); }
 
