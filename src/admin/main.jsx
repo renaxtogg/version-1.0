@@ -366,17 +366,13 @@ const NAV = [
   {id:'config',    label:'Config',       icon:'settings'},
 ];
 
-function Sidebar({page,setPage,restaurant,dbOk,onToggleTheme,badges={},themeMode='light'}) {
+function Sidebar({page,setPage,restaurant,onToggleTheme,badges={},themeMode='light'}) {
   return (
     <aside style={{width:200,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
       <div style={{padding:'18px 16px 14px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontFamily:'inherit',fontSize:20,fontWeight:800,letterSpacing:'-0.5px',color:C.ink}}>Mythos</div>
           <div style={{fontSize:11,color:C.mid,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{restaurant?.name||'Restaurante'} · Admin</div>
-          <div style={{display:'flex',alignItems:'center',gap:6,marginTop:8}}>
-            <div style={{width:6,height:6,borderRadius:'50%',background:dbOk?C.green:C.red,flexShrink:0}}/>
-            <span style={{fontSize:10,color:dbOk?C.mid:C.red,fontWeight:600}}>{dbOk?'Supabase OK':'Sin DB'}</span>
-          </div>
         </div>
         <button onClick={onToggleTheme} title={themeMode==='dark'?'Cambiar a claro':'Cambiar a oscuro'}
           style={{width:28,height:28,borderRadius:'50%',background:'transparent',border:`1px solid ${C.border}`,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:C.ink,flexShrink:0}}>
@@ -9793,7 +9789,7 @@ function AdminApp() {
 
   return (
     <div style={{display:'flex',minHeight:'100vh'}}>
-      <Sidebar page={page} setPage={setPage} restaurant={restaurant} dbOk={!!db} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}} themeMode={themeMode}/>
+      <Sidebar page={page} setPage={setPage} restaurant={restaurant} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}} themeMode={themeMode}/>
       <main style={{flex:1,padding:26,overflowY:'auto',minWidth:0}}>
         <SucursalSwitcher caps={caps.caps}/>
         {renderPage()}

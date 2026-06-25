@@ -682,16 +682,14 @@ function buildAnalytics(restaurants, orders, ratings, subscriptions, plans, addo
 // ── Widget Salud del Sistema (infraestructura) ────────────────
 function SystemHealth() {
   const [latency, setLatency] = useState(null);
-  const [dbOk,    setDbOk]    = useState(null);
   useEffect(()=>{
     let alive = true;
     const ping = async () => {
-      if (!db) { setDbOk(false); return; }
+      if (!db) { return; }
       const t0 = performance.now();
       const { error } = await db.from('restaurants').select('id').limit(1);
       if (!alive) return;
       setLatency(Math.round(performance.now()-t0));
-      setDbOk(!error);
     };
     ping();
     const id = setInterval(()=>{ if(!_shouldPause()) ping(); }, 15000);
@@ -713,9 +711,6 @@ function SystemHealth() {
   return (
     <SectionCard title="Salud del sistema">
       <div style={{display:'flex',flexWrap:'wrap'}}>
-        {cell('Base de datos',
-          <>{dot(dbOk===false?C.red:dbOk?C.green:C.mid)} {dbOk===false?'Caída':dbOk==null?'…':'Online'}</>,
-          'Conexión Supabase', dbOk===false?C.red:C.ink)}
         {cell('Latencia DB',
           latency==null ? '…' : `${latency} ms`,
           'Medición en vivo (ping)', latColor)}

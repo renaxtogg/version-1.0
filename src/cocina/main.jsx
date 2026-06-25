@@ -554,13 +554,13 @@ async function dbLoadRatings() {
 const PALETTES = {
   dark: {
     bg:'#000000', surface:'#1C1C1E', card:'#2C2C2E',
-    border:'#38383A', borderStrong:'#636366',
-    white:'#F5F5F7', ink:'#F5F5F7', mid:'#AEAEB2', dim:'#636366',
+    border:'#48484A', borderStrong:'#8E8E93',
+    white:'#F5F5F7', ink:'#F5F5F7', mid:'#C7C7CC', dim:'#98989D',
   },
   light: {
     bg:'#FFFFFF', surface:'#F5F5F7', card:'#FFFFFF',
-    border:'#D2D2D7', borderStrong:'#86868B',
-    white:'#1D1D1F', ink:'#1D1D1F', mid:'#6E6E73', dim:'#86868B',
+    border:'#A1A1A6', borderStrong:'#48484A',
+    white:'#1D1D1F', ink:'#1D1D1F', mid:'#3A3A3C', dim:'#5A5A5E',
   },
 };
 const C = Object.assign({}, PALETTES[window.MythosTheme ? window.MythosTheme.get() : 'dark']);
@@ -655,7 +655,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, overflow: 'hidden', flexWrap: 'wrap' }}>
           {/* Ticket number */}
-          <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 9, fontWeight: 600, color: C.dim, letterSpacing: '0.08em' }}>{ticket.id}</span>
+          <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 13, fontWeight: 600, color: C.dim, letterSpacing: '0.08em' }}>{ticket.id}</span>
           <div style={{ width: 1, height: 11, background: C.border }} />
 
           {/* Mesa / tipo label */}
@@ -666,7 +666,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
           {/* Tipo badge (delivery / pickup / mostrador / llevar) */}
           {ticket.typeInfo && (
             <span style={{
-              fontSize: 9, fontWeight: 800,
+              fontSize: 13, fontWeight: 800,
               background: ticket.typeInfo.bg,
               border: `1px solid ${ticket.typeInfo.border}`,
               borderRadius: 4,
@@ -691,7 +691,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
             <span style={{ fontSize: 9, fontWeight: 800, color: URGENCY_BORDER[urgency], animation: urgency >= 2 ? 'pulse 1s ease infinite' : 'none', letterSpacing: '0.07em' }}>{URGENCY_LABEL[urgency]}</span>
           )}
           <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 13, fontWeight: 700, color: tColor, animation: isCritical ? 'pulse 1.2s ease infinite' : 'none' }}>{fmtTime(time)}</span>
-          <span style={{ fontSize: 9, color: C.dim }}>{ticket.hora}</span>
+          <span style={{ fontSize: 13, color: C.dim }}>{ticket.hora}</span>
         </div>
       </div>
 
@@ -699,18 +699,18 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
       {hasAnyAllergy && !isDone && (
         <div style={{ background: 'rgba(255,59,48,0.08)', borderBottom: `1px solid rgba(255,59,48,0.22)`, padding: '6px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ display:'flex', color:'#FF3B30' }}><Icon name="alert" size={12}/></span>
-          <span style={{ fontSize: 11, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.04em' }}>ALERGIA / ATENCION — Verificar items marcados</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.04em' }}>ALERGIA / ATENCION — Verificar items marcados</span>
         </div>
       )}
 
       {/* Info delivery (cliente + dirección + rider asignado) */}
       {ticket.deliveryInfo && (
         <div style={{ background: 'rgba(255,59,48,0.06)', borderBottom: `1px solid rgba(255,59,48,0.18)`, padding: '5px 16px' }}>
-          {ticket.deliveryInfo.cliente && <div style={{ fontSize: 11, color: '#FF3B30', fontWeight: 600 }}>{ticket.deliveryInfo.cliente}</div>}
-          {ticket.deliveryInfo.direccion && <div style={{ fontSize: 10, color: C.mid }}>{ticket.deliveryInfo.direccion}</div>}
-          {ticket.deliveryInfo.phone && <div style={{ fontSize: 10, color: C.mid, display:'flex', alignItems:'center', gap:4 }}><Icon name="phone" size={10}/> {ticket.deliveryInfo.phone}</div>}
+          {ticket.deliveryInfo.cliente && <div style={{ fontSize: 13, color: '#FF3B30', fontWeight: 600 }}>{ticket.deliveryInfo.cliente}</div>}
+          {ticket.deliveryInfo.direccion && <div style={{ fontSize: 13, color: C.mid }}>{ticket.deliveryInfo.direccion}</div>}
+          {ticket.deliveryInfo.phone && <div style={{ fontSize: 13, color: C.mid, display:'flex', alignItems:'center', gap:4 }}><Icon name="phone" size={10}/> {ticket.deliveryInfo.phone}</div>}
           {(ticket.deliveryInfo.riderName || ticket.deliveryInfo.riderAssigned) && (
-            <div style={{ fontSize: 10, color: '#34C759', fontWeight: 700, marginTop: 1, display:'flex', alignItems:'center', gap:4 }}>
+            <div style={{ fontSize: 13, color: '#34C759', fontWeight: 700, marginTop: 1, display:'flex', alignItems:'center', gap:4 }}>
               <Icon name="bike" size={10}/> {ticket.deliveryInfo.riderName || ticket.deliveryInfo.riderAssigned}
             </div>
           )}
@@ -721,7 +721,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
             const total = ticket.deliveryInfo.orderTotal || 0;
             const chg   = ticket.deliveryInfo.cashAmount - total;
             return chg >= 0 ? (
-              <div style={{ marginTop: 3, fontSize: 10, color: '#16A34A', fontWeight: 700 }}>
+              <div style={{ marginTop: 3, fontSize: 13, color: '#16A34A', fontWeight: 700 }}>
                 <Icon name="money" size={10} style={{verticalAlign:'-1px',marginRight:2}}/> Vuelto: {fmt(chg)} (paga {fmt(ticket.deliveryInfo.cashAmount)})
               </div>
             ) : null;
@@ -752,14 +752,14 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
                     </div>
                     {/* Alérgenos del item */}
                     {item.allergens && (
-                      <div style={{ marginTop: 3, fontSize: 10, color: '#FF9500', fontWeight: 600 }}>
+                      <div style={{ marginTop: 3, fontSize: 13, color: '#FF9500', fontWeight: 600 }}>
                         <Icon name="alert" size={10} style={{verticalAlign:'-1px',marginRight:2}}/> Alergenos: {item.allergens}
                       </div>
                     )}
                     {item.extras.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
                         {item.extras.map(e => (
-                          <span key={e} style={{ fontSize: 10, fontWeight: 600, color: C.mid, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: '1px 5px' }}>+ {e}</span>
+                          <span key={e} style={{ fontSize: 13, fontWeight: 600, color: C.mid, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: '1px 5px' }}>+ {e}</span>
                         ))}
                       </div>
                     )}
@@ -779,7 +779,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
                         borderRadius: '0 5px 5px 0',
                         padding: '4px 7px',
                       }}>
-                        <span style={{ fontSize: 10, color: allergyItem ? '#FF3B30' : C.dim, flexShrink: 0, marginTop: 1, display:'inline-flex' }}>{allergyItem ? <Icon name="alert" size={10}/> : '·'}</span>
+                        <span style={{ fontSize: 13, color: allergyItem ? '#FF3B30' : C.dim, flexShrink: 0, marginTop: 1, display:'inline-flex' }}>{allergyItem ? <Icon name="alert" size={10}/> : '·'}</span>
                         {item.obs}
                       </div>
                     )}
@@ -800,7 +800,7 @@ function TicketCard({ ticket, onAdvance, onDismiss, compact }) {
               background: 'transparent',
               border: `1.5px solid ${C.borderStrong}`,
               borderRadius: 9, color: C.mid,
-              fontFamily: 'inherit', fontSize: 12, fontWeight: 800,
+              fontFamily: 'inherit', fontSize: 14, fontWeight: 800,
               cursor: 'pointer', letterSpacing: '0.06em',
             }}>ENTREGADO</button>
           ) : (
@@ -833,21 +833,21 @@ function Column({ title, tickets, count, onAdvance, onDismiss, accent, emptyMsg,
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0 }}>
       <div style={{
-        background: `${col}14`, border: `1px solid ${col}30`, borderRadius: 10,
+        background: `${col}14`, border: `1px solid ${C.borderStrong}`, borderRadius: 10,
         padding: '9px 13px', marginBottom: 10,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           <div style={{ width: 7, height: 7, borderRadius: '50%', background: col }} />
-          <span style={{ fontSize: 11, fontWeight: 800, color: col, letterSpacing: '0.14em', textTransform: 'uppercase' }}>{title}</span>
+          <span style={{ fontSize: 14, fontWeight: 800, color: col, letterSpacing: '0.14em', textTransform: 'uppercase' }}>{title}</span>
         </div>
-        <div style={{ minWidth: 22, height: 20, borderRadius: 11, background: count > 0 ? col : 'transparent', border: count > 0 ? 'none' : `1px solid ${col}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: count > 0 ? '#000' : col, padding: '0 5px' }}>
+        <div style={{ minWidth: 22, height: 20, borderRadius: 11, background: count > 0 ? col : 'transparent', border: count > 0 ? 'none' : `1px solid ${col}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: count > 0 ? '#000' : col, padding: '0 5px' }}>
           {count > 0 ? count : '—'}
         </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 9, flex: 1 }}>
         {tickets.length === 0 && (
-          <div style={{ border: `1px dashed ${col}44`, borderRadius: 14, padding: '22px 12px', textAlign: 'center', color: col, opacity: 0.65, fontSize: 11 }}>{emptyMsg || 'Sin tickets'}</div>
+          <div style={{ border: `1px dashed ${col}44`, borderRadius: 14, padding: '22px 12px', textAlign: 'center', color: col, opacity: 0.65, fontSize: 13 }}>{emptyMsg || 'Sin tickets'}</div>
         )}
         {tickets.map(t => <TicketCard key={t.id} ticket={t} onAdvance={onAdvance} onDismiss={onDismiss} compact={compact} />)}
       </div>
@@ -869,7 +869,7 @@ function StationTabs({ active, onChange, ticketsByStation }) {
             background: isActive ? `${st.color}22` : 'transparent',
             border: `1.5px solid ${isActive ? st.color : C.border}`,
             borderRadius: 20, color: isActive ? st.color : C.mid,
-            fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
+            fontFamily: 'inherit', fontSize: 14, fontWeight: 700,
             cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 150ms',
           }}>
             {st.label}
@@ -908,7 +908,7 @@ function OrderTypeFilterTabs({ active, onChange, tickets }) {
             background: isActive ? 'rgba(255,255,255,0.12)' : 'transparent',
             border: `1.5px solid ${isActive ? C.white : C.border}`,
             borderRadius: 20, color: isActive ? C.white : C.mid,
-            fontFamily: 'inherit', fontSize: 11, fontWeight: 700,
+            fontFamily: 'inherit', fontSize: 14, fontWeight: 700,
             cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 150ms',
             display: 'flex', alignItems: 'center', gap: 5,
           }}>
@@ -960,7 +960,7 @@ function StatsPanel({ tickets }) {
     <div className="my-metric-card" style={{ flexShrink: 0 }}>
       <div className="my-metric-card__label">{label}</div>
       <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 21, fontWeight: 600, color: color || 'var(--text-primary)', lineHeight: 1 }}>{val}</div>
-      {sub && <div style={{ fontSize: 10, color: C.dim, marginTop: 3 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 13, color: C.dim, marginTop: 3 }}>{sub}</div>}
     </div>
   );
 
@@ -980,7 +980,7 @@ function StatsPanel({ tickets }) {
                 <div style={{ flex: 1, height: 5, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${(n / distTotal) * 100}%`, background: col, borderRadius: 3, transition: 'width 600ms ease' }} />
                 </div>
-                <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 10, color: col, width: 14, textAlign: 'right', flexShrink: 0 }}>{n}</div>
+                <div style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 13, color: col, width: 14, textAlign: 'right', flexShrink: 0 }}>{n}</div>
               </div>
             ))}
           </div>
@@ -1013,8 +1013,8 @@ function StatsPanel({ tickets }) {
           <div style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, animation: 'ring 2s ease infinite', flexShrink: 0 }}>
             <span style={{ fontSize: 20 }}>!</span>
             <div>
-              <div style={{ fontSize: 10, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.06em' }}>CUELLO DE BOTELLA</div>
-              <div style={{ fontSize: 11, color: '#FCA5A5', marginTop: 3 }}>Acumulado en {bottleneck}</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.06em' }}>CUELLO DE BOTELLA</div>
+              <div style={{ fontSize: 13, color: '#FCA5A5', marginTop: 3 }}>Acumulado en {bottleneck}</div>
             </div>
           </div>
         )}
@@ -1028,8 +1028,8 @@ function StatsPanel({ tickets }) {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             cursor: 'pointer', color: C.mid,
           }}>
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Tiempo promedio por producto ({productStats.length})</span>
-            <span style={{ fontSize: 11, color: C.dim }}>{showProducts ? '▲' : '▼'}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Tiempo promedio por producto ({productStats.length})</span>
+            <span style={{ fontSize: 13, color: C.dim }}>{showProducts ? '▲' : '▼'}</span>
           </button>
           {showProducts && (
             <div style={{ borderTop: `1px solid ${C.border}` }}>
@@ -1038,9 +1038,9 @@ function StatsPanel({ tickets }) {
               </div>
               {productStats.slice(0, 12).map(ps => (
                 <div key={ps.name} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', padding: '6px 14px', borderBottom: `1px solid rgba(255,255,255,0.04)`, alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: C.ink }}>{ps.name}</span>
-                  <span style={{ fontSize: 11, color: C.dim, textAlign: 'right', paddingRight: 20 }}>{ps.count}</span>
-                  <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 12, fontWeight: 700, color: ps.avg >= MAX_PREP_MINUTES ? '#FF3B30' : ps.avg >= MAX_PREP_MINUTES - 5 ? '#FF9500' : '#22C55E', textAlign: 'right' }}>{ps.avg}m</span>
+                  <span style={{ fontSize: 14, color: C.ink }}>{ps.name}</span>
+                  <span style={{ fontSize: 13, color: C.dim, textAlign: 'right', paddingRight: 20 }}>{ps.count}</span>
+                  <span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 14, fontWeight: 700, color: ps.avg >= MAX_PREP_MINUTES ? '#FF3B30' : ps.avg >= MAX_PREP_MINUTES - 5 ? '#FF9500' : '#22C55E', textAlign: 'right' }}>{ps.avg}m</span>
                 </div>
               ))}
             </div>
@@ -1091,7 +1091,7 @@ function ConfigDrawer({ onClose }) {
         <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.dim, fontSize: 16, padding: '4px 10px', cursor: 'pointer' }}>×</button>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px' }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '12px 0 4px' }}>Timers</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '12px 0 4px' }}>Timers</div>
         {row('Tiempo maximo de preparacion', (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <input
@@ -1099,15 +1099,15 @@ function ConfigDrawer({ onClose }) {
               onChange={e => setMaxMin(parseInt(e.target.value) || 20)}
               style={{ width: 60, padding: '5px 8px', borderRadius: 7, textAlign: 'center', fontSize: 14, fontWeight: 700 }}
             />
-            <span style={{ fontSize: 12, color: C.dim }}>min</span>
+            <span style={{ fontSize: 14, color: C.dim }}>min</span>
           </div>
         ))}
-        <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '14px 0 4px' }}>Sonido</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '14px 0 4px' }}>Sonido</div>
         {row('Sonido al llegar pedido', <Toggle value={sndNew} onChange={setSndNew} />)}
         {row('Alerta sonora por demora', <Toggle value={sndUrgent} onChange={setSndUrgent} />)}
 
-        <div style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '14px 0 4px' }}>Umbrales actuales</div>
-        <div style={{ background: C.card, borderRadius: 10, padding: '10px 12px', fontSize: 11, color: C.dim, lineHeight: 1.8 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.dim, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '14px 0 4px' }}>Umbrales actuales</div>
+        <div style={{ background: C.card, borderRadius: 10, padding: '10px 12px', fontSize: 13, color: C.dim, lineHeight: 1.8 }}>
           <div>• <span style={{ color: '#A1A1A6' }}>Normal:</span> 0 – {maxMin - 9} min</div>
           <div>• <span style={{ color: '#FF9500' }}>Demorado:</span> {maxMin - 8} – {maxMin} min</div>
           <div>• <span style={{ color: '#FF3B30' }}>Critico:</span> +{maxMin} min (borde pulsante)</div>
@@ -1158,7 +1158,7 @@ function FelicitacionesPanel({ onClose }) {
       <div style={{ padding: '14px 16px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 800, color: C.white }}>Felicitaciones</div>
-          <div style={{ fontSize: 10, color: C.dim, marginTop: 2 }}>Calificaciones 4 y 5 estrellas</div>
+          <div style={{ fontSize: 13, color: C.dim, marginTop: 2 }}>Calificaciones 4 y 5 estrellas</div>
         </div>
         <button onClick={onClose} style={{ background: 'transparent', border: `1px solid ${C.border}`, borderRadius: 6, color: C.dim, fontSize: 16, padding: '4px 10px', cursor: 'pointer' }}>×</button>
       </div>
@@ -1170,7 +1170,7 @@ function FelicitacionesPanel({ onClose }) {
         ) : ratings.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '36px 20px', color: C.dim }}>
             <div style={{ fontSize: 28, marginBottom: 10 }}>☆</div>
-            <div style={{ fontSize: 12, fontWeight: 600 }}>Sin felicitaciones recientes.</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>Sin felicitaciones recientes.</div>
           </div>
         ) : (
           <>
@@ -1180,9 +1180,9 @@ function FelicitacionesPanel({ onClose }) {
                 {rating.comment ? (
                   <div style={{ fontSize: 14, color: C.ink, fontStyle: 'italic', lineHeight: 1.5, marginBottom: 10 }}>"{rating.comment}"</div>
                 ) : (
-                  <div style={{ fontSize: 12, color: C.mid, fontStyle: 'italic', marginBottom: 10 }}>{rating.stars} estrellas</div>
+                  <div style={{ fontSize: 14, color: C.mid, fontStyle: 'italic', marginBottom: 10 }}>{rating.stars} estrellas</div>
                 )}
-                <div style={{ fontSize: 10, color: C.dim }}>{new Date(rating.created_at).toLocaleString('es-PY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
+                <div style={{ fontSize: 13, color: C.dim }}>{new Date(rating.created_at).toLocaleString('es-PY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
               </div>
             )}
             {ratings.length > 1 && (
@@ -1221,7 +1221,7 @@ function KitchenMessageBanner({ message, onClose }) {
         <div style={{ fontSize: 28, fontWeight: 700, color: '#FFFFFF', textAlign: 'center', lineHeight: 1.45 }}>
           {message}
         </div>
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 24, letterSpacing: '0.06em' }}>TOCA PARA CONTINUAR</div>
+        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', marginTop: 24, letterSpacing: '0.06em' }}>TOCA PARA CONTINUAR</div>
       </div>
     </div>
   );
@@ -1604,31 +1604,25 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontWeight: 800, fontSize: 18, color: C.white, letterSpacing: '-0.5px' }}>Mythos · Cocina</span>
           <div style={{ width: 1, height: 16, background: C.border }} />
-          <span style={{ fontSize: 10, fontWeight: 600, color: C.dim, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{restaurant?.name || 'KDS'}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.dim, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{restaurant?.name || 'KDS'}</span>
           {STATION_CONFIG && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 4, padding: '4px 10px', background: (STATION_CONFIG.color||'#fb923c')+'22', border: '1px solid '+(STATION_CONFIG.color||'#fb923c')+'55', borderRadius: 14 }}>
               <span style={{ fontSize: 13 }}>{STATION_CONFIG.icon || ''}</span>
-              <span style={{ fontSize: 11, fontWeight: 800, color: STATION_CONFIG.color || '#fb923c', letterSpacing: '0.04em' }}>{STATION_CONFIG.name}</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: STATION_CONFIG.color || '#fb923c', letterSpacing: '0.04em' }}>{STATION_CONFIG.name}</span>
               <span style={{ fontSize: 9, fontWeight: 700, color: C.dim, textTransform:'uppercase', letterSpacing:'0.06em' }}>{STATION_CONFIG.isAllZonas ? 'TODAS LAS ZONAS' : Array.from(STATION_CONFIG.zonas).join('·')}</span>
-            </div>
-          )}
-          {db && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: dbError ? '#FF3B30' : '#22C55E' }} />
-              <span style={{ fontSize: 10, color: dbError ? '#FF3B30' : C.dim, fontWeight: 600 }}>{dbError ? 'Sin conexion' : 'DB OK'}</span>
             </div>
           )}
           {urgentes > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,59,48,0.1)', border: '1px solid rgba(255,59,48,0.4)', borderRadius: 20, padding: '3px 9px', animation: 'ring 2s ease infinite' }}>
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#FF3B30', animation: 'pulse 1s ease infinite' }} />
-              <span style={{ fontSize: 10, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.06em' }}>{urgentes} URGENTE{urgentes > 1 ? 'S' : ''}</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#FF3B30', letterSpacing: '0.06em' }}>{urgentes} URGENTE{urgentes > 1 ? 'S' : ''}</span>
             </div>
           )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
           {loading && <div style={{ width: 13, height: 13, border: '2px solid #333', borderTopColor: '#888', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />}
-          <span style={{ fontSize: 11, color: C.mid }}><span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 14, fontWeight: 700, color: C.white }}>{total}</span> activos</span>
+          <span style={{ fontSize: 13, color: C.mid }}><span style={{ fontFamily: "'SF Mono',ui-monospace,monospace", fontSize: 14, fontWeight: 700, color: C.white }}>{total}</span> activos</span>
           <Clock />
           {/* Campana avisos */}
           {(() => {
@@ -1639,20 +1633,20 @@ function App() {
                   style={{ background: 'transparent', border: `1px solid ${unread > 0 ? '#FF9500' : '#333'}`, borderRadius: 6, color: unread > 0 ? '#FF9500' : '#888', padding: '5px 9px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}
                   title="Avisos del personal">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-                  {unread > 0 && <span style={{ fontSize: 10, fontWeight: 800 }}>{unread}</span>}
+                  {unread > 0 && <span style={{ fontSize: 13, fontWeight: 800 }}>{unread}</span>}
                 </button>
                 {showBroadcasts && (
                   <div style={{ position: 'absolute', top: '110%', right: 0, width: 300, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.5)', zIndex: 300, overflow: 'hidden' }}>
                     <div style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: C.white }}>Avisos del personal</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: C.white }}>Avisos del personal</span>
                       <button onClick={() => setShowBroadcasts(false)} style={{ background: 'none', border: 'none', color: C.dim, cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>×</button>
                     </div>
                     {broadcasts.length === 0
-                      ? <div style={{ padding: 20, textAlign: 'center', color: C.dim, fontSize: 12 }}>Sin avisos recientes</div>
+                      ? <div style={{ padding: 20, textAlign: 'center', color: C.dim, fontSize: 14 }}>Sin avisos recientes</div>
                       : <div style={{ maxHeight: 320, overflowY: 'auto' }}>
                           {broadcasts.map(b => (
                             <div key={b.id} style={{ padding: '10px 14px', borderBottom: `1px solid ${C.border}` }}>
-                              <div style={{ fontSize: 10, color: C.dim, marginBottom: 3 }}>
+                              <div style={{ fontSize: 13, color: C.dim, marginBottom: 3 }}>
                                 {b.sender_name} · {new Date(b.created_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
                               </div>
                               <div style={{ fontSize: 13, color: C.white, lineHeight: 1.4 }}>{b.message}</div>
@@ -1682,16 +1676,16 @@ function App() {
               <IconGear />
             </Btn>
           </div>
-          {window._userProfile && <span style={{ fontSize: 10, color: C.dim, fontWeight: 600 }}>{window._userProfile.display_name || window._userProfile.username}</span>}
-          {db && !STATION_CONFIG && <button onClick={async () => { try{await window.MythosPresence?.stop('manual');}catch(_){} await db.auth.signOut(); window.location.replace('login.html'); }} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#636366', fontSize: 10, padding: '4px 9px', cursor: 'pointer', fontFamily: 'inherit' }}>Salir</button>}
+          {window._userProfile && <span style={{ fontSize: 13, color: C.dim, fontWeight: 600 }}>{window._userProfile.display_name || window._userProfile.username}</span>}
+          {db && !STATION_CONFIG && <button onClick={async () => { try{await window.MythosPresence?.stop('manual');}catch(_){} await db.auth.signOut(); window.location.replace('login.html'); }} style={{ background: 'transparent', border: '1px solid #222', borderRadius: 6, color: '#636366', fontSize: 13, padding: '4px 9px', cursor: 'pointer', fontFamily: 'inherit' }}>Salir</button>}
         </div>
       </div>
 
       {/* Error banner */}
       {dbError && (
         <div style={{ margin: '10px 20px 0', background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#FF3B30' }}>Error DB:</span>
-          <span style={{ fontSize: 11, color: '#F87171', flex: 1 }}>{dbError}</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#FF3B30' }}>Error DB:</span>
+          <span style={{ fontSize: 13, color: '#F87171', flex: 1 }}>{dbError}</span>
         </div>
       )}
 
@@ -1704,9 +1698,9 @@ function App() {
             const label      = isExpired ? 'VENCIDO' : al.alert_type === 'expiring_soon' ? 'POR VENCER' : 'STOCK CRITICO';
             return (
               <div key={al.id} style={{ background: `${borderCol}0D`, border: `1px solid ${borderCol}40`, borderRadius: 8, padding: '7px 13px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: borderCol, flexShrink: 0 }}>{label}:</span>
-                <span style={{ fontSize: 11, color: '#e0e0e0', flex: 1 }}>{al.ingredients?.name || al.ingredient_id}</span>
-                {al.current_value != null && <span style={{ fontSize: 10, color: '#888', fontFamily: 'monospace' }}>{al.current_value} {al.ingredients?.unit || ''}</span>}
+                <span style={{ fontSize: 13, fontWeight: 700, color: borderCol, flexShrink: 0 }}>{label}:</span>
+                <span style={{ fontSize: 13, color: '#e0e0e0', flex: 1 }}>{al.ingredients?.name || al.ingredient_id}</span>
+                {al.current_value != null && <span style={{ fontSize: 13, color: '#888', fontFamily: 'monospace' }}>{al.current_value} {al.ingredients?.unit || ''}</span>}
               </div>
             );
           })}
@@ -1720,7 +1714,7 @@ function App() {
           <div style={{ margin: '10px 20px 0', background: 'rgba(255,255,255,0.05)', border: `1px solid ${C.borderStrong}`, borderRadius: 10, padding: '9px 14px', display: 'flex', alignItems: 'center', gap: 10, animation: 'slideIn 300ms ease' }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.white, animation: 'pulse 0.8s ease infinite' }} />
             <span style={{ fontSize: 13, fontWeight: 700, color: C.white }}>Nuevo pedido</span>
-            {t && <span style={{ fontSize: 11, color: C.mid }}>— {mesaDisplayLabel(t)} · {t.items.length} items</span>}
+            {t && <span style={{ fontSize: 13, color: C.mid }}>— {mesaDisplayLabel(t)} · {t.items.length} items</span>}
           </div>
         );
       })()}
@@ -1747,7 +1741,7 @@ function App() {
         <div style={{ flex: 1, padding: '10px 20px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, overflowY: 'auto' }}>
           {/* Cocina caliente */}
           <div style={{ borderRight: `1px solid ${C.border}`, paddingRight: 10 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: '#fb923c', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#fb923c', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${C.borderStrong}` }}>
               Cocina caliente — parrilla · cocina
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
@@ -1758,7 +1752,7 @@ function App() {
           </div>
           {/* Cocina fría */}
           <div style={{ paddingLeft: 10 }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: '#60a5fa', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#60a5fa', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10, paddingBottom: 6, borderBottom: `1px solid ${C.borderStrong}` }}>
               Cocina fria — bar · cafeteria
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
@@ -1787,7 +1781,7 @@ function Btn({ children, onClick, title, active }) {
       background: active ? 'rgba(255,255,255,0.1)' : 'transparent',
       border: `1px solid ${active ? C.borderStrong : C.border}`,
       borderRadius: 7, color: active ? C.white : C.dim,
-      padding: '5px 9px', fontSize: 12, fontWeight: 700,
+      padding: '5px 9px', fontSize: 14, fontWeight: 700,
       cursor: 'pointer', fontFamily: 'inherit', letterSpacing: '0.04em',
       transition: 'all 120ms', display: 'flex', alignItems: 'center', gap: 5,
     }}>{children}</button>
