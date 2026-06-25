@@ -87,12 +87,14 @@ const C_LIGHT = {
   border:'#C2C2C8',bs:'#5E5E62',
   white:'#FFFFFF',ink:'#1D1D1F',mid:'#48484A',dim:'#5E5E62',
   green:'#34C759',orange:'#FF9500',red:'#FF3B30',yellow:'#FF9500',blue:'#007AFF',purple:'#000000',
+  shadow:'0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.08)',
 };
 const C_DARK = {
-  bg:'#000000',sidebar:'#1C1C1E',surface:'#1C1C1E',card:'#2C2C2E',
+  bg:'#0B0B0D',sidebar:'#1C1C1E',surface:'#1C1C1E',card:'#2C2C2E',
   border:'#48484A',bs:'#636366',
   white:'#1C1C1E',ink:'#F5F5F7',mid:'#AEAEB2',dim:'#8E8E93',
   green:'#30D158',orange:'#FF9F0A',red:'#FF453A',yellow:'#FFD60A',blue:'#0A84FF',purple:'#F5F5F7',
+  shadow:'inset 0 1px 0 rgba(255,255,255,.06), 0 4px 16px rgba(0,0,0,.55)',
 };
 const C = {...(window.MythosTheme && window.MythosTheme.get()==='dark' ? C_DARK : C_LIGHT)};
 if (window.MythosTheme) {
@@ -896,7 +898,7 @@ function DashboardPage({orders, ratings, setPage}) {
 
       {/* Gráfico barras por hora + Top 5 */}
       <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:14,marginBottom:20}}>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:16}}>VENTAS POR HORA — HOY ({startH}hs al momento)</div>
           <div style={{display:'flex',alignItems:'flex-end',gap:3,height:100}}>
             {hourSlice.map((rev,i)=>{
@@ -924,7 +926,7 @@ function DashboardPage({orders, ratings, setPage}) {
             ))}
           </div>
         </div>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>TOP 5 PRODUCTOS — HOY</div>
           {top5.length===0
             ?<div style={{color:C.dim,fontSize:12,textAlign:'center',paddingTop:20}}>Sin ventas hoy</div>
@@ -948,14 +950,14 @@ function DashboardPage({orders, ratings, setPage}) {
 
       {/* Analítica — tendencia 14 días + métodos de pago */}
       <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:14,marginBottom:20}}>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:14,flexWrap:'wrap',gap:8}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>TENDENCIA DE VENTAS — ÚLTIMOS 14 DÍAS</div>
             <div style={{fontSize:11,color:C.dim}}>Total <strong style={{color:C.ink}}>{fmt(venta14)}</strong> · prom/día <strong style={{color:C.ink}}>{fmt(promDia)}</strong></div>
           </div>
           <TrendArea points={dayBuckets} color={C.blue}/>
         </div>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>MÉTODOS DE PAGO — 14 DÍAS</div>
           {payTotal===0
             ? <div style={{color:C.dim,fontSize:12,textAlign:'center',paddingTop:30}}>Sin cobros registrados</div>
@@ -1041,7 +1043,7 @@ function DashboardPage({orders, ratings, setPage}) {
         };
 
         return (
-          <div style={{background:C.surface, border:`1px solid ${C.border}`, borderRadius:8, overflow:'hidden'}}>
+          <div style={{background:C.surface, border:`1px solid ${C.border}`, borderRadius:16, boxShadow:C.shadow, overflow:'hidden'}}>
             <div style={{padding:'12px 16px', borderBottom:`1px solid ${C.border}`, fontSize:10, fontWeight:700, color:C.mid, letterSpacing:1, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
               ALERTAS Y NOTIFICACIONES
               <span style={{fontSize:11, color:C.dim}}>{allAlerts.length} {allAlerts.length===1?'alerta':'alertas'}</span>
@@ -1089,7 +1091,7 @@ function DashboardPage({orders, ratings, setPage}) {
           }));
           const n = items.length;
           return (
-            <div style={{background:C.surface,border:`1px solid ${n>0?C.orange:C.border}`,borderRadius:8,padding:20}}>
+            <div style={{background:C.surface,border:`1px solid ${n>0?C.orange:C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
                 <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>ALERTA DE STOCK</div>
                 <Icon name="alert" size={16} style={{color:n>0?C.orange:C.dim}}/>
@@ -1123,8 +1125,8 @@ function DashboardPage({orders, ratings, setPage}) {
               <Icon name="receipt" size={16} style={{color:C.dim}}/>
             </div>
           );
-          if(s===undefined) return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>{head}<div style={{color:C.dim,fontSize:14,padding:'8px 0'}}>Cargando…</div></div>;
-          if(!s) return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>{head}<div style={{color:C.dim,fontSize:14,padding:'8px 0'}}>Sin suscripción activa registrada</div></div>;
+          if(s===undefined) return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>{head}<div style={{color:C.dim,fontSize:14,padding:'8px 0'}}>Cargando…</div></div>;
+          if(!s) return <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>{head}<div style={{color:C.dim,fontSize:14,padding:'8px 0'}}>Sin suscripción activa registrada</div></div>;
           const days = s.days_remaining==null ? null : Number(s.days_remaining);
           const expired = s.status==='expired' || (days!=null && days<0);
           const soon = days!=null && days>=0 && days<=7;
@@ -1133,7 +1135,7 @@ function DashboardPage({orders, ratings, setPage}) {
           const bd = expired ? TINT.redBorder : soon ? TINT.amberBorder : TINT.greenBorder;
           const STL = {active:'Activa',trial:'Prueba',expired:'Vencida',cancelled:'Cancelada',suspended:'Suspendida'};
           return (
-            <div style={{background:C.surface,border:`1px solid ${(expired||soon)?bd:C.border}`,borderRadius:8,padding:20}}>
+            <div style={{background:C.surface,border:`1px solid ${(expired||soon)?bd:C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>
               {head}
               <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,flexWrap:'wrap'}}>
                 <span style={{fontSize:20,fontWeight:800,color:C.ink}}>{s.plan_name||'Plan'}</span>
@@ -1159,7 +1161,7 @@ function DashboardPage({orders, ratings, setPage}) {
               <Icon name="money" size={16} style={{color:C.dim}}/>
             </div>
           );
-          const shell = body => <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>{head}{body}</div>;
+          const shell = body => <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>{head}{body}</div>;
           if(rows===null) return shell(<div style={{color:C.dim,fontSize:14,padding:'8px 0'}}>Cargando…</div>);
           if(rows.length===0) return shell(<div style={{color:C.dim,fontSize:14,padding:'8px 0',textTransform:'capitalize'}}>Sin compras registradas en {mes}</div>);
           const total = rows.reduce((a,r)=>a+Number(r.total||0),0);
@@ -6939,7 +6941,7 @@ function DelivDashboard({deliveryOrders, channels}) {
         <KpiCard label="Tiempo promedio" value={avgMin>0?`${avgMin} min`:'—'} sub="entregadas hoy"/>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:16}}>INGRESOS POR CANAL — ÚLTIMOS 7 DÍAS</div>
           {channelData.length===0
             ? <div style={{color:C.dim,fontSize:13,textAlign:'center',padding:'20px 0'}}>Sin datos de canal esta semana</div>
