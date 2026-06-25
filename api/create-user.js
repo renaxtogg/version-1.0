@@ -11,7 +11,13 @@ function httpsPost(url, headers, body) {
     }, res => {
       let buf = '';
       res.on('data', c => buf += c);
-      res.on('end', () => { try { resolve({ ok: res.statusCode < 300, status: res.statusCode, data: JSON.parse(buf) }); } catch(e) { resolve({ ok: false, status: res.statusCode, data: buf }); } });
+      // `ok` SIEMPRE por status code: un 2xx con cuerpo vacío (Prefer: return=minimal)
+      // es éxito, no fallo. El parse del body es best-effort y nunca define `ok`.
+      res.on('end', () => {
+        let data = null;
+        try { data = buf ? JSON.parse(buf) : null; } catch(_) { data = buf; }
+        resolve({ ok: res.statusCode < 300, status: res.statusCode, data });
+      });
     });
     req.on('error', reject);
     req.write(data);
@@ -27,7 +33,12 @@ function httpsGet(url, headers) {
     }, res => {
       let buf = '';
       res.on('data', c => buf += c);
-      res.on('end', () => { try { resolve({ ok: res.statusCode < 300, status: res.statusCode, data: JSON.parse(buf) }); } catch(e) { resolve({ ok: false, status: res.statusCode, data: buf }); } });
+      // `ok` SIEMPRE por status code (ver httpsPost). El parse del body no define `ok`.
+      res.on('end', () => {
+        let data = null;
+        try { data = buf ? JSON.parse(buf) : null; } catch(_) { data = buf; }
+        resolve({ ok: res.statusCode < 300, status: res.statusCode, data });
+      });
     });
     req.on('error', reject);
     req.end();
@@ -200,7 +211,7 @@ module.exports = async function handler(req, res) {
       const roleErr = roleInsertResp.data;
       await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
         { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
-      res.status(400).json({ error: (roleErr?.message || 'Error al asignar rol') + ' · detalle: [' + roleInsertResp.status + '] ' + (typeof roleErr === 'string' ? roleErr : JSON.stringify(roleErr)), detail: { status: roleInsertResp.status, body: roleInsertResp.data } }); return;
+      res.status(400).json({ error: roleErr?.message || 'Error al asignar rol' }); return;
     }
 
     // AUTH-1: forzar cambio de contraseña en el primer ingreso. El admin/superadmin
@@ -220,7 +231,7 @@ module.exports = async function handler(req, res) {
           { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
         await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
           { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
-        res.status(500).json({ error: 'No se pudo configurar la cuenta (seguridad). Intentá de nuevo. · detalle: [' + flagResp.status + '] ' + (typeof flagResp.data === 'string' ? flagResp.data : JSON.stringify(flagResp.data)), detail: { status: flagResp.status, body: flagResp.data } }); return;
+        res.status(500).json({ error: 'No se pudo configurar la cuenta (seguridad). Intentá de nuevo.' }); return;
       }
     }
 
@@ -250,7 +261,7 @@ module.exports = async function handler(req, res) {
           { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
         await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
           { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
-        res.status(400).json({ error: ((rErr && (rErr.message || rErr.msg)) || 'Error al crear la ficha del rider') + ' · detalle: [' + riderInsertResp.status + '] ' + (typeof rErr === 'string' ? rErr : JSON.stringify(rErr)), detail: { status: riderInsertResp.status, body: riderInsertResp.data } });
+        res.status(400).json({ error: (rErr && (rErr.message || rErr.msg)) || 'Error al crear la ficha del rider' });
         return;
       }
     }
