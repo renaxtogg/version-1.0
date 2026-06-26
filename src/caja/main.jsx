@@ -77,6 +77,13 @@ const calcDenomTotal = d => DENOMS.reduce((s,x)=>s+(d[x.v]||0)*x.v, 0);
 /* ── CONSTANTES ── */
 const MOTIVOS_CANCEL = ['Error del cliente','Cambio de decisión','Demora excesiva','Error del cajero','Error de cocina','Producto no disponible','Otro'];
 const METODOS_PAGO   = [{id:'efectivo',lbl:'Efectivo'},{id:'tarjeta_credito',lbl:'Tarjeta Cred.'},{id:'tarjeta_debito',lbl:'Tarjeta Déb.'},{id:'qr',lbl:'QR / Transfer.'},{id:'mixto',lbl:'Mixto'}];
+// orders.payment_method tiene CHECK IN ('efectivo','tarjeta','qr','pos','pos_mesa','transferencia') (mig 044),
+// distinto del CHECK de movimientos_caja.metodo_pago. Mapeamos el método del selector ANTES de escribir
+// orders.payment_method (igual que la RPC cobro_mesa_parcial). En movimientos_caja se guarda el método CRUDO.
+const mapOrderPM = m =>
+  /^tarjeta/.test(m||'') ? 'tarjeta'
+  : (m==='mixto'||m==='gift_card'||m==='cuenta_corriente') ? 'pos'
+  : (m||'efectivo');
 const EG_CATS        = ['Insumos','Propinas al staff','Servicio/Mantenimiento','Devolución a cliente','Otro'];
 const ING_CATS       = ['Delivery externo','Evento privado','Venta de mercadería','Otro'];
 const DELIVERY_PLATS = ['Rappi','PedidosYa','UberEats','Otro'];
@@ -1042,25 +1049,26 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         }),
       };
       const cerrarOrden = order.status==='pending_payment' && yaEnMesa;
+      const pmOrder = mapOrderPM(metodo);
       const orderUpdate = order.status==='confirmed'
-        ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:metodo, ...invoiceFields}
+        ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:pmOrder, ...invoiceFields}
         : cerrarOrden
-          ? {payment_status:'paid', status:'delivered', completed_at:new Date().toISOString(), total:totalReal, payment_method:metodo, ...invoiceFields}
-          : {payment_status:'paid', total:totalReal, payment_method:metodo, ...invoiceFields};
+          ? {payment_status:'paid', status:'delivered', completed_at:new Date().toISOString(), total:totalReal, payment_method:pmOrder, ...invoiceFields}
+          : {payment_status:'paid', total:totalReal, payment_method:pmOrder, ...invoiceFields};
       let{error:e1}=await db.from('orders').update(orderUpdate).eq('id',order.id);
       // Fallback sin invoiceFields si la migración de requires_invoice no está aplicada
       if(e1){
         const fallbackUpdate = order.status==='confirmed'
-          ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:metodo}
+          ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:pmOrder}
           : cerrarOrden
-            ? {payment_status:'paid', status:'delivered', completed_at:new Date().toISOString(), total:totalReal, payment_method:metodo}
-            : {payment_status:'paid', total:totalReal, payment_method:metodo};
+            ? {payment_status:'paid', status:'delivered', completed_at:new Date().toISOString(), total:totalReal, payment_method:pmOrder}
+            : {payment_status:'paid', total:totalReal, payment_method:pmOrder};
         const{error:e1b}=await db.from('orders').update(fallbackUpdate).eq('id',order.id);
         if(e1b)throw e1b;
       }
       // Registrar en historial solo si el pedido pasó a cocina por primera vez
       if(order.status==='confirmed'){
-        await db.from('order_status_history').insert({order_id:order.id,status:'paid',notes:'Cobrado en caja — enviado a cocina'});
+        await db.from('order_status_history').insert({order_id:order.id,status:'paid',changed_by:'caja'});
       }
       const mov={
         turno_id:turno.id,restaurant_id:RID,tipo:'cobro',
@@ -2394,7 +2402,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         payment_status:'paid',
         customer_name:invoiceType==='fiscal'?(invName||customerName||null):(customerName||null),
         subtotal,discount_amount:0,total:subtotal,
-        payment_method:metodo,
+        payment_method:mapOrderPM(metodo),
       };
       let{data:order,error:e1}=await db.from('orders').insert({...baseInsert,...invoiceFields}).select().single();
       if(e1){
@@ -2422,7 +2430,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
       if(xPayload.length>0){const{error:e3}=await db.from('order_item_extras').insert(xPayload);if(e3)throw e3;}
 
       /* 4. historial */
-      await db.from('order_status_history').insert({order_id:order.id,status:'paid',notes:'Pedido tomado y cobrado en caja'});
+      await db.from('order_status_history').insert({order_id:order.id,status:'paid',changed_by:'caja'});
 
       /* 5. movimiento_caja */
       const mov={
@@ -4819,7 +4827,7 @@ function DashboardCaja({turno,profile,onCierre}){
         const{data:ord,error:e1}=await db.from('orders').insert({
           restaurant_id:RID,order_type:o.order_type,table_id:o.table_id||null,
           customer_name:o.customer_name||null,status:'paid',payment_status:'paid',
-          payment_method:o.metodo,total:o.total,created_by:profile.id,
+          payment_method:mapOrderPM(o.metodo),total:o.total,created_by:profile.id,
           notes:'Pedido offline sincronizado',
         }).select().single();
         if(e1)throw e1;
