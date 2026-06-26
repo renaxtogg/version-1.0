@@ -55,27 +55,119 @@
       </div>
       <p class="microcopy">14 días gratis. Sin tarjeta. Cancelás cuando quieras.</p>
 
-      <!-- Mockup de panel (monocromo) -->
-      <div class="device reveal" aria-hidden="true">
-        <div class="device-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+      <!-- Mockup de panel interactivo (monocromo) — datos de ejemplo 100% hardcodeados,
+           sin Supabase. El switcher + autoplay viven en el <script> "demo" al final. -->
+      <div class="device reveal" id="demoDevice" role="group" aria-label="Demo interactivo de los paneles de Mythos" aria-roledescription="demo">
+        <div class="device-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="device-live">Demo en vivo</span></div>
         <div class="device-body">
-          <div class="device-side">
-            <div class="side-item active">Caja</div>
-            <div class="side-item">Cocina (KDS)</div>
-            <div class="side-item">Mesas y Mozos</div>
-            <div class="side-item">Delivery</div>
-            <div class="side-item">Inventario</div>
-            <div class="side-item">Gerente</div>
+          <div class="device-side" role="tablist" aria-label="Paneles de Mythos" id="demoTabs">
+            <button type="button" class="side-item active" role="tab" aria-selected="true"  tabindex="0"  data-panel="caja"      aria-controls="panel-caja">Caja</button>
+            <button type="button" class="side-item"        role="tab" aria-selected="false" tabindex="-1" data-panel="cocina"    aria-controls="panel-cocina">Cocina (KDS)</button>
+            <button type="button" class="side-item"        role="tab" aria-selected="false" tabindex="-1" data-panel="mesas"     aria-controls="panel-mesas">Mesas y Mozos</button>
+            <button type="button" class="side-item"        role="tab" aria-selected="false" tabindex="-1" data-panel="delivery"  aria-controls="panel-delivery">Delivery</button>
+            <button type="button" class="side-item"        role="tab" aria-selected="false" tabindex="-1" data-panel="inventario" aria-controls="panel-inventario">Inventario</button>
+            <button type="button" class="side-item"        role="tab" aria-selected="false" tabindex="-1" data-panel="gerente"   aria-controls="panel-gerente">Gerente</button>
           </div>
-          <div class="device-main">
-            <div class="dm-row">
-              <div class="dm-card"><div class="dm-label">Ventas hoy</div><div class="dm-num">Gs 4.820.000</div></div>
-              <div class="dm-card"><div class="dm-label">Pedidos</div><div class="dm-num">137</div></div>
-              <div class="dm-card"><div class="dm-label">Ticket prom.</div><div class="dm-num">Gs 35.200</div></div>
+          <div class="device-main" id="demoPanels">
+
+            <!-- Caja -->
+            <div class="dm-panel is-active" role="tabpanel" id="panel-caja" data-panel="caja" aria-label="Caja" tabindex="0">
+              <div class="dm-row">
+                <div class="dm-card"><div class="dm-label">Ventas hoy</div><div class="dm-num">Gs 4.820.000</div></div>
+                <div class="dm-card"><div class="dm-label">Pedidos</div><div class="dm-num">137</div></div>
+                <div class="dm-card"><div class="dm-label">Ticket prom.</div><div class="dm-num">Gs 35.200</div></div>
+              </div>
+              <div class="dm-ticket"><span><b>Mesa 4</b> · 2 platos · 1 bebida</span><span class="badge-ok"><span data-icon="check" data-icon-size="11"></span> Listo</span></div>
+              <div class="dm-ticket"><span><b>Delivery #218</b> · en camino</span><span class="badge-ok"><span data-icon="creditCard" data-icon-size="11"></span> Bancard</span></div>
+              <div class="dm-ticket"><span><b>Mesa 9</b> · esperando cocina</span><span class="badge-muted">Preparando</span></div>
             </div>
-            <div class="dm-ticket"><span><b>Mesa 4</b> · 2 platos · 1 bebida</span><span class="badge-ok"><span data-icon="check" data-icon-size="11"></span> Listo</span></div>
-            <div class="dm-ticket"><span><b>Delivery #218</b> · en camino</span><span class="badge-ok"><span data-icon="creditCard" data-icon-size="11"></span> Bancard</span></div>
-            <div class="dm-ticket"><span><b>Mesa 9</b> · esperando cocina</span><span class="badge-muted">Preparando</span></div>
+
+            <!-- Cocina (KDS) -->
+            <div class="dm-panel" role="tabpanel" id="panel-cocina" data-panel="cocina" aria-label="Cocina (KDS)" tabindex="0" hidden>
+              <div class="dm-kds">
+                <div class="dm-kcol">
+                  <div class="dm-ktitle">Parrilla</div>
+                  <div class="dm-kticket"><span><b>Mesa 3</b><br>2× Lomito · 1× Provoleta</span><span class="dm-timer">4:12</span></div>
+                  <div class="dm-kticket"><span><b>Mesa 11</b><br>1× Bife chorizo</span><span class="dm-timer is-warn">7:05</span></div>
+                </div>
+                <div class="dm-kcol">
+                  <div class="dm-ktitle">Frituras</div>
+                  <div class="dm-kticket"><span><b>Mesa 7</b><br>3× Milanesa</span><span class="dm-timer">1:48</span></div>
+                  <div class="dm-kticket"><span><b>Del. #219</b><br>2× Empanada · 1× Papas</span><span class="dm-timer">0:54</span></div>
+                </div>
+                <div class="dm-kcol">
+                  <div class="dm-ktitle">Bar</div>
+                  <div class="dm-kticket"><span><b>Mesa 4</b><br>2× Mojito · 1× Clericó</span><span class="dm-timer">2:30</span></div>
+                  <div class="dm-kticket"><span><b>Mesa 9</b><br>3× Tereré · 1× Jugo</span><span class="dm-timer">0:38</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Mesas y Mozos -->
+            <div class="dm-panel" role="tabpanel" id="panel-mesas" data-panel="mesas" aria-label="Mesas y Mozos" tabindex="0" hidden>
+              <div class="dm-tables">
+                <div class="dm-table is-libre"><b>1</b><span>Libre</span></div>
+                <div class="dm-table is-ocupada"><b>3</b><span>Ocupada · Ana</span></div>
+                <div class="dm-table is-retirar"><b>5</b><span>Retirar · Ana</span></div>
+                <div class="dm-table is-cobro"><b>7</b><span>Cobro pte. · Beto</span></div>
+                <div class="dm-table is-ocupada"><b>8</b><span>Ocupada · Beto</span></div>
+                <div class="dm-table is-libre"><b>9</b><span>Libre</span></div>
+                <div class="dm-table is-ocupada"><b>11</b><span>Ocupada · Ana</span></div>
+                <div class="dm-table is-libre"><b>12</b><span>Libre</span></div>
+              </div>
+              <div class="dm-ticket"><span><b>Mozo Beto</b> · Mesa 7 lista para cobrar</span><span class="badge-ok">Monto a cobrar Gs 312.000</span></div>
+            </div>
+
+            <!-- Delivery -->
+            <div class="dm-panel" role="tabpanel" id="panel-delivery" data-panel="delivery" aria-label="Delivery" tabindex="0" hidden>
+              <div class="dm-ticket"><span><b>#218</b> Juan P. · En camino</span><span class="badge-ok">12 min · Bancard</span></div>
+              <div class="dm-ticket"><span><b>#219</b> · Buscando rider</span><span class="badge-muted">Pendiente</span></div>
+              <div class="dm-ticket"><span><b>#220</b> Carla M. · Entregado</span><span class="badge-ok">Efectivo</span></div>
+              <div class="dm-map" aria-hidden="true">
+                <svg viewBox="0 0 320 120" preserveAspectRatio="none" class="dm-map-svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+                  <path id="dmRoute" d="M24 98 C 90 98, 110 28, 182 36 S 270 26, 300 20" fill="none" stroke="var(--border-strong)" stroke-width="2" stroke-dasharray="5 6" />
+                  <g class="dm-dest" transform="translate(300,20)"><circle r="5" fill="var(--surface)" stroke="var(--text-primary)" stroke-width="3" /></g>
+                  <circle class="dm-rider-dot" r="6" fill="var(--text-primary)">
+                    <animateMotion dur="4s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;0.5;1" calcMode="linear">
+                      <mpath href="#dmRoute" xlink:href="#dmRoute" />
+                    </animateMotion>
+                  </circle>
+                </svg>
+                <span class="dm-map-tag">Rider en camino · 12 min</span>
+              </div>
+            </div>
+
+            <!-- Inventario -->
+            <div class="dm-panel" role="tabpanel" id="panel-inventario" data-panel="inventario" aria-label="Inventario" tabindex="0" hidden>
+              <div class="dm-row">
+                <div class="dm-card"><div class="dm-label">Insumos</div><div class="dm-num">64</div></div>
+                <div class="dm-card"><div class="dm-label">Alertas</div><div class="dm-num">3</div></div>
+                <div class="dm-card"><div class="dm-label">Valor stock</div><div class="dm-num">Gs 9.7M</div></div>
+              </div>
+              <div class="dm-list">
+                <div class="dm-list-row"><span class="st-dot is-warn"></span><span class="nm">Carne</span><div class="dm-bar"><i class="is-warn" style="width:16%"></i></div><b>8 kg · Bajo</b></div>
+                <div class="dm-list-row"><span class="st-dot"></span><span class="nm">Queso</span><div class="dm-bar"><i style="width:62%"></i></div><b>22 kg · OK</b></div>
+                <div class="dm-list-row"><span class="st-dot is-warn"></span><span class="nm">Pan</span><div class="dm-bar"><i class="is-warn" style="width:22%"></i></div><b>14 u · Bajo</b></div>
+                <div class="dm-list-row"><span class="st-dot"></span><span class="nm">Gaseosa 1.5L</span><div class="dm-bar"><i style="width:80%"></i></div><b>40 u · OK</b></div>
+              </div>
+            </div>
+
+            <!-- Gerente -->
+            <div class="dm-panel" role="tabpanel" id="panel-gerente" data-panel="gerente" aria-label="Gerente" tabindex="0" hidden>
+              <div class="dm-row">
+                <div class="dm-card"><div class="dm-label">Ventas semana</div><div class="dm-num">Gs 31.4M</div></div>
+                <div class="dm-card"><div class="dm-label">Ocupación</div><div class="dm-num">78%</div></div>
+                <div class="dm-card"><div class="dm-label">Ticket prom.</div><div class="dm-num">Gs 42.100</div></div>
+              </div>
+              <div class="dm-list">
+                <div class="dm-list-row"><span class="nm">Lomito completo</span><div class="dm-bar"><i style="width:92%"></i></div><b>214</b></div>
+                <div class="dm-list-row"><span class="nm">Milanesa napo.</span><div class="dm-bar"><i style="width:74%"></i></div><b>171</b></div>
+                <div class="dm-list-row"><span class="nm">Empanadas</span><div class="dm-bar"><i style="width:58%"></i></div><b>133</b></div>
+                <div class="dm-list-row"><span class="nm">Provoleta</span><div class="dm-bar"><i style="width:41%"></i></div><b>96</b></div>
+              </div>
+              <div class="dm-ticket"><span><b>Mesa más activa:</b> Mesa 3</span><span class="badge-muted">42 pedidos</span></div>
+            </div>
+
           </div>
         </div>
       </div>
@@ -300,5 +392,64 @@
   <script src="mythos-icons.js"></script>
   <script src="web-marketing.js"></script>
   <script>MythosWeb.init({ active: '' });</script>
+
+  <!-- Demo interactivo del hero: switcher de paneles + autoplay (mockup puro, sin Supabase) -->
+  <script>
+  (function () {
+    var root = document.getElementById('demoDevice');
+    if (!root) return;
+    var tabs   = [].slice.call(root.querySelectorAll('.side-item[data-panel]'));
+    var panels = [].slice.call(root.querySelectorAll('.dm-panel[data-panel]'));
+    if (!tabs.length || !panels.length) return;
+
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var INTERVAL = 3500;
+    var timer = null, idx = 0, locked = false, hovering = false;
+
+    function show(key) {
+      for (var i = 0; i < tabs.length; i++) {
+        var on = tabs[i].getAttribute('data-panel') === key;
+        if (on) idx = i;
+        tabs[i].classList.toggle('active', on);
+        tabs[i].setAttribute('aria-selected', on ? 'true' : 'false');
+        tabs[i].tabIndex = on ? 0 : -1;
+      }
+      for (var j = 0; j < panels.length; j++) {
+        var act = panels[j].getAttribute('data-panel') === key;
+        panels[j].classList.toggle('is-active', act);
+        if (act) { panels[j].removeAttribute('hidden'); } else { panels[j].setAttribute('hidden', ''); }
+      }
+    }
+    function next() { show(tabs[(idx + 1) % tabs.length].getAttribute('data-panel')); }
+    function start() { if (reduce || locked || hovering || timer) return; timer = setInterval(next, INTERVAL); }
+    function stop() { if (timer) { clearInterval(timer); timer = null; } }
+
+    tabs.forEach(function (t, i) {
+      t.addEventListener('click', function () { locked = true; stop(); show(t.getAttribute('data-panel')); });
+      t.addEventListener('keydown', function (e) {
+        var n = null;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') n = (i + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') n = (i - 1 + tabs.length) % tabs.length;
+        else if (e.key === 'Home') n = 0;
+        else if (e.key === 'End') n = tabs.length - 1;
+        if (n === null) return;
+        e.preventDefault(); locked = true; stop();
+        show(tabs[n].getAttribute('data-panel')); tabs[n].focus();
+      });
+    });
+
+    // Pausa on hover (temporal); el click la fija (locked).
+    root.addEventListener('mouseenter', function () { hovering = true; stop(); });
+    root.addEventListener('mouseleave', function () { hovering = false; start(); });
+    // No malgastar el timer con la pestaña en segundo plano.
+    document.addEventListener('visibilitychange', function () { document.hidden ? stop() : start(); });
+
+    // Reduced-motion: además del autoplay, pausamos el rider SVG/SMIL del mini-mapa.
+    if (reduce) { var svg = root.querySelector('.dm-map-svg'); if (svg && svg.pauseAnimations) svg.pauseAnimations(); }
+
+    show(tabs[0].getAttribute('data-panel'));
+    start();
+  })();
+  </script>
 </body>
 </html>
