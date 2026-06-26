@@ -312,10 +312,12 @@ const FormField = ({label,children,hint,col}) => (
 );
 
 /* ══════════════════════════════════════════════
-   MÓDULO PANELES (superadmin) — launcher universal por QR / link
+   MÓDULO PANELES (superadmin) — launcher universal (Abrir directo + QR / link)
    Como superadmin tenés acceso SIN restricciones a todos los paneles (no hay
-   candados). Elegís un restaurante para que el QR/link abra con su contexto
-   (?r=) o dejás "Genérico" (el panel resuelve el local del login del usuario).
+   candados). Elegís un restaurante (se recuerda; autoselección si hay uno solo)
+   y "Abrir" entra al panel en 1 click con su contexto (?r=, vista total por el
+   bypass de RLS mig 088). "Compartir" genera el QR/link. El panel Rider Delivery
+   es por-cuenta-de-rider (noLaunch): solo se comparte, no se abre como superadmin.
 ══════════════════════════════════════════════ */
 const SUPER_PANELS = [
   {l:'Admin Local',       h:'admin.html',            ic:'settings', desc:'Gestión completa del restaurante',       client:false},
@@ -324,7 +326,7 @@ const SUPER_PANELS = [
   {l:'Cocina (KDS)',      h:'cocina.html',           ic:'flame',    desc:'Tablero de comandas y despacho',         client:false},
   {l:'Gerente',           h:'gerente.html',          ic:'chart',    desc:'Reportes, personal y alertas',           client:false},
   {l:'Delivery Cliente',  h:'delivery-cliente.html', ic:'package',  desc:'App de pedidos a domicilio',             client:true},
-  {l:'Rider Delivery',    h:'delivery-rider.html',   ic:'bike',     desc:'Panel del repartidor en ruta',           client:false},
+  {l:'Rider Delivery',    h:'delivery-rider.html',   ic:'bike',     desc:'Panel del repartidor en ruta',           client:false, noLaunch:true},
   {l:'Menú Cliente (QR)', h:'index.html',            ic:'cart',     desc:'Carta digital que escanea el cliente',   client:true},
 ];
 
@@ -362,33 +364,69 @@ function SuperShareModal({panel, url, needsRest, onClose}) {
   );
 }
 
+const SUPER_PANEL_RID_LS = 'mythos_super_panel_rid';
+
 function PageSuperPaneles({restaurants}) {
+  const list = Array.isArray(restaurants) ? restaurants : [];
   const [rid, setRid] = useState('');
   const [qr, setQr]   = useState(null);
-  const list = Array.isArray(restaurants) ? restaurants : [];
+
+  // Restaurar el restaurante elegido la última vez / autoseleccionar si hay uno solo.
+  // El superadmin no tiene local propio (restaurant_id NULL): sin esto, "Abrir" iría en
+  // modo Genérico y el panel pediría crear restaurante. Conserva una elección manual válida.
+  useEffect(() => {
+    if (!list.length) return;
+    setRid(prev => {
+      if (prev && list.some(r => r.id === prev)) return prev;
+      let saved = '';
+      try { saved = localStorage.getItem(SUPER_PANEL_RID_LS) || ''; } catch(_) {}
+      if (saved && list.some(r => r.id === saved)) return saved;
+      if (list.length === 1) return list[0].id;
+      return prev;
+    });
+  }, [list.length]);
+
+  // Persistir la elección para la próxima visita.
+  useEffect(() => { try { if (rid) localStorage.setItem(SUPER_PANEL_RID_LS, rid); } catch(_) {} }, [rid]);
+
   // Strip del último segmento de la ruta (sirve igual con superadmin.html o ruta limpia /superadmin)
   const base = window.location.origin + window.location.pathname.replace(/[^/]*$/,'');
   const urlFor = p => `${base}${p.h}${rid ? `?r=${encodeURIComponent(rid)}` : ''}`;
+  const activeRest = list.find(r => r.id === rid);
+  // "Abrir": 1 click → pestaña nueva, SIEMPRE con ?r= (nunca genérico). Sin restaurante
+  // elegido no abre (el botón queda deshabilitado).
+  const openPanel = p => { if (!rid) return; window.open(urlFor(p), '_blank', 'noopener'); };
 
   return (
     <div>
       <h1 style={{fontSize:24,fontWeight:800,letterSpacing:'-0.5px',margin:'0 0 4px',color:C.ink}}>Paneles</h1>
-      <p style={{fontSize:13,color:C.mid,margin:'0 0 18px',maxWidth:640,lineHeight:1.55}}>
-        Como superadmin accedés a <strong>todos los paneles sin restricciones</strong>. Elegí un restaurante para que el QR/link abra con su contexto, o dejá <strong>Genérico</strong> (el panel resuelve el local del login). Tocá un panel para generar su QR o link directo.
+      <p style={{fontSize:13,color:C.mid,margin:'0 0 18px',maxWidth:660,lineHeight:1.55}}>
+        Como superadmin accedés a <strong>todos los paneles sin restricciones</strong>. Elegí un restaurante y tocá <strong>Abrir</strong> para entrar directo con su contexto (vista total, bypass de RLS), o <strong>Compartir</strong> para generar su QR / link.
       </p>
-      <div style={{marginBottom:22,maxWidth:380}}>
-        <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>Restaurante (contexto del link)</label>
-        <select value={rid} onChange={e=>setRid(e.target.value)}
-          style={{width:'100%',fontSize:13,padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.surface,color:C.ink}}>
-          <option value="">Genérico (sin restaurante)</option>
-          {list.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-        </select>
+      <div style={{display:'flex',flexWrap:'wrap',alignItems:'flex-end',gap:14,marginBottom:22}}>
+        <div style={{flex:'1 1 300px',minWidth:280,maxWidth:420}}>
+          <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>Restaurante activo (contexto de Abrir / del link)</label>
+          <select value={rid} onChange={e=>setRid(e.target.value)}
+            style={{width:'100%',fontSize:13,padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.surface,color:C.ink}}>
+            <option value="">Elegí un restaurante…</option>
+            {list.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        </div>
+        {activeRest ? (
+          <div style={{display:'inline-flex',alignItems:'center',gap:8,fontSize:13,fontWeight:600,color:C.ink,border:`1px solid ${C.ink}`,borderRadius:9,padding:'9px 14px',background:C.surface}}>
+            <span style={{width:8,height:8,borderRadius:'50%',background:C.green,flexShrink:0}}/>
+            Activo: <strong style={{marginLeft:2}}>{activeRest.name}</strong>
+          </div>
+        ) : (
+          <div style={{display:'inline-flex',alignItems:'center',gap:8,fontSize:12.5,fontWeight:600,color:C.orange,border:`1px solid ${C.orange}`,borderRadius:9,padding:'9px 14px'}}>
+            Elegí un restaurante para abrir los paneles con su contexto.
+          </div>
+        )}
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(212px,1fr))',gap:14}}>
         {SUPER_PANELS.map(p => (
           <div key={p.h}
-            onClick={()=>setQr(p)}
-            style={{background:C.surface,border:`1px solid ${C.ink}`,borderRadius:14,padding:'18px 16px',minHeight:150,display:'flex',flexDirection:'column',cursor:'pointer',transition:'transform .12s, box-shadow .12s'}}
+            style={{background:C.surface,border:`1px solid ${C.ink}`,borderRadius:14,padding:'18px 16px',minHeight:172,display:'flex',flexDirection:'column',transition:'transform .12s, box-shadow .12s'}}
             onMouseEnter={e=>{ e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow='0 10px 28px rgba(0,0,0,0.14)'; }}
             onMouseLeave={e=>{ e.currentTarget.style.transform='none'; e.currentTarget.style.boxShadow='none'; }}>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
@@ -399,9 +437,30 @@ function PageSuperPaneles({restaurants}) {
             </div>
             <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:5}}>{p.l}</div>
             <div style={{fontSize:12,color:C.mid,lineHeight:1.45,flex:1,marginBottom:12}}>{p.desc}</div>
-            <div style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12.5,fontWeight:700,color:C.ink}}>
-              <Icon name="layout" size={13}/> Compartir / Abrir
-            </div>
+            {/* Rider Delivery es por-cuenta-de-rider (se resuelve por auth.uid → delivery_riders),
+                no por ?r=: el superadmin no tiene fila de rider, así que "Abrir" no aplica.
+                Se ofrece solo Compartir (el link sirve para un rider real con su login). */}
+            {p.noLaunch ? (
+              <div>
+                <button onClick={()=>setQr(p)} title={`Compartir ${p.l} (QR / link)`}
+                  style={{width:'100%',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6,background:'transparent',color:C.ink,border:`1px solid ${C.ink}`,borderRadius:9,padding:'9px 12px',fontSize:12.5,fontWeight:700,cursor:'pointer'}}>
+                  <Icon name="layout" size={13}/> Compartir
+                </button>
+                <div style={{fontSize:10.5,color:C.dim,marginTop:6,lineHeight:1.35}}>Se abre con la cuenta propia del rider (login por correo).</div>
+              </div>
+            ) : (
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>openPanel(p)} disabled={!rid}
+                  title={rid ? `Abrir ${p.l}` : 'Elegí un restaurante primero'}
+                  style={{flex:1,display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6,background:C.ink,color:C.surface,border:'none',borderRadius:9,padding:'9px 12px',fontSize:13,fontWeight:700,cursor:rid?'pointer':'not-allowed',opacity:rid?1:.45}}>
+                  Abrir ↗
+                </button>
+                <button onClick={()=>setQr(p)} title={`Compartir ${p.l} (QR / link)`}
+                  style={{display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6,background:'transparent',color:C.ink,border:`1px solid ${C.ink}`,borderRadius:9,padding:'9px 12px',fontSize:12.5,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+                  <Icon name="layout" size={13}/> Compartir
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>

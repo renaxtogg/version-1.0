@@ -55,7 +55,13 @@ const db = _initDB();
 // por-pestaña: la sesión se recuerda entre pestañas (cierre sólo por inactividad).
 const HAS_TAB_SESSION = (()=>{ try{ return !!window.localStorage.getItem(SB_STORAGE_KEY); }catch(_){ return false; } })();
 // Multi-tenant Engine: el comercio se resuelve desde la sesión activa (localStorage), sin UUID hardcodeado.
-const RESTAURANT_ID = localStorage.getItem('mythos_restaurant_id');
+// Superadmin launcher (superadmin → Paneles): puede fijar el local por ?r= para verlo/operarlo
+// con su bypass de RLS (mig 088). SOLO aplica al superadmin; cualquier otro rol ignora ?r=.
+const _SUPER_RID = (function(){ try {
+  if ((localStorage.getItem('mythos_role')||'').trim() !== 'superadmin') return null;
+  return (new URLSearchParams(window.location.search).get('r')||'').trim() || null;
+} catch(_) { return null; } })();
+const RESTAURANT_ID = _SUPER_RID || localStorage.getItem('mythos_restaurant_id');
 let RID = RESTAURANT_ID; // alias retro-compatible; initApp lo reafirma con profile.restaurant_id
 
 /* ── DENOMINACIONES GUARANÍES ── */

@@ -29,7 +29,13 @@ const _initDB = () => {
 };
 const db = _initDB();
 // Multi-tenant Engine: el comercio se resuelve desde la sesión activa (localStorage), sin UUID hardcodeado.
-const RESTAURANT_ID = localStorage.getItem('mythos_restaurant_id');
+// Superadmin launcher (superadmin → Paneles): puede fijar el local por ?r= para verlo/operarlo
+// con su bypass de RLS (mig 088). SOLO aplica al superadmin; cualquier otro rol ignora ?r=.
+const _SUPER_RID = (function(){ try {
+  if ((localStorage.getItem('mythos_role')||'').trim() !== 'superadmin') return null;
+  return (new URLSearchParams(window.location.search).get('r')||'').trim() || null;
+} catch(_) { return null; } })();
+const RESTAURANT_ID = _SUPER_RID || localStorage.getItem('mythos_restaurant_id');
 
 /* ── ESTACIÓN ACTIVA POR TOKEN (?station=<token>) ─────────────
    Si la URL trae station=<token>, la KDS se restringe a las

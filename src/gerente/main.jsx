@@ -20,7 +20,13 @@ const _initDB = () => {
   try { return window.supabase.createClient(url, key); } catch(e){ return null; }
 };
 const db = _initDB();
-const RID = (localStorage.getItem('mythos_restaurant_id') || (window.SUPABASE_CONFIG?.restaurantId) || '').replace(/^﻿/,'').trim();
+// Superadmin launcher (superadmin → Paneles): puede fijar el local por ?r= para verlo/operarlo
+// con su bypass de RLS (mig 088). SOLO aplica al superadmin; cualquier otro rol ignora ?r=.
+const _SUPER_RID = (function(){ try {
+  if ((localStorage.getItem('mythos_role')||'').trim() !== 'superadmin') return null;
+  return (new URLSearchParams(window.location.search).get('r')||'').trim() || null;
+} catch(_) { return null; } })();
+const RID = (_SUPER_RID || localStorage.getItem('mythos_restaurant_id') || (window.SUPABASE_CONFIG?.restaurantId) || '').replace(/^﻿/,'').trim();
 
 /* ───────────────────────── UTILS ───────────────────────── */
 const fmt    = n => '₲ ' + (Math.round(n)||0).toLocaleString('es-PY');

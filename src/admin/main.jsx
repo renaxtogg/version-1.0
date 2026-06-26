@@ -28,7 +28,13 @@ const _initDB = () => {
 const db = _initDB();
 /* RID = sucursal activa de la sesión (multi-sucursal). El dueño la conmuta vía
    localStorage.mythos_restaurant_id; fallback a config.js para superadmin/demo. */
-const RID = (localStorage.getItem('mythos_restaurant_id') || (window.SUPABASE_CONFIG?.restaurantId) || '').replace(/^﻿/,'').trim();
+// Superadmin launcher (superadmin → Paneles): puede fijar el local por ?r= para verlo/operarlo
+// con su bypass de RLS (mig 088). SOLO aplica al superadmin; cualquier otro rol ignora ?r=.
+const _SUPER_RID = (function(){ try {
+  if ((localStorage.getItem('mythos_role')||'').trim() !== 'superadmin') return null;
+  return (new URLSearchParams(window.location.search).get('r')||'').trim() || null;
+} catch(_) { return null; } })();
+const RID = (_SUPER_RID || localStorage.getItem('mythos_restaurant_id') || (window.SUPABASE_CONFIG?.restaurantId) || '').replace(/^﻿/,'').trim();
 const MY_ROLE = (localStorage.getItem('mythos_role')||'').trim();
 
 /* contador global — pausa el polling cuando hay modal abierto o input con foco */
