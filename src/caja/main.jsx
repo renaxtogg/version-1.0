@@ -105,6 +105,7 @@ function printTicket(t){
     metodo:      t.metodo,
     cambio:      t.cambio,
     isOffline:   t.isOffline,
+    partial:     t.partial,            // cobro por mesa: badge "PAGO PARCIAL"
   }, cfg);
   if(ok===false) toast('Permití ventanas emergentes para imprimir',false);
 }
@@ -676,42 +677,53 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
   const [loading,setLoading]=useState(true);
   const [selected,setSelected]=useState(null);
   const [cobroModal,setCobroModal]=useState(false);
+  const [mesaModal,setMesaModal]=useState(null);   // {tableId,tableNumber,orders} — cobro por mesa
   const [searchQ,setSearchQ]=useState('');
   const [deliveryInfoMap,setDeliveryInfoMap]=useState({});
   const [cancelTarget,setCancelTarget]=useState(null);
+  const [partialOn,setPartialOn]=useState(true);   // false = migración 128 sin aplicar → modo clásico (sin agrupar por mesa)
+  const reloadRef=React.useRef(null);
+  // Coalesce ráfagas de eventos realtime (transiciones de status, totales) en un solo reload.
+  function scheduleReload(){ clearTimeout(reloadRef.current); reloadRef.current=setTimeout(()=>loadOrders(),350); }
 
   useEffect(()=>{loadOrders();},[]);
   useEffect(()=>{
     if(!db)return;
     const ch=db.channel('cobros-rt')
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>loadOrders())
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>scheduleReload())
       .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},(payload)=>{
         const o=payload.new;
-        // Solo sacar de la lista si ya está cobrado o cancelado
-        // NUNCA sacar por status='delivered' solo — delivery entregado != cobrado
         if(o.status==='cancelled'||o.payment_status==='paid'){
+          // Cobrado/cancelado del todo → sacar al instante.
           setOrders(p=>p.filter(x=>x.id!==o.id));
         } else {
-          setOrders(p=>p.some(x=>x.id===o.id)
-            ?p.map(x=>x.id===o.id?{...x,status:o.status,payment_status:o.payment_status,payment_method:o.payment_method,total:o.total}:x)
-            :p
-          );
+          // Cambios parciales (paid_quantity vive en order_items, no llega en este payload):
+          // recargamos —debounced— para traer paid_quantity fresco y que dos cajas no cobren lo mismo dos veces.
+          scheduleReload();
         }
       })
       .subscribe();
     const onVisible=()=>{if(document.visibilityState==='visible')loadOrders();};
     document.addEventListener('visibilitychange',onVisible);
-    return()=>{db.removeChannel(ch);document.removeEventListener('visibilitychange',onVisible);};
+    return()=>{clearTimeout(reloadRef.current);db.removeChannel(ch);document.removeEventListener('visibilitychange',onVisible);};
   },[]);
 
   async function loadOrders(){
     setLoading(true);
-    const{data,error}=await db.from('orders')
-      .select('id,order_number,status,payment_status,total,payment_method,order_type,customer_name,customer_ruc,customer_email,requires_invoice,invoice_delivery_method,invoice_status,created_at,table_id,tables(number),order_items(id,quantity,unit_price)')
+    const BASE='id,order_number,status,payment_status,total,payment_method,order_type,customer_name,customer_ruc,customer_email,requires_invoice,invoice_delivery_method,invoice_status,created_at,delivered_to_table_at,table_id,tables(number)';
+    const runSel=oi=>db.from('orders').select(`${BASE},${oi}`)
       .eq('restaurant_id',RID)
       .in('status',['confirmed','paid','pending_payment','kitchen_received','cooking','ready','delivered'])
       .or('payment_status.neq.paid,payment_status.is.null')
       .order('created_at',{ascending:true});
+    // total_price incluye extras (precio efectivo por unidad); paid_quantity = pago parcial (mig 128).
+    let{data,error}=await runSel('order_items(id,item_name,quantity,unit_price,total_price,paid_quantity)');
+    if(error){
+      // Fallback si paid_quantity aún no existe (migración 128 sin aplicar) → modo clásico (cobro entero).
+      const r2=await runSel('order_items(id,item_name,quantity,unit_price,total_price)');
+      if(!r2.error){ data=(r2.data||[]).map(o=>({...o,order_items:(o.order_items||[]).map(it=>({...it,paid_quantity:it.paid_quantity??0}))})); error=null; setPartialOn(false); }
+      else error=r2.error;
+    } else { setPartialOn(true); }
     if(!error){
       const orders = data || [];
       setOrders(orders);
@@ -732,11 +744,39 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
     setLoading(false);
   }
 
-  const display=orders.filter(o=>{
-    if(!searchQ)return true;
-    const q=searchQ.toLowerCase();
-    return (o.order_number||'').toLowerCase().includes(q)||(o.customer_name||'').toLowerCase().includes(q)||String(o.tables?.number||'').includes(q);
+  const q=searchQ.trim().toLowerCase();
+  const matchOrder=o=>!q||(o.order_number||'').toLowerCase().includes(q)||(o.customer_name||'').toLowerCase().includes(q)||String(o.tables?.number||'').includes(q);
+
+  // Precio efectivo por unidad = total_price (incluye extras) / quantity; si no hay, unit_price.
+  const effUnit=it=>{ const qy=Number(it.quantity)||0, tp=Number(it.total_price)||0; return (tp>0&&qy>0)?Math.round(tp/qy):(Number(it.unit_price)||0); };
+  // Pago parcial por ítem: pendiente = quantity − paid_quantity.
+  const itemPend=it=>Math.max(0,(Number(it.quantity)||0)-(Number(it.paid_quantity)||0));
+  const orderPendCount=o=>(o.order_items||[]).reduce((n,it)=>n+itemPend(it),0);
+  const orderSaldo=o=>(o.order_items||[]).reduce((s,it)=>s+itemPend(it)*effUnit(it),0);
+  const hasItems=o=>(o.order_items||[]).length>0;
+
+  // Pedidos CON mesa Y con líneas de ítems pendientes → tarjeta de mesa (cobro por ítem).
+  // Cae a tarjeta individual (CobroModal por monto total) cuando: no hay mesa; no hay
+  // líneas de ítems; o el modo parcial está apagado (migración 128 sin aplicar). Un
+  // pedido con ítems 100% pagados pero sin payment_status='paid' (raro) también cae a
+  // individual para no perderse. Así NINGÚN pedido pendiente desaparece del panel.
+  const isMesaCobrable=o=>partialOn && o.table_id && hasItems(o) && orderPendCount(o)>0;
+  // Pedido con ítems 100% pagados pero sin flag 'paid' (raro): YA fue cobrado por ítems
+  // (sus movimientos existen). No mostrarlo en individual evita un doble cobro; el barrido
+  // de la RPC le pone payment_status='paid' en el próximo cobro de esa mesa.
+  const itemsAllPaid=o=>partialOn && o.table_id && hasItems(o) && orderPendCount(o)===0;
+  const mesaGroupsMap={};
+  orders.filter(isMesaCobrable).forEach(o=>{
+    const k=o.table_id;
+    if(!mesaGroupsMap[k]) mesaGroupsMap[k]={tableId:k,tableNumber:o.tables?.number??'?',orders:[]};
+    mesaGroupsMap[k].orders.push(o);
   });
+  const mesaGroups=Object.values(mesaGroupsMap)
+    .map(g=>({...g, pendItems:g.orders.reduce((n,o)=>n+orderPendCount(o),0), saldo:g.orders.reduce((s,o)=>s+orderSaldo(o),0)}))
+    .filter(g=>g.pendItems>0)
+    .filter(g=>!q || String(g.tableNumber).includes(q) || g.orders.some(matchOrder))
+    .sort((a,b)=>(Number(a.tableNumber)||0)-(Number(b.tableNumber)||0));
+  const soloDisplay=orders.filter(o=>!isMesaCobrable(o)&&!itemsAllPaid(o)).filter(matchOrder);
 
   function selectOrder(o){setSelected(o);setCobroModal(true);}
 
@@ -751,16 +791,56 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
       </div>
 
       {loading&&<div style={{textAlign:'center',padding:40}}><span className="spin"/></div>}
-      {!loading&&display.length===0&&(
+      {!loading&&mesaGroups.length===0&&soloDisplay.length===0&&(
         <div style={{textAlign:'center',padding:'60px 0',color:C.mid}}>
           <div style={{fontSize:36,marginBottom:12}}>✓</div>
           <div style={{fontSize:14,fontWeight:700,color:C.ink}}>No hay pedidos pendientes de cobro</div>
           <div style={{fontSize:12,color:C.mid,marginTop:6}}>Aparecen aquí pedidos de todos los canales: QR mesa, caja, delivery, para llevar</div>
         </div>
       )}
-      {!loading&&display.length>0&&(
+      {!loading&&(mesaGroups.length>0||soloDisplay.length>0)&&(
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12}}>
-          {display.map(o=>{
+          {/* ── Tarjetas de MESA (cobro por mesa + pago parcial por ítem) ── */}
+          {mesaGroups.map(g=>{
+            const numPedidos=g.orders.length;
+            const invoiceReq=g.orders.some(o=>o.requires_invoice&&(o.invoice_status||'pending')==='pending');
+            // Ítems pendientes agregados (para preview en la tarjeta).
+            const lines=g.orders.flatMap(o=>(o.order_items||[]).filter(itemPend).map(it=>({name:it.item_name,pend:itemPend(it)})));
+            return(
+              <div key={'mesa-'+g.tableId} style={{background:C.surface,border:`2px solid ${C.orange}`,borderRadius:10,padding:16,position:'relative'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+                  <div>
+                    <div style={{fontSize:16,fontWeight:800,color:C.ink}}>Mesa {g.tableNumber}</div>
+                    <div style={{fontSize:11,color:C.mid,marginTop:3}}>{numPedidos} pedido{numPedidos>1?'s':''} · {g.pendItems} ítem{g.pendItems>1?'s':''} pendiente{g.pendItems>1?'s':''}</div>
+                    {invoiceReq&&(
+                      <div style={{display:'inline-flex',alignItems:'center',gap:3,marginTop:6,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8}}>
+                        <Icon name="receipt" size={10} /> Factura solicitada
+                      </div>
+                    )}
+                  </div>
+                  <Badge txt="Salón" color={orderTypeColor('dine_in')}/>
+                </div>
+                <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 10px',marginBottom:10,maxHeight:120,overflowY:'auto'}}>
+                  {lines.slice(0,6).map((l,i)=>(
+                    <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:2,color:C.mid}}>
+                      <span>{l.pend}× {l.name}</span>
+                    </div>
+                  ))}
+                  {lines.length>6&&<div style={{fontSize:11,color:C.dim,marginTop:2}}>+{lines.length-6} ítem(s) más…</div>}
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                  <span style={{fontSize:11,color:C.mid}}>Saldo restante</span>
+                  <div style={{fontSize:20,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(g.saldo)}</div>
+                </div>
+                <Btn full variant="success" onClick={()=>setMesaModal({tableId:g.tableId,tableNumber:g.tableNumber,orders:g.orders})}>
+                  Cobrar mesa
+                </Btn>
+              </div>
+            );
+          })}
+
+          {/* ── Tarjetas individuales SIN mesa (delivery / llevar / mostrador) ── */}
+          {soloDisplay.map(o=>{
             const ORIGEN={local:'Caja — salón',llevar:'Caja — llevar',delivery:'Delivery',dine_in:'QR / Salón',takeaway:'Para llevar',confirmed:'QR mesa'};
             const mesa=o.tables?.number?`Mesa ${o.tables.number}`:o.order_type==='llevar'||o.order_type==='takeaway'?'Para llevar':o.order_type==='delivery'?'Delivery':o.customer_name||'Mostrador';
             const origen=ORIGEN[o.order_type]||o.order_type||'Caja';
@@ -843,6 +923,25 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
             setOrders(p=>p.filter(o=>o.id!==selected.id));
             setCobroModal(false);setSelected(null);
             toast(`Pedido #${selected.order_number} cobrado ✓`);
+          }}
+        />
+      )}
+
+      {mesaModal&&(
+        <CobroMesaModal
+          tableId={mesaModal.tableId}
+          tableNumber={mesaModal.tableNumber}
+          mesaOrders={mesaModal.orders}
+          turno={turno}
+          profile={profile}
+          onClose={()=>setMesaModal(null)}
+          onSuccess={(mov,mesaSaldada)=>{
+            if(mov) onMovimiento(mov);
+            setMesaModal(null);
+            loadOrders();
+            // Sólo confirmar si hubo cobro real (mov). Si vino vacío (ya cobrado por otra caja),
+            // el modal ya mostró su propio aviso — no superponer un toast de éxito contradictorio.
+            if(mov) toast(mesaSaldada?`Mesa ${mesaModal.tableNumber} saldada ✓`:`Cobro parcial Mesa ${mesaModal.tableNumber} ✓`);
           }}
         />
       )}
@@ -1248,6 +1347,207 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       </div>
       {showBancardToast&&<BancardProximamente onDismiss={()=>setShowBancardToast(false)}/>}
       {lockFeat&&_MG&&<_MG.FeatureLock featureKey={lockFeat} onClose={()=>setLockFeat(null)}/>}
+    </Modal>
+  );
+}
+
+/* ─── MODAL: COBRO POR MESA (pago parcial por ítem) ─── */
+function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,onSuccess}){
+  // Líneas cobrables: por cada pedido de la mesa, cada ítem con pendiente>0.
+  // Precio efectivo por unidad = total_price (incluye extras) / quantity; si no, unit_price.
+  const effUnit=it=>{ const qy=Number(it.quantity)||0, tp=Number(it.total_price)||0; return (tp>0&&qy>0)?Math.round(tp/qy):(Number(it.unit_price)||0); };
+  const buildLines=(ords)=>(ords||[]).flatMap(o=>(o.order_items||[]).map(it=>({
+    orderId:o.id, orderNumber:o.order_number, status:o.status, requiresInvoice:!!o.requires_invoice,
+    deliveredAt:o.delivered_to_table_at, invoiceDeliveryMethod:o.invoice_delivery_method,
+    itemId:it.id, itemName:it.item_name, unitPrice:effUnit(it),
+    quantity:Number(it.quantity)||0, paid:Number(it.paid_quantity)||0,
+    pend:Math.max(0,(Number(it.quantity)||0)-(Number(it.paid_quantity)||0)),
+  })).filter(l=>l.pend>0));
+  const lines=React.useMemo(()=>buildLines(mesaOrders),[mesaOrders]);
+
+  const [sel,setSel]=useState(()=>{const m={};buildLines(mesaOrders).forEach(l=>{m[l.itemId]={checked:true,qty:l.pend};});return m;});
+  const [metodo,setMetodo]=useState('efectivo');
+  const [montoPagado,setMontoPagado]=useState('0');
+  const [busy,setBusy]=useState(false);
+  const [successTicket,setSuccessTicket]=useState(null);
+  const successRef=React.useRef(null);
+  const BILLETES=[1000,2000,5000,10000,20000,50000,100000];
+
+  const selectedLines=lines.filter(l=>sel[l.itemId]?.checked&&(sel[l.itemId]?.qty||0)>0);
+  const subtotal=selectedLines.reduce((s,l)=>s+Math.min(sel[l.itemId].qty,l.pend)*l.unitPrice,0);
+  const totalMesa=lines.reduce((s,l)=>s+l.pend*l.unitPrice,0);
+  const montoNum=parseInt(montoPagado)||0;
+  const cambio=metodo==='efectivo'?montoNum-subtotal:0;
+
+  function toggle(l){setSel(s=>({...s,[l.itemId]:{checked:!s[l.itemId]?.checked,qty:s[l.itemId]?.qty||l.pend}}));}
+  function setQty(l,v){const q=Math.max(1,Math.min(l.pend,parseInt(v)||1));setSel(s=>({...s,[l.itemId]:{checked:true,qty:q}}));}
+  function selectAll(on){setSel(()=>{const m={};lines.forEach(l=>{m[l.itemId]={checked:on,qty:l.pend};});return m;});}
+
+  async function cobrar(cobrarTodo){
+    let toCharge=cobrarTodo
+      ? lines.map(l=>({l,qty:l.pend}))
+      : selectedLines.map(l=>({l,qty:Math.min(sel[l.itemId].qty,l.pend)}));
+    toCharge=toCharge.filter(x=>x.qty>0);
+    if(toCharge.length===0){toast('Seleccioná al menos un ítem',false);return;}
+    const subt=toCharge.reduce((s,x)=>s+x.qty*x.l.unitPrice,0);
+    if(metodo==='efectivo'&&montoNum>0&&montoNum<subt){toast('El monto recibido es menor al total',false);return;}
+    setBusy(true);
+    try{
+      // Todo el cobro ocurre ATÓMICAMENTE en la RPC (bloqueo de fila anti-doble-cobro,
+      // saldado de pedidos, movimiento y waiter_calls en UNA transacción — la caja no
+      // queda a medias ni descuadrada). Dinero por unidad con extras lo calcula el server.
+      const{data,error}=await db.rpc('cobro_mesa_parcial',{
+        p_restaurant_id:RID, p_turno_id:turno.id, p_table_id:tableId,
+        p_items:toCharge.map(x=>({item_id:x.l.itemId, qty:x.qty})),
+        p_metodo:metodo, p_monto_pagado:montoNum||null,
+      });
+      if(error)throw error;
+      const res=data||{};
+      const applied=res.applied||[];
+      if(!applied.length){toast('Estos ítems ya fueron cobrados por otra caja. Actualizá la lista.',false);setBusy(false);onSuccess(null,false);return;}
+      const subReal=Number(res.sub)||0;
+      const mesaSaldada=!!res.mesa_saldada;
+      const ticket={
+        orderNumber:null, mesa:`Mesa ${tableNumber}`, partial:!mesaSaldada,
+        items:applied.map(a=>({item_name:a.nombre,quantity:a.cantidad,unit_price:a.precio})),
+        total:subReal, metodo, cambio:Math.max(0,montoNum-subReal),
+        cashier:profile.display_name||profile.username, createdAt:new Date().toISOString(),
+      };
+      printTicket(ticket);
+      successRef.current={
+        mov:{id:res.movimiento_id,tipo:'cobro',monto:subReal,metodo_pago:metodo,pedido_id:null,
+             usuario_nombre:profile.display_name||profile.username,created_at:new Date().toISOString()},
+        mesaSaldada,
+      };
+      setSuccessTicket(ticket);
+    }catch(e){
+      const m=`${e?.message||''} ${e?.code||''}`;
+      if(/cobro_mesa_parcial|PGRST202|42883|schema cache|does not exist/i.test(m)){
+        toast('Falta aplicar la migración 128 para el cobro por mesa. Usá el cobro individual por ahora.',false);
+      } else { toast('Error al cobrar: '+(e?.message||'desconocido'),false); }
+    }
+    setBusy(false);
+  }
+
+  function cerrarTrasExito(){const r=successRef.current;onSuccess(r?.mov||null,!!r?.mesaSaldada);}
+
+  if(successTicket){
+    return(
+      <Modal title="Cobro registrado" onClose={cerrarTrasExito} width={420}>
+        <div style={{textAlign:'center',padding:'20px 0 8px'}}>
+          <div style={{fontSize:48,marginBottom:8}}>✓</div>
+          <div style={{fontSize:18,fontWeight:800,color:'#34C759',marginBottom:4}}>{successRef.current?.mesaSaldada?'¡Mesa saldada!':'Cobro parcial registrado'}</div>
+          <div style={{fontSize:13,color:C.mid}}>Mesa {tableNumber}</div>
+        </div>
+        <div style={{background:C.bg,borderRadius:10,padding:'12px 14px',marginTop:12,marginBottom:16}}>
+          {successTicket.items.map((it,i)=>(
+            <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:3}}>
+              <span>{it.quantity}× {it.item_name}</span>
+              <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt((it.unit_price||0)*it.quantity)}</span>
+            </div>
+          ))}
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:15,fontWeight:800,borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:6}}>
+            <span>COBRADO</span>
+            <span style={{fontFamily:"'SF Mono',monospace",color:'#34C759'}}>{fmt(successTicket.total)}</span>
+          </div>
+          {successTicket.cambio>0&&(
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:C.mid,marginTop:4}}>
+              <span>Vuelto</span><span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt(successTicket.cambio)}</span>
+            </div>
+          )}
+        </div>
+        <div style={{display:'flex',gap:10}}>
+          <Btn full onClick={()=>printTicket(successTicket)} variant="secondary"><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Reimprimir</Btn>
+          <Btn full onClick={cerrarTrasExito} variant="success">Cerrar</Btn>
+        </div>
+      </Modal>
+    );
+  }
+
+  return(
+    <Modal title={`Cobrar — Mesa ${tableNumber}`} onClose={onClose} width={520}>
+      {lines.length===0?(
+        <div style={{padding:'24px 0',textAlign:'center',color:C.mid}}>No hay ítems pendientes en esta mesa.</div>
+      ):(<>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+          <span style={{fontSize:12,color:C.mid}}>{lines.length} ítem(s) pendiente(s) · saldo {fmt(totalMesa)}</span>
+          <div style={{display:'flex',gap:6}}>
+            <button onClick={()=>selectAll(true)} style={{padding:'4px 10px',fontSize:11,borderRadius:5,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,cursor:'pointer'}}>Todos</button>
+            <button onClick={()=>selectAll(false)} style={{padding:'4px 10px',fontSize:11,borderRadius:5,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,cursor:'pointer'}}>Ninguno</button>
+          </div>
+        </div>
+        <div style={{border:`1px solid ${C.border}`,borderRadius:8,maxHeight:280,overflowY:'auto',marginBottom:14}}>
+          {lines.map(l=>{
+            const s=sel[l.itemId]||{checked:false,qty:l.pend};
+            return(
+              <div key={l.itemId} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderBottom:`1px solid ${C.border}`,background:s.checked?'rgba(52,199,89,0.05)':'transparent'}}>
+                <input type="checkbox" checked={!!s.checked} onChange={()=>toggle(l)} style={{width:17,height:17,cursor:'pointer',flexShrink:0}}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{l.itemName}</div>
+                  <div style={{fontSize:11,color:C.mid}}>#{l.orderNumber} · {fmt(l.unitPrice)} c/u · pendiente {l.pend}{l.paid>0?` (de ${l.quantity})`:''}</div>
+                </div>
+                {l.pend>1&&(
+                  <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
+                    <button onClick={()=>setQty(l,(s.qty||1)-1)} disabled={!s.checked} style={{width:24,height:24,borderRadius:5,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,cursor:'pointer',fontSize:14}}>−</button>
+                    <span style={{minWidth:18,textAlign:'center',fontSize:13,fontWeight:700,color:C.ink}}>{s.checked?s.qty:0}</span>
+                    <button onClick={()=>setQty(l,(s.qty||0)+1)} disabled={!s.checked} style={{width:24,height:24,borderRadius:5,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,cursor:'pointer',fontSize:14}}>+</button>
+                  </div>
+                )}
+                <div style={{width:84,textAlign:'right',fontSize:13,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace",color:s.checked?C.ink:C.dim,flexShrink:0}}>{fmt((s.checked?Math.min(s.qty,l.pend):0)*l.unitPrice)}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderTop:`1px solid ${C.border}`,marginBottom:14}}>
+          <span style={{fontSize:14,fontWeight:700}}>SELECCIONADO</span>
+          <span style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(subtotal)}</span>
+        </div>
+
+        <div style={{marginBottom:14}}>
+          <Lbl required>MÉTODO DE PAGO</Lbl>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            {/* 'mixto' excluido: sin desglose efectivo/tarjeta rompería el arqueo ciego. */}
+            {METODOS_PAGO.filter(m=>m.id!=='mixto').map(m=>(
+              <button key={m.id} onClick={()=>setMetodo(m.id)} style={{padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?C.ink:C.border}`,background:metodo===m.id?C.ink:'transparent',color:metodo===m.id?C.surface:C.mid,fontSize:12,fontWeight:metodo===m.id?700:400,cursor:'pointer'}}>{m.lbl}</button>
+            ))}
+          </div>
+        </div>
+
+        {metodo==='efectivo'&&(
+          <div style={{marginBottom:14}}>
+            <Lbl>BILLETES RECIBIDOS</Lbl>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:5,marginBottom:8}}>
+              {BILLETES.map(v=>(<button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,background:C.card,color:C.white,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer'}}>{v>=1000?`${v/1000}k`:v}</button>))}
+              <button onClick={()=>setMontoPagado(String(subtotal))} style={{padding:'9px 4px',borderRadius:6,border:`1px solid ${C.blue}55`,background:`rgba(59,130,246,0.1)`,color:C.blue,fontSize:11,fontWeight:700,cursor:'pointer'}}>Exacto</button>
+            </div>
+            <div style={{display:'flex',gap:6,alignItems:'flex-end'}}>
+              <div style={{flex:1}}><Lbl>MONTO RECIBIDO (₲)</Lbl><Inp type="number" mono value={montoPagado} onChange={e=>setMontoPagado(e.target.value)} placeholder={String(subtotal)}/></div>
+              <button onClick={()=>setMontoPagado('0')} title="Limpiar" style={{padding:'9px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.dim,fontSize:13,cursor:'pointer'}}>✕</button>
+            </div>
+            {montoNum>0&&(cambio>=0?(
+              <div style={{marginTop:8,padding:'10px 14px',background:'rgba(34,197,94,0.08)',border:`1px solid rgba(34,197,94,0.3)`,borderRadius:8,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <span style={{fontSize:13,color:TINT.greenText,fontWeight:700}}>Vuelto</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:22,fontWeight:800,color:cambio>0?C.green:'#6E6E73'}}>{cambio>0?fmt(cambio):'Sin vuelto'}</span>
+              </div>
+            ):(
+              <div style={{marginTop:8,padding:'10px 14px',background:'rgba(239,68,68,0.08)',border:`1px solid rgba(239,68,68,0.3)`,borderRadius:7}}>
+                <span style={{fontSize:13,color:C.red,fontWeight:700}}>Insuficiente — faltan {fmt(subtotal-montoNum)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{display:'flex',gap:10}}>
+          <Btn full variant="success" onClick={()=>cobrar(false)} disabled={busy||selectedLines.length===0}>
+            {busy?<><span className="spin"/> Procesando…</>:'✓ Cobrar seleccionados'}
+          </Btn>
+          <Btn full onClick={()=>cobrar(true)} disabled={busy}>Cobrar toda la mesa</Btn>
+        </div>
+        <div style={{marginTop:8,textAlign:'center'}}>
+          <button onClick={onClose} style={{background:'transparent',border:'none',color:C.mid,fontSize:12,cursor:'pointer'}}>Cancelar</button>
+        </div>
+      </>)}
     </Modal>
   );
 }

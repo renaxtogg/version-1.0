@@ -121,6 +121,10 @@
 
     // ── meta (pedido / fecha / mesa / cliente / cajero) ──
     var meta = [];
+    // Pago parcial por ítem (cobro por mesa): badge prominente cuando es parcial.
+    if (data.partial) {
+      meta.push('<div class="c b big" style="border:1.5px solid #000;border-radius:3px;padding:2px 0;margin-bottom:3px">PAGO PARCIAL</div>');
+    }
     if (c.fields.orderNumber && data.orderNumber != null) {
       meta.push('<div class="c b big2">Pedido #' + esc(data.orderNumber) + (data.isOffline ? ' <span class="sm">(LOCAL)</span>' : '') + '</div>');
     }
