@@ -62,7 +62,7 @@
   /* ── Navegación (fuente única) ────────────────────────────────────────── */
   var NAV = [
     { id: 'modulos',  label: 'Módulos',  href: '/inicio#modulos' },
-    { id: 'demo',     label: 'Demo',     href: '/demo' },
+    { id: 'demo',     label: 'Demo',     href: '/inicio#demo' },
     { id: 'precios',  label: 'Precios',  href: '/precios' },
     { id: 'contacto', label: 'Contacto', href: '/contacto' }
   ];
@@ -101,7 +101,7 @@
               '<div class="foot-logo">MYTHOS</div>' +
               '<p class="foot-about">El sistema operativo de tu restaurante. Menú, caja, cocina, delivery y más — en una sola plataforma.</p>' +
             '</div>' +
-            '<div><h5>Producto</h5><a href="/precios">Precios</a><a href="/inicio#modulos">Módulos</a><a href="/demo">Demo</a><a href="/registro">Probar gratis</a></div>' +
+            '<div><h5>Producto</h5><a href="/precios">Precios</a><a href="/inicio#modulos">Módulos</a><a href="/inicio#demo">Demo</a><a href="/registro">Probar gratis</a></div>' +
             '<div><h5>Empresa</h5><a href="/contacto">Contacto</a><a href="/inicio#faq">Preguntas frecuentes</a><a href="' + CONFIG.loginUrl + '" data-track="login_entry_click">Iniciar sesión</a></div>' +
             '<div><h5>Legal</h5><a href="/terminos">Términos</a><a href="/privacidad">Privacidad</a></div>' +
           '</div>' +

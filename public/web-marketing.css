@@ -154,6 +154,8 @@ h1 {
 .badge-muted { color: var(--text-tertiary); font-size: 12px; }
 
 /* ── Demo interactivo del hero (switcher de paneles + autoplay) ────────── */
+/* Ancla del menú "Demo": compensa el header sticky al hacer scroll a #demo */
+.demo-anchor { display: block; height: 0; scroll-margin-top: 88px; }
 .device-bar .device-live {
   margin-left: auto; font-size: 11px; font-weight: var(--weight-semibold);
   color: var(--text-tertiary); letter-spacing: .04em; display: inline-flex; align-items: center; gap: 6px;
