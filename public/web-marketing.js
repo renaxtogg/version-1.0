@@ -546,6 +546,27 @@
     var norm = function (p) { return (p || '').replace(/\/+$/, '') || '/'; };
     return norm(path) === norm(location.pathname); // tolera trailing slash
   }
+  function prefersReducedMotion() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+  // Evita que el contenido con scroll-reveal quede atascado en opacity:0 cuando
+  // llegamos por scroll programático (el IntersectionObserver podría no disparar
+  // a tiempo). Si el target es .reveal, lo revela; si es un ancla de altura 0
+  // (p.ej. #demo / .demo-anchor), revela su primer hermano .reveal (#demoDevice).
+  function revealNow(el) {
+    if (!el) return;
+    if (el.classList && el.classList.contains('reveal')) { el.classList.add('in'); return; }
+    var sib = el.nextElementSibling, n = 0;
+    while (sib && n < 3) {
+      if (sib.classList && sib.classList.contains('reveal')) { sib.classList.add('in'); break; }
+      sib = sib.nextElementSibling; n++;
+    }
+  }
+  function scrollToEl(el, smooth) {
+    if (!el) return;
+    revealNow(el); // revelar ANTES del scroll (transform/opacity no alteran el layout)
+    el.scrollIntoView({ behavior: (smooth && !prefersReducedMotion()) ? 'smooth' : 'auto', block: 'start' });
+  }
   function wireInPageNav() {
     if (document.__mwInPageNav) return; document.__mwInPageNav = true;
     document.addEventListener('click', function (e) {
@@ -561,7 +582,7 @@
       var el = document.getElementById(id);
       if (!el) return;
       e.preventDefault();
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      scrollToEl(el, true);                        // smooth (auto si prefers-reduced-motion)
       try { history.pushState(null, '', '#' + id); } catch (x) { location.hash = id; }
     });
   }
@@ -574,8 +595,7 @@
     });
     var go = function () {
       if (userMoved) return;
-      var el = document.getElementById(id);
-      if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' });
+      scrollToEl(document.getElementById(id), false); // instantáneo al cargar
     };
     // Tras montar el chrome (header sticky) + asentar layout; reintento en load por íconos/fuentes.
     requestAnimationFrame(function () { requestAnimationFrame(go); });
