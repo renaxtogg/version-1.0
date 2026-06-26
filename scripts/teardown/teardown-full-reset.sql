@@ -89,6 +89,35 @@ DELETE FROM public.user_roles
 --    subscriptions, etc.).
 DELETE FROM public.restaurants;
 
+-- 4.5) Salvaguarda anti schema-drift: ningún back-ref NO-ACTION/RESTRICT a
+--      auth.users debe SOBREVIVIR apuntando a un usuario a borrar (bloquearía el
+--      DELETE de auth.users del paso 5). Las 3 FKs conocidas (expenses.created_by,
+--      staff_requests.reviewed_by, stock_sessions.created_by) ya quedaron vacías
+--      por CASCADE en el paso 4; este detector genérico aborta con DETALLE si
+--      ALGUNA otra tabla global referencia a un usuario a borrar, en vez de fallar
+--      con un error FK críptico recién en el COMMIT.
+DO $$
+DECLARE r record; n int; blockers text := '';
+BEGIN
+  FOR r IN
+    SELECT c.conrelid::regclass::text AS tbl, a.attname AS col
+    FROM pg_constraint c
+    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+    WHERE c.contype = 'f'
+      AND c.confrelid = 'auth.users'::regclass
+      AND c.confdeltype IN ('a','r')           -- a = NO ACTION, r = RESTRICT
+      AND array_length(c.conkey, 1) = 1
+  LOOP
+    EXECUTE format(
+      'SELECT count(*) FROM %s WHERE %I IS NOT NULL AND %I NOT IN (SELECT id FROM _keep_user)',
+      r.tbl, r.col, r.col) INTO n;
+    IF n > 0 THEN blockers := blockers || format('%s.%s=%s; ', r.tbl, r.col, n); END IF;
+  END LOOP;
+  IF blockers <> '' THEN
+    RAISE EXCEPTION 'ABORTADO: filas con FK NO-ACTION/RESTRICT a un usuario a borrar (bloquearian el DELETE de auth.users): %  — vaciar/NUL-ear esas filas antes de continuar.', blockers;
+  END IF;
+END $$;
+
 -- 5) Cuentas auth de TODOS menos la oficial (identities antes que users):
 DELETE FROM auth.identities WHERE user_id NOT IN (SELECT id FROM _keep_user);
 DELETE FROM auth.users      WHERE id      NOT IN (SELECT id FROM _keep_user);
