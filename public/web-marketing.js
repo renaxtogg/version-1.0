@@ -536,12 +536,60 @@
     wireMobileMenu();
   }
 
+  /* ── Navegación in-page (anclas: #demo, #modulos, #faq …) ─────────────────
+     El header sticky se INYECTA en #site-header durante init(), así que el
+     scroll-a-hash nativo (en carga o al clickear) falla: corre antes de que el
+     header ocupe layout, o el navegador no re-scrollea same-page. Lo hacemos a
+     mano con scrollIntoView (respeta scroll-margin-top del target). */
+  function samePagePath(path) {
+    if (!path) return true; // href="#demo" → misma página
+    var norm = function (p) { return (p || '').replace(/\/+$/, '') || '/'; };
+    return norm(path) === norm(location.pathname); // tolera trailing slash
+  }
+  function wireInPageNav() {
+    if (document.__mwInPageNav) return; document.__mwInPageNav = true;
+    document.addEventListener('click', function (e) {
+      if (e.defaultPrevented || (e.button && e.button !== 0) || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      var a = (e.target && e.target.closest) ? e.target.closest('a[href]') : null;
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      var i = href.indexOf('#');
+      if (i < 0) return;                          // sin hash → navegación normal
+      var id = href.slice(i + 1);
+      if (!id) return;
+      if (!samePagePath(href.slice(0, i))) return; // otra página → navegación normal
+      var el = document.getElementById(id);
+      if (!el) return;
+      e.preventDefault();
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      try { history.pushState(null, '', '#' + id); } catch (x) { location.hash = id; }
+    });
+  }
+  function wireInitialHashScroll() {
+    var id = (location.hash || '').replace(/^#/, '');
+    if (!id || !document.getElementById(id)) return;
+    var userMoved = false;
+    ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(function (ev) {
+      window.addEventListener(ev, function () { userMoved = true; }, { passive: true, once: true });
+    });
+    var go = function () {
+      if (userMoved) return;
+      var el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' });
+    };
+    // Tras montar el chrome (header sticky) + asentar layout; reintento en load por íconos/fuentes.
+    requestAnimationFrame(function () { requestAnimationFrame(go); });
+    window.addEventListener('load', function () { setTimeout(go, 40); });
+  }
+
   function init(opts) {
     renderChrome(opts);
     hydrateIcons();
     wireContactLinks();   // inmediato (placeholder) — luego se re-aplica con DB
     wireTracking();
     wireReveal();
+    wireInPageNav();          // anclas same-page (incluye el menú "Demo" → #demo)
+    wireInitialHashScroll();  // entrar directo a /inicio#demo cae en el demo
     loadDynamic();
   }
 
