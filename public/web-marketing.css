@@ -13,6 +13,15 @@
    • Mobile-first, responsive, foco visible, contraste AA.
    ═══════════════════════════════════════════════════════════════════════ */
 
+/* ── Features pendientes (Bancard / Facturación electrónica) ──────────────
+   Oculta bloques aún no oficiales SIN borrarlos. Los elementos llevan
+   class="pending-feature" (sumada a sus clases). Frases mixtas se reescriben
+   con el original en un comentario al lado; los add-ons se filtran con
+   PENDING_ADDONS en web-marketing.js.
+   ► PARA REACTIVAR TODO: comentá la regla de abajo, vaciá PENDING_ADDONS en
+     web-marketing.js, y descomentá las frases marcadas <!-- ORIGINAL (reactivar) -->. */
+.pending-feature { display: none !important; }
+
 /* ── Reset + base ──────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }

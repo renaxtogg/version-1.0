@@ -27,6 +27,10 @@
   var _config = null;        // marketing_config público (cacheado)
   var _plans = null;         // planes (DB o fallback)
   var _addons = null;        // add-ons (DB o fallback)
+  // Features comerciales aún NO oficiales: se excluyen de los add-ons que se
+  // renderizan en el sitio (no se toca la DB ni web-marketing-data.js).
+  // ► Reactivar = vaciar este array: var PENDING_ADDONS = [];
+  var PENDING_ADDONS = ['bancard', 'facturacion-electronica'];
   var _annual = false;       // estado del toggle mensual/anual
   var _calcStarted = false;  // para disparar pricing_calculator_start una vez
 
@@ -107,7 +111,8 @@
           '</div>' +
           '<div class="foot-bottom">' +
             '<span>© <span id="mktYear">2026</span> MYTHOS · Asunción, Paraguay</span>' +
-            '<span class="t-item">' + icon('pin') + ' Hecho en Paraguay · Cobrá con Bancard</span>' +
+            /* ORIGINAL (reactivar): ' Hecho en Paraguay · Cobrá con Bancard' */
+            '<span class="t-item">' + icon('pin') + ' Hecho en Paraguay</span>' +
           '</div>' +
         '</div>' +
       '</footer>';
@@ -401,7 +406,9 @@
     if (!hasPlans && !hasCalc) return;
     if (!window.MythosWebData) { wireStaticPricingToggle(); return; }
     Promise.all([MythosWebData.getPlans(), MythosWebData.getAddOns()]).then(function (res) {
-      _plans = res[0]; _addons = res[1];
+      _plans = res[0];
+      // Excluir add-ons pendientes (Bancard / Facturación electrónica) del render.
+      _addons = (res[1] || []).filter(function (a) { return PENDING_ADDONS.indexOf(a.slug) === -1; });
       try {
         if (hasPlans) { renderPlans(); updateSaveNote(); wireDynamicToggle(); }
         if (hasCalc) buildCalculator();

@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MYTHOS — El sistema operativo de tu restaurante</title>
-  <meta name="description" content="Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Cobrá con Bancard, facturá legal y operá todo desde un solo lugar. Hecho en Paraguay.">
+  <!-- ORIGINAL (reactivar): content="Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Cobrá con Bancard, facturá legal y operá todo desde un solo lugar. Hecho en Paraguay." -->
+  <meta name="description" content="Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Hecho en Paraguay.">
   <meta name="theme-color" content="#FFFFFF">
   <link rel="canonical" href="/inicio">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -13,7 +14,8 @@
   <meta property="og:locale" content="es_PY">
   <meta property="og:site_name" content="MYTHOS">
   <meta property="og:title" content="MYTHOS — El sistema operativo de tu restaurante">
-  <meta property="og:description" content="Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Cobrá con Bancard, facturá legal y operá todo desde un solo lugar.">
+  <!-- ORIGINAL (reactivar): content="Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Cobrá con Bancard, facturá legal y operá todo desde un solo lugar." -->
+  <meta property="og:description" content="Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Operá todo desde un solo lugar.">
 
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="web-marketing.css">
@@ -39,14 +41,16 @@
   <main>
     <!-- ── HERO ─────────────────────────────────────────────────────────── -->
     <section class="hero wrap">
-      <span class="eyebrow"><span data-icon="pin"></span> Hecho en Paraguay · Cobrá con Bancard</span>
+      <!-- ORIGINAL (reactivar): Hecho en Paraguay · Cobrá con Bancard -->
+      <span class="eyebrow"><span data-icon="pin"></span> Hecho en Paraguay</span>
       <h1>El sistema operativo de tu restaurante.</h1>
-      <p class="sub">Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Cobrás con Bancard, facturás legal, y operás todo desde un solo lugar.</p>
+      <!-- ORIGINAL (reactivar): Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Cobrás con Bancard, facturás legal, y operás todo desde un solo lugar. -->
+      <p class="sub">Menú QR, caja, cocina, mesas y delivery en una sola plataforma. Operás todo desde un solo lugar.</p>
       <div class="hero-bullets">
         <span class="chip"><span data-icon="dashboard"></span> Menú digital con QR</span>
         <span class="chip"><span data-icon="activity"></span> Caja y cocina en tiempo real</span>
-        <span class="chip"><span data-icon="creditCard"></span> Cobro con Bancard</span>
-        <span class="chip"><span data-icon="receipt"></span> Factura electrónica</span>
+        <span class="chip pending-feature"><span data-icon="creditCard"></span> Cobro con Bancard</span>
+        <span class="chip pending-feature"><span data-icon="receipt"></span> Factura electrónica</span>
         <span class="chip"><span data-icon="truck"></span> Delivery con tracking</span>
       </div>
       <div class="hero-cta">
@@ -80,7 +84,8 @@
                 <div class="dm-card"><div class="dm-label">Ticket prom.</div><div class="dm-num">Gs 35.200</div></div>
               </div>
               <div class="dm-ticket"><span><b>Mesa 4</b> · 2 platos · 1 bebida</span><span class="badge-ok"><span data-icon="check" data-icon-size="11"></span> Listo</span></div>
-              <div class="dm-ticket"><span><b>Delivery #218</b> · en camino</span><span class="badge-ok"><span data-icon="creditCard" data-icon-size="11"></span> Bancard</span></div>
+              <!-- ORIGINAL (reactivar): badge texto " Bancard" -->
+              <div class="dm-ticket"><span><b>Delivery #218</b> · en camino</span><span class="badge-ok"><span data-icon="creditCard" data-icon-size="11"></span> Tarjeta</span></div>
               <div class="dm-ticket"><span><b>Mesa 9</b> · esperando cocina</span><span class="badge-muted">Preparando</span></div>
             </div>
 
@@ -122,7 +127,8 @@
 
             <!-- Delivery -->
             <div class="dm-panel" role="tabpanel" id="panel-delivery" data-panel="delivery" aria-label="Delivery" tabindex="0" hidden>
-              <div class="dm-ticket"><span><b>#218</b> Juan P. · En camino</span><span class="badge-ok">12 min · Bancard</span></div>
+              <!-- ORIGINAL (reactivar): "12 min · Bancard" -->
+              <div class="dm-ticket"><span><b>#218</b> Juan P. · En camino</span><span class="badge-ok">12 min · Tarjeta</span></div>
               <div class="dm-ticket"><span><b>#219</b> · Buscando rider</span><span class="badge-muted">Pendiente</span></div>
               <div class="dm-ticket"><span><b>#220</b> Carla M. · Entregado</span><span class="badge-ok">Efectivo</span></div>
               <div class="dm-map" aria-hidden="true">
@@ -179,8 +185,8 @@
     <div class="trust">
       <div class="wrap">
         <span class="t-item"><span data-icon="pin"></span> Hecho en Paraguay</span>
-        <span class="t-item"><span data-icon="creditCard"></span> Cobrá con Bancard</span>
-        <span class="t-item"><span data-icon="receipt"></span> Factura electrónica</span>
+        <span class="t-item pending-feature"><span data-icon="creditCard"></span> Cobrá con Bancard</span>
+        <span class="t-item pending-feature"><span data-icon="receipt"></span> Factura electrónica</span>
         <span class="t-item"><span data-icon="chat"></span> Soporte por WhatsApp</span>
         <span class="t-item"><span data-icon="activity"></span> Demo en vivo, no maqueta</span>
       </div>
@@ -200,14 +206,15 @@
         <div class="mod"><div class="mod-ic"><span data-icon="calendar" data-icon-size="21"></span></div><h3>Reservas</h3><p>Reservas online desde el menú.</p></div>
         <div class="mod"><div class="mod-ic"><span data-icon="chart" data-icon-size="21"></span></div><h3>Analytics (Gerente)</h3><p>Reportes de ventas y rendimiento.</p></div>
         <div class="mod"><div class="mod-ic"><span data-icon="building" data-icon-size="21"></span></div><h3>Multi-sucursal</h3><p>Varias sedes, un solo panel.</p></div>
-        <div class="mod"><div class="mod-ic"><span data-icon="money" data-icon-size="21"></span></div><h3>Cobro Bancard</h3><p>Pagos online locales, integrados.</p></div>
-        <div class="mod"><div class="mod-ic"><span data-icon="receipt" data-icon-size="21"></span></div><h3>Facturación electrónica</h3><p>Emití factura legal con tu RUC.</p></div>
+        <div class="mod pending-feature"><div class="mod-ic"><span data-icon="money" data-icon-size="21"></span></div><h3>Cobro Bancard</h3><p>Pagos online locales, integrados.</p></div>
+        <div class="mod pending-feature"><div class="mod-ic"><span data-icon="receipt" data-icon-size="21"></span></div><h3>Facturación electrónica</h3><p>Emití factura legal con tu RUC.</p></div>
         <div class="mod"><div class="mod-ic"><span data-icon="award" data-icon-size="21"></span></div><h3>0% comisión</h3><p>Lo que vendés es tuyo. Sin comisión por pedido.</p></div>
       </div>
     </section>
 
     <!-- ── DIFERENCIADOR LOCAL ─────────────────────────────────────────── -->
-    <section class="block wrap reveal">
+    <!-- pending-feature: sección entera oculta (gira en torno a Bancard/Factura) -->
+    <section class="block wrap reveal pending-feature">
       <div class="local">
         <h2>Cobrá con Bancard. Facturá legal. Sin vueltas.</h2>
         <p class="lead">Lo que ningún software internacional te da fácil en Paraguay: pagos y facturación locales, de verdad.</p>
@@ -242,7 +249,7 @@
           <ul>
             <li><span class="ic">&#10003;</span> Menú + POS + Cocina + Delivery</li>
             <li><span class="ic">&#10003;</span> Reservas + Inventario + Analytics</li>
-            <li><span class="ic">&#10003;</span> Cobro Bancard + Factura electrónica</li>
+            <li class="pending-feature"><span class="ic">&#10003;</span> Cobro Bancard + Factura electrónica</li>
             <li><span class="ic">&#10003;</span> 0% comisión por pedido</li>
             <li><span class="ic">&#10003;</span> Multi-sucursal, un panel</li>
             <li><span class="ic">&#10003;</span> Un solo precio, todo conectado</li>
@@ -352,7 +359,8 @@
       <div class="steps">
         <div class="step"><div class="num">1</div><h3>Creá tu cuenta</h3><p>Registrás tu restaurante y elegís tu plan. 14 días gratis, sin tarjeta.</p></div>
         <div class="step"><div class="num">2</div><h3>Cargá tu menú y tu operación</h3><p>Productos, mesas, zonas y equipo. Te guiamos en el onboarding.</p></div>
-        <div class="step"><div class="num">3</div><h3>Empezá a vender</h3><p>Compartí tu QR, tomá pedidos, cobrá con Bancard y facturá legal.</p></div>
+        <!-- ORIGINAL (reactivar): Compartí tu QR, tomá pedidos, cobrá con Bancard y facturá legal. -->
+        <div class="step"><div class="num">3</div><h3>Empezá a vender</h3><p>Compartí tu QR y tomá pedidos.</p></div>
       </div>
     </section>
 
@@ -369,8 +377,8 @@
       <div class="faq" id="faqList">
         <details open><summary>¿Necesito conocimientos técnicos?</summary><p>No. Creás tu cuenta, cargás tu menú y empezás. Y si te trabás, te ayudamos por WhatsApp.</p></details>
         <details><summary>¿Puedo probar antes de pagar?</summary><p>Sí. 14 días gratis, sin tarjeta de crédito. Cancelás cuando quieras.</p></details>
-        <details><summary>¿Cómo cobro a mis clientes?</summary><p>Con Bancard, la pasarela local. Pagos online integrados, sin depender de Stripe ni cuentas en dólares.</p></details>
-        <details><summary>¿Emiten factura?</summary><p>Sí. MYTHOS integra facturación electrónica con tu RUC para que emitas comprobantes legales.</p></details>
+        <details class="pending-feature"><summary>¿Cómo cobro a mis clientes?</summary><p>Con Bancard, la pasarela local. Pagos online integrados, sin depender de Stripe ni cuentas en dólares.</p></details>
+        <details class="pending-feature"><summary>¿Emiten factura?</summary><p>Sí. MYTHOS integra facturación electrónica con tu RUC para que emitas comprobantes legales.</p></details>
         <details><summary>¿Y si tengo más de una sucursal?</summary><p>Sumás sucursales y las administrás todas desde un solo panel. Para cadenas está el plan Enterprise.</p></details>
         <details><summary>¿Mis clientes descargan una app?</summary><p>No. Escanean el QR y listo, funciona en el navegador. Cero fricción.</p></details>
         <details><summary>¿Puedo cancelar cuando quiera?</summary><p>Sí. No hay permanencia: cancelás desde tu panel cuando quieras.</p></details>
