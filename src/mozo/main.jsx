@@ -38,6 +38,14 @@ const RID = RESTAURANT_ID; // alias retro-compatible con consultas/suscripciones
 
 /* ── UTILS ── */
 const fGs = n => '₲ ' + Math.round(n || 0).toLocaleString('es-PY');
+// El selector de cobro usa el dominio de movimientos_caja.metodo_pago
+// (efectivo/tarjeta_credito/tarjeta_debito/qr) para entrar al arqueo vía la RPC.
+// orders.payment_method tiene OTRO CHECK ('efectivo','tarjeta','qr','pos','pos_mesa','transferencia'):
+// para escribirlo en el cobro clásico mapeamos igual que la RPC cobro_mesa_parcial.
+const mapOrderPM = m =>
+  /^tarjeta/.test(m || '') ? 'tarjeta'
+  : (m === 'mixto' || m === 'gift_card' || m === 'cuenta_corriente') ? 'pos'
+  : (m || 'efectivo');
 const PROMO_TYPE_LABEL = {
   '2x1': '2×1',
   '3x2': '3×2',
@@ -473,6 +481,13 @@ function App() {
   const [cobroRealTotal, setCobroRealTotal] = useState(0);
   const [dividirPersonas, setDividirPersonas] = useState(2);
   const [fraccionStates, setFraccionStates] = useState({});
+  // Cobro por ítem (mig 128) + entrada al arqueo de caja (RPC cobro_mesa_parcial)
+  const [cobroItemSel, setCobroItemSel] = useState({}); // { [itemId]: { checked, qty } }
+  const [openTurnos, setOpenTurnos] = useState([]);      // turnos_caja abiertos del restaurante
+  const [cajasActivas, setCajasActivas] = useState([]);  // cajas activas (para el nombre en el selector)
+  const [selTurnoId, setSelTurnoId] = useState(null);    // caja/turno elegido para rendir el cobro
+  const [cobroBusy, setCobroBusy] = useState(false);
+  const [partialOn, setPartialOn] = useState(true);      // mig 128 presente (paid_quantity + RPC) → cobro por ítem
 
   // Mozo session
   const [mozoSession, setMozoSession] = useState(() => {
@@ -488,6 +503,8 @@ function App() {
   const transferAlertTimer = useRef(null);
   const loadDataRef = useRef(null);
   const loadTableOrdersRef = useRef(null);
+  const loadCobroItemsRef = useRef(null);
+  const cobroModalRef = useRef(false);
   const activeTableIdRef = useRef(activeTableId);
   const knownCallIds = useRef(new Set());
   const knownTransferCallIds = useRef(new Set());
@@ -550,6 +567,9 @@ function App() {
 
   useEffect(() => { loadDataRef.current = loadData; });
   useEffect(() => { loadTableOrdersRef.current = loadTableOrders; });
+  // Refrescar el modal de cobro en vivo si otra caja salda ítems (paid_quantity).
+  useEffect(() => { loadCobroItemsRef.current = loadCobroItems; });
+  useEffect(() => { cobroModalRef.current = cobroModal; }, [cobroModal]);
 
   useEffect(() => {
     // Unlock AudioContext on first user interaction
@@ -784,8 +804,15 @@ function App() {
         // Sync con caja: notificar al mozo cuando se cobra (delivered desde mozo, o payment_status=paid desde caja)
         if ((newStatus === 'delivered' && payMethod && tblId) || (newPayStatus === 'paid' && tblId)) {
           if (activeTableIdRef.current === tblId) {
-            setCobroModal(false);
-            showToast('Mesa cobrada en caja');
+            // Si el mozo está cobrando por ítem, NO cerrar el modal: un pedido puede saldarse
+            // sin que la mesa lo esté. processPay cierra al saldar la mesa (mesa_saldada).
+            // Solo refrescamos los pendientes; si otra caja saldó todo, el modal quedará vacío.
+            if (cobroModalRef.current) {
+              loadCobroItemsRef.current?.(tblId);
+            } else {
+              setCobroModal(false);
+              showToast('Mesa cobrada en caja');
+            }
           }
           loadTableOrdersRef.current?.(tblId);
         }
@@ -796,7 +823,11 @@ function App() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tables', filter: `restaurant_id=eq.${RID}` }, () => loadDataRef.current?.())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
         loadDataRef.current?.();
-        if (activeTableIdRef.current) loadTableOrdersRef.current?.(activeTableIdRef.current);
+        if (activeTableIdRef.current) {
+          loadTableOrdersRef.current?.(activeTableIdRef.current);
+          // Si el modal de cobro está abierto, refrescar paid_quantity (cobro concurrente desde caja).
+          if (cobroModalRef.current) loadCobroItemsRef.current?.(activeTableIdRef.current);
+        }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'order_status_history' }, () => {
         loadDataRef.current?.();
@@ -1132,20 +1163,30 @@ function App() {
     setTableOrders(data || []);
   }
 
-  // Carga items para el modal de cobro: sesión actual, excluye cobradas
+  // Carga items para el modal de cobro: sesión actual, excluye cobradas.
+  // Con mig 128 (paid_quantity) se trabaja por ítem: pendiente = quantity - paid_quantity.
   async function loadCobroItems(tableId) {
     if (!db || !tableId) return;
     const tbl = tablesById[tableId];
-    let q = db.from('orders')
-      .select('id, status, payment_status, payment_method, order_items(id, item_name, quantity, unit_price, total_price, observations)')
-      .eq('restaurant_id', RID)
-      .eq('table_id', tableId)
-      .not('status', 'in', '("cancelled")')
-      .or('status.neq.delivered,payment_method.is.null')
-      .or('payment_status.neq.paid,payment_status.is.null')
-      .order('created_at');
-    if (tbl?.occupied_since) q = q.gte('created_at', tbl.occupied_since);
-    const { data: orders } = await q;
+    const SEL_NEW = 'id, status, payment_status, payment_method, requires_invoice, delivered_to_table_at, invoice_delivery_method, order_items(id, item_name, quantity, unit_price, total_price, observations, paid_quantity)';
+    const SEL_OLD = 'id, status, payment_status, payment_method, order_items(id, item_name, quantity, unit_price, total_price, observations)';
+    const runSel = (sel) => {
+      let q = db.from('orders')
+        .select(sel)
+        .eq('restaurant_id', RID)
+        .eq('table_id', tableId)
+        .not('status', 'in', '("cancelled")')
+        .or('status.neq.delivered,payment_method.is.null')
+        .or('payment_status.neq.paid,payment_status.is.null')
+        .order('created_at');
+      if (tbl?.occupied_since) q = q.gte('created_at', tbl.occupied_since);
+      return q;
+    };
+    // Feature-detect mig 128: si paid_quantity no existe, degradar al cobro clásico (toda la mesa).
+    let { data: orders, error } = await runSel(SEL_NEW);
+    let hasPaidCol = true;
+    if (error) { hasPaidCol = false; const r = await runSel(SEL_OLD); orders = r.data; }
+    setPartialOn(hasPaidCol);
     const items = [];
     let total = 0;
     (orders || []).forEach(o => {
@@ -1153,13 +1194,48 @@ function App() {
       const yaCobrado = (o.status === 'delivered' && o.payment_method) || o.payment_status === 'paid';
       if (yaCobrado) return;
       (o.order_items || []).forEach(i => {
-        const lineTotal = Number(i.total_price) || Number((i.unit_price || 0)) * Number(i.quantity || 0);
-        items.push({ ...i, _lineTotal: lineTotal });
-        total += lineTotal;
+        const qty = Number(i.quantity) || 0;
+        const paid = hasPaidCol ? (Number(i.paid_quantity) || 0) : 0;
+        const pend = Math.max(0, qty - paid);
+        if (pend <= 0) return; // ítem ya saldado → no se muestra
+        // Precio efectivo por unidad: total_price (incluye extras) / quantity, o unit_price.
+        const unit = (Number(i.total_price) > 0 && qty > 0) ? Math.round(Number(i.total_price) / qty) : (Number(i.unit_price) || 0);
+        items.push({ ...i, _orderId: o.id, _qty: qty, _paid: paid, _pend: pend, _unit: unit, _lineTotal: pend * unit });
+        total += pend * unit;
       });
     });
     setCobroItems(items);
     setCobroRealTotal(total);
+    // Selección por defecto: todos los pendientes tildados (preservando lo ya elegido si recarga realtime).
+    setCobroItemSel(prev => {
+      const m = {};
+      items.forEach(it => {
+        const p = prev[it.id];
+        m[it.id] = { checked: p ? p.checked : true, qty: Math.min(p?.qty || it._pend, it._pend) };
+      });
+      return m;
+    });
+  }
+
+  // Carga el contexto de caja para rendir el cobro: turnos abiertos + cajas activas (nombres).
+  async function loadCobroContext() {
+    if (!db) return;
+    try {
+      const [tRes, cRes] = await Promise.all([
+        db.from('turnos_caja').select('id, caja_id, cajero_nombre, fecha_apertura')
+          .eq('restaurant_id', RID).eq('estado', 'abierto').order('fecha_apertura', { ascending: true }),
+        db.from('cajas').select('id, nombre, activa, sort_order')
+          .eq('restaurant_id', RID).order('sort_order', { ascending: true }),
+      ]);
+      const ts = tRes.data || [];
+      setOpenTurnos(ts);
+      setCajasActivas((cRes.data || []).filter(c => c.activa));
+      // 1 turno abierto → autoseleccionar; varios → el mozo elige; 0 → bloqueado.
+      setSelTurnoId(ts.length === 1 ? ts[0].id : null);
+    } catch (e) {
+      // cajas/turnos puede no existir si mig 126 no está aplicada → degradar a cobro clásico.
+      setOpenTurnos([]); setCajasActivas([]); setSelTurnoId(null);
+    }
   }
 
   async function loadHistorial(tableId) {
@@ -1398,16 +1474,135 @@ function App() {
     setInvName('');
     setInvRuc('');
     setInvEmail('');
+    setCobroItemSel({});
+    setCobroBusy(false);
     setCobroModal(true);
     loadCobroItems(activeTableId);
+    loadCobroContext();
   }
 
-  async function processPay() {
+  // Cobro por ítem que ENTRA al arqueo de la caja elegida (RPC cobro_mesa_parcial, mig 128).
+  //   cobrarTodo=true  → todos los pendientes de la mesa ("Cobrar toda la mesa")
+  //   cobrarTodo=false → solo los ítems tildados ("Cobrar seleccionados")
+  // Si la mig 128 no está aplicada (sin paid_quantity / sin RPC) degrada al cobro clásico.
+  async function processPay(cobrarTodo) {
+    if (!db) { showToast('Sin conexión'); return; }
+    if (cobroBusy) return;
+
+    // Sin mig 128: cobro clásico de toda la mesa (no entra a caja, no requiere caja abierta).
+    if (!partialOn) { return processPayLegacy(); }
+
+    const lines = cobrarTodo
+      ? cobroItems.map(it => ({ it, qty: it._pend }))
+      : cobroItems
+          .filter(it => cobroItemSel[it.id]?.checked && (cobroItemSel[it.id]?.qty || 0) > 0)
+          .map(it => ({ it, qty: Math.min(cobroItemSel[it.id].qty, it._pend) }));
+    const toCharge = lines.filter(x => x.qty > 0);
+    if (toCharge.length === 0) { showToast('Seleccioná al menos un ítem'); return; }
+
+    // El mozo recauda y rinde a una caja → requiere una caja abierta.
+    if (openTurnos.length === 0) {
+      showToast('No hay caja abierta — pedí que abran una caja para cobrar');
+      return;
+    }
+    const turnoId = openTurnos.length === 1 ? openTurnos[0].id : selTurnoId;
+    if (!turnoId) { showToast('Elegí en qué caja registrar el cobro'); return; }
+
+    const subt = toCharge.reduce((s, x) => s + x.qty * x.it._unit, 0);
+    if (subt <= 0) { showToast('Total en ₲0 — verificá los productos'); return; }
+
+    setCobroBusy(true);
+    try {
+      // 1) Persistir campos de factura en los pedidos tocados ANTES de la RPC.
+      //    La RPC marca invoice_status='issued' al saldar cada pedido.
+      if (invoiceType !== 'none') {
+        const nowIso = new Date().toISOString();
+        const invFields = {
+          requires_invoice: true,
+          invoice_delivery_method: invoiceDelivery,
+          invoice_requested_at: nowIso,
+          invoice_status: 'pending',
+          ...(invoiceType === 'fiscal' && {
+            customer_ruc: invRuc || null,
+            customer_email: invEmail || null,
+            ...(invName && { customer_name: invName }),
+          }),
+        };
+        const orderIds = [...new Set(toCharge.map(x => x.it._orderId))];
+        for (const oid of orderIds) {
+          const { error: invErr } = await db.from('orders').update(invFields).eq('id', oid);
+          // Fallback si las migraciones 039/044 no están aplicadas: al menos requires_invoice.
+          if (invErr) { await db.from('orders').update({ requires_invoice: true }).eq('id', oid).then(() => {}, () => {}); }
+        }
+      }
+
+      // 2) Cobro ATÓMICO: la RPC suma paid_quantity (FOR UPDATE anti-doble-cobro), salda los
+      //    pedidos 100% pagados, inserta UN movimiento en la caja elegida (→ arqueo) y marca
+      //    waiter_calls atendidas si la mesa queda saldada. Mapea payment_method internamente.
+      const pm = payMethod || 'efectivo';
+      const { data, error } = await db.rpc('cobro_mesa_parcial', {
+        p_restaurant_id: RID,
+        p_turno_id: turnoId,
+        p_table_id: activeTableId,
+        p_items: toCharge.map(x => ({ item_id: x.it.id, qty: x.qty })),
+        p_metodo: pm,
+        p_monto_pagado: subt,
+      });
+      if (error) throw error;
+      const res = data || {};
+      const applied = res.applied || [];
+      if (!applied.length) {
+        showToast('Estos ítems ya fueron cobrados. Actualizá la lista.');
+        await loadCobroItems(activeTableId);
+        setCobroBusy(false);
+        return;
+      }
+      const subReal = Number(res.sub) || 0;
+      const mesaSaldada = !!res.mesa_saldada;
+      // Atribución "Cobrado por" en el historial del turno: la RPC no setea paid_by_name
+      // (el registro principal queda en movimientos_caja). Lo estampamos best-effort sobre los
+      // pedidos tocados para no perder la atribución que daba el cobro clásico. No bloquea el cobro.
+      try {
+        const payerName = mozoSession?.mozo_name || 'mozo';
+        const touchedIds = [...new Set(toCharge.map(x => x.it._orderId))];
+        if (touchedIds.length) {
+          await db.from('orders').update({ paid_by_name: payerName, paid_at: new Date().toISOString() }).in('id', touchedIds);
+        }
+      } catch (_) { /* columnas opcionales (mig 044) — ignorar si faltan */ }
+      await loadData();
+      if (mesaSaldada) {
+        setCobroModal(false);
+        setTableOrders([]);
+        setActiveTableId(null);
+        setCurrentView('mesas');
+        showToast('✓ Mesa saldada — ' + fGs(subReal));
+      } else {
+        // Cobro parcial: refrescar el modal con lo que aún queda pendiente.
+        await loadCobroItems(activeTableId);
+        showToast('✓ Cobro parcial — ' + fGs(subReal));
+      }
+    } catch (e) {
+      const m = `${e?.message || ''} ${e?.code || ''}`;
+      if (/cobro_mesa_parcial|PGRST202|42883|schema cache|does not exist/i.test(m)) {
+        // RPC ausente (mig 128 sin aplicar) → degradar al cobro clásico de toda la mesa.
+        setCobroBusy(false);
+        return processPayLegacy();
+      }
+      console.error('processPay error:', e);
+      showToast('Error al cobrar: ' + (e?.message || e));
+    }
+    setCobroBusy(false);
+  }
+
+  // Cobro clásico (fallback sin mig 128): cobra TODA la mesa con update directo a orders.
+  // No registra en caja — se mantiene para no romper el cobro si la RPC no está disponible.
+  async function processPayLegacy() {
     if (!db) { showToast('Sin conexión'); return; }
     const base = cobroBase;
     if (base === 0) { showToast('Total en ₲0 — verificá los productos'); return; }
     const total = Math.round(base * (1 + tipPct / 100));
-    const pm = payMethod || 'efectivo';
+    // Mapear al dominio de orders.payment_method (el selector usa el de movimientos_caja).
+    const pm = mapOrderPM(payMethod || 'efectivo');
 
     try {
       // Cobrar órdenes activas:
@@ -1711,6 +1906,14 @@ function App() {
 
   // FIX #5 — base para cobro usando total calculado de items reales
   const cobroBase = cobroRealTotal > 0 ? cobroRealTotal : (activeOrder?.total || 0);
+  // Cobro por ítem (mig 128): subtotal de lo tildado + nombre de la caja elegida.
+  const cobroSelTotal = cobroItems.reduce((s, it) => {
+    const sel = cobroItemSel[it.id];
+    return sel?.checked ? s + Math.min(sel.qty || 0, it._pend) * it._unit : s;
+  }, 0);
+  const cobroSelCount = cobroItems.filter(it => cobroItemSel[it.id]?.checked && (cobroItemSel[it.id]?.qty || 0) > 0).length;
+  const cajaTurnoNombre = (t) => (cajasActivas.find(c => c.id === t?.caja_id)?.nombre) || t?.cajero_nombre || 'Caja';
+  const noCajaAbierta = partialOn && openTurnos.length === 0;
 
   // Turno stats
   const turnoStats = useMemo(() => {
@@ -2797,6 +3000,27 @@ function App() {
               <div className="modal-close" onClick={() => setCobroModal(false)}>✕</div>
             </div>
             <div className="modal-body">
+              {/* Caja a la que se rinde el cobro (el mozo recauda y entra al arqueo) */}
+              {partialOn && (
+                openTurnos.length === 0 ? (
+                  <div style={{ background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: 8, padding: '10px 12px', marginBottom: 12, fontSize: 12.5, color: 'var(--red, #FF3B30)', fontWeight: 600 }}>
+                    No hay caja abierta — pedí que abran una caja para cobrar.
+                  </div>
+                ) : openTurnos.length === 1 ? (
+                  <div style={{ background: 'var(--bg2)', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 12.5, color: 'var(--text2)' }}>
+                    Se rinde a la caja <strong style={{ color: 'var(--text)' }}>{cajaTurnoNombre(openTurnos[0])}</strong>
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 12 }}>
+                    <div className="section-label">Caja para el cobro</div>
+                    <select value={selTurnoId || ''} onChange={e => setSelTurnoId(e.target.value || null)}
+                      style={{ width: '100%', height: 40, border: '1px solid var(--border)', borderRadius: 8, padding: '0 10px', fontSize: 13, fontFamily: 'inherit', color: 'var(--text)', background: 'var(--bg2)' }}>
+                      <option value="">Elegí una caja…</option>
+                      {openTurnos.map(t => <option key={t.id} value={t.id}>{cajaTurnoNombre(t)} · {t.cajero_nombre || 'cajero'}</option>)}
+                    </select>
+                  </div>
+                )
+              )}
               <div className="section-label">Consumo de la mesa</div>
               {cobroItems.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text3)', fontSize: 13 }}>
@@ -2805,15 +3029,29 @@ function App() {
                 </div>
               ) : cobroItems.map(item => {
                 const partes = fraccionStates[item.id];
-                const itemTotal = item._lineTotal || (Number(item.total_price) || Number((item.unit_price || 0)) * Number(item.quantity || 0));
+                const sel = cobroItemSel[item.id] || { checked: true, qty: item._pend };
+                const pend = (item._pend ?? (Number(item.quantity) || 0));
+                const itemTotal = (partialOn ? Math.min(sel.qty || 0, pend) : 1) * (item._unit || 0) || item._lineTotal || (Number(item.total_price) || Number((item.unit_price || 0)) * Number(item.quantity || 0));
+                const toggleItem = () => setCobroItemSel(prev => ({ ...prev, [item.id]: { checked: !(prev[item.id]?.checked ?? true), qty: prev[item.id]?.qty || pend } }));
+                const setItemQty = v => setCobroItemSel(prev => ({ ...prev, [item.id]: { checked: true, qty: Math.max(1, Math.min(pend, parseInt(v) || 1)) } }));
                 return (
                   <div key={item.id}>
                     <div className="pay-item">
-                      <div style={{ fontSize: 11, color: 'var(--text3)', width: 24, flexShrink: 0 }}>{item.quantity}×</div>
+                      {partialOn && (
+                        <input type="checkbox" checked={sel.checked} onChange={toggleItem}
+                          style={{ width: 18, height: 18, flexShrink: 0, accentColor: 'var(--indigo, #5856D6)', cursor: 'pointer' }} />
+                      )}
+                      <div style={{ fontSize: 11, color: 'var(--text3)', width: 24, flexShrink: 0 }}>{pend}×</div>
                       <div className="pay-item-name">
                         {item.item_name}
+                        {partialOn && (item._paid > 0) && <span style={{ fontSize: 10, color: 'var(--green, #34C759)', marginLeft: 5 }}>({item._paid} pago/s)</span>}
                         {item.observations && <div style={{ fontSize: 10, color: 'var(--text3)', fontStyle: 'italic', marginTop: 1 }}>{item.observations}</div>}
                       </div>
+                      {partialOn && pend > 1 && (
+                        <input type="number" min={1} max={pend} value={sel.qty} onChange={e => setItemQty(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          style={{ width: 46, padding: '4px 6px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 13, textAlign: 'center', fontFamily: 'inherit', flexShrink: 0, marginRight: 4, background: 'var(--bg2)', color: 'var(--text)' }} />
+                      )}
                       <div className="pay-item-price">{fGs(itemTotal)}</div>
                       <button
                         onClick={() => setFraccionStates(prev => ({ ...prev, [item.id]: prev[item.id] ? null : 2 }))}
@@ -2856,23 +3094,27 @@ function App() {
                 )}
               </div>
 
-              <div className="tip-section">
-                <div className="section-label">Propina</div>
-                <div className="tip-chips">
-                  {[0, 5, 10, 15].map(pct => (
-                    <div key={pct} className={`tip-chip ${tipPct === pct ? 'active' : ''}`} onClick={() => setTipPct(pct)}>{pct}%</div>
-                  ))}
+              {/* La propina no entra al cobro por ítem (la RPC cobra el subtotal de los ítems).
+                  Solo se ofrece en el cobro clásico para no mostrar un total que no se recauda. */}
+              {!partialOn && (
+                <div className="tip-section">
+                  <div className="section-label">Propina</div>
+                  <div className="tip-chips">
+                    {[0, 5, 10, 15].map(pct => (
+                      <div key={pct} className={`tip-chip ${tipPct === pct ? 'active' : ''}`} onClick={() => setTipPct(pct)}>{pct}%</div>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="tip-section">
                 <div className="section-label">Método de pago</div>
                 <div className="payment-methods">
                   {[
                     { key: 'efectivo', icon: '₲', label: 'Efectivo' },
-                    { key: 'pos', icon: '▣', label: 'Tarjeta POS' },
-                    { key: 'qr', icon: '▦', label: 'QR Mesa' },
-                    { key: 'tarjeta', icon: '↔', label: 'Transferencia' },
+                    { key: 'tarjeta_credito', icon: '▣', label: 'Tarjeta Créd.' },
+                    { key: 'tarjeta_debito', icon: '▣', label: 'Tarjeta Déb.' },
+                    { key: 'qr', icon: '▦', label: 'QR / Transf.' },
                   ].map(m => (
                     <div key={m.key} className={`pay-method ${payMethod === m.key ? 'active' : ''}`} onClick={() => setPayMethod(m.key)}>
                       <div className="pay-icon">{m.icon}</div>
@@ -2915,15 +3157,41 @@ function App() {
               </div>
 
               <div className="pay-summary">
-                <div className="pay-row"><span>Subtotal</span><span>{fGs(cobroBase)}</span></div>
-                <div className="pay-row"><span>Propina ({tipPct}%)</span><span>{fGs(Math.round(cobroBase * tipPct / 100))}</span></div>
-                <div className="pay-row total"><span>Total a pagar</span><span style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)' }}>{fGs(Math.round(cobroBase * (1 + tipPct/100)))}</span></div>
+                {partialOn ? (
+                  <>
+                    <div className="pay-row"><span>Seleccionado ({cobroSelCount})</span><span style={{ fontWeight: 700 }}>{fGs(cobroSelTotal)}</span></div>
+                    <div className="pay-row total"><span>Total mesa</span><span style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)' }}>{fGs(cobroBase)}</span></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="pay-row"><span>Total mesa</span><span>{fGs(cobroBase)}</span></div>
+                    <div className="pay-row"><span>Propina ({tipPct}%)</span><span>{fGs(Math.round(cobroBase * tipPct / 100))}</span></div>
+                    <div className="pay-row total"><span>Total a pagar</span><span style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)' }}>{fGs(Math.round(cobroBase * (1 + tipPct/100)))}</span></div>
+                  </>
+                )}
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-indigo btn-full" onClick={processPay}>
-                Cobrar {fGs(Math.round(cobroBase * (1 + tipPct/100)))} →
-              </button>
+              {partialOn ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+                  <button className="btn btn-indigo btn-full" disabled={cobroBusy || noCajaAbierta || cobroSelCount === 0}
+                    style={(cobroBusy || noCajaAbierta || cobroSelCount === 0) ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+                    onClick={() => processPay(false)}>
+                    {cobroBusy ? 'Procesando…' : `Cobrar seleccionados — ${fGs(cobroSelTotal)}`}
+                  </button>
+                  <button className="btn btn-secondary btn-full" disabled={cobroBusy || noCajaAbierta || cobroItems.length === 0}
+                    style={(cobroBusy || noCajaAbierta || cobroItems.length === 0) ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+                    onClick={() => processPay(true)}>
+                    Cobrar toda la mesa — {fGs(cobroBase)}
+                  </button>
+                </div>
+              ) : (
+                <button className="btn btn-indigo btn-full" disabled={cobroBusy}
+                  style={cobroBusy ? { opacity: 0.5, pointerEvents: 'none' } : undefined}
+                  onClick={() => processPay(true)}>
+                  Cobrar {fGs(Math.round(cobroBase * (1 + tipPct/100)))} →
+                </button>
+              )}
             </div>
           </div>
         </div>
