@@ -10,6 +10,7 @@
 // El front NO inserta nunca directo en restaurants/user_roles/subscriptions (RLS las
 // limita a superadmin); TODO pasa por acá con service_role.
 const https = require('https');
+const { checkRateLimit } = require('./_ratelimit');
 
 function httpsReq(method, url, headers, body) {
   return new Promise((resolve, reject) => {
@@ -52,11 +53,15 @@ async function rollbackDelete(url, headers, label) {
 }
 
 module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos-pos.vercel.app';
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Método no permitido' }); return; }
+
+  // Anti-flood: cortar ANTES de gastar llamadas salientes a Supabase Auth.
+  if (await checkRateLimit(req, res, { key: 'onboarding', max: 5, windowSec: 60 })) return;
 
   try {
     const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/^[﻿\s]+|[\s]+$/g, '');

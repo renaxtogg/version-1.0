@@ -21,6 +21,7 @@
 //   • service_role SOLO server-side (env). Igual patrón que create-user.js.
 // ════════════════════════════════════════════════════════════════════════
 const https = require('https');
+const { checkRateLimit } = require('./_ratelimit');
 
 function httpsRequest(method, url, headers, body) {
   return new Promise((resolve, reject) => {
@@ -64,11 +65,15 @@ function isTrivial(pw) {
 }
 
 module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos-pos.vercel.app';
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Método no permitido' }); return; }
+
+  // Anti-flood: cortar ANTES de gastar llamadas salientes a Supabase Auth.
+  if (await checkRateLimit(req, res, { key: 'change-password', max: 5, windowSec: 60 })) return;
 
   const SUPABASE_URL = clean(process.env.SUPABASE_URL);
   const SERVICE_ROLE_KEY = clean(process.env.SUPABASE_SERVICE_ROLE_KEY);

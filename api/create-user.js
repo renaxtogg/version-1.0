@@ -1,5 +1,6 @@
 // Vercel serverless function — gestión segura de usuarios con Supabase Admin API
 const https = require('https');
+const { checkRateLimit } = require('./_ratelimit');
 
 function httpsPost(url, headers, body) {
   return new Promise((resolve, reject) => {
@@ -58,11 +59,15 @@ function httpsDelete(url, headers) {
 }
 
 module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos-pos.vercel.app';
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Método no permitido' }); return; }
+
+  // Anti-flood: cortar ANTES de gastar llamadas salientes a Supabase Auth.
+  if (await checkRateLimit(req, res, { key: 'create-user', max: 10, windowSec: 60 })) return;
 
   try {
     const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/^[﻿\s]+|[\s]+$/g, '');

@@ -1,9 +1,13 @@
 // Bancard Webhook Mock — Vercel Serverless Function (Node 18)
 // Simula la respuesta exitosa de un webhook post-cobro de Bancard.
-// Latencia artificial de 1.5 s para emular red real.
+// Latencia artificial de ~300 ms para emular red real sin atar el worker.
 // NO procesa cobros reales — solo simulación para certificación.
 // Runtime Node.js por defecto (api/*.js). No declarar `config.runtime`
 // con una versión tipo 'nodejs18.x' aquí: rompe el build de Vercel.
+//
+// Módulo ESM (export default). El helper de rate-limit es CommonJS pero se
+// importa sin problemas vía interop de Node (default = module.exports).
+import { checkRateLimit } from '../_ratelimit.js';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,6 +25,16 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  // Anti-flood: cortar antes de la latencia simulada / procesamiento.
+  if (await checkRateLimit(req, res, { key: 'bancard', max: 30, windowSec: 60 })) return;
+
+  // Secreto opcional: si BANCARD_MOCK_SECRET está seteado, exigir que el header
+  // 'x-mock-secret' coincida. Si la env var no está → fail-open (no rompe el demo).
+  const mockSecret = process.env.BANCARD_MOCK_SECRET;
+  if (mockSecret && req.headers['x-mock-secret'] !== mockSecret) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   let body = {};
   try {
     if (typeof req.body === 'string') {
@@ -32,8 +46,8 @@ export default async function handler(req, res) {
     body = {};
   }
 
-  // Simular latencia de red Bancard (~1.5 s)
-  await sleep(1500);
+  // Simular latencia de red Bancard (~300 ms)
+  await sleep(300);
 
   const transaction_id   = randomTxId();
   const authorization_number = Math.floor(100000 + Math.random() * 900000).toString();
