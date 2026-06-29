@@ -738,27 +738,129 @@ function buildAnalytics(restaurants, orders, ratings, subscriptions, plans, addo
   });
 }
 
-// ── Widget Salud del Sistema (infraestructura) ────────────────
-function SystemHealth() {
+// ── Hook de salud del sistema (RPC superadmin_system_health + latencia + cron) ──
+// Métricas REALES de Postgres y operativas. Refresca ~30s respetando _shouldPause().
+function useSystemHealth() {
+  const [health,  setHealth]  = useState(null);
   const [latency, setLatency] = useState(null);
-  useEffect(()=>{
+  const [cronOk,  setCronOk]  = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
     let alive = true;
-    const ping = async () => {
-      if (!db) { return; }
-      const t0 = performance.now();
-      const { error } = await db.from('restaurants').select('id').limit(1);
-      if (!alive) return;
-      setLatency(Math.round(performance.now()-t0));
+    const tick = async () => {
+      if (db) {
+        const t0 = performance.now();
+        try {
+          const { data, error } = await db.rpc('superadmin_system_health');
+          if (!alive) return;
+          setLatency(Math.round(performance.now() - t0));
+          if (!error && data) setHealth(data);
+        } catch (e) { /* conserva el último valor bueno */ }
+      }
+      if (alive) setLoading(false);
+      // Integración externa: el cron keep-alive (mismo origen). 200 = Online.
+      try {
+        const r = await fetch('/api/cron/keep-alive', { method: 'GET', cache: 'no-store' });
+        // 200 = fail-open (sin CRON_SECRET). 401 = el endpoint está VIVO pero gateado
+        // por CRON_SECRET (el navegador no manda el Bearer) → sigue contando como online.
+        if (alive) setCronOk(r.ok || r.status === 401);
+      } catch (e) { if (alive) setCronOk(false); }
     };
-    ping();
-    const id = setInterval(()=>{ if(!_shouldPause()) ping(); }, 15000);
-    return ()=>{ alive=false; clearInterval(id); };
-  },[]);
+    tick();
+    const id = setInterval(() => { if (!_shouldPause()) tick(); }, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  return { health, latency, cronOk, loading };
+}
 
+// Reglas de alertas derivadas de la salud real (memoria/conexiones/latencia/cron/stuck/subs).
+function buildHealthAlerts({ health, latency, cronOk, enriched }) {
+  const alerts = [];
+  const planLimit = SUPA_PLANS.free.db_mb * 1048576;
+  const memPct  = health && health.db_size_bytes != null ? (Number(health.db_size_bytes) / planLimit) * 100 : null;
+  const connPct = health && health.db_conn_max ? (Number(health.db_conn_active) / Number(health.db_conn_max)) * 100 : null;
+  if (memPct != null && memPct >= 90)      alerts.push({ sev:'crit', t:'Memoria de BD crítica', d:`${Math.round(memPct)}% del plan Free · ${fmtBytes(Number(health.db_size_bytes))}` });
+  else if (memPct != null && memPct >= 70) alerts.push({ sev:'warn', t:'Memoria de BD alta',     d:`${Math.round(memPct)}% del plan Free · ${fmtBytes(Number(health.db_size_bytes))}` });
+  if (connPct != null && connPct >= 70)    alerts.push({ sev:'warn', t:'Conexiones altas',       d:`${health.db_conn_active}/${health.db_conn_max} conexiones a la BD` });
+  if (latency != null && latency >= 500)   alerts.push({ sev:'warn', t:'Latencia de BD alta',    d:`${latency} ms de respuesta` });
+  const expirando = (enriched||[]).filter(r=>r.daysLeft!==null && r.daysLeft>=0 && r.daysLeft<=7 && r.status!=='suspended');
+  if (expirando.length>0) alerts.push({ sev:'warn', t:'Suscripciones por vencer', d: expirando.map(r=>`${r.name} (${r.daysLeft===0?'hoy':r.daysLeft+'d'})`).join(' · ') });
+  if (health && Number(health.stuck_orders) > 0) alerts.push({ sev:'warn', t:'Pedidos trabados', d:`${health.stuck_orders} pedido(s) sin avanzar hace +2 h` });
+  if (cronOk === false) alerts.push({ sev:'warn', t:'Integración keep-alive caída', d:'GET /api/cron/keep-alive no respondió 200' });
+  return { alerts, memPct, connPct };
+}
+
+// ── Bloque "Salud en vivo" — semáforo global + alertas activas + actividad ─────
+function LiveHealth({ health, latency, cronOk, loading, enriched }) {
+  const { alerts, memPct, connPct } = buildHealthAlerts({ health, latency, cronOk, enriched });
+  const hasCrit = alerts.some(a=>a.sev==='crit');
+  const hasWarn = alerts.some(a=>a.sev==='warn');
+  const sem = hasCrit ? { label:'Crítico', color:C.red }
+            : hasWarn ? { label:'Atención', color:C.orange }
+            : { label:'Sano', color:C.green };
+  const activos = (enriched||[]).filter(r=>r.status==='active').length;
+  const dot = c => <span style={{width:9,height:9,borderRadius:'50%',background:c,display:'inline-block'}}/>;
+  const mini = (label, value, color) => (
+    <div style={{flex:'0 0 auto',padding:'0 16px',borderLeft:`1px solid ${C.border}`}}>
+      <div style={{fontSize:10,color:C.mid,fontWeight:600,textTransform:'uppercase',letterSpacing:.4}}>{label}</div>
+      <div style={{fontSize:17,fontWeight:800,color:color||C.ink,lineHeight:1.4}}>{value}</div>
+    </div>
+  );
+  const act = (label, value) => (
+    <div style={{flex:'1 1 140px',padding:'12px 16px',borderRight:`1px solid ${C.border}`}}>
+      <div style={{fontSize:11,color:C.mid,fontWeight:600,textTransform:'uppercase',letterSpacing:.4,marginBottom:6}}>{label}</div>
+      <div style={{fontSize:20,fontWeight:800,color:C.ink,lineHeight:1}}>{value}</div>
+    </div>
+  );
+  return (
+    <SectionCard title="Salud en vivo" style={{marginBottom:20}}>
+      {/* Semáforo global + métricas resumidas reales */}
+      <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:12,padding:'16px 18px',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{display:'inline-flex',alignItems:'center',gap:10,background:sem.color+'1E',border:`1px solid ${sem.color}66`,borderRadius:10,padding:'10px 16px'}}>
+          {dot(sem.color)}
+          <span style={{fontSize:16,fontWeight:800,color:sem.color}}>{loading && !health ? 'Midiendo…' : sem.label}</span>
+        </div>
+        {mini('Memoria BD', memPct==null?'—':`${memPct<10?memPct.toFixed(1):Math.round(memPct)}%`, memPct==null?C.mid:capColor(memPct))}
+        {mini('Conexiones', connPct==null?'—':`${health.db_conn_active}/${health.db_conn_max}`, connPct==null?C.mid:capColor(connPct))}
+        {mini('Latencia', latency==null?'—':`${latency} ms`, latency==null?C.mid:latency<200?C.green:latency<500?C.orange:C.red)}
+        {mini('Keep-alive', cronOk==null?'…':cronOk?'Online':'Offline', cronOk==null?C.mid:cronOk?C.green:C.red)}
+      </div>
+      {/* Alertas activas */}
+      <div style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.mid,marginBottom:alerts.length?10:0,textTransform:'uppercase',letterSpacing:.4}}>Alertas activas</div>
+        {alerts.length===0
+          ? <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.green,fontWeight:600}}>{dot(C.green)} Todo en orden</div>
+          : <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {alerts.map((a,i)=>{
+                const col = a.sev==='crit'?C.red:C.orange;
+                return (
+                  <div key={i} style={{display:'flex',alignItems:'flex-start',gap:10,background:col+'14',border:`1px solid ${col}55`,borderRadius:9,padding:'9px 13px'}}>
+                    <span style={{marginTop:4}}>{dot(col)}</span>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:col}}>{a.t}</div>
+                      <div style={{fontSize:12,color:C.ink,marginTop:1}}>{a.d}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>}
+      </div>
+      {/* Actividad en vivo */}
+      <div style={{display:'flex',flexWrap:'wrap'}}>
+        {act('Pedidos 24 h',          health?fmtNum(health.orders_24h):'—')}
+        {act('Usuarios concurrentes', health?fmtNum(health.concurrent_staff):'—')}
+        {act('Último evento',         health?fmtRelTime(health.last_event_at):'—')}
+        {act('Restaurantes activos',  fmtNum(activos))}
+      </div>
+    </SectionCard>
+  );
+}
+
+// ── Widget Salud del Sistema (infraestructura) — datos REALES del RPC ──────────
+function SystemHealth({ health, latency, cronOk }) {
   const latColor = latency==null ? C.mid : latency<200 ? TINT.okText : latency<500 ? TINT.warnText : C.red;
   const dot = (color) => <span style={{width:8,height:8,borderRadius:'50%',background:color,display:'inline-block'}}/>;
-
-  // Métricas reales vs estimadas — honestidad: la anon key no expone pool/webhooks reales
+  const connPct = health && health.db_conn_max ? (Number(health.db_conn_active)/Number(health.db_conn_max))*100 : null;
   const cell = (label, value, sub, color) => (
     <div style={{flex:'1 1 150px',padding:'14px 18px',borderRight:`1px solid ${C.border}`}}>
       <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:8,textTransform:'uppercase',letterSpacing:.4}}>{label}</div>
@@ -766,19 +868,18 @@ function SystemHealth() {
       <div style={{fontSize:10,color:C.dim,marginTop:6}}>{sub}</div>
     </div>
   );
-
   return (
     <SectionCard title="Salud del sistema">
       <div style={{display:'flex',flexWrap:'wrap'}}>
         {cell('Latencia DB',
           latency==null ? '…' : `${latency} ms`,
-          'Medición en vivo (ping)', latColor)}
+          'Medición en vivo (ping al RPC)', latColor)}
         {cell('Pool de conexiones',
-          <>24<span style={{fontSize:13,fontWeight:500,color:C.mid}}>/100</span></>,
-          'Estimado — sin métrica directa', C.ink)}
-        {cell('Webhooks Vercel',
-          <>{dot(C.green)} Online</>,
-          'Estimado — verificar en panel', C.ink)}
+          health==null ? '…' : <>{fmtNum(health.db_conn_active)}<span style={{fontSize:13,fontWeight:500,color:C.mid}}>/{fmtNum(health.db_conn_max)}</span></>,
+          'Real — pg_stat_activity', connPct==null?C.ink:capColor(connPct))}
+        {cell('Cron keep-alive',
+          cronOk==null ? '…' : <>{dot(cronOk?C.green:C.red)} {cronOk?'Online':'Offline'}</>,
+          'GET /api/cron/keep-alive', C.ink)}
       </div>
     </SectionCard>
   );
@@ -788,6 +889,7 @@ function SystemHealth() {
 // MÓDULO 1 — DASHBOARD GLOBAL
 // ══════════════════════════════════════════════════════════════
 function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, reload, setPage}) {
+  const sys = useSystemHealth();   // salud real: RPC + latencia + cron
   const now = new Date();
   const todayStr = now.toISOString().slice(0,10);
   const ago48h = new Date(now-48*3600000).toISOString();
@@ -799,20 +901,12 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
   const ratingProm = recRatings.length ? +(avg(recRatings.map(r=>r.stars)).toFixed(1)) : null;
 
   const restSummary = [...enriched].sort((a,b)=>b.ordersToday-a.ordersToday);
-  const expirando   = enriched.filter(r=>r.daysLeft!==null&&r.daysLeft>=0&&r.daysLeft<=7&&r.status!=='suspended');
 
   return (
     <div className="animate-in">
-      {expirando.length>0&&(
-        <div style={{background:C.red+'1E',border:`1px solid ${C.red}55`,borderRadius:12,padding:'14px 20px',marginBottom:20,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-          <span style={{color:C.red,fontWeight:700,fontSize:13}}>Suscripciones por vencer</span>
-          {expirando.map(r=>(
-            <span key={r.id} style={{background:C.red,color:'#FFFFFF',borderRadius:6,padding:'3px 10px',fontSize:12,fontWeight:700}}>
-              {r.name} — {r.daysLeft===0?'hoy':`${r.daysLeft}d`}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* Salud en vivo — semáforo + alertas activas + actividad (datos reales del RPC).
+          Las suscripciones por vencer ahora viven dentro de "Alertas activas". */}
+      <LiveHealth {...sys} enriched={enriched}/>
 
       {/* 4 KPI cards */}
       <div style={{display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'}}>
@@ -853,7 +947,7 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
       </div>
 
       <div style={{marginTop:18}}>
-        <SystemHealth/>
+        <SystemHealth {...sys}/>
       </div>
     </div>
   );
@@ -870,8 +964,11 @@ function PageCapacidad({ enriched }) {
   const [loadingC, setLoadingC] = useState(true);
   const [planKey,  setPlanKey]  = useState('free');
   const [latency,  setLatency]  = useState(null);
-  // Simulador "¿cuánto aguanta el tablero?"
-  const [simRest,     setSimRest]     = useState(50);
+  const { health: sysHealth }   = useSystemHealth();   // tamaño REAL de la BD (pg_database_size)
+  // Simulador "¿cuánto aguanta el tablero?" — arranca en el nº real de restaurantes,
+  // no en 50 (evita el falso 100% rojo). Se sincroniza hasta que el usuario lo toca.
+  const [simRest,     setSimRest]     = useState(1);
+  const [simTouched,  setSimTouched]  = useState(false);
   const [simMonths,   setSimMonths]   = useState(12);
   const [connPerRest, setConnPerRest] = useState(8);
 
@@ -915,13 +1012,21 @@ function PageCapacidad({ enriched }) {
   const hasCounts = counts !== null;
   const usedBytes  = Object.keys(ROW_BYTES).reduce((s,t)=> s + (Number(cnt[t]||0) * ROW_BYTES[t]), 0);
   const limitBytes = plan.db_mb * 1048576;
-  const usedPct    = limitBytes>0 ? (usedBytes/limitBytes)*100 : 0;
-  const freePct    = Math.max(0, 100 - usedPct);
+  // Memoria a MOSTRAR: tamaño REAL de la BD (pg_database_size, vía RPC). El estimado
+  // filas×peso queda SOLO como fallback si el RPC no respondió.
+  const realBytes      = (sysHealth && sysHealth.db_size_bytes != null) ? Number(sysHealth.db_size_bytes) : null;
+  const usedBytesShown = realBytes != null ? realBytes : usedBytes;
+  const usedPct        = limitBytes>0 ? (usedBytesShown/limitBytes)*100 : 0;
+  const freePct        = Math.max(0, 100 - usedPct);
 
   const restCount  = (enriched && enriched.length) || Number(cnt.restaurants||0) || 0;
   const itemsCount = Number(cnt.menu_items||0);
   const usersCount = Number(cnt.user_roles||0);
   const ordersCount= Number(cnt.orders||0);
+
+  // El simulador arranca proyectando TU realidad: el nº actual de restaurantes
+  // (hasta que el usuario mueve el control).
+  useEffect(() => { if (!simTouched && restCount > 0) setSimRest(restCount); }, [restCount, simTouched]);
 
   // Desglose de almacenamiento por tabla
   const breakdown = Object.keys(ROW_BYTES)
@@ -1028,9 +1133,12 @@ function PageCapacidad({ enriched }) {
         <SectionCard title="Memoria de base de datos">
           <div style={{padding:'22px 20px 18px',display:'flex',flexDirection:'column',alignItems:'center'}}>
             <TankGauge pct={usedPct}
-              label={`${fmtBytes(usedBytes)} usados`}
+              label={`${fmtBytes(usedBytesShown)} usados`}
               value={`de ${fmtBytes(limitBytes)} (plan ${plan.label})`}
-              sub={loadingC?'calculando…':`quedan ${fmtBytes(Math.max(limitBytes-usedBytes,0))} libres`}/>
+              sub={`quedan ${fmtBytes(Math.max(limitBytes-usedBytesShown,0))} libres`}/>
+            <div style={{fontSize:10,color:C.dim,marginTop:8,textAlign:'center',maxWidth:220}}>
+              {realBytes!=null ? 'Tamaño REAL de la BD (pg_database_size)' : 'Estimado filas × peso — el RPC de tamaño real no respondió'}
+            </div>
             <div style={{display:'flex',gap:14,marginTop:16,flexWrap:'wrap',justifyContent:'center'}}>
               <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:10,color:C.dim}}>{dot(C.green)} &lt;70% sano</span>
               <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:10,color:C.dim}}>{dot(C.orange)} 70-90% atención</span>
@@ -1051,7 +1159,7 @@ function PageCapacidad({ enriched }) {
               sub={`teórico · ${plan.db_conn} conexiones ÷ ${latency||80} ms`}/>
           </div>
           <div style={{padding:'4px 18px 16px',display:'flex',justifyContent:'center',gap:26,flexWrap:'wrap'}}>
-            <SemiGauge pct={usedPct} value={`${usedPct<10?usedPct.toFixed(1):Math.round(usedPct)}%`} label="Memoria usada" sub={`${fmtBytes(usedBytes)} / ${fmtBytes(limitBytes)}`}/>
+            <SemiGauge pct={usedPct} value={`${usedPct<10?usedPct.toFixed(1):Math.round(usedPct)}%`} label="Memoria usada" sub={`${fmtBytes(usedBytesShown)} / ${fmtBytes(limitBytes)}`}/>
             <SemiGauge pct={restCount/Math.max(maxRestStorage,1)*100} value={`${fmtNum(restCount)}/${fmtNum(maxRestStorage)}`} label="Restaurantes" sub="usados / soportados" color={C.ink}/>
             <SemiGauge pct={(usersCount/Math.max(plan.rt_conn,1))*100} value={`${fmtNum(usersCount)}/${fmtNum(plan.rt_conn)}`} label="Usuarios / conexiones" sub="registrados / límite" color="#5856D6"/>
           </div>
@@ -1085,10 +1193,13 @@ function PageCapacidad({ enriched }) {
       </div>
 
       {/* SIMULADOR de carga */}
-      <SectionCard title="Simulador de carga — ¿hasta dónde aguanta?">
+      <SectionCard title="Simulador de carga — proyección hipotética">
+        <div style={{margin:'14px 20px 0',background:TINT.infoBg,border:`1px solid ${C.border}`,borderRadius:10,padding:'10px 14px',fontSize:12,color:C.ink,lineHeight:1.5}}>
+          <strong>Proyección hipotética — no es tu estado actual.</strong> Arranca en tus {fmtNum((enriched&&enriched.length)||0)} restaurantes reales; movés los controles para simular escenarios de crecimiento contra los límites del plan.
+        </div>
         <div style={{padding:'20px',display:'grid',gridTemplateColumns:'320px 1fr',gap:24,alignItems:'center'}}>
           <div>
-            <Slider label="Restaurantes a simular" value={simRest} min={1} max={1000} step={1} onChange={setSimRest} fmt={v=>fmtNum(v)}/>
+            <Slider label="Restaurantes a simular" value={simRest} min={1} max={1000} step={1} onChange={v=>{ setSimTouched(true); setSimRest(v); }} fmt={v=>fmtNum(v)}/>
             <Slider label="Meses de historial retenido" value={simMonths} min={1} max={60} onChange={setSimMonths} fmt={v=>`${v} m`}/>
             <Slider label="Conexiones simultáneas por restaurante" value={connPerRest} min={1} max={30} onChange={setConnPerRest} fmt={v=>`${v}`}/>
             <div style={{fontSize:10,color:C.dim,marginTop:4,lineHeight:1.5}}>
