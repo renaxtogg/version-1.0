@@ -116,7 +116,7 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
       order_id: order.id, item_id: ci.item.id || null, item_name: ci.item.name,
       quantity: ci.qty, unit_price: ci.item.price, total_price: ci.total,
       observations: ci.notes || null
-    }).select().single();
+    }).select('id').single(); // RETURNING solo 'id' (no *): habilita revocar el SELECT de precios a anon (mig 130). El cliente solo usa oi.id.
     if (itemErr) console.error('order_items insert error:', itemErr);
     if (oi && ci.extras && ci.extras.length > 0) {
       const { error: extErr } = await db.from('order_item_extras').insert(ci.extras.map(e => ({ order_item_id: oi.id, extra_name: e.n, extra_price: e.p })));
