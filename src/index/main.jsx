@@ -89,6 +89,32 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
   subtotal = subtotal > 0 ? subtotal : safeTotal;
   const orderNum = 'T-' + String(Math.floor(Date.now() % 90000) + 10000);
   if (!db) return { id: null, order_number: orderNum };
+
+  // ETAPA 2 (seguridad): crear el pedido por la RPC SECURITY DEFINER 'create_order'.
+  // Es el único camino una vez aplicado el lockdown (ETAPA 3). Si la RPC todavía no
+  // existe (ETAPA 1 sin aplicar), caemos al insert directo de abajo (compat).
+  const rpcPayload = {
+    restaurant_id: RESTAURANT_ID, table_id: tableId || null, order_number: orderNum,
+    order_type: orderType, status: 'paid', subtotal, discount_amount: discountAmount || 0,
+    coupon_code: couponCode || null, total, payment_method: payMethod,
+    customer_name: custName || null, customer_ruc: custRuc || null, customer_email: custEmail || null,
+    requires_invoice: requiresInvoice || false,
+    invoice_delivery_method: requiresInvoice ? (invoiceDeliveryMethod || (custEmail ? 'email' : 'print')) : null,
+    language,
+    items: items.map(ci => ({
+      item_id: ci.item.id || null, item_name: ci.item.name, quantity: ci.qty,
+      unit_price: ci.item.price, total_price: ci.total, observations: ci.notes || null,
+      extras: (ci.extras || []).map(e => ({ extra_name: e.n, extra_price: e.p })),
+    })),
+  };
+  {
+    const { data: rpcData, error: rpcErr } = await db.rpc('create_order', { payload: rpcPayload });
+    if (!rpcErr && rpcData && rpcData.id) return rpcData;
+    const missing = rpcErr && /PGRST202|could not find the function|42883/i.test(`${rpcErr.message || ''} ${rpcErr.code || ''}`);
+    if (rpcErr && !missing) { console.error('create_order RPC error:', rpcErr); throw new Error(rpcErr.message || 'No se pudo crear el pedido'); }
+    // missing → insert directo (compat pre-ETAPA 1).
+  }
+
   const baseInsert = {
     restaurant_id: RESTAURANT_ID, table_id: tableId || null, order_number: orderNum,
     order_type: orderType, status: 'paid', subtotal, discount_amount: discountAmount || 0,
@@ -1264,35 +1290,24 @@ function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaite
       return () => clearInterval(t);
     }
 
-    let sub = null;
+    // ETAPA 2 (seguridad): se ELIMINA la suscripción realtime a orders (el payload de
+    // postgres_changes entregaba la fila completa —total/payment_status— cross-tenant,
+    // ignorando los grants de columna). El seguimiento ahora va 100% por POLLING de
+    // get_order_status (RPC sin columnas financieras).
     let pollInterval = null;
 
     const fetchStatus = () =>
       dbLoadOrder(orderNumber).then(ord => { if (ord) setActive(STATUS_MAP[ord.status] || 1); });
 
-    const subscribe = () => {
-      if (sub) db.removeChannel(sub);
-      sub = db.channel('track-' + orderNumber)
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders', filter: `order_number=eq.${orderNumber}` }, p => {
-          setActive(STATUS_MAP[p.new.status] || 1);
-        })
-        .subscribe(status => {
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') fetchStatus();
-        });
-    };
-
-    // carga inicial
+    // carga inicial + polling cada 6s
     fetchStatus();
-    subscribe();
-    // polling de respaldo cada 10s (cubre iOS con WebSocket caído)
-    pollInterval = setInterval(fetchStatus, 10000);
+    pollInterval = setInterval(fetchStatus, 6000);
 
-    // cuando iOS vuelve del fondo, reconectar y refrescar
-    const onVisible = () => { if (document.visibilityState === 'visible') { fetchStatus(); subscribe(); } };
+    // al volver del fondo (iOS), refrescar inmediatamente
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchStatus(); };
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      if (sub) db.removeChannel(sub);
       clearInterval(pollInterval);
       document.removeEventListener('visibilitychange', onVisible);
     };
@@ -1373,6 +1388,14 @@ function TrackingScreen({ onRate, orderNumber, orderMode, cartItems, onCallWaite
 
 async function dbLoadOrder(orderNumber) {
   if (!db || !orderNumber) return null;
+  // ETAPA 2: seguir el pedido por la RPC get_order_status (no expone columnas
+  // financieras). Fallback al read directo si la RPC todavía no existe (ETAPA 1 sin aplicar).
+  try {
+    const { data, error } = await db.rpc('get_order_status', { p_order_number: orderNumber, p_restaurant_id: RESTAURANT_ID });
+    if (!error) { const row = Array.isArray(data) ? data[0] : data; return row || null; }
+    const missing = /PGRST202|could not find the function|42883/i.test(`${error.message || ''} ${error.code || ''}`);
+    if (!missing) return null;
+  } catch(e) {}
   try { const { data } = await db.from('orders').select('id,status,order_number').eq('order_number', orderNumber).maybeSingle(); return data; } catch(e) { return null; }
 }
 

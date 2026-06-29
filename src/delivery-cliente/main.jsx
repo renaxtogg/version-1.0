@@ -251,6 +251,45 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
   // order_type='delivery' para domicilio real; 'llevar' para retiro en local
   const dbOrderType = orderType === 'delivery' ? 'delivery' : 'llevar';
 
+  // ETAPA 2 (seguridad): crear el pedido (orders + items + extras + delivery_orders +
+  // auto-asignación de rider) por la RPC SECURITY DEFINER 'create_order'. Único camino
+  // tras el lockdown (ETAPA 3); si la RPC no existe aún (ETAPA 1 sin aplicar), caemos al
+  // insert directo de abajo (compat).
+  const isDeliv = (orderType === 'delivery' || orderType === 'pickup');
+  const rpcPayload = {
+    restaurant_id: RESTAURANT_ID, table_id: null, order_number: orderNum,
+    order_type: dbOrderType, status: 'paid', subtotal, discount_amount: 0,
+    total, payment_method: payMethod,
+    customer_name: customerData.name || null, customer_ruc: custRuc || null, customer_email: custEmail || null,
+    requires_invoice: requiresInvoice || false,
+    invoice_delivery_method: requiresInvoice ? (invoiceDeliveryMethod || (custEmail ? 'email' : 'print')) : null,
+    items: cartItems.map(ci => ({
+      item_id: ci.item.id || null, item_name: ci.item.name, quantity: ci.qty,
+      unit_price: ci.item.price, total_price: ci.total, observations: ci.notes || null,
+      extras: (ci.extras || []).map(e => ({ extra_name: e.n, extra_price: e.p })),
+    })),
+    delivery: isDeliv ? {
+      order_type: orderType, order_total: total,
+      customer_name: customerData.name || null, customer_phone: customerData.phone || null,
+      delivery_address:    orderType === 'delivery' ? (customerData.address || null) : null,
+      delivery_detail:     orderType === 'delivery' ? (customerData.detail || null) : null,
+      delivery_references: orderType === 'delivery' ? (customerData.references || null) : null,
+      zone_id: zone?.id || null, zone_name: zone?.name || null,
+      delivery_fee: deliveryFee || 0, estimated_minutes: zone?.estimated_minutes || estimatedMinutes || null,
+      canal: canal || 'web', cash_amount: (payMethod === 'efectivo' && cashAmount > 0) ? cashAmount : null,
+      delivery_corner: orderType === 'delivery' ? (customerData.corner || null) : null,
+      delivery_lat: (orderType === 'delivery' && Number.isFinite(customerData.lat)) ? customerData.lat : null,
+      delivery_lng: (orderType === 'delivery' && Number.isFinite(customerData.lng)) ? customerData.lng : null,
+    } : null,
+  };
+  {
+    const { data: rpcData, error: rpcErr } = await db.rpc('create_order', { payload: rpcPayload });
+    if (!rpcErr && rpcData && rpcData.id) return rpcData;
+    const missing = rpcErr && /PGRST202|could not find the function|42883/i.test(`${rpcErr.message || ''} ${rpcErr.code || ''}`);
+    if (rpcErr && !missing) { console.error('create_order RPC error:', rpcErr); throw new Error(rpcErr.message || 'No se pudo crear el pedido'); }
+    // missing → insert directo (compat pre-ETAPA 1).
+  }
+
   const baseInsert = {
     restaurant_id: RESTAURANT_ID,
     table_id: null,
@@ -346,6 +385,25 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
   await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
 
   return order;
+}
+
+// ETAPA 2: estado del pedido por la RPC get_order_status (status + rider_status, sin
+// columnas financieras). Fallback a reads directos si la RPC no existe (ETAPA 1 sin aplicar).
+async function dbGetOrderStatus(orderNumber) {
+  if (!db || !orderNumber) return null;
+  try {
+    const { data, error } = await db.rpc('get_order_status', { p_order_number: orderNumber, p_restaurant_id: RESTAURANT_ID });
+    if (!error) { const row = Array.isArray(data) ? data[0] : data; return row || null; }
+    const missing = /PGRST202|could not find the function|42883/i.test(`${error.message || ''} ${error.code || ''}`);
+    if (!missing) return null;
+  } catch(e) {}
+  try {
+    const { data: ord } = await db.from('orders').select('id,status,order_number').eq('order_number', orderNumber).maybeSingle();
+    if (!ord) return null;
+    let rider_status = null;
+    try { const { data: d } = await db.from('delivery_orders').select('rider_status').eq('order_id', ord.id).maybeSingle(); rider_status = d?.rider_status || null; } catch(e) {}
+    return { order_number: ord.order_number, status: ord.status, rider_status };
+  } catch(e) { return null; }
 }
 
 async function dbAutoAssignRider(deliveryOrderId) {
@@ -2018,87 +2076,32 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
       return () => clearInterval(t);
     }
 
-    let orderSub  = null;
-    let delivSub  = null;
-    let poll      = null;
-    let orderId   = order?.id || null;
+    // ETAPA 2 (seguridad): sin realtime sobre orders/delivery_orders (sus payloads
+    // exponían total/order_total/delivery_fee cross-tenant, ignorando los grants de
+    // columna). Seguimiento por POLLING de get_order_status (status + rider_status).
+    let poll = null;
 
     const fetchStatus = async () => {
       try {
-        const { data: ord } = await db.from('orders')
-          .select('status,id').eq('order_number', order.order_number).maybeSingle();
-        if (!ord) {
-          // Orden ya no existe en DB (reset/limpieza): purgar localStorage y volver al inicio
+        const row = await dbGetOrderStatus(order.order_number);
+        if (!row) {
+          // El pedido ya no existe (reset/limpieza): purgar localStorage y volver al inicio.
           ['dc_order','dc_order_type','dc_customer','dc_zone'].forEach(k => localStorage.removeItem(k));
           if (typeof onNewOrder === 'function') onNewOrder();
           return;
         }
-        orderId = ord.id;
-
-        if (!isDelivery) {
-          setActive(STATUS_MAP_PICKUP[ord.status] ?? 0);
-          return;
-        }
-
-        const { data: delOrd } = await db.from('delivery_orders')
-          .select('rider_status').eq('order_id', ord.id).maybeSingle();
-        setActive(calcDeliveryStep(ord.status, delOrd?.rider_status));
+        if (!isDelivery) { setActive(STATUS_MAP_PICKUP[row.status] ?? 0); return; }
+        setActive(calcDeliveryStep(row.status, row.rider_status));
       } catch(e) {}
     };
 
-    const subscribeDelivery = (oid) => {
-      if (!isDelivery || !oid) return;
-      if (delivSub) db.removeChannel(delivSub);
-      delivSub = db.channel('dc-delord-' + oid)
-        .on('postgres_changes', {
-          event: 'UPDATE', schema: 'public', table: 'delivery_orders',
-          filter: `order_id=eq.${oid}`
-        }, p => {
-          const rs = p.new.rider_status;
-          if (rs === 'delivered') { setActive(4); return; }
-          if (rs === 'on_way')    { setActive(3); return; }
-          fetchStatus();
-        })
-        .subscribe();
-    };
+    fetchStatus();
+    poll = setInterval(fetchStatus, 8000);
 
-    const subscribe = () => {
-      if (orderSub) db.removeChannel(orderSub);
-      orderSub = db.channel('dc-track-' + order.order_number)
-        .on('postgres_changes', {
-          event: 'UPDATE', schema: 'public', table: 'orders',
-          filter: `order_number=eq.${order.order_number}`
-        }, p => {
-          if (isDelivery) {
-            fetchStatus();
-          } else {
-            setActive(STATUS_MAP_PICKUP[p.new.status] ?? 0);
-          }
-        })
-        .subscribe(s => {
-          if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT') fetchStatus();
-        });
-    };
-
-    fetchStatus().then(() => {
-      subscribe();
-      if (orderId) subscribeDelivery(orderId);
-    });
-
-    poll = setInterval(fetchStatus, 12000);
-
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        fetchStatus();
-        subscribe();
-        if (orderId) subscribeDelivery(orderId);
-      }
-    };
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchStatus(); };
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      if (orderSub) db.removeChannel(orderSub);
-      if (delivSub) db.removeChannel(delivSub);
       clearInterval(poll);
       document.removeEventListener('visibilitychange', onVisible);
     };
