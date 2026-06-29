@@ -22,6 +22,42 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
   <script src="web-marketing-data.js"></script>
+  <!-- CAPTCHA: Cloudflare Turnstile (soporte NATIVO de Supabase Auth). El token se manda
+       en options.captchaToken del signUp. Mientras el CAPTCHA esté DESACTIVADO en Supabase
+       (lo prende Renato tras el deploy), se ignora y el registro sigue andando. Head-script
+       ANTES de api.js (async) para evitar la carrera del callback. Render explícito. -->
+  <script>
+  (function () {
+    // Site key PÚBLICA de Turnstile (va en el front; se puede hardcodear y rotar acá).
+    var TURNSTILE_SITE_KEY = '0x4AAAAAADs0-Olt_9L_CI3V';
+    var state = { token: '', id: null, ready: false };
+    function renderSignup() {
+      if (!window.turnstile) return;
+      var el = document.getElementById('turnstile-signup');
+      if (el && state.id === null) {
+        state.id = window.turnstile.render(el, {
+          sitekey: TURNSTILE_SITE_KEY,
+          callback: function (t) { state.token = t; },
+          'error-callback': function () { state.token = ''; },
+          'expired-callback': function () { state.token = ''; }
+        });
+      }
+    }
+    window.onTurnstileLoad = function () { state.ready = true; renderSignup(); };
+    window.MythosCaptcha = {
+      siteKey: TURNSTILE_SITE_KEY,
+      // ARMADO del guard client-side. false = NO bloquea el submit por falta de token.
+      // CAPTCHA DESACTIVADO en Supabase → el token se manda y se ignora; nunca traba un
+      // registro legítimo aunque el widget falle. Renato lo pone en true al PRENDER el
+      // CAPTCHA en Supabase (opcional: el server ya lo exige una vez activado).
+      required: false,
+      isReady: function () { return state.ready; },
+      token: function () { return state.token; },
+      reset: function () { try { if (state.id !== null) window.turnstile.reset(state.id); } catch (e) {} state.token = ''; }
+    };
+  })();
+  </script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit" async defer></script>
   <style>
     /* OWNER-SIGNUP-1: estilos puntuales del registro de dueños (sobre web-marketing.css). */
     .biz-types { border: 0; margin: 0 0 12px; padding: 0; }
@@ -131,6 +167,7 @@
         </label>
 
         <p data-lead-status class="lead-status" style="display:none"></p>
+        <div id="turnstile-signup" style="margin-bottom:14px"></div>
         <button class="btn btn-primary" type="submit" data-signup-submit style="width:100%">Crear mi cuenta</button>
 
         <p class="form-foot">¿Ya tenés cuenta? <a href="/login">Iniciar sesión</a></p>
@@ -294,6 +331,14 @@
 
         if (!db) { setStatus('No pudimos conectar con el servidor. Probá de nuevo en un momento.', 'error'); return; }
 
+        // CAPTCHA (Turnstile, nativo de Supabase). Token de un solo uso. Mientras esté
+        // DESACTIVADO en Supabase se manda y se ignora (el registro sigue igual). Si el
+        // widget ya está listo pero no resolvió, pedimos completar la verificación.
+        var captchaToken = window.MythosCaptcha ? window.MythosCaptcha.token() : '';
+        if (window.MythosCaptcha && window.MythosCaptcha.required && !captchaToken) {
+          return fail('Completá la verificación.', null);
+        }
+
         var prev = submitBtn ? submitBtn.textContent : '';
         if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Creando cuenta…'; }
 
@@ -305,8 +350,10 @@
           var res = await db.auth.signUp({
             email: email,
             password: pass,
-            options: { emailRedirectTo: EMAIL_REDIRECT }
+            options: { emailRedirectTo: EMAIL_REDIRECT, captchaToken: captchaToken }
           });
+          // Token de un solo uso: refrescar el widget tras cada intento.
+          if (window.MythosCaptcha) window.MythosCaptcha.reset();
 
           if (res && res.error) {
             var m = (res.error.message || '').toLowerCase();
@@ -360,6 +407,7 @@
         } catch (err) {
           if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = prev; }
           setStatus('No pudimos crear tu cuenta ahora. Probá de nuevo en un momento.', 'error');
+          if (window.MythosCaptcha) window.MythosCaptcha.reset();
         }
       });
     })();

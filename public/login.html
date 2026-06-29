@@ -7,6 +7,61 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
   <script src="mythos-offline.js"></script>
+  <!-- CAPTCHA: Cloudflare Turnstile (soporte NATIVO de Supabase Auth). El token se
+       manda en options.captchaToken. Mientras el CAPTCHA esté DESACTIVADO en Supabase
+       (lo prende Renato tras el deploy), Supabase lo ignora y el login sigue andando.
+       Este head-script define onTurnstileLoad/MythosCaptcha ANTES de api.js (async) para
+       evitar la carrera del callback. Render explícito: 2 widgets (login + recuperación). -->
+  <script>
+  (function () {
+    // Site key PÚBLICA de Turnstile (va en el front; se puede hardcodear y rotar acá).
+    var TURNSTILE_SITE_KEY = '0x4AAAAAADs0-Olt_9L_CI3V';
+    var state = { loginToken: '', recToken: '', loginId: null, recId: null, ready: false, wantRecovery: false };
+    function renderLogin() {
+      if (!window.turnstile) return;
+      var el = document.getElementById('turnstile-login');
+      if (el && state.loginId === null) {
+        state.loginId = window.turnstile.render(el, {
+          sitekey: TURNSTILE_SITE_KEY,
+          callback: function (t) { state.loginToken = t; },
+          'error-callback': function () { state.loginToken = ''; },
+          'expired-callback': function () { state.loginToken = ''; }
+        });
+      }
+    }
+    function renderRecovery() {
+      if (!window.turnstile) { state.wantRecovery = true; return; }
+      var el = document.getElementById('turnstile-recovery');
+      if (el && state.recId === null) {
+        state.recId = window.turnstile.render(el, {
+          sitekey: TURNSTILE_SITE_KEY,
+          callback: function (t) { state.recToken = t; },
+          'error-callback': function () { state.recToken = ''; },
+          'expired-callback': function () { state.recToken = ''; }
+        });
+      }
+    }
+    // api.js (?onload=onTurnstileLoad) llama esto cuando Turnstile está listo.
+    window.onTurnstileLoad = function () { state.ready = true; renderLogin(); if (state.wantRecovery) renderRecovery(); };
+    window.MythosCaptcha = {
+      siteKey: TURNSTILE_SITE_KEY,
+      // ARMADO del guard client-side. false = NO bloquea el submit por falta de token.
+      // Estado actual: CAPTCHA DESACTIVADO en Supabase → el token se manda igual y se
+      // ignora; así NUNCA se traba un login legítimo, ni siquiera si el widget falla en
+      // resolver (adblock/red/sitekey). Cuando Renato PRENDA el CAPTCHA en Supabase,
+      // poné esto en true para re-armar el aviso "Completá la verificación" (opcional:
+      // el server ya lo exige igual una vez activado).
+      required: false,
+      isReady: function () { return state.ready; },
+      loginToken: function () { return state.loginToken; },
+      recToken: function () { return state.recToken; },
+      renderRecovery: renderRecovery,
+      resetLogin: function () { try { if (state.loginId !== null) window.turnstile.reset(state.loginId); } catch (e) {} state.loginToken = ''; },
+      resetRecovery: function () { try { if (state.recId !== null) window.turnstile.reset(state.recId); } catch (e) {} state.recToken = ''; }
+    };
+  })();
+  </script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit" async defer></script>
   <!-- PR-B3H: solo se enlaza tokens.css (define las CSS custom properties en :root).
        NO carga design-system.css/ui-primitives.css/theme (evita conflictos de estilo y
        no cambia el flujo de login). El <style> de abajo aliasa sus neutrales a estos tokens. -->
@@ -80,6 +135,7 @@
       <label for="password">Contraseña</label>
       <input id="password" type="password" autocomplete="current-password" placeholder="••••••••" required/>
     </div>
+    <div id="turnstile-login" style="margin-bottom:16px"></div>
     <button class="btn" type="submit" id="submitBtn">Ingresar</button>
   </form>
 
@@ -108,6 +164,7 @@
       <label for="recEmail">Correo electrónico</label>
       <input id="recEmail" type="email" inputmode="email" autocomplete="email" placeholder="tu@correo.com"/>
     </div>
+    <div id="turnstile-recovery" style="margin-bottom:14px"></div>
     <button class="btn" type="button" id="recSendBtn">Enviarme el enlace</button>
     <div id="recMsg" style="display:none;font-size:13px;margin-top:14px;text-align:center;color:var(--text-secondary)" role="status" aria-live="polite"></div>
     <div class="hint"><a href="#" id="recBack" style="color:var(--text-secondary)">Volver a iniciar sesión</a></div>
@@ -355,10 +412,18 @@
     else if (/^[\d.\s-]+$/.test(ident))      email = `${ident.replace(/\D/g, '')}@mythos.internal`;
     else                                     email = `${ident.toLowerCase().replace(/[^a-z0-9._-]/g, '')}@mythos.internal`;
 
+    // CAPTCHA (Turnstile, nativo de Supabase). Token de un solo uso. Mientras el CAPTCHA
+    // esté DESACTIVADO en Supabase se manda y se ignora (login sigue igual). Si el widget
+    // ya está listo pero todavía no resolvió, pedimos completar la verificación.
+    const captchaToken = window.MythosCaptcha ? window.MythosCaptcha.loginToken() : '';
+    if (window.MythosCaptcha && window.MythosCaptcha.required && !captchaToken) {
+      showErr('Completá la verificación'); return;
+    }
+
     setLoading(true);
     try {
       // 1. Autenticar con Supabase Auth (correo + contraseña, sin PIN ni usuario interno)
-      const { error: authErr } = await db.auth.signInWithPassword({ email, password });
+      const { error: authErr } = await db.auth.signInWithPassword({ email, password, options: { captchaToken } });
       if (authErr) {
         const m = authErr.message || '';
         if (m.includes('Invalid login credentials')) throw new Error('Cédula/correo o contraseña incorrectos.');
@@ -381,6 +446,8 @@
     } catch(err) {
       showErr(err.message);
       setLoading(false);
+      // Token de un solo uso: refrescar el widget para el próximo intento.
+      if (window.MythosCaptcha) window.MythosCaptcha.resetLogin();
     }
   });
 
@@ -439,6 +506,8 @@
     ].forEach(function (el) { if (el) el.style.display = show ? 'none' : ''; });
     var rp = document.getElementById('recoveryPanel');
     if (rp) rp.style.display = show ? '' : 'none';
+    // Render del widget de recuperación on-demand (evita renderizar en panel oculto).
+    if (show && window.MythosCaptcha) window.MythosCaptcha.renderRecovery();
     hideErr();
   }
 
@@ -452,15 +521,22 @@
     var email = (document.getElementById('recEmail').value || '').trim();
     var msg = document.getElementById('recMsg');
     if (!email) { if (msg) { msg.style.display = ''; msg.textContent = 'Ingresá tu correo.'; } return; }
+    // CAPTCHA (Turnstile): resetPasswordForEmail también lo gatea Supabase nativamente.
+    var recCaptcha = window.MythosCaptcha ? window.MythosCaptcha.recToken() : '';
+    if (window.MythosCaptcha && window.MythosCaptcha.required && !recCaptcha) {
+      if (msg) { msg.style.display = ''; msg.textContent = 'Completá la verificación.'; } return;
+    }
     recSendBtn.disabled = true;
     recSendBtn.textContent = 'Enviando…';
     try {
       // El enlace del correo abre /cambiar-password en modo recuperación.
-      await db.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/cambiar-password?mode=recovery' });
+      await db.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/cambiar-password?mode=recovery', captchaToken: recCaptcha });
     } catch (_) { /* nunca revelar el detalle */ }
     if (msg) { msg.style.display = ''; msg.textContent = 'Si el correo existe, te enviamos un enlace para cambiar tu contraseña.'; }
     recSendBtn.disabled = false;
     recSendBtn.textContent = 'Enviarme el enlace';
+    // Token de un solo uso: refrescar para el próximo envío.
+    if (window.MythosCaptcha) window.MythosCaptcha.resetRecovery();
   });
 })();
 </script>
