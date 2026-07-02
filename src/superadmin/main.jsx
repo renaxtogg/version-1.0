@@ -1443,7 +1443,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
                   <div style={{fontSize:16,fontWeight:700,color:C.ink,marginBottom:3,display:'flex',alignItems:'center',gap:6}}>
                     {r.name}
                     {!isRoot(r)&&<span title={`Sucursal de ${parentName(r)}`} style={{fontSize:9,fontWeight:800,background:C.ink,color:C.card,padding:'2px 7px',borderRadius:5,letterSpacing:.3,textTransform:'uppercase'}}>Sucursal</span>}
-                    {r.auto_provisioned===true&&<span title="Registro self-service desde la web" style={{fontSize:9,fontWeight:800,background:TINT.infoBg,color:TINT.infoText,padding:'2px 7px',borderRadius:5,letterSpacing:.3,textTransform:'uppercase'}}>Alta web</span>}
+                    {r.auto_provisioned===true&&<span title="Registro self-service desde la web" style={{fontSize:9,fontWeight:800,background:TINT.infoBg,color:TINT.infoText,padding:'2px 7px',borderRadius:5,letterSpacing:.3,textTransform:'uppercase',whiteSpace:'nowrap'}}>Alta web</span>}
                   </div>
                   <div style={{fontSize:12,color:C.mid}}>{r.address||r.city}{r.city&&r.address?`, ${r.city}`:''}</div>
                   {r.created_at&&<div style={{fontSize:11,color:C.mid,marginTop:2}}>Alta: {fmtAlta(r.created_at)}</div>}
@@ -3834,10 +3834,10 @@ function PageCalendario({restaurants}) {
 
 // ══════════════════════════════════════════════════════════════
 // MÓDULO SITIO WEB (WEB-6A) — gestión de la web comercial
-//   Lee/edita SOLO tablas de la migración 110 (marketing_*) vía el
-//   cliente autenticado (anon key + sesión superadmin); RLS
-//   superadmin-only protege. Sin service_role, sin endpoint, sin DB.
-//   Pestañas: Resumen · Leads · Actividad · Config.
+//   Lee/edita tablas de la migración 110 (marketing_*) + leads_prospectos
+//   (mig 117, PR-SA2) vía el cliente autenticado (anon key + sesión
+//   superadmin); RLS superadmin-only protege. Sin service_role, sin endpoint.
+//   Pestañas: Resumen · Registros · Leads · Actividad · Planes · Add-ons · FAQ · Config.
 // ══════════════════════════════════════════════════════════════
 const LEAD_STATUSES = ['new','contacted','qualified','won','lost','spam'];
 const LEAD_STATUS_META = {
@@ -3859,7 +3859,224 @@ const TypePill = ({type}) => (
   <span style={{padding:'2px 8px',borderRadius:12,fontSize:11,fontWeight:600,background:C.bg,color:C.mid,border:`1px solid ${C.border}`,whiteSpace:'nowrap'}}>{leadTypeLabel(type)}</span>
 );
 
-function SitioResumen({leads, events}) {
+// ── PR-SA2 · Registros de la prueba gratuita (leads_prospectos, mig 117) ──
+const REG_ESTADOS = ['registrado','onboarding','contactado','calificado','convertido','descartado'];
+const REG_ESTADO_META = {
+  registrado: {label:'Registrado', color:TINT.infoText,   bg:TINT.infoBg},
+  onboarding: {label:'Onboarding', color:TINT.warnText,   bg:TINT.warnBg},
+  contactado: {label:'Contactado', color:C.ink,           bg:C.bg},
+  calificado: {label:'Calificado', color:TINT.purpleText, bg:TINT.purpleBg},
+  convertido: {label:'Convertido', color:TINT.okText,     bg:TINT.okBg},
+  descartado: {label:'Descartado', color:C.mid,           bg:'var(--bg-subtle)'},
+};
+const REG_TIPO_LABEL = {restaurante:'Restaurante', foodpark_local:'Local en foodpark', foodpark_owner:'Dueño de foodpark'};
+const regTipoLabel = t => REG_TIPO_LABEL[t] || t || '—';
+
+const RegEstadoBadge = ({estado}) => {
+  const m = REG_ESTADO_META[estado] || {label:estado||'—',color:C.mid,bg:'var(--bg-subtle)'};
+  return <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:m.bg,color:m.color,whiteSpace:'nowrap'}}>{m.label}</span>;
+};
+const VerifBadge = ({ok}) => (
+  <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:ok?TINT.okBg:'var(--bg-subtle)',color:ok?TINT.okText:C.mid,whiteSpace:'nowrap'}}>{ok?'Verificado':'Sin verificar'}</span>
+);
+
+// Duración legible entre registro y creación del local. Negativa = el local
+// existía antes del registro (match espurio o alta manual previa) → '—'.
+const fmtDur = ms => {
+  if (ms == null || isNaN(ms) || ms < 0) return '—';
+  const min = Math.round(ms/60000);
+  if (min < 60) return `${min} min`;
+  const h = Math.round(ms/3600000);
+  if (h < 48) return `${h} h`;
+  return `${Math.round(ms/86400000)} d`;
+};
+
+function RegistroDetailModal({registro, onClose, setFlash, reload}) {
+  const [estado, setEstado] = useState(registro.estado||'registrado');
+  const [saving, setSaving] = useState(false);
+  const local = registro.local;
+  const localPrevio = registro.localPrevio;
+
+  const Row = ({label,children}) => (
+    <div style={{display:'flex',gap:12,padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
+      <div style={{width:140,flexShrink:0,fontSize:12,color:C.mid,fontWeight:600}}>{label}</div>
+      <div style={{flex:1,fontSize:13,color:C.ink,minWidth:0,wordBreak:'break-word'}}>{children}</div>
+    </div>
+  );
+
+  const save = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    if (!REG_ESTADOS.includes(estado)) { setFlash({type:'error',text:'Estado inválido'}); return; }
+    setSaving(true);
+    const { error } = await db.from('leads_prospectos').update({ estado }).eq('id', registro.id);
+    setSaving(false);
+    if (error) { setFlash({type:'error',text:'No se pudo guardar el registro'}); return; }
+    setFlash({type:'success',text:'Registro actualizado'});
+    onClose(); reload();
+  };
+
+  return (
+    <Modal title="Detalle del registro" onClose={onClose} width={560}>
+      <div style={{marginBottom:18}}>
+        <Row label="Fecha">{fmtAlta(registro.created_at)}</Row>
+        <Row label="Email">{registro.email||'—'}</Row>
+        <Row label="Tipo de negocio">{regTipoLabel(registro.tipo_negocio)}</Row>
+        <Row label="Origen">{registro.origen||'—'}</Row>
+        <Row label="Verificado"><VerifBadge ok={registro.verificado}/></Row>
+        <Row label="Estado actual"><RegEstadoBadge estado={registro.estado}/></Row>
+        <Row label="Local creado">{local
+          ? <>{local.name} <Badge status={local.status}/></>
+          : localPrevio
+            ? <>{localPrevio.name} <Badge status={localPrevio.status}/> <span style={{fontSize:11,color:C.mid}}>(existía antes de este registro — no cuenta como conversión)</span></>
+            : '— (no creó local todavía)'}</Row>
+        {local && <Row label="Alta del local">{fmtAlta(local.created_at)}</Row>}
+        {local && <Row label="Tiempo hasta crear local">{fmtDur(new Date(local.created_at)-new Date(registro.created_at))}</Row>}
+      </div>
+      <FormField label="Estado" hint="Estado de gestión del prospecto (triage manual).">
+        <select value={estado} onChange={e=>setEstado(e.target.value)}>
+          {REG_ESTADOS.map(s=><option key={s} value={s}>{REG_ESTADO_META[s].label}</option>)}
+        </select>
+      </FormField>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+        <Btn variant="ghost" onClick={onClose}>Cerrar</Btn>
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function SitioRegistros({registros, restaurants, totalExact, setFlash, reload}) {
+  const [fEstado, setFEstado]         = useState('all');
+  const [fTipo, setFTipo]             = useState('all');
+  const [soloSinLocal, setSoloSinLocal] = useState(false);
+  const [selected, setSelected]       = useState(null);
+
+  // Cruce registro→local por email del dueño (case-insensitive + trim, null =
+  // sin match). Solo cuenta como conversión un local creado DESPUÉS del registro;
+  // si el local ya existía (alta manual previa / dueño re-registrándose) queda
+  // como "localPrevio": se muestra de referencia pero NO suma a los KPIs ni saca
+  // el lead del filtro "sin local".
+  const restsOk = Array.isArray(restaurants);
+  const byEmail = {};
+  (restsOk ? restaurants : []).forEach(r => {
+    const k = (r.owner_email||'').trim().toLowerCase();
+    if (!k) return;
+    (byEmail[k] = byEmail[k] || []).push(r);
+  });
+  const matchFor = lead => {
+    const k = (lead.email||'').trim().toLowerCase();
+    const cands = k ? byEmail[k] : null;
+    if (!cands || !cands.length) return {local:null, localPrevio:null};
+    const sorted = [...cands].sort((a,b)=>(a.created_at||'').localeCompare(b.created_at||''));
+    const post = sorted.find(r => (r.created_at||'') >= (lead.created_at||''));
+    return post ? {local:post, localPrevio:null} : {local:null, localPrevio:sorted[0]};
+  };
+  const enriched = registros.map(l => ({...l, ...matchFor(l)}));
+
+  // KPIs de conversión sobre EMAILS ÚNICOS: el form público permite filas
+  // duplicadas (doble submit / reintento), y contarlas 1:1 inflaría el funnel.
+  // verificado = true si ALGUNA fila del email lo está.
+  const byKey = new Map();
+  enriched.forEach(l => {
+    const k = (l.email||'').trim().toLowerCase() || `__id_${l.id}`;
+    const cur = byKey.get(k);
+    if (!cur) byKey.set(k, {verif:!!l.verificado, local:l.local});
+    else { cur.verif = cur.verif || !!l.verificado; cur.local = cur.local || l.local; }
+  });
+  const uniq = [...byKey.values()];
+
+  const since7   = Date.now() - 7*86400000;
+  const total    = enriched.length;
+  const totalTxt = totalExact!=null ? totalExact : total;   // count exacto: la lista se capa a 500
+  const capped   = totalExact!=null && totalExact > total;
+  const last7    = enriched.filter(l => l.created_at && new Date(l.created_at).getTime() >= since7).length;
+  const verifPct = uniq.length ? Math.round(uniq.filter(u=>u.verif).length/uniq.length*100) : 0;
+  const conLocal = uniq.filter(u=>u.local).length;
+  const convPct  = uniq.length ? Math.round(conLocal/uniq.length*100) : 0;
+  const activos  = uniq.filter(u=>u.local && u.local.status==='active').length;
+
+  let shown = enriched;
+  if (fEstado!=='all')  shown = shown.filter(l=>l.estado===fEstado);
+  if (fTipo!=='all')    shown = shown.filter(l=>l.tipo_negocio===fTipo);
+  if (soloSinLocal)     shown = shown.filter(l=>!l.local);
+
+  return (
+    <div>
+      {!restsOk && <div style={{background:TINT.warnBg,color:TINT.warnText,padding:'10px 14px',borderRadius:10,fontSize:12,fontWeight:600,marginBottom:14}}>
+        No se pudieron leer los restaurantes en esta carga: el cruce registro→local y las métricas de conversión no están disponibles (los registros sí).
+      </div>}
+      {capped && <div style={{fontSize:11,color:C.mid,marginBottom:10}}>
+        Mostrando los últimos {fmtNum(total)} registros de {fmtNum(totalTxt)}; porcentajes y funnel calculados sobre los cargados.
+      </div>}
+      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:18}}>
+        <Kpi label="Total registros"  value={fmtNum(totalTxt)} sub={`${fmtNum(uniq.length)} email${uniq.length!==1?'s':''} únicos${capped?' (cargados)':''}`}/>
+        <Kpi label="Últimos 7 días"   value={fmtNum(last7)}/>
+        <Kpi label="Verificados"      value={uniq.length ? `${verifPct}%` : '—'} sub="confirmaron su email"/>
+        <Kpi label="Crearon local"    value={restsOk ? fmtNum(conLocal) : '—'} sub="match por email del dueño"/>
+        <Kpi label="Conversión"       value={restsOk && uniq.length ? `${convPct}%` : '—'} sub="crearon local / registros"/>
+      </div>
+
+      {restsOk && <SectionCard title="Funnel: registro → local → pagando" style={{marginBottom:18}}>
+        <div style={{padding:'16px 20px'}}>
+          <HBars rows={[
+            {label:'Registrados',     value: uniq.length, note:'emails únicos'},
+            {label:'Crearon local',   value: conLocal},
+            {label:'Activos pagando', value: activos},
+          ]}/>
+        </div>
+      </SectionCard>}
+
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:16}}>
+        <select value={fEstado} onChange={e=>setFEstado(e.target.value)} style={{width:'auto',minWidth:150,fontSize:13}}>
+          <option value="all">Todos los estados</option>
+          {REG_ESTADOS.map(s=><option key={s} value={s}>{REG_ESTADO_META[s].label}</option>)}
+        </select>
+        <select value={fTipo} onChange={e=>setFTipo(e.target.value)} style={{width:'auto',minWidth:170,fontSize:13}}>
+          <option value="all">Todos los tipos</option>
+          {Object.keys(REG_TIPO_LABEL).map(t=><option key={t} value={t}>{REG_TIPO_LABEL[t]}</option>)}
+        </select>
+        <div style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:C.ink}}>
+          <Toggle checked={soloSinLocal} onChange={setSoloSinLocal}/>
+          <span onClick={()=>setSoloSinLocal(v=>!v)} style={{cursor:'pointer'}} title="Abandonos del wizard: se registraron pero no crearon su local">Solo sin local creado</span>
+        </div>
+        <span style={{fontSize:12,color:C.dim}}>{shown.length} registro{shown.length!==1?'s':''}</span>
+      </div>
+
+      <SectionCard>
+        {shown.length===0
+          ? <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>
+              {registros.length===0 ? 'Sin registros todavía (o la tabla no está accesible)' : 'Sin registros con los filtros actuales'}
+            </div>
+          : <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr>
+                  <Th>Fecha</Th><Th>Email</Th><Th>Tipo negocio</Th><Th>Origen</Th><Th>Verificado</Th><Th>Estado</Th><Th>Local creado</Th><Th>Tiempo hasta local</Th>
+                </tr></thead>
+                <tbody>
+                  {shown.map(l=>(
+                    <tr key={l.id} onClick={()=>setSelected(l)} style={{cursor:'pointer'}}
+                        onMouseEnter={e=>e.currentTarget.style.background='var(--bg-subtle)'}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                      <Td style={{whiteSpace:'nowrap',color:C.mid,fontSize:12}}>{fmtAlta(l.created_at)}</Td>
+                      <Td style={{fontSize:12}}>{l.email||'—'}</Td>
+                      <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{regTipoLabel(l.tipo_negocio)}</Td>
+                      <Td style={{fontSize:12,color:C.mid}}>{l.origen||'—'}</Td>
+                      <Td><VerifBadge ok={l.verificado}/></Td>
+                      <Td><RegEstadoBadge estado={l.estado}/></Td>
+                      <Td style={{fontSize:12}}>{l.local ? l.local.name : l.localPrevio ? <span style={{color:C.mid}}>{l.localPrevio.name} <span style={{fontSize:10}}>(previo)</span></span> : '—'}</Td>
+                      <Td style={{fontSize:12,color:C.mid,whiteSpace:'nowrap'}}>{l.local ? fmtDur(new Date(l.local.created_at)-new Date(l.created_at)) : '—'}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>}
+      </SectionCard>
+      {selected && <RegistroDetailModal registro={selected} onClose={()=>setSelected(null)} setFlash={setFlash} reload={reload}/>}
+    </div>
+  );
+}
+
+function SitioResumen({leads, events, registros=[], registrosTotal=null}) {
   const since = Date.now() - 7*86400000;
   const inWindow = arr => arr.filter(x => x.created_at && new Date(x.created_at).getTime() >= since);
   const rl = inWindow(leads), re = inWindow(events);
@@ -3870,6 +4087,7 @@ function SitioResumen({leads, events}) {
     <div>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:18}}>
         <Kpi label="Leads (7 días)" value={rl.length} sub={`${leads.length} en total`}/>
+        <Kpi label="Registros (7 días)" value={inWindow(registros).length} sub={`${fmtNum(registrosTotal!=null?registrosTotal:registros.length)} en total`}/>
         <Kpi label="Solicitudes demo (7 días)" value={kDemos}/>
         <Kpi label="Intereses trial (7 días)" value={kTrial}/>
         <Kpi label="Eventos (7 días)" value={re.length}/>
@@ -4560,13 +4778,17 @@ function PageSitioWeb({setFlash}) {
   const [addons, setAddons] = useState([]);
   const [faqs,   setFaqs]   = useState([]);
   const [testimonials, setTestimonials] = useState([]);
+  const [registros, setRegistros] = useState([]);
+  const [regRestaurants, setRegRestaurants] = useState(null);   // null = query falló → sin cruce (no confundir con "0 locales")
+  const [regCount, setRegCount] = useState(null);               // count exacto: la lista de registros se capa a 500
   const [loading,setLoading]= useState(true);
 
-  // Self-fetch (como PageSoporte). Solo tablas de mig 110. Degradado a [] si la
-  // tabla no existe o RLS deniega (no rompe el panel).
+  // Self-fetch (como PageSoporte). Tablas de mig 110 + leads_prospectos (mig 117)
+  // + restaurants para el cruce registro→local. Degradado a [] si la tabla no
+  // existe o RLS deniega (no rompe el panel).
   const load = useCallback(async () => {
     if (!db) { setLoading(false); return; }
-    const [l, e, c, p, a, f, t] = await Promise.all([
+    const [l, e, c, p, a, f, t, rg, rs, rc] = await Promise.all([
       db.from('marketing_leads').select('*').order('created_at',{ascending:false}).limit(500).then(r=>r.error?{data:[]}:r),
       db.from('marketing_events').select('*').order('created_at',{ascending:false}).limit(300).then(r=>r.error?{data:[]}:r),
       db.from('marketing_config').select('*').then(r=>r.error?{data:[]}:r),
@@ -4574,15 +4796,20 @@ function PageSitioWeb({setFlash}) {
       db.from('marketing_add_ons').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
       db.from('marketing_faqs').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
       db.from('marketing_testimonials').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
+      db.from('leads_prospectos').select('*').order('created_at',{ascending:false}).limit(500).then(r=>r.error?{data:[]}:r),
+      db.from('restaurants').select('id,name,owner_email,status,created_at').order('created_at',{ascending:true}).limit(2000).then(r=>r.error?{data:null}:r),
+      db.from('leads_prospectos').select('id',{count:'exact',head:true}).then(r=>r.error?{count:null}:r),
     ]);
     setLeads(l.data||[]); setEvents(e.data||[]); setConfig(c.data||[]); setPlans(p.data||[]); setAddons(a.data||[]);
     setFaqs(f.data||[]); setTestimonials(t.data||[]);
+    setRegistros(rg.data||[]); setRegRestaurants(rs.data); setRegCount(rc.count==null?null:rc.count);
     setLoading(false);
   }, []);
   useEffect(()=>{ load(); }, [load]);
 
   const TABS = [
     {id:'resumen',   label:'Resumen'},
+    {id:'registros', label:'Registros'},
     {id:'leads',     label:'Leads'},
     {id:'actividad', label:'Actividad'},
     {id:'planes',    label:'Planes'},
@@ -4600,7 +4827,8 @@ function PageSitioWeb({setFlash}) {
         <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:160,gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando…</span></div>
       ) : (
         <>
-          {tab==='resumen'   && <SitioResumen  leads={leads} events={events}/>}
+          {tab==='resumen'   && <SitioResumen  leads={leads} events={events} registros={registros} registrosTotal={regCount}/>}
+          {tab==='registros' && <SitioRegistros registros={registros} restaurants={regRestaurants} totalExact={regCount} setFlash={setFlash} reload={load}/>}
           {tab==='leads'     && <SitioLeads    leads={leads} setFlash={setFlash} reload={load}/>}
           {tab==='actividad' && <SitioActividad events={events}/>}
           {tab==='planes'    && <SitioPlanes   plans={plans} setFlash={setFlash} reload={load}/>}
