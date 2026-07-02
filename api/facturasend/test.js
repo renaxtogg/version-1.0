@@ -1,20 +1,32 @@
 // ════════════════════════════════════════════════════════════════════
-// PR-FE-0 · Smoke test de conexión con FacturaSend (SIFEN, sandbox)
+// Smoke test de conexión con FacturaSend (SIFEN, sandbox)
 // ────────────────────────────────────────────────────────────────────
-// Serverless (Vercel, Node 18). Hace GET {BASE}/{TENANT}/test con
-// "Authorization: Bearer $FACTURASEND_API_KEY" y devuelve el resultado, para
-// confirmar que la API responde OK con NUESTRA key ANTES de construir nada más.
+// Serverless (Vercel, Node 18). Hace GET {BASE}/{TENANT}/test y devuelve el
+// resultado, para confirmar que la API responde OK con NUESTRA key.
+//
+// Dos caminos:
+//   • PR-FE-1 — ?restaurant_id=<uuid>: resuelve el BillingProvider desde
+//     fiscal_config (service_role), DESCIFRA la api_key del tenant y prueba con
+//     esa key (source: 'db'). Es el camino "real" multi-tenant.
+//   • PR-FE-0 — sin restaurant_id: usa FACTURASEND_API_KEY del env como fallback
+//     del tenant demo durante la transición (source: 'env').
 //
 // SEGURIDAD:
-//   • La API key vive SÓLO en el server (env FACTURASEND_API_KEY). NUNCA se
-//     devuelve en la respuesta ni se loguea (sólo se envía en el header saliente).
+//   • La API key vive SÓLO en el server (env o cifrada en DB). NUNCA se devuelve
+//     ni se loguea (sólo viaja en el header saliente).
 //   • Ambiente SANDBOX ("No conectado a SIFEN"): sin efecto fiscal.
-//   • Gate opcional FACTURASEND_TEST_SECRET (fail-open si no está seteado, igual
-//     patrón que bancard-mock/keep-alive) para que este endpoint no gaste nuestra
-//     credencial de FacturaSend si queda expuesto. No bloquea el smoke test.
+//   • Camino DB (por tenant) = FAIL-CLOSED: exige FACTURASEND_TEST_SECRET, porque
+//     descifra la credencial REAL del tenant y la usa como proxy saliente, y
+//     restaurant_id NO es secreto (es el ?r= del QR). Sin gate sería un oráculo
+//     de enumeración + proxy credenciado sin throttle.
+//   • Camino ENV (fallback demo, PR-FE-0): gate opcional (fail-open si no está
+//     seteado); sólo usa la key demo del env, no descifra ni enumera por tenant.
+//   • Anti-flood: checkRateLimit por IP (fail-open sin Upstash).
 // Errores VISIBLES: nada de catch vacío; cada fallo devuelve status + motivo.
 // ════════════════════════════════════════════════════════════════════
 import { facturaSendAuthHeader } from './_client.js';
+import { resolveBillingProvider } from './_provider.js';
+import { checkRateLimit } from '../_ratelimit.js';
 
 export default async function handler(req, res) {
   // Sólo lectura.
@@ -22,12 +34,53 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // Gate opcional (fail-open si FACTURASEND_TEST_SECRET no está seteado).
+  // Anti-flood: este endpoint dispara llamadas salientes credenciadas a FacturaSend.
+  if (await checkRateLimit(req, res, { key: 'fs-test', max: 10, windowSec: 60 })) return;
+
+  // Gate: si FACTURASEND_TEST_SECRET está seteado, se exige en AMBOS caminos.
   const testSecret = process.env.FACTURASEND_TEST_SECRET;
   if (testSecret && req.headers['authorization'] !== `Bearer ${testSecret}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  // ── Camino DB (PR-FE-1): key CIFRADA por tenant ───────────────────────────
+  const restaurantId = (req.query && (req.query.restaurant_id || req.query.r)) || null;
+  if (restaurantId) {
+    // FAIL-CLOSED: descifra la credencial REAL del tenant → exige el secret
+    // (restaurant_id no es secreto). Sin secret: no se habilita el camino DB.
+    if (!testSecret) {
+      return res.status(403).json({
+        ok: false,
+        source: 'db',
+        error: 'Test por tenant deshabilitado: seteá FACTURASEND_TEST_SECRET para habilitarlo',
+      });
+    }
+    try {
+      const provider = await resolveBillingProvider(restaurantId);   // lee fiscal_config + descifra (server-only)
+      const result = await provider.test();
+      return res.status(result.ok ? 200 : 502).json({
+        ok: result.ok,
+        status: result.status,
+        source: 'db',
+        restaurant_id: restaurantId,
+        tenant: provider.tenant,
+        environment: provider.environment,
+        upstream: result.body,      // respuesta de FacturaSend (no contiene nuestra key)
+        checked_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      // Visible: falta config / inactiva / descifrado / red. El mensaje no contiene la key.
+      return res.status(502).json({
+        ok: false,
+        source: 'db',
+        restaurant_id: restaurantId,
+        error: e && e.message ? e.message : 'no se pudo resolver el proveedor de facturación',
+        checked_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  // ── Camino ENV (PR-FE-0, fallback demo) ───────────────────────────────────
   const BASE   = (process.env.FACTURASEND_BASE_URL || 'https://api.facturasend.com.py').trim().replace(/\/+$/, '');
   const TENANT = (process.env.FACTURASEND_TENANT   || 'renatomancuello').trim();
   const KEY    = (process.env.FACTURASEND_API_KEY  || '').trim();
@@ -59,6 +112,7 @@ export default async function handler(req, res) {
     return res.status(r.ok ? 200 : 502).json({
       ok: r.ok,
       status: r.status,
+      source: 'env',
       tenant: TENANT,
       environment: 'sandbox',       // "No conectado a SIFEN" — sin efecto fiscal
       key_present: true,            // la env var está cargada (sin exponer el valor)
@@ -69,6 +123,7 @@ export default async function handler(req, res) {
     // Error de red / fetch: visible, con el motivo (el mensaje no contiene la key).
     return res.status(502).json({
       ok: false,
+      source: 'env',
       error: e && e.message ? e.message : 'fetch a FacturaSend falló',
       upstream_status: upstreamStatus,
       tenant: TENANT,
