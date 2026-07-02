@@ -67,7 +67,10 @@ export default async function handler(req, res) {
       return res.status(502).json({ ok: false, error: 'FacturaSend no devolvió estado para el CDC', upstream: r ? r.body : null });
     }
 
-    const estado = mapSituacionToEstado(d.situacion, d.estado);
+    // Consultamos por CDC → el DE ya está generado (hasCdc=true): "generado/enviado
+    // en lote" es el estado TERMINAL GENERADO en modo desconectado. Conectado a
+    // SIFEN, una consulta posterior puede subirlo a APROBADO.
+    const estado = mapSituacionToEstado(d.situacion, d.estado, true);
     const motivo = d.respuesta_mensaje || null;
 
     if (doc) {
@@ -80,7 +83,7 @@ export default async function handler(req, res) {
     }
 
     return res.status(200).json({
-      ok: estado === 'APROBADO',
+      ok: estado === 'APROBADO' || estado === 'GENERADO',
       estado,
       situacion: d.situacion,
       cdc,

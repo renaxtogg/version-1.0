@@ -1,11 +1,15 @@
 // ════════════════════════════════════════════════════════════════════
 // BillingProvider — interfaz de facturación electrónica + impl FacturaSend.
 // ────────────────────────────────────────────────────────────────────
-// PR-FE-2: conectividad (test) + EMISIÓN sandbox. Implementados:
+// PR-FE-2: conectividad (test) + EMISIÓN sandbox. PR-FE-3: ciclo de vida completo.
+// Implementados:
 //   • emitir(deArray)        → POST {tenant}/lote/create (array de DE, máx 50)
-//   • consultarEstado(cdcs)  → POST {tenant}/de/estado   ({ cdcList:[{cdc}] })
+//   • consultarEstado(cdcs)  → POST {tenant}/de/estado    ({ cdcList:[{cdc}] })
 //   • obtenerKuDE(cdc)       → GET  {tenant}/de/xml/{cdc}
-// Pendientes (PR-FE-3+): cancelar / inutilizar → lanzan "no implementado".
+//   • obtenerPdf(cdc,{fmt})  → POST {tenant}/de/pdf        (PDF binario o base64)
+//   • enviarEmail(cdc,email) → POST {tenant}/de/email      ({ email, cdcList })
+//   • cancelar(cdc,motivo)   → POST {tenant}/evento/cancelacion   ({ cdc, motivo })
+//   • inutilizar(rango)      → POST {tenant}/evento/inutilizacion ({ tipoDocumento,… })
 //
 // resolveBillingProvider(restaurantId): lee fiscal_config con service_role,
 // DESCIFRA la api_key en el server, y construye la impl según fiscal_config.provider
@@ -23,11 +27,11 @@ import { facturaSendAuthHeader } from './_client.js';
  * @property {(deArray:any[]) => Promise<{ok:boolean,status:number,body:any}>} emitir          Envía un lote de DE.
  * @property {(cdcList:(string|{cdc:string})[]) => Promise<{ok:boolean,status:number,body:any}>} consultarEstado  Consulta estado por CDC.
  * @property {(cdc:string) => Promise<{ok:boolean,status:number,body:any}>} obtenerKuDE        XML/KuDE por CDC.
- * @property {(id:any, motivo:string) => Promise<any>} cancelar        (PR-FE-3)
- * @property {(rango:any) => Promise<any>}            inutilizar       (PR-FE-3)
+ * @property {(cdc:string, opts?:{format?:string}) => Promise<{ok:boolean,status:number,contentType?:string,buffer?:Buffer,body?:any}>} obtenerPdf  KuDE PDF por CDC.
+ * @property {(cdc:string, email:string) => Promise<{ok:boolean,status:number,body:any}>} enviarEmail  Reenvío por email.
+ * @property {(cdc:string, motivo:string) => Promise<{ok:boolean,status:number,body:any}>} cancelar        Evento de cancelación.
+ * @property {(rango:{tipoDocumento?:number,establecimiento:string,punto:string,desde:number,hasta:number,motivo:string,serie?:string}) => Promise<{ok:boolean,status:number,body:any}>} inutilizar  Evento de inutilización.
  */
-
-const notImpl = (m) => { throw new Error(`BillingProvider.${m}() no implementado todavía (fuera de PR-FE-2)`); };
 
 const DEFAULT_BASE = (process.env.FACTURASEND_BASE_URL || 'https://api.facturasend.com.py').trim().replace(/\/+$/, '');
 
@@ -91,8 +95,55 @@ export class FacturaSendProvider {
     return readResponse(r);
   }
 
-  cancelar()   { return notImpl('cancelar'); }
-  inutilizar() { return notImpl('inutilizar'); }
+  // KuDE en PDF (POST {tenant}/de/pdf, body { cdcList:[{cdc}], format }). El
+  // endpoint devuelve el PDF BINARIO (no JSON), así que NO usamos readResponse:
+  // leemos el arrayBuffer. Si el upstream falla, devuelve JSON de error → lo
+  // parseamos como texto para que el motivo quede VISIBLE.
+  // format: 'ticket' | 'a4' | 'custom' (default del emisor si se omite).
+  async obtenerPdf(cdc, { format } = {}) {
+    const body = { cdcList: [{ cdc }] };
+    if (format) body.format = format;
+    const r = await fetch(`${this.baseUrl}/${this.tenant}/de/pdf`, {
+      method: 'POST', headers: this._headers(true), body: JSON.stringify(body),
+    });
+    const contentType = r.headers.get('content-type') || '';
+    if (r.ok && /pdf/i.test(contentType)) {
+      const buf = Buffer.from(await r.arrayBuffer());
+      return { ok: true, status: r.status, contentType, buffer: buf };
+    }
+    // No es PDF (error del upstream u otro content-type) → superficie honesta.
+    const raw = await r.text();
+    let body2; try { body2 = raw ? JSON.parse(raw) : null; } catch (_) { body2 = raw; }
+    return { ok: false, status: r.status, contentType, body: body2 };
+  }
+
+  // Reenvío por email (POST {tenant}/de/email, body { email, cdcList:[{cdc}] }).
+  async enviarEmail(cdc, email) {
+    const r = await fetch(`${this.baseUrl}/${this.tenant}/de/email`, {
+      method: 'POST', headers: this._headers(true),
+      body: JSON.stringify({ email, cdcList: [{ cdc }] }),
+    });
+    return readResponse(r);
+  }
+
+  // Evento de cancelación (POST {tenant}/evento/cancelacion, body { cdc, motivo }).
+  async cancelar(cdc, motivo) {
+    const r = await fetch(`${this.baseUrl}/${this.tenant}/evento/cancelacion`, {
+      method: 'POST', headers: this._headers(true),
+      body: JSON.stringify({ cdc, motivo }),
+    });
+    return readResponse(r);
+  }
+
+  // Evento de inutilización de un rango de numeración (POST {tenant}/evento/inutilizacion,
+  // body { tipoDocumento, establecimiento, punto, desde, hasta, motivo, serie? }).
+  async inutilizar({ tipoDocumento = 1, establecimiento, punto, desde, hasta, motivo, serie = null }) {
+    const body = { tipoDocumento, establecimiento, punto, desde, hasta, motivo, serie };
+    const r = await fetch(`${this.baseUrl}/${this.tenant}/evento/inutilizacion`, {
+      method: 'POST', headers: this._headers(true), body: JSON.stringify(body),
+    });
+    return readResponse(r);
+  }
 }
 
 // Selección de impl por nombre de proveedor (extensible: sifende, etc.).

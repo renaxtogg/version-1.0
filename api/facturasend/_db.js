@@ -79,13 +79,17 @@ export async function getOrderForInvoice(restaurantId, orderId) {
   return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
-// Idempotencia: DE ya existente para (restaurant_id, order_id, tipo_de). null si no hay.
+// DE MÁS RECIENTE para (restaurant_id, order_id, tipo_de). null si no hay.
+// ORDER BY created_at DESC: desde la mig 139 una orden puede tener VARIAS filas
+// (intentos ERROR/RECHAZADO históricos + el DE vivo, que es siempre el más nuevo),
+// así que sin el orden se podría devolver la fila ERROR vieja (sin CDC) y reportar
+// una factura válida como "no emitida". Espeja el ORDER BY del RPC reclamar_o_crear_de.
 export async function getDocumentoByOrder(restaurantId, orderId, tipoDe) {
   const { url } = rest();
   const r = await fetch(
     `${url}/rest/v1/documentos_electronicos?restaurant_id=eq.${encodeURIComponent(restaurantId)}` +
     `&order_id=eq.${encodeURIComponent(orderId)}&tipo_de=eq.${encodeURIComponent(tipoDe)}` +
-    `&select=*&limit=1`,
+    `&select=*&order=created_at.desc&limit=1`,
     { headers: svcHeaders() },
   );
   if (!r.ok) throw new Error(`documentos_electronicos: lectura falló (HTTP ${r.status}) ${await r.text()}`);
@@ -153,4 +157,45 @@ export async function reservarNumero(restaurantId, tipoDe, establecimiento, punt
   const n = Number(val);
   if (!Number.isFinite(n) || n <= 0) throw new Error(`siguiente_numero_de: número inválido (${JSON.stringify(val)})`);
   return n;
+}
+
+// Get-or-create ATÓMICO del DE vivo de una orden (RPC mig 139, con SELECT ...
+// FOR UPDATE sobre la orden → sin carrera). Devuelve { doc, created }:
+//   • created=false → ya existía un DE vivo (no se consumió número): NO re-emitir.
+//   • created=true  → se creó un BORRADOR nuevo (número reservado): emitir.
+export async function reclamarOCrearDe(restaurantId, orderId, tipoDe, establecimiento, punto) {
+  const { url } = rest();
+  const r = await fetch(`${url}/rest/v1/rpc/reclamar_o_crear_de`, {
+    method: 'POST',
+    headers: svcHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({
+      p_restaurant_id: restaurantId, p_order_id: orderId, p_tipo_de: tipoDe,
+      p_establecimiento: String(establecimiento), p_punto: String(punto),
+    }),
+  });
+  if (!r.ok) {
+    const err = new Error(`reclamar_o_crear_de: falló (HTTP ${r.status}) ${await r.text()}`);
+    err.status = r.status;
+    throw err;
+  }
+  const val = await r.json();
+  // PostgREST devuelve el escalar jsonb directo, o lo envuelve en [{...}] según versión.
+  const obj = Array.isArray(val) ? val[0] : val;
+  if (!obj || !obj.doc || !obj.doc.id) {
+    throw new Error(`reclamar_o_crear_de: respuesta inesperada (${JSON.stringify(val)})`);
+  }
+  return { doc: obj.doc, created: obj.created === true };
+}
+
+// Inserta una fila de fiscal_inutilizaciones (mig 139). Devuelve la fila guardada.
+export async function insertInutilizacion(row) {
+  const { url } = rest();
+  const r = await fetch(`${url}/rest/v1/fiscal_inutilizaciones`, {
+    method: 'POST',
+    headers: svcHeaders({ 'Content-Type': 'application/json', Prefer: 'return=representation' }),
+    body: JSON.stringify(row),
+  });
+  if (!r.ok) throw new Error(`fiscal_inutilizaciones: insert falló (HTTP ${r.status}) ${await r.text()}`);
+  const rows = await r.json();
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
 }

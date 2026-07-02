@@ -167,18 +167,27 @@ export function buildEjemploDE({ numero, establecimiento = '001', punto = '001',
 }
 
 // situacion numérica (o estado texto) de FacturaSend → estado de documentos_electronicos.
-export function mapSituacionToEstado(situacion, estadoText) {
+//
+// hasCdc: si el DE ya tiene CDC (XML generado). En modo DESCONECTADO de SIFEN el
+// estado terminal es GENERADO (XML+CDC+KuDE existen) — APROBADO sólo llega
+// conectado (cert F1 + timbrado). Por eso "generado/enviado en lote" CON CDC se
+// mapea a GENERADO (éxito terminal), y SIN CDC a ENVIADO (transitorio, aún sin
+// documento). Un /estado posterior conectado a SIFEN puede subir GENERADO→APROBADO.
+export function mapSituacionToEstado(situacion, estadoText, hasCdc = false) {
+  const generadoOEnviado = hasCdc ? 'GENERADO' : 'ENVIADO';
   // Sólo usar la rama numérica si situacion es un número real (no null/''/undefined).
   const s = (situacion == null || situacion === '') ? NaN : Number(situacion);
   if (Number.isFinite(s)) {
     if (s === 2 || s === 3) return 'APROBADO';   // Aprobado / Aprobado con observación
     if (s === 4) return 'RECHAZADO';
     if (s === 99) return 'CANCELADO';
-    if (s === 0 || s === 1) return 'ENVIADO';    // Generado / Enviado en lote (transitorio)
+    if (s === 0 || s === 1) return generadoOEnviado;  // Generado / Enviado en lote
   }
   const t = (estadoText || '').toLowerCase();
   if (t.startsWith('aprob')) return 'APROBADO';
   if (t.startsWith('rechaz')) return 'RECHAZADO';
   if (t.startsWith('cancel')) return 'CANCELADO';
-  return 'ENVIADO';
+  if (t.startsWith('inutil')) return 'INUTILIZADO';
+  if (t.startsWith('gener'))  return hasCdc ? 'GENERADO' : 'ENVIADO';
+  return generadoOEnviado;
 }
