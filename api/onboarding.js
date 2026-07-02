@@ -123,9 +123,11 @@ module.exports = async function handler(req, res) {
     const endDate = end.toISOString().slice(0, 10);
 
     // 6a. Crear restaurante (status 'trial'). onboarding_date toma CURRENT_DATE por default.
+    // auto_provisioned distingue las altas web de las manuales del superadmin
+    // (la columna tiene DEFAULT false, mig 090 — sin esto quedan indistinguibles).
     const restResp = await httpsPost(`${SUPABASE_URL}/rest/v1/restaurants`,
       { ...svcJson, 'Prefer': 'return=representation' },
-      JSON.stringify({ name: restaurantName, owner_email: email, status: 'trial' }));
+      JSON.stringify({ name: restaurantName, owner_email: email, status: 'trial', auto_provisioned: true }));
     const restRow = (restResp.ok && Array.isArray(restResp.data)) ? restResp.data[0] : null;
     if (!restRow || !restRow.id) {
       res.status(400).json({ error: errMsg(restResp, 'No se pudo crear el local. Probá de nuevo.') }); return;

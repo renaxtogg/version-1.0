@@ -99,6 +99,13 @@ const DEMO = {
 const daysUntil = d => d ? Math.ceil((new Date(d) - new Date()) / 86400000) : null;
 const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'short',year:'numeric'}) : '—';
 const fmtDateTime = d => d ? new Date(d).toLocaleString('es-PY',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '—';
+// PR-SA1: "dd/mm/yyyy · HH:mm" siempre en hora de Paraguay (el navegador del
+// superadmin puede estar en otra zona).
+const fmtAlta = d => {
+  if (!d) return '—';
+  const x = new Date(d);
+  return `${x.toLocaleDateString('es-PY',{timeZone:'America/Asuncion',day:'2-digit',month:'2-digit',year:'numeric'})} · ${x.toLocaleTimeString('es-PY',{timeZone:'America/Asuncion',hour:'2-digit',minute:'2-digit',hour12:false})}`;
+};
 // ── Moneda de plataforma (configurable) ─────────────────────────
 // Los importes se guardan como número "puro" (la columna price_usd es un nombre
 // heredado) y se interpretan en la moneda elegida por el superadmin. No hay
@@ -902,18 +909,33 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
 
   const restSummary = [...enriched].sort((a,b)=>b.ordersToday-a.ordersToday);
 
+  // PR-SA1: registros web (leads_prospectos, mig 117 permite SELECT a superadmin).
+  // Si la tabla/RLS falla, la card degrada a "—" sin romper el dashboard.
+  const [webLeads, setWebLeads] = useState(null);
+  useEffect(() => {
+    if (!db) return;
+    let alive = true;
+    const ago7d = new Date(Date.now()-7*86400000).toISOString();
+    Promise.all([
+      db.from('leads_prospectos').select('id',{count:'exact',head:true}).gte('created_at',ago7d).then(r=>r.error?{count:null}:r),
+      db.from('leads_prospectos').select('id',{count:'exact',head:true}).then(r=>r.error?{count:null}:r),
+    ]).then(([w,t]) => { if (alive) setWebLeads({week:w.count, total:t.count}); });
+    return () => { alive = false; };
+  }, []);
+
   return (
     <div className="animate-in">
       {/* Salud en vivo — semáforo + alertas activas + actividad (datos reales del RPC).
           Las suscripciones por vencer ahora viven dentro de "Alertas activas". */}
       <LiveHealth {...sys} enriched={enriched}/>
 
-      {/* 4 KPI cards */}
+      {/* 5 KPI cards */}
       <div style={{display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'}}>
         <Kpi label="Restaurantes activos" value={activos}                        sub={`de ${enriched.length} totales`}/>
         <Kpi label="MRR Total"            value={fmtGuarani(mrrTotal)}           sub="suscripciones activas"/>
         <Kpi label="Pedidos hoy"          value={pedidosHoy}                     sub="todos los locales"/>
         <Kpi label="Rating promedio"      value={ratingProm ? String(ratingProm) : '—'} sub="últimas 48hs"/>
+        <Kpi label="Registros web (7 días)" value={webLeads&&webLeads.week!=null ? fmtNum(webLeads.week) : '—'} sub={webLeads&&webLeads.total!=null ? `${fmtNum(webLeads.total)} en total` : undefined}/>
       </div>
 
       <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:18,alignItems:'start'}}>
@@ -1274,6 +1296,8 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
     clients: {label:'Más clientes',         fn:(a,b)=>b.clients-a.clients},
     mrr:     {label:'Más rentables (MRR)',   fn:(a,b)=>((b.subscription?.monthly_amount||0)+b.addonMRR)-((a.subscription?.monthly_amount||0)+a.addonMRR)},
     rating:  {label:'Mejor calificados',     fn:(a,b)=>(b.avgRating||0)-(a.avgRating||0)},
+    oldest:  {label:'Más antiguos primero',  fn:(a,b)=>(a.created_at||'').localeCompare(b.created_at||'')},
+    newest:  {label:'Más nuevos primero',    fn:(a,b)=>(b.created_at||'').localeCompare(a.created_at||'')},
   };
 
   const shown = enriched.filter(r=>{
@@ -1419,8 +1443,10 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
                   <div style={{fontSize:16,fontWeight:700,color:C.ink,marginBottom:3,display:'flex',alignItems:'center',gap:6}}>
                     {r.name}
                     {!isRoot(r)&&<span title={`Sucursal de ${parentName(r)}`} style={{fontSize:9,fontWeight:800,background:C.ink,color:C.card,padding:'2px 7px',borderRadius:5,letterSpacing:.3,textTransform:'uppercase'}}>Sucursal</span>}
+                    {r.auto_provisioned===true&&<span title="Registro self-service desde la web" style={{fontSize:9,fontWeight:800,background:TINT.infoBg,color:TINT.infoText,padding:'2px 7px',borderRadius:5,letterSpacing:.3,textTransform:'uppercase'}}>Alta web</span>}
                   </div>
                   <div style={{fontSize:12,color:C.mid}}>{r.address||r.city}{r.city&&r.address?`, ${r.city}`:''}</div>
+                  {r.created_at&&<div style={{fontSize:11,color:C.mid,marginTop:2}}>Alta: {fmtAlta(r.created_at)}</div>}
                   {!isRoot(r)&&<div style={{fontSize:11,color:C.dim,marginTop:2}}>↳ {parentName(r)}</div>}
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}>
