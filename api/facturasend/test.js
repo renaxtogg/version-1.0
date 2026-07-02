@@ -14,6 +14,8 @@
 //     credencial de FacturaSend si queda expuesto. No bloquea el smoke test.
 // Errores VISIBLES: nada de catch vacío; cada fallo devuelve status + motivo.
 // ════════════════════════════════════════════════════════════════════
+import { facturaSendAuthHeader } from './_client.js';
+
 export default async function handler(req, res) {
   // Sólo lectura.
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -42,7 +44,8 @@ export default async function handler(req, res) {
     const r = await fetch(url, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${KEY}`,   // ← único lugar donde se usa la key; nunca se loguea ni se devuelve
+        // FacturaSend exige "Bearer api_key_<KEY>" — el prefijo lo pone el helper.
+        Authorization: facturaSendAuthHeader(KEY),   // ← único lugar donde se usa la key; nunca se loguea ni se devuelve
         Accept: 'application/json',
       },
     });
