@@ -2974,6 +2974,7 @@ const NAV = [
   {id:'capacidad',      label:'Capacidad'},
   {id:'restaurantes',   label:'Restaurantes'},
   {id:'facturacion',    label:'Facturación'},
+  {id:'fiscal',         label:'Fiscal'},
   {id:'usuarios',       label:'Usuarios'},
   {id:'soporte',        label:'Soporte'},
   {id:'reportes',       label:'Reportes'},
@@ -4841,6 +4842,329 @@ function PageSitioWeb({setFlash}) {
   );
 }
 
+/* ══════════════════════════════════════════════
+   PÁGINA FISCAL (superadmin) — PR-SA3
+   Dashboard de facturación electrónica (SIFEN/FacturaSend): config por local
+   (vista fiscal_config_admin, mig 141 — SIN secretos), documentos emitidos
+   (documentos_electronicos, mig 138/139) y costo estimado (tarifa en
+   platform_config). Self-fetch degradado a [] (patrón PageSitioWeb). Sólo lectura,
+   salvo la tarifa (upsert en platform_config, igual que la moneda).
+══════════════════════════════════════════════ */
+// Estado del DE → color. GENERADO es el éxito TERMINAL en sandbox desconectado
+// (mig 139); se muestra como OK igual que APROBADO. ERROR = fallo de emisión.
+const FISCAL_ESTADO_META = {
+  APROBADO:    {label:'Aprobado',    bg:TINT.okBg,          color:TINT.okText},
+  GENERADO:    {label:'Generado',    bg:TINT.okBg,          color:TINT.okText},
+  ENVIADO:     {label:'Enviado',     bg:TINT.infoBg,        color:TINT.infoText},
+  BORRADOR:    {label:'Borrador',    bg:'var(--bg-subtle)', color:C.mid},
+  RECHAZADO:   {label:'Rechazado',   bg:TINT.dangerBg,      color:TINT.dangerText},
+  ERROR:       {label:'Error',       bg:TINT.dangerBg,      color:TINT.dangerText},
+  CANCELADO:   {label:'Cancelado',   bg:TINT.warnBg,        color:TINT.warnText},
+  INUTILIZADO: {label:'Inutilizado', bg:TINT.warnBg,        color:TINT.warnText},
+};
+const fiscalEstadoMeta = e => FISCAL_ESTADO_META[e] || {label:e||'—', color:C.mid, bg:'var(--bg-subtle)'};
+const FE_OK      = new Set(['APROBADO','GENERADO']);   // éxito terminal
+const FE_BAD     = new Set(['RECHAZADO','ERROR']);     // fallo terminal
+const FE_PENDING = new Set(['ENVIADO']);               // en vuelo
+const FISCAL_ESTADOS = ['GENERADO','APROBADO','ENVIADO','BORRADOR','RECHAZADO','ERROR','CANCELADO','INUTILIZADO'];
+
+const FiscalBadge = ({estado, title}) => {
+  const m = fiscalEstadoMeta(estado);
+  return <span title={title||undefined} style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,background:m.bg,color:m.color,whiteSpace:'nowrap'}}>{m.label}</span>;
+};
+// Badge sí/no genérico (estado FE Activa/Inactiva, credencial cargada, etc.)
+const YesNoBadge = ({on, yes='Sí', no='No'}) => (
+  <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,whiteSpace:'nowrap',
+    background:on?TINT.okBg:'var(--bg-subtle)', color:on?TINT.okText:C.mid}}>{on?yes:no}</span>
+);
+// Environment: production en verde (real), sandbox/test gris.
+const EnvBadge = ({env}) => {
+  const prod = (env||'').toLowerCase()==='production';
+  return <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600,whiteSpace:'nowrap',
+    background:prod?TINT.okBg:'var(--bg-subtle)', color:prod?TINT.okText:C.mid}}>{env||'—'}</span>;
+};
+
+// Mes en hora de Paraguay como 'YYYY-MM' (agrupar/filtrar por mes real, no el del navegador).
+const mesPY = d => d ? new Date(d).toLocaleDateString('en-CA',{timeZone:'America/Asuncion'}).slice(0,7) : '';
+const mesActualPY = () => new Date().toLocaleDateString('en-CA',{timeZone:'America/Asuncion'}).slice(0,7);
+const mesLabelPY = ym => {
+  if(!ym) return '—';
+  const [y,m]=ym.split('-');
+  return new Date(Number(y),Number(m)-1,1).toLocaleDateString('es-PY',{month:'short',year:'numeric'});
+};
+// CDC (44 díg.): primeros 8…últimos 4 para no desbordar la tabla.
+const truncCdc = c => { const s=String(c||''); return s.length>14 ? `${s.slice(0,8)}…${s.slice(-4)}` : s; };
+
+function CopyBtn({text, label='Copiar'}) {
+  const [done,setDone]=useState(false);
+  const copy=async()=>{ try{ await navigator.clipboard.writeText(String(text||'')); setDone(true); setTimeout(()=>setDone(false),1500); }catch(_){} };
+  return (
+    <button onClick={copy} title={`Copiar ${text}`}
+      style={{background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,padding:'2px 8px',fontSize:11,fontWeight:600,color:done?C.green:C.mid,cursor:'pointer',whiteSpace:'nowrap'}}>
+      {done?'✓ Copiado':label}
+    </button>
+  );
+}
+
+function PageFiscal({setFlash}) {
+  const [configs, setConfigs] = useState([]);   // fiscal_config_admin (sin secretos)
+  const [docs,    setDocs]    = useState([]);    // documentos_electronicos (200 recientes)
+  const [rests,   setRests]   = useState([]);    // restaurants id,name (cruce por id)
+  const [pconf,   setPconf]   = useState([]);    // platform_config (tarifa fe_*)
+  const [loading, setLoading] = useState(true);
+  const [fRest,   setFRest]   = useState('all');
+  const [fEstado, setFEstado] = useState('all');
+  const [fMes,    setFMes]    = useState('all');
+  const [editT,   setEditT]   = useState(false);
+  const [tDoc,    setTDoc]    = useState('');
+  const [tFijo,   setTFijo]   = useState('');
+
+  // Self-fetch, degradado a [] si la tabla/vista no existe o RLS deniega (no rompe el panel).
+  const load = useCallback(async () => {
+    if (!db) { setLoading(false); return; }
+    const [fc, de, rs, pc] = await Promise.all([
+      db.from('fiscal_config_admin').select('*').then(r=>r.error?{data:[]}:r),
+      db.from('documentos_electronicos').select('*').order('created_at',{ascending:false}).limit(200).then(r=>r.error?{data:[]}:r),
+      db.from('restaurants').select('id,name').order('name',{ascending:true}).limit(2000).then(r=>r.error?{data:[]}:r),
+      db.from('platform_config').select('*').then(r=>r.error?{data:[]}:r),
+    ]);
+    setConfigs(fc.data||[]); setDocs(de.data||[]); setRests(rs.data||[]); setPconf(pc.data||[]);
+    setLoading(false);
+  }, []);
+  useEffect(()=>{ load(); }, [load]);
+
+  if (loading) {
+    return <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:180,gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando…</span></div>;
+  }
+
+  const nameById = {};
+  rests.forEach(r => { nameById[r.id] = r.name; });
+  const restName = id => nameById[id] || (id ? `${String(id).slice(0,8)}…` : '—');
+  const mesA = mesActualPY();
+
+  // ── Config por local ──────────────────────────────────────────
+  const activos    = configs.filter(c => c.active);
+  const enProd     = activos.filter(c => (c.environment||'').toLowerCase()==='production').length;
+  const enSandbox  = activos.length - enProd;
+
+  // ── Documentos: agrupaciones ──────────────────────────────────
+  const docsByRest = {};
+  docs.forEach(d => { (docsByRest[d.restaurant_id] = docsByRest[d.restaurant_id] || []).push(d); });
+  const capped = docs.length >= 200;
+
+  const docsMes = docs.filter(d => mesPY(d.created_at)===mesA);
+  const okAll   = docs.filter(d => FE_OK.has(d.estado));
+  const badAll  = docs.filter(d => FE_BAD.has(d.estado));
+  const pendAll = docs.filter(d => FE_PENDING.has(d.estado));
+  const generados = docs.filter(d => d.estado==='GENERADO').length;
+  const denom   = okAll.length + badAll.length + pendAll.length;
+  const exitoPct = denom ? Math.round(okAll.length/denom*100) : null;
+
+  // ── Costo estimado (tarifa en platform_config) ────────────────
+  const cfgVal = k => pconf.find(c => c.key===k)?.value;
+  const porDoc = Number(cfgVal('fe_costo_por_doc'))||0;
+  const fijo   = Number(cfgVal('fe_costo_fijo_mensual'))||0;
+  const tarifaSet = porDoc>0 || fijo>0;
+  // Aprobados/generados del mes por local → base del costo variable.
+  const aprobMesByRest = {};
+  docs.forEach(d => { if (FE_OK.has(d.estado) && mesPY(d.created_at)===mesA) aprobMesByRest[d.restaurant_id]=(aprobMesByRest[d.restaurant_id]||0)+1; });
+  const okMesTotal = Object.values(aprobMesByRest).reduce((a,b)=>a+b,0);
+  // Costo = fijo×locales activos + docs aprobados del mes × costo/doc. El desglose
+  // incluye TODO local activo O con docs aprobados este mes, y su suma reconcilia
+  // exacto con el titular (el fijo sólo se cobra a los locales activos).
+  const activeIds = new Set(activos.map(c=>c.restaurant_id));
+  const desgloseIds = Array.from(new Set([...activos.map(c=>c.restaurant_id), ...Object.keys(aprobMesByRest)]));
+  const desglose = desgloseIds.map(id => {
+    const cfg = configs.find(c => c.restaurant_id===id);
+    const isActive = activeIds.has(id);
+    const n = aprobMesByRest[id]||0;
+    return { id, name:restName(id), env:cfg?cfg.environment:'—', active:isActive, docs:n, costo:(isActive?fijo:0) + n*porDoc };
+  }).filter(x => x.active || x.docs>0);
+  const costoTotal = fijo*activos.length + okMesTotal*porDoc;
+
+  const startEdit = () => { setTDoc(porDoc?String(porDoc):''); setTFijo(fijo?String(fijo):''); setEditT(true); };
+  const saveTarifa = async () => {
+    if (!db) return;
+    const now = new Date().toISOString();
+    const rows = [
+      { key:'fe_costo_por_doc',      value:String(Number(tDoc)||0),  updated_at:now },
+      { key:'fe_costo_fijo_mensual', value:String(Number(tFijo)||0), updated_at:now },
+    ];
+    const { error } = await db.from('platform_config').upsert(rows, { onConflict:'key' });
+    if (error) { setFlash && setFlash({type:'error', text:'No se pudo guardar la tarifa'}); return; }
+    setFlash && setFlash({type:'success', text:'Tarifa actualizada'});
+    setEditT(false); load();
+  };
+
+  // ── Documentos: filtros ───────────────────────────────────────
+  const mesesPresentes = Array.from(new Set(docs.map(d => mesPY(d.created_at)).filter(Boolean))).sort().reverse();
+  const restsConDocs   = Array.from(new Set(docs.map(d => d.restaurant_id).filter(Boolean)));
+  let shownDocs = docs;
+  if (fRest!=='all')   shownDocs = shownDocs.filter(d => d.restaurant_id===fRest);
+  if (fEstado!=='all') shownDocs = shownDocs.filter(d => d.estado===fEstado);
+  if (fMes!=='all')    shownDocs = shownDocs.filter(d => mesPY(d.created_at)===fMes);
+
+  const numeroDe = d => [d.establecimiento||'—', d.punto||'—', d.numero||'—'].join('-');
+
+  return (
+    <div className="animate-in">
+      {/* KPIs */}
+      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:18}}>
+        <Kpi label="Locales con FE activa" value={fmtNum(activos.length)} sub={`${fmtNum(enProd)} en producción · ${fmtNum(enSandbox)} en sandbox`}/>
+        <Kpi label="Docs este mes"         value={fmtNum(docsMes.length)} sub={mesLabelPY(mesA)}/>
+        <Kpi label="Aprobados"             value={fmtNum(okAll.length)}   sub={generados?`incl. ${fmtNum(generados)} generados (sandbox)`:'emitidos OK'}/>
+        <Kpi label="Rechazados"            value={fmtNum(badAll.length)}  sub="rechazados / error"/>
+        <Kpi label="% de éxito"            value={exitoPct==null?'—':`${exitoPct}%`} sub="OK / enviados+OK+rechazados"/>
+      </div>
+      {capped && <div style={{fontSize:11,color:C.mid,marginBottom:14}}>Mostrando los 200 documentos más recientes; las métricas se calculan sobre ellos.</div>}
+
+      {/* Costo estimado */}
+      <SectionCard title="Costo estimado del mes" style={{marginBottom:18}}
+        action={<button onClick={editT?()=>setEditT(false):startEdit} style={{background:'transparent',border:`1px solid ${C.border}`,borderRadius:8,padding:'5px 12px',fontSize:12,fontWeight:600,color:C.ink,cursor:'pointer'}}>{editT?'Cancelar':'Editar tarifa'}</button>}>
+        <div style={{padding:'16px 20px'}}>
+          {editT ? (
+            <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'flex-end'}}>
+              <div style={{flex:'1 1 200px',minWidth:180}}>
+                <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>Costo por documento ({CCY.symbol})</label>
+                <input type="number" min="0" step={CCY.step} value={tDoc} onChange={e=>setTDoc(e.target.value)} placeholder={CCY.ph}
+                  style={{width:'100%',fontSize:13,padding:'9px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.surface,color:C.ink}}/>
+              </div>
+              <div style={{flex:'1 1 200px',minWidth:180}}>
+                <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>Costo fijo mensual por local ({CCY.symbol})</label>
+                <input type="number" min="0" step={CCY.step} value={tFijo} onChange={e=>setTFijo(e.target.value)} placeholder={CCY.ph}
+                  style={{width:'100%',fontSize:13,padding:'9px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.surface,color:C.ink}}/>
+              </div>
+              <Btn onClick={saveTarifa}>Guardar tarifa</Btn>
+            </div>
+          ) : !tarifaSet ? (
+            <div style={{textAlign:'center',padding:'12px 0'}}>
+              <div style={{fontSize:14,fontWeight:700,color:C.ink,marginBottom:4}}>Configurá la tarifa</div>
+              <div style={{fontSize:12,color:C.mid}}>Cargá el costo por documento y/o el fijo mensual por local para estimar el gasto de facturación electrónica.</div>
+            </div>
+          ) : (
+            <div>
+              <div style={{display:'flex',alignItems:'baseline',gap:12,flexWrap:'wrap',marginBottom:12}}>
+                <span style={{fontSize:30,fontWeight:800,color:C.ink,letterSpacing:'-0.5px'}}>{fmtMoney(costoTotal)}</span>
+                <span style={{fontSize:12,color:C.mid}}>
+                  {fmtMoney(fijo)} fijo × {fmtNum(activos.length)} local{activos.length!==1?'es':''} + {fmtNum(okMesTotal)} doc aprob. × {fmtMoney(porDoc)}
+                </span>
+              </div>
+              {desglose.length>0 ? (
+                <div style={{overflowX:'auto'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <thead><tr><Th>Local</Th><Th>Ambiente</Th><Th style={{textAlign:'right'}}>Docs aprob. (mes)</Th><Th style={{textAlign:'right'}}>Costo estimado</Th></tr></thead>
+                    <tbody>
+                      {desglose.map(x=>(
+                        <tr key={x.id}>
+                          <Td style={{fontSize:13}}>{x.name}{!x.active && <span style={{fontSize:10,color:C.dim,marginLeft:6}}>(inactiva)</span>}</Td>
+                          <Td><EnvBadge env={x.env}/></Td>
+                          <Td style={{textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{fmtNum(x.docs)}</Td>
+                          <Td style={{textAlign:'right',fontVariantNumeric:'tabular-nums',fontWeight:600}}>{fmtMoney(x.costo)}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <div style={{fontSize:12,color:C.dim}}>Sin locales con FE activa para estimar.</div>}
+            </div>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* Locales */}
+      <SectionCard title={`Locales (${fmtNum(configs.length)})`} style={{marginBottom:18}}>
+        {configs.length===0
+          ? <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>Ningún local tiene facturación electrónica configurada</div>
+          : <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr>
+                  <Th>Restaurante</Th><Th>Estado FE</Th><Th>Ambiente</Th><Th>Key</Th><Th>RUC</Th><Th>Timbrado</Th><Th>Est-Punto</Th><Th style={{textAlign:'right'}}>Docs (mes)</Th><Th>Último doc</Th>
+                </tr></thead>
+                <tbody>
+                  {configs.map(c=>{
+                    const ds = docsByRest[c.restaurant_id]||[];
+                    const dmes = ds.filter(d=>mesPY(d.created_at)===mesA).length;
+                    const ult = ds[0];   // desc global → primero = más reciente del local
+                    return (
+                      <tr key={c.id}>
+                        <Td style={{fontSize:13,fontWeight:600}}>{restName(c.restaurant_id)}</Td>
+                        <Td><YesNoBadge on={c.active} yes="Activa" no="Inactiva"/></Td>
+                        <Td><EnvBadge env={c.environment}/></Td>
+                        <Td><YesNoBadge on={c.has_api_key}/></Td>
+                        <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{c.ruc||'—'}</Td>
+                        <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{c.timbrado||'—'}</Td>
+                        <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{(c.establecimiento||'—')}-{(c.punto_expedicion||'—')}</Td>
+                        <Td style={{textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{fmtNum(dmes)}</Td>
+                        <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{ult ? <span style={{display:'inline-flex',alignItems:'center',gap:8}}><span style={{color:C.mid}}>{fmtAlta(ult.created_at)}</span><FiscalBadge estado={ult.estado}/></span> : '—'}</Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>}
+      </SectionCard>
+
+      {/* Documentos recientes */}
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
+        <select value={fRest} onChange={e=>setFRest(e.target.value)} style={{width:'auto',minWidth:170,fontSize:13}}>
+          <option value="all">Todos los locales</option>
+          {restsConDocs.map(id=><option key={id} value={id}>{restName(id)}</option>)}
+        </select>
+        <select value={fEstado} onChange={e=>setFEstado(e.target.value)} style={{width:'auto',minWidth:150,fontSize:13}}>
+          <option value="all">Todos los estados</option>
+          {FISCAL_ESTADOS.map(s=><option key={s} value={s}>{fiscalEstadoMeta(s).label}</option>)}
+        </select>
+        <select value={fMes} onChange={e=>setFMes(e.target.value)} style={{width:'auto',minWidth:130,fontSize:13}}>
+          <option value="all">Todos los meses</option>
+          {mesesPresentes.map(m=><option key={m} value={m}>{mesLabelPY(m)}</option>)}
+        </select>
+        <span style={{fontSize:12,color:C.dim}}>{shownDocs.length} doc{shownDocs.length!==1?'s':''}</span>
+      </div>
+
+      <SectionCard title="Documentos recientes">
+        {docs.length===0
+          ? <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>Sin documentos todavía</div>
+          : shownDocs.length===0
+          ? <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>Sin documentos con los filtros actuales</div>
+          : <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr>
+                  <Th>Fecha</Th><Th>Restaurante</Th><Th>Número</Th><Th>Estado</Th><Th>CDC</Th><Th>XML</Th>
+                </tr></thead>
+                <tbody>
+                  {shownDocs.map(d=>{
+                    const rechazo = (d.estado==='RECHAZADO'||d.estado==='ERROR') ? d.motivo_rechazo : null;
+                    return (
+                      <tr key={d.id}>
+                        <Td style={{whiteSpace:'nowrap',color:C.mid,fontSize:12}}>{fmtAlta(d.created_at)}</Td>
+                        <Td style={{fontSize:12}}>{restName(d.restaurant_id)}</Td>
+                        <Td style={{fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",whiteSpace:'nowrap'}}>{numeroDe(d)}</Td>
+                        <Td>
+                          <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                            <FiscalBadge estado={d.estado} title={rechazo||undefined}/>
+                            {rechazo && <span title={rechazo} style={{fontSize:11,color:TINT.dangerText,maxWidth:280,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{rechazo}</span>}
+                          </div>
+                        </Td>
+                        <Td style={{whiteSpace:'nowrap'}}>
+                          {d.cdc
+                            ? <span style={{display:'inline-flex',alignItems:'center',gap:8}}>
+                                <span title={d.cdc} style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,color:C.mid}}>{truncCdc(d.cdc)}</span>
+                                <CopyBtn text={d.cdc}/>
+                              </span>
+                            : <span style={{color:C.dim,fontSize:12}}>—</span>}
+                        </Td>
+                        <Td>{d.xml_url ? <a href={d.xml_url} target="_blank" rel="noopener noreferrer" style={{fontSize:12,color:C.ink,fontWeight:600}}>XML ↗</a> : <span style={{color:C.dim,fontSize:12}}>—</span>}</Td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>}
+      </SectionCard>
+    </div>
+  );
+}
+
 function Sidebar({page, setPage, badges={}, themeMode, onToggleTheme}) {
   const signOut = async () => {
     if (db) { try { await db.auth.signOut(); } catch(e){} }
@@ -4988,7 +5312,7 @@ function App() {
   // Se aplica en el cuerpo del render para que los hijos formateen ya con la moneda correcta.
   setPlatformCurrency(platformConfig.find(c=>c.key==='platform_currency')?.value);
 
-  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',usuarios:'Usuarios',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración'};
+  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',fiscal:'Fiscal',usuarios:'Usuarios',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración'};
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
@@ -5025,6 +5349,7 @@ function App() {
               {page==='capacidad'     && <PageCapacidad    enriched={enriched}/>}
               {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} addonCatalog={addonCatalog} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} addonCatalog={addonCatalog} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='fiscal'        && <PageFiscal       setFlash={setFlash}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
               {page==='soporte'       && <PageSoporte      setFlash={setFlash}/>}
               {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
