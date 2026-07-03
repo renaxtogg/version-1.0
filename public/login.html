@@ -231,6 +231,8 @@
       case 'cocina':           return 'cocina.html';
       case 'rider':
       case 'repartidor':       return 'delivery-rider.html';
+      case 'supplier':
+      case 'proveedor':        return 'proveedor.html';
       default:                 return null;
     }
   }
@@ -242,8 +244,10 @@
     const dest = homeForRole(profile.role);
     if (!dest) return 'Tu cuenta tiene un rol no reconocido. Contactá al administrador.';
 
-    // superadmin opera a nivel plataforma → no requiere comercio asignado
-    if (!profile.restaurant_id && profile.role.toLowerCase() !== 'superadmin')
+    // superadmin y supplier operan a nivel plataforma → no requieren comercio asignado
+    if (!profile.restaurant_id
+        && profile.role.toLowerCase() !== 'superadmin'
+        && profile.role.toLowerCase() !== 'supplier')
       return 'Tu cuenta no está vinculada a ningún comercio activo.';
 
     clearSession();
@@ -266,6 +270,8 @@
       case 'cocina':           return 'Cocina';
       case 'rider':
       case 'repartidor':       return 'Delivery (Rider)';
+      case 'supplier':
+      case 'proveedor':        return 'Proveedor';
       default:                 return role || 'Panel';
     }
   }
@@ -349,7 +355,9 @@
       rows.forEach(r => {
         const dest = homeForRole(r.role);
         if (!dest) return;
-        const okTenant = r.restaurant_id || String(r.role).toLowerCase() === 'superadmin';
+        const okTenant = r.restaurant_id
+          || String(r.role).toLowerCase() === 'superadmin'
+          || String(r.role).toLowerCase() === 'supplier';
         if (!okTenant) return;
         if (seen[dest]) return; seen[dest] = true;
         items.push({ role: r.role, restaurant_id: r.restaurant_id, dest });

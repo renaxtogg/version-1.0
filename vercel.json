@@ -21,7 +21,8 @@
     { "source": "/mozo", "destination": "/mozo.html" },
     { "source": "/gerente", "destination": "/gerente.html" },
     { "source": "/delivery-cliente", "destination": "/delivery-cliente.html" },
-    { "source": "/delivery-rider", "destination": "/delivery-rider.html" }
+    { "source": "/delivery-rider", "destination": "/delivery-rider.html" },
+    { "source": "/proveedor", "destination": "/proveedor.html" }
   ],
   "headers": [
     {
