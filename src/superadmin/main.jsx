@@ -2967,6 +2967,1048 @@ function PageActividad({events, restaurants, setFlash, reload}) {
   );
 }
 
+/* ════════════════════════════════════════════════════════════════════════════
+   PAGE: PROVEEDORES — Marketplace B2B (FASE 3, PR-MKT-3)
+   Gestión total del marketplace: Resumen · Solicitudes (CRM) · Proveedores ·
+   Productos · Leads · Categorías · Reclamos. Superadmin tiene RLS ALL sobre las
+   tablas marketplace_* (mig 142); las agregaciones pesadas del Resumen y los
+   eventos de suspensión salen por RPC DEFINER (mig 144). No toca los proveedores
+   internos del gerente (public.suppliers, mig 072): otro dominio.
+   ════════════════════════════════════════════════════════════════════════════ */
+const MKP_SUP_ESTADO = {
+  activo:     {label:'Activo',     color:TINT.okText,     bg:TINT.okBg},
+  pausado:    {label:'Pausado',    color:TINT.warnText,   bg:TINT.warnBg},
+  suspendido: {label:'Suspendido', color:TINT.dangerText, bg:TINT.dangerBg},
+};
+const MKP_APP_ESTADO = {
+  pendiente:   {label:'Pendiente',   color:TINT.infoText,   bg:TINT.infoBg},
+  en_revision: {label:'En revisión', color:TINT.warnText,   bg:TINT.warnBg},
+  falta_info:  {label:'Falta info',  color:TINT.purpleText, bg:TINT.purpleBg},
+  aprobada:    {label:'Aprobada',    color:TINT.okText,     bg:TINT.okBg},
+  rechazada:   {label:'Rechazada',   color:TINT.dangerText, bg:TINT.dangerBg},
+};
+const MKP_PROD_ESTADO = {
+  publicado:    {label:'Publicado',     color:TINT.okText,     bg:TINT.okBg},
+  borrador:     {label:'Borrador',      color:C.mid,           bg:'var(--bg-subtle)'},
+  pausado:      {label:'Pausado',       color:TINT.warnText,   bg:TINT.warnBg},
+  oculto_admin: {label:'Oculto (admin)',color:TINT.dangerText, bg:TINT.dangerBg},
+};
+const MKP_REPORT_ESTADO = {
+  abierto:     {label:'Abierto',     color:TINT.dangerText, bg:TINT.dangerBg},
+  en_revision: {label:'En revisión', color:TINT.warnText,   bg:TINT.warnBg},
+  resuelto:    {label:'Resuelto',    color:TINT.okText,     bg:TINT.okBg},
+  desestimado: {label:'Desestimado', color:C.mid,           bg:'var(--bg-subtle)'},
+};
+const MKP_LEAD_ESTADO_LBL = {
+  nueva:'Nueva', respondida:'Respondida', negociando:'Negociando',
+  cerrada:'Cerrada', perdida:'Perdida', archivada:'Archivada',
+};
+const MKP_LEAD_TIPO_LBL = { contacto:'Contacto', cotizacion:'Cotización' };
+const MKP_REPORT_TIPO_LBL = {
+  info_falsa:'Info falsa', precio_enganoso:'Precio engañoso', no_responde:'No responde',
+  mala_calidad:'Mala calidad', no_entrego:'No entregó', trato_indebido:'Trato indebido',
+  spam:'Spam', otro:'Otro',
+};
+const MKP_TIPO_PROV = ['productor','distribuidor','mayorista','minorista','importador','fabricante','servicio'];
+const MKP_PLANES = ['fundador','basico','pro'];
+const MKP_EVENT_LBL = {
+  application_submitted:'Solicitud recibida', supplier_approved:'Proveedor aprobado',
+  contact_revealed:'Contacto revelado', quote_created:'Cotización creada',
+  supplier_suspended:'Proveedor suspendido', supplier_reactivated:'Proveedor reactivado',
+  supplier_estado_changed:'Cambio de estado',
+};
+
+const MkBadge = ({map, value}) => {
+  const m = (map||{})[value] || {label:value||'—', color:C.mid, bg:'var(--bg-subtle)'};
+  return <span style={{padding:'2px 9px',borderRadius:20,fontSize:11,fontWeight:600,background:m.bg,color:m.color,whiteSpace:'nowrap'}}>{m.label}</span>;
+};
+
+// Tokens CSS (no C.*) para que los inputs sigan el tema por-paint (C es un
+// objeto mutado en mythos:themechange y un const literal lo congelaría).
+const sField = {width:'100%',padding:'8px 11px',border:'1px solid var(--border)',borderRadius:8,background:'var(--bg-subtle)',color:'var(--text-primary)',fontSize:13,fontFamily:'inherit',boxSizing:'border-box'};
+const SInp = ({value,onChange,placeholder,type='text',style={}}) =>
+  <input type={type} value={value??''} placeholder={placeholder} onChange={e=>onChange(e.target.value)} style={{...sField,...style}}/>;
+const SSel = ({value,onChange,children,style={}}) =>
+  <select value={value??''} onChange={e=>onChange(e.target.value)} style={{...sField,cursor:'pointer',...style}}>{children}</select>;
+const STa = ({value,onChange,placeholder,rows=3,style={}}) =>
+  <textarea value={value??''} placeholder={placeholder} rows={rows} onChange={e=>onChange(e.target.value)} style={{...sField,resize:'vertical',...style}}/>;
+
+// Chip de categoría seleccionable (multi) para el editor de proveedor.
+const MkChip = ({on,label,onClick}) => (
+  <button type="button" onClick={onClick} style={{padding:'5px 11px',borderRadius:20,fontSize:12,fontWeight:600,cursor:'pointer',
+    border:`1px solid ${on?C.ink:C.border}`,background:on?C.ink:'transparent',color:on?C.surface:C.mid,transition:'all .12s'}}>{label}</button>
+);
+
+function mkDownloadCSV(filename, rows) {
+  const csv = rows.map(r => r.map(cell => {
+    const s = String(cell==null?'':cell);
+    return /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  }).join(',')).join('\r\n');
+  const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1500);
+}
+
+const MkTabBar = ({tabs, active, onSelect}) => (
+  <div style={{display:'flex',gap:4,flexWrap:'wrap',borderBottom:`1px solid ${C.border}`,marginBottom:18}}>
+    {tabs.map(t=>{
+      const on = active===t.id;
+      return (
+        <button key={t.id} onClick={()=>onSelect(t.id)} style={{position:'relative',display:'flex',alignItems:'center',gap:7,padding:'9px 14px',border:'none',background:'transparent',cursor:'pointer',
+          fontSize:13,fontWeight:on?700:500,color:on?C.ink:C.mid,borderBottom:`2px solid ${on?C.ink:'transparent'}`,marginBottom:-1}}>
+          {t.label}
+          {t.badge>0 && <span style={{background:C.red,color:'#fff',fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:9,minWidth:16,textAlign:'center'}}>{t.badge}</span>}
+        </button>
+      );
+    })}
+  </div>
+);
+
+const MkEmpty = ({text}) => (
+  <div style={{padding:'40px 16px',textAlign:'center',color:C.dim,fontSize:13}}>{text}</div>
+);
+
+/* ─── Tab RESUMEN ─── */
+function MkResumen({stats, events, supNameById, restNameById}) {
+  if (!stats) return <MkEmpty text="Sin datos del marketplace todavía."/>;
+  const s = stats;
+  const sup = s.suppliers||{}, pr = s.products||{}, ap = s.applications||{}, lm = s.leads_month||{};
+  const topCat = s.top_categories||[], topSup = s.top_suppliers||[];
+  const maxCat = Math.max(1, ...topCat.map(c=>c.leads||0));
+  const maxSup = Math.max(1, ...topSup.map(c=>c.leads||0));
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:18}}>
+        <Kpi label="Proveedores activos" value={fmtNum(sup.activo||0)} sub={`${fmtNum(sup.pausado||0)} pausados · ${fmtNum(sup.suspendido||0)} suspendidos`}/>
+        <Kpi label="Productos publicados" value={fmtNum(pr.publicado||0)} sub={`${fmtNum(pr.total||0)} en total`}/>
+        <Kpi label="Solicitudes abiertas" value={fmtNum(ap.abiertas||0)} sub={`${fmtNum(ap.pendiente||0)} pendientes`}/>
+        <Kpi label="Leads del mes" value={fmtNum(lm.total||0)} sub={`${fmtNum(lm.contacto||0)} contactos · ${fmtNum(lm.cotizacion||0)} cotizaciones`}/>
+        <Kpi label="Contactos revelados (mes)" value={fmtNum(s.contacts_revealed_month||0)} sub={`${fmtNum(s.quotes_month||0)} cotizaciones`}/>
+        <Kpi label="Conversaciones activas" value={fmtNum(s.conversations_active||0)} sub={`${fmtNum(s.reports_open||0)} reclamos abiertos`}/>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))',gap:16,marginBottom:18}}>
+        <SectionCard title="Top categorías por leads">
+          <div style={{padding:'14px 18px'}}>
+            {topCat.length===0 ? <div style={{color:C.dim,fontSize:12}}>Sin leads todavía.</div> :
+              topCat.map(c=>(
+                <div key={c.slug} style={{marginBottom:10}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:4}}><span style={{color:C.ink,fontWeight:600}}>{c.nombre}</span><span style={{color:C.mid}}>{fmtNum(c.leads)}</span></div>
+                  <div style={{height:6,borderRadius:4,background:C.bg,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.round((c.leads/maxCat)*100)}%`,background:C.ink}}/></div>
+                </div>
+              ))}
+          </div>
+        </SectionCard>
+        <SectionCard title="Proveedores más contactados">
+          <div style={{padding:'14px 18px'}}>
+            {topSup.length===0 ? <div style={{color:C.dim,fontSize:12}}>Sin leads todavía.</div> :
+              topSup.map(c=>(
+                <div key={c.supplier_id} style={{marginBottom:10}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:4}}><span style={{color:C.ink,fontWeight:600}}>{c.nombre_comercial}</span><span style={{color:C.mid}}>{fmtNum(c.leads)}</span></div>
+                  <div style={{height:6,borderRadius:4,background:C.bg,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.round((c.leads/maxSup)*100)}%`,background:C.ink}}/></div>
+                </div>
+              ))}
+          </div>
+        </SectionCard>
+      </div>
+
+      <SectionCard title="Actividad reciente del marketplace">
+        {events.length===0 ? <MkEmpty text="Sin eventos registrados."/> : (
+          <div>
+            {events.slice(0,20).map(ev=>(
+              <div key={ev.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 18px',borderTop:`1px solid ${C.border}`}}>
+                <span style={{fontSize:12.5,fontWeight:600,color:C.ink,minWidth:170}}>{MKP_EVENT_LBL[ev.event_type]||ev.event_type}</span>
+                <span style={{flex:1,fontSize:12,color:C.mid}}>
+                  {ev.supplier_id && (supNameById[ev.supplier_id]||'proveedor') }
+                  {ev.restaurant_id && ` · ${restNameById[ev.restaurant_id]||'restaurante'}`}
+                </span>
+                <span style={{fontSize:11.5,color:C.dim,whiteSpace:'nowrap'}}>{fmtRelTime(ev.created_at)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
+}
+
+/* ─── Tab SOLICITUDES (CRM) ─── */
+function MkSolicitudes({apps, load, setFlash}) {
+  const [fEstado, setFEstado] = useState('abiertas');
+  const [expanded, setExpanded] = useState(null);
+  const [notas, setNotas] = useState('');
+  const [savingNota, setSavingNota] = useState(false);
+  const [approveApp, setApproveApp] = useState(null);
+  const [rejectApp, setRejectApp] = useState(null);
+
+  const shown = apps.filter(a=>{
+    if (fEstado==='abiertas') return ['pendiente','en_revision','falta_info'].includes(a.estado);
+    if (fEstado==='all') return true;
+    return a.estado===fEstado;
+  });
+
+  const openRow = a => { setExpanded(expanded===a.id?null:a.id); setNotas(a.notas_internas||''); };
+
+  const saveNota = async (a) => {
+    setSavingNota(true);
+    const { error } = await db.from('marketplace_applications').update({notas_internas:notas}).eq('id',a.id);
+    setSavingNota(false);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:'Notas guardadas'}); load();
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
+        <SSel value={fEstado} onChange={setFEstado} style={{width:200}}>
+          <option value="abiertas">Abiertas (pendiente/revisión)</option>
+          <option value="pendiente">Pendientes</option>
+          <option value="en_revision">En revisión</option>
+          <option value="falta_info">Falta info</option>
+          <option value="aprobada">Aprobadas</option>
+          <option value="rechazada">Rechazadas</option>
+          <option value="all">Todas</option>
+        </SSel>
+        <span style={{fontSize:12,color:C.mid}}>{shown.length} solicitud{shown.length===1?'':'es'}</span>
+      </div>
+
+      <SectionCard>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:720}}>
+            <thead><tr>
+              <Th>Empresa</Th><Th>Contacto</Th><Th>Ciudad</Th><Th>Categorías</Th><Th>Estado</Th><Th>Recibida</Th><Th style={{textAlign:'right'}}>Acciones</Th>
+            </tr></thead>
+            <tbody>
+              {shown.length===0 && <tr><Td style={{textAlign:'center',color:C.dim}} colSpan={7}>Sin solicitudes.</Td></tr>}
+              {shown.map(a=>(
+                <React.Fragment key={a.id}>
+                  <tr style={{cursor:'pointer'}} onClick={()=>openRow(a)}>
+                    <Td><span style={{fontWeight:600,color:C.ink}}>{a.nombre_comercial}</span>{a.ruc && <div style={{fontSize:11,color:C.dim}}>RUC {a.ruc}</div>}</Td>
+                    <Td>{a.contacto_nombre||'—'}<div style={{fontSize:11,color:C.dim}}>{a.email||a.telefono||a.whatsapp||''}</div></Td>
+                    <Td>{a.ciudad||'—'}</Td>
+                    <Td><span style={{fontSize:11,color:C.mid}}>{(a.categorias||[]).slice(0,3).join(', ')}{(a.categorias||[]).length>3?'…':''}</span></Td>
+                    <Td><MkBadge map={MKP_APP_ESTADO} value={a.estado}/></Td>
+                    <Td><span style={{fontSize:12,color:C.mid}}>{fmtAlta(a.created_at)}</span></Td>
+                    <Td style={{textAlign:'right'}}><span style={{fontSize:11,color:C.dim}}>{expanded===a.id?'▲':'▼'}</span></Td>
+                  </tr>
+                  {expanded===a.id && (
+                    <tr><Td colSpan={7} style={{background:C.bg}}>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:'8px 20px',padding:'6px 2px 14px',fontSize:12.5}}>
+                        {[['Razón social',a.razon_social],['RUC',a.ruc],['Tipo',a.tipo_proveedor],['Rubro',a.rubro_principal],['Años en el mercado',a.anhos_mercado],
+                          ['Departamento',a.departamento],['Dirección',a.direccion],['Web / redes',a.web_redes],['Cargo contacto',a.contacto_cargo],
+                          ['Teléfono',a.telefono],['WhatsApp',a.whatsapp],['Email',a.email],
+                          ['Vende mayorista',a.vende_mayor?'Sí':'No'],['Vende minorista',a.vende_menor?'Sí':'No'],
+                          ['Zonas de entrega',(a.zonas_entrega||[]).join(', ')],['Delivery propio',a.delivery_propio?'Sí':'No'],['Retiro en local',a.retiro_local?'Sí':'No'],
+                          ['Días de entrega',a.dias_entrega],['Pedido mínimo',a.pedido_minimo],['Entrega urgente',a.entrega_urgente?'Sí':'No'],
+                          ['Acepta crédito',a.acepta_credito?'Sí':'No'],['Emite factura',a.emite_factura?'Sí':'No'],['Categorías',(a.categorias||[]).join(', ')],
+                          ['Marcas',a.marcas],['Productos principales',a.productos_principales],['Mensaje',a.mensaje],['Origen',a.origen]
+                        ].filter(([,v])=>v!==null&&v!==undefined&&v!=='').map(([k,v])=>(
+                          <div key={k}><div style={{fontSize:10.5,color:C.dim,textTransform:'uppercase',letterSpacing:.4,marginBottom:2}}>{k}</div><div style={{color:C.ink}}>{String(v)}</div></div>
+                        ))}
+                      </div>
+                      <div style={{marginTop:6}}>
+                        <div style={{fontSize:10.5,color:C.dim,textTransform:'uppercase',letterSpacing:.4,marginBottom:4}}>Notas internas</div>
+                        <STa value={notas} onChange={setNotas} rows={2} placeholder="Notas del equipo (no visibles para el proveedor)…"/>
+                        <div style={{display:'flex',gap:8,justifyContent:'space-between',flexWrap:'wrap',marginTop:10}}>
+                          <Btn variant="ghost" size="sm" onClick={()=>saveNota(a)} disabled={savingNota}>{savingNota?'Guardando…':'Guardar notas'}</Btn>
+                          {a.estado!=='aprobada' && (
+                            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                              <Btn variant="ghost" size="sm" onClick={()=>setRejectApp({app:a,modo:'falta_info'})}>Pedir info</Btn>
+                              <Btn variant="danger" size="sm" onClick={()=>setRejectApp({app:a,modo:'rechazada'})}>Rechazar</Btn>
+                              <Btn variant="success" size="sm" onClick={()=>setApproveApp(a)}>Aprobar</Btn>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </Td></tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+
+      {approveApp && <MkApproveModal app={approveApp} onClose={()=>setApproveApp(null)} onDone={()=>{setApproveApp(null);load();}} setFlash={setFlash}/>}
+      {rejectApp && <MkRejectModal ctx={rejectApp} onClose={()=>setRejectApp(null)} onDone={()=>{setRejectApp(null);load();}} setFlash={setFlash}/>}
+    </div>
+  );
+}
+
+function MkApproveModal({app, onClose, onDone, setFlash}) {
+  const [email, setEmail] = useState(app.email||'');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null); // {temp_password, slug, email}
+  const [copied, setCopied] = useState(false);
+
+  const approve = async () => {
+    const e = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { setFlash({type:'warn',text:'Ingresá el email real del proveedor'}); return; }
+    setBusy(true);
+    try {
+      const { data:{session} } = await db.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Sin sesión activa');
+      const resp = await fetch('/api/approve-supplier', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+        body: JSON.stringify({ application_id: app.id, email: e })
+      });
+      const r = await resp.json();
+      if (!resp.ok) throw new Error(r.error || 'Error al aprobar');
+      setResult(r);
+    } catch(err) { setFlash({type:'error',text:err.message}); }
+    setBusy(false);
+  };
+  const copyPwd = async () => {
+    try { await navigator.clipboard.writeText(result.temp_password); setCopied(true); setTimeout(()=>setCopied(false),2000); } catch(_){}
+  };
+
+  return (
+    <Modal title={result?'Proveedor aprobado':'Aprobar proveedor'} onClose={result?onDone:onClose} width={460}>
+      {!result ? (
+        <div>
+          <div style={{fontSize:13,color:C.mid,lineHeight:1.5,marginBottom:14}}>
+            Se creará la cuenta del proveedor <strong style={{color:C.ink}}>{app.nombre_comercial}</strong> y su tienda quedará activa en el marketplace.
+          </div>
+          <FormField label="Email real del proveedor" hint="Se usa como usuario de acceso. La contraseña temporal se muestra al aprobar.">
+            <SInp value={email} onChange={setEmail} type="email" placeholder="proveedor@empresa.com"/>
+          </FormField>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:10}}>
+            <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+            <Btn variant="success" onClick={approve} disabled={busy}>{busy?'Aprobando…':'Aprobar y crear cuenta'}</Btn>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div style={{fontSize:13,color:C.ink,lineHeight:1.55,marginBottom:14}}>
+            Cuenta creada para <strong>{result.email}</strong>. Tienda: <strong>{result.slug}</strong>.
+          </div>
+          {result.temp_password ? (
+            <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px',background:C.bg,marginBottom:12}}>
+              <div style={{fontSize:11,color:C.dim,textTransform:'uppercase',letterSpacing:.4,marginBottom:6}}>Contraseña temporal (se muestra una sola vez)</div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <code style={{flex:1,fontSize:15,fontWeight:700,color:C.ink,fontFamily:"'SF Mono',ui-monospace,monospace",letterSpacing:.5,wordBreak:'break-all'}}>{result.temp_password}</code>
+                <Btn size="sm" onClick={copyPwd}>{copied?'¡Copiado!':'Copiar'}</Btn>
+              </div>
+              <div style={{fontSize:11.5,color:C.orange,fontWeight:600,marginTop:10,lineHeight:1.5}}>
+                Compartila con el proveedor por WhatsApp. Al primer ingreso deberá cambiarla. No queda registrada en ningún lado.
+              </div>
+            </div>
+          ) : (
+            <div style={{fontSize:12.5,color:C.mid,marginBottom:12}}>Se usó la contraseña provista. El proveedor deberá cambiarla al ingresar.</div>
+          )}
+          <div style={{display:'flex',justifyContent:'flex-end'}}><Btn onClick={onDone}>Listo</Btn></div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function MkRejectModal({ctx, onClose, onDone, setFlash}) {
+  const {app, modo} = ctx;
+  const [motivo, setMotivo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const esRechazo = modo==='rechazada';
+  const save = async () => {
+    setBusy(true);
+    const stamp = new Date().toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const linea = `[${stamp}] ${esRechazo?'RECHAZADA':'FALTA INFO'}${motivo.trim()?': '+motivo.trim():''}`;
+    const notas = [app.notas_internas, linea].filter(Boolean).join('\n');
+    const { error } = await db.from('marketplace_applications')
+      .update({ estado: modo, notas_internas: notas, reviewed_at: new Date().toISOString() })
+      .eq('id', app.id);
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:esRechazo?'Solicitud rechazada':'Marcada como “falta info”'});
+    onDone();
+  };
+  return (
+    <Modal title={esRechazo?'Rechazar solicitud':'Pedir más información'} onClose={onClose} width={440}>
+      <div style={{fontSize:13,color:C.mid,lineHeight:1.5,marginBottom:12}}>
+        {esRechazo ? 'La solicitud se marca como rechazada.' : 'La solicitud queda en espera de más datos del proveedor.'} El motivo se guarda en las notas internas.
+      </div>
+      <FormField label="Motivo (opcional)">
+        <STa value={motivo} onChange={setMotivo} rows={3} placeholder={esRechazo?'Ej. datos incompletos / rubro fuera de alcance…':'Ej. falta RUC / falta detalle de productos…'}/>
+      </FormField>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn variant={esRechazo?'danger':'primary'} onClick={save} disabled={busy}>{busy?'Guardando…':(esRechazo?'Rechazar':'Marcar falta info')}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ─── Tab PROVEEDORES ─── */
+function MkProveedores({suppliers, prodCountBySup, leadCountBySup, categories, load, setFlash, gotoProducts}) {
+  const [search, setSearch] = useState('');
+  const [fEstado, setFEstado] = useState('all');
+  const [editSup, setEditSup] = useState(null);
+  const [contactSup, setContactSup] = useState(null);
+
+  const setEstado = async (sup, estado) => {
+    const { error } = await db.rpc('superadmin_set_supplier_estado', {p_supplier_id:sup.id, p_estado:estado});
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:`Proveedor ${estado==='suspendido'?'suspendido':estado==='activo'?'reactivado':'pausado'}`}); load();
+  };
+  const setField = async (sup, patch) => {
+    const { error } = await db.from('marketplace_suppliers').update(patch).eq('id',sup.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    load();
+  };
+  const viewContact = async (sup) => {
+    setContactSup({supplier:sup, contact:null, loading:true});
+    const { data } = await db.from('marketplace_supplier_contacts').select('*').eq('supplier_id',sup.id).maybeSingle();
+    setContactSup({supplier:sup, contact:data||null, loading:false});
+  };
+
+  const shown = suppliers.filter(s=>{
+    if (fEstado!=='all' && s.estado!==fEstado) return false;
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (s.nombre_comercial||'').toLowerCase().includes(q) || (s.ruc||'').toLowerCase().includes(q) || (s.ciudad||'').toLowerCase().includes(q) || (s.slug||'').toLowerCase().includes(q);
+  });
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
+        <SInp value={search} onChange={setSearch} placeholder="Buscar por nombre, RUC, ciudad…" style={{width:280}}/>
+        <SSel value={fEstado} onChange={setFEstado} style={{width:160}}>
+          <option value="all">Todos los estados</option>
+          <option value="activo">Activos</option>
+          <option value="pausado">Pausados</option>
+          <option value="suspendido">Suspendidos</option>
+        </SSel>
+        <span style={{fontSize:12,color:C.mid}}>{shown.length} proveedor{shown.length===1?'':'es'}</span>
+      </div>
+
+      <SectionCard>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
+            <thead><tr>
+              <Th>Proveedor</Th><Th>Estado</Th><Th>Plan</Th><Th style={{textAlign:'center'}}>Verif.</Th><Th style={{textAlign:'center'}}>Dest.</Th><Th>Ciudad</Th><Th style={{textAlign:'center'}}>Prod.</Th><Th style={{textAlign:'center'}}>Leads</Th><Th>Alta</Th><Th style={{textAlign:'right'}}>Acciones</Th>
+            </tr></thead>
+            <tbody>
+              {shown.length===0 && <tr><Td style={{textAlign:'center',color:C.dim}} colSpan={10}>Sin proveedores.</Td></tr>}
+              {shown.map(s=>(
+                <tr key={s.id}>
+                  <Td><span style={{fontWeight:600,color:C.ink}}>{s.nombre_comercial}</span>{s.ruc && <div style={{fontSize:11,color:C.dim}}>RUC {s.ruc}</div>}</Td>
+                  <Td><MkBadge map={MKP_SUP_ESTADO} value={s.estado}/></Td>
+                  <Td>
+                    <SSel value={s.plan} onChange={v=>setField(s,{plan:v})} style={{width:110,padding:'5px 8px',fontSize:12}}>
+                      {MKP_PLANES.map(p=><option key={p} value={p}>{p}</option>)}
+                    </SSel>
+                  </Td>
+                  <Td style={{textAlign:'center'}}><div style={{display:'inline-flex'}}><Toggle checked={s.verificado} onChange={v=>setField(s,{verificado:v})}/></div></Td>
+                  <Td style={{textAlign:'center'}}><div style={{display:'inline-flex'}}><Toggle checked={s.destacado} onChange={v=>setField(s,{destacado:v})}/></div></Td>
+                  <Td>{s.ciudad||'—'}</Td>
+                  <Td style={{textAlign:'center'}}>{fmtNum(prodCountBySup[s.id]||0)}</Td>
+                  <Td style={{textAlign:'center'}}>{fmtNum(leadCountBySup[s.id]||0)}</Td>
+                  <Td><span style={{fontSize:12,color:C.mid}}>{fmtDate(s.created_at)}</span></Td>
+                  <Td style={{textAlign:'right'}}>
+                    <div style={{display:'inline-flex',gap:6,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                      <Btn variant="ghost" size="sm" onClick={()=>setEditSup(s)}>Editar</Btn>
+                      <Btn variant="ghost" size="sm" onClick={()=>viewContact(s)}>Contacto</Btn>
+                      <Btn variant="ghost" size="sm" onClick={()=>gotoProducts(s.id)}>Productos</Btn>
+                      {s.estado==='suspendido'
+                        ? <Btn variant="success" size="sm" onClick={()=>setEstado(s,'activo')}>Reactivar</Btn>
+                        : <Btn variant="danger" size="sm" onClick={()=>setEstado(s,'suspendido')}>Suspender</Btn>}
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+
+      {editSup && <MkEditSupplierModal sup={editSup} categories={categories} onClose={()=>setEditSup(null)} onDone={()=>{setEditSup(null);load();}} setFlash={setFlash}/>}
+      {contactSup && (
+        <Modal title={`Contacto — ${contactSup.supplier.nombre_comercial}`} onClose={()=>setContactSup(null)} width={420}>
+          {contactSup.loading ? <div style={{display:'flex',gap:10,alignItems:'center',color:C.mid}}><Spinner/> Cargando…</div> :
+            !contactSup.contact ? <div style={{color:C.mid,fontSize:13}}>Sin datos de contacto cargados.</div> : (
+            <div style={{display:'grid',gap:'10px 0',fontSize:13}}>
+              {[['Contacto',contactSup.contact.contacto_nombre],['Teléfono',contactSup.contact.telefono],['WhatsApp',contactSup.contact.whatsapp],['Email comercial',contactSup.contact.email_comercial]].map(([k,v])=>(
+                <div key={k}><span style={{fontSize:11,color:C.dim,textTransform:'uppercase',letterSpacing:.4}}>{k}</span><div style={{color:C.ink,fontWeight:600}}>{v||'—'}</div></div>
+              ))}
+            </div>
+          )}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function MkEditSupplierModal({sup, categories, onClose, onDone, setFlash}) {
+  const [f, setF] = useState({
+    nombre_comercial:sup.nombre_comercial||'', razon_social:sup.razon_social||'', ruc:sup.ruc||'',
+    tipo_proveedor:sup.tipo_proveedor||'', descripcion:sup.descripcion||'', ciudad:sup.ciudad||'', departamento:sup.departamento||'',
+    dias_entrega:sup.dias_entrega||'', horario_atencion:sup.horario_atencion||'', pedido_minimo:sup.pedido_minimo||'',
+    condiciones_comerciales:sup.condiciones_comerciales||'', plan:sup.plan||'fundador',
+    verificado:!!sup.verificado, destacado:!!sup.destacado, emite_factura:!!sup.emite_factura,
+    delivery_propio:!!sup.delivery_propio, retiro_local:!!sup.retiro_local, acepta_credito:!!sup.acepta_credito,
+    categorias:Array.isArray(sup.categorias)?[...sup.categorias]:[],
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k,v) => setF(o=>({...o,[k]:v}));
+  const toggleCat = slug => setF(o=>({...o, categorias: o.categorias.includes(slug)?o.categorias.filter(c=>c!==slug):[...o.categorias,slug]}));
+  const save = async () => {
+    if (!f.nombre_comercial.trim()) { setFlash({type:'warn',text:'El nombre comercial es obligatorio'}); return; }
+    setBusy(true);
+    const { error } = await db.from('marketplace_suppliers').update({
+      nombre_comercial:f.nombre_comercial.trim(), razon_social:f.razon_social.trim()||null, ruc:f.ruc.trim()||null,
+      tipo_proveedor:f.tipo_proveedor||null, descripcion:f.descripcion.trim()||null, ciudad:f.ciudad.trim()||null, departamento:f.departamento.trim()||null,
+      dias_entrega:f.dias_entrega.trim()||null, horario_atencion:f.horario_atencion.trim()||null, pedido_minimo:f.pedido_minimo.trim()||null,
+      condiciones_comerciales:f.condiciones_comerciales.trim()||null, plan:f.plan,
+      verificado:f.verificado, destacado:f.destacado, emite_factura:f.emite_factura,
+      delivery_propio:f.delivery_propio, retiro_local:f.retiro_local, acepta_credito:f.acepta_credito,
+      categorias:f.categorias,
+    }).eq('id',sup.id);
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:'Proveedor actualizado'}); onDone();
+  };
+  const flag = (k,label) => (
+    <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:C.ink,cursor:'pointer'}}>
+      <Toggle checked={f[k]} onChange={v=>set(k,v)}/> {label}
+    </label>
+  );
+  return (
+    <Modal title={`Editar — ${sup.nombre_comercial}`} onClose={onClose} width={620}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+        <FormField label="Nombre comercial *"><SInp value={f.nombre_comercial} onChange={v=>set('nombre_comercial',v)}/></FormField>
+        <FormField label="Razón social"><SInp value={f.razon_social} onChange={v=>set('razon_social',v)}/></FormField>
+        <FormField label="RUC"><SInp value={f.ruc} onChange={v=>set('ruc',v)}/></FormField>
+        <FormField label="Tipo de proveedor">
+          <SSel value={f.tipo_proveedor} onChange={v=>set('tipo_proveedor',v)}>
+            <option value="">—</option>
+            {MKP_TIPO_PROV.map(t=><option key={t} value={t}>{t}</option>)}
+          </SSel>
+        </FormField>
+        <FormField label="Ciudad"><SInp value={f.ciudad} onChange={v=>set('ciudad',v)}/></FormField>
+        <FormField label="Departamento"><SInp value={f.departamento} onChange={v=>set('departamento',v)}/></FormField>
+        <FormField label="Días de entrega"><SInp value={f.dias_entrega} onChange={v=>set('dias_entrega',v)}/></FormField>
+        <FormField label="Horario de atención"><SInp value={f.horario_atencion} onChange={v=>set('horario_atencion',v)}/></FormField>
+        <FormField label="Pedido mínimo"><SInp value={f.pedido_minimo} onChange={v=>set('pedido_minimo',v)}/></FormField>
+        <FormField label="Plan">
+          <SSel value={f.plan} onChange={v=>set('plan',v)}>{MKP_PLANES.map(p=><option key={p} value={p}>{p}</option>)}</SSel>
+        </FormField>
+      </div>
+      <FormField label="Descripción"><STa value={f.descripcion} onChange={v=>set('descripcion',v)} rows={2}/></FormField>
+      <FormField label="Condiciones comerciales"><STa value={f.condiciones_comerciales} onChange={v=>set('condiciones_comerciales',v)} rows={2}/></FormField>
+      <FormField label="Categorías">
+        <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>
+          {categories.filter(c=>c.activa).map(c=><MkChip key={c.slug} on={f.categorias.includes(c.slug)} label={c.nombre} onClick={()=>toggleCat(c.slug)}/>)}
+        </div>
+      </FormField>
+      <div style={{display:'flex',gap:'12px 24px',flexWrap:'wrap',margin:'6px 0 14px'}}>
+        {flag('verificado','Verificado')}{flag('destacado','Destacado')}{flag('emite_factura','Emite factura')}
+        {flag('delivery_propio','Delivery propio')}{flag('retiro_local','Retiro en local')}{flag('acepta_credito','Acepta crédito')}
+      </div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={busy}>{busy?'Guardando…':'Guardar cambios'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ─── Tab PRODUCTOS ─── */
+function MkProductos({products, supNameById, categories, reportsByProduct, reportsBySupplier, filterSupplier, setFilterSupplier, load, setFlash}) {
+  const [fCat, setFCat] = useState('all');
+  const [fEstado, setFEstado] = useState('all');
+  const [soloReportes, setSoloReportes] = useState(false);
+  const [catModal, setCatModal] = useState(null);
+  const [reportModal, setReportModal] = useState(null);
+
+  const catName = slug => (categories.find(c=>c.slug===slug)?.nombre) || slug || '—';
+
+  const setEstado = async (p, estado) => {
+    const { error } = await db.from('marketplace_products').update({estado}).eq('id',p.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:estado==='oculto_admin'?'Producto ocultado':'Producto restaurado'}); load();
+  };
+  const setCat = async (p, slug) => {
+    const { error } = await db.from('marketplace_products').update({categoria_slug:slug}).eq('id',p.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:'Categoría corregida'}); setCatModal(null); load();
+  };
+
+  const shown = products.filter(p=>{
+    if (filterSupplier && p.supplier_id!==filterSupplier) return false;
+    if (fCat!=='all' && p.categoria_slug!==fCat) return false;
+    if (fEstado!=='all' && p.estado!==fEstado) return false;
+    if (soloReportes && !(reportsByProduct[p.id]?.length)) return false;
+    return true;
+  });
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
+        {filterSupplier && (
+          <span style={{display:'inline-flex',alignItems:'center',gap:8,fontSize:12,fontWeight:600,color:C.ink,background:C.bg,border:`1px solid ${C.border}`,borderRadius:20,padding:'5px 12px'}}>
+            {supNameById[filterSupplier]||'Proveedor'} <button onClick={()=>setFilterSupplier(null)} style={{background:'none',border:'none',color:C.mid,cursor:'pointer',fontSize:14,lineHeight:1}}>×</button>
+          </span>
+        )}
+        <SSel value={fCat} onChange={setFCat} style={{width:170}}>
+          <option value="all">Todas las categorías</option>
+          {categories.map(c=><option key={c.slug} value={c.slug}>{c.nombre}</option>)}
+        </SSel>
+        <SSel value={fEstado} onChange={setFEstado} style={{width:150}}>
+          <option value="all">Todos los estados</option>
+          <option value="publicado">Publicados</option>
+          <option value="borrador">Borradores</option>
+          <option value="pausado">Pausados</option>
+          <option value="oculto_admin">Ocultos (admin)</option>
+        </SSel>
+        <label style={{display:'flex',alignItems:'center',gap:7,fontSize:12.5,color:C.ink,cursor:'pointer'}}>
+          <Toggle checked={soloReportes} onChange={setSoloReportes}/> Con reportes
+        </label>
+        <span style={{fontSize:12,color:C.mid}}>{shown.length} producto{shown.length===1?'':'s'}</span>
+      </div>
+
+      <SectionCard>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+            <thead><tr>
+              <Th>Producto</Th><Th>Proveedor</Th><Th>Categoría</Th><Th>Precio</Th><Th>Estado</Th><Th style={{textAlign:'center'}}>Reportes</Th><Th style={{textAlign:'right'}}>Acciones</Th>
+            </tr></thead>
+            <tbody>
+              {shown.length===0 && <tr><Td style={{textAlign:'center',color:C.dim}} colSpan={7}>Sin productos.</Td></tr>}
+              {shown.map(p=>{
+                // Solo reportes puntuales del producto: los reportes a nivel
+                // proveedor se gestionan en la pestaña Reclamos (atribuirlos a
+                // cada producto del proveedor inflaría el badge de todos).
+                const nrep = (reportsByProduct[p.id]?.length||0);
+                return (
+                  <tr key={p.id}>
+                    <Td><span style={{fontWeight:600,color:C.ink}}>{p.nombre}</span>{p.marca && <div style={{fontSize:11,color:C.dim}}>{p.marca}</div>}</Td>
+                    <Td><span style={{fontSize:12.5}}>{supNameById[p.supplier_id]||'—'}</span></Td>
+                    <Td><span style={{fontSize:12}}>{catName(p.categoria_slug)}</span></Td>
+                    <Td><span style={{fontSize:12}}>{p.precio_tipo==='cotizar'?'A cotizar':(p.precio!=null?fmtMoney(p.precio)+(p.precio_tipo==='desde'?' (desde)':''):'—')}</span></Td>
+                    <Td><MkBadge map={MKP_PROD_ESTADO} value={p.estado}/></Td>
+                    <Td style={{textAlign:'center'}}>{nrep>0 ? <button onClick={()=>setReportModal(p)} style={{background:TINT.dangerBg,color:TINT.dangerText,border:'none',borderRadius:12,padding:'2px 9px',fontSize:11,fontWeight:700,cursor:'pointer'}}>{nrep}</button> : <span style={{color:C.dim}}>—</span>}</Td>
+                    <Td style={{textAlign:'right'}}>
+                      <div style={{display:'inline-flex',gap:6,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                        <Btn variant="ghost" size="sm" onClick={()=>setCatModal(p)}>Categoría</Btn>
+                        {p.estado==='oculto_admin'
+                          ? <Btn variant="success" size="sm" onClick={()=>setEstado(p,'publicado')}>Restaurar</Btn>
+                          : p.estado==='publicado'
+                            ? <Btn variant="danger" size="sm" onClick={()=>setEstado(p,'oculto_admin')}>Ocultar</Btn>
+                            : null}
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+
+      {catModal && (
+        <Modal title={`Categoría — ${catModal.nombre}`} onClose={()=>setCatModal(null)} width={380}>
+          <FormField label="Categoría del producto">
+            <SSel value={catModal.categoria_slug||''} onChange={v=>setCat(catModal,v)}>
+              <option value="">— sin categoría —</option>
+              {categories.map(c=><option key={c.slug} value={c.slug}>{c.nombre}</option>)}
+            </SSel>
+          </FormField>
+          <div style={{fontSize:11.5,color:C.dim}}>Se guarda al elegir.</div>
+        </Modal>
+      )}
+      {reportModal && (
+        <Modal title={`Reportes — ${reportModal.nombre}`} onClose={()=>setReportModal(null)} width={480}>
+          {(reportsByProduct[reportModal.id]||[]).map(r=>(
+            <div key={r.id} style={{borderTop:`1px solid ${C.border}`,padding:'10px 0'}}>
+              <div style={{display:'flex',justifyContent:'space-between',gap:10}}>
+                <span style={{fontWeight:600,fontSize:12.5,color:C.ink}}>{MKP_REPORT_TIPO_LBL[r.tipo]||r.tipo}</span>
+                <MkBadge map={MKP_REPORT_ESTADO} value={r.estado}/>
+              </div>
+              {r.detalle && <div style={{fontSize:12,color:C.mid,marginTop:4}}>{r.detalle}</div>}
+              <div style={{fontSize:11,color:C.dim,marginTop:4}}>{fmtAlta(r.created_at)}</div>
+            </div>
+          ))}
+          <div style={{fontSize:11.5,color:C.dim,marginTop:10}}>La gestión de reclamos se hace en la pestaña “Reclamos”.</div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* ─── Tab LEADS (solo lectura + CSV) ─── */
+function MkLeads({leads, supNameById, restNameById}) {
+  const [fTipo, setFTipo] = useState('all');
+  const [fEstado, setFEstado] = useState('all');
+  const [fCanal, setFCanal] = useState('all');
+  const [fSup, setFSup] = useState('all');
+  const [fDesde, setFDesde] = useState('');
+  const [fHasta, setFHasta] = useState('');
+
+  const canales = Array.from(new Set(leads.map(l=>l.canal).filter(Boolean)));
+  const sups = Array.from(new Set(leads.map(l=>l.supplier_id))).map(id=>({id,name:supNameById[id]||'—'})).sort((a,b)=>a.name.localeCompare(b.name));
+
+  const shown = leads.filter(l=>{
+    if (fTipo!=='all' && l.tipo!==fTipo) return false;
+    if (fEstado!=='all' && l.estado!==fEstado) return false;
+    if (fCanal!=='all' && l.canal!==fCanal) return false;
+    if (fSup!=='all' && l.supplier_id!==fSup) return false;
+    if (fDesde && new Date(l.created_at) < new Date(fDesde+'T00:00:00')) return false;
+    if (fHasta && new Date(l.created_at) > new Date(fHasta+'T23:59:59')) return false;
+    return true;
+  });
+
+  const exportCSV = () => {
+    const header = ['Fecha','Tipo','Estado','Canal','Proveedor','Restaurante','Producto','Cantidad','Frecuencia','Mensaje'];
+    const rows = shown.map(l=>[
+      fmtAlta(l.created_at), MKP_LEAD_TIPO_LBL[l.tipo]||l.tipo, MKP_LEAD_ESTADO_LBL[l.estado]||l.estado, l.canal||'',
+      supNameById[l.supplier_id]||'', restNameById[l.restaurant_id]||'', l.producto_texto||'', l.cantidad||'', l.frecuencia||'', l.mensaje||''
+    ]);
+    mkDownloadCSV(`mythos_leads_${new Date().toISOString().slice(0,10)}.csv`, [header,...rows]);
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
+        <SSel value={fTipo} onChange={setFTipo} style={{width:130}}><option value="all">Todo tipo</option><option value="contacto">Contacto</option><option value="cotizacion">Cotización</option></SSel>
+        <SSel value={fEstado} onChange={setFEstado} style={{width:140}}><option value="all">Todo estado</option>{Object.keys(MKP_LEAD_ESTADO_LBL).map(k=><option key={k} value={k}>{MKP_LEAD_ESTADO_LBL[k]}</option>)}</SSel>
+        <SSel value={fCanal} onChange={setFCanal} style={{width:130}}><option value="all">Todo canal</option>{canales.map(c=><option key={c} value={c}>{c}</option>)}</SSel>
+        <SSel value={fSup} onChange={setFSup} style={{width:180}}><option value="all">Todo proveedor</option>{sups.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</SSel>
+        <SInp type="date" value={fDesde} onChange={setFDesde} style={{width:150}}/>
+        <SInp type="date" value={fHasta} onChange={setFHasta} style={{width:150}}/>
+        <span style={{fontSize:12,color:C.mid}}>{shown.length} lead{shown.length===1?'':'s'}</span>
+        <Btn variant="ghost" size="sm" onClick={exportCSV} style={{marginLeft:'auto'}}>Exportar CSV</Btn>
+      </div>
+
+      <SectionCard>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
+            <thead><tr>
+              <Th>Fecha</Th><Th>Tipo</Th><Th>Estado</Th><Th>Canal</Th><Th>Proveedor</Th><Th>Restaurante</Th><Th>Producto</Th>
+            </tr></thead>
+            <tbody>
+              {shown.length===0 && <tr><Td style={{textAlign:'center',color:C.dim}} colSpan={7}>Sin leads.</Td></tr>}
+              {shown.slice(0,500).map(l=>(
+                <tr key={l.id}>
+                  <Td><span style={{fontSize:12,color:C.mid}}>{fmtAlta(l.created_at)}</span></Td>
+                  <Td>{MKP_LEAD_TIPO_LBL[l.tipo]||l.tipo}</Td>
+                  <Td><span style={{fontSize:12}}>{MKP_LEAD_ESTADO_LBL[l.estado]||l.estado}</span></Td>
+                  <Td><span style={{fontSize:12,color:C.mid}}>{l.canal||'—'}</span></Td>
+                  <Td><span style={{fontSize:12.5,fontWeight:600,color:C.ink}}>{supNameById[l.supplier_id]||'—'}</span></Td>
+                  <Td><span style={{fontSize:12.5}}>{restNameById[l.restaurant_id]||'—'}</span></Td>
+                  <Td><span style={{fontSize:12,color:C.mid}}>{l.producto_texto||'—'}</span></Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {shown.length>500 && <div style={{padding:'10px 16px',fontSize:11.5,color:C.dim}}>Mostrando los primeros 500 en pantalla; el CSV exporta los {shown.length} filtrados.</div>}
+      </SectionCard>
+    </div>
+  );
+}
+
+/* ─── Tab CATEGORÍAS (CRUD) ─── */
+function MkCategorias({categories, load, setFlash}) {
+  const [edit, setEdit] = useState(null); // fila o {} para nueva
+
+  const toggleActiva = async (c) => {
+    const { error } = await db.from('marketplace_categories').update({activa:!c.activa}).eq('id',c.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    load();
+  };
+  const remove = async (c) => {
+    if (!window.confirm(`¿Eliminar la categoría “${c.nombre}”? Los productos que la usan quedan sin categoría.`)) return;
+    const { error } = await db.from('marketplace_categories').delete().eq('id',c.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:'Categoría eliminada'}); load();
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+        <span style={{fontSize:12,color:C.mid}}>{categories.length} categorías</span>
+        <Btn size="sm" onClick={()=>setEdit({nombre:'',slug:'',orden:(categories.length+1)*1,activa:true,parent_slug:''})}>Nueva categoría</Btn>
+      </div>
+      <SectionCard>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:620}}>
+            <thead><tr><Th style={{width:60,textAlign:'center'}}>Orden</Th><Th>Nombre</Th><Th>Slug</Th><Th>Padre</Th><Th style={{textAlign:'center'}}>Activa</Th><Th style={{textAlign:'right'}}>Acciones</Th></tr></thead>
+            <tbody>
+              {[...categories].sort((a,b)=>(a.orden||0)-(b.orden||0)).map(c=>(
+                <tr key={c.id}>
+                  <Td style={{textAlign:'center',color:C.mid}}>{c.orden}</Td>
+                  <Td><span style={{fontWeight:600,color:C.ink}}>{c.nombre}</span></Td>
+                  <Td><code style={{fontSize:12,color:C.mid}}>{c.slug}</code></Td>
+                  <Td><span style={{fontSize:12,color:C.dim}}>{c.parent_slug||'—'}</span></Td>
+                  <Td style={{textAlign:'center'}}><div style={{display:'inline-flex'}}><Toggle checked={c.activa} onChange={()=>toggleActiva(c)}/></div></Td>
+                  <Td style={{textAlign:'right'}}>
+                    <div style={{display:'inline-flex',gap:6}}>
+                      <Btn variant="ghost" size="sm" onClick={()=>setEdit(c)}>Editar</Btn>
+                      <Btn variant="danger" size="sm" onClick={()=>remove(c)}>Eliminar</Btn>
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+      {edit && <MkCategoriaModal cat={edit} categories={categories} onClose={()=>setEdit(null)} onDone={()=>{setEdit(null);load();}} setFlash={setFlash}/>}
+    </div>
+  );
+}
+
+function MkCategoriaModal({cat, categories, onClose, onDone, setFlash}) {
+  const esNueva = !cat.id;
+  const [f, setF] = useState({nombre:cat.nombre||'', slug:cat.slug||'', orden:cat.orden??0, activa:cat.activa!==false, parent_slug:cat.parent_slug||''});
+  const [busy, setBusy] = useState(false);
+  const set = (k,v)=>setF(o=>({...o,[k]:v}));
+  const slugify = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40);
+  const save = async () => {
+    const nombre = f.nombre.trim();
+    const slug = (f.slug.trim() || slugify(nombre));
+    if (!nombre || !slug) { setFlash({type:'warn',text:'Nombre y slug obligatorios'}); return; }
+    setBusy(true);
+    const payload = {nombre, slug, orden:Number(f.orden)||0, activa:f.activa, parent_slug:f.parent_slug.trim()||null};
+    const q = esNueva
+      ? db.from('marketplace_categories').insert(payload)
+      : db.from('marketplace_categories').update(payload).eq('id',cat.id);
+    const { error } = await q;
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:/duplicate|unique/i.test(error.message)?'Ese slug ya existe':error.message}); return; }
+    setFlash({type:'ok',text:esNueva?'Categoría creada':'Categoría actualizada'}); onDone();
+  };
+  return (
+    <Modal title={esNueva?'Nueva categoría':`Editar — ${cat.nombre}`} onClose={onClose} width={420}>
+      <FormField label="Nombre *"><SInp value={f.nombre} onChange={v=>set('nombre',v)} placeholder="Ej. Bebidas"/></FormField>
+      <FormField label="Slug *" hint={esNueva?'Se genera del nombre si lo dejás vacío. Minúsculas, sin espacios.':'Cambiarlo afecta a productos/proveedores que lo referencian.'}>
+        <SInp value={f.slug} onChange={v=>set('slug',v)} placeholder="bebidas"/>
+      </FormField>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+        <FormField label="Orden"><SInp type="number" value={f.orden} onChange={v=>set('orden',v)}/></FormField>
+        <FormField label="Categoría padre (opcional)">
+          <SSel value={f.parent_slug} onChange={v=>set('parent_slug',v)}>
+            <option value="">— ninguna —</option>
+            {categories.filter(c=>c.slug!==cat.slug).map(c=><option key={c.slug} value={c.slug}>{c.nombre}</option>)}
+          </SSel>
+        </FormField>
+      </div>
+      <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:C.ink,cursor:'pointer',margin:'2px 0 14px'}}>
+        <Toggle checked={f.activa} onChange={v=>set('activa',v)}/> Activa (visible en el catálogo público)
+      </label>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={busy}>{busy?'Guardando…':(esNueva?'Crear':'Guardar')}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ─── Tab RECLAMOS ─── */
+function MkReclamos({reports, reviews, supNameById, prodNameById, restNameById, onSuspend, load, setFlash}) {
+  const [fEstado, setFEstado] = useState('abiertos');
+  const [resolveModal, setResolveModal] = useState(null);
+
+  const shown = reports.filter(r=>{
+    if (fEstado==='abiertos') return ['abierto','en_revision'].includes(r.estado);
+    if (fEstado==='all') return true;
+    return r.estado===fEstado;
+  });
+
+  const setEstado = async (r, estado) => {
+    const { error } = await db.from('marketplace_reports').update({estado}).eq('id',r.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    load();
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
+        <SSel value={fEstado} onChange={setFEstado} style={{width:180}}>
+          <option value="abiertos">Abiertos / en revisión</option>
+          <option value="abierto">Abiertos</option>
+          <option value="en_revision">En revisión</option>
+          <option value="resuelto">Resueltos</option>
+          <option value="desestimado">Desestimados</option>
+          <option value="all">Todos</option>
+        </SSel>
+        <span style={{fontSize:12,color:C.mid}}>{shown.length} reclamo{shown.length===1?'':'s'}</span>
+      </div>
+
+      <SectionCard title="Reclamos" style={{marginBottom:20}}>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+            <thead><tr><Th>Tipo</Th><Th>Proveedor</Th><Th>Producto</Th><Th>Detalle</Th><Th>Estado</Th><Th>Fecha</Th><Th style={{textAlign:'right'}}>Acciones</Th></tr></thead>
+            <tbody>
+              {shown.length===0 && <tr><Td style={{textAlign:'center',color:C.dim}} colSpan={7}>Sin reclamos.</Td></tr>}
+              {shown.map(r=>(
+                <tr key={r.id}>
+                  <Td><span style={{fontWeight:600,color:C.ink}}>{MKP_REPORT_TIPO_LBL[r.tipo]||r.tipo}</span></Td>
+                  <Td><span style={{fontSize:12.5}}>{r.target_supplier_id?(supNameById[r.target_supplier_id]||'—'):'—'}</span></Td>
+                  <Td><span style={{fontSize:12,color:C.mid}}>{r.target_product_id?(prodNameById[r.target_product_id]||'—'):'—'}</span></Td>
+                  <Td><span style={{fontSize:12,color:C.mid}}>{r.detalle?String(r.detalle).slice(0,60)+(r.detalle.length>60?'…':''):'—'}</span></Td>
+                  <Td><MkBadge map={MKP_REPORT_ESTADO} value={r.estado}/></Td>
+                  <Td><span style={{fontSize:12,color:C.mid}}>{fmtDate(r.created_at)}</span></Td>
+                  <Td style={{textAlign:'right'}}>
+                    <div style={{display:'inline-flex',gap:6,flexWrap:'wrap',justifyContent:'flex-end'}}>
+                      {r.estado==='abierto' && <Btn variant="ghost" size="sm" onClick={()=>setEstado(r,'en_revision')}>Revisar</Btn>}
+                      {['abierto','en_revision'].includes(r.estado) && <Btn variant="ghost" size="sm" onClick={()=>setResolveModal(r)}>Resolver</Btn>}
+                      {r.target_supplier_id && <Btn variant="danger" size="sm" onClick={()=>onSuspend(r.target_supplier_id)}>Suspender prov.</Btn>}
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Reseñas privadas (solo lectura)">
+        <div style={{padding:'8px 0'}}>
+          {reviews.length===0 ? <MkEmpty text="Sin reseñas todavía."/> :
+            reviews.map(rv=>(
+              <div key={rv.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 18px',borderTop:`1px solid ${C.border}`}}>
+                <span style={{fontSize:13,fontWeight:700,color:C.ink,whiteSpace:'nowrap'}}>{'★'.repeat(rv.rating)}<span style={{color:C.border}}>{'★'.repeat(5-rv.rating)}</span></span>
+                <span style={{flex:1,fontSize:12.5,color:C.mid}}>
+                  <strong style={{color:C.ink}}>{supNameById[rv.supplier_id]||'Proveedor'}</strong>
+                  {rv.comentario?` — ${rv.comentario}`:''}
+                  <span style={{color:C.dim}}> · {restNameById[rv.restaurant_id]||'restaurante'}</span>
+                </span>
+                <span style={{fontSize:11.5,color:C.dim,whiteSpace:'nowrap'}}>{fmtDate(rv.created_at)}</span>
+                <span title="Moderación pública: próximamente" style={{opacity:.4,cursor:'not-allowed',display:'inline-flex'}}><Toggle checked={rv.visible} onChange={()=>{}}/></span>
+              </div>
+            ))}
+        </div>
+      </SectionCard>
+
+      {resolveModal && <MkResolveModal report={resolveModal} onClose={()=>setResolveModal(null)} onDone={()=>{setResolveModal(null);load();}} setFlash={setFlash}/>}
+    </div>
+  );
+}
+
+function MkResolveModal({report, onClose, onDone, setFlash}) {
+  const [estado, setEstado] = useState('resuelto');
+  const [resolucion, setResolucion] = useState(report.resolucion||'');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    const { error } = await db.from('marketplace_reports').update({estado, resolucion:resolucion.trim()||null}).eq('id',report.id);
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:'Reclamo actualizado'}); onDone();
+  };
+  return (
+    <Modal title="Resolver reclamo" onClose={onClose} width={440}>
+      <FormField label="Resultado">
+        <SSel value={estado} onChange={setEstado}>
+          <option value="resuelto">Resuelto</option>
+          <option value="desestimado">Desestimado</option>
+          <option value="en_revision">En revisión</option>
+        </SSel>
+      </FormField>
+      <FormField label="Resolución / nota">
+        <STa value={resolucion} onChange={setResolucion} rows={3} placeholder="Qué se resolvió y cómo…"/>
+      </FormField>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:6}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={busy}>{busy?'Guardando…':'Guardar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function PageProveedores({restaurants, setFlash}) {
+  const [tab, setTab] = useState('resumen');
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState(null);
+  const [suppliers, setSuppliers] = useState([]);
+  const [apps, setApps] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [leads, setLeads] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [prodFilterSup, setProdFilterSup] = useState(null);
+
+  const load = useCallback(async () => {
+    if (!db) { setLoading(false); return; }
+    const [st, su, ap, pr, le, ca, re, rv, ev] = await Promise.all([
+      db.rpc('superadmin_marketplace_stats').then(r=>r.error?{data:null}:r),
+      db.from('marketplace_suppliers').select('*').order('created_at',{ascending:false}).then(r=>r.error?{data:[]}:r),
+      db.from('marketplace_applications').select('*').order('created_at',{ascending:false}).then(r=>r.error?{data:[]}:r),
+      db.from('marketplace_products').select('*').order('created_at',{ascending:false}).limit(3000).then(r=>r.error?{data:[]}:r),
+      db.from('marketplace_leads').select('*').order('created_at',{ascending:false}).limit(5000).then(r=>r.error?{data:[]}:r),
+      db.from('marketplace_categories').select('*').order('orden',{ascending:true}).then(r=>r.error?{data:[]}:r),
+      db.from('marketplace_reports').select('*').order('created_at',{ascending:false}).limit(2000).then(r=>r.error?{data:[]}:r),
+      db.from('marketplace_reviews').select('*').order('created_at',{ascending:false}).limit(2000).then(r=>r.error?{data:[]}:r),
+      db.from('marketplace_events').select('*').order('created_at',{ascending:false}).limit(50).then(r=>r.error?{data:[]}:r),
+    ]);
+    setStats(st.data||null); setSuppliers(su.data||[]); setApps(ap.data||[]); setProducts(pr.data||[]);
+    setLeads(le.data||[]); setCategories(ca.data||[]); setReports(re.data||[]); setReviews(rv.data||[]); setEvents(ev.data||[]);
+    setLoading(false);
+  }, []);
+  useEffect(()=>{ load(); if(!db) return;
+    const id = setInterval(()=>{ if(!_shouldPause()) load(); }, 45000);
+    return ()=>clearInterval(id);
+  }, [load]);
+
+  // Mapas de nombres (superadmin ve todo; restaurants viene por prop).
+  const supNameById = {}; suppliers.forEach(s=>{ supNameById[s.id]=s.nombre_comercial; });
+  const prodNameById = {}; products.forEach(p=>{ prodNameById[p.id]=p.nombre; });
+  const restNameById = {}; (restaurants||[]).forEach(r=>{ restNameById[r.id]=r.name; });
+
+  // Conteos por proveedor.
+  const prodCountBySup = {}; products.forEach(p=>{ prodCountBySup[p.supplier_id]=(prodCountBySup[p.supplier_id]||0)+1; });
+  const leadCountBySup = {}; leads.forEach(l=>{ leadCountBySup[l.supplier_id]=(leadCountBySup[l.supplier_id]||0)+1; });
+
+  // Reportes indexados por producto y por proveedor.
+  const reportsByProduct = {}, reportsBySupplier = {};
+  reports.forEach(r=>{
+    if (r.target_product_id) (reportsByProduct[r.target_product_id]=reportsByProduct[r.target_product_id]||[]).push(r);
+    else if (r.target_supplier_id) (reportsBySupplier[r.target_supplier_id]=reportsBySupplier[r.target_supplier_id]||[]).push(r);
+  });
+
+  const pendientes = apps.filter(a=>a.estado==='pendiente').length;
+  const reclamosAbiertos = reports.filter(r=>['abierto','en_revision'].includes(r.estado)).length;
+
+  const gotoProducts = (supId) => { setProdFilterSup(supId); setTab('productos'); };
+  const suspendFromReport = async (supId) => {
+    const { error } = await db.rpc('superadmin_set_supplier_estado', {p_supplier_id:supId, p_estado:'suspendido'});
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:'Proveedor suspendido'}); load();
+  };
+
+  const TABS = [
+    {id:'resumen', label:'Resumen'},
+    {id:'solicitudes', label:'Solicitudes', badge:pendientes},
+    {id:'proveedores', label:'Proveedores'},
+    {id:'productos', label:'Productos'},
+    {id:'leads', label:'Leads'},
+    {id:'categorias', label:'Categorías'},
+    {id:'reclamos', label:'Reclamos', badge:reclamosAbiertos},
+  ];
+
+  if (loading) return <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:200,gap:14}}><Spinner/><span style={{color:C.mid}}>Cargando marketplace…</span></div>;
+
+  return (
+    <div>
+      <MkTabBar tabs={TABS} active={tab} onSelect={setTab}/>
+      {tab==='resumen'     && <MkResumen stats={stats} events={events} supNameById={supNameById} restNameById={restNameById}/>}
+      {tab==='solicitudes' && <MkSolicitudes apps={apps} load={load} setFlash={setFlash}/>}
+      {tab==='proveedores' && <MkProveedores suppliers={suppliers} prodCountBySup={prodCountBySup} leadCountBySup={leadCountBySup} categories={categories} load={load} setFlash={setFlash} gotoProducts={gotoProducts}/>}
+      {tab==='productos'   && <MkProductos products={products} supNameById={supNameById} categories={categories} reportsByProduct={reportsByProduct} reportsBySupplier={reportsBySupplier} filterSupplier={prodFilterSup} setFilterSupplier={setProdFilterSup} load={load} setFlash={setFlash}/>}
+      {tab==='leads'       && <MkLeads leads={leads} supNameById={supNameById} restNameById={restNameById}/>}
+      {tab==='categorias'  && <MkCategorias categories={categories} load={load} setFlash={setFlash}/>}
+      {tab==='reclamos'    && <MkReclamos reports={reports} reviews={reviews} supNameById={supNameById} prodNameById={prodNameById} restNameById={restNameById} onSuspend={suspendFromReport} load={load} setFlash={setFlash}/>}
+    </div>
+  );
+}
+
 // ── Navegación ───────────────────────────────────────────────
 const NAV = [
   {id:'dashboard',      label:'Dashboard'},
@@ -2976,6 +4018,7 @@ const NAV = [
   {id:'facturacion',    label:'Facturación'},
   {id:'fiscal',         label:'Fiscal'},
   {id:'usuarios',       label:'Usuarios'},
+  {id:'proveedores',    label:'Proveedores'},
   {id:'soporte',        label:'Soporte'},
   {id:'reportes',       label:'Reportes'},
   {id:'actividad',      label:'Actividad'},
@@ -5224,6 +6267,7 @@ function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [unreadSupport, setUnreadSupport] = useState(0);
+  const [pendingSuppliers, setPendingSuppliers] = useState(0);
   const [rawData, setRawData] = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[],platformConfig:[],addons:[],addonCatalog:[]});
   const [themeMode, setThemeMode] = useState(window.MythosTheme ? window.MythosTheme.get() : 'light');
   useEffect(() => {
@@ -5245,6 +6289,21 @@ function App() {
     };
     tick();
     const id = setInterval(tick, 20000);
+    return () => clearInterval(id);
+  },[]);
+
+  // Polling de solicitudes de proveedores pendientes (badge del marketplace)
+  useEffect(()=>{
+    if(!db) return;
+    const tick = async () => {
+      if(_shouldPause()) return;
+      const { count } = await db.from('marketplace_applications')
+        .select('id',{count:'exact',head:true})
+        .eq('estado','pendiente');
+      setPendingSuppliers(count||0);
+    };
+    tick();
+    const id = setInterval(tick, 30000);
     return () => clearInterval(id);
   },[]);
 
@@ -5312,11 +6371,11 @@ function App() {
   // Se aplica en el cuerpo del render para que los hijos formateen ya con la moneda correcta.
   setPlatformCurrency(platformConfig.find(c=>c.key==='platform_currency')?.value);
 
-  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',fiscal:'Fiscal',usuarios:'Usuarios',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración'};
+  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración'};
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
-      <Sidebar page={page} setPage={setPage} badges={{soporte:unreadSupport}} themeMode={themeMode} onToggleTheme={handleToggleTheme}/>
+      <Sidebar page={page} setPage={setPage} badges={{soporte:unreadSupport, proveedores:pendingSuppliers}} themeMode={themeMode} onToggleTheme={handleToggleTheme}/>
       <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
         {/* Banner global */}
         {bannerActive&&!bannerDismissed&&(
@@ -5351,6 +6410,7 @@ function App() {
               {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} addonCatalog={addonCatalog} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='fiscal'        && <PageFiscal       setFlash={setFlash}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
+              {page==='proveedores'   && <PageProveedores  restaurants={restaurants} setFlash={setFlash}/>}
               {page==='soporte'       && <PageSoporte      setFlash={setFlash}/>}
               {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
