@@ -7,6 +7,9 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
+// PR-MKT-2: módulo Marketplace B2B (tablas marketplace_*, migs 142/143) —
+// compartido con el panel admin. NO confundir con proveedores internos (mig 072).
+import { createRestaurantMarketplace } from "../marketplace/restaurant-marketplace.jsx";
 
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
@@ -2347,6 +2350,15 @@ function AvisosGerente({user,userName}) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   MÓDULO MARKETPLACE (PR-MKT-2) — factory compartida: recibe los primitivos
+   UI de ESTE panel para que la sección herede tema y componentes.
+   ════════════════════════════════════════════════════════════════════════════ */
+const MarketplaceSection = createRestaurantMarketplace({
+  React, db, rid: RID, C, Icon, toast, Modal, Btn, Inp, Sel, Lbl, Th, Td, Empty,
+  shouldPause: _shouldPause,
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
    APP SHELL
    ════════════════════════════════════════════════════════════════════════════ */
 function App() {
@@ -2418,6 +2430,7 @@ function App() {
     {key:'calendario',label:'Calendario', icon:'layout'},
     {key:'bitacora',  label:'Bitácora', icon:'fileText'},
     {key:'reportes',  label:'Reportes', icon:'chart'},
+    {key:'marketplace', label:'Marketplace', icon:'store'},
     {key:'personal',  label:'Solicitudes personal', icon:'user', badge: pendingStaffReqs},
     {key:'avisos',    label:'Avisos al personal',  icon:'bell', badge: unreadBroadcasts},
     {key:'soporte',   label:'Soporte Mythos', icon:'chat', badge: unreadSupport},
@@ -2468,6 +2481,7 @@ function App() {
         {section==='calendario'   && <CalendarioGerente user={auth.user} userName={auth.name}/>}
         {section==='bitacora'     && <BitacoraTurno user={auth.user} userName={auth.name}/>}
         {section==='reportes'     && <ReportesDelDia/>}
+        {section==='marketplace'  && <MarketplaceSection/>}
         {section==='personal'     && <SolicitudPersonal user={auth.user} userName={auth.name}/>}
         {section==='avisos'       && <AvisosGerente user={auth.user} userName={auth.name}/>}
         {section==='soporte'      && <Soporte user={auth.user} role={auth.role} userName={auth.name} userUsername={auth.username} userEmail={auth.email}/>}

@@ -7,6 +7,10 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
+// PR-MKT-2: módulo Marketplace B2B (tablas marketplace_*, migs 142/143) —
+// compartido con el panel gerente. NO confundir con ProveedoresPage (los
+// proveedores internos de compras: public.suppliers, mig 072).
+import { createRestaurantMarketplace } from "../marketplace/restaurant-marketplace.jsx";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -344,6 +348,13 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
   );
 }
 
+/* ── MÓDULO MARKETPLACE (PR-MKT-2) — factory compartida con gerente; recibe
+      los primitivos UI de ESTE panel (Empty = EmptyRow acá). ── */
+const MarketplacePage = createRestaurantMarketplace({
+  React, db, rid: RID, C, Icon, toast, Modal, Btn, Inp, Sel, Lbl, Th, Td,
+  Empty: EmptyRow, shouldPause: _shouldPause,
+});
+
 /* ── SIDEBAR ── */
 const NAV = [
   {id:'dashboard', label:'Dashboard',    icon:'dashboard'},
@@ -359,6 +370,7 @@ const NAV = [
   {id:'personal',   label:'Personal',     icon:'users'},
   {id:'stock',      label:'Stock',        icon:'package'},
   {id:'proveedores',label:'Proveedores',  icon:'building'},
+  {id:'marketplace',label:'Marketplace',  icon:'store'},
   null,
   {id:'clientes',  label:'Clientes',     icon:'user', group:'ANÁLISIS'},
   {id:'reportes',  label:'Reportes',     icon:'chart'},
@@ -10533,6 +10545,7 @@ function AdminApp() {
       case 'ratings':   return <RatingsPage ratings={ratings}/>;
       case 'stock':     return caps.hasFeature('admin:inventory') ? <StockPage/> : <window.MythosGating.FeatureLock featureKey="admin:inventory" variant="inline"/>;
       case 'proveedores': return <ProveedoresPage/>;
+      case 'marketplace': return <MarketplacePage/>;
       case 'delivery':  return caps.hasFeature('admin:delivery_zones') ? <DeliveryModule/> : <window.MythosGating.FeatureLock featureKey="admin:delivery_zones" variant="inline"/>;
       case 'avisos':    return <AvisosAdmin restaurant={restaurant}/>;
       case 'soporte':   return <SoportePage restaurant={restaurant}/>;

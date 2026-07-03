@@ -6,10 +6,12 @@
 // (tablas marketplace_*, rol 'supplier', RPCs y buckets).
 // Secciones: Inicio (métricas) · Mi Tienda (perfil+contacto+pausa) ·
 // Catálogo (productos CRUD + archivos) · Solicitudes (leads) ·
-// Mensajes (placeholder — el chat llega en Fase 2).
+// Mensajes (chat real desde PR-MKT-2: módulo compartido + migs 143).
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
+// PR-MKT-2: chat del marketplace (módulo compartido con admin/gerente)
+import { createMarketplaceChat } from "../marketplace/chat.jsx";
 
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
@@ -235,6 +237,9 @@ async function logout() {
   window.location.replace('login.html');
 }
 
+/* ── PR-MKT-2: chat del marketplace (mi lado = supplier) ── */
+const ChatSection = createMarketplaceChat({ React, db, C, Icon, toast, Btn, shouldPause: _shouldPause });
+
 /* Resuelve el supplier del usuario logueado + su perfil + contacto. */
 function useSupplier() {
   const [state, setState] = useState({loading:true, supplierId:null, supplier:null, contacts:null});
@@ -255,7 +260,7 @@ function useSupplier() {
 /* ════════════════════════════════════════════════════════════════════
    INICIO (dashboard del proveedor)
    ════════════════════════════════════════════════════════════════════ */
-function Inicio({supplier, onJump}) {
+function Inicio({supplier, onJump, unreadMsgs}) {
   const [stats, setStats] = useState({prodPub:0, prodTotal:0, leadsNuevos:0, cotAbiertas:0, contactosMes:0});
   const [lastLeads, setLastLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -296,6 +301,7 @@ function Inicio({supplier, onJump}) {
         <KpiCard label="Solicitudes nuevas" value={loading?'…':stats.leadsNuevos} accent={stats.leadsNuevos>0?C.orange:undefined} onClick={()=>onJump('solicitudes')}/>
         <KpiCard label="Cotizaciones abiertas" value={loading?'…':stats.cotAbiertas} onClick={()=>onJump('solicitudes')}/>
         <KpiCard label="Contactos revelados" value={loading?'…':stats.contactosMes} sub="este mes"/>
+        <KpiCard label="Mensajes sin leer" value={unreadMsgs||0} accent={unreadMsgs>0?C.orange:undefined} onClick={()=>onJump('mensajes')}/>
       </div>
 
       <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'flex-start'}}>
@@ -919,7 +925,7 @@ function Catalogo({supplier}) {
 /* ════════════════════════════════════════════════════════════════════
    SOLICITUDES (leads: contactos y cotizaciones)
    ════════════════════════════════════════════════════════════════════ */
-function Solicitudes({onNuevasChange}) {
+function Solicitudes({onNuevasChange, onResponder}) {
   const [leads, setLeads] = useState([]);
   const [restInfo, setRestInfo] = useState({});
   const [loading, setLoading] = useState(true);
@@ -947,7 +953,11 @@ function Solicitudes({onNuevasChange}) {
     if (error) { toast(error.message||'No se pudo actualizar', false); return; }
     toast('Estado actualizado');
     setDetail(d => d && d.id===lead.id ? {...d, estado} : d);
-    load();
+    // Actualización optimista: load() se auto-cancela por _shouldPause mientras
+    // el <select> conserva el foco y el Sel controlado rebotaría al valor viejo.
+    const next = leads.map(x => x.id === lead.id ? { ...x, estado } : x);
+    setLeads(next);
+    onNuevasChange?.(next.filter(l => l.estado === 'nueva').length);
   }
 
   const filtered = leads.filter(l => (!fTipo || l.tipo===fTipo) && (!fEstado || l.estado===fEstado));
@@ -1032,7 +1042,7 @@ function Solicitudes({onNuevasChange}) {
               </Sel>
             </div>
             <div style={{display:'flex',justifyContent:'flex-end',gap:10}}>
-              <Btn variant="secondary" small onClick={()=>toast('Mensajería disponible próximamente (Fase 2)')}>Responder</Btn>
+              <Btn variant="secondary" small onClick={()=>{ setDetail(null); onResponder(detail); }}>Responder</Btn>
             </div>
           </div>
         </Modal>
@@ -1042,21 +1052,14 @@ function Solicitudes({onNuevasChange}) {
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   MENSAJES (placeholder — chat en Fase 2)
+   MENSAJES (chat real — PR-MKT-2)
    ════════════════════════════════════════════════════════════════════ */
-function Mensajes() {
+function Mensajes({openConversationId, onOpened, onUnread}) {
   return (
-    <div className="page" style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'60vh'}}>
-      <div style={{maxWidth:420,textAlign:'center'}}>
-        <div style={{width:64,height:64,borderRadius:'50%',border:`1.5px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 18px',color:C.dim}}>
-          <Icon name="chat" size={26}/>
-        </div>
-        <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:8}}>Mensajería con restaurantes</div>
-        <div style={{fontSize:13,color:C.mid,lineHeight:1.6}}>
-          Disponible próximamente. Las cotizaciones que recibís ya crean la conversación:
-          cuando activemos el chat vas a poder responderlas desde acá.
-        </div>
-      </div>
+    <div className="page">
+      <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:4}}>Mensajes</div>
+      <div style={{fontSize:12,color:C.mid,marginBottom:14}}>Conversaciones con los restaurantes que te contactaron</div>
+      <ChatSection side="supplier" openConversationId={openConversationId} onOpened={onOpened} onUnreadTotal={onUnread}/>
     </div>
   );
 }
@@ -1084,6 +1087,8 @@ function App() {
   const { loading: supLoading, supplierId, supplier, contacts, reload } = useSupplier();
   const [section, setSection] = useState('inicio');
   const [nuevas, setNuevas] = useState(0);
+  const [unreadMsgs, setUnreadMsgs] = useState(0);
+  const [chatTarget, setChatTarget] = useState(null);
   const [themeMode, setThemeMode] = useState(window.MythosTheme ? window.MythosTheme.get() : 'light');
   const [, force] = useState(0);
 
@@ -1093,7 +1098,10 @@ function App() {
     return () => document.removeEventListener('mythos:themechange', fn);
   }, []);
 
-  // badge de solicitudes nuevas (poll liviano, aparte del de la sección)
+  // badges del sidebar: solicitudes nuevas + mensajes sin leer (poll liviano).
+  // Estando en Mensajes, el conteo de no-leídos lo alimenta SOLO el ChatSection
+  // (onUnreadTotal): sin esta guarda, una respuesta en vuelo del poll podría
+  // pisar el 0 recién marcado con el conteo viejo (unread fantasma).
   useEffect(() => {
     if (!db || !supplierId) return;
     let on = true;
@@ -1101,11 +1109,26 @@ function App() {
       if (_shouldPause()) return;
       const { count } = await db.from('marketplace_leads').select('id',{count:'exact',head:true}).eq('estado','nueva');
       if (on && typeof count === 'number') setNuevas(count);
+      if (section !== 'mensajes') {
+        const { data: convs } = await db.from('marketplace_conversations').select('supplier_unread');
+        if (on && Array.isArray(convs)) setUnreadMsgs(convs.reduce((s,c)=>s+(c.supplier_unread||0),0));
+      }
     };
     check();
     const id = setInterval(check, 30000);
     return () => { on = false; clearInterval(id); };
-  }, [supplierId]);
+  }, [supplierId, section]);
+
+  // Responder una solicitud: abre (o crea vía RPC) la conversación con ese restaurante
+  async function responderLead(lead) {
+    if (!lead) return;
+    const { data, error } = await db.rpc('ensure_conversation', {
+      p_supplier_id: lead.supplier_id, p_restaurant_id: lead.restaurant_id,
+    });
+    if (error || !data) { toast((error && error.message) || 'No se pudo abrir la conversación', false); return; }
+    setChatTarget(data);
+    setSection('mensajes');
+  }
 
   if (!db) return <CenterNotice title="Sin conexión a Supabase">Falta configurar <code>config.js</code> con las credenciales del proyecto.</CenterNotice>;
   if (auth.loading || supLoading) {
@@ -1126,7 +1149,7 @@ function App() {
     {key:'tienda',      label:'Mi Tienda',   icon:'store'},
     {key:'catalogo',    label:'Catálogo',    icon:'package'},
     {key:'solicitudes', label:'Solicitudes', icon:'fileText', badge:nuevas},
-    {key:'mensajes',    label:'Mensajes',    icon:'chat'},
+    {key:'mensajes',    label:'Mensajes',    icon:'chat', badge:unreadMsgs},
   ];
 
   return (
@@ -1162,11 +1185,11 @@ function App() {
       </aside>
 
       <main style={{flex:1,padding:'28px 32px',overflowX:'auto',background:C.bg}}>
-        {section==='inicio'      && <Inicio supplier={supplier} onJump={setSection}/>}
+        {section==='inicio'      && <Inicio supplier={supplier} onJump={setSection} unreadMsgs={unreadMsgs}/>}
         {section==='tienda'      && <MiTienda supplier={supplier} contacts={contacts} onReload={reload}/>}
         {section==='catalogo'    && <Catalogo supplier={supplier}/>}
-        {section==='solicitudes' && <Solicitudes onNuevasChange={setNuevas}/>}
-        {section==='mensajes'    && <Mensajes/>}
+        {section==='solicitudes' && <Solicitudes onNuevasChange={setNuevas} onResponder={responderLead}/>}
+        {section==='mensajes'    && <Mensajes openConversationId={chatTarget} onOpened={()=>setChatTarget(null)} onUnread={setUnreadMsgs}/>}
       </main>
 
       <ToastContainer/>
