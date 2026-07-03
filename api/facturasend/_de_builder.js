@@ -53,10 +53,13 @@ function tipoEntrega(paymentMethod) {
 }
 
 // cliente: consumidor final innominado, o con cédula, o contribuyente con RUC.
+// PR-FE-4: el receptor fiscal REAL viene de los campos factura_* del pedido (los
+// datos que cargó el cliente al pedir "Factura fiscal"); se cae a customer_* por
+// compatibilidad (y al ejemplo, que no trae ninguno → CONSUMIDOR FINAL innominado).
 export function buildCliente(order) {
-  const doc = order && order.customer_ruc ? String(order.customer_ruc).trim() : '';
-  const name = order && order.customer_name ? String(order.customer_name).trim() : '';
-  const email = order && order.customer_email ? String(order.customer_email).trim() : '';
+  const doc = String((order && (order.factura_ruc_ci || order.customer_ruc)) || '').trim();
+  const name = String((order && (order.factura_razon_social || order.customer_name)) || '').trim();
+  const email = String((order && (order.factura_email || order.customer_email)) || '').trim();
   const base = { pais: 'PRY', paisDescripcion: 'Paraguay', codigo: '00001' };
   if (email) base.email = email;
 

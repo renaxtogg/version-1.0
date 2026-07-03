@@ -12,6 +12,7 @@
 // ════════════════════════════════════════════════════════════════════
 import { getFiscalConfig, getDocumentoByCdc } from './_db.js';
 import { providerFromConfig } from './_provider.js';
+import { authorizeSecretOrStaff } from './_staffauth.js';
 import { checkRateLimit } from '../_ratelimit.js';
 
 // Validación de email pragmática (no RFC-completa): algo@algo.tld sin espacios.
@@ -26,14 +27,6 @@ export default async function handler(req, res) {
 
   if (await checkRateLimit(req, res, { key: 'fs-email', max: 20, windowSec: 60 })) return;
 
-  const secret = process.env.FACTURASEND_EMIT_SECRET;
-  if (!secret) {
-    return res.status(403).json({ ok: false, error: 'Email deshabilitado: seteá FACTURASEND_EMIT_SECRET para habilitarlo' });
-  }
-  if (req.headers['authorization'] !== `Bearer ${secret}`) {
-    return res.status(401).json({ ok: false, error: 'Unauthorized' });
-  }
-
   const q = req.query || {};
   const b = req.body || {};
   const restaurantId = q.restaurant_id || q.r || b.restaurant_id || null;
@@ -44,6 +37,16 @@ export default async function handler(req, res) {
   if (!cdc) return res.status(400).json({ ok: false, error: 'Falta cdc' });
   if (!email || !EMAIL_RE.test(email)) {
     return res.status(400).json({ ok: false, error: 'email inválido' });
+  }
+
+  // Auth: secret de sandbox O sesión de staff del restaurante (caja envía el email
+  // sin el secret). Fail-closed.
+  let authz;
+  try { authz = await authorizeSecretOrStaff(req, restaurantId); }
+  catch (_) { return res.status(500).json({ ok: false, error: 'No se pudo validar la sesión' }); }
+  if (!authz.authorized) {
+    const code = (authz.reason === 'sin_token' || authz.reason === 'token_invalido') ? 401 : 403;
+    return res.status(code).json({ ok: false, error: 'No autorizado' });
   }
 
   try {

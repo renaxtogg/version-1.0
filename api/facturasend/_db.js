@@ -68,6 +68,7 @@ export async function getOrderForInvoice(restaurantId, orderId) {
     'id,restaurant_id,order_number,order_type,status,payment_status,payment_method,' +
     'total,subtotal,discount_amount,coupon_code,customer_name,customer_ruc,customer_email,' +
     'requires_invoice,invoice_status,' +
+    'factura_solicitada,factura_estado,factura_razon_social,factura_ruc_ci,factura_email,factura_formato,' +
     'order_items(id,item_id,item_name,quantity,unit_price,total_price,order_item_extras(extra_name,extra_price))';
   const r = await fetch(
     `${url}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}` +
@@ -185,6 +186,25 @@ export async function reclamarOCrearDe(restaurantId, orderId, tipoDe, establecim
     throw new Error(`reclamar_o_crear_de: respuesta inesperada (${JSON.stringify(val)})`);
   }
   return { doc: obj.doc, created: obj.created === true };
+}
+
+// PR-FE-4: sincroniza el estado coarse de la factura a nivel pedido
+// (orders.factura_estado: SOLICITADA→EMITIDA|ERROR) tras la emisión desde caja.
+// Best-effort acotado por restaurant_id. Sólo toca pedidos que pidieron factura.
+export async function updateOrderFacturaEstado(restaurantId, orderId, estado) {
+  if (!orderId || !['EMITIDA', 'ERROR', 'SOLICITADA'].includes(estado)) return null;
+  const { url } = rest();
+  const r = await fetch(
+    `${url}/rest/v1/orders?id=eq.${encodeURIComponent(orderId)}` +
+    `&restaurant_id=eq.${encodeURIComponent(restaurantId)}&factura_solicitada=eq.true`,
+    {
+      method: 'PATCH',
+      headers: svcHeaders({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }),
+      body: JSON.stringify({ factura_estado: estado }),
+    },
+  );
+  if (!r.ok) throw new Error(`orders.factura_estado: update falló (HTTP ${r.status}) ${await r.text()}`);
+  return true;
 }
 
 // Inserta una fila de fiscal_inutilizaciones (mig 139). Devuelve la fila guardada.

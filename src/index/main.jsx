@@ -80,7 +80,7 @@ async function dbValidateCoupon(code) {
   } catch(e) { return null; }
 }
 
-async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmount, couponCode, total, payMethod, custName, custRuc, custEmail, requiresInvoice, invoiceDeliveryMethod, language }) {
+async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmount, couponCode, total, payMethod, custName, custRuc, custEmail, requiresInvoice, invoiceDeliveryMethod, language, facturaSolicitada, facturaRazonSocial, facturaRucCi, facturaEmail, facturaFormato }) {
   if (!items || items.length === 0) throw new Error('El carrito está vacío');
   if (!RESTAURANT_ID) throw new Error('No se identificó el restaurante. Escaneá el QR de tu mesa o abrí el link con ?r=<restaurante>.');
   const safeTotal = total > 0 ? total : items.reduce((s, ci) => s + (ci.total || 0), 0);
@@ -100,6 +100,12 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
     customer_name: custName || null, customer_ruc: custRuc || null, customer_email: custEmail || null,
     requires_invoice: requiresInvoice || false,
     invoice_delivery_method: requiresInvoice ? (invoiceDeliveryMethod || (custEmail ? 'email' : 'print')) : null,
+    // PR-FE-4: campos fiscales (opcionales; el RPC create_order los acepta con default null).
+    factura_solicitada: facturaSolicitada || false,
+    factura_razon_social: facturaRazonSocial || null,
+    factura_ruc_ci: facturaRucCi || null,
+    factura_email: facturaEmail || null,
+    factura_formato: facturaFormato || null,
     language,
     items: items.map(ci => ({
       item_id: ci.item.id || null, item_name: ci.item.name, quantity: ci.qty,
@@ -1062,6 +1068,33 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
   );
 }
 
+/* ══ Validación fiscal (RUC paraguayo con dígito verificador, o CI numérica) ══ */
+// DV del RUC por módulo 11 (algoritmo SET Paraguay): pesos 2..11 de derecha a
+// izquierda; resto = suma % 11; dv = resto>1 ? 11-resto : 0.
+function rucDV(base) {
+  let total = 0, mult = 2;
+  for (let i = base.length - 1; i >= 0; i--) {
+    total += parseInt(base[i], 10) * mult;
+    mult = mult >= 11 ? 2 : mult + 1;
+  }
+  const resto = total % 11;
+  return resto > 1 ? 11 - resto : 0;
+}
+// Devuelve { ok, tipo?, msg? }. Acepta RUC "80012345-6" (valida DV) o CI numérica.
+function validarRucCi(input) {
+  const raw = String(input || '').trim().replace(/\s+/g, '');
+  if (!raw) return { ok: false, msg: 'Ingresá el RUC o la cédula.' };
+  if (raw.includes('-')) {
+    const m = /^(\d{3,10})-(\d)$/.exec(raw);
+    if (!m) return { ok: false, msg: 'RUC inválido. Formato: 80012345-6' };
+    if (rucDV(m[1]) !== parseInt(m[2], 10)) return { ok: false, msg: 'El dígito verificador del RUC no coincide.' };
+    return { ok: true, tipo: 'ruc' };
+  }
+  if (/^\d{3,10}$/.test(raw)) return { ok: true, tipo: 'ci' };
+  return { ok: false, msg: 'Ingresá un RUC (ej. 80012345-6) o una cédula numérica.' };
+}
+const EMAIL_RE_CLIENTE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 /* ══ SCREEN: PAGO ════════════════════════ */
 function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone, onNewOrder, cartItems, orderMode, lang, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
@@ -1093,6 +1126,16 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
     if (!cartItems || cartItems.length === 0) { setSubmitError('Tu carrito está vacío'); return; }
     const effectiveTotal = total > 0 ? total : cartItems.reduce((s, ci) => s + (ci.total || 0), 0);
     if (effectiveTotal <= 0) { setSubmitError('El total del pedido es inválido. Volvé al carrito y revisá los precios.'); return; }
+    // Factura fiscal: validar datos del receptor ANTES de confirmar (no se puede
+    // emitir una factura electrónica sin razón social + RUC/CI válido).
+    if (invoiceType === 'fiscal') {
+      if (!name.trim()) { setSubmitError('Ingresá el nombre o razón social para la factura.'); return; }
+      const v = validarRucCi(ruc);
+      if (!v.ok) { setSubmitError(v.msg); return; }
+      const emailTrim = email.trim();
+      if (invoiceDelivery === 'email' && !emailTrim) { setSubmitError('Ingresá un email para recibir la factura electrónica.'); return; }
+      if (emailTrim && !EMAIL_RE_CLIENTE.test(emailTrim)) { setSubmitError('El email no tiene un formato válido.'); return; }
+    }
     submittingRef.current = true;        // se setea ANTES del primer await → bloquea reentrada
     setStep('proc');
     try {
@@ -1105,11 +1148,18 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
         tableId: isTableDineIn ? _tableUUID : null, orderType: orderMode === 'take' ? 'llevar' : 'local',
         items: cartItems, subtotal: subtotal || effectiveTotal, discountAmount: discountAmount || 0,
         couponCode: couponCode || null, total: effectiveTotal, payMethod: method,
-        custName: (invoiceType === 'fiscal' && name) ? name : null,
-        custRuc: (invoiceType === 'fiscal' && ruc) ? ruc : null,
-        custEmail: (invoiceType === 'fiscal' && email) ? email : null,
+        custName: (invoiceType === 'fiscal' && name) ? name.trim() : null,
+        custRuc: (invoiceType === 'fiscal' && ruc) ? ruc.trim() : null,
+        custEmail: (invoiceType === 'fiscal' && email) ? email.trim() : null,
         requiresInvoice: invoiceType !== 'none',
         invoiceDeliveryMethod: invoiceType !== 'none' ? invoiceDelivery : null,
+        // PR-FE-4: factura fiscal (e-Kuatia) solicitada por el cliente. El receptor
+        // fiscal REAL va en factura_* (separado de customer_*, que delivery reusa).
+        facturaSolicitada: invoiceType === 'fiscal',
+        facturaRazonSocial: invoiceType === 'fiscal' ? name.trim() : null,
+        facturaRucCi: invoiceType === 'fiscal' ? ruc.trim() : null,
+        facturaEmail: (invoiceType === 'fiscal' && email.trim()) ? email.trim() : null,
+        facturaFormato: invoiceType === 'fiscal' ? (invoiceDelivery === 'email' ? 'email' : 'impreso') : null,
         language: lang
       });
       setOrdNum(order.order_number);
@@ -1240,7 +1290,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
               {[{ val: name, set: setName, ph: 'Nombre o razón social' }, { val: ruc, set: setRuc, ph: 'RUC / Cédula de identidad' }, { val: email, set: setEmail, ph: invoiceDelivery === 'email' ? 'Email para factura electrónica (requerido)' : 'Email (opcional)', type: 'email' }].map((f, i) =>
                 <input key={i} value={f.val} onChange={e => f.set(e.target.value)} placeholder={f.ph} type={f.type || 'text'} style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, outline: 'none', background: T.offwhite }} />
               )}
-              <div style={{ fontSize: 11, color: T.silver, marginTop: 2 }}>La factura electrónica (e-Kuatia) estará disponible próximamente.</div>
+              <div style={{ fontSize: 11, color: T.silver, marginTop: 2 }}>Se emite tu factura electrónica (e-Kuatia / SIFEN) con estos datos. Revisá que el RUC o la cédula sean correctos.</div>
             </div>
           )}
         </div>

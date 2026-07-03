@@ -683,6 +683,124 @@ function SidebarTurno({turno,cajaNombre,movimientos,panel,setPanel,onCierre,prof
 }
 
 /* ═══════════════════════════════════════════
+   PR-FE-4 · FACTURA FISCAL (emisión desde caja)
+   El staff emite por su SESIÓN (Bearer access_token); el secret NUNCA va al
+   browser. Endpoints: /emitir-caja (emite), /kude (PDF), /email (reenvío).
+═══════════════════════════════════════════ */
+async function _staffToken(){
+  const {data:{session}}=await db.auth.getSession();
+  const t=session?.access_token;
+  if(!t) throw new Error('Sin sesión activa. Volvé a iniciar sesión.');
+  return t;
+}
+async function apiEmitirFacturaCaja(orderId){
+  const token=await _staffToken();
+  const resp=await fetch('/api/facturasend/emitir-caja',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+    body:JSON.stringify({restaurant_id:RID,order_id:orderId}),
+  });
+  const j=await resp.json().catch(()=>({}));
+  return {httpOk:resp.ok,...j};
+}
+async function apiEnviarEmailFactura(cdc,email){
+  const token=await _staffToken();
+  const resp=await fetch('/api/facturasend/email',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+    body:JSON.stringify({restaurant_id:RID,cdc,email}),
+  });
+  const j=await resp.json().catch(()=>({}));
+  return {httpOk:resp.ok,...j};
+}
+// KuDE = GET con Authorization → no se puede window.open() directo (sin header):
+// se baja el PDF como blob y se abre en pestaña nueva (el usuario imprime).
+async function abrirKude(cdc,formato='ticket'){
+  const token=await _staffToken();
+  const resp=await fetch(`/api/facturasend/kude?restaurant_id=${encodeURIComponent(RID)}&cdc=${encodeURIComponent(cdc)}&formato=${encodeURIComponent(formato)}`,{
+    headers:{'Authorization':`Bearer ${token}`},
+  });
+  if(!resp.ok){
+    let msg='No se pudo obtener el KuDE'; try{const j=await resp.json();msg=j.error||j.motivo||msg;}catch(_){}
+    throw new Error(msg);
+  }
+  const blob=await resp.blob();
+  const url=URL.createObjectURL(blob);
+  window.open(url,'_blank');
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+// CDC del DE vivo de una orden (staff lee documentos_electronicos por su RLS).
+async function fetchCdcDeOrden(orderId){
+  try{
+    const {data}=await db.from('documentos_electronicos')
+      .select('cdc,estado,numero').eq('order_id',orderId)
+      .in('estado',['GENERADO','APROBADO','CANCELADO'])
+      .order('created_at',{ascending:false}).limit(1);
+    return (data&&data[0])||null;
+  }catch(_){ return null; }
+}
+
+// Bloque de factura fiscal en la tarjeta de un pedido: datos del receptor + acción
+// según estado (Emitir / Imprimir KuDE / Enviar por email / Reintentar). No bloquea
+// el cobro: la emisión es un paso aparte y reintentable (idempotente por order_id).
+function FacturaFiscalCaja({order}){
+  const AZUL='#007AFF';
+  const [st,setSt]=useState(order.factura_estado||'SOLICITADA');
+  const [cdc,setCdc]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const [motivo,setMotivo]=useState(null);
+
+  // EMITIDA de una sesión previa → recuperar el CDC para poder imprimir/enviar.
+  useEffect(()=>{
+    let alive=true;
+    if(st==='EMITIDA'&&!cdc){ fetchCdcDeOrden(order.id).then(d=>{ if(alive&&d&&d.cdc) setCdc(d.cdc); }); }
+    return()=>{alive=false;};
+  },[st]); // eslint-disable-line
+
+  const emitir=async(e)=>{
+    if(e) e.stopPropagation();
+    if(busy) return;
+    setBusy(true); setMotivo(null);
+    try{
+      const r=await apiEmitirFacturaCaja(order.id);
+      if(r.ok){ setSt('EMITIDA'); setCdc(r.cdc||null); toast('Factura emitida'); }
+      else { setSt('ERROR'); setMotivo(r.motivo||r.error||'No se pudo emitir'); toast('No se pudo emitir la factura',false); }
+    }catch(err){ setSt('ERROR'); setMotivo(err.message); toast(err.message,false); }
+    finally{ setBusy(false); }
+  };
+  const imprimir=async(e)=>{ if(e) e.stopPropagation(); if(!cdc) return; try{ await abrirKude(cdc,'ticket'); }catch(err){ toast(err.message,false); } };
+  const enviar=async(e)=>{
+    if(e) e.stopPropagation();
+    if(!cdc||!order.factura_email) return;
+    setBusy(true);
+    try{ const r=await apiEnviarEmailFactura(cdc,order.factura_email); toast(r.ok?`Factura enviada a ${order.factura_email}`:`No se pudo enviar: ${r.motivo||r.error||''}`,!!r.ok); }
+    catch(err){ toast(err.message,false); }
+    finally{ setBusy(false); }
+  };
+
+  return(
+    <div onClick={e=>e.stopPropagation()} style={{marginTop:8,background:AZUL+'0D',border:`1px solid ${AZUL}33`,borderRadius:8,padding:'8px 10px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+        <span style={{display:'inline-flex',alignItems:'center',gap:4,color:AZUL,fontSize:11,fontWeight:800}}><Icon name="receipt" size={11}/> Factura fiscal</span>
+        <Badge txt={st==='EMITIDA'?'Emitida':st==='ERROR'?'Error':'Solicitada'} color={st==='EMITIDA'?'#34C759':st==='ERROR'?'#FF3B30':AZUL}/>
+        <span style={{fontSize:10,color:C.mid}}>{order.factura_formato==='email'?'por email':'impresa'}</span>
+      </div>
+      <div style={{fontSize:11,color:C.ink,marginTop:4,lineHeight:1.4}}>
+        {order.factura_razon_social||'—'} · <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{order.factura_ruc_ci||'—'}</span>
+        {order.factura_email?<span style={{color:C.mid}}> · {order.factura_email}</span>:null}
+      </div>
+      {st==='EMITIDA'&&cdc&&<div style={{fontSize:9.5,color:C.mid,marginTop:3,fontFamily:"'SF Mono',ui-monospace,monospace",wordBreak:'break-all'}}>CDC: {cdc}</div>}
+      {st==='ERROR'&&motivo&&<div style={{fontSize:10,color:'#FF3B30',marginTop:3}}>{motivo}</div>}
+      <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
+        {st!=='EMITIDA'&&<Btn small variant="primary" disabled={busy} onClick={emitir}>{busy?'Emitiendo…':st==='ERROR'?'Reintentar':'Emitir factura'}</Btn>}
+        {st==='EMITIDA'&&<Btn small variant="secondary" disabled={!cdc} onClick={imprimir}>Imprimir KuDE</Btn>}
+        {st==='EMITIDA'&&order.factura_formato==='email'&&order.factura_email&&<Btn small variant="secondary" disabled={busy||!cdc} onClick={enviar}>Enviar por email</Btn>}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
    PANEL: COBRAR PEDIDOS
 ═══════════════════════════════════════════ */
 function CobrosPanel({turno,profile,movimientos,onMovimiento}){
@@ -724,19 +842,31 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
   async function loadOrders(){
     setLoading(true);
     const BASE='id,order_number,status,payment_status,total,payment_method,order_type,customer_name,customer_ruc,customer_email,requires_invoice,invoice_delivery_method,invoice_status,created_at,delivered_to_table_at,table_id,tables(number)';
-    const runSel=oi=>db.from('orders').select(`${BASE},${oi}`)
+    // PR-FE-4: columnas fiscales (mig 140). Best-effort: si la mig no está aplicada,
+    // se reintenta SIN ellas para NO romper caja.
+    const FISCAL='factura_solicitada,factura_estado,factura_razon_social,factura_ruc_ci,factura_email,factura_formato';
+    const OI_FULL='order_items(id,item_name,quantity,unit_price,total_price,paid_quantity)';
+    const OI_CLASSIC='order_items(id,item_name,quantity,unit_price,total_price)';
+    const runSel=(oi,withFiscal)=>db.from('orders').select(`${BASE}${withFiscal?','+FISCAL:''},${oi}`)
       .eq('restaurant_id',RID)
       .in('status',['confirmed','paid','pending_payment','kitchen_received','cooking','ready','delivered'])
       .or('payment_status.neq.paid,payment_status.is.null')
       .order('created_at',{ascending:true});
     // total_price incluye extras (precio efectivo por unidad); paid_quantity = pago parcial (mig 128).
-    let{data,error}=await runSel('order_items(id,item_name,quantity,unit_price,total_price,paid_quantity)');
-    if(error){
-      // Fallback si paid_quantity aún no existe (migración 128 sin aplicar) → modo clásico (cobro entero).
-      const r2=await runSel('order_items(id,item_name,quantity,unit_price,total_price)');
-      if(!r2.error){ data=(r2.data||[]).map(o=>({...o,order_items:(o.order_items||[]).map(it=>({...it,paid_quantity:it.paid_quantity??0}))})); error=null; setPartialOn(false); }
-      else error=r2.error;
-    } else { setPartialOn(true); }
+    // 1) intento completo (fiscal + paid_quantity).
+    let{data,error}=await runSel(OI_FULL,true);
+    if(!error){ setPartialOn(true); }
+    else {
+      // 2) sin columnas fiscales (mig 140 sin aplicar), con paid_quantity.
+      const r=await runSel(OI_FULL,false);
+      if(!r.error){ data=r.data; error=null; setPartialOn(true); }
+      else {
+        // 3) clásico: sin fiscal y sin paid_quantity (mig 128 sin aplicar) → cobro entero.
+        const r2=await runSel(OI_CLASSIC,false);
+        if(!r2.error){ data=(r2.data||[]).map(o=>({...o,order_items:(o.order_items||[]).map(it=>({...it,paid_quantity:it.paid_quantity??0}))})); error=null; setPartialOn(false); }
+        else error=r2.error;
+      }
+    }
     if(!error){
       const orders = data || [];
       setOrders(orders);
@@ -817,6 +947,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
           {mesaGroups.map(g=>{
             const numPedidos=g.orders.length;
             const invoiceReq=g.orders.some(o=>o.requires_invoice&&(o.invoice_status||'pending')==='pending');
+            const fiscalOrders=g.orders.filter(o=>o.factura_solicitada);   // PR-FE-4
             // Ítems pendientes agregados (para preview en la tarjeta).
             const lines=g.orders.flatMap(o=>(o.order_items||[]).filter(itemPend).map(it=>({name:it.item_name,pend:itemPend(it)})));
             return(
@@ -825,7 +956,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                   <div>
                     <div style={{fontSize:16,fontWeight:800,color:C.ink}}>Mesa {g.tableNumber}</div>
                     <div style={{fontSize:11,color:C.mid,marginTop:3}}>{numPedidos} pedido{numPedidos>1?'s':''} · {g.pendItems} ítem{g.pendItems>1?'s':''} pendiente{g.pendItems>1?'s':''}</div>
-                    {invoiceReq&&(
+                    {invoiceReq&&fiscalOrders.length===0&&(
                       <div style={{display:'inline-flex',alignItems:'center',gap:3,marginTop:6,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8}}>
                         <Icon name="receipt" size={10} /> Factura solicitada
                       </div>
@@ -833,6 +964,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                   </div>
                   <Badge txt="Salón" color={orderTypeColor('dine_in')}/>
                 </div>
+                {fiscalOrders.map(o=><FacturaFiscalCaja key={o.id} order={o}/>)}
                 <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 10px',marginBottom:10,maxHeight:120,overflowY:'auto'}}>
                   {lines.slice(0,6).map((l,i)=>(
                     <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:2,color:C.mid}}>
@@ -878,7 +1010,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                       <Badge txt={orderTypeLabel(o.order_type)} color={orderTypeColor(o.order_type)}/>
                       <span style={{fontSize:12,color:C.ink,fontWeight:600}}>{mesa}</span>
                     </div>
-                    {o.requires_invoice&&(o.invoice_status||'pending')==='pending'&&(
+                    {o.requires_invoice&&!o.factura_solicitada&&(o.invoice_status||'pending')==='pending'&&(
                       <div style={{display:'inline-flex',alignItems:'center',gap:3,marginTop:6,background:'#007AFF',color:'#fff',fontSize:10,fontWeight:800,padding:'3px 7px',borderRadius:8}}>
                         <Icon name="receipt" size={10} /> Factura solicitada{o.invoice_delivery_method==='email'?' — email':o.invoice_delivery_method==='print'?' — impresa':''}
                         {o.customer_email?` · ${o.customer_email}`:''}
@@ -888,6 +1020,7 @@ function CobrosPanel({turno,profile,movimientos,onMovimiento}){
                   </div>
                   <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
                 </div>
+                {o.factura_solicitada&&<FacturaFiscalCaja order={o}/>}
                 {dInfo&&(
                   <div style={{background:'rgba(255,59,48,0.05)',border:'1px solid rgba(255,59,48,0.15)',borderRadius:7,padding:'7px 10px',marginBottom:8,fontSize:11}}>
                     {(dInfo.customer_name||o.customer_name)&&<div style={{fontWeight:700,color:C.ink,marginBottom:2,display:'flex',alignItems:'center',gap:5}}><Icon name="user" size={11} /> {dInfo.customer_name||o.customer_name}</div>}
