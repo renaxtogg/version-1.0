@@ -10383,6 +10383,9 @@ function AgendaPage({tables, initialView='calendario'}) {
 ══════════════════════════════════════════════ */
 function AdminApp() {
   const [page,setPage] = useState('dashboard');
+  // Sidebar colapsable (persistente): main a ancho completo al ocultarlo.
+  const [navOpen,setNavOpen]=useState(()=>{try{return localStorage.getItem('admin_nav_open')!=='0';}catch{return true;}});
+  const toggleNav=()=>setNavOpen(v=>{const n=!v;try{localStorage.setItem('admin_nav_open',n?'1':'0');}catch{} return n;});
   const [loading,setLoading] = useState(true);
   const [unreadSupport,setUnreadSupport] = useState(0);
   const [,forceRender] = useReducer(x=>x+1,0);
@@ -10577,8 +10580,14 @@ function AdminApp() {
 
   return (
     <div style={{display:'flex',minHeight:'100vh'}}>
-      <Sidebar page={page} setPage={setPage} restaurant={restaurant} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}} themeMode={themeMode}/>
+      {navOpen && <Sidebar page={page} setPage={setPage} restaurant={restaurant} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}} themeMode={themeMode}/>}
       <main style={{flex:1,padding:26,overflowY:'auto',minWidth:0}}>
+        <button onClick={toggleNav} title={navOpen?'Ocultar menú':'Mostrar menú'}
+          style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'7px 9px',cursor:'pointer',display:'flex',flexDirection:'column',justifyContent:'center',gap:3,marginBottom:16}}>
+          <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
+          <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
+          <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
+        </button>
         <SucursalSwitcher caps={caps.caps}/>
         {renderPage()}
       </main>

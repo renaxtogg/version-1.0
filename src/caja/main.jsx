@@ -4924,6 +4924,9 @@ function DashboardCaja({turno,profile,onCierre}){
   const [pendingOffline,setPendingOffline]=useState(()=>offlineQ.pending().length);
   const [,forceRender]=useReducer(x=>x+1,0);
   const [cajaNombre,setCajaNombre]=useState('');   // nombre de la caja del turno (multi-caja)
+  // Sidebar colapsable (persistente): main a ancho completo al ocultarlo.
+  const [navOpen,setNavOpen]=useState(()=>{try{return localStorage.getItem('caja_nav_open')!=='0';}catch{return true;}});
+  const toggleNav=()=>setNavOpen(v=>{const n=!v;try{localStorage.setItem('caja_nav_open',n?'1':'0');}catch{} return n;});
   function changePanel(p){localStorage.setItem('caja_panel',p);setPanel(p);}
 
   // Nombre de la caja activa (si el turno tiene caja_id) para mostrarlo en el header.
@@ -5083,8 +5086,14 @@ function DashboardCaja({turno,profile,onCierre}){
 
   return(
     <div style={{display:'flex',minHeight:'100vh'}}>
-      <SidebarTurno turno={turno} cajaNombre={cajaNombre} movimientos={movimientos} panel={panel} setPanel={(p)=>{if(p==='avisos'){const now=Date.now();localStorage.setItem('caja_bc_seen',now);lastSeenBroadcasts.current=now;}changePanel(p);}} profile={profile} onToggleTheme={toggleTheme} paymentCalls={paymentCalls.length} onClickCalls={()=>changePanel('cobros')} isOnline={isOnline} pendingOffline={pendingOffline} broadcastCount={broadcasts.filter(b=>new Date(b.created_at).getTime()>lastSeenBroadcasts.current).length}/>
+      {navOpen && <SidebarTurno turno={turno} cajaNombre={cajaNombre} movimientos={movimientos} panel={panel} setPanel={(p)=>{if(p==='avisos'){const now=Date.now();localStorage.setItem('caja_bc_seen',now);lastSeenBroadcasts.current=now;}changePanel(p);}} profile={profile} onToggleTheme={toggleTheme} paymentCalls={paymentCalls.length} onClickCalls={()=>changePanel('cobros')} isOnline={isOnline} pendingOffline={pendingOffline} broadcastCount={broadcasts.filter(b=>new Date(b.created_at).getTime()>lastSeenBroadcasts.current).length}/>}
       <main style={{flex:1,padding:24,overflowY:'auto',minWidth:0}}>
+        <button onClick={toggleNav} title={navOpen?'Ocultar menú':'Mostrar menú'}
+          style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'7px 9px',cursor:'pointer',display:'flex',flexDirection:'column',justifyContent:'center',gap:3,marginBottom:16}}>
+          <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
+          <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
+          <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
+        </button>
         {paymentCalls.length>0&&(
           <div style={{background:'rgba(255,149,0,0.12)',border:'1px solid rgba(255,149,0,0.5)',borderRadius:10,padding:'12px 16px',marginBottom:16,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
             <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
