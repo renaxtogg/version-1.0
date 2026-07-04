@@ -1287,6 +1287,11 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   // Multi-sucursal: modal de alta de Sucursal Hija anclada a una Casa Central
   const [branchModal, setBranchModal] = useState(null);   // {parent} | null
   const [branchForm,  setBranchForm]  = useState({name:'',phone:'',city:'Asunción'});
+  // Sub-pestañas + Suscripciones (movido desde Facturación).
+  const catalog = addonCatalog.length ? addonCatalog : DEFAULT_ADDONS;
+  const [tab,      setTab]      = useState('restaurantes');
+  const [subModal, setSubModal] = useState(null);
+  const [subForm,  setSubForm]  = useState({});
 
   // Ciudades presentes en los datos + cabeceras PY conocidas
   const cityOptions = Array.from(new Set([...CITIES_PY, ...enriched.map(r=>r.city).filter(Boolean)]));
@@ -1309,6 +1314,12 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
     const mCity   = fCity==='all'   || (r.city||'')===fCity;
     return mSearch && mPlan && mStatus && mCity;
   }).sort((SORTS[sort]||SORTS.name).fn);
+
+  // Suscripciones para tabla (ordenadas por días restantes ASC) — movido desde Facturación
+  const subs = [...enriched].sort((a,b)=>{
+    const da = a.daysLeft??9999, db2 = b.daysLeft??9999;
+    return da - db2;
+  });
 
   const openCreate = () => { setForm({...emptyForm,plan_id:plans[1]?.id||''}); setModal('create'); };
   const openEdit   = r  => {
@@ -1405,8 +1416,65 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   const sf = v => e => setForm(f=>({...f,[v]:e.target.value}));
   const bf = v => e => setBranchForm(f=>({...f,[v]:e.target.value}));
 
+  // ── Suscripciones (movido desde Facturación) ──────────────────
+  const openEditSub = r => {
+    const s = r.subscription||{};
+    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||'',addonKeys:(r.addons||[]).map(a=>a.addon_key)});
+    setSubModal(r);
+  };
+
+  const saveSub = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSaving(true);
+    try {
+      const sub = subModal.subscription;
+      const payload = {plan_id:subForm.plan_id,status:subForm.status,start_date:subForm.start_date,end_date:subForm.end_date||null,auto_renew:subForm.auto_renew,payment_method:subForm.payment_method,monthly_amount:parseFloat(subForm.monthly_amount)||null};
+      if (sub?.id) {
+        const {error} = await db.from('subscriptions').update(payload).eq('id',sub.id);
+        if (error) throw error;
+      } else {
+        const {error} = await db.from('subscriptions').insert({restaurant_id:subModal.id,...payload});
+        if (error) throw error;
+      }
+      // Reconciliar add-ons contratados por el restaurante
+      const want = subForm.addonKeys||[];
+      await db.from('restaurant_addons').delete().eq('restaurant_id',subModal.id);
+      if (want.length) {
+        const rows = want.map(k=>{ const c=catalog.find(x=>x.key===k); return {restaurant_id:subModal.id,addon_key:k,price_usd:c?.price_usd||0,enabled:true}; });
+        const {error:addErr} = await db.from('restaurant_addons').insert(rows);
+        if (addErr) throw addErr;
+      }
+      const planName = plans.find(p=>p.id===subForm.plan_id)?.name||'';
+      await db.from('platform_events').insert({restaurant_id:subModal.id,event_type:'plan_changed',description:`Suscripción actualizada — ${planName}`}).then(()=>{},()=>{});
+      setFlash({type:'ok',text:`Suscripción de ${subModal.name} actualizada`});
+      setSubModal(null); reload();
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSaving(false);
+  };
+
+  const renew = async r => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    if (!r.subscription?.id) { openEditSub(r); return; }
+    const base = r.subscription.end_date && new Date(r.subscription.end_date)>new Date() ? new Date(r.subscription.end_date) : new Date();
+    const end = new Date(base); end.setMonth(end.getMonth()+1);
+    const {error} = await db.from('subscriptions').update({status:'active',end_date:end.toISOString().slice(0,10)}).eq('id',r.subscription.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'subscription_renewed',description:`Renovación manual — ${r.plan?.name}`}).then(()=>{},()=>{});
+    setFlash({type:'ok',text:`${r.name} renovado hasta ${fmtDate(end.toISOString())}`}); reload();
+  };
+
+  const ssf = v => e => setSubForm(f=>({...f,[v]:e.target.value}));
+  const toggleSubAddon = key => setSubForm(f=>{const cur=f.addonKeys||[];return {...f,addonKeys:cur.includes(key)?cur.filter(k=>k!==key):[...cur,key]};});
+
   return (
     <div className="animate-in">
+      {/* Sub-pestañas del módulo Restaurantes */}
+      <div style={{display:'flex',gap:8,marginBottom:16}}>
+        <FilterBtn active={tab==='restaurantes'} onClick={()=>setTab('restaurantes')}>Restaurantes</FilterBtn>
+        <FilterBtn active={tab==='suscripciones'} onClick={()=>setTab('suscripciones')}>Suscripciones</FilterBtn>
+      </div>
+
+      {tab==='restaurantes' && (<>
       {/* Filtros */}
       <div style={{display:'flex',gap:8,marginBottom:18,flexWrap:'wrap',alignItems:'center'}}>
         <input placeholder="Buscar restaurante..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:200,flex:'none'}}/>
@@ -1492,6 +1560,49 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
           ))}
         </div>
       )}
+      </>)}
+
+      {tab==='suscripciones' && (
+        <SectionCard title="Suscripciones activas">
+          <div className="tbl-wrap">
+            <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+              <thead><tr>
+                <Th>Restaurante</Th><Th>Plan</Th><Th>Precio</Th><Th>Inicio</Th><Th>Vencimiento</Th><Th>Estado</Th><Th>Acciones</Th>
+              </tr></thead>
+              <tbody>
+                {subs.map(r=>{
+                  const s = r.subscription;
+                  const db2 = daysBadge(r.daysLeft);
+                  const vencePronto = r.daysLeft!==null && r.daysLeft>=0 && r.daysLeft<=6;
+                  const vencido     = r.daysLeft!==null && r.daysLeft<0;
+                  return (
+                    <tr key={r.id} style={{background:vencePronto?TINT.warnBg:vencido?TINT.dangerBg:'',transition:'background .1s'}}>
+                      <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
+                      <Td><PlanBadge name={r.plan?.name}/></Td>
+                      <Td style={{fontWeight:600}}>{s?fmtGuarani(s.monthly_amount||0):'—'}</Td>
+                      <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{fmtDate(s?.start_date)}</Td>
+                      <Td style={{fontSize:12,whiteSpace:'nowrap'}}>
+                        <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                          <span>{fmtDate(s?.end_date)}</span>
+                          {vencePronto&&<span style={{padding:'2px 8px',borderRadius:4,background:C.orange,color:'#FFFFFF',fontSize:10,fontWeight:800,alignSelf:'flex-start',letterSpacing:'0.04em'}}>POR VENCER</span>}
+                          {vencido&&<span style={{padding:'2px 8px',borderRadius:4,background:C.red,color:'#FFFFFF',fontSize:10,fontWeight:800,alignSelf:'flex-start',letterSpacing:'0.04em'}}>VENCIDO</span>}
+                        </div>
+                      </Td>
+                      <Td><Badge status={s?.status||'inactive'}/></Td>
+                      <Td>
+                        <div style={{display:'flex',gap:4}}>
+                          <Btn size="sm" variant="ghost" onClick={()=>openEditSub(r)}>Cambiar plan</Btn>
+                          <Btn size="sm" variant="success" onClick={()=>renew(r)}>Renovar</Btn>
+                        </div>
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
 
       {modal&&(
         <Modal title={modal==='create'?'Nuevo restaurante':'Editar restaurante'} onClose={()=>setModal(null)} width={600}>
@@ -1566,6 +1677,68 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
           </div>
         </Modal>
       )}
+
+      {/* Modal suscripción (movido desde Facturación) — fuera del switch de tabs, abre sobre cualquier vista */}
+      {subModal&&(
+        <Modal title={`Suscripción — ${subModal.name}`} onClose={()=>setSubModal(null)}>
+          <FormField label="Plan">
+            <select value={subForm.plan_id} onChange={ssf('plan_id')}>
+              {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtGuarani(p.price_usd)}/mes</option>)}
+            </select>
+          </FormField>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Estado">
+              <select value={subForm.status} onChange={ssf('status')}>
+                {['active','trial','suspended','expired','cancelled','past_due'].map(s=><option key={s} value={s}>{statusMeta[s]?.label||s}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Monto mensual (₲)">
+              <input type="number" step="1000" min="0" value={subForm.monthly_amount} onChange={ssf('monthly_amount')} placeholder="400000"/>
+            </FormField>
+            <FormField label="Método de pago">
+              <select value={subForm.payment_method} onChange={ssf('payment_method')}>
+                {['manual','transferencia','tarjeta','efectivo','qr'].map(m=><option key={m} value={m}>{m}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Auto-renovar">
+              <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
+                <input type="checkbox" checked={subForm.auto_renew} onChange={e=>setSubForm(f=>({...f,auto_renew:e.target.checked}))} style={{width:16,height:16}}/>
+                <span style={{fontSize:13,color:C.mid}}>Renovar automáticamente</span>
+              </div>
+            </FormField>
+            <FormField label="Fecha inicio"><input type="date" value={subForm.start_date} onChange={ssf('start_date')}/></FormField>
+            <FormField label="Fecha vencimiento"><input type="date" value={subForm.end_date} onChange={ssf('end_date')}/></FormField>
+          </div>
+
+          {/* Add-ons del restaurante (cargos extra sobre el plan base) */}
+          <div style={{borderTop:`1px solid ${C.border}`,marginTop:8,paddingTop:12}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Add-ons contratados (cargos extra)</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Habilitan un panel sin cambiar de plan. Se suman al precio base.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {catalog.filter(a=>a.is_active!==false).map(a=>{
+                const on = (subForm.addonKeys||[]).includes(a.key);
+                return (
+                  <label key={a.key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderRadius:8,cursor:'pointer',border:`1px solid ${on?C.ink:C.border}`,background:on?C.bg:'transparent'}}>
+                    <input type="checkbox" checked={on} onChange={()=>toggleSubAddon(a.key)} style={{width:15,height:15}}/>
+                    <span style={{flex:1,fontSize:13,fontWeight:600,color:C.ink}}>{a.name}</span>
+                    <span style={{fontSize:12,color:C.mid}}>+{fmtGuarani(a.price_usd)}/mes</span>
+                  </label>
+                );
+              })}
+            </div>
+            {(subForm.addonKeys||[]).length>0&&(
+              <div style={{marginTop:10,fontSize:12,color:C.mid,textAlign:'right'}}>
+                Extra add-ons: <strong style={{color:C.ink}}>{fmtGuarani((subForm.addonKeys||[]).reduce((s,k)=>s+(Number(catalog.find(x=>x.key===k)?.price_usd)||0),0))}/mes</strong>
+              </div>
+            )}
+          </div>
+
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <Btn variant="ghost" onClick={()=>setSubModal(null)}>Cancelar</Btn>
+            <Btn onClick={saveSub} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1588,9 +1761,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
     setFlash({type:'ok',text:`Moneda de la plataforma: ${CURRENCIES[code].label}`}); reload();
   };
   const [planModal, setPlanModal]   = useState(null);
-  const [subModal,  setSubModal]    = useState(null);
   const [planForm,  setPlanForm]    = useState(EMPTY_PLAN);
-  const [subForm,   setSubForm]     = useState({});
   const [saving,    setSaving]      = useState(false);
   const catalog = addonCatalog.length ? addonCatalog : DEFAULT_ADDONS;
   const [addonForm, setAddonForm]   = useState({});   // {key:{price_usd,is_active}}
@@ -1618,12 +1789,6 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
   const subCountByPlan = {};
   enriched.forEach(r=>{ if(r.subscription?.plan_id&&r.status!=='suspended') subCountByPlan[r.subscription.plan_id]=(subCountByPlan[r.subscription.plan_id]||0)+1; });
   const popularPlanId = Object.entries(subCountByPlan).sort((a,b)=>b[1]-a[1])[0]?.[0];
-
-  // Suscripciones para tabla (ordenadas por días restantes ASC)
-  const subs = [...enriched].sort((a,b)=>{
-    const da = a.daysLeft??9999, db2 = b.daysLeft??9999;
-    return da - db2;
-  });
 
   // Grandfathering: el MRR de suscripciones EXISTENTES usa el snapshot congelado
   // (subscriptions.monthly_amount), NO el precio vivo del plan (price_usd).
@@ -1674,57 +1839,9 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
     setSaving(false);
   };
 
-  const openEditSub = r => {
-    const s = r.subscription||{};
-    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||'',addonKeys:(r.addons||[]).map(a=>a.addon_key)});
-    setSubModal(r);
-  };
-
-  const saveSub = async () => {
-    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
-    setSaving(true);
-    try {
-      const sub = subModal.subscription;
-      const payload = {plan_id:subForm.plan_id,status:subForm.status,start_date:subForm.start_date,end_date:subForm.end_date||null,auto_renew:subForm.auto_renew,payment_method:subForm.payment_method,monthly_amount:parseFloat(subForm.monthly_amount)||null};
-      if (sub?.id) {
-        const {error} = await db.from('subscriptions').update(payload).eq('id',sub.id);
-        if (error) throw error;
-      } else {
-        const {error} = await db.from('subscriptions').insert({restaurant_id:subModal.id,...payload});
-        if (error) throw error;
-      }
-      // Reconciliar add-ons contratados por el restaurante
-      const want = subForm.addonKeys||[];
-      await db.from('restaurant_addons').delete().eq('restaurant_id',subModal.id);
-      if (want.length) {
-        const rows = want.map(k=>{ const c=catalog.find(x=>x.key===k); return {restaurant_id:subModal.id,addon_key:k,price_usd:c?.price_usd||0,enabled:true}; });
-        const {error:addErr} = await db.from('restaurant_addons').insert(rows);
-        if (addErr) throw addErr;
-      }
-      const planName = plans.find(p=>p.id===subForm.plan_id)?.name||'';
-      await db.from('platform_events').insert({restaurant_id:subModal.id,event_type:'plan_changed',description:`Suscripción actualizada — ${planName}`}).then(()=>{},()=>{});
-      setFlash({type:'ok',text:`Suscripción de ${subModal.name} actualizada`});
-      setSubModal(null); reload();
-    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
-    setSaving(false);
-  };
-
-  const renew = async r => {
-    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
-    if (!r.subscription?.id) { openEditSub(r); return; }
-    const base = r.subscription.end_date && new Date(r.subscription.end_date)>new Date() ? new Date(r.subscription.end_date) : new Date();
-    const end = new Date(base); end.setMonth(end.getMonth()+1);
-    const {error} = await db.from('subscriptions').update({status:'active',end_date:end.toISOString().slice(0,10)}).eq('id',r.subscription.id);
-    if (error) { setFlash({type:'error',text:error.message}); return; }
-    await db.from('platform_events').insert({restaurant_id:r.id,event_type:'subscription_renewed',description:`Renovación manual — ${r.plan?.name}`}).then(()=>{},()=>{});
-    setFlash({type:'ok',text:`${r.name} renovado hasta ${fmtDate(end.toISOString())}`}); reload();
-  };
-
   const spf = v => e => setPlanForm(f=>({...f,[v]:e.target.value}));
-  const ssf = v => e => setSubForm(f=>({...f,[v]:e.target.value}));
   const togglePanel = key => setPlanForm(f=>({...f,panels:(f.panels||[]).includes(key)?f.panels.filter(p=>p!==key):[...(f.panels||[]),key]}));
   const toggleFeature = key => setPlanForm(f=>({...f,allowed_features:(f.allowed_features||[]).includes(key)?f.allowed_features.filter(k=>k!==key):[...(f.allowed_features||[]),key]}));
-  const toggleSubAddon = key => setSubForm(f=>{const cur=f.addonKeys||[];return {...f,addonKeys:cur.includes(key)?cur.filter(k=>k!==key):[...cur,key]};});
 
   return (
     <div className="animate-in">
@@ -1823,47 +1940,6 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
         </div>
       </div>
 
-      {/* Suscripciones tabla */}
-      <SectionCard title="Suscripciones activas">
-        <div className="tbl-wrap">
-          <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
-            <thead><tr>
-              <Th>Restaurante</Th><Th>Plan</Th><Th>Precio</Th><Th>Inicio</Th><Th>Vencimiento</Th><Th>Estado</Th><Th>Acciones</Th>
-            </tr></thead>
-            <tbody>
-              {subs.map(r=>{
-                const s = r.subscription;
-                const db2 = daysBadge(r.daysLeft);
-                const vencePronto = r.daysLeft!==null && r.daysLeft>=0 && r.daysLeft<=6;
-                const vencido     = r.daysLeft!==null && r.daysLeft<0;
-                return (
-                  <tr key={r.id} style={{background:vencePronto?TINT.warnBg:vencido?TINT.dangerBg:'',transition:'background .1s'}}>
-                    <Td><div style={{fontWeight:600}}>{r.name}</div><div style={{fontSize:11,color:C.mid}}>{r.city}</div></Td>
-                    <Td><PlanBadge name={r.plan?.name}/></Td>
-                    <Td style={{fontWeight:600}}>{s?fmtGuarani(s.monthly_amount||0):'—'}</Td>
-                    <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{fmtDate(s?.start_date)}</Td>
-                    <Td style={{fontSize:12,whiteSpace:'nowrap'}}>
-                      <div style={{display:'flex',flexDirection:'column',gap:3}}>
-                        <span>{fmtDate(s?.end_date)}</span>
-                        {vencePronto&&<span style={{padding:'2px 8px',borderRadius:4,background:C.orange,color:'#FFFFFF',fontSize:10,fontWeight:800,alignSelf:'flex-start',letterSpacing:'0.04em'}}>POR VENCER</span>}
-                        {vencido&&<span style={{padding:'2px 8px',borderRadius:4,background:C.red,color:'#FFFFFF',fontSize:10,fontWeight:800,alignSelf:'flex-start',letterSpacing:'0.04em'}}>VENCIDO</span>}
-                      </div>
-                    </Td>
-                    <Td><Badge status={s?.status||'inactive'}/></Td>
-                    <Td>
-                      <div style={{display:'flex',gap:4}}>
-                        <Btn size="sm" variant="ghost" onClick={()=>openEditSub(r)}>Cambiar plan</Btn>
-                        <Btn size="sm" variant="success" onClick={()=>renew(r)}>Renovar</Btn>
-                      </div>
-                    </Td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </SectionCard>
-
       {/* Modal plan */}
       {planModal&&(
         <Modal title={planModal==='create'?'Nuevo plan':'Editar plan'} onClose={()=>setPlanModal(null)}>
@@ -1949,67 +2025,6 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
         </Modal>
       )}
 
-      {/* Modal suscripción */}
-      {subModal&&(
-        <Modal title={`Suscripción — ${subModal.name}`} onClose={()=>setSubModal(null)}>
-          <FormField label="Plan">
-            <select value={subForm.plan_id} onChange={ssf('plan_id')}>
-              {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtGuarani(p.price_usd)}/mes</option>)}
-            </select>
-          </FormField>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
-            <FormField label="Estado">
-              <select value={subForm.status} onChange={ssf('status')}>
-                {['active','trial','suspended','expired','cancelled','past_due'].map(s=><option key={s} value={s}>{statusMeta[s]?.label||s}</option>)}
-              </select>
-            </FormField>
-            <FormField label="Monto mensual (₲)">
-              <input type="number" step="1000" min="0" value={subForm.monthly_amount} onChange={ssf('monthly_amount')} placeholder="400000"/>
-            </FormField>
-            <FormField label="Método de pago">
-              <select value={subForm.payment_method} onChange={ssf('payment_method')}>
-                {['manual','transferencia','tarjeta','efectivo','qr'].map(m=><option key={m} value={m}>{m}</option>)}
-              </select>
-            </FormField>
-            <FormField label="Auto-renovar">
-              <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
-                <input type="checkbox" checked={subForm.auto_renew} onChange={e=>setSubForm(f=>({...f,auto_renew:e.target.checked}))} style={{width:16,height:16}}/>
-                <span style={{fontSize:13,color:C.mid}}>Renovar automáticamente</span>
-              </div>
-            </FormField>
-            <FormField label="Fecha inicio"><input type="date" value={subForm.start_date} onChange={ssf('start_date')}/></FormField>
-            <FormField label="Fecha vencimiento"><input type="date" value={subForm.end_date} onChange={ssf('end_date')}/></FormField>
-          </div>
-
-          {/* Add-ons del restaurante (cargos extra sobre el plan base) */}
-          <div style={{borderTop:`1px solid ${C.border}`,marginTop:8,paddingTop:12}}>
-            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Add-ons contratados (cargos extra)</div>
-            <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Habilitan un panel sin cambiar de plan. Se suman al precio base.</div>
-            <div style={{display:'flex',flexDirection:'column',gap:6}}>
-              {catalog.filter(a=>a.is_active!==false).map(a=>{
-                const on = (subForm.addonKeys||[]).includes(a.key);
-                return (
-                  <label key={a.key} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderRadius:8,cursor:'pointer',border:`1px solid ${on?C.ink:C.border}`,background:on?C.bg:'transparent'}}>
-                    <input type="checkbox" checked={on} onChange={()=>toggleSubAddon(a.key)} style={{width:15,height:15}}/>
-                    <span style={{flex:1,fontSize:13,fontWeight:600,color:C.ink}}>{a.name}</span>
-                    <span style={{fontSize:12,color:C.mid}}>+{fmtGuarani(a.price_usd)}/mes</span>
-                  </label>
-                );
-              })}
-            </div>
-            {(subForm.addonKeys||[]).length>0&&(
-              <div style={{marginTop:10,fontSize:12,color:C.mid,textAlign:'right'}}>
-                Extra add-ons: <strong style={{color:C.ink}}>{fmtGuarani((subForm.addonKeys||[]).reduce((s,k)=>s+(Number(catalog.find(x=>x.key===k)?.price_usd)||0),0))}/mes</strong>
-              </div>
-            )}
-          </div>
-
-          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
-            <Btn variant="ghost" onClick={()=>setSubModal(null)}>Cancelar</Btn>
-            <Btn onClick={saveSub} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
