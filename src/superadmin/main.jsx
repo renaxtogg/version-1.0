@@ -896,7 +896,6 @@ function SystemHealth({ health, latency, cronOk }) {
 // MÓDULO 1 — DASHBOARD GLOBAL
 // ══════════════════════════════════════════════════════════════
 function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, reload, setPage}) {
-  const sys = useSystemHealth();   // salud real: RPC + latencia + cron
   const now = new Date();
   const todayStr = now.toISOString().slice(0,10);
   const ago48h = new Date(now-48*3600000).toISOString();
@@ -908,6 +907,10 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
   const ratingProm = recRatings.length ? +(avg(recRatings.map(r=>r.stars)).toFixed(1)) : null;
 
   const restSummary = [...enriched].sort((a,b)=>b.ordersToday-a.ordersToday);
+
+  // Resumen rápido de restaurantes: colapsable + persistente (arranca CERRADO).
+  const [restOpen,setRestOpen] = useState(()=>{ try { return localStorage.getItem('sa_dash_rest_open')==='1'; } catch { return false; } });
+  const toggleRest = ()=> setRestOpen(v=>{ const n=!v; try{ localStorage.setItem('sa_dash_rest_open', n?'1':'0'); }catch{} return n; });
 
   // PR-SA1: registros web (leads_prospectos, mig 117 permite SELECT a superadmin).
   // Si la tabla/RLS falla, la card degrada a "—" sin romper el dashboard.
@@ -925,14 +928,10 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
 
   return (
     <div className="animate-in">
-      {/* Salud en vivo — semáforo + alertas activas + actividad (datos reales del RPC).
-          Las suscripciones por vencer ahora viven dentro de "Alertas activas". */}
-      <LiveHealth {...sys} enriched={enriched}/>
-
       {/* 5 KPI cards */}
       <div style={{display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'}}>
         <Kpi label="Restaurantes activos" value={activos}                        sub={`de ${enriched.length} totales`}/>
-        <Kpi label="MRR Total"            value={fmtGuarani(mrrTotal)}           sub="suscripciones activas"/>
+        <Kpi label="MRR Total"            value={fmtGuarani(mrrTotal)}           sub="Ingreso recurrente mensual · suscripciones activas"/>
         <Kpi label="Pedidos hoy"          value={pedidosHoy}                     sub="todos los locales"/>
         <Kpi label="Rating promedio"      value={ratingProm ? String(ratingProm) : '—'} sub="últimas 48hs"/>
         <Kpi label="Registros web (7 días)" value={webLeads&&webLeads.week!=null ? fmtNum(webLeads.week) : '—'} sub={webLeads&&webLeads.total!=null ? `${fmtNum(webLeads.total)} en total` : undefined}/>
@@ -948,8 +947,9 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
         </SectionCard>
 
         {/* Restaurant quick summary */}
-        <SectionCard title="Restaurantes — resumen rápido">
-          {restSummary.map(r=>(
+        <SectionCard title="Restaurantes — resumen rápido"
+          action={<button onClick={toggleRest} style={{border:`1px solid ${C.border}`,background:'transparent',color:C.mid,borderRadius:8,padding:'4px 10px',fontSize:12,fontWeight:600,cursor:'pointer'}}>{restOpen?'Ocultar':`Ver (${restSummary.length})`}</button>}>
+          {restOpen && restSummary.map(r=>(
             <div key={r.id} onClick={()=>setPage('restaurantes')} style={{padding:'12px 18px',borderBottom:`1px solid ${C.border}`,cursor:'pointer',transition:'background .1s'}}
               onMouseEnter={e=>e.currentTarget.style.background=C.bg}
               onMouseLeave={e=>e.currentTarget.style.background=''}>
@@ -964,12 +964,8 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
               </div>
             </div>
           ))}
-          {restSummary.length===0&&<div style={{padding:32,textAlign:'center',color:C.dim,fontSize:12}}>Sin restaurantes</div>}
+          {restOpen && restSummary.length===0&&<div style={{padding:32,textAlign:'center',color:C.dim,fontSize:12}}>Sin restaurantes</div>}
         </SectionCard>
-      </div>
-
-      <div style={{marginTop:18}}>
-        <SystemHealth {...sys}/>
       </div>
     </div>
   );
@@ -986,7 +982,8 @@ function PageCapacidad({ enriched }) {
   const [loadingC, setLoadingC] = useState(true);
   const [planKey,  setPlanKey]  = useState('free');
   const [latency,  setLatency]  = useState(null);
-  const { health: sysHealth }   = useSystemHealth();   // tamaño REAL de la BD (pg_database_size)
+  const sys = useSystemHealth();                       // salud real: RPC + latencia + cron
+  const sysHealth = sys.health;                        // tamaño REAL de la BD (pg_database_size)
   // Simulador "¿cuánto aguanta el tablero?" — arranca en el nº real de restaurantes,
   // no en 50 (evita el falso 100% rojo). Se sincroniza hasta que el usuario lo toca.
   const [simRest,     setSimRest]     = useState(1);
@@ -1111,6 +1108,10 @@ function PageCapacidad({ enriched }) {
 
   return (
     <div className="animate-in">
+      {/* Salud del sistema — movida desde el Dashboard (semáforo + alertas + métricas reales). */}
+      <LiveHealth {...sys} enriched={enriched}/>
+      <SystemHealth {...sys}/>
+
       {/* Intro / analogía */}
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'16px 20px',marginBottom:18}}>
         <div style={{fontSize:15,fontWeight:700,color:C.ink,marginBottom:4}}>Análisis de carga de la base de datos</div>
