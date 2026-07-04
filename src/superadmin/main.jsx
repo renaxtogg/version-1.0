@@ -6255,16 +6255,6 @@ function Sidebar({page, setPage, badges={}, themeMode, onToggleTheme}) {
         })}
       </nav>
       <div style={{padding:'14px 16px',borderTop:`1px solid ${C.border}`,flexShrink:0}}>
-        {/* WS4-B: estos labels usan tokens CSS (var(--text-*)) en vez de C.mid/C.ink.
-            C es un objeto mutado en mythos:themechange y el render del sidebar quedaba
-            desincronizado (QA midió el mid dark #AEAEB2 sobre fondo claro = ilegible).
-            var() resuelve por-paint según data-theme → AA en light, legible en dark. */}
-        <div style={{fontSize:10,color:'var(--text-secondary)',marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Links rápidos</div>
-        {[['admin.html','Admin local'],['gerente.html','Gerente'],['caja.html','Panel caja'],['cocina.html','KDS cocina'],['mozo.html','Mozo'],['delivery-rider.html','Rider delivery'],['delivery-cliente.html','Delivery cliente'],['index.html','App cliente']].map(([href,label])=>(
-          <a key={href} href={href} target="_blank" rel="noreferrer" style={{display:'flex',alignItems:'center',justifyContent:'space-between',fontSize:12,color:'var(--text-secondary)',textDecoration:'none',padding:'5px 0',transition:'color .1s'}} onMouseEnter={e=>e.currentTarget.style.color='var(--text-primary)'} onMouseLeave={e=>e.currentTarget.style.color='var(--text-secondary)'}>
-            <span>{label}</span><span style={{fontSize:10,opacity:.5,display:'inline-flex'}}><Icon name="arrowRight" size={10}/></span>
-          </a>
-        ))}
         <button onClick={signOut} style={{marginTop:10,width:'100%',background:C.ink,border:'none',borderRadius:6,color:C.sidebar,fontSize:12,padding:'7px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
           Cerrar sesión
         </button>

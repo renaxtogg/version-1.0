@@ -7206,15 +7206,6 @@ function ConfigPage({restaurant,onRefresh}) {
             <Btn onClick={saveReservas} disabled={savingR}>{savingR?'Guardando…':'Guardar reservas'}</Btn>
           </div>
 
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18}}>
-            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:12}}>ACCESOS RÁPIDOS</div>
-            {[{l:'Caja',h:'caja.html'},{l:'Cocina (KDS)',h:'cocina.html'},{l:'Mozo',h:'mozo.html'},{l:'Gerente',h:'gerente.html'},{l:'App Cliente',h:'index.html'},{l:'Delivery Cliente',h:'delivery-cliente.html'},{l:'Rider Delivery',h:'delivery-rider.html'},{l:'Diagnóstico DB',h:'diag.html'}].map(a=>{
-              const isClient = a.h==='index.html'||a.h==='delivery-cliente.html';
-              const href = isClient ? `${a.h}?r=${encodeURIComponent(RID)}` : a.h;
-              return (
-              <a key={a.h} href={href} target="_blank" rel="noopener" style={{display:'block',padding:'9px 0',color:C.mid,fontSize:13,textDecoration:'none',borderBottom:`1px solid #0d0d0d`}}>→ {a.l}</a>
-            );})}
-          </div>
           <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
             <div style={{fontSize:9,color:C.dim,fontWeight:700,marginBottom:5,letterSpacing:1}}>RESTAURANT ID</div>
             <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:C.ink,wordBreak:'break-all'}}>{RID}</div>
