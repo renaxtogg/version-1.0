@@ -6286,6 +6286,9 @@ function App() {
   const [pendingSuppliers, setPendingSuppliers] = useState(0);
   const [rawData, setRawData] = useState({restaurants:[],plans:[],subscriptions:[],events:[],orders:[],ratings:[],platformConfig:[],addons:[],addonCatalog:[]});
   const [themeMode, setThemeMode] = useState(window.MythosTheme ? window.MythosTheme.get() : 'light');
+  // Sidebar colapsable (persistente): contenido a pantalla completa al ocultarlo.
+  const [navOpen,setNavOpen]=useState(()=>{try{return localStorage.getItem('sa_nav_open')!=='0';}catch{return true;}});
+  const toggleNav=()=>setNavOpen(v=>{const n=!v;try{localStorage.setItem('sa_nav_open',n?'1':'0');}catch{} return n;});
   useEffect(() => {
     const onTheme = e => setThemeMode(e.detail.mode);
     document.addEventListener('mythos:themechange', onTheme);
@@ -6391,7 +6394,7 @@ function App() {
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
-      <Sidebar page={page} setPage={setPage} badges={{soporte:unreadSupport, proveedores:pendingSuppliers}} themeMode={themeMode} onToggleTheme={handleToggleTheme}/>
+      {navOpen && <Sidebar page={page} setPage={setPage} badges={{soporte:unreadSupport, proveedores:pendingSuppliers}} themeMode={themeMode} onToggleTheme={handleToggleTheme}/>}
       <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0,overflow:'hidden'}}>
         {/* Banner global */}
         {bannerActive&&!bannerDismissed&&(
@@ -6402,7 +6405,15 @@ function App() {
         )}
         {/* Header */}
         <div style={{background:C.sidebar,borderBottom:`1px solid ${C.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,zIndex:10}}>
-          <div style={{fontWeight:700,fontSize:15,color:C.ink}}>{pageTitles[page]||page}</div>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <button onClick={toggleNav} title={navOpen?'Ocultar menú':'Mostrar menú'}
+              style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'7px 9px',cursor:'pointer',display:'flex',flexDirection:'column',justifyContent:'center',gap:3}}>
+              <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
+              <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
+              <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
+            </button>
+            <div style={{fontWeight:700,fontSize:15,color:C.ink}}>{pageTitles[page]||page}</div>
+          </div>
           <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
             {offline&&<span style={{fontSize:11,color:C.dim,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Demo offline</span>}
             {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:TINT.okBg,padding:'3px 10px',borderRadius:12}} className="pulse">En vivo</span>}
