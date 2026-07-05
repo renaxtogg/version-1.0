@@ -410,6 +410,18 @@
         field('f_city', 'Ciudad', r.city, 'Asunción', 'req') +
         field('f_country', 'País', r.country || 'Paraguay', 'Paraguay', 'req') +
       '</div>' +
+      '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin:14px 0 4px">Dueño del local</div>' +
+      field('f_owner_name', 'Nombre del dueño', r.owner_name, 'Nombre y apellido', 'req') +
+      '<div class="grid2">' +
+        field('f_owner_phone', 'Teléfono del dueño', r.owner_phone, '+595 9xx xxx xxx', 'opt') +
+        field('f_owner_doc', 'Documento / RUC del dueño', r.owner_document, 'C.I. o RUC', 'opt') +
+      '</div>' +
+      field('f_owner_email', 'Email del dueño', r.owner_email, 'dueno@correo.com', 'opt') +
+      '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin:14px 0 4px">Encargado <span class="opt" style="font-weight:500">(si difiere del dueño)</span></div>' +
+      '<div class="grid2">' +
+        field('f_mgr_name', 'Nombre del encargado', r.manager_name, 'Nombre y apellido', 'opt') +
+        field('f_mgr_phone', 'Teléfono del encargado', r.manager_phone, '+595 9xx xxx xxx', 'opt') +
+      '</div>' +
       '<details class="collapse"' + ((r.instagram || r.facebook || r.website) ? ' open' : '') + '>' +
         '<summary>Redes sociales y sitio web (opcional)</summary>' +
         field('f_ig', 'Instagram', r.instagram, '@turestaurante', 'opt') +
@@ -620,15 +632,27 @@
   // STEP 3 → contacto y ubicación
   async function saveStep3() {
     var wa = v('f_wa'), addr = v('f_addr'), city = v('f_city'), country = v('f_country');
+    var ownerName = v('f_owner_name');
     if (!wa)   { setErr('Ingresá el WhatsApp del local.'); return; }
     if (!addr) { setErr('Ingresá la dirección de tu local.'); return; }
     if (!city) { setErr('Ingresá la ciudad.'); return; }
     if (!country) { setErr('Ingresá el país.'); return; }
+    if (!ownerName) { setErr('Ingresá el nombre del dueño.'); return; }
     busy(true);
-    await saveRest({
+    // owner_name/owner_phone/owner_email ya existen (mig 004); owner_document y
+    // manager_* son de mig 145 → feature-detect (hasCol) para no romper si aún
+    // no se aplicó la migración.
+    var patch = {
       whatsapp: wa, phone: v('f_phone') || null, address: addr, city: city, country: country,
-      instagram: v('f_ig') || null, facebook: v('f_fb') || null, website: v('f_web') || null
-    });
+      instagram: v('f_ig') || null, facebook: v('f_fb') || null, website: v('f_web') || null,
+      owner_name: ownerName || null,
+      owner_phone: v('f_owner_phone') || null
+    };
+    if (hasCol('owner_email'))    patch.owner_email    = v('f_owner_email') || st.rest.owner_email || null;
+    if (hasCol('owner_document')) patch.owner_document = v('f_owner_doc') || null;
+    if (hasCol('manager_name'))   patch.manager_name   = v('f_mgr_name') || null;
+    if (hasCol('manager_phone'))  patch.manager_phone  = v('f_mgr_phone') || null;
+    await saveRest(patch);
     st.step = 4; render();
   }
 

@@ -383,6 +383,7 @@ const NAV = [
   {id:'avisos',    label:'Avisos personal', icon:'bell', group:'SISTEMA'},
   {id:'soporte',   label:'Soporte',      icon:'chat'},
   {id:'config',    label:'Config',       icon:'settings'},
+  {id:'mi_cuenta', label:'Mi cuenta',    icon:'user'},
 ];
 
 function Sidebar({page,setPage,restaurant,onToggleTheme,badges={},themeMode='light'}) {
@@ -10372,6 +10373,211 @@ function AgendaPage({tables, initialView='calendario'}) {
 /* ══════════════════════════════════════════════
    ROOT APP
 ══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   PAGE: MI CUENTA (perfil real + dueño/encargado del local)
+═══════════════════════════════════════════ */
+// Campo etiqueta+control. Definido a nivel de módulo (identidad estable) para no
+// remontar los <input> en cada render (perderían el foco al tipear).
+function AcctField({label, children}) {
+  return (
+    <div style={{marginBottom:14}}>
+      <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:700,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>{label}</label>
+      {children}
+    </div>
+  );
+}
+// Cambio voluntario de contraseña: verifica la actual re-autenticando y recién
+// ahí cambia con updateUser (el enlace por correo / primer ingreso van por otro
+// flujo, sin clave previa).
+function AdminChangePasswordModal({ email, onClose }) {
+  const [cur,setCur] = useState('');
+  const [n1,setN1]   = useState('');
+  const [n2,setN2]   = useState('');
+  const [busy,setBusy] = useState(false);
+  const [err,setErr]   = useState('');
+  const iStyle = {width:'100%',padding:'9px 12px',fontSize:13.5,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,outline:'none',boxSizing:'border-box'};
+  const lStyle = {display:'block',fontSize:11,color:C.mid,fontWeight:700,marginBottom:5,textTransform:'uppercase',letterSpacing:.4};
+  const submit = async () => {
+    setErr('');
+    if (!cur) { setErr('Ingresá tu contraseña actual.'); return; }
+    if (n1.length < 8) { setErr('La nueva contraseña debe tener al menos 8 caracteres.'); return; }
+    if (n1 !== n2) { setErr('Las contraseñas nuevas no coinciden.'); return; }
+    if (email && n1.toLowerCase() === email.toLowerCase()) { setErr('La contraseña no puede ser igual a tu correo.'); return; }
+    if (!db || !email) { setErr('No hay sesión activa.'); return; }
+    setBusy(true);
+    try {
+      const { error: e1 } = await db.auth.signInWithPassword({ email, password: cur });
+      if (e1) {
+        // Si algún día se activa el CAPTCHA en Supabase, el sign-in sin token falla:
+        // no es "clave incorrecta". Distinguirlo evita un mensaje engañoso.
+        setErr(/captcha/i.test(e1.message||'') ? 'La verificación de seguridad no está disponible en este panel. Cambiá tu contraseña desde el login (¿Olvidaste tu contraseña?).' : 'La contraseña actual es incorrecta.');
+        setBusy(false); return;
+      }
+      const { error: e2 } = await db.auth.updateUser({ password: n1 });
+      if (e2) { setErr('No se pudo cambiar: ' + (e2.message || 'probá con otra')); setBusy(false); return; }
+      toast('Contraseña actualizada');
+      onClose();
+    } catch(e) { setErr('Error: ' + (e.message || 'intentá de nuevo')); }
+    setBusy(false);
+  };
+  return (
+    <Modal title="Cambiar contraseña" onClose={onClose} width={400}>
+      {err && <div style={{background:C.red+'22',color:C.red,border:`1px solid ${C.red}55`,borderRadius:8,padding:'9px 12px',fontSize:12.5,marginBottom:14}}>{err}</div>}
+      <div style={{marginBottom:14}}><label style={lStyle}>Contraseña actual</label><input type="password" value={cur} onChange={e=>setCur(e.target.value)} autoFocus autoComplete="current-password" style={iStyle}/></div>
+      <div style={{marginBottom:14}}><label style={lStyle}>Nueva contraseña</label><input type="password" value={n1} onChange={e=>setN1(e.target.value)} autoComplete="new-password" style={iStyle}/><div style={{fontSize:11,color:C.dim,marginTop:4}}>Mínimo 8 caracteres.</div></div>
+      <div style={{marginBottom:18}}><label style={lStyle}>Repetir nueva contraseña</label><input type="password" value={n2} onChange={e=>setN2(e.target.value)} autoComplete="new-password" style={iStyle}/></div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={submit} disabled={busy}>{busy?'Guardando…':'Cambiar contraseña'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function MiCuentaPage({ restaurant, onRefresh }) {
+  const prof = window._userProfile || {};
+  const canEditLocal = ['admin','owner','superadmin'].includes(MY_ROLE);
+  const restHasCol = c => restaurant && Object.prototype.hasOwnProperty.call(restaurant, c);
+
+  const [email,setEmail] = useState('');
+  const [name,setName]   = useState(prof.display_name || prof.username || '');
+  const [phone,setPhone] = useState('');
+  const [savingProfile,setSavingProfile] = useState(false);
+  const [pwModal,setPwModal] = useState(false);
+
+  // Dueño / encargado del local (desde el row de restaurants)
+  const [loc,setLoc] = useState({owner_name:'',owner_email:'',owner_phone:'',owner_document:'',manager_name:'',manager_phone:''});
+  const [savingLoc,setSavingLoc] = useState(false);
+
+  useEffect(()=>{
+    if (!db) return;
+    let alive = true;
+    (async ()=>{
+      try { const { data:{ user } } = await db.auth.getUser(); if (alive && user) setEmail(user.email || ''); } catch(_){}
+      try {
+        if (prof.id) {
+          const { data } = await db.from('user_roles').select('*').eq('user_id',prof.id).eq('is_active',true).limit(1).maybeSingle();
+          if (alive && data) { setName(data.display_name || data.username || ''); setPhone(data.phone || ''); }
+        }
+      } catch(_){}
+    })();
+    return ()=>{ alive = false; };
+  },[]);
+
+  // Sembramos `loc` UNA vez por restaurante (por id). loadAll(true) del poll/realtime
+  // recrea el objeto restaurant en cada refresco (nueva referencia) → sin este guard,
+  // el efecto se re-dispara y pisa las ediciones en curso de dueño/encargado.
+  const seededRestId = useRef(null);
+  useEffect(()=>{
+    if (!restaurant) return;
+    if (seededRestId.current === restaurant.id) return;
+    seededRestId.current = restaurant.id;
+    setLoc({
+      owner_name:restaurant.owner_name||'', owner_email:restaurant.owner_email||'', owner_phone:restaurant.owner_phone||'',
+      owner_document:restaurant.owner_document||'', manager_name:restaurant.manager_name||'', manager_phone:restaurant.manager_phone||''
+    });
+  },[restaurant]);
+
+  const iStyle = {width:'100%',padding:'9px 12px',fontSize:13.5,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,outline:'none',boxSizing:'border-box'};
+  const iDisabled = {...iStyle, opacity:.6, cursor:'not-allowed'};
+  const lStyle = {display:'block',fontSize:11,color:C.mid,fontWeight:700,marginBottom:5,textTransform:'uppercase',letterSpacing:.4};
+  const cardStyle = {background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:'18px 20px',marginBottom:16};
+  const sf = k => e => setLoc(s=>({...s,[k]:e.target.value}));
+
+  const saveProfile = async () => {
+    if (!name.trim()) { toast('El nombre no puede quedar vacío', false); return; }
+    if (!db) return;
+    setSavingProfile(true);
+    try {
+      const { error } = await db.rpc('update_my_profile',{ p_display_name:name.trim(), p_phone:phone.trim() });
+      if (error) throw error;
+      try { window._userProfile = {...prof, display_name:name.trim()}; } catch(_){}
+      try { localStorage.setItem('mythos_display_name', name.trim()); } catch(_){}
+      toast('Perfil actualizado');
+    } catch(e) {
+      const m = e.message || '';
+      toast(/update_my_profile|schema cache|does not exist|function/i.test(m) ? 'Falta aplicar la migración 145 para editar el perfil' : ('Error: '+m), false);
+    }
+    setSavingProfile(false);
+  };
+
+  const saveLoc = async () => {
+    if (!db || !RID) return;
+    if (!canEditLocal) { toast('Solo el administrador del local puede editar estos datos', false); return; }
+    // Guard anti-borrado: si el row del restaurante aún no cargó (fallo transitorio),
+    // `loc` está en blanco → NO guardar (borraría owner_name/email/phone existentes).
+    if (!restaurant) { toast('Los datos del local aún se están cargando, probá de nuevo', false); return; }
+    setSavingLoc(true);
+    try {
+      const patch = { owner_name:loc.owner_name.trim()||null, owner_email:loc.owner_email.trim()||null, owner_phone:loc.owner_phone.trim()||null };
+      if (restHasCol('owner_document')) patch.owner_document = loc.owner_document.trim()||null;
+      if (restHasCol('manager_name'))   patch.manager_name   = loc.manager_name.trim()||null;
+      if (restHasCol('manager_phone'))  patch.manager_phone  = loc.manager_phone.trim()||null;
+      const { data, error } = await db.from('restaurants').update(patch).eq('id',RID).select('id');
+      if (error) throw error;
+      if (!data || data.length===0) { toast('No se pudo guardar — verificá tus permisos (RLS)', false); setSavingLoc(false); return; }
+      toast('Datos del local actualizados');
+      if (onRefresh) onRefresh(true);
+    } catch(e) { toast('Error: ' + (e.message || 'no se pudo guardar'), false); }
+    setSavingLoc(false);
+  };
+
+  return (
+    <div className="page" style={{maxWidth:720}}>
+      <h1 style={{fontSize:20,fontWeight:800,marginBottom:18}}>Mi cuenta</h1>
+
+      {/* Perfil personal */}
+      <div style={cardStyle}>
+        <div style={{fontSize:14,fontWeight:700,marginBottom:14}}>Mi perfil</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <AcctField label="Nombre"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Tu nombre" style={iStyle}/></AcctField>
+          <AcctField label="Teléfono"><input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+595 9xx xxx xxx" style={iStyle}/></AcctField>
+          <AcctField label="Email"><input value={email} disabled style={iDisabled}/></AcctField>
+          <AcctField label="Rol"><input value={roleLabel(prof.role)} disabled style={iDisabled}/></AcctField>
+          <AcctField label="Restaurante"><input value={restaurant?.name||'—'} disabled style={iDisabled}/></AcctField>
+        </div>
+        <div style={{display:'flex',justifyContent:'flex-end'}}>
+          <Btn onClick={saveProfile} disabled={savingProfile}>{savingProfile?'Guardando…':'Guardar cambios'}</Btn>
+        </div>
+      </div>
+
+      {/* Seguridad */}
+      <div style={cardStyle}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:700,marginBottom:3}}>Seguridad</div>
+            <div style={{fontSize:12.5,color:C.mid}}>Cambiá tu contraseña. Te vamos a pedir la actual por seguridad.</div>
+          </div>
+          <Btn variant="ghost" onClick={()=>setPwModal(true)}>Cambiar contraseña</Btn>
+        </div>
+      </div>
+
+      {/* Dueño y encargado del local */}
+      <div style={cardStyle}>
+        <div style={{fontSize:14,fontWeight:700,marginBottom:3}}>Dueño y encargado del local</div>
+        <div style={{fontSize:12.5,color:C.mid,marginBottom:14}}>{canEditLocal ? 'Datos de contacto del dueño y (si difiere) del encargado del local.' : 'Solo el administrador del local puede editar estos datos.'}</div>
+        <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,marginBottom:8}}>Dueño</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <AcctField label="Nombre"><input value={loc.owner_name} onChange={sf('owner_name')} disabled={!canEditLocal} placeholder="Nombre del dueño" style={canEditLocal?iStyle:iDisabled}/></AcctField>
+          <AcctField label="Teléfono"><input value={loc.owner_phone} onChange={sf('owner_phone')} disabled={!canEditLocal} placeholder="+595 9xx xxx xxx" style={canEditLocal?iStyle:iDisabled}/></AcctField>
+          <AcctField label="Email"><input value={loc.owner_email} onChange={sf('owner_email')} disabled={!canEditLocal} placeholder="dueno@correo.com" style={canEditLocal?iStyle:iDisabled}/></AcctField>
+          <AcctField label="Documento / RUC"><input value={loc.owner_document} onChange={sf('owner_document')} disabled={!canEditLocal} placeholder="C.I. o RUC" style={canEditLocal?iStyle:iDisabled}/></AcctField>
+        </div>
+        <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,margin:'6px 0 8px'}}>Encargado <span style={{textTransform:'none',fontWeight:500,color:C.dim}}>(si difiere del dueño)</span></div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <AcctField label="Nombre"><input value={loc.manager_name} onChange={sf('manager_name')} disabled={!canEditLocal} placeholder="Nombre del encargado" style={canEditLocal?iStyle:iDisabled}/></AcctField>
+          <AcctField label="Teléfono"><input value={loc.manager_phone} onChange={sf('manager_phone')} disabled={!canEditLocal} placeholder="+595 9xx xxx xxx" style={canEditLocal?iStyle:iDisabled}/></AcctField>
+        </div>
+        {canEditLocal && <div style={{display:'flex',justifyContent:'flex-end'}}>
+          <Btn onClick={saveLoc} disabled={savingLoc}>{savingLoc?'Guardando…':'Guardar datos del local'}</Btn>
+        </div>}
+      </div>
+
+      {pwModal && <AdminChangePasswordModal email={email} onClose={()=>setPwModal(false)}/>}
+    </div>
+  );
+}
+
 function AdminApp() {
   const [page,setPage] = useState('dashboard');
   // Sidebar colapsable (persistente): main a ancho completo al ocultarlo.
@@ -10544,6 +10750,7 @@ function AdminApp() {
       case 'avisos':    return <AvisosAdmin restaurant={restaurant}/>;
       case 'soporte':   return <SoportePage restaurant={restaurant}/>;
       case 'config':    return <ConfigPage restaurant={restaurant} onRefresh={loadAll}/>;
+      case 'mi_cuenta': return <MiCuentaPage restaurant={restaurant} onRefresh={loadAll}/>;
       default: return null;
     }
   }

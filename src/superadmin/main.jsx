@@ -1282,8 +1282,15 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   const [fCity,    setFCity]    = useState('all');
   const [sort,     setSort]     = useState('name');
   const [saving,   setSaving]   = useState(false);
-  const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10)};
+  const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',owner_document:'',manager_name:'',manager_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10)};
   const [form, setForm] = useState(emptyForm);
+  // Feature-detect de columnas nuevas (mig 145): true si CUALQUIER restaurante ya
+  // trae la columna → así no mandamos owner_document/manager_* en el UPDATE/INSERT
+  // si la migración aún no se aplicó (evita 400 en toda edición de restaurante).
+  // Lista vacía (plataforma sin restaurantes) → asumimos que existen (optimista):
+  // así el PRIMER alta no pierde los campos; el único costo sería un 400 si se crea
+  // el primer local ANTES de aplicar la mig 145 (ventana mínima y con error visible).
+  const restHasCol = c => enriched.length === 0 || enriched.some(r => Object.prototype.hasOwnProperty.call(r, c));
   // Multi-sucursal: modal de alta de Sucursal Hija anclada a una Casa Central
   const [branchModal, setBranchModal] = useState(null);   // {parent} | null
   const [branchForm,  setBranchForm]  = useState({name:'',phone:'',city:'Asunción'});
@@ -1323,7 +1330,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 
   const openCreate = () => { setForm({...emptyForm,plan_id:plans[1]?.id||''}); setModal('create'); };
   const openEdit   = r  => {
-    setForm({name:r.name||'',legal_name:r.legal_name||'',ruc:r.ruc||'',city:r.city||'',country:r.country||'Paraguay',address:r.address||'',phone:r.phone||'',email:r.email||'',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10)});
+    setForm({name:r.name||'',legal_name:r.legal_name||'',ruc:r.ruc||'',city:r.city||'',country:r.country||'Paraguay',address:r.address||'',phone:r.phone||'',email:r.email||'',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',owner_document:r.owner_document||'',manager_name:r.manager_name||'',manager_phone:r.manager_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10)});
     setModal({edit:r});
   };
 
@@ -1342,6 +1349,10 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
     setSaving(true);
     try {
       const payload = {name:form.name.trim(),legal_name:form.legal_name||null,ruc:form.ruc||null,city:form.city,country:form.country,address:form.address||null,phone:form.phone||null,email:form.email||null,owner_name:form.owner_name||null,owner_email:form.owner_email||null,owner_phone:form.owner_phone||null,status:form.status,notes:form.notes||null,onboarding_date:form.onboarding_date,timezone:'America/Asuncion'};
+      // Columnas de mig 145 — solo si ya existen (evita 400 pre-migración).
+      if (restHasCol('owner_document')) payload.owner_document = form.owner_document||null;
+      if (restHasCol('manager_name'))   payload.manager_name   = form.manager_name||null;
+      if (restHasCol('manager_phone'))  payload.manager_phone  = form.manager_phone||null;
       if (modal==='create') {
         const {data:rest,error} = await db.from('restaurants').insert({...payload,auto_provisioned:false}).select().single();
         if (error) throw error;
@@ -1516,6 +1527,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
                   </div>
                   <div style={{fontSize:12,color:C.mid}}>{r.address||r.city}{r.city&&r.address?`, ${r.city}`:''}</div>
                   {r.created_at&&<div style={{fontSize:11,color:C.mid,marginTop:2}}>Alta: {fmtAlta(r.created_at)}</div>}
+                  {(r.owner_name||r.manager_name)&&<div style={{fontSize:11,color:C.dim,marginTop:2}}>{r.owner_name?`Dueño: ${r.owner_name}`:''}{r.owner_name&&r.manager_name?' · ':''}{r.manager_name?`Encargado: ${r.manager_name}`:''}</div>}
                   {!isRoot(r)&&<div style={{fontSize:11,color:C.dim,marginTop:2}}>↳ {parentName(r)}</div>}
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}>
@@ -1637,11 +1649,19 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
             <FormField label="Fecha de alta"><input type="date" value={form.onboarding_date} onChange={sf('onboarding_date')}/></FormField>
           </div>
           <div style={{borderTop:`1px solid ${C.border}`,margin:'12px 0',paddingTop:14}}>
-            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:.5}}>Datos del propietario</div>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:.5}}>Dueño</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
-              <FormField label="Nombre"><input value={form.owner_name} onChange={sf('owner_name')} placeholder="Nombre del propietario"/></FormField>
+              <FormField label="Nombre"><input value={form.owner_name} onChange={sf('owner_name')} placeholder="Nombre del dueño"/></FormField>
               <FormField label="Teléfono"><input value={form.owner_phone} onChange={sf('owner_phone')} placeholder="+595 981 123 456"/></FormField>
-              <FormField label="Email" col="1/-1"><input type="email" value={form.owner_email} onChange={sf('owner_email')} placeholder="propietario@restaurante.com"/></FormField>
+              <FormField label="Email"><input type="email" value={form.owner_email} onChange={sf('owner_email')} placeholder="dueno@restaurante.com"/></FormField>
+              <FormField label="Documento / RUC"><input value={form.owner_document} onChange={sf('owner_document')} placeholder="C.I. o RUC"/></FormField>
+            </div>
+          </div>
+          <div style={{borderTop:`1px solid ${C.border}`,margin:'12px 0',paddingTop:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:.5}}>Encargado <span style={{textTransform:'none',fontWeight:500,color:C.dim}}>(si difiere del dueño)</span></div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+              <FormField label="Nombre"><input value={form.manager_name} onChange={sf('manager_name')} placeholder="Nombre del encargado"/></FormField>
+              <FormField label="Teléfono"><input value={form.manager_phone} onChange={sf('manager_phone')} placeholder="+595 981 123 456"/></FormField>
             </div>
           </div>
           <FormField label="Notas internas"><textarea value={form.notes} onChange={sf('notes')} rows={2} placeholder="Observaciones internas..."/></FormField>
@@ -4042,6 +4062,7 @@ const NAV = [
   {id:'horarios',       label:'Horarios'},
   {id:'calendario',     label:'Calendario'},
   {id:'configuracion',  label:'Configuración'},
+  {id:'mi_cuenta',      label:'Mi cuenta'},
 ];
 
 /* ─── Soporte: constantes compartidas ─── */
@@ -6264,6 +6285,120 @@ function Sidebar({page, setPage, badges={}, themeMode, onToggleTheme}) {
 }
 
 // ── App principal ────────────────────────────────────────────
+// ── Modal reutilizable: cambio voluntario de contraseña (verifica la actual) ──
+// Verifica la clave actual re-autenticando (signInWithPassword) y recién ahí
+// cambia con updateUser. NO usa el endpoint de recuperación (ese es sin clave
+// previa, para el enlace por correo / primer ingreso forzado).
+function ChangePasswordModal({email, onClose, setFlash}) {
+  const [cur,setCur] = useState('');
+  const [n1,setN1]   = useState('');
+  const [n2,setN2]   = useState('');
+  const [busy,setBusy] = useState(false);
+  const [err,setErr]   = useState('');
+  const submit = async () => {
+    setErr('');
+    if (!cur) { setErr('Ingresá tu contraseña actual.'); return; }
+    if (n1.length < 8) { setErr('La nueva contraseña debe tener al menos 8 caracteres.'); return; }
+    if (n1 !== n2) { setErr('Las contraseñas nuevas no coinciden.'); return; }
+    if (email && n1.toLowerCase() === email.toLowerCase()) { setErr('La contraseña no puede ser igual a tu correo.'); return; }
+    if (!db || !email) { setErr('No hay sesión activa.'); return; }
+    setBusy(true);
+    try {
+      const { error: e1 } = await db.auth.signInWithPassword({ email, password: cur });
+      if (e1) {
+        // Si se activa el CAPTCHA en Supabase, el sign-in sin token falla: no es
+        // "clave incorrecta". Distinguirlo evita un mensaje engañoso.
+        setErr(/captcha/i.test(e1.message||'') ? 'La verificación de seguridad no está disponible en este panel. Cambiá tu contraseña desde el login (¿Olvidaste tu contraseña?).' : 'La contraseña actual es incorrecta.');
+        setBusy(false); return;
+      }
+      const { error: e2 } = await db.auth.updateUser({ password: n1 });
+      if (e2) { setErr('No se pudo cambiar: ' + (e2.message || 'probá con otra')); setBusy(false); return; }
+      setFlash({type:'ok',text:'Contraseña actualizada'});
+      onClose();
+    } catch(e) { setErr('Error: ' + (e.message || 'intentá de nuevo')); }
+    setBusy(false);
+  };
+  return (
+    <Modal title="Cambiar contraseña" onClose={onClose} width={420}>
+      {err && <div style={{background:TINT.dangerBg,color:TINT.dangerText,border:`1px solid ${C.red}`,borderRadius:8,padding:'9px 12px',fontSize:12.5,marginBottom:14}}>{err}</div>}
+      <FormField label="Contraseña actual"><input type="password" value={cur} onChange={e=>setCur(e.target.value)} autoFocus autoComplete="current-password"/></FormField>
+      <FormField label="Nueva contraseña" hint="Mínimo 8 caracteres."><input type="password" value={n1} onChange={e=>setN1(e.target.value)} autoComplete="new-password"/></FormField>
+      <FormField label="Repetir nueva contraseña"><input type="password" value={n2} onChange={e=>setN2(e.target.value)} autoComplete="new-password"/></FormField>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={submit} disabled={busy}>{busy?'Guardando…':'Cambiar contraseña'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Mi cuenta (superadmin) — perfil real desde Supabase, editable ────────────
+function PageMiCuenta({setFlash}) {
+  const prof = window._userProfile || {};
+  const [email,setEmail] = useState('');
+  const [name,setName]   = useState(prof.display_name || prof.username || '');
+  const [phone,setPhone] = useState('');
+  const [saving,setSaving] = useState(false);
+  const [pwModal,setPwModal] = useState(false);
+
+  useEffect(()=>{
+    if (!db) return;
+    let alive = true;
+    (async ()=>{
+      try { const { data:{ user } } = await db.auth.getUser(); if (alive && user) setEmail(user.email || ''); } catch(_){}
+      try {
+        if (prof.id) {
+          const { data } = await db.from('user_roles').select('*').eq('user_id',prof.id).eq('is_active',true).limit(1).maybeSingle();
+          if (alive && data) { setName(data.display_name || data.username || ''); setPhone(data.phone || ''); }
+        }
+      } catch(_){}
+    })();
+    return ()=>{ alive = false; };
+  },[]);
+
+  const saveProfile = async () => {
+    if (!name.trim()) { setFlash({type:'error',text:'El nombre no puede quedar vacío.'}); return; }
+    if (!db) return;
+    setSaving(true);
+    try {
+      const { error } = await db.rpc('update_my_profile',{ p_display_name:name.trim(), p_phone:phone.trim() });
+      if (error) throw error;
+      try { window._userProfile = {...prof, display_name:name.trim()}; } catch(_){}
+      try { localStorage.setItem('mythos_display_name', name.trim()); } catch(_){}
+      setFlash({type:'ok',text:'Perfil actualizado'});
+    } catch(e) {
+      const m = e.message || '';
+      setFlash({type:'error',text: /update_my_profile|schema cache|does not exist|function/i.test(m) ? 'Falta aplicar la migración 145 para editar el perfil.' : 'Error: '+m});
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div style={{maxWidth:680}}>
+      <SectionCard title="Mi perfil" style={{marginBottom:18}}>
+        <div style={{padding:'18px 20px'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <FormField label="Nombre"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Tu nombre"/></FormField>
+            <FormField label="Teléfono"><input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+595 9xx xxx xxx"/></FormField>
+            <FormField label="Email" hint="Tu correo de acceso (no editable desde acá)."><input value={email} disabled style={{opacity:.65,cursor:'not-allowed'}}/></FormField>
+            <FormField label="Rol"><input value="Superadmin" disabled style={{opacity:.65,cursor:'not-allowed'}}/></FormField>
+          </div>
+          <div style={{display:'flex',justifyContent:'flex-end',marginTop:2}}>
+            <Btn onClick={saveProfile} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
+          </div>
+        </div>
+      </SectionCard>
+      <SectionCard title="Seguridad">
+        <div style={{padding:'18px 20px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+          <div style={{fontSize:13,color:C.mid}}>Cambiá tu contraseña. Te vamos a pedir la actual por seguridad.</div>
+          <Btn variant="ghost" onClick={()=>setPwModal(true)}>Cambiar contraseña</Btn>
+        </div>
+      </SectionCard>
+      {pwModal && <ChangePasswordModal email={email} onClose={()=>setPwModal(false)} setFlash={setFlash}/>}
+    </div>
+  );
+}
+
 function App() {
   const [page,    setPage]    = useState('dashboard');
   const [loading, setLoading] = useState(true);
@@ -6380,7 +6515,7 @@ function App() {
   // Se aplica en el cuerpo del render para que los hijos formateen ya con la moneda correcta.
   setPlatformCurrency(platformConfig.find(c=>c.key==='platform_currency')?.value);
 
-  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración'};
+  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración',mi_cuenta:'Mi cuenta'};
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
@@ -6435,6 +6570,7 @@ function App() {
               {page==='horarios'      && <PageHorarios     restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='calendario'    && <PageCalendario   restaurants={restaurants}/>}
               {page==='configuracion' && <PageConfiguracion restaurants={restaurants} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='mi_cuenta'     && <PageMiCuenta      setFlash={setFlash}/>}
             </>
           )}
         </div>
