@@ -2,6 +2,18 @@
   "version": 2,
   "buildCommand": "npm install && npm run build && bash build.sh",
   "outputDirectory": "public",
+  "redirects": [
+    {
+      "source": "/",
+      "missing": [
+        { "type": "query", "key": "r" },
+        { "type": "query", "key": "rest" },
+        { "type": "query", "key": "restaurant" }
+      ],
+      "destination": "/inicio",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/inicio", "destination": "/web.html" },
     { "source": "/web", "destination": "/web.html" },
