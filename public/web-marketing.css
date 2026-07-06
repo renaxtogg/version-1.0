@@ -360,6 +360,33 @@ h2 { font-size: clamp(28px, 4.4vw, 42px); font-weight: var(--weight-bold); lette
 /* Ahorro por plan (modo anual) */
 .plan-save { font-size: var(--text-sm); color: var(--success); font-weight: var(--weight-semibold); margin: -8px 0 2px; }
 
+/* ── Precios dinámicos: tarjetas interactivas (hover + seleccionar/expandir) ── */
+.plan { cursor: pointer; transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+.plan:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+.plan.is-selected { border-color: var(--text-primary); border-width: 2px; box-shadow: var(--shadow-md); transform: translateY(-4px); }
+/* Descripción comercial del plan (fuente única: marketing_plans.description) */
+.plan-desc { font-size: 13px; line-height: 1.5; color: var(--text-secondary); margin: 4px 0 2px; }
+/* Lista "incluye": si es larga (--clip) se colapsa y se expande al seleccionar */
+.plan-incl--clip { position: relative; max-height: 132px; overflow: hidden; transition: max-height .4s ease; }
+.plan-incl--clip::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 34px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--surface)); transition: opacity .25s ease; }
+.plan.is-selected .plan-incl--clip { max-height: 760px; }
+.plan.is-selected .plan-incl--clip::after { opacity: 0; }
+/* Hint "tocá para ver todo" (solo cuando está colapsada) */
+.plan-more { font-size: 12px; font-weight: var(--weight-semibold); color: var(--text-tertiary); margin: 2px 0 10px; user-select: none; }
+.plan.is-selected .plan-more { display: none; }
+/* "Próximamente" — features aún no vivas (nunca listadas como incluidas) */
+.plan-soon { font-size: 12px; color: var(--text-tertiary); margin: 6px 0 4px; line-height: 1.45; }
+.plan-soon span { font-size: 10px; font-weight: var(--weight-bold); letter-spacing: .05em; text-transform: uppercase;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-full); padding: 1px 7px; margin-right: 6px; color: var(--text-secondary); }
+/* 4ª tarjeta "A cotizar / A medida" */
+.plan-quote { border-style: dashed; }
+.plan-quote .price-quote { font-size: 22px; color: var(--text-primary); }
+@media (prefers-reduced-motion: reduce) {
+  .plan, .plan:hover, .plan.is-selected { transform: none; transition: box-shadow .2s ease, border-color .2s ease; }
+  .plan-incl--clip { transition: none; }
+}
+
 /* ── Armador "Calculá tu precio" ───────────────────────────────────────── */
 .calc { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 820px; margin: 0 auto; text-align: left; }
 @media (max-width: 680px) { .calc { grid-template-columns: 1fr; } }

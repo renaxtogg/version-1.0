@@ -52,62 +52,66 @@
       </div>
       <div class="save-note" id="saveNote"></div>
 
+      <!-- Fallback estático (pre-render / sin JS). web-marketing.js lo reemplaza
+           con las tarjetas dinámicas (descripción + "incluye" generado + interactividad). -->
       <div class="plans" id="plansGrid">
-        <div class="plan">
-          <h3>Carta</h3>
-          <div class="frase">Tu carta, siempre lista</div>
+        <div class="plan" data-plan-card data-slug="carta">
+          <h3>Emprendedor</h3>
+          <div class="frase">Tu carta, en digital</div>
           <div class="price"><span class="gs">Gs</span><span data-m="200.000" data-a="166.667">200.000</span><small>/mes</small></div>
-          <ul>
+          <p class="plan-desc">Tu carta, en digital. Da el primer paso: menú digital con QR, sin papel y actualizable al instante, más el panel de gestión para cargar tu carta, ver pedidos y controlar tus insumos.</p>
+          <ul class="plan-incl">
             <li>Menú digital con QR</li>
-            <li>Productos ilimitados</li>
-            <li>Pedidos por WhatsApp</li>
-            <li>Analytics básico</li>
-            <li>Reseñas · 1 sucursal</li>
+            <li>Control de Insumos</li>
+            <li>Ítems de menú ilimitados</li>
           </ul>
           <a class="btn btn-secondary" href="/registro?plan=carta">Probar gratis</a>
         </div>
 
-        <div class="plan feat">
+        <div class="plan feat is-selected" data-plan-card data-slug="servicio">
           <div class="tag">Recomendado</div>
-          <h3>Servicio</h3>
-          <div class="frase">Sala y cocina, sincronizadas</div>
+          <h3>Consolidado</h3>
+          <div class="frase">Operá todo tu salón</div>
           <div class="price"><span class="gs">Gs</span><span data-m="400.000" data-a="333.333">400.000</span><small>/mes</small></div>
-          <ul>
-            <li>Todo lo de Carta</li>
+          <p class="plan-desc">Operá todo tu salón. Todo lo de Emprendedor más el sistema completo en tiempo real: caja, mozos y pantalla de cocina conectados, y CRM para conocer a tus clientes.</p>
+          <ul class="plan-incl">
+            <li>Menú digital con QR</li>
             <li>Caja / POS</li>
-            <li>Cocina (KDS)</li>
-            <li>Mesas y Mozos</li>
-            <li>Gestión de equipo · Soporte prioritario</li>
+            <li>Mozos y mesas</li>
+            <li>Cocina en pantalla (KDS)</li>
+            <li>Control de Insumos</li>
+            <li>CRM de Clientes</li>
           </ul>
           <a class="btn btn-primary" href="/registro?plan=servicio">Probar gratis</a>
         </div>
 
-        <div class="plan">
-          <h3>Full</h3>
-          <div class="frase">Control total del negocio</div>
+        <div class="plan" data-plan-card data-slug="full">
+          <h3>Premium</h3>
+          <div class="frase">Sumá delivery y escalá</div>
           <div class="price"><span class="gs">Gs</span><span data-m="800.000" data-a="666.667">800.000</span><small>/mes</small></div>
-          <ul>
-            <li>Todo lo de Servicio</li>
-            <li>Delivery con tracking</li>
-            <li>Reservas online</li>
-            <li>Analytics avanzado</li>
-            <li>Soporte 24/7</li>
+          <p class="plan-desc">Sumá delivery y escalá. Todo lo de Consolidado más delivery completo (pedido a domicilio con seguimiento en mapa y panel del repartidor), zonas de reparto y supervisión con el panel de Gerente.</p>
+          <ul class="plan-incl">
+            <li>Todo lo de Consolidado</li>
+            <li>Delivery a domicilio con tracking</li>
+            <li>Panel del repartidor (Rider)</li>
+            <li>Mapas y zonas de delivery</li>
+            <li>Panel de Gerente</li>
           </ul>
           <a class="btn btn-secondary" href="/registro?plan=full">Probar gratis</a>
         </div>
 
-        <div class="plan">
-          <h3>Enterprise</h3>
-          <div class="frase">Cadenas y multi-local</div>
-          <div class="price">A cotizar</div>
-          <ul>
-            <li>Todo lo de Full</li>
-            <li>Sucursales ilimitadas</li>
-            <li>Módulos a medida</li>
+        <div class="plan plan-quote" data-plan-card data-slug="a-medida">
+          <h3>A cotizar / A medida</h3>
+          <div class="frase">Para cadenas y necesidades especiales</div>
+          <div class="price price-quote">A cotizar</div>
+          <p class="plan-desc">¿Necesitás algo a medida? Para cadenas o negocios con necesidades especiales: desarrollamos y adaptamos lo que tu operación pida — módulos a medida, integraciones, multi-sucursal y más.</p>
+          <ul class="plan-incl">
+            <li>Módulos y features a medida</li>
+            <li>Integraciones con tus sistemas</li>
+            <li>Multi-sucursal avanzado</li>
             <li>Onboarding dedicado</li>
-            <li>Soporte con SLA</li>
           </ul>
-          <a class="btn btn-secondary" data-wa="Hola, me interesa el plan Enterprise de MYTHOS para mi cadena.">Contactar ventas</a>
+          <a class="btn btn-secondary" data-wa="Hola, quiero cotizar un desarrollo a medida para mi negocio." data-wa-fallback="/contacto">Contactar</a>
         </div>
       </div>
 

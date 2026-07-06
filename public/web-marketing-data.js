@@ -18,22 +18,34 @@
 
   // ── Fallback estático (precios ALINEADOS a subscription_plans, fuente única;
   //    mig 119 los sincroniza en BD — acá se replica para modo offline) ──────
+  // Nombres/descripciones/plan_config ALINEADOS a la fuente única (mig 152/153).
+  // `plan_config` (panels/features/límites) es lo que alimenta la lista "incluye"
+  // auto-generada del sitio; acá se replica para el modo offline/fallback.
   var FALLBACK_PLANS = [
-    { slug: 'carta', name: 'MYTHOS Carta', headline: 'Tu carta, siempre lista',
+    { slug: 'carta', name: 'Emprendedor', headline: 'Tu carta, en digital',
+      description: 'Tu carta, en digital. Da el primer paso: menú digital con QR, sin papel y actualizable al instante, más el panel de gestión para cargar tu carta, ver pedidos y controlar tus insumos.',
       price_monthly_gs: 200000, price_annual_gs: 2000000, currency: 'PYG',
-      features: ['Menú digital QR', 'Productos ilimitados', 'Pedidos por WhatsApp', 'Analytics básico', '1 sucursal incluida'],
+      plan_config: { panels: [], features: ['admin:inventory'], max_tables: null, max_menu_items: null, max_users: {} },
+      features: ['Menú digital con QR', 'Ítems de menú ilimitados', 'Control de Insumos'],
       badge: null, is_recommended: false, is_enterprise: false },
-    { slug: 'servicio', name: 'MYTHOS Servicio', headline: 'Sala y cocina, sincronizadas',
+    { slug: 'servicio', name: 'Consolidado', headline: 'Operá todo tu salón',
+      description: 'Operá todo tu salón. Todo lo de Emprendedor más el sistema completo en tiempo real: caja, mozos y pantalla de cocina conectados, y CRM para conocer a tus clientes.',
       price_monthly_gs: 400000, price_annual_gs: 4000000, currency: 'PYG',
-      features: ['Todo lo de Carta', 'Caja/POS', 'Cocina/KDS', 'Mesas y Mozos', 'Gestión de equipo', 'Soporte prioritario'],
+      plan_config: { panels: ['caja', 'mozo', 'cocina'], features: ['admin:inventory', 'admin:crm'], max_tables: null, max_menu_items: null, max_users: {} },
+      features: ['Menú digital con QR', 'Caja / POS', 'Mozo', 'Cocina (KDS)', 'Control de Insumos', 'CRM de Clientes'],
       badge: 'Recomendado', is_recommended: true, is_enterprise: false },
-    { slug: 'full', name: 'MYTHOS Full', headline: 'Control total',
+    { slug: 'full', name: 'Premium', headline: 'Sumá delivery y escalá',
+      description: 'Sumá delivery y escalá. Todo lo de Consolidado más delivery completo (pedido a domicilio con seguimiento en mapa y panel del repartidor), zonas de reparto y supervisión con el panel de Gerente.',
       price_monthly_gs: 800000, price_annual_gs: 8000000, currency: 'PYG',
-      features: ['Todo lo de Servicio', 'Delivery con tracking', 'Reservas', 'Analytics avanzado', 'Multi-usuario', 'Soporte 24/7'],
+      plan_config: { panels: ['caja', 'mozo', 'cocina', 'delivery-cliente', 'delivery-rider', 'gerente'], features: ['admin:inventory', 'admin:crm', 'admin:delivery_zones'], max_tables: null, max_menu_items: null, max_users: {} },
+      features: ['Menú digital con QR', 'Caja / POS', 'Mozo', 'Cocina (KDS)', 'Delivery Cliente', 'Rider (repartidor)', 'Panel de Gerente', 'Control de Insumos', 'CRM de Clientes', 'Mapas y zonas de delivery'],
       badge: null, is_recommended: false, is_enterprise: false },
-    { slug: 'enterprise', name: 'MYTHOS Enterprise', headline: 'Cadenas y multi-local',
-      price_monthly_gs: null, price_annual_gs: null, currency: 'PYG',
-      features: ['Todo lo de Full', 'Multi-sucursal avanzado', 'Módulos a medida', 'Onboarding dedicado', 'SLA'],
+    // Plan "a cotizar" (para la calculadora). En la grilla de precios se sustituye
+    // por la tarjeta estática "A cotizar / A medida" (web-marketing.js).
+    { slug: 'enterprise', name: 'A medida', headline: 'Cadenas y multi-local',
+      description: '', price_monthly_gs: null, price_annual_gs: null, currency: 'PYG',
+      plan_config: null,
+      features: ['Todo lo de Premium', 'Multi-sucursal avanzado', 'Módulos a medida', 'Onboarding dedicado', 'SLA'],
       badge: null, is_recommended: false, is_enterprise: true }
   ];
 
@@ -100,9 +112,13 @@
 
   function normalizeFeatures(p) {
     var f = p.features;
-    if (Array.isArray(f)) return p;
-    if (typeof f === 'string') { try { p.features = JSON.parse(f); } catch (e) { p.features = []; } }
+    if (Array.isArray(f)) { /* ok */ }
+    else if (typeof f === 'string') { try { p.features = JSON.parse(f); } catch (e) { p.features = []; } }
     else if (!f) p.features = [];
+    // plan_config puede venir como jsonb (objeto) o string (según el driver): normalizar.
+    if (typeof p.plan_config === 'string') {
+      try { p.plan_config = JSON.parse(p.plan_config); } catch (e) { p.plan_config = null; }
+    }
     return p;
   }
 

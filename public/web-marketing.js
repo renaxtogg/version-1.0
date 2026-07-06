@@ -33,6 +33,7 @@
   var PENDING_ADDONS = ['bancard', 'facturacion-electronica'];
   var _annual = false;       // estado del toggle mensual/anual
   var _calcStarted = false;  // para disparar pricing_calculator_start una vez
+  var _selectedSlug = null;  // tarjeta de plan seleccionada (se expande/destaca)
 
   /* ── Utilidades ───────────────────────────────────────────────────────── */
   function waLink(msg) {
@@ -210,7 +211,14 @@
     var num = String(CONFIG.whatsapp || '').replace(/\D/g, '');
     var waOk = num && num !== '595000000000';
     document.querySelectorAll('[data-wa]').forEach(function (a) {
-      if (!waOk) { a.removeAttribute('href'); a.removeAttribute('target'); a.style.cursor = 'default'; return; }
+      if (!waOk) {
+        // Sin número real: si el enlace declara un fallback (p.ej. la tarjeta
+        // "A cotizar" → /contacto), lo usamos; si no, se deshabilita.
+        var fb = a.getAttribute('data-wa-fallback');
+        if (fb) { a.setAttribute('href', fb); a.removeAttribute('target'); a.style.cursor = ''; }
+        else { a.removeAttribute('href'); a.removeAttribute('target'); a.style.cursor = 'default'; }
+        return;
+      }
       a.setAttribute('href', waLink(a.getAttribute('data-wa') || ''));
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener');
@@ -269,34 +277,146 @@
     return (p.price_monthly_gs * 12) - p.price_annual_gs;
   }
 
+  /* ── Lista "incluye" AUTO-GENERADA desde la config real del plan ─────────
+     Fuente: marketing_plans.plan_config (espejo de allowed_panels + allowed_
+     features + límites del plan operativo, mig 153). Los labels replican la
+     taxonomía del superadmin (PANEL_OPTIONS / FEATURE_GROUPS). Así la lista
+     SIEMPRE coincide con lo configurado, sin editarla a mano. ───────────── */
+  var PANEL_ORDER = ['caja', 'mozo', 'cocina', 'delivery-cliente', 'delivery-rider', 'gerente'];
+  var PANEL_LABELS = {
+    'caja': 'Caja / POS',
+    'mozo': 'Mozos y mesas',
+    'cocina': 'Cocina en pantalla (KDS)',
+    'delivery-cliente': 'Delivery a domicilio con tracking',
+    'delivery-rider': 'Panel del repartidor (Rider)',
+    'gerente': 'Panel de Gerente'
+  };
+  var FEATURE_ORDER = ['admin:inventory', 'admin:crm', 'admin:delivery_zones'];
+  var FEATURE_LABELS = {
+    'admin:inventory': 'Control de Insumos',
+    'admin:crm': 'CRM de Clientes',
+    'admin:delivery_zones': 'Mapas y zonas de delivery'
+  };
+  // Features aún NO vivas: NUNCA se listan como incluidas → van como "Próximamente".
+  var PENDING_FEATURE_LABELS = {
+    'caja:sifen': 'Facturación electrónica (SIFEN)',
+    'caja:digital_payments': 'Pagos online con Bancard',
+    'mozo:digital_qr_pay': 'Cobro en mesa por QR'
+  };
+  function asList(v) { return Array.isArray(v) ? v : []; }
+
+  function planIncludes(cfg) {
+    cfg = cfg || {};
+    var panels = asList(cfg.panels), feats = asList(cfg.features);
+    var out = ['Menú digital con QR'];
+    PANEL_ORDER.forEach(function (k) { if (panels.indexOf(k) >= 0) out.push(PANEL_LABELS[k]); });
+    FEATURE_ORDER.forEach(function (k) { if (feats.indexOf(k) >= 0) out.push(FEATURE_LABELS[k]); });
+    out.push((cfg.max_menu_items != null && cfg.max_menu_items > 0)
+      ? ('Hasta ' + formatMiles(cfg.max_menu_items) + ' ítems de menú') : 'Ítems de menú ilimitados');
+    if (panels.indexOf('mozo') >= 0 || panels.indexOf('caja') >= 0) {
+      out.push((cfg.max_tables != null && cfg.max_tables > 0)
+        ? ('Hasta ' + cfg.max_tables + ' mesas') : 'Mesas ilimitadas');
+    }
+    return out;
+  }
+  function planPending(cfg) {
+    cfg = cfg || {};
+    return asList(cfg.features).map(function (k) { return PENDING_FEATURE_LABELS[k]; }).filter(Boolean);
+  }
+
   function planCardHTML(p) {
-    var quote = planIsQuote(p);
     var priceInner;
-    if (quote) priceInner = 'A cotizar';
-    else if (_annual && p.price_annual_gs != null)
+    if (_annual && p.price_annual_gs != null)
       priceInner = '<span class="gs">Gs</span>' + formatMiles(p.price_annual_gs) + '<small>/año</small>';
     else
       priceInner = '<span class="gs">Gs</span>' + formatMiles(p.price_monthly_gs) + '<small>/mes</small>';
 
-    var save = (_annual && !quote && planSavings(p) > 0)
+    var save = (_annual && planSavings(p) > 0)
       ? '<div class="plan-save">Ahorrás ' + formatGs(planSavings(p)) + ' al año</div>' : '';
-    var feats = (p.features || []).map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('');
-    var cta = quote
-      ? '<a class="btn btn-secondary" data-wa="' + esc('Hola, me interesa el plan ' + p.name + ' de MYTHOS para mi cadena.') + '" data-track="pricing_plan_click" data-plan="' + esc(p.slug) + '">Contactar ventas</a>'
-      : '<a class="btn ' + (p.is_recommended ? 'btn-primary' : 'btn-secondary') + '" href="/registro?plan=' + encodeURIComponent(p.slug) + '" data-track="pricing_plan_click" data-plan="' + esc(p.slug) + '">Probar gratis</a>';
 
-    return '<div class="plan' + (p.is_recommended ? ' feat' : '') + '">' +
+    // Lista "incluye" GENERADA desde la config real; fallback a features manuales.
+    var incArr = p.plan_config ? planIncludes(p.plan_config) : null;
+    if (!incArr || !incArr.length) incArr = asList(p.features);
+    var feats = incArr.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('');
+    // Solo recortamos (y ofrecemos "ver todo") cuando la lista no entra colapsada.
+    var clip = incArr.length > 5;
+    var pending = planPending(p.plan_config);
+    var pendHTML = pending.length
+      ? '<div class="plan-soon"><span>Próximamente</span> ' + pending.map(esc).join(' · ') + '</div>' : '';
+    var descHTML = p.description ? '<p class="plan-desc">' + esc(p.description) + '</p>' : '';
+    var moreHTML = clip ? '<div class="plan-more" aria-hidden="true">Ver todo lo que incluye</div>' : '';
+    var sel = (p.slug === _selectedSlug) ? ' is-selected' : '';
+
+    var cta = '<a class="btn ' + (p.is_recommended ? 'btn-primary' : 'btn-secondary') +
+      '" href="/registro?plan=' + encodeURIComponent(p.slug) + '" data-track="pricing_plan_click" data-plan="' + esc(p.slug) + '">Probar gratis</a>';
+
+    return '<div class="plan' + (p.is_recommended ? ' feat' : '') + sel + '" data-plan-card data-slug="' + esc(p.slug) + '">' +
       (p.badge ? '<div class="tag">' + esc(p.badge) + '</div>' : '') +
       '<h3>' + planTitle(p) + '</h3>' +
       '<div class="frase">' + esc(p.headline || '') + '</div>' +
       '<div class="price">' + priceInner + '</div>' + save +
-      '<ul>' + feats + '</ul>' + cta + '</div>';
+      descHTML +
+      '<ul class="plan-incl' + (clip ? ' plan-incl--clip' : '') + '">' + feats + '</ul>' + pendHTML +
+      moreHTML +
+      cta + '</div>';
+  }
+
+  // 4ª tarjeta estática: "A cotizar / A medida" (reemplaza al plan Enterprise en
+  // la grilla). Botón "Contactar" → WhatsApp de marketing_config; si no hay número
+  // configurado, cae a /contacto (data-wa-fallback, resuelto en wireContactLinks).
+  function quoteCardHTML() {
+    var sel = ('a-medida' === _selectedSlug) ? ' is-selected' : '';
+    var msg = 'Hola, quiero cotizar un desarrollo a medida para mi negocio.';
+    return '<div class="plan plan-quote' + sel + '" data-plan-card data-slug="a-medida">' +
+      '<h3>A cotizar / A medida</h3>' +
+      '<div class="frase">Para cadenas y necesidades especiales</div>' +
+      '<div class="price price-quote">A cotizar</div>' +
+      '<p class="plan-desc">¿Necesitás algo a medida? Para cadenas o negocios con necesidades especiales: desarrollamos y adaptamos lo que tu operación pida — módulos a medida, integraciones, multi-sucursal y más.</p>' +
+      '<ul class="plan-incl">' +
+        '<li>Módulos y features a medida</li>' +
+        '<li>Integraciones con tus sistemas</li>' +
+        '<li>Multi-sucursal avanzado</li>' +
+        '<li>Onboarding dedicado</li>' +
+      '</ul>' +
+      '<a class="btn btn-secondary" data-wa="' + esc(msg) + '" data-wa-fallback="/contacto" data-track="pricing_plan_click" data-plan="a-medida">Contactar</a>' +
+      '</div>';
+  }
+
+  function selectPlan(slug) {
+    if (!slug) return;
+    _selectedSlug = slug;
+    var grid = document.getElementById('plansGrid');
+    if (!grid) return;
+    [].slice.call(grid.querySelectorAll('[data-plan-card]')).forEach(function (card) {
+      card.classList.toggle('is-selected', card.getAttribute('data-slug') === slug);
+    });
+    track('pricing_plan_select', { plan_slug: slug });
+  }
+
+  function wirePlanSelection() {
+    var grid = document.getElementById('plansGrid');
+    if (!grid) return;
+    [].slice.call(grid.querySelectorAll('[data-plan-card]')).forEach(function (card) {
+      card.addEventListener('click', function (e) {
+        // No robar el click a los enlaces/botones (la CTA navega normalmente).
+        if (e.target && e.target.closest && e.target.closest('a,button')) return;
+        selectPlan(card.getAttribute('data-slug'));
+      });
+    });
   }
 
   function renderPlans() {
     var grid = document.getElementById('plansGrid');
     if (!grid || !_plans) return;
-    grid.innerHTML = _plans.map(planCardHTML).join('');
+    // Solo planes de precio (activos ya filtrados por RLS); los "a cotizar" se
+    // sustituyen por la tarjeta estática "A cotizar / A medida".
+    var real = _plans.filter(function (p) { return !planIsQuote(p); });
+    if (!_selectedSlug) {
+      var rec = real.filter(function (p) { return p.is_recommended; })[0];
+      _selectedSlug = rec ? rec.slug : (real[0] ? real[0].slug : null);
+    }
+    grid.innerHTML = real.map(planCardHTML).join('') + quoteCardHTML();
+    wirePlanSelection();
     wireContactLinks();
     wireTracking();
   }
