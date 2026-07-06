@@ -244,6 +244,39 @@ const asObj = v => (v && typeof v==='object' && !Array.isArray(v)) ? v : (typeof
 const PLAN_ST = p => (p && p.status) || (p && p.is_active === false ? 'inactive' : 'active');
 const isPlanOffered = p => PLAN_ST(p) === 'active';
 
+// ── Sync vidriera (marketing_plans) ⟵ panel operativo (subscription_plans) ──
+// El panel MANDA; el sitio REFLEJA. Estos helpers arman el espejo de config y la
+// lista "incluye" con labels humanos IDÉNTICOS a public/web-marketing.js (el sitio
+// genera la lista desde plan_config; acá se materializa también en `features`).
+const SITE_PANEL_ORDER  = ['caja','mozo','cocina','delivery-cliente','delivery-rider','gerente'];
+const SITE_PANEL_LABELS = { caja:'Caja', mozo:'Mozo', cocina:'Cocina (KDS)', 'delivery-cliente':'Delivery Cliente', 'delivery-rider':'Rider', gerente:'Gerente' };
+const SITE_FEAT_ORDER   = ['admin:inventory','admin:crm','admin:delivery_zones'];   // solo features VIVAS
+const SITE_FEAT_LABELS  = { 'admin:inventory':'Control de Insumos', 'admin:crm':'CRM', 'admin:delivery_zones':'Mapas/Zonas' };
+// caja:sifen, caja:digital_payments, mozo:digital_qr_pay quedan FUERA (no vivas) a propósito.
+const buildMktConfig = op => ({
+  panels: asArr(op.allowed_panels),
+  features: asArr(op.allowed_features),
+  max_tables: op.max_tables ?? null,
+  max_menu_items: op.max_menu_items ?? null,
+  max_users: asObj(op.max_users_by_role),
+});
+function buildSiteIncludes(op) {
+  const panels = asArr(op.allowed_panels), feats = asArr(op.allowed_features), users = asObj(op.max_users_by_role);
+  const out = ['Carta digital con QR', 'Gestión (Admin)'];
+  SITE_PANEL_ORDER.forEach(k => { if (panels.includes(k)) out.push(SITE_PANEL_LABELS[k]); });
+  SITE_FEAT_ORDER.forEach(k => { if (feats.includes(k)) out.push(SITE_FEAT_LABELS[k]); });
+  if (op.max_tables != null && op.max_tables > 0) out.push(op.max_tables + ' mesas');
+  else if (panels.includes('mozo') || panels.includes('caja')) out.push('Mesas ilimitadas');
+  if (op.max_menu_items != null && op.max_menu_items > 0) out.push(Number(op.max_menu_items).toLocaleString('es-PY') + ' ítems');
+  else out.push('Ítems ilimitados');
+  if (users.mozo != null && users.mozo > 0) out.push(users.mozo + ' mozos');
+  return out;
+}
+function slugifyPlan(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'plan';
+}
+
 const getMRRMonths = subscriptions => {
   const months = [];
   for (let i=5; i>=0; i--) {
@@ -6248,11 +6281,98 @@ function PlanEditModal({plan, onClose, setFlash, reload}) {
 
 function SitioPlanes({plans, setFlash, reload}) {
   const [editing, setEditing] = useState(null);
+  const [syncing, setSyncing] = useState(false);
   const sorted = [...plans].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+
+  // Sincroniza la vidriera desde el panel operativo: el panel MANDA, el sitio
+  // REFLEJA. Por cada plan operativo ACTIVO crea/actualiza su tarjeta (match por
+  // subscription_plan_id), copiando nombre, precio mensual y estado + generando
+  // la lista "incluye" desde su config. PRESERVA los campos propios del sitio
+  // (descripción, badge, precio anual, orden) y la tarjeta manual "A cotizar".
+  // Plan pausado/archivado → oculta su tarjeta.
+  const syncFromPanel = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSyncing(true);
+    try {
+      const [opRes, cardRes] = await Promise.all([
+        db.from('subscription_plans').select('*'),
+        db.from('marketing_plans').select('*'),
+      ]);
+      if (opRes.error) throw opRes.error;
+      if (cardRes.error) throw cardRes.error;
+      const ops = opRes.data || [];
+      const cards = cardRes.data || [];
+      let created = 0, updated = 0, hidden = 0;
+      // Orden para nuevas tarjetas: después de la última "real", antes de la manual "A cotizar".
+      let maxOrder = cards.filter(c=>!c.is_enterprise).reduce((m,c)=>Math.max(m, c.sort_order||0), 0);
+      const usedSlugs = new Set(cards.map(c=>c.slug));
+
+      // insert/update tolerante a que la columna plan_config aún no exista (mig 153/154).
+      const writeMkt = async (isInsert, payload, id) => {
+        const run = pl => isInsert ? db.from('marketing_plans').insert(pl) : db.from('marketing_plans').update(pl).eq('id', id);
+        let { error } = await run(payload);
+        if (error && /plan_config/.test(error.message||'')) {
+          const { plan_config, ...rest } = payload;
+          ({ error } = await run(rest));
+        }
+        return error;
+      };
+
+      const norm = s => String(s || '').trim().toLowerCase();
+      for (const op of ops) {
+        // Match por vínculo (subscription_plan_id); si falta, auto-repara por nombre
+        // (tarjeta manual no-enterprise con el mismo nombre) para no duplicar.
+        const existing = cards.find(c => c.subscription_plan_id === op.id)
+          || cards.find(c => !c.subscription_plan_id && !c.is_enterprise && norm(c.name) === norm(op.name));
+        const active = PLAN_ST(op) === 'active';
+        const monthly = Math.round(Number(op.price_usd) || 0);
+        if (active) {
+          const payload = {
+            name: op.name, price_monthly_gs: monthly, is_active: true,
+            subscription_plan_id: op.id,   // (re)afirma el vínculo por si faltaba
+            plan_config: buildMktConfig(op), features: buildSiteIncludes(op),
+            updated_at: new Date().toISOString(),
+          };
+          if (existing) {
+            // PRESERVA description / badge / price_annual_gs / sort_order / is_recommended.
+            const err = await writeMkt(false, payload, existing.id);
+            if (err) throw err;
+            updated++;
+          } else {
+            let base = slugifyPlan(op.name), s = base, i = 2;
+            while (usedSlugs.has(s)) s = base + '-' + (i++);
+            usedSlugs.add(s);
+            const err = await writeMkt(true, {
+              ...payload, slug: s, headline: '', description: '',
+              price_annual_gs: monthly * 10, currency: 'PYG',
+              badge: null, is_recommended: false, is_enterprise: false,
+              subscription_plan_id: op.id, sort_order: ++maxOrder,
+            });
+            if (err) throw err;
+            created++;
+          }
+        } else if (existing && existing.is_active !== false) {
+          // Operativo pausado/archivado → ocultar su tarjeta del sitio.
+          const { error } = await db.from('marketing_plans').update({ is_active:false, updated_at:new Date().toISOString() }).eq('id', existing.id);
+          if (error) throw error;
+          hidden++;
+        }
+      }
+      setFlash({ type:'ok', text:`Sitio actualizado desde el panel — ${created} creado(s) · ${updated} actualizado(s) · ${hidden} ocultado(s).` });
+      reload();
+    } catch(e) {
+      setFlash({ type:'error', text:'Error al sincronizar: ' + (e.message || e) });
+    }
+    setSyncing(false);
+  };
+
   return (
     <div>
-      <div style={{fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.5}}>
-        Estos planes alimentan <strong>/precios</strong> y la calculadora del sitio. El <strong>slug</strong> es una clave estable y no se edita.
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:16,marginBottom:14,flexWrap:'wrap'}}>
+        <div style={{fontSize:12,color:C.mid,lineHeight:1.5,flex:'1 1 320px'}}>
+          El <strong>panel operativo manda</strong>: estos planes alimentan <strong>/precios</strong> y la calculadora. Con <strong>“Actualizar sitio desde el panel”</strong> se copian nombre, precio y estado de cada plan operativo activo y se regenera su lista “incluye”. Se preservan descripción, badge, precio anual, orden y la tarjeta manual “A cotizar”. El <strong>slug</strong> es una clave estable y no se edita.
+        </div>
+        <Btn size="sm" onClick={syncFromPanel} disabled={syncing}>{syncing?'Sincronizando…':'↻ Actualizar sitio desde el panel'}</Btn>
       </div>
       <SectionCard>
         {sorted.length===0

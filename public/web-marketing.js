@@ -284,18 +284,18 @@
      SIEMPRE coincide con lo configurado, sin editarla a mano. ───────────── */
   var PANEL_ORDER = ['caja', 'mozo', 'cocina', 'delivery-cliente', 'delivery-rider', 'gerente'];
   var PANEL_LABELS = {
-    'caja': 'Caja / POS',
-    'mozo': 'Mozos y mesas',
-    'cocina': 'Cocina en pantalla (KDS)',
-    'delivery-cliente': 'Delivery a domicilio con tracking',
-    'delivery-rider': 'Panel del repartidor (Rider)',
-    'gerente': 'Panel de Gerente'
+    'caja': 'Caja',
+    'mozo': 'Mozo',
+    'cocina': 'Cocina (KDS)',
+    'delivery-cliente': 'Delivery Cliente',
+    'delivery-rider': 'Rider',
+    'gerente': 'Gerente'
   };
   var FEATURE_ORDER = ['admin:inventory', 'admin:crm', 'admin:delivery_zones'];
   var FEATURE_LABELS = {
     'admin:inventory': 'Control de Insumos',
-    'admin:crm': 'CRM de Clientes',
-    'admin:delivery_zones': 'Mapas y zonas de delivery'
+    'admin:crm': 'CRM',
+    'admin:delivery_zones': 'Mapas/Zonas'
   };
   // Features aún NO vivas: NUNCA se listan como incluidas → van como "Próximamente".
   var PENDING_FEATURE_LABELS = {
@@ -305,18 +305,22 @@
   };
   function asList(v) { return Array.isArray(v) ? v : []; }
 
+  // Lista "incluye" desde la config real del plan operativo vinculado.
+  // Base (todo plan): Carta digital + Gestión (Admin). Luego paneles POS, features
+  // vivas y límites (N mesas / N ítems / N mozos). Ej. Emprendedor (sin POS):
+  // Carta digital con QR · Gestión (Admin) · Control de Insumos · 5 mesas · 30 ítems.
   function planIncludes(cfg) {
     cfg = cfg || {};
     var panels = asList(cfg.panels), feats = asList(cfg.features);
-    var out = ['Menú digital con QR'];
+    var users = (cfg.max_users && typeof cfg.max_users === 'object') ? cfg.max_users : {};
+    var out = ['Carta digital con QR', 'Gestión (Admin)'];
     PANEL_ORDER.forEach(function (k) { if (panels.indexOf(k) >= 0) out.push(PANEL_LABELS[k]); });
     FEATURE_ORDER.forEach(function (k) { if (feats.indexOf(k) >= 0) out.push(FEATURE_LABELS[k]); });
-    out.push((cfg.max_menu_items != null && cfg.max_menu_items > 0)
-      ? ('Hasta ' + formatMiles(cfg.max_menu_items) + ' ítems de menú') : 'Ítems de menú ilimitados');
-    if (panels.indexOf('mozo') >= 0 || panels.indexOf('caja') >= 0) {
-      out.push((cfg.max_tables != null && cfg.max_tables > 0)
-        ? ('Hasta ' + cfg.max_tables + ' mesas') : 'Mesas ilimitadas');
-    }
+    if (cfg.max_tables != null && cfg.max_tables > 0) out.push(cfg.max_tables + ' mesas');
+    else if (panels.indexOf('mozo') >= 0 || panels.indexOf('caja') >= 0) out.push('Mesas ilimitadas');
+    if (cfg.max_menu_items != null && cfg.max_menu_items > 0) out.push(formatMiles(cfg.max_menu_items) + ' ítems');
+    else out.push('Ítems ilimitados');
+    if (users.mozo != null && users.mozo > 0) out.push(users.mozo + ' mozos');
     return out;
   }
   function planPending(cfg) {
