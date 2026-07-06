@@ -238,6 +238,12 @@ const addonName = (catalog, key) => (catalog.find(a=>a.key===key)?.name) || (DEF
 const asArr = v => Array.isArray(v) ? v : (typeof v==='string' ? (()=>{try{return JSON.parse(v||'[]')}catch{return[]}})() : []);
 const asObj = v => (v && typeof v==='object' && !Array.isArray(v)) ? v : (typeof v==='string' ? (()=>{try{return JSON.parse(v||'{}')}catch{return{}}})() : {});
 
+// Ciclo de vida de un plan (subscription_plans). Fuente de verdad = status
+// (mig 152); si la columna aún no existe, se deriva de is_active para degradar
+// con gracia. 'active' se ofrece; 'inactive' (pausado) y 'archived' se ocultan.
+const PLAN_ST = p => (p && p.status) || (p && p.is_active === false ? 'inactive' : 'active');
+const isPlanOffered = p => PLAN_ST(p) === 'active';
+
 const getMRRMonths = subscriptions => {
   const months = [];
   for (let i=5; i>=0; i--) {
@@ -1503,13 +1509,15 @@ function slugUser(name) {
 function NuevoClienteModal({plans, cityOptions, restHasCol, onOpenModules, onClose, setFlash, reload}) {
   const LOGIN_URL = window.location.origin + '/login';
   const STEPS = ['Restaurante', 'Acceso', 'Plan', 'Listo'];
+  // Solo se ofrecen planes ACTIVOS al dar de alta un cliente nuevo.
+  const offeredPlans = plans.filter(isPlanOffered);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);   // {restaurant, owner, error, partial}
   const [f, setF] = useState({
     name:'', city:'Asunción', owner_name:'', owner_email:'', owner_phone:'', owner_document:'',
     username:'', password: genTempPassword(),
-    plan_id: plans[1]?.id || plans[0]?.id || '', status:'active',
+    plan_id: offeredPlans[1]?.id || offeredPlans[0]?.id || '', status:'active',
   });
   const set = (k, v) => setF(s => ({...s, [k]: v}));
 
@@ -1661,7 +1669,7 @@ function NuevoClienteModal({plans, cityOptions, restHasCol, onOpenModules, onClo
           <FormField label="Plan de suscripción">
             <select value={f.plan_id} onChange={e=>set('plan_id',e.target.value)} style={{width:'100%'}}>
               <option value="">— Elegí un plan —</option>
-              {plans.map(p=><option key={p.id} value={p.id}>{p.name}{p.price_usd!=null?` · ${fmtGs(p.price_usd)}/mes`:''}</option>)}
+              {offeredPlans.map(p=><option key={p.id} value={p.id}>{p.name}{p.price_usd!=null?` · ${fmtGs(p.price_usd)}/mes`:''}</option>)}
             </select>
           </FormField>
           <div style={{fontSize:12,color:C.dim,marginTop:6,lineHeight:1.5}}>
@@ -1954,6 +1962,16 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   const ssf = v => e => setSubForm(f=>({...f,[v]:e.target.value}));
   const toggleSubAddon = key => setSubForm(f=>{const cur=f.addonKeys||[];return {...f,addonKeys:cur.includes(key)?cur.filter(k=>k!==key):[...cur,key]};});
 
+  // Opciones de plan para asignar/cambiar: solo ACTIVOS, pero preservando el
+  // plan que el restaurante YA tiene (aunque esté pausado/archivado) para no
+  // perderlo silenciosamente al editar su suscripción.
+  const planOpts = selectedId => {
+    const offered = plans.filter(isPlanOffered);
+    const sel = plans.find(p=>p.id===selectedId);
+    return (sel && !isPlanOffered(sel)) ? [...offered, sel] : offered;
+  };
+  const planOptLabel = p => `${p.name} — ${fmtGuarani(p.price_usd)}/mes${isPlanOffered(p)?'':(PLAN_ST(p)==='archived'?' (archivado)':' (pausado)')}`;
+
   return (
     <div className="animate-in">
       {/* Sub-pestañas del módulo Restaurantes */}
@@ -2116,7 +2134,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
             <FormField label="Plan de suscripción">
               <select value={form.plan_id} onChange={sf('plan_id')}>
                 <option value="">Sin asignar</option>
-                {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtGuarani(p.price_usd)}/mes</option>)}
+                {planOpts(form.plan_id).map(p=><option key={p.id} value={p.id}>{planOptLabel(p)}</option>)}
               </select>
             </FormField>
             <FormField label="Estado">
@@ -2200,7 +2218,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
         <Modal title={`Suscripción — ${subModal.name}`} onClose={()=>setSubModal(null)}>
           <FormField label="Plan">
             <select value={subForm.plan_id} onChange={ssf('plan_id')}>
-              {plans.map(p=><option key={p.id} value={p.id}>{p.name} — {fmtGuarani(p.price_usd)}/mes</option>)}
+              {planOpts(subForm.plan_id).map(p=><option key={p.id} value={p.id}>{planOptLabel(p)}</option>)}
             </select>
           </FormField>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
@@ -2286,6 +2304,9 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
   const [planModal, setPlanModal]   = useState(null);
   const [planForm,  setPlanForm]    = useState(EMPTY_PLAN);
   const [saving,    setSaving]      = useState(false);
+  const [planBusy,  setPlanBusy]    = useState(null);   // id del plan cuyo ciclo de vida se está cambiando
+  const [deletePlan,setDeletePlan]  = useState(null);   // {plan, count} para el modal de eliminación
+  const [showArchived,setShowArchived] = useState(false);
   const catalog = addonCatalog.length ? addonCatalog : DEFAULT_ADDONS;
   const [addonForm, setAddonForm]   = useState({});   // {key:{price_usd,is_active}}
   const [savingAddon, setSavingAddon] = useState('');
@@ -2341,16 +2362,29 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
       if (planForm.max_mozo!=='' && planForm.max_mozo!=null)     mubr.mozo   = parseInt(planForm.max_mozo);
       if (planForm.max_cajero!=='' && planForm.max_cajero!=null) mubr.cajero = parseInt(planForm.max_cajero);
       if (planForm.max_cocina!=='' && planForm.max_cocina!=null) mubr.cocina = parseInt(planForm.max_cocina);
-      const payload = {name:planForm.name.trim(),price_usd:parseFloat(planForm.price_usd)||0,billing_cycle:planForm.billing_cycle,max_tables:parseInt(planForm.max_tables)||null,max_menu_items:parseInt(planForm.max_menu_items)||null,features:JSON.stringify(feats),is_active:planForm.is_active,max_users_by_role:mubr,allowed_panels:planForm.panels||[],allowed_features:planForm.allowed_features||[]};
-      // Degrada con gracia si la migración 091 (columna allowed_features) aún no corrió.
+      // El ciclo de vida (activo/pausado/archivado) se maneja con los botones de
+      // la tarjeta, NO desde este editor: por eso el payload NO envía is_active en
+      // una edición (así no se re-activa un plan pausado al guardar cambios de
+      // precio/nombre). Al CREAR, el plan nace 'active'.
+      const base = {name:planForm.name.trim(),price_usd:parseFloat(planForm.price_usd)||0,billing_cycle:planForm.billing_cycle,max_tables:parseInt(planForm.max_tables)||null,max_menu_items:parseInt(planForm.max_menu_items)||null,features:JSON.stringify(feats),max_users_by_role:mubr,allowed_panels:planForm.panels||[],allowed_features:planForm.allowed_features||[]};
+      const payload = planModal==='create' ? {...base, status:'active'} : base;
       const writePlan = async pl => planModal==='create'
         ? db.from('subscription_plans').insert(pl)
         : db.from('subscription_plans').update(pl).eq('id',planModal.edit.id);
       let degraded = false;
-      let {error} = await writePlan(payload);
+      let pl = {...payload};
+      let {error} = await writePlan(pl);
+      // Degrada con gracia si la migración 152 (columna status) aún no corrió.
+      if (error && /\bstatus\b/.test(error.message||'')) {
+        const {status, ...noStatus} = pl;
+        pl = planModal==='create' ? {...noStatus, is_active:true} : noStatus;
+        ({error} = await writePlan(pl));
+      }
+      // Degrada con gracia si la migración 091 (columna allowed_features) aún no corrió.
       if (error && /allowed_features/.test(error.message||'')) {
-        const {allowed_features, ...legacy} = payload;
-        ({error} = await writePlan(legacy));
+        const {allowed_features, ...legacy} = pl;
+        pl = legacy;
+        ({error} = await writePlan(pl));
         degraded = !error;
       }
       if (error) throw error;
@@ -2362,9 +2396,147 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
     setSaving(false);
   };
 
+  // ── Ciclo de vida del plan (status: active | inactive | archived) ──────
+  //   Pausar/archivar solo cambian la DISPONIBILIDAD del plan; las
+  //   suscripciones existentes NO se tocan (los restaurantes siguen operando).
+  //   is_active se mantiene = (status==='active') por trigger (mig 152); acá lo
+  //   enviamos también para que las lecturas legacy sean correctas aun sin la
+  //   migración aplicada. La vidriera pública (marketing_plans vinculados) se
+  //   espeja best-effort para que el plan también desaparezca de /precios.
+  const setPlanStatus = async (p, newStatus, verb) => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setPlanBusy(p.id);
+    try {
+      const active = newStatus==='active';
+      let {error} = await db.from('subscription_plans').update({status:newStatus, is_active:active}).eq('id',p.id);
+      if (error && /\bstatus\b/.test(error.message||'')) {
+        // Migración 152 aún no aplicada: degradar a solo is_active (pausar/archivar ⇒ false).
+        ({error} = await db.from('subscription_plans').update({is_active:active}).eq('id',p.id));
+      }
+      if (error) throw error;
+      // Espejar en la vidriera pública (marketing_plans vinculados por subscription_plan_id).
+      let webWarn = false;
+      const {error:mErr} = await db.from('marketing_plans')
+        .update({is_active:active, updated_at:new Date().toISOString()})
+        .eq('subscription_plan_id',p.id);
+      if (mErr) webWarn = true;
+      setFlash(webWarn
+        ? {type:'warn',text:`Plan "${p.name}" ${verb}, pero no se pudo actualizar el sitio público de precios.`}
+        : {type:'ok',text:`Plan "${p.name}" ${verb}.`});
+      reload();
+    } catch(e){ setFlash({type:'error',text:'Error: '+e.message}); }
+    setPlanBusy(null);
+  };
+  const pausePlan     = p => setPlanStatus(p,'inactive','pausado');
+  const activatePlan  = p => setPlanStatus(p,'active','activado');
+  const archivePlan   = p => setPlanStatus(p,'archived','archivado');
+  // Desarchivar devuelve el plan a la lista principal como PAUSADO (no se
+  // republica solo): el superadmin decide luego "Activar" para volver a ofrecerlo.
+  const unarchivePlan = p => setPlanStatus(p,'inactive','desarchivado (queda pausado)');
+
+  // ── Eliminar plan (definitivo, solo si ninguna suscripción lo usa) ─────
+  const askDeletePlan = async (p) => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setPlanBusy(p.id);
+    try {
+      const {count,error} = await db.from('subscriptions').select('id',{count:'exact',head:true}).eq('plan_id',p.id);
+      if (error) throw error;
+      setDeletePlan({plan:p, count:count||0});
+    } catch(e){ setFlash({type:'error',text:'Error verificando uso del plan: '+e.message}); }
+    setPlanBusy(null);
+  };
+  const confirmDeletePlan = async () => {
+    const p = deletePlan?.plan;
+    if (!p || (deletePlan.count||0) > 0) return;   // guard: nunca borrar un plan en uso
+    setPlanBusy(p.id);
+    try {
+      const {error} = await db.from('subscription_plans').delete().eq('id',p.id);
+      if (error) throw error;
+      setFlash({type:'ok',text:`Plan "${p.name}" eliminado definitivamente.`});
+      setDeletePlan(null); reload();
+    } catch(e){ setFlash({type:'error',text:'Error al eliminar: '+e.message}); }
+    setPlanBusy(null);
+  };
+
   const spf = v => e => setPlanForm(f=>({...f,[v]:e.target.value}));
   const togglePanel = key => setPlanForm(f=>({...f,panels:(f.panels||[]).includes(key)?f.panels.filter(p=>p!==key):[...(f.panels||[]),key]}));
   const toggleFeature = key => setPlanForm(f=>({...f,allowed_features:(f.allowed_features||[]).includes(key)?f.allowed_features.filter(k=>k!==key):[...(f.allowed_features||[]),key]}));
+
+  // Partición por estado para la vista (activos+pausados en la grilla principal,
+  // archivados en su propia sección plegable).
+  const livePlans     = plans.filter(p=>PLAN_ST(p)!=='archived');
+  const archivedPlans = plans.filter(p=>PLAN_ST(p)==='archived');
+
+  const renderPlanCard = (p) => {
+    const st = PLAN_ST(p);
+    const featArr = Array.isArray(p.features)?p.features:(typeof p.features==='string'?JSON.parse(p.features||'[]'):[]);
+    const busy = planBusy===p.id;
+    return (
+      <div key={p.id} style={{background:C.card,border:`1px solid ${st==='active'?C.border:C.orange}`,borderRadius:12,padding:20,opacity:st==='active'?1:.72,position:'relative'}}>
+        {p.id===popularPlanId && st==='active' && (
+          <div style={{position:'absolute',top:12,right:12,background:C.ink,color:C.surface,padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:.5}}>POPULAR</div>
+        )}
+        {st!=='active' && (
+          <div style={{position:'absolute',top:12,right:12,background:st==='archived'?C.dim:C.orange,color:C.surface,padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:800,letterSpacing:.5,textTransform:'uppercase'}}>{st==='archived'?'Archivado':'Pausado'}</div>
+        )}
+        <PlanBadge name={p.name}/>
+        <div style={{fontSize:22,fontWeight:800,margin:'10px 0 4px',color:C.ink}}>{fmtGuarani(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
+        <div style={{display:'flex',gap:8,marginBottom:14}}>
+          <div style={{background:C.bg,borderRadius:6,padding:'6px 10px',textAlign:'center',flex:1}}>
+            <div style={{fontSize:15,fontWeight:700,color:C.ink}}>{p.max_tables??'∞'}</div>
+            <div style={{fontSize:10,color:C.mid}}>Mesas</div>
+          </div>
+          <div style={{background:C.bg,borderRadius:6,padding:'6px 10px',textAlign:'center',flex:1}}>
+            <div style={{fontSize:15,fontWeight:700,color:C.ink}}>{p.max_menu_items??'∞'}</div>
+            <div style={{fontSize:10,color:C.mid}}>Items menú</div>
+          </div>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
+          {featArr.map((f,i)=>(
+            <div key={i} style={{fontSize:12,color:C.mid,display:'flex',gap:6}}>
+              <span style={{fontSize:10}}>–</span>{f}
+            </div>
+          ))}
+        </div>
+        {(() => {
+          const pnls = asArr(p.allowed_panels);
+          const feats = asArr(p.allowed_features);
+          const mubr = asObj(p.max_users_by_role);
+          const limStr = LIMIT_ROLES.map(lr=>mubr[lr.key]!=null?`${mubr[lr.key]} ${lr.key}`:null).filter(Boolean).join(' · ');
+          const featLabel = k=>{ for(const g of FEATURE_GROUPS){ const it=g.items.find(i=>i.key===k); if(it) return it.label; } return k; };
+          return (
+            <div style={{marginBottom:14}}>
+              {pnls.length>0&&(
+                <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:6}}>
+                  {pnls.map(pk=><span key={pk} style={{fontSize:10,fontWeight:600,background:C.bg,color:C.mid,padding:'2px 7px',borderRadius:5}}>{(PANEL_OPTIONS.find(o=>o.key===pk)?.label)||pk}</span>)}
+                </div>
+              )}
+              {feats.length>0&&(
+                <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:6}}>
+                  {feats.map(fk=><span key={fk} style={{fontSize:9,fontWeight:700,background:C.ink,color:C.sidebar,padding:'2px 7px',borderRadius:5,letterSpacing:.2}}>{featLabel(fk)}</span>)}
+                </div>
+              )}
+              <div style={{fontSize:10,color:C.dim}}>{limStr?`Límites: ${limStr}`:'Usuarios ilimitados'}</div>
+            </div>
+          );
+        })()}
+        <div style={{display:'flex',flexWrap:'wrap',gap:6,borderTop:`1px solid ${C.border}`,paddingTop:12}}>
+          <Btn size="sm" variant="ghost" onClick={()=>openEditPlan(p)} disabled={busy}>Editar</Btn>
+          {st==='archived' ? (
+            <Btn size="sm" variant="ghost" onClick={()=>unarchivePlan(p)} disabled={busy}>{busy?'…':'Desarchivar'}</Btn>
+          ) : (
+            <>
+              {st==='active'
+                ? <Btn size="sm" variant="ghost" onClick={()=>pausePlan(p)} disabled={busy}>{busy?'…':'Pausar'}</Btn>
+                : <Btn size="sm" variant="success" onClick={()=>activatePlan(p)} disabled={busy}>{busy?'…':'Activar'}</Btn>}
+              <Btn size="sm" variant="ghost" onClick={()=>archivePlan(p)} disabled={busy}>Archivar</Btn>
+            </>
+          )}
+          <Btn size="sm" variant="danger" onClick={()=>askDeletePlan(p)} disabled={busy}>Eliminar</Btn>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="animate-in">
@@ -2374,59 +2546,27 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
         <Btn size="sm" onClick={()=>{setPlanForm(EMPTY_PLAN);setPlanModal('create')}}>+ Nuevo plan</Btn>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16,marginBottom:28}}>
-        {plans.map(p=>{
-          const featArr = Array.isArray(p.features)?p.features:(typeof p.features==='string'?JSON.parse(p.features||'[]'):[]);
-          return (
-            <div key={p.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:20,opacity:p.is_active?1:.6,position:'relative'}}>
-              {p.id===popularPlanId&&(
-                <div style={{position:'absolute',top:12,right:12,background:C.ink,color:C.surface,padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:.5}}>POPULAR</div>
-              )}
-              <PlanBadge name={p.name}/>
-              <div style={{fontSize:22,fontWeight:800,margin:'10px 0 4px',color:C.ink}}>{fmtGuarani(p.price_usd)}<span style={{fontSize:13,fontWeight:400,color:C.mid}}>/mes</span></div>
-              <div style={{display:'flex',gap:8,marginBottom:14}}>
-                <div style={{background:C.bg,borderRadius:6,padding:'6px 10px',textAlign:'center',flex:1}}>
-                  <div style={{fontSize:15,fontWeight:700,color:C.ink}}>{p.max_tables??'∞'}</div>
-                  <div style={{fontSize:10,color:C.mid}}>Mesas</div>
-                </div>
-                <div style={{background:C.bg,borderRadius:6,padding:'6px 10px',textAlign:'center',flex:1}}>
-                  <div style={{fontSize:15,fontWeight:700,color:C.ink}}>{p.max_menu_items??'∞'}</div>
-                  <div style={{fontSize:10,color:C.mid}}>Items menú</div>
-                </div>
-              </div>
-              <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:10}}>
-                {featArr.map((f,i)=>(
-                  <div key={i} style={{fontSize:12,color:C.mid,display:'flex',gap:6}}>
-                    <span style={{fontSize:10}}>–</span>{f}
-                  </div>
-                ))}
-              </div>
-              {(() => {
-                const pnls = asArr(p.allowed_panels);
-                const feats = asArr(p.allowed_features);
-                const mubr = asObj(p.max_users_by_role);
-                const limStr = LIMIT_ROLES.map(lr=>mubr[lr.key]!=null?`${mubr[lr.key]} ${lr.key}`:null).filter(Boolean).join(' · ');
-                const featLabel = k=>{ for(const g of FEATURE_GROUPS){ const it=g.items.find(i=>i.key===k); if(it) return it.label; } return k; };
-                return (
-                  <div style={{marginBottom:14}}>
-                    {pnls.length>0&&(
-                      <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:6}}>
-                        {pnls.map(pk=><span key={pk} style={{fontSize:10,fontWeight:600,background:C.bg,color:C.mid,padding:'2px 7px',borderRadius:5}}>{(PANEL_OPTIONS.find(o=>o.key===pk)?.label)||pk}</span>)}
-                      </div>
-                    )}
-                    {feats.length>0&&(
-                      <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:6}}>
-                        {feats.map(fk=><span key={fk} style={{fontSize:9,fontWeight:700,background:C.ink,color:C.sidebar,padding:'2px 7px',borderRadius:5,letterSpacing:.2}}>{featLabel(fk)}</span>)}
-                      </div>
-                    )}
-                    <div style={{fontSize:10,color:C.dim}}>{limStr?`Límites: ${limStr}`:'Usuarios ilimitados'}</div>
-                  </div>
-                );
-              })()}
-              <Btn size="sm" variant="ghost" onClick={()=>openEditPlan(p)}>Editar plan</Btn>
-            </div>
-          );
-        })}
+        {livePlans.map(renderPlanCard)}
       </div>
+
+      {/* Planes archivados (retirados) — sección plegable, recuperables */}
+      {archivedPlans.length>0 && (
+        <div style={{marginBottom:28}}>
+          <div
+            onClick={()=>setShowArchived(v=>!v)}
+            style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',userSelect:'none',padding:'8px 0',color:C.mid}}
+          >
+            <span style={{fontSize:12,transform:showArchived?'rotate(90deg)':'none',transition:'transform .15s',display:'inline-block'}}>▸</span>
+            <span style={{fontSize:13,fontWeight:600}}>Archivados</span>
+            <span style={{fontSize:11,fontWeight:700,background:C.bg,color:C.dim,padding:'1px 8px',borderRadius:10}}>{archivedPlans.length}</span>
+          </div>
+          {showArchived && (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:16,marginTop:12}}>
+              {archivedPlans.map(renderPlanCard)}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Add-ons disponibles (catálogo de cargos extra) */}
       <SectionCard title="Add-ons disponibles (cargos extra)">
@@ -2476,11 +2616,19 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
                 <option value="free">Gratuito</option>
               </select>
             </FormField>
-            <FormField label="Activo">
-              <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
-                <input type="checkbox" checked={planForm.is_active} onChange={e=>setPlanForm(f=>({...f,is_active:e.target.checked}))} style={{width:16,height:16}}/>
-                <span style={{fontSize:13,color:C.mid}}>Disponible</span>
-              </div>
+            <FormField label="Estado">
+              {(() => {
+                const st = planModal==='create' ? 'active' : PLAN_ST(planModal.edit);
+                const meta = {active:{t:'Activo · se ofrece',c:C.green},inactive:{t:'Pausado · no se ofrece',c:C.orange},archived:{t:'Archivado · retirado',c:C.dim}}[st];
+                return (
+                  <div style={{display:'flex',flexDirection:'column',gap:3,marginTop:6}}>
+                    <span style={{display:'inline-flex',alignItems:'center',gap:7,fontSize:13,fontWeight:600,color:meta.c}}>
+                      <span style={{width:8,height:8,borderRadius:'50%',background:meta.c}}/>{meta.t}
+                    </span>
+                    <span style={{fontSize:10,color:C.dim}}>Se cambia con Pausar / Archivar en la tarjeta del plan.</span>
+                  </div>
+                );
+              })()}
             </FormField>
             <FormField label="Máx. mesas"><input type="number" value={planForm.max_tables} onChange={spf('max_tables')} placeholder="15"/></FormField>
             <FormField label="Máx. ítems menú"><input type="number" value={planForm.max_menu_items} onChange={spf('max_menu_items')} placeholder="100"/></FormField>
@@ -2545,6 +2693,37 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
             <Btn variant="ghost" onClick={()=>setPlanModal(null)}>Cancelar</Btn>
             <Btn onClick={savePlan} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
           </div>
+        </Modal>
+      )}
+
+      {/* Modal eliminar plan (definitivo) — bloqueado si hay suscripciones en uso */}
+      {deletePlan&&(
+        <Modal title="Eliminar plan" onClose={()=>setDeletePlan(null)} width={460}>
+          {deletePlan.count>0 ? (
+            <>
+              <div style={{display:'flex',gap:12,padding:'12px 14px',borderRadius:10,border:`1px solid ${C.orange}`,background:C.bg,marginBottom:16}}>
+                <div style={{color:C.orange,flexShrink:0,marginTop:1}}><Icon name="alert" size={20}/></div>
+                <div style={{fontSize:13,color:C.mid,lineHeight:1.55}}>
+                  <strong style={{color:C.ink}}>{deletePlan.count}</strong> {deletePlan.count===1?'restaurante usa':'restaurantes usan'} el plan <strong style={{color:C.ink}}>“{deletePlan.plan.name}”</strong>. No se puede eliminar mientras esté en uso — <strong>archivalo o pausalo</strong> en lugar de eliminarlo (los restaurantes que ya lo tienen siguen funcionando igual).
+                </div>
+              </div>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',flexWrap:'wrap'}}>
+                <Btn variant="ghost" onClick={()=>setDeletePlan(null)}>Cancelar</Btn>
+                <Btn variant="ghost" onClick={()=>{const p=deletePlan.plan; setDeletePlan(null); pausePlan(p);}}>Pausar</Btn>
+                <Btn onClick={()=>{const p=deletePlan.plan; setDeletePlan(null); archivePlan(p);}}>Archivar</Btn>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{fontSize:13,color:C.mid,lineHeight:1.55,marginBottom:16}}>
+                Vas a eliminar <strong style={{color:C.ink}}>“{deletePlan.plan.name}”</strong> de forma <strong>definitiva</strong>. Ninguna suscripción usa este plan, así que es seguro. Esta acción no se puede deshacer.
+              </div>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                <Btn variant="ghost" onClick={()=>setDeletePlan(null)}>Cancelar</Btn>
+                <Btn variant="danger" onClick={confirmDeletePlan} disabled={planBusy===deletePlan.plan.id}>{planBusy===deletePlan.plan.id?'Eliminando…':'Eliminar definitivamente'}</Btn>
+              </div>
+            </>
+          )}
         </Modal>
       )}
 
