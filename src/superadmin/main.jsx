@@ -5541,11 +5541,76 @@ function SitioActividad({events}) {
   );
 }
 
+// ── Identidad y redes (WEB-8) — fuente única del negocio para sitio + legales ──
+// Todas las claves son is_public=true (las lee el sitio con anon). La escritura
+// pasa por la RPC fail-closed superadmin_set_marketing_identity (mig 148), con
+// whitelist de claves; la RLS de marketing_config ya bloquea a no-superadmin.
+const IDENTITY_FIELDS = [
+  {key:'legal_name',           label:'Razón social / Nombre', type:'text',  ph:'MYTHOS EAS',                  full:true,  hint:'Nombre legal con el que operás. Aparece en las páginas legales y el pie.'},
+  {key:'ruc',                  label:'RUC',                   type:'text',  ph:'80012345-6'},
+  {key:'contact_email',        label:'Email de contacto',     type:'email', ph:'hola@mythos.com.py'},
+  {key:'legal_address',        label:'Domicilio',             type:'text',  ph:'Asunción, Paraguay',          full:true},
+  {key:'whatsapp',             label:'WhatsApp',              type:'text',  ph:'595986622735',                hint:'Solo dígitos: código de país + número. Única fuente del botón de WhatsApp en todo el sitio.'},
+  {key:'website_domain',       label:'Dominio del sitio',     type:'text',  ph:'mythos-pos.vercel.app',       hint:'Sin https://. Se usa en los meta OG y en los legales.'},
+  {key:'instagram_url',        label:'Instagram (URL)',       type:'url',   ph:'https://instagram.com/tu_cuenta', hint:'Vacío = se oculta el ícono.'},
+  {key:'facebook_url',         label:'Facebook (URL)',        type:'url',   ph:'https://facebook.com/tu_pagina',  hint:'Vacío = se oculta el ícono.'},
+  {key:'tiktok_url',           label:'TikTok (URL)',          type:'url',   ph:'https://tiktok.com/@tu_cuenta',   hint:'Vacío = se oculta el ícono.'},
+  {key:'legal_effective_date', label:'Fecha de vigencia legal', type:'text', ph:'5 de julio de 2026',         hint:'"Última actualización" de Términos/Privacidad/Cookies.'},
+];
+
+function SitioIdentidad({config, setFlash, reload}) {
+  const getStr = k => { const row = config.find(c=>c.key===k); const v = row ? row.value : ''; return v==null ? '' : String(v); };
+  const [form, setForm] = useState(() => { const o={}; IDENTITY_FIELDS.forEach(f=>{ o[f.key]=getStr(f.key); }); return o; });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(s=>({...s,[k]:v}));
+
+  const save = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    const wa = (form.whatsapp||'').trim();
+    if (wa && !/^\d{6,15}$/.test(wa)) { setFlash({type:'error',text:'WhatsApp: solo dígitos, código de país + número (ej: 595986622735).'}); return; }
+    const em = (form.contact_email||'').trim();
+    if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { setFlash({type:'error',text:'Ese email no parece válido.'}); return; }
+    setSaving(true);
+    const payload = {}; IDENTITY_FIELDS.forEach(f=>{ payload[f.key] = (form[f.key]||'').trim(); });
+    const { error } = await db.rpc('superadmin_set_marketing_identity', { p_values: payload });
+    setSaving(false);
+    if (error) {
+      const msg = /function|does not exist|schema cache|permission denied/i.test(error.message||'')
+        ? 'Falta aplicar la migración 148 (o no sos superadmin).' : ('No se pudo guardar: '+error.message);
+      setFlash({type:'error',text:msg}); return;
+    }
+    setFlash({type:'success',text:'Identidad y redes guardadas — el sitio se actualiza al recargar'});
+    reload();
+  };
+
+  return (
+    <div style={{maxWidth:680}}>
+      <SectionCard title="Identidad y redes"
+        action={<Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>}>
+        <div style={{padding:'18px 20px'}}>
+          <p style={{fontSize:12.5,color:C.mid,margin:'0 0 16px',lineHeight:1.55}}>
+            Fuente única de los datos del negocio. De acá se alimentan el pie del sitio, el botón de WhatsApp, los íconos de redes y las páginas legales (Términos, Privacidad, Cookies). Un campo vacío se muestra como “—” o se oculta; nunca sale roto.
+          </p>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            {IDENTITY_FIELDS.map(f => (
+              <FormField key={f.key} label={f.label} hint={f.hint} col={f.full?'1 / -1':undefined}>
+                <input type={f.type==='email'?'email':(f.type==='url'?'url':'text')} value={form[f.key]} onChange={e=>set(f.key,e.target.value)} placeholder={f.ph} style={{width:'100%'}}/>
+              </FormField>
+            ))}
+          </div>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
 function SitioConfig({config, setFlash, reload}) {
   const getVal = (k, dflt) => { const row = config.find(c=>c.key===k); return row ? row.value : dflt; };
   const hasKey = k => config.some(c=>c.key===k);
 
-  const [whatsapp, setWhatsapp]         = useState(String(getVal('sales_whatsapp','') ?? ''));
+  // WhatsApp: fuente única = clave `whatsapp` (mig 148). Lee esa; si no existe,
+  // hereda del `sales_whatsapp` legacy. También editable desde "Identidad y redes".
+  const [whatsapp, setWhatsapp]         = useState(String(getVal('whatsapp', getVal('sales_whatsapp','')) ?? ''));
   const [founderActive, setFounderActive] = useState(getVal('founder_offer_active', false) === true);
   const [founderLimit, setFounderLimit] = useState(String(getVal('founder_offer_limit', 0) ?? 0));
   const [trialDays, setTrialDays]       = useState(String(getVal('trial_days', 14) ?? 14));
@@ -5569,7 +5634,7 @@ function SitioConfig({config, setFlash, reload}) {
   const saveWhatsapp = () => {
     const v = whatsapp.trim();
     if (!/^\d{6,15}$/.test(v)) { setFlash({type:'error',text:'Usá solo dígitos: código de país + número (ej: 595986622735)'}); return; }
-    saveKey('sales_whatsapp', v);                 // string JSONB
+    saveKey('whatsapp', v);                        // fuente única (mig 148), string JSONB
   };
   const saveFounderActive = (val) => { setFounderActive(val); saveKey('founder_offer_active', !!val); };  // boolean JSONB
   const saveFounderLimit = () => {
@@ -6108,6 +6173,7 @@ function PageSitioWeb({setFlash}) {
     {id:'planes',    label:'Planes'},
     {id:'addons',    label:'Add-ons'},
     {id:'faq',       label:'FAQ'},
+    {id:'identidad', label:'Identidad y redes'},
     {id:'config',    label:'Config'},
   ];
 
@@ -6127,6 +6193,7 @@ function PageSitioWeb({setFlash}) {
           {tab==='planes'    && <SitioPlanes   plans={plans} setFlash={setFlash} reload={load}/>}
           {tab==='addons'    && <SitioAddons   addons={addons} setFlash={setFlash} reload={load}/>}
           {tab==='faq'       && <SitioContenido faqs={faqs} testimonials={testimonials} setFlash={setFlash} reload={load}/>}
+          {tab==='identidad' && <SitioIdentidad config={config} setFlash={setFlash} reload={load}/>}
           {tab==='config'    && <SitioConfig   config={config} setFlash={setFlash} reload={load}/>}
         </>
       )}

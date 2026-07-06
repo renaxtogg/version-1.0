@@ -51,7 +51,19 @@
     founder_offer_active: true,
     founder_offer_limit: 10,
     sales_whatsapp: '595000000000',
-    site_home_path: '/inicio'
+    site_home_path: '/inicio',
+    // Identidad del negocio (WEB-8, mig 148) — fuente única del sitio + legales.
+    // Defaults presentables para modo offline/fallback; la DB (is_public) manda.
+    legal_name: 'MYTHOS EAS',
+    ruc: '',
+    legal_address: 'Asunción, Paraguay',
+    contact_email: 'hola@mythos.com.py',
+    whatsapp: '',
+    instagram_url: '',
+    facebook_url: '',
+    tiktok_url: '',
+    website_domain: 'mythos-pos.vercel.app',
+    legal_effective_date: '5 de julio de 2026'
   };
 
   // ── Cliente Supabase (lazy, anon key) ─────────────────────────────────

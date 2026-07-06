@@ -105,18 +105,44 @@
             '<div>' +
               '<div class="foot-logo">MYTHOS</div>' +
               '<p class="foot-about">El sistema operativo de tu restaurante. Menú, caja, cocina, delivery y más — en una sola plataforma.</p>' +
+              // Redes: se pintan en updateFooterDynamic() desde marketing_config; vacías se ocultan.
+              '<div class="foot-social" id="footSocial" style="display:flex;gap:8px;margin-top:12px"></div>' +
             '</div>' +
             '<div><h5>Producto</h5><a href="/precios">Precios</a><a href="/inicio#modulos">Módulos</a><a href="/inicio#demo">Demo</a><a href="/registro">Probar gratis</a></div>' +
             '<div><h5>Empresa</h5><a href="/contacto">Contacto</a><a href="/proveedores">Quiero ser proveedor</a><a href="/inicio#faq">Preguntas frecuentes</a><a href="' + CONFIG.loginUrl + '" data-track="login_entry_click">Iniciar sesión</a></div>' +
-            '<div><h5>Legal</h5><a href="/terminos">Términos</a><a href="/privacidad">Privacidad</a></div>' +
+            '<div><h5>Contacto y legal</h5>' +
+              '<a id="footWa" data-wa="Hola, quiero más información sobre MYTHOS." style="display:none">WhatsApp</a>' +
+              '<a id="footEmail" data-email>Escribinos por email</a>' +
+              '<a href="/terminos">Términos</a><a href="/privacidad">Privacidad</a><a href="/cookies">Cookies</a>' +
+            '</div>' +
           '</div>' +
           '<div class="foot-bottom">' +
-            '<span>© <span id="mktYear">2026</span> MYTHOS · Asunción, Paraguay</span>' +
+            '<span>© <span id="mktYear">2026</span> <span data-cfg="legal_name">MYTHOS</span> · Asunción, Paraguay</span>' +
             /* ORIGINAL (reactivar): ' Hecho en Paraguay · Cobrá con Bancard' */
             '<span class="t-item">' + icon('pin') + ' Hecho en Paraguay</span>' +
           '</div>' +
         '</div>' +
       '</footer>';
+  }
+
+  /* ── Redes sociales (SVG inline; se ocultan si no hay URL) ─────────────── */
+  var SOCIAL_SVG = {
+    instagram: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>',
+    facebook:  '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M22 12a10 10 0 1 0-11.5 9.9v-7H8v-2.9h2.5V9.6c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6v1.9h2.8l-.5 2.9h-2.3v7A10 10 0 0 0 22 12z"/></svg>',
+    tiktok:    '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16.5 3c.3 2 1.6 3.6 3.5 3.9v2.6c-1.3 0-2.6-.4-3.7-1.1v5.7a5.6 5.6 0 1 1-5.6-5.6c.3 0 .6 0 .9.1v2.7a2.9 2.9 0 1 0 2 2.8V3h2.9z"/></svg>'
+  };
+  function socialLink(url, name, label) {
+    var u = String(url || '').trim();
+    if (!u) return '';
+    if (!/^https?:\/\//i.test(u)) {
+      // Tolera "instagram.com/x" pero NO un handle suelto (@x): sin dominio no
+      // hay link válido → se oculta el ícono en vez de generar un 404.
+      if (!/^[\w.-]+\.[a-z]{2,}/i.test(u)) return '';
+      u = 'https://' + u;
+    }
+    return '<a href="' + esc(u) + '" target="_blank" rel="noopener" aria-label="' + esc(label) + '" title="' + esc(label) + '"' +
+      ' style="display:inline-flex;width:34px;height:34px;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:8px;color:inherit">' +
+      (SOCIAL_SVG[name] || '') + '</a>';
   }
 
   /* ── Tema ─────────────────────────────────────────────────────────────── */
@@ -177,12 +203,18 @@
     });
   }
 
-  /* ── Enlaces de WhatsApp/email (idempotente; re-aplica el número actual) ─ */
+  /* ── Enlaces de WhatsApp/email (idempotente; re-aplica el número actual) ─
+     Si no hay número REAL configurado (vacío o el placeholder), el enlace de
+     WhatsApp queda sin href (no clickeable) en vez de apuntar a un número falso. */
   function wireContactLinks() {
+    var num = String(CONFIG.whatsapp || '').replace(/\D/g, '');
+    var waOk = num && num !== '595000000000';
     document.querySelectorAll('[data-wa]').forEach(function (a) {
+      if (!waOk) { a.removeAttribute('href'); a.removeAttribute('target'); a.style.cursor = 'default'; return; }
       a.setAttribute('href', waLink(a.getAttribute('data-wa') || ''));
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener');
+      a.style.cursor = '';
     });
     document.querySelectorAll('[data-email]').forEach(function (a) {
       a.setAttribute('href', 'mailto:' + CONFIG.email);
@@ -430,14 +462,68 @@
     }).catch(function () {});
   }
 
+  /* ── Rellena spans/atributos [data-cfg="key"] desde marketing_config.
+     Vacío → "—" (nunca deja el placeholder crudo). Usado por las páginas
+     legales y el pie. ─────────────────────────────────────────────────── */
+  function fillCfgSpans() {
+    var cfg = _config || {};
+    document.querySelectorAll('[data-cfg]').forEach(function (el) {
+      var key = el.getAttribute('data-cfg');
+      var val = cfg[key];
+      el.textContent = (val == null || String(val).trim() === '') ? '—' : String(val).trim();
+    });
+  }
+
+  /* ── Pinta redes + contacto del footer desde la config (oculta vacías) ── */
+  function updateFooterDynamic() {
+    var cfg = _config || {};
+    var host = document.getElementById('footSocial');
+    if (host) {
+      host.innerHTML =
+        socialLink(cfg.instagram_url, 'instagram', 'Instagram') +
+        socialLink(cfg.facebook_url, 'facebook', 'Facebook') +
+        socialLink(cfg.tiktok_url, 'tiktok', 'TikTok');
+    }
+    // WhatsApp del footer: solo se muestra si hay número real configurado.
+    var wa = document.getElementById('footWa');
+    if (wa) {
+      var num = String(CONFIG.whatsapp || '').replace(/\D/g, '');
+      wa.style.display = (num && num !== '595000000000') ? '' : 'none';
+    }
+  }
+
+  /* ── Completa/actualiza los meta Open Graph desde la config ───────────── */
+  function updateOG() {
+    var cfg = _config || {};
+    var domain = String(cfg.website_domain || '').trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    if (!domain) return;
+    var base = 'https://' + domain;
+    function setMeta(prop, content) {
+      if (!content) return;
+      var m = document.querySelector('meta[property="' + prop + '"]');
+      if (!m) { m = document.createElement('meta'); m.setAttribute('property', prop); document.head.appendChild(m); }
+      m.setAttribute('content', content);
+    }
+    var path = (location && location.pathname) || '/';
+    setMeta('og:url', base + (path === '/' ? '/inicio' : path));
+    if (cfg.legal_name) setMeta('og:site_name', String(cfg.legal_name));
+  }
+
   /* ── Carga de datos públicos (config) + WhatsApp/founder dinámicos ─────── */
   function loadDynamic() {
     if (window.MythosWebData && MythosWebData.getPublicConfig) {
       MythosWebData.getPublicConfig().then(function (cfg) {
         _config = cfg || {};
-        if (_config.sales_whatsapp) CONFIG.whatsapp = String(_config.sales_whatsapp);
+        // WhatsApp unificado: la clave `whatsapp` es la fuente única; `sales_whatsapp`
+        // queda como respaldo por compatibilidad con configs viejas.
+        var wa = _config.whatsapp || _config.sales_whatsapp;
+        if (wa) CONFIG.whatsapp = String(wa);
+        if (_config.contact_email) CONFIG.email = String(_config.contact_email);
         if (_config.founder_offer_limit != null) CONFIG.founderLimit = _config.founder_offer_limit;
-        wireContactLinks();   // re-aplica el número de DB a los enlaces ya pintados
+        fillCfgSpans();       // páginas legales + pie (razón social, RUC, etc.)
+        wireContactLinks();   // re-aplica el número/email de DB a los enlaces ya pintados
+        updateFooterDynamic();
+        updateOG();
         updateFounder();
       }).catch(function () { updateFounder(); });
     } else {

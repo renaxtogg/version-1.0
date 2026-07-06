@@ -22,9 +22,35 @@
     'mozo:digital_qr_pay':  'Cobro de Mesa con QR Digital'
   };
 
-  // WhatsApp de ventas Mythos — configurable vía window.SUPABASE_CONFIG.salesWhatsapp
+  // WhatsApp de ventas Mythos — FUENTE ÚNICA: marketing_config.whatsapp (mig 148),
+  // que también alimenta el sitio público. Se cachea con un fetch REST (lectura
+  // anon de la config pública). Fallbacks: SUPABASE_CONFIG.salesWhatsapp (config
+  // de deploy) y, por último, un número por defecto. Nunca bloquea el render.
+  var _salesWa = null;
+  (function fetchSalesWa() {
+    try {
+      var cfg = window.SUPABASE_CONFIG || {};
+      var url = String(cfg.url || '').replace(/^﻿/, '').trim();
+      var key = String(cfg.anonKey || '').replace(/^﻿/, '').trim();
+      if (!url || !key || url.indexOf('YOUR_') !== -1) return;
+      fetch(url + '/rest/v1/marketing_config?key=eq.whatsapp&select=value', {
+        headers: { apikey: key, Authorization: 'Bearer ' + key }
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (rows) {
+          if (rows && rows[0] && rows[0].value != null) {
+            var v = String(rows[0].value).replace(/\D/g, '');
+            if (v && v !== '595000000000') _salesWa = v;   // ignora el placeholder
+          }
+        })
+        .catch(function () {});
+    } catch (_) {}
+  })();
+
   function salesWhatsapp() {
-    return (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.salesWhatsapp) || '595981234567';
+    return _salesWa
+        || (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.salesWhatsapp)
+        || '595981234567';
   }
 
   var _caps = null;          // capacidades cacheadas del restaurante

@@ -13,6 +13,7 @@
     { "source": "/terminos", "destination": "/terminos.html" },
     { "source": "/terminos-proveedores", "destination": "/terminos-proveedores.html" },
     { "source": "/privacidad", "destination": "/privacidad.html" },
+    { "source": "/cookies", "destination": "/cookies.html" },
     { "source": "/proveedores", "destination": "/proveedores.html" },
     { "source": "/cocina", "destination": "/cocina.html" },
     { "source": "/admin", "destination": "/admin.html" },

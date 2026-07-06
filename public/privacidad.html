@@ -13,17 +13,22 @@
   <meta property="og:site_name" content="MYTHOS">
   <meta property="og:title" content="Política de Privacidad — MYTHOS">
   <meta property="og:description" content="Política de Privacidad de MYTHOS: qué datos tratamos y cómo los protegemos.">
+  <meta property="og:url" content="https://mythos-pos.vercel.app/privacidad">
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="web-marketing.css">
   <script src="mythos-theme.js"></script>
   <script>if(!localStorage.getItem('mythos-theme')&&window.MythosTheme){window.MythosTheme.init('light');}</script>
+  <!-- Capa de datos: para rellenar los datos del negocio desde marketing_config -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <script src="web-marketing-data.js"></script>
 </head>
 <body>
   <div id="site-header"></div>
   <noscript>
     <nav class="wrap" style="display:flex;gap:20px;padding:16px 24px;border-bottom:1px solid var(--border)">
       <a href="/inicio"><strong>MYTHOS</strong></a>
-      <a href="/precios">Precios</a><a href="/terminos">Términos</a><a href="/privacidad">Privacidad</a>
+      <a href="/precios">Precios</a><a href="/terminos">Términos</a><a href="/privacidad">Privacidad</a><a href="/cookies">Cookies</a>
     </nav>
   </noscript>
 
@@ -34,36 +39,64 @@
     </section>
 
     <section class="block wrap" style="padding-top:10px">
-      <div class="notice">
-        <span data-icon="info"></span>
-        <!--
-          WEB-1: placeholder legal. TODO(WEB-7): cargar el texto aprobado desde
-          la plantilla Politica_Privacidad_MYTHOS.md tras revisión legal.
-        -->
-        <span><b>Documento en preparación.</b> La política definitiva se publica en una fase siguiente (WEB-7), revisada por asesoría legal. Lo de abajo es un resumen de referencia.</span>
-      </div>
-
       <div class="legal">
-        <p class="updated">Última actualización: pendiente de publicación.</p>
+        <p class="updated">Última actualización: <span data-cfg="legal_effective_date">—</span></p>
 
-        <h2>Resumen de referencia</h2>
+        <p>En <strong>MYTHOS</strong>, provisto por <strong><span data-cfg="legal_name">—</span></strong> (RUC <strong><span data-cfg="ruc">—</span></strong>, domicilio en <strong><span data-cfg="legal_address">—</span></strong>), cuidamos tus datos y los de tus clientes. Esta política explica qué información tratamos, para qué, con quién y qué derechos tenés. Aplicamos la normativa paraguaya vigente (incluido el derecho constitucional a la intimidad y al <em>habeas data</em>, arts. 33 y 135 de la Constitución) y adoptamos voluntariamente buenas prácticas internacionales de protección de datos.</p>
+
+        <h2>1. Quién es responsable</h2>
+        <p>Del sitio web y de las cuentas de la plataforma, el responsable es <strong><span data-cfg="legal_name">—</span></strong>. Contacto para privacidad: <a data-email><span data-cfg="contact_email">—</span></a>.</p>
+        <p><strong>Rol respecto de los datos de los comensales:</strong> cuando un restaurante usa MYTHOS para tomar pedidos, reservas o delivery, <strong>el restaurante es el responsable</strong> de los datos de sus clientes finales y <strong>MYTHOS actúa como encargado del tratamiento</strong>, procesándolos solo para prestar el servicio al restaurante.</p>
+
+        <h2>2. Qué datos tratamos</h2>
+        <p><strong>De dueños y personal (usuarios de la plataforma):</strong> nombre, correo, teléfono, rol, contraseña (almacenada cifrada), y datos del restaurante (nombre, dirección, redes, logo).</p>
+        <p><strong>De comensales/clientes finales (a través del restaurante):</strong> los necesarios para el pedido, como número de mesa, ítems, y —en delivery— nombre, teléfono y dirección de entrega; calificaciones y comentarios que dejen voluntariamente.</p>
+        <p><strong>Datos técnicos:</strong> dirección IP, tipo de dispositivo y navegador, y datos de uso necesarios para seguridad y funcionamiento. Ver la <a href="/cookies">Política de Cookies</a>.</p>
+        <p><strong>Pagos:</strong> cuando el cobro en línea esté disponible, los datos de la tarjeta se procesan directamente en la pasarela de pago autorizada; <strong>MYTHOS no almacena números completos de tarjeta</strong>.</p>
+
+        <h2>3. Para qué los usamos</h2>
+        <p>Prestamos y operamos el Servicio; gestionamos cuentas y accesos; procesamos pedidos, cobros y reportes; brindamos soporte; velamos por la seguridad y prevención de fraude; cumplimos obligaciones legales y fiscales; y, con tu consentimiento, te enviamos comunicaciones comerciales (de las que podés darte de baja).</p>
+
+        <h2>4. Con quién los compartimos</h2>
+        <p>No vendemos datos. Los compartimos únicamente con proveedores tecnológicos necesarios para operar, que actúan como sub-encargados bajo obligaciones de confidencialidad y seguridad:</p>
         <ul>
-          <li><b>Qué datos tratamos:</b> datos de la cuenta del restaurante (nombre, contacto) y datos operativos que el restaurante carga para usar la plataforma.</li>
-          <li><b>Clientes finales (QR):</b> el cliente que escanea el QR para pedir no necesita crear cuenta; solo se procesan los datos mínimos del pedido.</li>
-          <li><b>Con quién compartimos:</b> proveedores de infraestructura necesarios para operar (hosting y base de datos), bajo acuerdos de tratamiento de datos.</li>
-          <li><b>Pagos y facturación:</b> los datos requeridos por la legislación tributaria de Paraguay se conservan según los plazos legales.</li>
-          <li><b>Tus derechos:</b> acceso, rectificación y eliminación de tus datos; escribinos para ejercerlos.</li>
-          <li><b>Seguridad:</b> aplicamos medidas técnicas para proteger la información (control de acceso por roles y aislamiento por restaurante).</li>
+          <li><strong>Supabase</strong> — base de datos, autenticación y almacenamiento.</li>
+          <li><strong>Vercel</strong> — alojamiento (hosting) de la aplicación.</li>
+          <li><strong>Google</strong> — mapas y ubicación para delivery, e inicio de sesión con Google (si lo usás).</li>
+          <li><strong>Cloudflare</strong> — protección contra bots y seguridad (captcha).</li>
+          <li><strong>Pasarela de pago y proveedor de facturación electrónica</strong> — cuando esos módulos estén activos.</li>
         </ul>
+        <p>También podremos divulgar información si la ley o una autoridad competente lo requieren.</p>
 
-        <h3>Contacto de privacidad</h3>
-        <p>Para consultas sobre tus datos: <a data-email>escribinos por email</a> o por <a data-wa="Hola, tengo una consulta sobre la Privacidad en MYTHOS.">WhatsApp</a>.</p>
+        <h2>5. Transferencias internacionales</h2>
+        <p>Algunos de estos proveedores alojan datos en servidores fuera de Paraguay. En esos casos procuramos que existan garantías adecuadas de protección conforme a estándares internacionales.</p>
+
+        <h2>6. Cuánto tiempo los conservamos</h2>
+        <p>Conservamos los datos mientras tu cuenta esté activa y por el tiempo necesario para cumplir fines legales, contables y fiscales. Al cerrar la relación, eliminamos o anonimizamos los datos en un plazo razonable, salvo obligación legal de conservarlos.</p>
+
+        <h2>7. Seguridad</h2>
+        <p>Aplicamos medidas técnicas y organizativas razonables: cifrado en tránsito (HTTPS), contraseñas cifradas, aislamiento de datos por restaurante, control de accesos por rol y respaldos periódicos. Ningún sistema es 100% infalible, pero trabajamos para proteger tu información y notificar los incidentes relevantes.</p>
+
+        <h2>8. Tus derechos</h2>
+        <p>Podés solicitar: <strong>acceso</strong> a tus datos, <strong>rectificación</strong>, <strong>eliminación</strong>, <strong>oposición</strong> al tratamiento y <strong>portabilidad</strong> (recibir una copia). Para ejercerlos, escribí a <a data-email><span data-cfg="contact_email">—</span></a>; podremos pedirte verificar tu identidad. Si sos comensal de un restaurante y querés ejercer derechos sobre tus datos de pedido, podés contactar directamente al restaurante o escribirnos y te derivamos.</p>
+
+        <h2>9. Datos de menores</h2>
+        <p>El Servicio está dirigido a negocios y personas mayores de edad. No recopilamos deliberadamente datos de menores.</p>
+
+        <h2>10. Cambios</h2>
+        <p>Podemos actualizar esta política. Publicaremos la versión vigente con su fecha y avisaremos los cambios relevantes.</p>
+
+        <h2>11. Contacto</h2>
+        <p>
+          <strong><span data-cfg="legal_name">—</span></strong> — Correo: <a data-email><span data-cfg="contact_email">—</span></a> · WhatsApp: <a data-wa="Hola, tengo una consulta sobre la Privacidad en MYTHOS."><span data-cfg="whatsapp">—</span></a> · Sitio: <span data-cfg="website_domain">—</span>
+        </p>
       </div>
     </section>
   </main>
 
   <div id="site-footer"></div>
   <script src="mythos-icons.js"></script>
+  <script defer src="mythos-cookie-banner.js"></script>
   <script src="web-marketing.js"></script>
   <script>MythosWeb.init({ active: '' });</script>
 </body>

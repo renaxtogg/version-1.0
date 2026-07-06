@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es-PY" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Política de Cookies — MYTHOS</title>
+  <meta name="description" content="Política de Cookies de MYTHOS: qué almacenamiento usamos y cómo gestionarlo.">
+  <meta name="theme-color" content="#FFFFFF">
+  <link rel="canonical" href="/cookies">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="es_PY">
+  <meta property="og:site_name" content="MYTHOS">
+  <meta property="og:title" content="Política de Cookies — MYTHOS">
+  <meta property="og:description" content="Política de Cookies de MYTHOS: qué almacenamiento usamos y cómo gestionarlo.">
+  <meta property="og:url" content="https://mythos-pos.vercel.app/cookies">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="web-marketing.css">
+  <script src="mythos-theme.js"></script>
+  <script>if(!localStorage.getItem('mythos-theme')&&window.MythosTheme){window.MythosTheme.init('light');}</script>
+  <!-- Capa de datos: para rellenar los datos del negocio desde marketing_config -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
+  <script src="config.js"></script>
+  <script src="web-marketing-data.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+  <noscript>
+    <nav class="wrap" style="display:flex;gap:20px;padding:16px 24px;border-bottom:1px solid var(--border)">
+      <a href="/inicio"><strong>MYTHOS</strong></a>
+      <a href="/precios">Precios</a><a href="/terminos">Términos</a><a href="/privacidad">Privacidad</a><a href="/cookies">Cookies</a>
+    </nav>
+  </noscript>
+
+  <main>
+    <section class="page-hero wrap">
+      <h1>Política de Cookies</h1>
+      <p class="lead">Qué almacenamiento usamos en el navegador y cómo gestionarlo.</p>
+    </section>
+
+    <section class="block wrap" style="padding-top:10px">
+      <div class="legal">
+        <p class="updated">Última actualización: <span data-cfg="legal_effective_date">—</span></p>
+
+        <p>Esta política explica cómo <strong>MYTHOS</strong> (<span data-cfg="legal_name">—</span>) usa cookies y tecnologías de almacenamiento en el navegador (como <em>localStorage</em>) en su sitio y en la plataforma.</p>
+
+        <h2>Qué son</h2>
+        <p>Las cookies y el almacenamiento local son pequeños datos que se guardan en tu dispositivo para que la aplicación funcione, recuerde tus preferencias y sea segura.</p>
+
+        <h2>Qué usamos</h2>
+        <p>Hoy usamos principalmente almacenamiento <strong>estrictamente necesario</strong> (para iniciar sesión y operar) y algunos servicios de terceros <strong>necesarios para funciones concretas</strong> (seguridad y mapas de delivery). <strong>No usamos cookies de publicidad ni vendemos tu información a anunciantes.</strong></p>
+
+        <div style="overflow-x:auto">
+          <table class="legal-table">
+            <thead>
+              <tr><th>Nombre / tipo</th><th>Para qué sirve</th><th>Duración</th><th>Categoría</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Token de sesión (autenticación)</td><td>Mantener tu sesión iniciada de forma segura</td><td>Sesión / hasta cerrar sesión</td><td>Necesaria</td></tr>
+              <tr><td>Identificador de restaurante</td><td>Saber a qué local pertenece la vista actual</td><td>Persistente</td><td>Necesaria</td></tr>
+              <tr><td>Preferencia de tema (claro/oscuro)</td><td>Recordar cómo querés ver la interfaz</td><td>Persistente</td><td>Preferencia</td></tr>
+              <tr><td>Cloudflare Turnstile</td><td>Distinguir humanos de bots al iniciar sesión (seguridad)</td><td>Sesión</td><td>Necesaria (terceros)</td></tr>
+              <tr><td>Google Maps</td><td>Mostrar mapas y calcular direcciones de delivery</td><td>Según Google</td><td>Funcional (terceros)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Si en el futuro incorporamos analítica (por ejemplo, para entender el uso del sitio), lo agregaremos a esta tabla y, cuando corresponda, pediremos tu consentimiento previo.</p>
+
+        <h2>Consentimiento y cómo gestionarlas</h2>
+        <p>Al ingresar por primera vez verás un <strong>aviso de cookies</strong>. Las cookies estrictamente necesarias son imprescindibles para que el Servicio funcione y no requieren consentimiento; para las demás categorías podés aceptar o rechazar. También podés borrar o bloquear cookies desde la configuración de tu navegador, teniendo en cuenta que si desactivás las necesarias, algunas funciones podrían dejar de andar.</p>
+
+        <h2>Cambios</h2>
+        <p>Podemos actualizar esta política. Publicaremos la versión vigente con su fecha.</p>
+
+        <h2>Contacto</h2>
+        <p>Dudas sobre cookies o privacidad: <a data-email><span data-cfg="contact_email">—</span></a>.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="site-footer"></div>
+  <script src="mythos-icons.js"></script>
+  <script defer src="mythos-cookie-banner.js"></script>
+  <script src="web-marketing.js"></script>
+  <script>MythosWeb.init({ active: '' });</script>
+</body>
+</html>
