@@ -1274,6 +1274,168 @@ function PageCapacidad({ enriched }) {
 // ══════════════════════════════════════════════════════════════
 // MÓDULO 2 — RESTAURANTES (cards grid)
 // ══════════════════════════════════════════════════════════════
+// ── Fila de un módulo/feature en el modal "Módulos y paneles" ────────────────
+function ModRow({ label, sub, state, busy, onToggle, onRevert }) {
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 0',borderBottom:`1px solid ${C.border}`}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:600,color:C.ink,opacity:state.eff?1:.6}}>{label}</div>
+        <div style={{fontSize:11,color:C.dim,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{sub}</div>
+      </div>
+      <span style={{fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20,whiteSpace:'nowrap',
+        background: state.source==='override'?TINT.warnBg:C.bg,
+        color: state.source==='override'?TINT.warnText:C.mid,
+        border: state.source==='override'?`1px solid ${TINT.warnBorder}`:`1px solid ${C.border}`}}>
+        {state.source==='override'?'Override':'Plan'}
+      </span>
+      {onRevert && <span onClick={busy?undefined:onRevert} title="Volver al valor del plan"
+        style={{fontSize:11,color:C.mid,cursor:busy?'default':'pointer',textDecoration:'underline',whiteSpace:'nowrap'}}>revertir</span>}
+      <Toggle checked={state.eff} onChange={()=>{ if(!busy) onToggle(); }}/>
+    </div>
+  );
+}
+
+// ── Modal "Módulos y paneles" — overrides por restaurante (mig 146) ──────────
+function ModulesModal({ r, onClose, setFlash, reload }) {
+  const [caps, setCaps]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busyKey, setBusyKey] = useState(null);
+  const arr = v => Array.isArray(v) ? v : [];
+
+  const migMsg = m => /function|does not exist|schema cache/i.test(m||'') ? 'Falta aplicar la migración 146.' : ('Error: '+(m||''));
+  // silent=true → refresca sin blanquear la lista a "Cargando…" (tras cada toggle).
+  const load = async (silent=false) => {
+    if (!silent) setLoading(true);
+    try {
+      const { data, error } = await db.rpc('get_restaurant_capabilities', { p_restaurant_id: r.id });
+      if (error) throw error;
+      setCaps(data || {});
+    } catch (e) {
+      setFlash({ type:'error', text: migMsg(e.message) });
+      setCaps({});
+    }
+    if (!silent) setLoading(false);
+  };
+  useEffect(()=>{ load(); }, []);   // fresco al abrir
+
+  const overrides  = (caps && caps.overrides) || {};
+  const planPanels = arr(caps && caps.plan_panels);
+  const effPanels  = arr(caps && caps.allowed_panels);
+  const planFeats  = caps && caps.allowed_features;   // puede ser null (fail-open)
+
+  const panelState = key => {
+    const ov = 'panel:'+key, has = Object.prototype.hasOwnProperty.call(overrides, ov);
+    return { hasOv:has, eff: effPanels.includes(key), source: has?'override':'plan' };
+  };
+  const featState = key => {
+    const ov = 'feature:'+key, has = Object.prototype.hasOwnProperty.call(overrides, ov);
+    const planOn = Array.isArray(planFeats) ? planFeats.includes(key) : true;   // null → on (fail-open)
+    return { hasOv:has, eff: has ? overrides[ov]===true : planOn, source: has?'override':'plan' };
+  };
+
+  const setOv = async (key, enabled) => {
+    if (!db) return;
+    setBusyKey(key);
+    const { error } = await db.rpc('superadmin_set_feature_override', { p_restaurant_id: r.id, p_key: key, p_enabled: enabled });
+    if (error) setFlash({ type:'error', text: migMsg(error.message) });
+    else { await load(true); if (reload) reload(); }
+    setBusyKey(null);
+  };
+  const clearOv = async (key) => {
+    if (!db) return;
+    setBusyKey(key);
+    const { error } = await db.rpc('superadmin_clear_feature_override', { p_restaurant_id: r.id, p_key: key });
+    if (error) setFlash({ type:'error', text: migMsg(error.message) });
+    else { setFlash({ type:'ok', text:'Revertido al plan' }); await load(true); if (reload) reload(); }
+    setBusyKey(null);
+  };
+
+  const PANELS = [...PANEL_OPTIONS, { key:'admin', label:'Administración (dueño)' }];
+
+  return (
+    <Modal title={`Módulos y paneles — ${r.name}`} onClose={onClose} width={560}>
+      {loading ? (
+        <div style={{padding:'26px 0',textAlign:'center',color:C.mid,fontSize:13}}>Cargando…</div>
+      ) : (
+        <div>
+          <div style={{fontSize:12,color:C.mid,marginBottom:16,lineHeight:1.5}}>
+            El toggle define el valor <b>efectivo</b> para este restaurante. <b>Plan</b> = viene del plan/add-on; <b>Override</b> = forzado acá. Se aplica al recargar el panel del restaurante.
+          </div>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,marginBottom:4}}>Paneles</div>
+          {PANELS.map(p => {
+            const s = panelState(p.key);
+            return <ModRow key={p.key} label={p.label} sub={p.key} state={s} busy={busyKey==='panel:'+p.key}
+              onToggle={()=>setOv('panel:'+p.key, !s.eff)} onRevert={s.hasOv?()=>clearOv('panel:'+p.key):null}/>;
+          })}
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,margin:'18px 0 4px'}}>Features (dentro de un panel)</div>
+          {FEATURE_GROUPS.map(g => g.items.map(it => {
+            const s = featState(it.key);
+            return <ModRow key={it.key} label={it.label} sub={it.desc||it.key} state={s} busy={busyKey==='feature:'+it.key}
+              onToggle={()=>setOv('feature:'+it.key, !s.eff)} onRevert={s.hasOv?()=>clearOv('feature:'+it.key):null}/>;
+          }))}
+          <div style={{display:'flex',justifyContent:'flex-end',marginTop:18}}>
+            <Btn variant="ghost" onClick={onClose}>Cerrar</Btn>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ── Modal "Eliminar definitivamente" — Zona de peligro (mig 146 + endpoint) ──
+function DeleteRestaurantModal({ r, onClose, setFlash, reload }) {
+  const [typed, setTyped]     = useState('');
+  const [alsoUsers, setAlso]  = useState(false);
+  const [busy, setBusy]       = useState(false);
+  const [err, setErr]         = useState('');
+  const match = typed.trim() === (r.name||'').trim();
+
+  const doDelete = async () => {
+    if (!match || !db) return;
+    setErr(''); setBusy(true);
+    try {
+      const { data:{ session } } = await db.auth.getSession();
+      const token = session && session.access_token;
+      if (!token) { setErr('Tu sesión expiró. Volvé a iniciar sesión.'); setBusy(false); return; }
+      const resp = await fetch('/api/delete-restaurant', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+token },
+        body: JSON.stringify({ restaurant_id: r.id, confirm_name: r.name, delete_users: alsoUsers })
+      });
+      const data = await resp.json().catch(()=>({}));
+      if (resp.ok && data.success) {
+        const nu = (data.users_deleted||[]).length;
+        setFlash({ type:'ok', text:`"${r.name}" eliminado${nu?` (+${nu} cuenta${nu>1?'s':''})`:''}` });
+        onClose(); if (reload) reload();
+        return;
+      }
+      setErr(data.error || 'No se pudo eliminar. Probá de nuevo.');
+    } catch (_) { setErr('Error de red. Probá de nuevo.'); }
+    setBusy(false);
+  };
+
+  return (
+    <Modal title="Eliminar restaurante" onClose={onClose} width={480}>
+      <div style={{background:TINT.dangerBg,color:TINT.dangerText,border:`1px solid ${TINT.warnBorder}`,borderRadius:10,padding:'12px 14px',fontSize:12.5,lineHeight:1.55,marginBottom:16}}>
+        Acción <b>irreversible</b>. Se borran TODOS los datos del restaurante (pedidos, menú, mesas, caja, stock, delivery, personal, suscripción…). Las <b>sucursales hijas NO se borran</b> (quedan independientes).
+      </div>
+      {err && <div style={{color:C.red,fontSize:12.5,marginBottom:12,fontWeight:600}}>{err}</div>}
+      <FormField label={`Escribí el nombre exacto para confirmar`}>
+        <input value={typed} onChange={e=>setTyped(e.target.value)} placeholder={r.name} autoFocus/>
+      </FormField>
+      <label style={{display:'flex',alignItems:'center',gap:10,fontSize:13,color:C.ink,cursor:'pointer',marginTop:4}}>
+        <input type="checkbox" checked={alsoUsers} onChange={e=>setAlso(e.target.checked)} style={{width:15,height:15}}/>
+        Eliminar también las cuentas de acceso de este restaurante
+      </label>
+      <div style={{fontSize:11,color:C.dim,margin:'6px 0 18px'}}>Nunca se toca la cuenta protegida ni usuarios con acceso a otro restaurante o superadmin.</div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn variant="danger" onClick={doDelete} disabled={!match || busy}>{busy?'Eliminando…':'Eliminar definitivamente'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
 function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) {
   const [modal,    setModal]    = useState(null);
   const [search,   setSearch]   = useState('');
@@ -1299,6 +1461,9 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   const [tab,      setTab]      = useState('restaurantes');
   const [subModal, setSubModal] = useState(null);
   const [subForm,  setSubForm]  = useState({});
+  // Módulos/paneles + eliminación (mig 146)
+  const [capsModal,   setCapsModal]   = useState(null);   // restaurante | null
+  const [deleteModal, setDeleteModal] = useState(null);   // restaurante | null
 
   // Ciudades presentes en los datos + cabeceras PY conocidas
   const cityOptions = Array.from(new Set([...CITIES_PY, ...enriched.map(r=>r.city).filter(Boolean)]));
@@ -1335,9 +1500,14 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   };
 
   const toggleStatus = async r => {
-    const next = r.status==='active'?'suspended':r.status==='suspended'?'active':'active';
+    // Desactivar (reversible): status='inactive' + is_active=false (deja de operar,
+    // se oculta a clientes/QR). Reactivar: status='active' + is_active=true.
+    const activating = r.status !== 'active';
+    const next = activating ? 'active' : 'inactive';
     if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
-    const {error} = await db.from('restaurants').update({status:next}).eq('id',r.id);
+    const patch = { status: next };
+    if (Object.prototype.hasOwnProperty.call(r, 'is_active')) patch.is_active = activating;   // feature-detect
+    const {error} = await db.from('restaurants').update(patch).eq('id',r.id);
     if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
     await db.from('platform_events').insert({restaurant_id:r.id,event_type:'status_changed',description:`Estado cambiado a ${next}`}).then(()=>{},()=>{});
     setFlash({type:'ok',text:`${r.name} → ${next}`}); reload();
@@ -1564,9 +1734,11 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
                   <Btn size="sm" variant="ghost">Ver Admin</Btn>
                 </a>
                 {isRoot(r)&&<Btn size="sm" variant="ghost" onClick={()=>openBranch(r)}><Icon name="plus" size={12} style={{verticalAlign:'-2px',marginRight:3}}/>Añadir Sucursal Hija</Btn>}
+                <Btn size="sm" variant="ghost" onClick={()=>setCapsModal(r)}>Módulos</Btn>
                 <Btn size="sm" variant={r.status==='active'?'danger':'success'} onClick={()=>toggleStatus(r)}>
                   {r.status==='active'?'Desactivar':'Activar'}
                 </Btn>
+                <Btn size="sm" variant="danger" onClick={()=>setDeleteModal(r)}>Eliminar</Btn>
               </div>
             </div>
           ))}
@@ -1759,6 +1931,9 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
           </div>
         </Modal>
       )}
+
+      {capsModal   && <ModulesModal          r={capsModal}   onClose={()=>setCapsModal(null)}   setFlash={setFlash} reload={reload}/>}
+      {deleteModal && <DeleteRestaurantModal r={deleteModal} onClose={()=>setDeleteModal(null)} setFlash={setFlash} reload={reload}/>}
     </div>
   );
 }

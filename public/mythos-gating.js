@@ -42,6 +42,12 @@
   }
 
   function hasFeatureWith(caps, key) {
+    // Override explícito por restaurante (mig 146): el superadmin puede forzar
+    // ON/OFF una feature independientemente del plan. Manda sobre allowed_features.
+    var ov = caps && caps.overrides;
+    if (ov && Object.prototype.hasOwnProperty.call(ov, 'feature:' + key)) {
+      return ov['feature:' + key] === true;
+    }
     var f = caps && caps.allowed_features;
     if (!Array.isArray(f)) {
       // Fail-open: plan legacy (allowed_features NULL) o capacidades aún no
