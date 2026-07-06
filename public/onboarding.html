@@ -397,7 +397,12 @@
         '<ul class="plan-bullets">' + shown.map(function (b) { return '<li>' + esc(b) + '</li>'; }).join('') + '</ul>' +
         '<div class="plan-trial">' + esc(trial) + '</div>' +
       '</label>';
-    }).join('');
+    }).join('') +
+    // Aceptación obligatoria de términos (bloquea la creación en createLocal).
+    '<label style="display:flex;align-items:flex-start;gap:9px;margin-top:16px;font-size:13px;line-height:1.5;cursor:pointer;color:var(--text-secondary,#5b5b5b)">' +
+      '<input id="ob-terms" type="checkbox" style="margin-top:3px;width:16px;height:16px;flex-shrink:0;cursor:pointer">' +
+      '<span>Acepto los <a href="/terminos" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Términos y Condiciones</a> y la <a href="/privacidad" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Política de Privacidad</a>.</span>' +
+    '</label>';
   }
 
   // STEP 3 — contacto y ubicación
@@ -595,6 +600,8 @@
     var planId = checked ? checked.value : '';
     if (!st.biz.name || st.biz.name.length < 2) { st.step = 1; render(); return; }
     if (!planId) { setErr('Elegí un plan para tu prueba.'); return; }
+    var terms = document.getElementById('ob-terms');
+    if (!terms || !terms.checked) { setErr('Necesitás aceptar los Términos y la Privacidad para continuar.'); return; }
     st.planId = planId;
     var planObj = st.plans.filter(function (p) { return p.id === planId; })[0];
     st.planName = planObj ? planObj.name : '';
@@ -621,6 +628,8 @@
       var ini = initialsOf(st.biz.name); if (ini && hasCol('logo_initials')) patch.logo_initials = ini;
       if (st.biz.type && hasCol('business_type')) patch.business_type = st.biz.type;
       if (Object.keys(patch).length) { try { await saveRest(patch); } catch (e) {} }
+      // Registrar la aceptación de términos (mig 149; best-effort, hay sesión activa).
+      try { await db.rpc('record_terms_acceptance', { p_version: '2026-07-05', p_source: 'onboarding' }); } catch (e) {}
       await loadMenu();
       st.step = 3; render(); return;
     }

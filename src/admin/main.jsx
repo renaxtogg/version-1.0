@@ -10578,6 +10578,51 @@ function MiCuentaPage({ restaurant, onRefresh }) {
   );
 }
 
+// ── Aceptación de términos (mig 149) ──────────────────────────────
+// Versión vigente de los T&C / Privacidad. Bumpeá esta constante cuando cambien
+// materialmente los términos → obliga a re-aceptar en el próximo ingreso.
+const TERMS_VERSION = '2026-07-05';
+
+// Gate de una sola vez: si el dueño (rol admin) todavía no aceptó los términos,
+// se muestra ANTES del panel. Registra la aceptación con timestamp server-side.
+// Fail-open: si falta la migración 149 (RPC/tabla ausente) NO bloquea el acceso.
+function TermsGateModal({ onAccept }) {
+  const [checked, setChecked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const accept = async () => {
+    if (!checked || busy) return;
+    setBusy(true);
+    try {
+      const { error } = await db.rpc('record_terms_acceptance', { p_version: TERMS_VERSION, p_source: 'first_login' });
+      if (error) throw error;
+    } catch (e) {
+      // Falta mig 149 / error transitorio → no atrapamos al usuario (fail-open).
+      try { console.warn('[terms] no se pudo registrar la aceptación:', e && e.message ? e.message : e); } catch (_) {}
+    } finally {
+      setBusy(false);
+      onAccept();
+    }
+  };
+  return (
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',padding:24,background:C.bg}}>
+      <div style={{maxWidth:480,width:'100%',border:`1px solid ${C.border}`,borderRadius:16,padding:'32px 28px',background:C.card,boxSizing:'border-box'}}>
+        <div style={{fontSize:19,fontWeight:800,color:C.ink,marginBottom:10}}>Antes de empezar</div>
+        <div style={{fontSize:13.5,color:C.mid,lineHeight:1.6,marginBottom:20}}>
+          Para usar Mythos necesitamos que aceptes nuestros Términos y la Política de Privacidad. Es una sola vez.
+        </div>
+        <label style={{display:'flex',alignItems:'flex-start',gap:10,cursor:'pointer',fontSize:13.5,color:C.ink,lineHeight:1.55,marginBottom:22}}>
+          <input type="checkbox" checked={checked} onChange={e=>setChecked(e.target.checked)} style={{marginTop:3,width:17,height:17,flexShrink:0,cursor:'pointer'}}/>
+          <span>Acepto los <a href="/terminos" target="_blank" rel="noopener noreferrer" style={{color:C.ink,fontWeight:700}}>Términos y Condiciones</a> y la <a href="/privacidad" target="_blank" rel="noopener noreferrer" style={{color:C.ink,fontWeight:700}}>Política de Privacidad</a>.</span>
+        </label>
+        <button onClick={accept} disabled={!checked||busy}
+          style={{width:'100%',background:checked?C.ink:C.border,color:checked?C.bg:C.mid,border:'none',borderRadius:10,padding:'13px',fontSize:14,fontWeight:700,cursor:checked&&!busy?'pointer':'default'}}>
+          {busy?'Guardando…':'Aceptar y continuar'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AdminApp() {
   const [page,setPage] = useState('dashboard');
   // Sidebar colapsable (persistente): main a ancho completo al ocultarlo.
@@ -10620,6 +10665,20 @@ function AdminApp() {
     db.rpc('get_restaurant_capabilities',{p_restaurant_id:RID})
       .then(({data,error})=>{ if(alive && !error && data === null) setTenantDenied(true); })
       .catch(()=>{});   // error transitorio → no bloquear
+    return ()=>{ alive=false; };
+  },[]);
+
+  // ── Gate de aceptación de términos (mig 149) ─────────────────────
+  // Solo el dueño (rol admin). Si no hay aceptación registrada para la versión
+  // vigente, se muestra el gate antes del panel. Fail-open ante error / migración
+  // sin aplicar (la tabla no existe → SELECT falla → no se bloquea).
+  const [termsGate,setTermsGate] = useState(false);
+  useEffect(()=>{
+    if(!db || MY_ROLE !== 'admin') return;
+    let alive = true;
+    db.from('terms_acceptance').select('id').eq('version',TERMS_VERSION).limit(1)
+      .then(({data,error})=>{ if(alive && !error && (!data || data.length===0)) setTermsGate(true); })
+      .catch(()=>{});
     return ()=>{ alive=false; };
   },[]);
 
@@ -10754,6 +10813,8 @@ function AdminApp() {
       default: return null;
     }
   }
+
+  if (termsGate) return <TermsGateModal onAccept={()=>setTermsGate(false)}/>;
 
   if (tenantDenied) {
     return (

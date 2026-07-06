@@ -388,6 +388,10 @@
           // Cuando se ACTIVE "Confirm email", signUp NO devuelve sesión y caemos al
           // mensaje de verificación de abajo — sin tocar una línea de código.
           if (data.session) {
+            // Registrar la aceptación de términos con la sesión aún activa (mig 149;
+            // best-effort). En modo "Confirm email" ON no hay sesión acá → lo cubre el
+            // gate de primer ingreso al panel.
+            try { await db.rpc('record_terms_acceptance', { p_version: '2026-07-05', p_source: 'signup' }); } catch (e) {}
             try { await db.auth.signOut(); } catch (e) {}
             try { console.warn('[registro] signUp devolvió sesión: "Confirm email" está DESACTIVADO en Supabase (verificación NO obligatoria todavía).'); } catch (e) {}
             showDone(

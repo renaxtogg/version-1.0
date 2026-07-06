@@ -1472,6 +1472,264 @@ function DeleteRestaurantModal({ r, onClose, setFlash, reload }) {
   );
 }
 
+/* ══════════════════════════════════════════════════════════════
+   ASISTENTE "NUEVO CLIENTE" — alta guiada de punta a punta.
+   4 pasos: (1) restaurante + dueño, (2) cuenta de acceso del dueño,
+   (3) plan, (4) resumen con credenciales. Reusa /api/create-user
+   (rol admin, must_change_password=true) — NUNCA service_role en el front.
+   Tras crear, ofrece ajustar módulos (overrides, mig 146) para ese local.
+══════════════════════════════════════════════════════════════ */
+function genTempPassword() {
+  const n = Math.floor(1000 + Math.random() * 9000);
+  const syms = '!@#$%*';
+  return 'Mythos' + n + syms[Math.floor(Math.random() * syms.length)];   // 11 chars: May+min+díg+símb
+}
+// Normaliza el usuario a lo que /api/create-user y login.html realmente aceptan
+// (minúsculas, [a-z0-9._-]) → lo que se muestra = lo que funciona.
+function slugUser(name) {
+  return String(name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9._-]/g, '').slice(0, 24);
+}
+
+function NuevoClienteModal({plans, cityOptions, restHasCol, onOpenModules, onClose, setFlash, reload}) {
+  const LOGIN_URL = window.location.origin + '/login';
+  const STEPS = ['Restaurante', 'Acceso', 'Plan', 'Listo'];
+  const [step, setStep] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);   // {restaurant, owner, error, partial}
+  const [f, setF] = useState({
+    name:'', city:'Asunción', owner_name:'', owner_email:'', owner_phone:'', owner_document:'',
+    username:'', password: genTempPassword(),
+    plan_id: plans[1]?.id || plans[0]?.id || '', status:'active',
+  });
+  const set = (k, v) => setF(s => ({...s, [k]: v}));
+
+  const goStep2 = () => {
+    if (!f.name.trim())       { setFlash({type:'error',text:'El nombre del restaurante es obligatorio'}); return; }
+    if (!f.owner_name.trim()) { setFlash({type:'error',text:'El nombre del dueño es obligatorio'}); return; }
+    if (f.owner_email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.owner_email.trim())) { setFlash({type:'error',text:'El email del dueño no parece válido'}); return; }
+    if (!f.username) set('username', slugUser(f.name));   // sugerencia editable
+    setStep(2);
+  };
+  const goStep3 = () => {
+    const u = slugUser(f.username);
+    if (u.length < 2) { setFlash({type:'error',text:'El usuario de acceso debe tener al menos 2 caracteres (letras/números)'}); return; }
+    if (u !== f.username) set('username', u);
+    if (!f.password || f.password.length < 8) { setFlash({type:'error',text:'La contraseña temporal debe tener al menos 8 caracteres'}); return; }
+    setStep(3);
+  };
+
+  // Crea (o reintenta) la cuenta del dueño (rol admin) para un restaurante ya creado.
+  const createOwner = async (restId) => {
+    const { data:{ session } } = await db.auth.getSession();
+    const token = session?.access_token;
+    if (!token) throw new Error('Sin sesión activa (volvé a iniciar sesión)');
+    const resp = await fetch('/api/create-user', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
+      body: JSON.stringify({ username: f.username, password: f.password, display_name: f.owner_name.trim()||f.username, role:'admin', restaurant_id: restId }),
+    });
+    const r = await resp.json();
+    if (!resp.ok) throw new Error(r.error || 'No se pudo crear la cuenta del dueño');
+    return r;
+  };
+
+  const create = async () => {
+    if (!f.plan_id) { setFlash({type:'error',text:'Elegí un plan'}); return; }
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    setBusy(true);
+    let rest = null;
+    try {
+      const today = new Date(), end = new Date(today); end.setMonth(end.getMonth() + 1);
+      const payload = {
+        name: f.name.trim(), city: f.city || null, country:'Paraguay',
+        owner_name: f.owner_name.trim(), owner_email: f.owner_email.trim()||null, owner_phone: f.owner_phone.trim()||null,
+        status: f.status, onboarding_date: today.toISOString().slice(0,10), timezone:'America/Asuncion', auto_provisioned:false,
+      };
+      if (restHasCol('owner_document') && f.owner_document.trim()) payload.owner_document = f.owner_document.trim();
+      const { data:r1, error:e1 } = await db.from('restaurants').insert(payload).select().single();
+      if (e1) throw new Error('No se pudo crear el restaurante: ' + e1.message);
+      rest = r1;
+      const plan = plans.find(p => p.id === f.plan_id);
+      const { error:e2 } = await db.from('subscriptions').insert({
+        restaurant_id: rest.id, plan_id: f.plan_id,
+        status: f.status==='trial' ? 'trial' : 'active',
+        start_date: today.toISOString().slice(0,10), end_date: end.toISOString().slice(0,10),
+        monthly_amount: plan?.price_usd || 0,
+      });
+      if (e2) throw new Error('Restaurante creado, pero falló la suscripción: ' + e2.message);
+      db.from('platform_events').insert({restaurant_id:rest.id, event_type:'onboarding', description:`Alta guiada — ${rest.name}`}).then(()=>{},()=>{});
+      const owner = await createOwner(rest.id);
+      setResult({ restaurant: rest, owner });
+      setStep(4);
+      reload();
+    } catch (e) {
+      setResult({ restaurant: rest, error: e.message, partial: !!rest });
+      setStep(4);
+      if (rest) reload();
+    } finally { setBusy(false); }
+  };
+
+  const retryOwner = async () => {
+    if (!result?.restaurant) return;
+    setBusy(true);
+    try {
+      const owner = await createOwner(result.restaurant.id);
+      setResult({ restaurant: result.restaurant, owner });
+      setFlash({type:'success',text:'Cuenta del dueño creada'});
+    } catch (e) {
+      setResult({ ...result, error: e.message, partial: true });
+    } finally { setBusy(false); }
+  };
+
+  const copyCreds = async () => {
+    const uname = (result && result.owner && result.owner.username) || f.username;   // el que realmente creó el endpoint
+    const txt = `Acceso Mythos — ${result?.restaurant?.name || f.name}\nURL: ${LOGIN_URL}\nUsuario: ${uname}\nContraseña temporal: ${f.password}\n(Se te pedirá cambiarla en el primer ingreso.)`;
+    try { await navigator.clipboard.writeText(txt); setFlash({type:'success',text:'Credenciales copiadas'}); }
+    catch(_) { setFlash({type:'warn',text:'No se pudo copiar automáticamente'}); }
+  };
+
+  const cred = {display:'flex',justifyContent:'space-between',gap:12,padding:'10px 0',borderBottom:`1px solid ${C.border}`,fontSize:13.5};
+
+  return (
+    <Modal title="Nuevo cliente" onClose={onClose} width={620}>
+      {/* Stepper */}
+      <div style={{display:'flex',gap:6,marginBottom:20}}>
+        {STEPS.map((s,i)=>{
+          const n=i+1, active=n===step, done=n<step;
+          return (
+            <div key={s} style={{flex:1,display:'flex',alignItems:'center',gap:8,opacity:active||done?1:.5}}>
+              <span style={{width:22,height:22,borderRadius:'50%',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,background:active?C.ink:done?C.green:'transparent',color:active||done?C.surface:C.mid,border:`1.5px solid ${active?C.ink:done?C.green:C.border}`}}>{done?'✓':n}</span>
+              <span style={{fontSize:12,fontWeight:active?700:500,color:active?C.ink:C.mid,whiteSpace:'nowrap'}}>{s}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Paso 1 — Restaurante + dueño */}
+      {step===1 && (
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <FormField label="Nombre del restaurante" col="1 / -1"><input value={f.name} onChange={e=>set('name',e.target.value)} placeholder="Ej. Pizzería Napoli" style={{width:'100%'}}/></FormField>
+          <FormField label="Ciudad">
+            <select value={f.city} onChange={e=>set('city',e.target.value)} style={{width:'100%'}}>
+              {cityOptions.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Estado inicial">
+            <select value={f.status} onChange={e=>set('status',e.target.value)} style={{width:'100%'}}>
+              <option value="active">Activo</option>
+              <option value="trial">Prueba (trial)</option>
+            </select>
+          </FormField>
+          <FormField label="Nombre del dueño / encargado" col="1 / -1"><input value={f.owner_name} onChange={e=>set('owner_name',e.target.value)} placeholder="Nombre y apellido" style={{width:'100%'}}/></FormField>
+          <FormField label="Email del dueño (contacto)"><input type="email" value={f.owner_email} onChange={e=>set('owner_email',e.target.value)} placeholder="dueno@correo.com" style={{width:'100%'}}/></FormField>
+          <FormField label="Teléfono del dueño"><input value={f.owner_phone} onChange={e=>set('owner_phone',e.target.value)} placeholder="09xx xxx xxx" style={{width:'100%'}}/></FormField>
+          <FormField label="Documento / RUC del dueño" col="1 / -1"><input value={f.owner_document} onChange={e=>set('owner_document',e.target.value)} placeholder="C.I. o RUC" style={{width:'100%'}}/></FormField>
+        </div>
+      )}
+
+      {/* Paso 2 — Cuenta de acceso del dueño */}
+      {step===2 && (
+        <div>
+          <p style={{fontSize:12.5,color:C.mid,margin:'0 0 16px',lineHeight:1.55}}>
+            Se crea la cuenta de acceso del dueño con <strong>rol Admin</strong>, ligada al restaurante. Entra con este <strong>usuario</strong> y una <strong>contraseña temporal</strong>; en el primer ingreso el sistema le pide cambiarla.
+          </p>
+          <FormField label="Usuario de acceso" hint="Con lo que inicia sesión. Solo minúsculas, números y . _ -">
+            <input value={f.username} onChange={e=>set('username',e.target.value)} onBlur={()=>set('username',slugUser(f.username))} placeholder="napoli" style={{width:'100%'}}/>
+          </FormField>
+          <FormField label="Contraseña temporal" hint="Se la pasás al cliente. La cambia en su primer ingreso.">
+            <div style={{display:'flex',gap:8}}>
+              <input value={f.password} onChange={e=>set('password',e.target.value)} style={{flex:1,fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
+              <Btn variant="ghost" onClick={()=>set('password',genTempPassword())}>Regenerar</Btn>
+            </div>
+          </FormField>
+        </div>
+      )}
+
+      {/* Paso 3 — Plan */}
+      {step===3 && (
+        <div>
+          <FormField label="Plan de suscripción">
+            <select value={f.plan_id} onChange={e=>set('plan_id',e.target.value)} style={{width:'100%'}}>
+              <option value="">— Elegí un plan —</option>
+              {plans.map(p=><option key={p.id} value={p.id}>{p.name}{p.price_usd!=null?` · ${fmtGs(p.price_usd)}/mes`:''}</option>)}
+            </select>
+          </FormField>
+          <div style={{fontSize:12,color:C.dim,marginTop:6,lineHeight:1.5}}>
+            Los módulos/paneles del cliente salen de su plan. Después de crear vas a poder <strong>ajustar módulos</strong> (activar/desactivar) para este local.
+          </div>
+        </div>
+      )}
+
+      {/* Paso 4 — Resumen */}
+      {step===4 && (
+        <div>
+          {result?.owner ? (
+            <>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+                <span style={{width:30,height:30,borderRadius:'50%',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',background:C.green,color:C.surface,fontWeight:800}}>✓</span>
+                <div style={{fontSize:15,fontWeight:800,color:C.ink}}>Cliente creado</div>
+              </div>
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:12,padding:'6px 16px',marginBottom:16}}>
+                <div style={cred}><span style={{color:C.mid}}>Restaurante</span><strong style={{color:C.ink}}>{result.restaurant?.name}</strong></div>
+                <div style={cred}><span style={{color:C.mid}}>URL de acceso</span><a href={LOGIN_URL} target="_blank" rel="noopener noreferrer" style={{color:C.ink,fontWeight:700}}>{LOGIN_URL}</a></div>
+                <div style={cred}><span style={{color:C.mid}}>Usuario</span><strong style={{color:C.ink,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{result.owner?.username || f.username}</strong></div>
+                <div style={cred}><span style={{color:C.mid}}>Contraseña temporal</span><strong style={{color:C.ink,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{f.password}</strong></div>
+                {f.owner_email.trim() && <div style={cred}><span style={{color:C.mid}}>Email del dueño</span><span style={{color:C.ink}}>{f.owner_email.trim()}</span></div>}
+                <div style={{...cred,borderBottom:'none'}}><span style={{color:C.mid}}>Primer ingreso</span><span style={{color:C.ink}}>Se le pedirá cambiar la contraseña</span></div>
+              </div>
+              <div style={{fontSize:12,color:C.dim,marginBottom:16,lineHeight:1.5}}>
+                Pasale estos datos al cliente. Al entrar cambia la clave y luego acepta los Términos y la Privacidad (gate de primer ingreso).
+              </div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                <Btn onClick={copyCreds}>Copiar credenciales</Btn>
+                <Btn variant="ghost" onClick={()=>{ onOpenModules(result.restaurant); }}>Ajustar módulos</Btn>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+                <span style={{width:30,height:30,borderRadius:'50%',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',background:C.orange,color:C.surface,fontWeight:800}}>!</span>
+                <div style={{fontSize:15,fontWeight:800,color:C.ink}}>Alta incompleta</div>
+              </div>
+              <div style={{border:`1px solid ${C.orange}`,background:TINT.warnBg,borderRadius:12,padding:'12px 16px',color:C.orange,fontSize:13,fontWeight:600,marginBottom:12}}>{result?.error||'Ocurrió un error'}</div>
+              {result?.partial && result?.restaurant && (
+                <>
+                  <div style={{fontSize:13,color:C.mid,lineHeight:1.55,marginBottom:14}}>
+                    El restaurante <strong style={{color:C.ink}}>{result.restaurant.name}</strong> ya quedó creado. Si el error fue por el usuario (ej. ya existía), cambialo y reintentá la cuenta del dueño.
+                  </div>
+                  <FormField label="Usuario de acceso" hint="Solo minúsculas, números y . _ -  ·  probá otro si el anterior estaba en uso.">
+                    <input value={f.username} onChange={e=>set('username',e.target.value)} onBlur={()=>set('username',slugUser(f.username))} style={{width:'100%'}}/>
+                  </FormField>
+                  <FormField label="Contraseña temporal">
+                    <div style={{display:'flex',gap:8}}>
+                      <input value={f.password} onChange={e=>set('password',e.target.value)} style={{flex:1,fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
+                      <Btn variant="ghost" onClick={()=>set('password',genTempPassword())}>Regenerar</Btn>
+                    </div>
+                  </FormField>
+                  <Btn onClick={retryOwner} disabled={busy}>{busy?'Reintentando…':'Reintentar cuenta del dueño'}</Btn>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Navegación */}
+      <div style={{display:'flex',justifyContent:'space-between',gap:10,marginTop:20,borderTop:`1px solid ${C.border}`,paddingTop:16}}>
+        <div>{step>1 && step<4 && <Btn variant="ghost" onClick={()=>setStep(step-1)} disabled={busy}>Atrás</Btn>}</div>
+        <div style={{display:'flex',gap:8}}>
+          {step<4 && <Btn variant="ghost" onClick={onClose} disabled={busy}>Cancelar</Btn>}
+          {step===1 && <Btn onClick={goStep2}>Siguiente</Btn>}
+          {step===2 && <Btn onClick={goStep3}>Siguiente</Btn>}
+          {step===3 && <Btn onClick={create} disabled={busy}>{busy?'Creando…':'Crear cliente'}</Btn>}
+          {step===4 && <Btn onClick={onClose}>{result?.owner?'Listo':'Cerrar'}</Btn>}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) {
   const [modal,    setModal]    = useState(null);
   const [search,   setSearch]   = useState('');
@@ -1500,6 +1758,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   // Módulos/paneles + eliminación (mig 146)
   const [capsModal,   setCapsModal]   = useState(null);   // restaurante | null
   const [deleteModal, setDeleteModal] = useState(null);   // restaurante | null
+  const [nuevoCliente, setNuevoCliente] = useState(false); // asistente de alta guiada
 
   // Ciudades presentes en los datos + cabeceras PY conocidas
   const cityOptions = Array.from(new Set([...CITIES_PY, ...enriched.map(r=>r.city).filter(Boolean)]));
@@ -1712,8 +1971,9 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
           <option value="inactive">Inactivos</option>
         </select>
         <span style={{fontSize:12,color:C.dim,marginLeft:4}}>{shown.length} resultado{shown.length!==1?'s':''}</span>
-        <div style={{marginLeft:'auto'}}>
-          <Btn onClick={openCreate}>+ Nuevo restaurante</Btn>
+        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+          <Btn onClick={()=>setNuevoCliente(true)}>+ Nuevo cliente</Btn>
+          <Btn variant="ghost" onClick={openCreate}>Solo restaurante</Btn>
         </div>
       </div>
 
@@ -1970,6 +2230,9 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 
       {capsModal   && <ModulesModal          r={capsModal}   onClose={()=>setCapsModal(null)}   setFlash={setFlash} reload={reload}/>}
       {deleteModal && <DeleteRestaurantModal r={deleteModal} onClose={()=>setDeleteModal(null)} setFlash={setFlash} reload={reload}/>}
+      {nuevoCliente && <NuevoClienteModal plans={plans} cityOptions={cityOptions} restHasCol={restHasCol}
+        onOpenModules={r=>{ setNuevoCliente(false); setCapsModal(r); }}
+        onClose={()=>setNuevoCliente(false)} setFlash={setFlash} reload={reload}/>}
     </div>
   );
 }
