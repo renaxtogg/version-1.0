@@ -926,6 +926,20 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
     return () => { alive = false; };
   }, []);
 
+  // PARTE C (mig 147): avisos de vencimiento de costos del sistema en el tablero.
+  // Falla en silencio si la migración aún no está aplicada (la card no se muestra).
+  const [finAlerts, setFinAlerts] = useState([]);
+  useEffect(() => {
+    if (!db) return;
+    let alive = true;
+    db.rpc('platform_finance_summary').then(({data,error}) => {
+      if (!alive || error || !data) return;
+      const up = Array.isArray(data.upcoming) ? data.upcoming : [];
+      setFinAlerts(up.filter(u => u.days_remaining !== null && u.days_remaining < 15));
+    });
+    return () => { alive = false; };
+  }, []);
+
   return (
     <div className="animate-in">
       {/* 5 KPI cards */}
@@ -936,6 +950,28 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
         <Kpi label="Rating promedio"      value={ratingProm ? String(ratingProm) : '—'} sub="últimas 48hs"/>
         <Kpi label="Registros web (7 días)" value={webLeads&&webLeads.week!=null ? fmtNum(webLeads.week) : '—'} sub={webLeads&&webLeads.total!=null ? `${fmtNum(webLeads.total)} en total` : undefined}/>
       </div>
+
+      {/* PARTE C: avisos de vencimiento de costos del sistema (mig 147) */}
+      {finAlerts.length>0 && (
+        <div onClick={()=>setPage('finanzas')} style={{marginBottom:22,border:`1px solid ${C.orange}`,borderRadius:12,background:C.surface,padding:'14px 18px',cursor:'pointer'}}
+          title="Ir a Finanzas">
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+            <span style={{fontSize:13,fontWeight:800,color:C.ink}}>⚠ Vencimientos próximos</span>
+            <span style={{fontSize:11,color:C.mid}}>· costos del sistema · ir a Finanzas ↗</span>
+          </div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            {finAlerts.map(a=>{
+              const sem = dueSemaphore(a.days_remaining);
+              return (
+                <span key={a.id} style={{display:'inline-flex',alignItems:'center',gap:8,padding:'6px 12px',borderRadius:20,background:sem.bg,color:sem.color,fontSize:12.5,fontWeight:700}}>
+                  <span style={{width:8,height:8,borderRadius:'50%',background:sem.color,flexShrink:0}}/>
+                  {a.name} — {dueLabel(a.days_remaining)}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:18,alignItems:'start'}}>
         {/* MRR chart */}
@@ -4227,6 +4263,7 @@ const NAV = [
   {id:'capacidad',      label:'Capacidad'},
   {id:'restaurantes',   label:'Restaurantes'},
   {id:'facturacion',    label:'Facturación'},
+  {id:'finanzas',       label:'Finanzas'},
   {id:'fiscal',         label:'Fiscal'},
   {id:'usuarios',       label:'Usuarios'},
   {id:'proveedores',    label:'Proveedores'},
@@ -6574,6 +6611,462 @@ function PageMiCuenta({setFlash}) {
   );
 }
 
+/* ══════════════════════════════════════════════════════════════
+   FINANZAS DEL SUPERADMIN — la caja del dueño de la plataforma.
+   SOLO superadmin. Todo pasa por RPCs fail-closed (mig 147). Los importes se
+   muestran en ₲ (los costos en USD muestran también su conversión con el tipo
+   de cambio). MRR = suscripciones activas (ya en ₲, mig 119); el FX solo
+   normaliza costos/movimientos cargados en USD.
+══════════════════════════════════════════════════════════════ */
+const fmtGs  = n => `₲ ${Math.round(Number(n||0)).toLocaleString('es-PY')}`;
+const fmtUsd = n => `US$ ${Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+const CYCLE_LABEL = {monthly:'Mensual', annual:'Anual', one_time:'Pago único'};
+const financeMigMsg = m => /function|does not exist|schema cache|relation|permission denied/i.test(m||'')
+  ? 'Falta aplicar la migración 147 (o no tenés permiso de superadmin).'
+  : ('Error: ' + (m||''));
+
+// Semáforo de vencimiento: rojo <7 días, amarillo <15, verde ≥15, gris sin fecha.
+const dueSemaphore = days => {
+  if (days === null || days === undefined) return {color:C.mid,    bg:'var(--bg-subtle)'};
+  if (days < 7)   return {color:C.red,    bg:TINT.dangerBg};
+  if (days < 15)  return {color:C.orange, bg:TINT.warnBg};
+  return               {color:C.green,  bg:TINT.okBg};
+};
+const dueLabel = days => (days===null||days===undefined) ? 'Sin fecha'
+  : days<0 ? `Vencido hace ${-days}d` : days===0 ? 'Vence hoy' : `Vence en ${days}d`;
+
+const _finInp = {width:'100%',fontSize:13,padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.surface,color:C.ink,boxSizing:'border-box'};
+
+function CostModal({row, onClose, onSaved, setFlash}) {
+  const edit = !!(row && row.id);
+  const [f, setF] = useState({
+    name: row?.name||'', provider: row?.provider||'', category: row?.category||'',
+    amount: row?.amount!=null ? String(row.amount) : '', currency: row?.currency||'USD',
+    cycle: row?.cycle||'monthly', next_due_date: row?.next_due_date||'',
+    auto_renew: row?.auto_renew!==false, active: row?.active!==false, notes: row?.notes||'',
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k,v)=>setF(s=>({...s,[k]:v}));
+  const save = async () => {
+    if (!f.name.trim()) { setFlash({type:'error',text:'El nombre es obligatorio'}); return; }
+    setBusy(true);
+    const { error } = await db.rpc('platform_cost_upsert', {
+      p_id: edit ? row.id : null, p_name: f.name.trim(), p_provider: f.provider.trim()||null,
+      p_category: f.category.trim()||null, p_amount: Number(f.amount)||0, p_currency: f.currency,
+      p_cycle: f.cycle, p_next_due_date: f.next_due_date||null, p_auto_renew: f.auto_renew,
+      p_active: f.active, p_notes: f.notes.trim()||null,
+    });
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:financeMigMsg(error.message)}); return; }
+    setFlash({type:'success',text:edit?'Costo actualizado':'Costo agregado'});
+    onSaved();
+  };
+  return (
+    <Modal title={edit?'Editar costo del sistema':'Agregar costo del sistema'} onClose={onClose} width={560}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        <FormField label="Servicio / concepto" col="1 / -1">
+          <input style={_finInp} value={f.name} onChange={e=>set('name',e.target.value)} placeholder="Ej. Supabase Pro"/>
+        </FormField>
+        <FormField label="Proveedor">
+          <input style={_finInp} value={f.provider} onChange={e=>set('provider',e.target.value)} placeholder="Ej. Supabase"/>
+        </FormField>
+        <FormField label="Categoría">
+          <input style={_finInp} value={f.category} onChange={e=>set('category',e.target.value)} placeholder="Ej. backend"/>
+        </FormField>
+        <FormField label="Monto">
+          <input style={_finInp} type="number" min="0" step="0.01" value={f.amount} onChange={e=>set('amount',e.target.value)} placeholder="0"/>
+        </FormField>
+        <FormField label="Moneda">
+          <select style={_finInp} value={f.currency} onChange={e=>set('currency',e.target.value)}>
+            <option value="USD">USD (US$)</option>
+            <option value="PYG">Guaraníes (₲)</option>
+          </select>
+        </FormField>
+        <FormField label="Ciclo">
+          <select style={_finInp} value={f.cycle} onChange={e=>set('cycle',e.target.value)}>
+            <option value="monthly">Mensual</option>
+            <option value="annual">Anual</option>
+            <option value="one_time">Pago único</option>
+          </select>
+        </FormField>
+        <FormField label="Próximo vencimiento" hint="Dejá vacío si aún no aplica.">
+          <input style={_finInp} type="date" value={f.next_due_date||''} onChange={e=>set('next_due_date',e.target.value)}/>
+        </FormField>
+        <FormField label="Notas" col="1 / -1">
+          <input style={_finInp} value={f.notes} onChange={e=>set('notes',e.target.value)} placeholder="Opcional"/>
+        </FormField>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <Toggle checked={f.auto_renew} onChange={v=>set('auto_renew',v)}/>
+          <span style={{fontSize:13,color:C.ink}}>Renovación automática</span>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <Toggle checked={f.active} onChange={v=>set('active',v)}/>
+          <span style={{fontSize:13,color:C.ink}}>Activo (cuenta en los totales)</span>
+        </div>
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',gap:10,marginTop:18}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={busy}>{busy?'Guardando…':(edit?'Guardar cambios':'Agregar')}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function EntryModal({type, onClose, onSaved, setFlash}) {
+  const isIncome = type==='income';
+  const [f, setF] = useState({
+    concept:'', amount:'', currency:'PYG',
+    entry_date: new Date().toISOString().slice(0,10), category:'', notes:'',
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k,v)=>setF(s=>({...s,[k]:v}));
+  const save = async () => {
+    if (!f.concept.trim()) { setFlash({type:'error',text:'El concepto es obligatorio'}); return; }
+    setBusy(true);
+    const { error } = await db.rpc('platform_finance_entry_create', {
+      p_type: type, p_concept: f.concept.trim(), p_amount: Number(f.amount)||0,
+      p_currency: f.currency, p_entry_date: f.entry_date||null,
+      p_category: f.category.trim()||null, p_notes: f.notes.trim()||null,
+    });
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:financeMigMsg(error.message)}); return; }
+    setFlash({type:'success',text:isIncome?'Ingreso registrado':'Egreso registrado'});
+    onSaved();
+  };
+  return (
+    <Modal title={isIncome?'Registrar ingreso':'Registrar egreso'} onClose={onClose} width={520}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        <FormField label="Concepto" col="1 / -1">
+          <input style={_finInp} value={f.concept} onChange={e=>set('concept',e.target.value)} placeholder={isIncome?'Ej. Cobro anual adelantado':'Ej. Publicidad'}/>
+        </FormField>
+        <FormField label="Monto">
+          <input style={_finInp} type="number" min="0" step="0.01" value={f.amount} onChange={e=>set('amount',e.target.value)} placeholder="0"/>
+        </FormField>
+        <FormField label="Moneda">
+          <select style={_finInp} value={f.currency} onChange={e=>set('currency',e.target.value)}>
+            <option value="PYG">Guaraníes (₲)</option>
+            <option value="USD">USD (US$)</option>
+          </select>
+        </FormField>
+        <FormField label="Fecha">
+          <input style={_finInp} type="date" value={f.entry_date} onChange={e=>set('entry_date',e.target.value)}/>
+        </FormField>
+        <FormField label="Categoría">
+          <input style={_finInp} value={f.category} onChange={e=>set('category',e.target.value)} placeholder="Opcional"/>
+        </FormField>
+        <FormField label="Notas" col="1 / -1">
+          <input style={_finInp} value={f.notes} onChange={e=>set('notes',e.target.value)} placeholder="Opcional"/>
+        </FormField>
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',gap:10,marginTop:18}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn variant={isIncome?'success':'danger'} onClick={save} disabled={busy}>{busy?'Guardando…':'Registrar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function PageFinanzas({enriched, setFlash}) {
+  const [summary, setSummary] = useState(null);
+  const [costs,   setCosts]   = useState([]);
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err,     setErr]     = useState(null);
+  const [month,   setMonth]   = useState(new Date().toISOString().slice(0,7));
+  const [costModal,  setCostModal]  = useState(null);   // null | {} | row
+  const [entryModal, setEntryModal] = useState(null);   // null | 'income' | 'expense'
+  const [rateEdit, setRateEdit] = useState(false);
+  const [rateVal,  setRateVal]  = useState('');
+
+  const load = useCallback(async (silent) => {
+    if (!db) { setErr('Sin conexión a Supabase.'); setLoading(false); return; }
+    if (!silent) setLoading(true);
+    const [s, c, e] = await Promise.all([
+      db.rpc('platform_finance_summary'),
+      db.rpc('platform_costs_list'),
+      db.rpc('platform_finance_entries_list', { p_month: month || null }),
+    ]);
+    if (s.error) { setErr(financeMigMsg(s.error.message)); setLoading(false); return; }
+    setErr(null);
+    setSummary(s.data || null);
+    setCosts(Array.isArray(c.data) ? c.data : []);
+    setEntries(Array.isArray(e.data) ? e.data : []);
+    setLoading(false);
+  }, [month]);
+
+  // Silencioso siempre: el spinner inicial lo cubre el estado loading=true de
+  // arranque; los cambios de mes refrescan sin parpadear la página entera.
+  useEffect(()=>{ load(true); }, [load]);
+
+  // "Hoy" a medianoche LOCAL (no UTC) para que los días restantes de la tabla
+  // coincidan con days_remaining del servidor (hora de Paraguay).
+  const _today0 = (()=>{ const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); })();
+
+  const rate = Number(summary?.usd_pyg_rate) || 7500;
+  const toPyg = (amount, ccy) => (ccy==='USD' ? Number(amount||0)*rate : Number(amount||0));
+  const amountCell = (amount, ccy) => ccy==='USD'
+    ? <span>{fmtUsd(amount)} <span style={{color:C.dim,fontSize:11}}>· {fmtGs(toPyg(amount,'USD'))}</span></span>
+    : <span>{fmtGs(amount)}</span>;
+
+  const markPaid = async (c) => {
+    if (!window.confirm(`Registrar el pago de "${c.name}" y avanzar su vencimiento un ciclo?`)) return;
+    const { error } = await db.rpc('platform_cost_mark_paid', { p_id: c.id });
+    if (error) { setFlash({type:'error',text:financeMigMsg(error.message)}); return; }
+    setFlash({type:'success',text:'Pago registrado y vencimiento actualizado'});
+    load(true);
+  };
+  const delCost = async (c) => {
+    if (!window.confirm(`Eliminar el costo "${c.name}"? No borra los egresos ya registrados.`)) return;
+    const { error } = await db.rpc('platform_cost_delete', { p_id: c.id });
+    if (error) { setFlash({type:'error',text:financeMigMsg(error.message)}); return; }
+    load(true);
+  };
+  const delEntry = async (en) => {
+    if (!window.confirm('Eliminar este movimiento?')) return;
+    const { error } = await db.rpc('platform_finance_entry_delete', { p_id: en.id });
+    if (error) { setFlash({type:'error',text:financeMigMsg(error.message)}); return; }
+    load(true);
+  };
+  const saveRate = async () => {
+    const v = Number(rateVal);
+    if (!v || v<=0) { setFlash({type:'error',text:'Tipo de cambio inválido'}); return; }
+    const { error } = await db.rpc('superadmin_set_usd_rate', { p_rate: v });
+    if (error) { setFlash({type:'error',text:financeMigMsg(error.message)}); return; }
+    setRateEdit(false);
+    setFlash({type:'success',text:'Tipo de cambio actualizado'});
+    load(true);
+  };
+
+  // Ingresos recurrentes por suscripción (informativo — base de la MRR).
+  const recurring = (enriched||[])
+    .filter(r => r.subscription && Number(r.subscription.monthly_amount||r.plan?.price_usd||0) > 0
+                 && (r.subscription.status==='active' || r.status==='active'))
+    .map(r => ({ name:r.name, plan:r.plan?.name||'—', amount:Number(r.subscription.monthly_amount||r.plan?.price_usd||0) }))
+    .sort((a,b)=>b.amount-a.amount);
+
+  const up0 = summary?.upcoming?.[0] || null;
+
+  if (loading) return <div style={{padding:40,textAlign:'center',color:C.mid}}>Cargando finanzas…</div>;
+  if (err) return (
+    <div>
+      <h1 style={{fontSize:24,fontWeight:800,letterSpacing:'-0.5px',margin:'0 0 4px',color:C.ink}}>Finanzas</h1>
+      <div style={{marginTop:16,border:`1px solid ${C.orange}`,background:TINT.warnBg,borderRadius:12,padding:'16px 18px',color:C.orange,fontSize:13.5,fontWeight:600,maxWidth:620,lineHeight:1.55}}>
+        {err}
+        <div style={{fontSize:12,fontWeight:400,color:C.mid,marginTop:8}}>Aplicá la migración <strong>147</strong> en el SQL Editor (tras backup) y volvé a entrar a esta sección.</div>
+      </div>
+    </div>
+  );
+
+  const margin = Number(summary?.margin_pyg||0);
+  return (
+    <div className="animate-in">
+      <h1 style={{fontSize:24,fontWeight:800,letterSpacing:'-0.5px',margin:'0 0 4px',color:C.ink}}>Finanzas</h1>
+      <p style={{fontSize:13,color:C.mid,margin:'0 0 18px',maxWidth:680,lineHeight:1.55}}>
+        Tu caja como dueño de la plataforma: ingresos por suscripción, egresos, costos del sistema y avisos de vencimiento. Importes en <strong>₲</strong>; los costos en USD se convierten con el tipo de cambio configurable.
+      </p>
+
+      {/* KPIs */}
+      <div style={{display:'flex',gap:12,marginBottom:22,flexWrap:'wrap'}}>
+        <div className="my-metric-card" style={{flex:'1 1 180px',minWidth:160}}>
+          <div className="my-metric-card__label">MRR estimada</div>
+          <div style={{fontSize:26,fontWeight:800,color:'var(--text-primary)',lineHeight:1.1,letterSpacing:'-0.5px'}}>{fmtGs(summary?.mrr_pyg)}</div>
+          <div style={{fontSize:11,color:C.mid,marginTop:6}}>suscripciones activas · ₲/mes</div>
+        </div>
+        <div className="my-metric-card" style={{flex:'1 1 180px',minWidth:160}}>
+          <div className="my-metric-card__label">Costos mensuales</div>
+          <div style={{fontSize:26,fontWeight:800,color:'var(--text-primary)',lineHeight:1.1,letterSpacing:'-0.5px'}}>{fmtGs(summary?.monthly_costs_pyg)}</div>
+          <div style={{fontSize:11,color:C.mid,marginTop:6}}>anuales /12 · USD→₲</div>
+        </div>
+        <div className="my-metric-card" style={{flex:'1 1 180px',minWidth:160}}>
+          <div className="my-metric-card__label">Margen mensual</div>
+          <div style={{fontSize:26,fontWeight:800,color:margin>=0?C.green:C.red,lineHeight:1.1,letterSpacing:'-0.5px'}}>{fmtGs(margin)}</div>
+          <div style={{fontSize:11,color:C.mid,marginTop:6}}>MRR − costos</div>
+        </div>
+        <div className="my-metric-card" style={{flex:'1 1 180px',minWidth:160}}>
+          <div className="my-metric-card__label">Próximo vencimiento</div>
+          {up0 ? (
+            <>
+              <div style={{fontSize:18,fontWeight:800,color:'var(--text-primary)',lineHeight:1.15,letterSpacing:'-0.3px'}}>{up0.name}</div>
+              <div style={{fontSize:12,fontWeight:700,color:dueSemaphore(up0.days_remaining).color,marginTop:6}}>{dueLabel(up0.days_remaining)}</div>
+            </>
+          ) : <div style={{fontSize:15,color:C.mid,marginTop:8}}>Sin vencimientos cargados</div>}
+        </div>
+      </div>
+
+      {/* Costos del sistema */}
+      <SectionCard title="Costos del sistema" action={<Btn size="sm" onClick={()=>setCostModal({})}>+ Agregar costo</Btn>}>
+        {costs.length===0 ? (
+          <div style={{padding:'18px 4px',color:C.mid,fontSize:13}}>No hay costos cargados.</div>
+        ) : (
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+              <thead>
+                <tr style={{textAlign:'left',color:C.mid,fontSize:11,textTransform:'uppercase',letterSpacing:.4}}>
+                  <th style={{padding:'8px 10px'}}>Servicio</th>
+                  <th style={{padding:'8px 10px'}}>Monto</th>
+                  <th style={{padding:'8px 10px'}}>Ciclo</th>
+                  <th style={{padding:'8px 10px'}}>Vence</th>
+                  <th style={{padding:'8px 10px'}}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {costs.map(c=>{
+                  const days = c.next_due_date ? Math.round((new Date(c.next_due_date+'T00:00:00').getTime() - _today0)/86400000) : null;
+                  const sem = dueSemaphore(days);
+                  return (
+                    <tr key={c.id} style={{borderTop:`1px solid ${C.border}`,opacity:c.active?1:.5}}>
+                      <td style={{padding:'10px'}}>
+                        <div style={{fontWeight:700,color:C.ink}}>{c.name}{!c.active && <span style={{fontSize:11,color:C.mid,fontWeight:400}}> · inactivo</span>}</div>
+                        <div style={{fontSize:11,color:C.mid}}>{[c.provider,c.category].filter(Boolean).join(' · ')||'—'}</div>
+                      </td>
+                      <td style={{padding:'10px',whiteSpace:'nowrap'}}>{amountCell(c.amount,c.currency)}</td>
+                      <td style={{padding:'10px',color:C.mid}}>{CYCLE_LABEL[c.cycle]||c.cycle}</td>
+                      <td style={{padding:'10px',whiteSpace:'nowrap'}}>
+                        <span style={{display:'inline-block',padding:'2px 9px',borderRadius:20,fontSize:11,fontWeight:700,background:sem.bg,color:sem.color}}>
+                          {c.next_due_date ? dueLabel(days) : 'Sin fecha'}
+                        </span>
+                        {c.next_due_date && <div style={{fontSize:10.5,color:C.dim,marginTop:2}}>{fmtDate(c.next_due_date)}</div>}
+                      </td>
+                      <td style={{padding:'10px',whiteSpace:'nowrap',textAlign:'right'}}>
+                        <div style={{display:'inline-flex',gap:6}}>
+                          <Btn size="sm" variant="success" onClick={()=>markPaid(c)} title="Registra el egreso y avanza el vencimiento">Pagado</Btn>
+                          <Btn size="sm" variant="ghost" onClick={()=>setCostModal(c)}>Editar</Btn>
+                          <Btn size="sm" variant="danger" onClick={()=>delCost(c)}>×</Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* Ingresos y egresos */}
+      <div style={{marginTop:18}}>
+        <SectionCard title="Ingresos y egresos"
+          action={
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <input type="month" value={month} onChange={e=>setMonth(e.target.value)}
+                style={{fontSize:12,padding:'7px 10px',border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,color:C.ink}}/>
+              <Btn size="sm" variant="success" onClick={()=>setEntryModal('income')}>+ Ingreso</Btn>
+              <Btn size="sm" variant="danger"  onClick={()=>setEntryModal('expense')}>+ Egreso</Btn>
+            </div>
+          }>
+          <div style={{display:'flex',gap:16,marginBottom:12,flexWrap:'wrap'}}>
+            <div style={{fontSize:12,color:C.mid}}>Ingresos del mes: <strong style={{color:C.green}}>{fmtGs(summary?.income_month_pyg)}</strong></div>
+            <div style={{fontSize:12,color:C.mid}}>Egresos del mes: <strong style={{color:C.red}}>{fmtGs(summary?.expense_month_pyg)}</strong></div>
+            <div style={{fontSize:12,color:C.mid}}>Neto: <strong style={{color:(Number(summary?.income_month_pyg||0)-Number(summary?.expense_month_pyg||0))>=0?C.green:C.red}}>{fmtGs(Number(summary?.income_month_pyg||0)-Number(summary?.expense_month_pyg||0))}</strong></div>
+          </div>
+          {entries.length===0 ? (
+            <div style={{padding:'14px 4px',color:C.mid,fontSize:13}}>Sin movimientos en el mes seleccionado.</div>
+          ) : (
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead>
+                  <tr style={{textAlign:'left',color:C.mid,fontSize:11,textTransform:'uppercase',letterSpacing:.4}}>
+                    <th style={{padding:'8px 10px'}}>Fecha</th>
+                    <th style={{padding:'8px 10px'}}>Concepto</th>
+                    <th style={{padding:'8px 10px'}}>Tipo</th>
+                    <th style={{padding:'8px 10px'}}>Monto</th>
+                    <th style={{padding:'8px 10px'}}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map(en=>(
+                    <tr key={en.id} style={{borderTop:`1px solid ${C.border}`}}>
+                      <td style={{padding:'10px',whiteSpace:'nowrap',color:C.mid}}>{fmtDate(en.entry_date)}</td>
+                      <td style={{padding:'10px'}}>
+                        <div style={{color:C.ink}}>{en.concept}</div>
+                        {en.category && <div style={{fontSize:11,color:C.mid}}>{en.category}</div>}
+                      </td>
+                      <td style={{padding:'10px'}}>
+                        <span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:700,background:en.type==='income'?TINT.okBg:TINT.dangerBg,color:en.type==='income'?C.green:C.red}}>
+                          {en.type==='income'?'Ingreso':'Egreso'}
+                        </span>
+                      </td>
+                      <td style={{padding:'10px',whiteSpace:'nowrap',fontWeight:700,color:en.type==='income'?C.green:C.red}}>
+                        {en.type==='income'?'+':'−'} {amountCell(en.amount,en.currency)}
+                      </td>
+                      <td style={{padding:'10px',textAlign:'right'}}>
+                        <Btn size="sm" variant="danger" onClick={()=>delEntry(en)}>×</Btn>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Ingresos recurrentes por suscripción (informativo, solo lectura) */}
+      <div style={{marginTop:18}}>
+        <SectionCard title="Ingresos recurrentes por suscripción (base de la MRR)">
+          {recurring.length===0 ? (
+            <div style={{padding:'14px 4px',color:C.mid,fontSize:13}}>No hay suscripciones activas con importe.</div>
+          ) : (
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead>
+                  <tr style={{textAlign:'left',color:C.mid,fontSize:11,textTransform:'uppercase',letterSpacing:.4}}>
+                    <th style={{padding:'8px 10px'}}>Restaurante</th>
+                    <th style={{padding:'8px 10px'}}>Plan</th>
+                    <th style={{padding:'8px 10px',textAlign:'right'}}>₲/mes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recurring.map((r,i)=>(
+                    <tr key={i} style={{borderTop:`1px solid ${C.border}`}}>
+                      <td style={{padding:'9px 10px',color:C.ink}}>{r.name}</td>
+                      <td style={{padding:'9px 10px'}}><PlanBadge name={r.plan}/></td>
+                      <td style={{padding:'9px 10px',textAlign:'right',fontWeight:700,color:C.ink}}>{fmtGs(r.amount)}</td>
+                    </tr>
+                  ))}
+                  <tr style={{borderTop:`2px solid ${C.border}`}}>
+                    <td style={{padding:'9px 10px',fontWeight:800,color:C.ink}} colSpan={2}>MRR estimada</td>
+                    <td style={{padding:'9px 10px',textAlign:'right',fontWeight:800,color:C.green}}>{fmtGs(summary?.mrr_pyg)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{fontSize:11,color:C.dim,marginTop:8}}>Solo lectura. Los planes/precios se editan en <strong>Facturación</strong>.</div>
+        </SectionCard>
+      </div>
+
+      {/* Configuración: tipo de cambio */}
+      <div style={{marginTop:18}}>
+        <SectionCard title="Configuración">
+          <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+            <div>
+              <div style={{fontSize:11,color:C.mid,fontWeight:600,textTransform:'uppercase',letterSpacing:.4,marginBottom:4}}>Tipo de cambio USD → ₲</div>
+              {rateEdit ? (
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <input type="number" min="1" step="1" value={rateVal} onChange={e=>setRateVal(e.target.value)}
+                    style={{width:140,fontSize:14,padding:'8px 10px',border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,color:C.ink}}/>
+                  <Btn size="sm" onClick={saveRate}>Guardar</Btn>
+                  <Btn size="sm" variant="ghost" onClick={()=>setRateEdit(false)}>Cancelar</Btn>
+                </div>
+              ) : (
+                <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                  <span style={{fontSize:22,fontWeight:800,color:C.ink}}>1 US$ = ₲ {Number(rate).toLocaleString('es-PY')}</span>
+                  <Btn size="sm" variant="ghost" onClick={()=>{ setRateVal(String(rate)); setRateEdit(true); }}>Editar</Btn>
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{fontSize:11,color:C.dim,marginTop:10,maxWidth:560,lineHeight:1.5}}>Afecta la conversión de todos los costos y movimientos cargados en USD (Vercel, Supabase, etc.). No cambia la MRR (las suscripciones ya están en ₲).</div>
+        </SectionCard>
+      </div>
+
+      {costModal  && <CostModal  row={costModal} onClose={()=>setCostModal(null)} onSaved={()=>{ setCostModal(null); load(true); }} setFlash={setFlash}/>}
+      {entryModal && <EntryModal type={entryModal} onClose={()=>setEntryModal(null)} onSaved={()=>{ setEntryModal(null); load(true); }} setFlash={setFlash}/>}
+    </div>
+  );
+}
+
 function App() {
   const [page,    setPage]    = useState('dashboard');
   const [loading, setLoading] = useState(true);
@@ -6690,7 +7183,7 @@ function App() {
   // Se aplica en el cuerpo del render para que los hijos formateen ya con la moneda correcta.
   setPlatformCurrency(platformConfig.find(c=>c.key==='platform_currency')?.value);
 
-  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración',mi_cuenta:'Mi cuenta'};
+  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',finanzas:'Finanzas',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración',mi_cuenta:'Mi cuenta'};
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
@@ -6735,6 +7228,7 @@ function App() {
               {page==='capacidad'     && <PageCapacidad    enriched={enriched}/>}
               {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} addonCatalog={addonCatalog} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} addonCatalog={addonCatalog} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='finanzas'      && <PageFinanzas     enriched={enriched} setFlash={setFlash}/>}
               {page==='fiscal'        && <PageFiscal       setFlash={setFlash}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
               {page==='proveedores'   && <PageProveedores  restaurants={restaurants} setFlash={setFlash}/>}
