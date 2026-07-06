@@ -2861,6 +2861,7 @@ function PageUsuarios({restaurants, setFlash}) {
 // ══════════════════════════════════════════════════════════════
 function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState('general');   // general (banner) | cuenta (perfil + clave)
 
   const bannerRow   = platformConfig.find(c=>c.key==='global_banner_active');
   const bannerMsgRow= platformConfig.find(c=>c.key==='global_banner_message');
@@ -2884,34 +2885,43 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
 
   return (
     <div className="animate-in">
-      {/* Banner global */}
-      <SectionCard title="Banner Global">
-        <div style={{padding:'20px 24px'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-            <div>
-              <div style={{fontWeight:600,fontSize:14,color:C.ink,marginBottom:4}}>Activar banner de aviso</div>
-              <div style={{fontSize:12,color:C.mid}}>Aparece como barra fija en la parte superior del panel Superadmin</div>
+      {/* Sub-pestañas: configuración general del panel + mi cuenta */}
+      <div style={{display:'flex',gap:8,marginBottom:16}}>
+        <FilterBtn active={tab==='general'} onClick={()=>setTab('general')}>General</FilterBtn>
+        <FilterBtn active={tab==='cuenta'}  onClick={()=>setTab('cuenta')}>Mi cuenta</FilterBtn>
+      </div>
+
+      {tab==='general' && (
+        <SectionCard title="Banner Global">
+          <div style={{padding:'20px 24px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <div>
+                <div style={{fontWeight:600,fontSize:14,color:C.ink,marginBottom:4}}>Activar banner de aviso</div>
+                <div style={{fontSize:12,color:C.mid}}>Aparece como barra fija en la parte superior del panel Superadmin</div>
+              </div>
+              <Toggle checked={bannerActive} onChange={setBannerActive}/>
             </div>
-            <Toggle checked={bannerActive} onChange={setBannerActive}/>
-          </div>
-          <FormField label="Mensaje del banner">
-            <input
-              value={bannerMsg}
-              onChange={e=>setBannerMsg(e.target.value)}
-              placeholder="Ej: Sistema en mantenimiento programado el sábado 25 de mayo"
-              disabled={!bannerActive}
-            />
-          </FormField>
-          {bannerActive&&bannerMsg&&(
-            <div style={{margin:'12px 0',background:'#FF9500',borderRadius:8,padding:'10px 16px',color:'#fff',fontSize:13,fontWeight:500}}>
-              Vista previa: {bannerMsg}
+            <FormField label="Mensaje del banner">
+              <input
+                value={bannerMsg}
+                onChange={e=>setBannerMsg(e.target.value)}
+                placeholder="Ej: Sistema en mantenimiento programado el sábado 25 de mayo"
+                disabled={!bannerActive}
+              />
+            </FormField>
+            {bannerActive&&bannerMsg&&(
+              <div style={{margin:'12px 0',background:'#FF9500',borderRadius:8,padding:'10px 16px',color:'#fff',fontSize:13,fontWeight:500}}>
+                Vista previa: {bannerMsg}
+              </div>
+            )}
+            <div style={{marginTop:16}}>
+              <Btn onClick={saveBanner} disabled={saving}>{saving?'Guardando…':'Guardar configuración'}</Btn>
             </div>
-          )}
-          <div style={{marginTop:16}}>
-            <Btn onClick={saveBanner} disabled={saving}>{saving?'Guardando…':'Guardar configuración'}</Btn>
           </div>
-        </div>
-      </SectionCard>
+        </SectionCard>
+      )}
+
+      {tab==='cuenta' && <PageMiCuenta setFlash={setFlash}/>}
     </div>
   );
 }
@@ -4499,10 +4509,10 @@ const NAV = [
   {id:'actividad',      label:'Actividad'},
   {id:'sitio_web',      label:'Sitio web'},
   {id:'horarios',       label:'Horarios'},
-  {id:'calendario',     label:'Calendario'},
   {id:'configuracion',  label:'Configuración'},
-  {id:'mi_cuenta',      label:'Mi cuenta'},
 ];
+// "Calendario" ahora vive como pestaña dentro de Horarios; "Mi cuenta" como
+// pestaña dentro de Configuración (consolidación de menú, sin perder nada).
 
 /* ─── Soporte: constantes compartidas ─── */
 const SUPPORT_CATS = {
@@ -4924,6 +4934,7 @@ function saCalGridDays(year, month) {
 // ── Horarios & Estado — vista de apertura/cierre por restaurante ─
 function PageHorarios({restaurants, setFlash, reload}) {
   const [toggling, setToggling] = useState(null);
+  const [tab, setTab] = useState('estados');   // estados (apertura/cierre) | calendario
 
   const toggleOpen = async (r) => {
     if (!db) { setFlash({type:'warn', text:'Sin conexión — operación demo'}); return; }
@@ -4954,7 +4965,16 @@ function PageHorarios({restaurants, setFlash, reload}) {
   };
 
   return (
-    <div>
+    <div className="animate-in">
+      {/* Sub-pestañas: estado de apertura + calendario de eventos */}
+      <div style={{display:'flex',gap:8,marginBottom:16}}>
+        <FilterBtn active={tab==='estados'}    onClick={()=>setTab('estados')}>Horarios y estados</FilterBtn>
+        <FilterBtn active={tab==='calendario'} onClick={()=>setTab('calendario')}>Calendario</FilterBtn>
+      </div>
+
+      {tab==='calendario' && <PageCalendario restaurants={restaurants}/>}
+
+      {tab==='estados' && (<>
       <div style={{marginBottom:24}}>
         <div style={{fontSize:22,fontWeight:800,color:C.ink,letterSpacing:'-0.5px'}}>Horarios y estados</div>
         <div style={{fontSize:13,color:C.mid,marginTop:4}}>Estado de apertura en tiempo real y ventana de mantenimiento</div>
@@ -5049,6 +5069,7 @@ function PageHorarios({restaurants, setFlash, reload}) {
       <div style={{marginTop:16,fontSize:11,color:C.mid}}>
         El estado se actualiza manualmente. Los horarios mostrados son los cargados en cada restaurante desde el panel admin.
       </div>
+      </>)}
     </div>
   );
 }
@@ -7477,7 +7498,7 @@ function App() {
   // Se aplica en el cuerpo del render para que los hijos formateen ya con la moneda correcta.
   setPlatformCurrency(platformConfig.find(c=>c.key==='platform_currency')?.value);
 
-  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',finanzas:'Finanzas',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración',mi_cuenta:'Mi cuenta'};
+  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',finanzas:'Finanzas',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración'};
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
@@ -7531,9 +7552,7 @@ function App() {
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='sitio_web'     && <PageSitioWeb     setFlash={setFlash}/>}
               {page==='horarios'      && <PageHorarios     restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}
-              {page==='calendario'    && <PageCalendario   restaurants={restaurants}/>}
               {page==='configuracion' && <PageConfiguracion restaurants={restaurants} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
-              {page==='mi_cuenta'     && <PageMiCuenta      setFlash={setFlash}/>}
             </>
           )}
         </div>
