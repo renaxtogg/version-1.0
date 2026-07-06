@@ -7,6 +7,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -252,7 +253,13 @@ function Modal({title,onClose,children,width=460}){
 
 /* ── SHARED COMPONENTS ── */
 function Lbl({children,required}){return<label style={{fontSize:10,color:C.mid,display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}{required&&<span style={{color:C.red,marginLeft:3}}>*</span>}</label>;}
-function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}){return<input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'9px 11px',fontSize:14,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',borderRadius:6,...(rest.style||{})}}/>;}
+function Inp({value,onChange,placeholder,type='text',mono,full=true,gs,style:sx,...rest}){
+  const style={width:full?'100%':'auto',padding:'9px 11px',fontSize:14,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',borderRadius:6,...(sx||{})};
+  // gs: input de guaraníes con separador de miles (100.000); onChange recibe el
+  // string de dígitos crudos (sin puntos). Conserva el estilo del <Inp> de caja.
+  if(gs) return <GsInput value={value} onChange={onChange} placeholder={placeholder} {...rest} style={style}/>;
+  return <input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={style}/>;
+}
 function Sel({value,onChange,children,...rest}){return<select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,...(rest.style||{})}}>{children}</select>;}
 function Textarea({value,onChange,placeholder,rows=3}){return<textarea value={value} onChange={onChange} placeholder={placeholder} rows={rows} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,resize:'vertical'}}/>;}
 function Btn({children,onClick,variant='primary',disabled,small,full,style:sx}){
@@ -1405,7 +1412,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:8}}>
             <div style={{flex:1}}>
               <Lbl required>MONTO RECIBIDO (₲)</Lbl>
-              <Inp type="number" mono value={montoPagado} onChange={e=>setMontoPagado(e.target.value)} placeholder={String(totalReal)}/>
+              <Inp gs mono value={montoPagado} onChange={setMontoPagado} placeholder={formatGs(totalReal)}/>
             </div>
             <button onClick={()=>setMontoPagado('0')} title="Limpiar" style={{marginTop:18,padding:'9px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.dim,fontSize:13,cursor:'pointer'}}>✕</button>
           </div>
@@ -1669,7 +1676,7 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
               <button onClick={()=>setMontoPagado(String(subtotal))} style={{padding:'9px 4px',borderRadius:6,border:`1px solid ${C.blue}55`,background:`rgba(59,130,246,0.1)`,color:C.blue,fontSize:11,fontWeight:700,cursor:'pointer'}}>Exacto</button>
             </div>
             <div style={{display:'flex',gap:6,alignItems:'flex-end'}}>
-              <div style={{flex:1}}><Lbl>MONTO RECIBIDO (₲)</Lbl><Inp type="number" mono value={montoPagado} onChange={e=>setMontoPagado(e.target.value)} placeholder={String(subtotal)}/></div>
+              <div style={{flex:1}}><Lbl>MONTO RECIBIDO (₲)</Lbl><Inp gs mono value={montoPagado} onChange={setMontoPagado} placeholder={formatGs(subtotal)}/></div>
               <button onClick={()=>setMontoPagado('0')} title="Limpiar" style={{padding:'9px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.dim,fontSize:13,cursor:'pointer'}}>✕</button>
             </div>
             {montoNum>0&&(cambio>=0?(
@@ -2150,7 +2157,7 @@ function IngresosEgresosPanel({turno,profile,movimientos,onMovimiento}){
           </div>
           <div style={{marginBottom:12}}>
             <Lbl required>MONTO (₲)</Lbl>
-            <Inp type="number" mono value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})} placeholder="0"/>
+            <Inp gs mono value={form.monto} onChange={v=>setForm({...form,monto:v})} placeholder="0"/>
           </div>
           <div style={{marginBottom:12}}>
             <Lbl required>CATEGORÍA</Lbl>
@@ -2288,7 +2295,7 @@ function QuejasPanel({turno,profile}){
                   </div>
                   <div>
                     <Lbl>MONTO (₲)</Lbl>
-                    <Inp type="number" mono value={form.comp_monto} onChange={e=>setForm({...form,comp_monto:e.target.value})} placeholder="0"/>
+                    <Inp gs mono value={form.comp_monto} onChange={v=>setForm({...form,comp_monto:v})} placeholder="0"/>
                   </div>
                 </div>
               )}
@@ -2416,7 +2423,7 @@ function RetiroPanel({turno,profile,movimientos,onMovimiento}){
           <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>NUEVO RETIRO</div>
           <div style={{marginBottom:12}}>
             <Lbl required>MONTO A RETIRAR (₲)</Lbl>
-            <Inp type="number" mono value={form.monto} onChange={e=>setForm({...form,monto:e.target.value})} placeholder="0"/>
+            <Inp gs mono value={form.monto} onChange={v=>setForm({...form,monto:v})} placeholder="0"/>
             {excede&&(
               <div style={{fontSize:11,color:C.red,marginTop:4}}>Supera el efectivo disponible ({fmt(saldoEfectivo)})</div>
             )}
@@ -2709,7 +2716,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
               }}>Exacto</button>
             </div>
             <Lbl required>MONTO RECIBIDO (₲)</Lbl>
-            <Inp type="number" mono value={montoPagado} onChange={e=>setMontoPagado(e.target.value)} placeholder={String(subtotal)}/>
+            <Inp gs mono value={montoPagado} onChange={setMontoPagado} placeholder={formatGs(subtotal)}/>
             {montoNum>0&&(
               cambio>=0?(
                 <div style={{marginTop:8,padding:'12px 14px',background:'rgba(34,197,94,0.1)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:8,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -4119,11 +4126,11 @@ function CierreCajaPanel({turno,cajaNombre,movimientos,profile,onCierre}){
 
         <div style={{marginTop:16}}>
           <Lbl>TOTAL VOUCHERS TARJETA (GS.)</Lbl>
-          <Inp type="number" mono value={vouchersTxt} onChange={e=>setVouchersTxt(e.target.value)} placeholder="0" min="0" step="1"/>
+          <Inp gs mono value={vouchersTxt} onChange={setVouchersTxt} placeholder="0"/>
         </div>
         <div style={{marginTop:12}}>
           <Lbl>TOTAL TRANSFERENCIAS / QR BANCARD (GS.)</Lbl>
-          <Inp type="number" mono value={transferTxt} onChange={e=>setTransferTxt(e.target.value)} placeholder="0" min="0" step="1"/>
+          <Inp gs mono value={transferTxt} onChange={setTransferTxt} placeholder="0"/>
         </div>
         <div style={{marginTop:12,marginBottom:20}}>
           <Lbl>OBSERVACIONES DE CIERRE</Lbl>

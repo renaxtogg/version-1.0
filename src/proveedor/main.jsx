@@ -10,6 +10,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
 // PR-MKT-2: chat del marketplace (módulo compartido con admin/gerente)
 import { createMarketplaceChat } from "../marketplace/chat.jsx";
 
@@ -150,8 +151,11 @@ function Btn({children,onClick,variant='primary',disabled,small,style:sx,full}) 
   return <button onClick={onClick} disabled={disabled} className={`my-btn ${vcls}${small?' my-btn--sm':''}`} style={{...(full?{width:'100%'}:null),...sx}}>{children}</button>;
 }
 function Lbl({children}) { return <label style={{fontSize:10,color:C.mid,display:'block',marginBottom:5,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>{children}</label>; }
-function Inp({value,onChange,placeholder,type='text',...rest}) {
-  return <input type={type} value={value==null?'':value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,...(rest.style||{})}}/>;
+function Inp({value,onChange,placeholder,type='text',gs,style:sx,...rest}) {
+  const style={width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,...(sx||{})};
+  // gs: input de guaraníes con separador de miles (100.000); onChange recibe dígitos crudos.
+  if(gs) return <GsInput value={value} onChange={onChange} placeholder={placeholder} {...rest} style={style}/>;
+  return <input type={type} value={value==null?'':value} onChange={onChange} placeholder={placeholder} {...rest} style={style}/>;
 }
 function Sel({value,onChange,children,...rest}) {
   return <select value={value||''} onChange={onChange} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,...(rest.style||{})}}>{children}</select>;
@@ -705,7 +709,7 @@ function ProductModal({supplier, product, cats, onClose, onSaved}) {
           </div>
           <div>
             <Lbl>Precio (₲)</Lbl>
-            <Inp type="number" min="0" step="1000" value={f.precio} onChange={e=>set('precio',e.target.value)}
+            <Inp gs value={f.precio} onChange={v=>set('precio',v)}
                  disabled={f.precio_tipo==='cotizar'} placeholder={f.precio_tipo==='cotizar'?'A cotizar':'Ej: 380000'}/>
           </div>
         </div>

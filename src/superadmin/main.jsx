@@ -7,6 +7,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
 
 const { useState, useEffect, useCallback, useRef, useReducer } = React;
 
@@ -120,6 +121,14 @@ let CCY = CURRENCIES.PYG;   // moneda activa — se setea desde platform_config
 const setPlatformCurrency = code => { CCY = CURRENCIES[code] || CURRENCIES.PYG; };
 const fmtMoney = n => `${CCY.symbol} ${Number(n||0).toLocaleString(CCY.locale,{minimumFractionDigits:CCY.decimals,maximumFractionDigits:CCY.decimals})}`;
 const fmtGuarani = fmtMoney;   // alias heredado — todo el dinero de la UI pasa por aquí
+// Input de dinero en la MONEDA de la plataforma (CCY). Si CCY no tiene decimales
+// (guaraní) usa el <GsInput> con separador de miles (100.000) y entrega el string
+// de dígitos crudos; si la moneda tiene decimales (USD/BRL/ARS) mantiene el input
+// numérico con decimales. En ambos casos onChange recibe un string.
+const MoneyCcyInput = ({value, onChange, ...rest}) =>
+  CCY.decimals === 0
+    ? <GsInput value={value} onChange={onChange} {...rest}/>
+    : <input type="number" min="0" step={CCY.step} value={value==null?'':value} onChange={e=>onChange(e.target.value)} {...rest}/>;
 // Escapa HTML al interpolar datos en plantillas de impresión (document.write) — evita stored XSS.
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : 0;
@@ -2201,7 +2210,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
               </select>
             </FormField>
             <FormField label="Monto mensual (₲)">
-              <input type="number" step="1000" min="0" value={subForm.monthly_amount} onChange={ssf('monthly_amount')} placeholder="400000"/>
+              <MoneyCcyInput value={subForm.monthly_amount} onChange={v=>setSubForm(f=>({...f,monthly_amount:v}))} placeholder="400000"/>
             </FormField>
             <FormField label="Método de pago">
               <select value={subForm.payment_method} onChange={ssf('payment_method')}>
@@ -2433,7 +2442,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
                 </div>
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
                   <span style={{fontSize:12,color:C.mid}}>₲/mes</span>
-                  <input type="number" step="1000" min="0" value={f.price_usd??''} onChange={e=>setAddonForm(s=>({...s,[a.key]:{...s[a.key],price_usd:e.target.value}}))} style={{width:110}}/>
+                  <MoneyCcyInput value={f.price_usd??''} onChange={v=>setAddonForm(s=>({...s,[a.key]:{...s[a.key],price_usd:v}}))} style={{width:110}}/>
                 </div>
                 <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:C.mid,cursor:'pointer'}}>
                   <input type="checkbox" checked={f.is_active!==false} onChange={e=>setAddonForm(s=>({...s,[a.key]:{...s[a.key],is_active:e.target.checked}}))} style={{width:15,height:15}}/>
@@ -2459,7 +2468,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
         <Modal title={planModal==='create'?'Nuevo plan':'Editar plan'} onClose={()=>setPlanModal(null)}>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
             <FormField label="Nombre *"><input value={planForm.name} onChange={spf('name')} placeholder="Pro"/></FormField>
-            <FormField label="Precio/mes (₲) *"><input type="number" step="1000" min="0" value={planForm.price_usd} onChange={spf('price_usd')} placeholder="400000"/></FormField>
+            <FormField label="Precio/mes (₲) *"><MoneyCcyInput value={planForm.price_usd} onChange={v=>setPlanForm(f=>({...f,price_usd:v}))} placeholder="400000"/></FormField>
             <FormField label="Ciclo">
               <select value={planForm.billing_cycle} onChange={spf('billing_cycle')}>
                 <option value="monthly">Mensual</option>
@@ -6032,10 +6041,10 @@ function PlanEditModal({plan, onClose, setFlash, reload}) {
       </FormField>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <FormField label="Precio mensual (₲)" hint={linked ? 'Sincronizado desde el plan operativo (Superadmin → Planes)' : 'Vacío = a cotizar'}>
-          <input value={monthly} onChange={e=>setMonthly(e.target.value)} placeholder="229000" disabled={linked} readOnly={linked}/>
+          <GsInput value={monthly} onChange={setMonthly} placeholder="229000" disabled={linked} readOnly={linked}/>
         </FormField>
         <FormField label="Precio anual (₲)" hint={linked ? 'Derivado (mensual × 10)' : 'Vacío = a cotizar'}>
-          <input value={annual} onChange={e=>setAnnual(e.target.value)} placeholder="2290000" disabled={linked} readOnly={linked}/>
+          <GsInput value={annual} onChange={setAnnual} placeholder="2290000" disabled={linked} readOnly={linked}/>
         </FormField>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
@@ -6143,7 +6152,7 @@ function AddonEditModal({addon, onClose, setFlash, reload}) {
       <FormField label="Descripción"><textarea value={description} onChange={e=>setDescription(e.target.value)} rows={2}/></FormField>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
         <FormField label="Precio (₲)" hint="Vacío = sin precio">
-          <input value={price} onChange={e=>setPrice(e.target.value)} placeholder="150000"/>
+          <GsInput value={price} onChange={setPrice} placeholder="150000"/>
         </FormField>
         <FormField label="Tipo de precio">
           <select value={priceType} onChange={e=>setPriceType(e.target.value)}>
@@ -6633,12 +6642,12 @@ function PageFiscal({setFlash}) {
             <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'flex-end'}}>
               <div style={{flex:'1 1 200px',minWidth:180}}>
                 <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>Costo por documento ({CCY.symbol})</label>
-                <input type="number" min="0" step={CCY.step} value={tDoc} onChange={e=>setTDoc(e.target.value)} placeholder={CCY.ph}
+                <MoneyCcyInput value={tDoc} onChange={setTDoc} placeholder={CCY.ph}
                   style={{width:'100%',fontSize:13,padding:'9px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.surface,color:C.ink}}/>
               </div>
               <div style={{flex:'1 1 200px',minWidth:180}}>
                 <label style={{display:'block',fontSize:11,color:C.mid,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:.4}}>Costo fijo mensual por local ({CCY.symbol})</label>
-                <input type="number" min="0" step={CCY.step} value={tFijo} onChange={e=>setTFijo(e.target.value)} placeholder={CCY.ph}
+                <MoneyCcyInput value={tFijo} onChange={setTFijo} placeholder={CCY.ph}
                   style={{width:'100%',fontSize:13,padding:'9px 12px',border:`1px solid ${C.border}`,borderRadius:9,background:C.surface,color:C.ink}}/>
               </div>
               <Btn onClick={saveTarifa}>Guardar tarifa</Btn>
@@ -6989,10 +6998,12 @@ function CostModal({row, onClose, onSaved, setFlash}) {
           <input style={_finInp} value={f.category} onChange={e=>set('category',e.target.value)} placeholder="Ej. backend"/>
         </FormField>
         <FormField label="Monto">
-          <input style={_finInp} type="number" min="0" step="0.01" value={f.amount} onChange={e=>set('amount',e.target.value)} placeholder="0"/>
+          {f.currency==='PYG'
+            ? <GsInput style={_finInp} value={f.amount} onChange={v=>set('amount',v)} placeholder="0"/>
+            : <input style={_finInp} type="number" min="0" step="0.01" value={f.amount} onChange={e=>set('amount',e.target.value)} placeholder="0"/>}
         </FormField>
         <FormField label="Moneda">
-          <select style={_finInp} value={f.currency} onChange={e=>set('currency',e.target.value)}>
+          <select style={_finInp} value={f.currency} onChange={e=>{const c=e.target.value; set('currency',c); if(CURRENCIES[c]&&CURRENCIES[c].decimals===0&&f.amount!=='') set('amount', String(Math.trunc(Number(f.amount))||0));}}>
             <option value="USD">USD (US$)</option>
             <option value="PYG">Guaraníes (₲)</option>
           </select>
@@ -7055,10 +7066,12 @@ function EntryModal({type, onClose, onSaved, setFlash}) {
           <input style={_finInp} value={f.concept} onChange={e=>set('concept',e.target.value)} placeholder={isIncome?'Ej. Cobro anual adelantado':'Ej. Publicidad'}/>
         </FormField>
         <FormField label="Monto">
-          <input style={_finInp} type="number" min="0" step="0.01" value={f.amount} onChange={e=>set('amount',e.target.value)} placeholder="0"/>
+          {f.currency==='PYG'
+            ? <GsInput style={_finInp} value={f.amount} onChange={v=>set('amount',v)} placeholder="0"/>
+            : <input style={_finInp} type="number" min="0" step="0.01" value={f.amount} onChange={e=>set('amount',e.target.value)} placeholder="0"/>}
         </FormField>
         <FormField label="Moneda">
-          <select style={_finInp} value={f.currency} onChange={e=>set('currency',e.target.value)}>
+          <select style={_finInp} value={f.currency} onChange={e=>{const c=e.target.value; set('currency',c); if(CURRENCIES[c]&&CURRENCIES[c].decimals===0&&f.amount!=='') set('amount', String(Math.trunc(Number(f.amount))||0));}}>
             <option value="PYG">Guaraníes (₲)</option>
             <option value="USD">USD (US$)</option>
           </select>
@@ -7359,7 +7372,7 @@ function PageFinanzas({enriched, setFlash}) {
               <div style={{fontSize:11,color:C.mid,fontWeight:600,textTransform:'uppercase',letterSpacing:.4,marginBottom:4}}>Tipo de cambio USD → ₲</div>
               {rateEdit ? (
                 <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                  <input type="number" min="1" step="1" value={rateVal} onChange={e=>setRateVal(e.target.value)}
+                  <GsInput value={rateVal} onChange={setRateVal}
                     style={{width:140,fontSize:14,padding:'8px 10px',border:`1px solid ${C.border}`,borderRadius:8,background:C.surface,color:C.ink}}/>
                   <Btn size="sm" onClick={saveRate}>Guardar</Btn>
                   <Btn size="sm" variant="ghost" onClick={()=>setRateEdit(false)}>Cancelar</Btn>

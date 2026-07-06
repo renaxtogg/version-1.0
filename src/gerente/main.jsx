@@ -7,6 +7,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
 // PR-MKT-2: módulo Marketplace B2B (tablas marketplace_*, migs 142/143) —
 // compartido con el panel admin. NO confundir con proveedores internos (mig 072).
 import { createRestaurantMarketplace } from "../marketplace/restaurant-marketplace.jsx";
@@ -184,8 +185,11 @@ function Btn({children,onClick,variant='primary',disabled,small,style:sx,full}) 
   return <button onClick={onClick} disabled={disabled} className={`my-btn ${vcls}${small?' my-btn--sm':''}`} style={{...(full?{width:'100%'}:null),...sx}}>{children}</button>;
 }
 function Lbl({children}) { return <label style={{fontSize:10,color:C.mid,display:'block',marginBottom:5,fontWeight:700,letterSpacing:1,textTransform:'uppercase'}}>{children}</label>; }
-function Inp({value,onChange,placeholder,type='text',...rest}) {
-  return <input type={type} value={value||''} onChange={onChange} placeholder={placeholder} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,...(rest.style||{})}}/>;
+function Inp({value,onChange,placeholder,type='text',gs,style:sx,...rest}) {
+  const style={width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,...(sx||{})};
+  // gs: input de guaraníes con separador de miles (100.000); onChange recibe dígitos crudos.
+  if(gs) return <GsInput value={value} onChange={onChange} placeholder={placeholder} {...rest} style={style}/>;
+  return <input type={type} value={value||''} onChange={onChange} placeholder={placeholder} {...rest} style={style}/>;
 }
 function Sel({value,onChange,children,...rest}) {
   return <select value={value||''} onChange={onChange} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,...(rest.style||{})}}>{children}</select>;
@@ -696,7 +700,7 @@ function NewApprovalModal({onClose, onSaved, user, userName}) {
             {Object.entries(APPROVAL_LABEL).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
           </Sel>
         </div>
-        <div><Lbl>Monto (opcional)</Lbl><Inp type="number" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0"/></div>
+        <div><Lbl>Monto (opcional)</Lbl><Inp gs value={amount} onChange={setAmount} placeholder="0"/></div>
         <div><Lbl>Motivo / descripción</Lbl><Txt value={reason} onChange={e=>setReason(e.target.value)} placeholder="Describí el motivo de la solicitud"/></div>
         <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:6}}>
           <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>

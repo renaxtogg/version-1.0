@@ -8,6 +8,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { formatGs, parseGs, GsInput } from '../shared/gs.jsx';
 const { useState, useEffect, useRef, createContext, useContext, useCallback } = React;
 
 /* ── SUPABASE CLIENT ─────────────────────── */
@@ -1909,11 +1910,10 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
             {cashOption === 'change' && (
               <div>
                 <div style={{ fontSize: 12, color: T.gray, marginBottom: 6 }}>¿Con cuánto pagás? (₲)</div>
-                <input
-                  type="number" inputMode="numeric"
+                <GsInput
                   value={cashInput}
-                  onChange={e=>setCashInput(e.target.value)}
-                  placeholder={String(total)}
+                  onChange={setCashInput}
+                  placeholder={formatGs(total)}
                   style={{ width:'100%', padding:'10px 12px', border:`1.5px solid ${cashAmountNum>0&&cashAmountNum<total?'#EF4444':T.border}`, borderRadius:9, fontSize:16, fontFamily:"'SF Mono',ui-monospace,monospace", fontWeight:700, boxSizing:'border-box', outline:'none' }}
                 />
                 {cashAmountNum > 0 && cashAmountNum >= total && (

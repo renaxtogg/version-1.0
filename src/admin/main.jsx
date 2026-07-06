@@ -7,6 +7,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
 // PR-MKT-2: módulo Marketplace B2B (tablas marketplace_*, migs 142/143) —
 // compartido con el panel gerente. NO confundir con ProveedoresPage (los
 // proveedores internos de compras: public.suppliers, mig 072).
@@ -212,19 +213,18 @@ function Lbl({children}) { return <label style={{fontSize:10,color:C.mid,display
 function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}) {
   return <input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'8px 10px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',borderRadius:6,...(rest.style||{})}}/>;
 }
-/* Input de guaraníes: muestra separadores de miles automáticamente */
-function MoneyInp({value, onChange, placeholder='0', full=true, ...rest}) {
-  const fmtDisplay = n => { const num=parseInt(n)||0; return num>0?num.toLocaleString('es-PY'):''; };
-  const [display, setDisplay] = React.useState(() => fmtDisplay(value));
-  React.useEffect(() => { setDisplay(fmtDisplay(value)); }, [value]);
-  function handleChange(e) {
-    const raw = e.target.value.replace(/\D/g,'');
-    const num = raw===''?0:(parseInt(raw)||0);
-    setDisplay(num>0?num.toLocaleString('es-PY'):raw===''?'':'0');
-    onChange(num);
-  }
+/* Input de guaraníes: muestra separadores de miles con punto (100.000) mientras
+   se tipea y entrega el ENTERO crudo al padre. Delega en el <GsInput> compartido
+   (cursor/pegar/borrar) y conserva el contrato de admin: onChange(numeroEntero). */
+function MoneyInp({value, onChange, placeholder='0', full=true, style:sx, ...rest}) {
   const fmtPlaceholder = parseInt(placeholder)>0 ? parseInt(placeholder).toLocaleString('es-PY') : placeholder;
-  return <input type="text" inputMode="numeric" value={display} onChange={handleChange} placeholder={fmtPlaceholder} {...rest} style={{width:full?'100%':'auto',padding:'8px 10px',fontSize:13,fontFamily:"'SF Mono',ui-monospace,monospace",borderRadius:6,...(rest.style||{})}}/>;
+  return <GsInput
+    value={value ? value : ''}
+    onChange={raw => onChange(raw==='' ? 0 : (parseInt(raw,10)||0))}
+    placeholder={fmtPlaceholder}
+    {...rest}
+    style={{width:full?'100%':'auto',padding:'8px 10px',fontSize:13,fontFamily:"'SF Mono',ui-monospace,monospace",borderRadius:6,...(sx||{})}}
+  />;
 }
 function Sel({value,onChange,children,...rest}) {
   return <select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'8px 10px',fontSize:13,borderRadius:6,...(rest.style||{})}}>{children}</select>;
@@ -4318,12 +4318,12 @@ function CajaAdminPage() {
               </div>
               <div>
                 <Lbl>FONDO FIJO (₲) {cfg.cash_mode_default==='fijo'?'— requerido':'— opcional'}</Lbl>
-                <Inp type="number" min="0" step="1000" value={cfg.cash_fondo_fijo||0} onChange={e=>setCfg({...cfg,cash_fondo_fijo:e.target.value})} placeholder="500000" style={{width:'100%'}} disabled={cfg.cash_mode_default!=='fijo'}/>
+                <MoneyInp value={cfg.cash_fondo_fijo||0} onChange={v=>setCfg({...cfg,cash_fondo_fijo:v})} placeholder="500000" style={{width:'100%'}} disabled={cfg.cash_mode_default!=='fijo'}/>
                 <div style={{fontSize:11,color:C.dim,marginTop:6}}>Monto que debe permanecer en caja para el próximo turno.</div>
               </div>
               <div>
                 <Lbl>UMBRAL DE DIFERENCIA SIN JUSTIFICAR (₲)</Lbl>
-                <Inp type="number" min="0" step="1000" value={cfg.cash_diff_umbral||0} onChange={e=>setCfg({...cfg,cash_diff_umbral:e.target.value})} placeholder="50000" style={{width:'100%'}}/>
+                <MoneyInp value={cfg.cash_diff_umbral||0} onChange={v=>setCfg({...cfg,cash_diff_umbral:v})} placeholder="50000" style={{width:'100%'}}/>
                 <div style={{fontSize:11,color:C.dim,marginTop:6}}>Si la diferencia entre contado y esperado supera este monto, el cajero deberá justificar.</div>
               </div>
               <div>
@@ -5818,7 +5818,7 @@ function StockPage() {
                   <FF label="VENCIMIENTO" hint="Opcional, recomendado para perecederos"><Inp type="date" value={loadForm.expiry_date} onChange={e=>setLoadForm({...loadForm,expiry_date:e.target.value})}/></FF>
                   <FF label="N° LOTE / REMITO" hint="Para trazabilidad"><Inp value={loadForm.batch_id} onChange={e=>setLoadForm({...loadForm,batch_id:e.target.value})} placeholder="Opcional"/></FF>
                 </div>
-                <FF label="COSTO UNITARIO (₲)" hint="Opcional — para reportes de costo"><Inp type="number" min="0" value={loadForm.cost_per_unit} onChange={e=>setLoadForm({...loadForm,cost_per_unit:e.target.value})} placeholder="Opcional"/></FF>
+                <FF label="COSTO UNITARIO (₲)" hint="Opcional — para reportes de costo"><MoneyInp value={loadForm.cost_per_unit} onChange={v=>setLoadForm({...loadForm,cost_per_unit:v})} placeholder="Opcional"/></FF>
                 <FF label="NOTAS"><textarea rows={2} value={loadForm.notes} onChange={e=>setLoadForm({...loadForm,notes:e.target.value})} placeholder="Ej: Proveedor X, factura #123" style={{width:'100%',padding:'8px 10px',fontSize:13,borderRadius:6,resize:'vertical'}}/></FF>
                 <Btn onClick={doLoadStock} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Confirmar carga de stock'}</Btn>
               </div>
@@ -7576,7 +7576,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
                 <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 60px 110px 28px',gap:6,marginBottom:6}}>
                   <Inp value={it.name} onChange={e=>updItem(i,'name',e.target.value)} placeholder="Nombre del producto"/>
                   <Inp value={it.qty} type="number" min="1" onChange={e=>updItem(i,'qty',e.target.value)} placeholder="Qty"/>
-                  <Inp value={it.price} type="number" min="0" onChange={e=>updItem(i,'price',e.target.value)} placeholder="Precio ₲"/>
+                  <MoneyInp value={it.price} onChange={v=>updItem(i,'price',v)} placeholder="Precio ₲"/>
                   {newForm.items.length>1&&<button onClick={()=>removeItem(i)} style={{background:'#FF3B30',color:'#fff',border:'none',borderRadius:4,cursor:'pointer',fontWeight:700}}>×</button>}
                 </div>
               ))}
@@ -8259,8 +8259,8 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:C.dim,textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>Precio delivery (₲)</div>
-                  <input type="number" value={az.price||0}
-                    onChange={e=>setEditZones(pz=>pz.map((z,i)=>i===activeIdx?{...z,price:Number(e.target.value)}:z))}
+                  <MoneyInp value={az.price||0}
+                    onChange={v=>setEditZones(pz=>pz.map((z,i)=>i===activeIdx?{...z,price:v}:z))}
                     style={{width:'100%',height:40,border:`1.5px solid ${azClr}44`,borderRadius:8,padding:'0 10px',fontSize:14,fontWeight:700,outline:'none'}}
                   />
                 </div>
@@ -8405,7 +8405,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
                 <div><Lbl>PRECIO POR KM (₲)</Lbl><MoneyInp value={pm.price_per_km} onChange={v=>pf('price_per_km',v)} placeholder="3000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
                 <div><Lbl>COBRO MÍNIMO (₲)</Lbl><MoneyInp value={pm.min_fee} onChange={v=>pf('min_fee',v)} placeholder="10000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
                 <div><Lbl>DISTANCIA MÁX (km · vacío = sin límite)</Lbl><Inp type="number" value={pm.max_km} onChange={e=>pf('max_km',e.target.value)} placeholder="10" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
-                <div><Lbl>REDONDEO (₲)</Lbl><Inp type="number" value={pm.round_to} onChange={e=>pf('round_to',e.target.value)} placeholder="500" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
+                <div><Lbl>REDONDEO (₲)</Lbl><MoneyInp value={pm.round_to} onChange={v=>pf('round_to',v)} placeholder="500" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
                 <div><Lbl>ENVÍO GRATIS DESDE (₲ · opcional)</Lbl><MoneyInp value={pm.free_over_amount} onChange={v=>pf('free_over_amount',v)} placeholder="100000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
               </div>
             </>
@@ -9428,7 +9428,7 @@ function SupplierFormModal({supplier, onClose, onSaved}) {
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Días de entrega</div>
             <input value={f.delivery_days} onChange={e=>setF({...f, delivery_days:e.target.value})} placeholder="ej: lun, mié, vie" style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Pedido mínimo (₲)</div>
-            <input type="number" value={f.min_order} onChange={e=>setF({...f, min_order:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
+            <MoneyInp value={f.min_order} onChange={v=>setF({...f, min_order:v})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
         </div>
 
         <div style={{marginBottom:10}}>
@@ -9518,9 +9518,9 @@ function PurchaseFormModal({purchase, suppliers, onClose, onSaved}) {
 
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Total (₲) *</div>
-            <input type="number" value={f.total} onChange={e=>setF({...f, total:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
+            <MoneyInp value={f.total} onChange={v=>setF({...f, total:v})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Pagado (₲)</div>
-            <input type="number" value={f.paid_amount} onChange={e=>setF({...f, paid_amount:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
+            <MoneyInp value={f.paid_amount} onChange={v=>setF({...f, paid_amount:v})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
         </div>
 
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
