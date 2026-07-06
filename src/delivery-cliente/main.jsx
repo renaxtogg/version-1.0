@@ -2423,7 +2423,7 @@ function ReservaScreen({ onBack, onDone }) {
 /* El panel de delivery NO es genérico: corresponde a un local concreto, abierto
    desde el link que comparte el restaurante (?r=). Sin contexto válido mostramos
    una guía en vez de un menú/local demo con nombre y ubicación random. */
-function GateScreen({ kind }) {
+function GateScreen({ kind, message }) {
   const T = useContext(ThemeCtx);
   const COPY = {
     'no-context': {
@@ -2435,6 +2435,14 @@ function GateScreen({ kind }) {
       icon: <Icon name="store" size={52} color={T.ink} />,
       title: 'Restaurante no disponible',
       body: 'No encontramos este restaurante. Puede que el enlace haya cambiado o que el local todavía no esté activo. Pedí un link actualizado.',
+    },
+    // Local en mantenimiento / suspendido / inactivo: se ve la marca pero no se puede pedir.
+    'unavailable': {
+      icon: <Icon name="store" size={52} color={T.ink} />,
+      title: 'Local no disponible por ahora',
+      body: (message && String(message).trim())
+        ? String(message).trim()
+        : 'Este local no está tomando pedidos en este momento. Volvé a intentarlo más tarde.',
     },
     // WS1-B · El plan del restaurante no incluye el panel delivery-cliente.
     'plan': {
@@ -2531,6 +2539,14 @@ function App() {
   const openState = restaurantOpenState(restaurant);
   const canOrder = openState.open;
 
+  // Disponibilidad de la cuenta (independiente del horario): mantenimiento del
+  // superadmin, o restaurante suspendido/inactivo → no se puede pedir ni ver el menú.
+  const restUnavailable = !!restaurant && (
+    restaurant.maintenance_mode === true ||
+    restaurant.is_active === false ||
+    ['suspended', 'inactive'].includes(restaurant.status)
+  );
+
   const addToCart = (item, qty, extras, notes) => {
     // Bloqueo de venta con el local CERRADO: se puede ver el menú, pero no pedir.
     if (!canOrder) { showToast(openState.next ? `Cerrado · Abre ${openState.next}. Podés ver el menú, pero no pedir ahora.` : 'El local está cerrado. Podés ver el menú, pero no pedir ahora.'); return; }
@@ -2600,6 +2616,8 @@ function App() {
                   ? <div style={{ minHeight: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: theme.white }}><div style={{ fontSize: 13, color: theme.gray }}>Cargando…</div></div>
                   : restaurantStatus === 'notfound'
                   ? <GateScreen kind="not-found" />
+                  : restUnavailable
+                  ? <GateScreen kind="unavailable" message={restaurant?.maintenance_mode ? restaurant?.maintenance_message : ''} />
                   : <>
                 {toast && <Toast msg={toast} onHide={() => setToast(null)} />}
                 {selItem && <ProductModal item={selItem} onClose={() => setSelItem(null)} onAdd={addToCart} canOrder={canOrder} openState={openState} />}

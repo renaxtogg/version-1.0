@@ -712,6 +712,7 @@ function DashboardPage({orders, ratings, setPage}) {
   const [todaySuppliers, setTodaySuppliers]   = useState([]);
   const [subscription, setSubscription]       = useState(undefined); // undefined=cargando · null=sin dato · obj=ok
   const [supplierSpend, setSupplierSpend]     = useState(null);      // null=cargando · []=sin compras
+  const [acctStatus, setAcctStatus]           = useState(null);      // estado de cuenta (mig 150) · null=sin dato/error
   const now = new Date();
   const todayStr = now.toDateString();
   const ayer = new Date(now); ayer.setDate(ayer.getDate()-1);
@@ -842,6 +843,11 @@ function DashboardPage({orders, ratings, setPage}) {
     db.rpc('get_my_subscription',{p_restaurant_id:RID}).then(({data,error})=>{
       setSubscription(error ? null : (data||null));
     });
+    // Estado de cuenta (mantenimiento / suspensión / vencimiento) — mig 150.
+    // Fail-open: ante error/RPC ausente, acctStatus queda null y no muestra nada.
+    db.rpc('get_my_account_status',{p_restaurant_id:RID}).then(({data,error})=>{
+      setAcctStatus(error ? null : (data||null));
+    }).catch(()=>setAcctStatus(null));
     db.from('supplier_purchases')
       .select('total,paid_amount,status,purchase_date,supplier_name,supplier:suppliers(name)')
       .eq('restaurant_id',RID).gte('purchase_date',monthStart).neq('status','anulada')
@@ -1003,6 +1009,42 @@ function DashboardPage({orders, ratings, setPage}) {
       {(()=>{
         const allAlerts = [];
 
+        // Estado de cuenta (mig 150) — mantenimiento / suspensión / vencimiento.
+        // Se reflejan acá además del banner/bloqueo del auth-guard.
+        if (acctStatus && typeof acctStatus === 'object') {
+          if (acctStatus.suspended === true) {
+            allAlerts.push({
+              key: 'acct-suspended',
+              level: 'critical',
+              icon: 'alert',
+              title: 'Cuenta suspendida',
+              sub: 'El acceso está pausado. Contactá a MYTHOS para reactivar tu cuenta.',
+            });
+          }
+          if (acctStatus.maintenance_mode === true) {
+            allAlerts.push({
+              key: 'acct-maint',
+              level: 'warning',
+              icon: 'alert',
+              title: 'Modo mantenimiento activo',
+              sub: (acctStatus.maintenance_message && String(acctStatus.maintenance_message).trim())
+                ? String(acctStatus.maintenance_message).trim()
+                : 'El local no recibe pedidos de clientes (QR/delivery) mientras esté activo.',
+            });
+          }
+          if (acctStatus.expired === true) {
+            const end = acctStatus.subscription_end_date;
+            const endTxt = end ? new Date(end+'T00:00:00').toLocaleDateString('es-PY',{day:'numeric',month:'long',year:'numeric'}) : '';
+            allAlerts.push({
+              key: 'acct-expired',
+              level: 'warning',
+              icon: 'money',
+              title: 'Suscripción vencida',
+              sub: (endTxt ? `Venció el ${endTxt}. ` : '') + 'Regularizá el pago para no perder el servicio.',
+            });
+          }
+        }
+
         // Stock crítico (desde stock_alerts)
         stockAlerts.slice(0,5).forEach(a => {
           const ing = a.ingredient;
@@ -1085,7 +1127,7 @@ function DashboardPage({orders, ratings, setPage}) {
                           <div style={{fontSize:13, fontWeight:700, color: s.titleColor, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{a.title}</div>
                           <div style={{fontSize:11, color:C.mid, marginTop:1}}>{a.sub}</div>
                         </div>
-                        <button onClick={a.action} style={{background:'none', border:`1px solid ${s.left}`, color: s.left, fontSize:11, fontWeight:600, padding:'5px 10px', borderRadius:6, cursor:'pointer', flexShrink:0, whiteSpace:'nowrap'}}>{a.actionLabel}</button>
+                        {a.actionLabel && <button onClick={a.action} style={{background:'none', border:`1px solid ${s.left}`, color: s.left, fontSize:11, fontWeight:600, padding:'5px 10px', borderRadius:6, cursor:'pointer', flexShrink:0, whiteSpace:'nowrap'}}>{a.actionLabel}</button>}
                       </div>
                     );
                   })}

@@ -1738,7 +1738,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   const [fCity,    setFCity]    = useState('all');
   const [sort,     setSort]     = useState('name');
   const [saving,   setSaving]   = useState(false);
-  const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',owner_document:'',manager_name:'',manager_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10)};
+  const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',owner_document:'',manager_name:'',manager_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10),maintenance_mode:false,maintenance_message:''};
   const [form, setForm] = useState(emptyForm);
   // Feature-detect de columnas nuevas (mig 145): true si CUALQUIER restaurante ya
   // trae la columna → así no mandamos owner_document/manager_* en el UPDATE/INSERT
@@ -1790,7 +1790,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 
   const openCreate = () => { setForm({...emptyForm,plan_id:plans[1]?.id||''}); setModal('create'); };
   const openEdit   = r  => {
-    setForm({name:r.name||'',legal_name:r.legal_name||'',ruc:r.ruc||'',city:r.city||'',country:r.country||'Paraguay',address:r.address||'',phone:r.phone||'',email:r.email||'',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',owner_document:r.owner_document||'',manager_name:r.manager_name||'',manager_phone:r.manager_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10)});
+    setForm({name:r.name||'',legal_name:r.legal_name||'',ruc:r.ruc||'',city:r.city||'',country:r.country||'Paraguay',address:r.address||'',phone:r.phone||'',email:r.email||'',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',owner_document:r.owner_document||'',manager_name:r.manager_name||'',manager_phone:r.manager_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10),maintenance_mode:r.maintenance_mode||false,maintenance_message:r.maintenance_message||''});
     setModal({edit:r});
   };
 
@@ -1818,6 +1818,9 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
       if (restHasCol('owner_document')) payload.owner_document = form.owner_document||null;
       if (restHasCol('manager_name'))   payload.manager_name   = form.manager_name||null;
       if (restHasCol('manager_phone'))  payload.manager_phone  = form.manager_phone||null;
+      // Modo mantenimiento (columnas mig 031) — feature-detect por robustez.
+      if (restHasCol('maintenance_mode'))    payload.maintenance_mode    = !!form.maintenance_mode;
+      if (restHasCol('maintenance_message')) payload.maintenance_message = form.maintenance_message||null;
       if (modal==='create') {
         const {data:rest,error} = await db.from('restaurants').insert({...payload,auto_provisioned:false}).select().single();
         if (error) throw error;
@@ -1999,6 +2002,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
                 <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}>
                   <PlanBadge name={r.plan?.name||'Sin plan'}/>
                   <Badge status={r.status}/>
+                  {r.maintenance_mode===true&&<span title={r.maintenance_message||'Modo mantenimiento activo'} style={{padding:'2px 8px',borderRadius:4,background:C.orange,color:'#FFFFFF',fontSize:9,fontWeight:800,letterSpacing:'0.04em',whiteSpace:'nowrap'}}>EN MANTENIMIENTO</span>}
                 </div>
               </div>
               <div style={{display:'flex',gap:0,margin:'10px 0',padding:'12px 0',borderTop:`1px solid #F5F5F7`,borderBottom:`1px solid #F5F5F7`}}>
@@ -2131,6 +2135,22 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
               <FormField label="Nombre"><input value={form.manager_name} onChange={sf('manager_name')} placeholder="Nombre del encargado"/></FormField>
               <FormField label="Teléfono"><input value={form.manager_phone} onChange={sf('manager_phone')} placeholder="+595 981 123 456"/></FormField>
             </div>
+          </div>
+          <div style={{borderTop:`1px solid ${C.border}`,margin:'12px 0',paddingTop:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:.5}}>Modo mantenimiento</div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 14px',background:C.bg,borderRadius:8,border:form.maintenance_mode?`1px solid ${C.orange}`:`1px solid ${C.border}`}}>
+              <div style={{fontSize:12.5,color:C.mid,lineHeight:1.5}}>
+                Pausa la operación de cara al <strong>cliente</strong> (QR y delivery muestran "no disponible" y no pueden pedir) y avisa al <strong>staff</strong> con un banner. No bloquea el panel.
+              </div>
+              <Toggle checked={!!form.maintenance_mode} onChange={v=>setForm(f=>({...f,maintenance_mode:v}))}/>
+            </div>
+            {form.maintenance_mode&&(
+              <div style={{marginTop:10}}>
+                <FormField label="Mensaje para el cliente (opcional)">
+                  <input value={form.maintenance_message} onChange={sf('maintenance_message')} placeholder="Ej: Volvemos en 30 minutos"/>
+                </FormField>
+              </div>
+            )}
           </div>
           <FormField label="Notas internas"><textarea value={form.notes} onChange={sf('notes')} rows={2} placeholder="Observaciones internas..."/></FormField>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
@@ -2847,31 +2867,8 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
   const [bannerActive, setBannerActive] = useState(bannerRow?.value==='true');
   const [bannerMsg,    setBannerMsg]    = useState(bannerMsgRow?.value||'');
 
-  const [restConfig, setRestConfig] = useState({});
-  useEffect(()=>{
-    const init={};
-    restaurants.forEach(r=>{
-      init[r.id]={maintenance_mode:r.maintenance_mode||false,maintenance_message:r.maintenance_message||''};
-    });
-    setRestConfig(init);
-  },[restaurants]);
-
-  const toggleMaintenance = async (r, value) => {
-    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
-    const {error} = await db.from('restaurants').update({maintenance_mode:value}).eq('id',r.id);
-    if (error) { setFlash({type:'error',text:error.message}); return; }
-    setRestConfig(prev=>({...prev,[r.id]:{...prev[r.id],maintenance_mode:value}}));
-    setFlash({type:'ok',text:`${r.name} — mantenimiento ${value?'activado':'desactivado'}`});
-    reload();
-  };
-
-  const saveMaintMsg = async (r) => {
-    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
-    const msg = restConfig[r.id]?.maintenance_message||'';
-    const {error} = await db.from('restaurants').update({maintenance_message:msg}).eq('id',r.id);
-    if (error) { setFlash({type:'error',text:error.message}); return; }
-    setFlash({type:'ok',text:`Mensaje de ${r.name} guardado`});
-  };
+  // NOTA: el "Modo mantenimiento" por restaurante se movió al DETALLE de cada
+  // restaurante (Restaurantes → Editar). Acá solo queda el banner global del panel.
 
   const saveBanner = async () => {
     if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
@@ -2887,39 +2884,6 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
 
   return (
     <div className="animate-in">
-      {/* Modo mantenimiento */}
-      <SectionCard title="Modo Mantenimiento" style={{marginBottom:20}}>
-        <div style={{padding:'8px 0'}}>
-          {restaurants.length===0&&<div style={{padding:'20px 24px',color:C.dim,fontSize:13}}>Sin restaurantes cargados</div>}
-          {restaurants.map(r=>{
-            const cfg = restConfig[r.id]||{maintenance_mode:false,maintenance_message:''};
-            return (
-              <div key={r.id} style={{padding:'14px 20px',borderBottom:`1px solid ${C.border}`}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                  <div>
-                    <span style={{fontWeight:600,fontSize:14,color:C.ink}}>{r.name}</span>
-                    <span style={{fontSize:12,color:C.mid,marginLeft:8}}>{r.city}</span>
-                    {cfg.maintenance_mode&&<span style={{marginLeft:8,padding:'2px 8px',borderRadius:4,background:C.orange,color:'#FFFFFF',fontSize:10,fontWeight:800,letterSpacing:'0.04em'}}>EN MANTENIMIENTO</span>}
-                  </div>
-                  <Toggle checked={cfg.maintenance_mode} onChange={v=>toggleMaintenance(r,v)}/>
-                </div>
-                {cfg.maintenance_mode&&(
-                  <div style={{display:'flex',gap:8}}>
-                    <input
-                      value={cfg.maintenance_message}
-                      onChange={e=>setRestConfig(prev=>({...prev,[r.id]:{...prev[r.id],maintenance_message:e.target.value}}))}
-                      placeholder="Mensaje para el cliente (ej: Volvemos en 30 minutos)"
-                      style={{flex:1}}
-                    />
-                    <Btn size="sm" variant="ghost" onClick={()=>saveMaintMsg(r)}>Guardar</Btn>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </SectionCard>
-
       {/* Banner global */}
       <SectionCard title="Banner Global">
         <div style={{padding:'20px 24px'}}>

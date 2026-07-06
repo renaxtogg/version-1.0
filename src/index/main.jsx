@@ -1899,7 +1899,7 @@ function MesaReservadaScreen({firstName, time, onConfirm, onSkip}) {
    resuelto por el QR de la mesa o el link que comparte el restaurante (?r=).
    Si se abre sin contexto (o el restaurante no existe), mostramos una guía
    en vez de un menú demo. */
-function GateScreen({ kind }) {
+function GateScreen({ kind, message }) {
   const T = useContext(ThemeCtx);
   const COPY = {
     'no-context': {
@@ -1911,6 +1911,14 @@ function GateScreen({ kind }) {
       icon: <Icon name="store" size={52} color={T.qrText} />,
       title: 'Restaurante no disponible',
       body: 'No encontramos este restaurante. Puede que el enlace haya cambiado o que el local todavía no esté activo. Pedí un QR o link actualizado.',
+    },
+    // Local en mantenimiento / suspendido / inactivo: se ve la marca pero no se puede pedir.
+    'unavailable': {
+      icon: <Icon name="store" size={52} color={T.qrText} />,
+      title: 'Local no disponible por ahora',
+      body: (message && String(message).trim())
+        ? String(message).trim()
+        : 'Este local no está tomando pedidos en este momento. Volvé a intentarlo más tarde.',
     },
   };
   const c = COPY[kind] || COPY['no-context'];
@@ -2103,6 +2111,15 @@ function App() {
   const openState = restaurantOpenState(restaurant);
   const canOrder = openState.open;
 
+  // Disponibilidad de la cuenta (independiente del horario): mantenimiento del
+  // superadmin, o restaurante suspendido/inactivo. Si aplica, NO se puede pedir
+  // ni ver el menú (pantalla "no disponible"). Solo cuando el restaurante ya cargó.
+  const restUnavailable = !!restaurant && (
+    restaurant.maintenance_mode === true ||
+    restaurant.is_active === false ||
+    ['suspended', 'inactive'].includes(restaurant.status)
+  );
+
   // Local CERRADO con carrito/pantalla persistidos (o cierre en vivo): rebotar a 'menu'
   // (muestra el banner "Cerrado"). Evita concretar un pedido fuera de horario por una
   // sesión de pago/carrito que sobrevivió al cierre. Corre cuando se resuelve canOrder.
@@ -2147,6 +2164,8 @@ function App() {
                   ? <GateScreen kind="no-context" />
                   : restaurantStatus === 'notfound'
                   ? <GateScreen kind="not-found" />
+                  : restUnavailable
+                  ? <GateScreen kind="unavailable" message={restaurant?.maintenance_mode ? restaurant?.maintenance_message : ''} />
                   : <>
                 {scanStatus === 'checking'  && <QRCheckingScreen />}
                 {scanStatus === 'full'      && <MesaLlenaScreen scanCount={scanData.scanCount} maxScans={scanData.maxScans} />}
