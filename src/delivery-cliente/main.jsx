@@ -899,7 +899,7 @@ function CoverageScreen({ zones, restaurant, settings, onCovered, onPickupFallba
         </button>
         <div style={{ fontSize: 22, fontWeight: 800, color: T.ink }}>¿Llegamos a tu zona?</div>
         <div style={{ fontSize: 14, color: T.gray, marginTop: 6, lineHeight: 1.6 }}>
-          Calculamos el costo de envío según la distancia al local.
+          Calculamos el costo de envío para tu ubicación.
         </div>
       </div>
 
@@ -951,7 +951,7 @@ function CoverageScreen({ zones, restaurant, settings, onCovered, onPickupFallba
 
             {!zoneMode && (
               <div style={{ background: T.offwhite, border: `1px solid ${T.border}`, borderRadius: 14, padding: '16px', marginBottom: 14, fontSize: 13, color: T.gray, lineHeight: 1.6 }}>
-                Marcá tu ubicación y te mostramos el <strong style={{ color: T.ink }}>costo exacto de envío</strong> al instante, según la distancia al local.
+                Marcá tu ubicación y te mostramos el <strong style={{ color: T.ink }}>costo exacto de envío</strong> al instante.
               </div>
             )}
 

@@ -1812,6 +1812,9 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 
   // Ciudades presentes en los datos + cabeceras PY conocidas
   const cityOptions = Array.from(new Set([...CITIES_PY, ...enriched.map(r=>r.city).filter(Boolean)]));
+  // Planes del filtro: derivados de los planes reales cargados (anti-drift; antes estaban
+  // hardcodeados como Free/Starter/Pro/Enterprise, que ya no existen).
+  const planOptions = Array.from(new Set(enriched.map(r=>r.plan?.name).filter(Boolean))).sort();
 
   const SORTS = {
     name:    {label:'Nombre (A-Z)',        fn:(a,b)=>a.name.localeCompare(b.name)},
@@ -2026,7 +2029,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
         </select>
         <select value={fPlan} onChange={e=>setFPlan(e.target.value)} style={{width:'auto',minWidth:130}}>
           <option value="all">Todos los planes</option>
-          {['Free','Starter','Pro','Enterprise'].map(p=><option key={p} value={p}>{p}</option>)}
+          {planOptions.map(p=><option key={p} value={p}>{p}</option>)}
         </select>
         <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{width:'auto',minWidth:110}}>
           <option value="all">Todos</option>
@@ -2090,7 +2093,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
               )}
               <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
                 <Btn size="sm" variant="ghost" onClick={()=>openEdit(r)}>Editar</Btn>
-                <a href="admin.html" target="_blank" rel="noreferrer" style={{textDecoration:'none'}}>
+                <a href={`admin.html?r=${r.id}`} target="_blank" rel="noreferrer" style={{textDecoration:'none'}}>
                   <Btn size="sm" variant="ghost">Ver Admin</Btn>
                 </a>
                 {isRoot(r)&&<Btn size="sm" variant="ghost" onClick={()=>openBranch(r)}><Icon name="plus" size={12} style={{verticalAlign:'-2px',marginRight:3}}/>Añadir Sucursal Hija</Btn>}
@@ -2519,8 +2522,8 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
     const busy = planBusy===p.id;
     return (
       <div key={p.id} style={{background:C.card,border:`1px solid ${st==='active'?C.border:C.orange}`,borderRadius:12,padding:20,opacity:st==='active'?1:.72,position:'relative'}}>
-        {p.id===popularPlanId && st==='active' && (
-          <div style={{position:'absolute',top:12,right:12,background:C.ink,color:C.surface,padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:.5}}>POPULAR</div>
+        {p.is_recommended && st==='active' && (
+          <div style={{position:'absolute',top:12,right:12,background:C.ink,color:C.surface,padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:700,letterSpacing:.5}}>RECOMENDADO</div>
         )}
         {st!=='active' && (
           <div style={{position:'absolute',top:12,right:12,background:st==='archived'?C.dim:C.orange,color:C.surface,padding:'2px 8px',borderRadius:4,fontSize:10,fontWeight:800,letterSpacing:.5,textTransform:'uppercase'}}>{st==='archived'?'Archivado':'Pausado'}</div>
@@ -6403,7 +6406,7 @@ function SitioPlanes({plans, setFlash, reload}) {
                         <div style={{fontWeight:600}}>{p.name||'—'}</div>
                         <div style={{display:'flex',gap:6,marginTop:3,flexWrap:'wrap'}}>
                           {p.badge && <span style={{padding:'1px 8px',borderRadius:10,fontSize:10.5,fontWeight:700,background:C.bg,color:C.mid,border:`1px solid ${C.border}`}}>{p.badge}</span>}
-                          {p.is_recommended && <span style={{padding:'1px 8px',borderRadius:10,fontSize:10.5,fontWeight:700,background:C.bg,color:C.mid,border:`1px solid ${C.border}`}}>Recomendado</span>}
+                          {p.is_recommended && (p.badge||'').trim().toLowerCase()!=='recomendado' && <span style={{padding:'1px 8px',borderRadius:10,fontSize:10.5,fontWeight:700,background:C.bg,color:C.mid,border:`1px solid ${C.border}`}}>Recomendado</span>}
                           {p.is_enterprise && <span style={{padding:'1px 8px',borderRadius:10,fontSize:10.5,fontWeight:700,background:C.bg,color:C.mid,border:`1px solid ${C.border}`}}>Enterprise</span>}
                         </div>
                       </Td>

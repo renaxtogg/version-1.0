@@ -4697,7 +4697,7 @@ function ImpresoraConfig({restaurant}){
   );
 }
 
-function FinanzasPage({orders, restaurant, onRefresh}) {
+function FinanzasPage({orders, restaurant, showDelivery=true, onRefresh}) {
   const [finTab,setFinTab] = useState('resumen');
   const [period,setPeriod] = useState('semana');
   const [egresos,setEgresos] = useState([]);
@@ -4716,7 +4716,7 @@ function FinanzasPage({orders, restaurant, onRefresh}) {
   // Delivery por canal: bruto/comisión/neto CONGELADOS por pedido (delivery_orders),
   // nombres desde delivery_channels. Se recarga al cambiar el período.
   async function loadDelivByChannel(){
-    if(!db){ setDelivRows([]); return; }
+    if(!db || !showDelivery){ setDelivRows([]); return; }   // plan sin delivery → no cargar ni mostrar
     const st = periodStart(period);
     const [doR,chR] = await Promise.all([
       db.from('delivery_orders').select('channel,channel_commission,order_total,rider_status,created_at').eq('restaurant_id',RID).gte('created_at',st.toISOString()),
@@ -4902,7 +4902,8 @@ function FinanzasPage({orders, restaurant, onRefresh}) {
           <span style={{fontSize:12,color:C.mid}}>% sobre total pedidos para llevar</span>
         </div>
 
-        {/* Delivery por canal (Parte 4) — bruto/comisión/neto congelados por pedido */}
+        {/* Delivery por canal (Parte 4) — bruto/comisión/neto congelados por pedido · oculto si el plan no tiene delivery (L6) */}
+        {showDelivery && (
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginBottom:14}}>
           <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1}}>DELIVERY POR CANAL · {period.toUpperCase()}</div>
           {delivRows.length===0
@@ -4932,6 +4933,7 @@ function FinanzasPage({orders, restaurant, onRefresh}) {
               </table>
           }
         </div>
+        )}
 
         <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:14}}>
           {/* Egresos */}
@@ -7945,10 +7947,12 @@ function DelivRiders({riders, deliveryOrders=[], settings, onRefresh, onRebalanc
         ? <div style={{textAlign:'center',padding:60,color:C.dim,fontSize:14}}>No hay riders — creá el primero</div>
         : <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}}>
             {riders.map(r=>{
-              const offline = r.active===false;
-              const statusKey = offline?'offline':(r.current_status||'disponible');
-              const statusLabel = offline?'OFFLINE':statusKey==='en_ruta'?'EN RUTA':'DISPONIBLE';
-              const statusCol = offline?'#86868B':statusKey==='en_ruta'?C.ink:C.green;
+              // Estado real del rider: current_status manda (offline/en_ruta/disponible);
+              // active===false también cuenta como offline. Se ignora la columna `status` legacy (muerta).
+              const statusKey = (r.active===false || (r.current_status||'disponible')==='offline')
+                ? 'offline' : (r.current_status||'disponible');
+              const statusLabel = statusKey==='offline'?'OFFLINE':statusKey==='en_ruta'?'EN RUTA':'DISPONIBLE';
+              const statusCol = statusKey==='offline'?'#86868B':statusKey==='en_ruta'?C.ink:C.green;
               const initials = r.name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
               return (
                 <div key={r.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20}}>
@@ -11159,7 +11163,7 @@ function AdminApp() {
       case 'clientes':  return caps.hasFeature('admin:crm') ? <ClientesPage orders={orders}/> : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;
       case 'caja':      return caps.hasPanel('caja') ? <CajaAdminPage/> : <window.MythosGating.PanelLock panelKey="caja" variant="inline"/>;
       case 'reportes':  return <ReportesPage orders={orders}/>;
-      case 'finanzas':  return <FinanzasPage orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
+      case 'finanzas':  return <FinanzasPage orders={orders} restaurant={restaurant} showDelivery={caps.hasFeature('admin:delivery_zones')} onRefresh={loadAll}/>;
       case 'marketing': return <MarketingPage coupons={coupons} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'ratings':   return <RatingsPage ratings={ratings}/>;
       case 'stock':     return caps.hasFeature('admin:inventory') ? <StockPage/> : <window.MythosGating.FeatureLock featureKey="admin:inventory" variant="inline"/>;

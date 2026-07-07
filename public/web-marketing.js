@@ -29,8 +29,10 @@
   var _addons = null;        // add-ons (DB o fallback)
   // Features comerciales aún NO oficiales: se excluyen de los add-ons que se
   // renderizan en el sitio (no se toca la DB ni web-marketing-data.js).
+  // 'inventario-recetas' NO es add-on: los Insumos/Recetas vienen en TODOS los planes
+  // (se lista acá además por si quedó una fila vieja en marketing_add_ons de la DB).
   // ► Reactivar = vaciar este array: var PENDING_ADDONS = [];
-  var PENDING_ADDONS = ['bancard', 'facturacion-electronica'];
+  var PENDING_ADDONS = ['bancard', 'facturacion-electronica', 'inventario-recetas'];
   var _annual = false;       // estado del toggle mensual/anual
   var _calcStarted = false;  // para disparar pricing_calculator_start una vez
   var _selectedSlug = null;  // tarjeta de plan seleccionada (se expande/destaca)

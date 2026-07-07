@@ -1185,10 +1185,10 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   if (step === 'ok') {
     const isPending = method === 'efectivo' || method === 'pos';
     const confirmTitle = isPending ? 'Pedido enviado' : 'Pedido confirmado';
-    const confirmSub = method === 'efectivo' ? 'Tu pedido fue a cocina. Pagás en mesa o caja.' :
-                       method === 'pos' ? 'Tu pedido fue a cocina. El mozo acercará el POS.' :
-                       method === 'tarjeta' ? 'Tu pedido fue a cocina. El mozo procesará el pago.' :
-                       'Tu pedido fue a cocina.';
+    const confirmSub = method === 'efectivo' ? 'Tu pedido fue recibido. Pagás en mesa o caja.' :
+                       method === 'pos' ? 'Tu pedido fue recibido. El mozo acercará el POS.' :
+                       method === 'tarjeta' ? 'Tu pedido fue recibido. El mozo procesará el pago.' :
+                       'Tu pedido fue recibido.';
     return (
       <div style={{ minHeight: '100%', background: T.black, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', textAlign: 'center' }}>
         <div style={{ width: 76, height: 76, border: '1px solid rgba(255,255,255,0.2)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 28 }}>

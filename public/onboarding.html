@@ -512,7 +512,9 @@
       '<div class="checklist-h">Próximos pasos recomendados</div>' +
       '<ul class="checklist">' +
         '<li>Completar tu carta</li><li>Cargar el logo de tu local</li>' +
-        '<li>Invitar a tu personal</li><li>Configurar la caja</li>' +
+        '<li>Invitar a tu personal</li>' +
+        // "Configurar la caja" solo si el plan incluye el panel caja (fail-open si no se conocen los paneles).
+        ((!st.planPanels || !st.planPanels.length || st.planPanels.indexOf('caja') !== -1) ? '<li>Configurar la caja</li>' : '') +
         '<li>Probar un pedido desde el QR</li>' +
       '</ul>';
   }
@@ -605,6 +607,7 @@
     st.planId = planId;
     var planObj = st.plans.filter(function (p) { return p.id === planId; })[0];
     st.planName = planObj ? planObj.name : '';
+    st.planPanels = planObj ? asArr(planObj.allowed_panels) : [];   // para gatear pasos por plan (ej. caja)
 
     busy(true);
     var sres = await db.auth.getSession();

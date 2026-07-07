@@ -52,7 +52,6 @@
   var FALLBACK_ADDONS = [
     { slug: 'bancard', name: 'Cobro online con Bancard', description: 'Pagos online locales integrados.', price_gs: 100000, price_type: 'cuota' },
     { slug: 'facturacion-electronica', name: 'Facturación electrónica', description: 'Comprobantes legales con tu RUC.', price_gs: 150000, price_type: 'cuota' },
-    { slug: 'inventario-recetas', name: 'Inventario y Recetas', description: 'Stock, costeo y proveedores.', price_gs: 250000, price_type: 'cuota' },
     { slug: 'delivery', name: 'Delivery', description: 'Zonas, tarifas y tracking en vivo.', price_gs: 350000, price_type: 'cuota' },
     { slug: 'fidelizacion', name: 'Fidelización', description: 'Puntos y recompensas.', price_gs: 250000, price_type: 'cuota' },
     { slug: 'sucursal-adicional', name: 'Sucursal adicional', description: 'Cada sede extra, en un solo panel.', price_gs: 150000, price_type: 'cuota' }
