@@ -2165,10 +2165,17 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
             <FormField label="Teléfono"><input value={form.phone} onChange={sf('phone')} placeholder="+595 21 555 0100"/></FormField>
             <FormField label="Email del local"><input type="email" value={form.email} onChange={sf('email')} placeholder="contacto@restaurante.com"/></FormField>
             <FormField label="Plan de suscripción">
-              <select value={form.plan_id} onChange={sf('plan_id')}>
-                <option value="">Sin asignar</option>
-                {planOpts(form.plan_id).map(p=><option key={p.id} value={p.id}>{planOptLabel(p)}</option>)}
-              </select>
+              {modal==='create' ? (
+                <select value={form.plan_id} onChange={sf('plan_id')}>
+                  <option value="">Sin asignar</option>
+                  {planOpts(form.plan_id).map(p=><option key={p.id} value={p.id}>{planOptLabel(p)}</option>)}
+                </select>
+              ) : (
+                <>
+                  <input value={plans.find(p=>p.id===form.plan_id)?.name || 'Sin asignar'} disabled readOnly/>
+                  <div style={{fontSize:11,color:C.dim,marginTop:5,lineHeight:1.45}}>El plan no se edita acá: cambialo desde <strong>Suscripciones → Cambiar plan</strong> (ahí se ajusta también el monto mensual).</div>
+                </>
+              )}
             </FormField>
             <FormField label="Estado">
               <select value={form.status} onChange={sf('status')}>
@@ -2250,7 +2257,13 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
       {subModal&&(
         <Modal title={`Suscripción — ${subModal.name}`} onClose={()=>setSubModal(null)}>
           <FormField label="Plan">
-            <select value={subForm.plan_id} onChange={ssf('plan_id')}>
+            <select value={subForm.plan_id} onChange={e=>{
+              // Al cambiar de plan, prellenar el monto mensual al precio del plan
+              // nuevo (el usuario puede overridearlo luego en el campo de abajo).
+              const pid = e.target.value;
+              const pl = plans.find(p=>p.id===pid);
+              setSubForm(f=>({...f, plan_id:pid, monthly_amount:(pl && pl.price_usd!=null) ? String(pl.price_usd) : f.monthly_amount}));
+            }}>
               {planOpts(subForm.plan_id).map(p=><option key={p.id} value={p.id}>{planOptLabel(p)}</option>)}
             </select>
           </FormField>
