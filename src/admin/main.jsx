@@ -10690,7 +10690,7 @@ function AdminApp() {
   const [ratings,setRatings] = useState([]);
   const [restaurant,setRestaurant] = useState(null);
   // Capacidades del plan (Omni-Gating por feature) — re-renderiza al resolver
-  const caps = window.MythosGating ? window.MythosGating.useCapabilities(db, RID) : {hasFeature:()=>true};
+  const caps = window.MythosGating ? window.MythosGating.useCapabilities(db, RID) : {hasFeature:()=>true, hasPanel:()=>true};
 
   // ── Guard de tenant ──────────────────────────────────────────────
   // Si el restaurante activo (RID en localStorage) NO pertenece a la sesión,
@@ -10836,10 +10836,10 @@ function AdminApp() {
       case 'agenda':
       case 'reservas':
       case 'calendario':return <AgendaPage tables={tables} initialView={page==='reservas'?'lista':'calendario'}/>;
-      case 'estaciones':return <EstacionesPage categories={categories} tables={tables}/>;
+      case 'estaciones':return caps.hasPanel('cocina') ? <EstacionesPage categories={categories} tables={tables}/> : <window.MythosGating.PanelLock panelKey="cocina" variant="inline"/>;
       case 'personal':  return <PersonalPage/>;
       case 'clientes':  return caps.hasFeature('admin:crm') ? <ClientesPage orders={orders}/> : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;
-      case 'caja':      return <CajaAdminPage/>;
+      case 'caja':      return caps.hasPanel('caja') ? <CajaAdminPage/> : <window.MythosGating.PanelLock panelKey="caja" variant="inline"/>;
       case 'reportes':  return <ReportesPage orders={orders}/>;
       case 'finanzas':  return <FinanzasPage orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'marketing': return <MarketingPage coupons={coupons} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;

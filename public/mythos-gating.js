@@ -22,6 +22,17 @@
     'mozo:digital_qr_pay':  'Cobro de Mesa con QR Digital'
   };
 
+  // Catálogo de PANELES → etiqueta comercial. Un panel no incluido en el plan se
+  // bloquea con el mismo paywall (mig 155: caps.allowed_panels es la lista efectiva).
+  var PANEL_LABELS = {
+    'caja':             'Panel de Caja',
+    'cocina':           'Pantalla de Cocina (KDS)',
+    'mozo':             'Panel de Mozos',
+    'delivery-cliente': 'Delivery Cliente',
+    'delivery-rider':   'Panel del Repartidor',
+    'gerente':          'Panel de Gerente'
+  };
+
   // WhatsApp de ventas Mythos — FUENTE ÚNICA: marketing_config.whatsapp (mig 148),
   // que también alimenta el sitio público. Se cachea con un fetch REST (lectura
   // anon de la config pública). Fallbacks: SUPABASE_CONFIG.salesWhatsapp (config
@@ -60,10 +71,18 @@
   function featureLabel(key) {
     return FEATURE_LABELS[key] || key;
   }
+  function panelLabel(key) {
+    return PANEL_LABELS[key] || key;
+  }
 
   function waUrl(key) {
     var msg = 'Hola Mythos, solicito cotización para activar el módulo extra de '
             + featureLabel(key) + ' en mi restaurante.';
+    return 'https://wa.me/' + salesWhatsapp() + '?text=' + encodeURIComponent(msg);
+  }
+  function waUrlPanel(key) {
+    var msg = 'Hola Mythos, solicito cotización para activar el '
+            + panelLabel(key) + ' en mi restaurante.';
     return 'https://wa.me/' + salesWhatsapp() + '?text=' + encodeURIComponent(msg);
   }
 
@@ -91,6 +110,25 @@
   }
 
   function hasFeature(key) { return hasFeatureWith(_caps, key); }
+
+  // Gating por PANEL. caps.allowed_panels (mig 155) es la lista EFECTIVA (base del
+  // plan ∪ add-ons ∪ 'admin', con overrides ya aplicados y FAIL-CLOSED en la BD).
+  // Acá: si es un array (capabilities cargadas) → membresía estricta (lista sin el
+  // panel = BLOQUEADO). Si NO es array (aún cargando / RPC ausente / tenant) →
+  // fail-open para no dejar afuera a un admin legítimo por un error transitorio.
+  function hasPanelWith(caps, key) {
+    var p = caps && caps.allowed_panels;
+    if (!Array.isArray(p)) {
+      if (!_warnedFailOpen['panel:' + key]) {
+        _warnedFailOpen['panel:' + key] = true;
+        console.warn('[MythosGating] fail-open: panel "' + key + '" permitido sin allowed_panels ' +
+          '(capabilities no cargadas / RPC ausente). Con la mig 155 un comercio con suscripción trae array.');
+      }
+      return true;
+    }
+    return p.indexOf(key) >= 0;
+  }
+  function hasPanel(key) { return hasPanelWith(_caps, key); }
   function getCapabilities() { return _caps; }
 
   // Carga (una sola vez) las capacidades del restaurante. Falla abierto.
@@ -131,7 +169,8 @@
     return {
       caps: caps,
       loaded: !!caps,
-      hasFeature: function (k) { return hasFeatureWith(caps, k); }
+      hasFeature: function (k) { return hasFeatureWith(caps, k); },
+      hasPanel: function (k) { return hasPanelWith(caps, k); }
     };
   }
 
@@ -141,9 +180,16 @@
        variant    : 'overlay' (modal flotante) | 'inline' (reemplaza contenido)
        onClose    : callback opcional (muestra la X y permite cerrar)        */
   function FeatureLock(props) {
+    return _lockCard(featureLabel(props.featureKey), waUrl(props.featureKey), props.variant, props.onClose);
+  }
+
+  // Mismo paywall B&W para un PANEL no incluido en el plan (Caja, Cocina, …).
+  function PanelLock(props) {
+    return _lockCard(panelLabel(props.panelKey), waUrlPanel(props.panelKey), props.variant, props.onClose);
+  }
+
+  function _lockCard(label, waHref, variant, onClose) {
     var h = React.createElement;
-    var key = props.featureKey;
-    var label = featureLabel(key);
 
     var lockSvg = h('svg', {
       width: 30, height: 30, viewBox: '0 0 24 24', fill: 'none',
@@ -154,7 +200,7 @@
     );
 
     var btn = h('a', {
-      href: waUrl(key), target: '_blank', rel: 'noopener noreferrer',
+      href: waHref, target: '_blank', rel: 'noopener noreferrer',
       style: {
         display: 'inline-block', background: '#000', color: '#fff',
         padding: '12px 20px', borderRadius: 10, fontSize: 13.5, fontWeight: 700,
@@ -194,7 +240,7 @@
       btn
     );
 
-    if (props.variant === 'inline') {
+    if (variant === 'inline') {
       return h('div', { style: { display: 'flex', justifyContent: 'center', alignItems: 'flex-start', padding: '48px 16px' } }, card);
     }
 
@@ -204,11 +250,11 @@
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 10000,
         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
       },
-      onClick: props.onClose || undefined
+      onClick: onClose || undefined
     },
       h('div', { style: { position: 'relative', maxWidth: 380, width: '100%' }, onClick: function (e) { e.stopPropagation(); } },
-        props.onClose ? h('button', {
-          onClick: props.onClose,
+        onClose ? h('button', {
+          onClick: onClose,
           style: {
             position: 'absolute', top: -12, right: -12, width: 30, height: 30, borderRadius: '50%',
             background: '#000', color: '#fff', border: '1px solid #fff', cursor: 'pointer',
@@ -222,13 +268,19 @@
 
   window.MythosGating = {
     FEATURE_LABELS: FEATURE_LABELS,
+    PANEL_LABELS: PANEL_LABELS,
     featureLabel: featureLabel,
+    panelLabel: panelLabel,
     waUrl: waUrl,
+    waUrlPanel: waUrlPanel,
     hasFeature: hasFeature,
     hasFeatureWith: hasFeatureWith,
+    hasPanel: hasPanel,
+    hasPanelWith: hasPanelWith,
     getCapabilities: getCapabilities,
     loadCapabilities: loadCapabilities,
     useCapabilities: useCapabilities,
-    FeatureLock: FeatureLock
+    FeatureLock: FeatureLock,
+    PanelLock: PanelLock
   };
 })();
