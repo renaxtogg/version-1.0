@@ -730,7 +730,12 @@ function App() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     try { await window.MythosPresence?.stop('manual'); } catch(_) {}
     if (rider?.id && db) {
-      await db.from('delivery_riders').update({ current_status: 'disponible' }).eq('id', rider.id);
+      // M9-b: al cerrar sesión el rider queda OFFLINE (no 'disponible'). Si
+      // quedara disponible, el despacho/rebalanceo (mig 156) le seguiría
+      // mandando pedidos estando deslogueado → "rider fantasma", justo lo que
+      // M9 cierra al nacer offline. Vuelve a 'disponible' sólo cuando entra al
+      // panel y se pone En línea.
+      await db.from('delivery_riders').update({ current_status: 'offline' }).eq('id', rider.id);
       try { db.removeAllChannels(); } catch(_) {}
     }
     // El rider es una cuenta auth real → cerrar sesión Supabase y volver al login.

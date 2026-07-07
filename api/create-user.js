@@ -256,7 +256,12 @@ module.exports = async function handler(req, res) {
           commission_type: riderCommType,
           commission_value: riderCommValue,
           cedula: cedulaDigits,
-          active: true
+          active: true,
+          // M9: nace OFFLINE, no 'disponible'. Recién se pone en línea cuando el
+          // rider entra a su panel y se activa; así el despacho (mig 156) no le
+          // manda pedidos antes del primer login ("rider fantasma"). El default
+          // de la columna también es 'offline' (mig 158) como respaldo API-proof.
+          current_status: 'offline'
         })
       );
       if (!riderInsertResp.ok) {
