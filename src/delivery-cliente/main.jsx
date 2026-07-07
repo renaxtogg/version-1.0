@@ -37,6 +37,10 @@ const RESTAURANT_ID = (
   (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) ||
   ''
 ).replace(/^﻿/, '').trim();
+// Namespacing del carrito/checkout por restaurante: si el mismo navegador abre el
+// delivery de dos locales, cada uno debe tener su propio carrito aislado. Sentinel
+// '_nolocal_' cuando no hay ?r= (no genera claves tipo ':dc_order').
+const lsk = name => (RESTAURANT_ID || '_nolocal_') + ':' + name;
 const CANAL = _urlParams.get('canal') || 'web';
 
 /* ── INTEGRACIÓN GOOGLE MAPS ───────────────────────────────────────────────
@@ -46,7 +50,17 @@ const CANAL = _urlParams.get('canal') || 'web';
    Sin key (MAPS_READY=false) el flujo actual (GPS + selección manual) queda
    intacto: el mapa nunca se monta. */
 const MAPS_API_KEY = (window.MYTHOS_CONFIG && window.MYTHOS_CONFIG.googleMapsApiKey || '').replace(/^﻿/, '').trim();
-const MAPS_READY = !!MAPS_API_KEY;
+const MAPS_READY = !!MAPS_API_KEY;   // SOLO habilita el autocomplete opcional de Google Places
+// El MAPA BASE (pin arrastrable para marcar la ubicación) usa Leaflet/OpenStreetMap,
+// que NO requiere API key (igual que el Editor de mapa del admin). Se carga por CDN
+// en delivery-cliente.html; el pin es un divIcon CSS porque el CSP no permite las
+// imágenes de marker de unpkg (solo *.tile.openstreetmap.org para img).
+const LEAFLET_READY = typeof window !== 'undefined' && !!window.L;
+const _pinIcon = () => window.L.divIcon({
+  className: '',
+  html: '<div style="width:22px;height:22px;background:#000;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,0.5);cursor:grab"></div>',
+  iconSize: [22, 22], iconAnchor: [11, 11],
+});
 
 /* ── THEME ENGINE ───────────────────────── */
 const ThemeCtx      = createContext({});
@@ -727,38 +741,35 @@ function MapPicker({ center, onPick, T }) {
   const ref = useRef(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    loadGoogleMaps(MAPS_API_KEY).then((maps) => {
-      if (cancelled || !ref.current) return;
-      const c = { lat: (center && center.lat) || -25.2867, lng: (center && center.lng) || -57.6470 };
-      const map = new maps.Map(ref.current, { center: c, zoom: 15, disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy' });
-      const marker = new maps.Marker({ position: c, map, draggable: true });
-      const emit = () => { const p = marker.getPosition(); if (p) onPick(p.lat(), p.lng()); };
-      marker.addListener('dragend', emit);
-      map.addListener('click', (e) => { marker.setPosition(e.latLng); emit(); });
-    }).catch(() => { if (!cancelled) setFailed(true); });
-    return () => { cancelled = true; };
+    if (!window.L || !ref.current) { setFailed(true); return; }
+    const c = { lat: (center && center.lat) || -25.2867, lng: (center && center.lng) || -57.6470 };
+    const map = window.L.map(ref.current, { zoomControl: true, attributionControl: false }).setView([c.lat, c.lng], 15);
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
+    const marker = window.L.marker([c.lat, c.lng], { draggable: true, icon: _pinIcon() }).addTo(map);
+    const emit = () => { const p = marker.getLatLng(); onPick(p.lat, p.lng); };
+    marker.on('dragend', emit);
+    map.on('click', (e) => { marker.setLatLng(e.latlng); emit(); });
+    // El contenedor vive dentro de una .screen con animación slideUp → tras montar,
+    // recalcular tamaño para que no queden tiles grises (fix clásico de Leaflet).
+    const t = setTimeout(() => { try { map.invalidateSize(); } catch (_) {} }, 150);
+    return () => { clearTimeout(t); try { map.remove(); } catch (_) {} };
   }, []);
-  // Fallback silencioso: si el mapa no carga, se oculta y queda el flujo manual.
+  // Fallback silencioso: si Leaflet no cargó, se oculta y queda el flujo manual.
   if (failed) return null;
   return <div ref={ref} style={{ width: '100%', height: 220, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 8 }} />;
 }
 
 /* ── REVERSE GEOCODING ───────────────────────────────────────────────────────
-   lat/lng → dirección legible (calle + número) vía google.maps.Geocoder.
-   Autocontenido y defensivo: si Maps no carga / la API está deshabilitada /
-   sin red, resuelve null y el campo de dirección queda como texto manual. */
+   lat/lng → dirección legible vía Nominatim/OpenStreetMap (sin API key; mismo
+   servicio que el Editor de mapa del admin, permitido por connect-src en el CSP).
+   Defensivo: si falla / sin red, resuelve null y el campo queda como texto manual. */
 async function reverseGeocode(lat, lng) {
-  if (!MAPS_API_KEY || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   try {
-    const maps = await loadGoogleMaps(MAPS_API_KEY);
-    return await new Promise((resolve) => {
-      try {
-        new maps.Geocoder().geocode({ location: { lat, lng }, language: 'es' }, (results, status) => {
-          resolve((status === 'OK' && results && results[0]) ? results[0].formatted_address : null);
-        });
-      } catch (e) { resolve(null); }
-    });
+    const r = await fetch('https://nominatim.openstreetmap.org/reverse?format=json&accept-language=es&lat=' + lat + '&lon=' + lng);
+    if (!r.ok) return null;
+    const j = await r.json();
+    return (j && j.display_name) || null;
   } catch (e) { return null; }
 }
 
@@ -771,32 +782,30 @@ function DeliveryMapPicker({ initial, onPick, controlRef, T }) {
   const ref = useRef(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
-    let cancelled = false;
-    loadGoogleMaps(MAPS_API_KEY).then((maps) => {
-      if (cancelled || !ref.current) return;
-      const c = {
-        lat: (initial && Number.isFinite(initial.lat)) ? initial.lat : -25.2867,
-        lng: (initial && Number.isFinite(initial.lng)) ? initial.lng : -57.6470,
-      };
-      const map = new maps.Map(ref.current, { center: c, zoom: 16, disableDefaultUI: true, zoomControl: true, gestureHandling: 'greedy' });
-      const marker = new maps.Marker({ position: c, map, draggable: true });
-      const emit = () => { const p = marker.getPosition(); if (p) onPick(p.lat(), p.lng()); };
-      marker.addListener('dragend', emit);
-      map.addListener('click', (e) => { marker.setPosition(e.latLng); map.panTo(e.latLng); emit(); });
-      // Handle imperativo: reposicionar el pin desde fuera (GPS / autocomplete).
-      // doEmit=false cuando el llamador ya conoce la dirección (no re-geocodificar).
-      if (controlRef) controlRef.current = {
-        moveTo: (lat, lng, doEmit = true) => {
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-          const pos = { lat, lng };
-          marker.setPosition(pos); map.panTo(pos); map.setZoom(17);
-          if (doEmit) onPick(lat, lng);
-        }
-      };
-    }).catch(() => { if (!cancelled) setFailed(true); });
-    return () => { cancelled = true; if (controlRef) controlRef.current = null; };
+    if (!window.L || !ref.current) { setFailed(true); return; }
+    const c = {
+      lat: (initial && Number.isFinite(initial.lat)) ? initial.lat : -25.2867,
+      lng: (initial && Number.isFinite(initial.lng)) ? initial.lng : -57.6470,
+    };
+    const map = window.L.map(ref.current, { zoomControl: true, attributionControl: false }).setView([c.lat, c.lng], 16);
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
+    const marker = window.L.marker([c.lat, c.lng], { draggable: true, icon: _pinIcon() }).addTo(map);
+    const emit = () => { const p = marker.getLatLng(); onPick(p.lat, p.lng); };
+    marker.on('dragend', emit);
+    map.on('click', (e) => { marker.setLatLng(e.latlng); map.panTo(e.latlng); emit(); });
+    // Handle imperativo: reposicionar el pin desde fuera (GPS / autocomplete).
+    // doEmit=false cuando el llamador ya conoce la dirección (no re-geocodificar).
+    if (controlRef) controlRef.current = {
+      moveTo: (lat, lng, doEmit = true) => {
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        marker.setLatLng([lat, lng]); map.panTo([lat, lng]); map.setZoom(17);
+        if (doEmit) onPick(lat, lng);
+      }
+    };
+    const t = setTimeout(() => { try { map.invalidateSize(); } catch (_) {} }, 150);
+    return () => { clearTimeout(t); try { map.remove(); } catch (_) {} if (controlRef) controlRef.current = null; };
   }, []);
-  // Fallback silencioso: si el mapa no carga, se oculta y queda el flujo manual de texto.
+  // Fallback silencioso: si Leaflet no cargó, se oculta y queda el flujo manual de texto.
   if (failed) return null;
   return <div ref={ref} style={{ width: '100%', height: 200, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 8 }} />;
 }
@@ -1007,7 +1016,7 @@ function CoverageScreen({ zones, restaurant, settings, onCovered, onPickupFallba
             {/* Mapa interactivo (solo si hay API key configurada). El pin arrastrable
                 recalcula la zona/costo con la misma lógica de Haversine; reusa los
                 estados 'ok'/'no'. Sin key, este bloque no se renderiza. */}
-            {MAPS_READY && (
+            {LEAFLET_READY && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, marginBottom: 8, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                   Marcá tu ubicación en el mapa
@@ -1132,27 +1141,32 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-  // Init Maps (solo delivery + key presente): servicios de Places + prefill de la
-  // dirección por reverse geocoding desde la coordenada GPS inicial (si la hay).
+  // Init (solo delivery): (1) prefill de la dirección por reverse geocoding desde
+  // la coordenada GPS inicial — vía Nominatim, SIN key, así funciona aunque no haya
+  // Google; (2) servicios de Places SOLO si hay key de Google (autocomplete opcional).
   useEffect(() => {
-    if (!isDelivery || !MAPS_READY) return;
+    if (!isDelivery) return;
     let on = true;
-    loadGoogleMaps(MAPS_API_KEY).then((maps) => {
-      if (!on) return;
-      try {
-        autoSvc.current   = new maps.places.AutocompleteService();
-        placesSvc.current = new maps.places.PlacesService(placesDivRef.current || document.createElement('div'));
-      } catch (e) {}
-      if (Number.isFinite(initLat) && Number.isFinite(initLng)) {
-        const reqId = ++geoReq.current;
-        setGeoBusy(true);
-        reverseGeocode(initLat, initLng).then(addr => {
-          if (!on || reqId !== geoReq.current) return;   // el usuario tipeó / movió el pin: descartar
-          if (addr) setForm(p => p.address.trim() ? p : ({ ...p, address: addr }));
-          setGeoBusy(false);
-        });
-      }
-    }).catch(() => {});
+    // (1) Prefill keyless de la dirección desde la coordenada inicial (si la hay).
+    if (Number.isFinite(initLat) && Number.isFinite(initLng)) {
+      const reqId = ++geoReq.current;
+      setGeoBusy(true);
+      reverseGeocode(initLat, initLng).then(addr => {
+        if (!on || reqId !== geoReq.current) return;   // el usuario tipeó / movió el pin: descartar
+        if (addr) setForm(p => p.address.trim() ? p : ({ ...p, address: addr }));
+        setGeoBusy(false);
+      });
+    }
+    // (2) Autocomplete de Google Places: opcional, solo con API key.
+    if (MAPS_READY) {
+      loadGoogleMaps(MAPS_API_KEY).then((maps) => {
+        if (!on) return;
+        try {
+          autoSvc.current   = new maps.places.AutocompleteService();
+          placesSvc.current = new maps.places.PlacesService(placesDivRef.current || document.createElement('div'));
+        } catch (e) {}
+      }).catch(() => {});
+    }
     return () => { on = false; clearTimeout(predTimer.current); };
   }, []);
 
@@ -1297,7 +1311,7 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
             {/* Punto de entrega — mapa con pin ARRASTRABLE (si hay key de Maps).
                 El pin es la fuente de verdad de la coordenada. Sin key/red, este
                 bloque no se monta y queda la dirección como texto manual (defensivo). */}
-            {MAPS_READY && (
+            {LEAFLET_READY && (
               <div>
                 <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Punto de entrega</label>
                 <DeliveryMapPicker initial={mapCenter} onPick={handlePinPick} controlRef={pickerCtl} T={T} />
@@ -2086,7 +2100,7 @@ function ConfirmScreen({ order, orderType, customerData, deliveryResult, deliver
         const row = await dbGetOrderStatus(order.order_number);
         if (!row) {
           // El pedido ya no existe (reset/limpieza): purgar localStorage y volver al inicio.
-          ['dc_order','dc_order_type','dc_customer','dc_zone'].forEach(k => localStorage.removeItem(k));
+          ['dc_order','dc_order_type','dc_customer','dc_zone'].forEach(k => localStorage.removeItem(lsk(k)));
           if (typeof onNewOrder === 'function') onNewOrder();
           return;
         }
@@ -2469,19 +2483,19 @@ function App() {
   const theme = makeTheme();
 
   const [confirmedOrder, setConfirmedOrder] = useState(() => {
-    try { const s = localStorage.getItem('dc_order'); return s ? JSON.parse(s) : null; } catch { return null; }
+    try { const s = localStorage.getItem(lsk('dc_order')); return s ? JSON.parse(s) : null; } catch { return null; }
   });
   const [screen, setScreen] = useState(() => {
-    try { return localStorage.getItem('dc_order') ? 'confirm' : 'welcome'; } catch { return 'welcome'; }
+    try { return localStorage.getItem(lsk('dc_order')) ? 'confirm' : 'welcome'; } catch { return 'welcome'; }
   });
   const [orderType, setOrderType] = useState(() => {
-    try { return localStorage.getItem('dc_order_type') || 'delivery'; } catch { return 'delivery'; }
+    try { return localStorage.getItem(lsk('dc_order_type')) || 'delivery'; } catch { return 'delivery'; }
   });
   const [deliveryResult, setDeliveryResult] = useState(() => {
-    try { const s = localStorage.getItem('dc_zone'); return s ? JSON.parse(s) : null; } catch { return null; }
+    try { const s = localStorage.getItem(lsk('dc_zone')); return s ? JSON.parse(s) : null; } catch { return null; }
   });
   const [customerData, setCustomerData] = useState(() => {
-    try { const s = localStorage.getItem('dc_customer'); return s ? JSON.parse(s) : null; } catch { return null; }
+    try { const s = localStorage.getItem(lsk('dc_customer')); return s ? JSON.parse(s) : null; } catch { return null; }
   });
   const [zones, setZones]           = useState([]);
   const [deliverySettings, setDeliverySettings] = useState(null);  // modo de cotización (mig 124)
@@ -2582,10 +2596,10 @@ function App() {
 
   const handleConfirmed = (order) => {
     try {
-      localStorage.setItem('dc_order',    JSON.stringify(order));
-      localStorage.setItem('dc_order_type', orderType);
-      if (customerData)   localStorage.setItem('dc_customer', JSON.stringify(customerData));
-      if (deliveryResult) localStorage.setItem('dc_zone',     JSON.stringify(deliveryResult));
+      localStorage.setItem(lsk('dc_order'),    JSON.stringify(order));
+      localStorage.setItem(lsk('dc_order_type'), orderType);
+      if (customerData)   localStorage.setItem(lsk('dc_customer'), JSON.stringify(customerData));
+      if (deliveryResult) localStorage.setItem(lsk('dc_zone'),     JSON.stringify(deliveryResult));
     } catch {}
     setConfirmedOrder(order);
     setCartItems([]);
@@ -2593,7 +2607,7 @@ function App() {
   };
 
   const handleNewOrder = () => {
-    ['dc_order','dc_order_type','dc_customer','dc_zone'].forEach(k => localStorage.removeItem(k));
+    ['dc_order','dc_order_type','dc_customer','dc_zone'].forEach(k => localStorage.removeItem(lsk(k)));
     setConfirmedOrder(null);
     setCustomerData(null);
     setDeliveryResult(null);

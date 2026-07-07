@@ -34,6 +34,9 @@ const _urlParams = new URLSearchParams(window.location.search);
 // Fallback a config.js sólo para el deploy demo de un solo local.
 const _ridParam = (_urlParams.get('r') || _urlParams.get('rest') || _urlParams.get('restaurant') || '').replace(/^﻿/, '').trim();
 const RESTAURANT_ID = (_ridParam || (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.restaurantId) || '').replace(/^﻿/, '').trim();
+// Carrito/checkout aislado por restaurante: si el mismo navegador escanea el QR de
+// dos locales, cada uno tiene su propio carrito. Sentinel '_nolocal_' sin ?r=.
+const lsk = name => (RESTAURANT_ID || '_nolocal_') + ':' + name;
 let TABLE_NUM = parseInt(_urlParams.get('mesa') || '0', 10);
 const TABLE_TOKEN = _urlParams.get('t') || _urlParams.get('token') || null;
 // Modo MOSTRADOR (QR de caja): sin mesa asignada. El QR de mesa SIEMPRE trae
@@ -1977,7 +1980,7 @@ function App() {
   // ── Persistencia localStorage ──
   const [screen, setScreen] = useState(() => {
     try {
-      const s = localStorage.getItem('app_screen');
+      const s = localStorage.getItem(lsk('app_screen'));
       const validScreens = ['menu','cart','pay','track','rate'];
       if (validScreens.includes(s)) return s;
       // El cliente llega por un QR real (mesa o mostrador): sin pantalla demo de escaneo.
@@ -1985,21 +1988,21 @@ function App() {
     } catch { return 'profile'; }
   });
   const [cartItems, setCartItems] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('app_cart') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(lsk('app_cart')) || '[]'); } catch { return []; }
   });
   const [currentOrderNum, setCurrentOrderNum] = useState(() => {
-    try { return localStorage.getItem('app_order_num') || null; } catch { return null; }
+    try { return localStorage.getItem(lsk('app_order_num')) || null; } catch { return null; }
   });
   // Todos los N° de pedido de esta sesión/mesa → "Ver mis pedidos" sin perder el anterior
   // al hacer otro pedido. Se vacía sólo con clearSession (cierre total de la sesión).
   const [sessionOrders, setSessionOrders] = useState(() => {
-    try { const a = JSON.parse(localStorage.getItem('app_session_orders') || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+    try { const a = JSON.parse(localStorage.getItem(lsk('app_session_orders')) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
   });
 
-  useEffect(() => { try { localStorage.setItem('app_screen', screen); } catch {} }, [screen]);
-  useEffect(() => { try { localStorage.setItem('app_cart', JSON.stringify(cartItems)); } catch {} }, [cartItems]);
-  useEffect(() => { try { if (currentOrderNum) localStorage.setItem('app_order_num', currentOrderNum); } catch {} }, [currentOrderNum]);
-  useEffect(() => { try { localStorage.setItem('app_session_orders', JSON.stringify(sessionOrders)); } catch {} }, [sessionOrders]);
+  useEffect(() => { try { localStorage.setItem(lsk('app_screen'), screen); } catch {} }, [screen]);
+  useEffect(() => { try { localStorage.setItem(lsk('app_cart'), JSON.stringify(cartItems)); } catch {} }, [cartItems]);
+  useEffect(() => { try { if (currentOrderNum) localStorage.setItem(lsk('app_order_num'), currentOrderNum); } catch {} }, [currentOrderNum]);
+  useEffect(() => { try { localStorage.setItem(lsk('app_session_orders'), JSON.stringify(sessionOrders)); } catch {} }, [sessionOrders]);
   // NOTA (PR-5): los efectos que persisten payTotal/paySubtotal/payDiscount/payCoupon se movieron
   // más abajo, justo después de declarar esos estados. Antes estaban acá, ANTES de su `const … =
   // useState(…)`, y sus arrays de dependencias (evaluados en render) los leían adelantados. Babel
@@ -2008,10 +2011,10 @@ function App() {
 
   const clearSession = () => {
     try {
-      localStorage.removeItem('app_screen'); localStorage.removeItem('app_cart'); localStorage.removeItem('app_order_num');
-      localStorage.removeItem('app_session_orders');
-      localStorage.removeItem('app_pay_total'); localStorage.removeItem('app_pay_sub');
-      localStorage.removeItem('app_pay_disc'); localStorage.removeItem('app_pay_coupon');
+      localStorage.removeItem(lsk('app_screen')); localStorage.removeItem(lsk('app_cart')); localStorage.removeItem(lsk('app_order_num'));
+      localStorage.removeItem(lsk('app_session_orders'));
+      localStorage.removeItem(lsk('app_pay_total')); localStorage.removeItem(lsk('app_pay_sub'));
+      localStorage.removeItem(lsk('app_pay_disc')); localStorage.removeItem(lsk('app_pay_coupon'));
     } catch {}
     setCartItems([]); setCurrentOrderNum(null); setSessionOrders([]); setPayTotal(0); setPaySubtotal(0); setPayDiscount(0); setPayCoupon(''); setScreen('profile');
   };
@@ -2031,9 +2034,9 @@ function App() {
     if (ordNum) registerOrder(ordNum);
     if (method) setPayMethod(method);
     try {
-      localStorage.removeItem('app_cart');
-      localStorage.removeItem('app_pay_total'); localStorage.removeItem('app_pay_sub');
-      localStorage.removeItem('app_pay_disc'); localStorage.removeItem('app_pay_coupon');
+      localStorage.removeItem(lsk('app_cart'));
+      localStorage.removeItem(lsk('app_pay_total')); localStorage.removeItem(lsk('app_pay_sub'));
+      localStorage.removeItem(lsk('app_pay_disc')); localStorage.removeItem(lsk('app_pay_coupon'));
     } catch {}
     setCartItems([]); setPayTotal(0); setPaySubtotal(0); setPayDiscount(0); setPayCoupon('');
     setScreen('menu');
@@ -2044,17 +2047,17 @@ function App() {
   const [lang, setLang]             = useState('es');
   const [selItem, setSelItem]       = useState(null);
   const [showSplit, setShowSplit]   = useState(false);
-  const [payTotal, setPayTotal]     = useState(() => { try { return Number(localStorage.getItem('app_pay_total') || 0); } catch { return 0; } });
-  const [paySubtotal, setPaySubtotal] = useState(() => { try { return Number(localStorage.getItem('app_pay_sub') || 0); } catch { return 0; } });
-  const [payDiscount, setPayDiscount] = useState(() => { try { return Number(localStorage.getItem('app_pay_disc') || 0); } catch { return 0; } });
-  const [payCoupon, setPayCoupon]   = useState(() => { try { return localStorage.getItem('app_pay_coupon') || ''; } catch { return ''; } });
+  const [payTotal, setPayTotal]     = useState(() => { try { return Number(localStorage.getItem(lsk('app_pay_total')) || 0); } catch { return 0; } });
+  const [paySubtotal, setPaySubtotal] = useState(() => { try { return Number(localStorage.getItem(lsk('app_pay_sub')) || 0); } catch { return 0; } });
+  const [payDiscount, setPayDiscount] = useState(() => { try { return Number(localStorage.getItem(lsk('app_pay_disc')) || 0); } catch { return 0; } });
+  const [payCoupon, setPayCoupon]   = useState(() => { try { return localStorage.getItem(lsk('app_pay_coupon')) || ''; } catch { return ''; } });
 
   // PR-5: reubicados aquí (después de declarar los estados pay*) para evitar el TDZ que rompía el
   // panel con Vite. Comportamiento equivalente al original (persistencia de los campos de pago).
-  useEffect(() => { try { localStorage.setItem('app_pay_total', payTotal); } catch {} }, [payTotal]);
-  useEffect(() => { try { localStorage.setItem('app_pay_sub', paySubtotal); } catch {} }, [paySubtotal]);
-  useEffect(() => { try { localStorage.setItem('app_pay_disc', payDiscount); } catch {} }, [payDiscount]);
-  useEffect(() => { try { localStorage.setItem('app_pay_coupon', payCoupon); } catch {} }, [payCoupon]);
+  useEffect(() => { try { localStorage.setItem(lsk('app_pay_total'), payTotal); } catch {} }, [payTotal]);
+  useEffect(() => { try { localStorage.setItem(lsk('app_pay_sub'), paySubtotal); } catch {} }, [paySubtotal]);
+  useEffect(() => { try { localStorage.setItem(lsk('app_pay_disc'), payDiscount); } catch {} }, [payDiscount]);
+  useEffect(() => { try { localStorage.setItem(lsk('app_pay_coupon'), payCoupon); } catch {} }, [payCoupon]);
 
   // Si el cliente recarga en pantalla de pago con total=0, volvemos al carrito de forma segura.
   useEffect(() => {

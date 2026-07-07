@@ -8295,9 +8295,17 @@ const PRICING_MODE_OPTS = [
   {v:'route_km',  label:'Por km recorrido', desc:'Distancia real de manejo (Google)'},
   {v:'zone',      label:'Por zonas',        desc:'Bandas por radio desde el local'},
 ];
+// Modos ocultos (mismo patrón reversible que PENDING_ADDONS: Bancard/Facturación).
+// 'route_km' depende de Google Distance Matrix (API paga) y hoy cae a línea recta,
+// así que se oculta de las opciones del dueño hasta habilitar/pagar esa API.
+// ► Reactivar = vaciar este array: [] (no se borra código; queda todo listo).
+const PENDING_PRICING_MODES = ['route_km'];
+// Normaliza el modo leído: un restaurante que YA tenía elegido un modo oculto
+// (p.ej. 'route_km') cae a 'Por km a la redonda' sin tocar la DB (fallback en lectura).
+const effectivePricingMode = m => PENDING_PRICING_MODES.includes(m) ? 'radial_km' : (m || 'zone');
 function pricingFromSettings(s){
   return {
-    pricing_mode:     s?.pricing_mode || 'zone',
+    pricing_mode:     effectivePricingMode(s?.pricing_mode),
     base_fee:         s?.base_fee ?? 0,
     price_per_km:     s?.price_per_km ?? 0,
     min_fee:          s?.min_fee ?? 0,
@@ -8369,7 +8377,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
         <div style={{padding:18,display:'flex',flexDirection:'column',gap:16}}>
           {/* Selector de modo */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:8}}>
-            {PRICING_MODE_OPTS.map(opt=>{
+            {PRICING_MODE_OPTS.filter(opt=>!PENDING_PRICING_MODES.includes(opt.v)).map(opt=>{
               const sel = pm.pricing_mode===opt.v;
               return (
                 <button key={opt.v} onClick={()=>pf('pricing_mode',opt.v)} style={{textAlign:'left',padding:'12px 14px',border:`2px solid ${sel?C.ink:C.border}`,borderRadius:10,background:sel?'var(--bg-subtle)':'transparent',cursor:'pointer',transition:'all 150ms'}}>
@@ -8419,7 +8427,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
 
           <div style={{display:'flex',alignItems:'center',gap:12}}>
             <Btn onClick={handleSavePm} disabled={savingPm}>{savingPm?'Guardando…':'Guardar modo'}</Btn>
-            <span style={{fontSize:11,color:C.dim}}>Modo actual: <strong style={{color:C.mid}}>{(PRICING_MODE_OPTS.find(o=>o.v===(settings?.pricing_mode||'zone'))||{}).label}</strong></span>
+            <span style={{fontSize:11,color:C.dim}}>Modo actual: <strong style={{color:C.mid}}>{(PRICING_MODE_OPTS.find(o=>o.v===effectivePricingMode(settings?.pricing_mode))||{}).label}</strong></span>
           </div>
         </div>
       </div>
@@ -8705,11 +8713,18 @@ function DeliveryModule() {
 /* ══════════════════════════════════════════════
    PÁGINA: RESERVAS (ADMIN)
 ══════════════════════════════════════════════ */
-function ReservasPage({tables,embedded}) {
+function ReservasPage({tables,embedded,mode}) {
+  // mode==='cola' → cola de próximas PENDIENTES (sin filtro de día, ordenadas por
+  // fecha) para que el dueño las confirme de un vistazo, sin adivinar el día.
+  const isCola = mode==='cola';
+  // Fecha de HOY en zona local (no UTC): con toISOString() al anochecer en Paraguay
+  // (UTC ya rodó al día siguiente) se perdían las reservas del día. Mismo patrón que
+  // el resto del panel (getFullYear/getMonth/getDate son locales).
+  const localToday = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
   const [reservas,setReservas] = useState([]);
   const [loading,setLoading]   = useState(true);
-  const [dateFilter,setDateFilter] = useState(new Date().toISOString().slice(0,10));
-  const [statusFilter,setStatusFilter] = useState('all');
+  const [dateFilter,setDateFilter] = useState(isCola ? '' : localToday());
+  const [statusFilter,setStatusFilter] = useState(isCola ? 'pending' : 'all');
   const [editModal,setEditModal] = useState(null);
   const [newModal,setNewModal]  = useState(false);
 
@@ -8728,6 +8743,7 @@ function ReservasPage({tables,embedded}) {
     if(!db){setLoading(false);return;}
     let q = db.from('reservations').select('*').eq('restaurant_id',RID).order('reservation_date').order('reservation_time');
     if(dateFilter) q = q.eq('reservation_date',dateFilter);
+    else if(isCola) q = q.gte('reservation_date',localToday());   // solo próximas (fecha local)
     if(statusFilter!=='all') q = q.eq('status',statusFilter);
     const{data}=await q.limit(200);
     setReservas(data||[]);
@@ -8737,7 +8753,10 @@ function ReservasPage({tables,embedded}) {
 
   async function updateStatus(id,status){
     await db.from('reservations').update({status}).eq('id',id);
-    setReservas(p=>p.map(r=>r.id===id?{...r,status}:r));
+    // En la cola de Pendientes, Confirmar/Rechazar saca la fila (deja de ser pending);
+    // en la vista Lista se actualiza en el lugar (feedback sin recargar).
+    if (isCola && statusFilter==='pending') setReservas(p=>p.filter(r=>r.id!==id));
+    else setReservas(p=>p.map(r=>r.id===id?{...r,status}:r));
   }
 
   async function deleteReserva(id){
@@ -8839,7 +8858,11 @@ function ReservasPage({tables,embedded}) {
                       </select>
                     </td>
                     <td style={{padding:'10px 12px'}}>
-                      <div style={{display:'flex',gap:6}}>
+                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                        {r.status==='pending' && <>
+                          <button onClick={()=>updateStatus(r.id,'confirmed')} title="Confirmar reserva" style={{padding:'4px 10px',borderRadius:6,border:'1px solid #34C759',background:'#34C759',color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer'}}>Confirmar</button>
+                          <button onClick={()=>updateStatus(r.id,'cancelled')} title="Rechazar reserva" style={{padding:'4px 10px',borderRadius:6,border:'1px solid #FF3B30',background:'transparent',color:'#FF3B30',fontSize:11,fontWeight:700,cursor:'pointer'}}>Rechazar</button>
+                        </>}
                         <button onClick={()=>setEditModal(r)} style={{padding:'4px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.mid,fontSize:11,cursor:'pointer'}}>Editar</button>
                         <a href={`https://wa.me/${r.customer_phone.replace(/\D/g,'')}`} target="_blank"
                           style={{padding:'4px 10px',borderRadius:6,border:`1px solid #25D366`,background:'transparent',color:'#25D366',fontSize:11,fontWeight:600,textDecoration:'none'}}>WA</a>
@@ -10392,7 +10415,7 @@ function CalendarioPage({tables, embedded}) {
 ══════════════════════════════════════════════ */
 function AgendaPage({tables, initialView='calendario'}) {
   const [view,setView] = useState(initialView);
-  const TABS = [['calendario','Calendario'],['lista','Lista']];
+  const TABS = [['pendientes','Pendientes'],['calendario','Calendario'],['lista','Lista']];
   return (
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,gap:12,flexWrap:'wrap'}}>
@@ -10407,7 +10430,9 @@ function AgendaPage({tables, initialView='calendario'}) {
       </div>
       {view==='calendario'
         ? <CalendarioPage tables={tables} embedded/>
-        : <ReservasPage tables={tables} embedded/>}
+        : view==='pendientes'
+          ? <ReservasPage tables={tables} embedded mode='cola'/>
+          : <ReservasPage tables={tables} embedded/>}
     </div>
   );
 }
@@ -10835,7 +10860,7 @@ function AdminApp() {
       case 'mesas':     return <MesasPage tables={tables} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'agenda':
       case 'reservas':
-      case 'calendario':return <AgendaPage tables={tables} initialView={page==='reservas'?'lista':'calendario'}/>;
+      case 'calendario':return <AgendaPage tables={tables} initialView={page==='reservas'?'pendientes':(page==='agenda'?'pendientes':'calendario')}/>;
       case 'estaciones':return caps.hasPanel('cocina') ? <EstacionesPage categories={categories} tables={tables}/> : <window.MythosGating.PanelLock panelKey="cocina" variant="inline"/>;
       case 'personal':  return <PersonalPage/>;
       case 'clientes':  return caps.hasFeature('admin:crm') ? <ClientesPage orders={orders}/> : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;

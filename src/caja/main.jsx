@@ -64,6 +64,11 @@ const _SUPER_RID = (function(){ try {
 } catch(_) { return null; } })();
 const RESTAURANT_ID = _SUPER_RID || localStorage.getItem('mythos_restaurant_id');
 let RID = RESTAURANT_ID; // alias retro-compatible; initApp lo reafirma con profile.restaurant_id
+// Carrito/checkout de caja aislado por restaurante: el superadmin puede impersonar
+// varios locales vía ?r= en el mismo navegador → cada uno con su propio carrito.
+// Solo aplica a las claves de CARRITO (caja_cart/order_type/table_id/customer_name);
+// las prefs de UI (caja_panel/caja_mesa_view/…) siguen globales. Sentinel sin RID.
+const lsk = name => (RESTAURANT_ID || '_nolocal_') + ':' + name;
 
 /* ── DENOMINACIONES GUARANÍES ── */
 const DENOMS = [
@@ -554,8 +559,10 @@ async function cerrarSesion(){
   try{await db.auth.signOut();}catch(e){}
   // Borra el token de sesión (ambos almacenes, por las dudas) y las claves de tenancy/caja.
   try{ sessionStorage.removeItem(SB_STORAGE_KEY); localStorage.removeItem(SB_STORAGE_KEY); }catch(_){}
-  ['mythos_role','mythos_restaurant_id','mythos_user_id','mythos_display_name','mythos_last_activity','caja_panel','caja_cart']
+  ['mythos_role','mythos_restaurant_id','mythos_user_id','mythos_display_name','mythos_last_activity','caja_panel']
     .forEach(k=>{try{localStorage.removeItem(k);}catch(_){}});
+  // Carrito/checkout por-restaurante (todas las claves) + legacy global.
+  try{ ['caja_cart','caja_order_type','caja_table_id','caja_customer_name'].forEach(kk=>localStorage.removeItem(lsk(kk))); localStorage.removeItem('caja_cart'); }catch(_){}
   window.location.replace('login.html');
 }
 
@@ -2798,19 +2805,19 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
   const [tables,setTables]=useState([]);
   const [loading,setLoading]=useState(true);
   const [selCat,setSelCat]=useState(null);
-  const [cart,setCart]=useState(()=>{try{return JSON.parse(localStorage.getItem('caja_cart')||'[]');}catch{return [];}});
-  const [orderType,setOrderType]=useState(()=>localStorage.getItem('caja_order_type')||'dine_in');
-  const [tableId,setTableId]=useState(()=>localStorage.getItem('caja_table_id')||'');
-  const [customerName,setCustomerName]=useState(()=>localStorage.getItem('caja_customer_name')||'');
+  const [cart,setCart]=useState(()=>{try{return JSON.parse(localStorage.getItem(lsk('caja_cart'))||'[]');}catch{return [];}});
+  const [orderType,setOrderType]=useState(()=>localStorage.getItem(lsk('caja_order_type'))||'dine_in');
+  const [tableId,setTableId]=useState(()=>localStorage.getItem(lsk('caja_table_id'))||'');
+  const [customerName,setCustomerName]=useState(()=>localStorage.getItem(lsk('caja_customer_name'))||'');
   const [extrasModal,setExtrasModal]=useState(null);
   const [pagoModal,setPagoModal]=useState(false);
   const [busy,setBusy]=useState(false);
 
   useEffect(()=>{load();},[]);
-  useEffect(()=>{localStorage.setItem('caja_cart',JSON.stringify(cart));},[cart]);
-  useEffect(()=>{localStorage.setItem('caja_order_type',orderType);},[orderType]);
-  useEffect(()=>{localStorage.setItem('caja_table_id',tableId);},[tableId]);
-  useEffect(()=>{localStorage.setItem('caja_customer_name',customerName);},[customerName]);
+  useEffect(()=>{localStorage.setItem(lsk('caja_cart'),JSON.stringify(cart));},[cart]);
+  useEffect(()=>{localStorage.setItem(lsk('caja_order_type'),orderType);},[orderType]);
+  useEffect(()=>{localStorage.setItem(lsk('caja_table_id'),tableId);},[tableId]);
+  useEffect(()=>{localStorage.setItem(lsk('caja_customer_name'),customerName);},[customerName]);
 
   async function load(){
     try{
@@ -2864,7 +2871,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
     if(movData&&onMovimiento)onMovimiento(movData);
     toast(`Pedido #${order?.order_number||''} cobrado y enviado a cocina ✓`);
     setCart([]);setCustomerName('');setTableId('');
-    localStorage.removeItem('caja_cart');localStorage.removeItem('caja_customer_name');localStorage.removeItem('caja_table_id');
+    localStorage.removeItem(lsk('caja_cart'));localStorage.removeItem(lsk('caja_customer_name'));localStorage.removeItem(lsk('caja_table_id'));
   }
 
   /* ── render ── */
@@ -4100,7 +4107,7 @@ function CierreCajaPanel({turno,cajaNombre,movimientos,profile,onCierre}){
       if(error)throw error;
       // Mensaje neutro — NUNCA mencionar diferencia/sobrante/faltante al cajero.
       toast('Cierre registrado correctamente. Gracias por tu turno.');
-      try{localStorage.removeItem('caja_panel');localStorage.removeItem('caja_cart');}catch{}
+      try{localStorage.removeItem('caja_panel');['caja_cart','caja_order_type','caja_table_id','caja_customer_name'].forEach(kk=>localStorage.removeItem(lsk(kk)));}catch{}
       try{await window.MythosPresence?.stop('manual');}catch(_){}
       try{await db.auth.signOut();}catch{}
       setTimeout(()=>{window.location.replace('login.html?cierre=ok');},900);

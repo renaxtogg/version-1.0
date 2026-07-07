@@ -21,6 +21,11 @@
      fuerza light e ignora la preferencia global del staff (protege la marca). -->
 <script>MythosTheme.init('light');</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
+<!-- Mapa del cliente: Leaflet + OpenStreetMap (sin API key, igual que el Editor de
+     mapa del admin). Permite marcar la ubicación con un pin arrastrable sin GPS.
+     La CSP (vercel.json) ya permite unpkg + *.tile.openstreetmap.org + nominatim. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="config.js"></script>
 <script src="mythos-panel-gate.js"></script>
 <style>
