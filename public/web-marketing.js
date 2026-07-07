@@ -17,9 +17,9 @@
   /* ── Configuración (defaults; sales_whatsapp/founder se sobreescriben desde
      marketing_config en runtime). TODO(WEB-5): número de WhatsApp real. ──── */
   var CONFIG = {
-    whatsapp: '595000000000',
+    whatsapp: '595987436592',   // se sobreescribe con marketing_config.whatsapp en runtime
     whatsappMsg: 'Hola, quiero probar MYTHOS para mi restaurante.',
-    email: 'hola@mythos.com.py',
+    email: 'mancuellorenato@gmail.com',   // se sobreescribe con marketing_config.contact_email
     loginUrl: '/login',
     founderLimit: 10
   };
@@ -38,8 +38,10 @@
   var _selectedSlug = null;  // tarjeta de plan seleccionada (se expande/destaca)
 
   /* ── Utilidades ───────────────────────────────────────────────────────── */
+  // Número en dígitos para wa.me (tolera que CONFIG.whatsapp venga formateado).
+  function waNumber() { return String(CONFIG.whatsapp || '').replace(/\D/g, ''); }
   function waLink(msg) {
-    return 'https://wa.me/' + CONFIG.whatsapp + '?text=' + encodeURIComponent(msg || CONFIG.whatsappMsg);
+    return 'https://wa.me/' + waNumber() + '?text=' + encodeURIComponent(msg || CONFIG.whatsappMsg);
   }
   function icon(name, opts) {
     return (window.MythosIcons && window.MythosIcons.html) ? window.MythosIcons.html(name, opts) : '';
@@ -120,7 +122,7 @@
             '</div>' +
           '</div>' +
           '<div class="foot-bottom">' +
-            '<span>© <span id="mktYear">2026</span> <span data-cfg="legal_name">MYTHOS</span> · Asunción, Paraguay</span>' +
+            '<span>© <span id="mktYear">2026</span> MYTHOS · Fernando de la Mora, Paraguay</span>' +
             /* ORIGINAL (reactivar): ' Hecho en Paraguay · Cobrá con Bancard' */
             '<span class="t-item">' + icon('pin') + ' Hecho en Paraguay</span>' +
           '</div>' +
@@ -588,15 +590,33 @@
     }).catch(function () {});
   }
 
+  // Formatea un WhatsApp (dígitos) para MOSTRARLO: "595987436592" → "+595 987 436592".
+  // El enlace wa.me usa waNumber() (solo dígitos); esto es solo presentación.
+  function fmtWhatsapp(v) {
+    var d = String(v == null ? '' : v).replace(/\D/g, '');
+    if (!d) return '';
+    return (d.length > 6) ? ('+' + d.slice(0, 3) + ' ' + d.slice(3, 6) + ' ' + d.slice(6)) : ('+' + d);
+  }
+
   /* ── Rellena spans/atributos [data-cfg="key"] desde marketing_config.
-     Vacío → "—" (nunca deja el placeholder crudo). Usado por las páginas
-     legales y el pie. ─────────────────────────────────────────────────── */
+     Un campo VACÍO nunca muestra "—": si su bloque se marcó [data-cfg-optional]
+     se oculta; si no, se deja el texto de respaldo del propio HTML (así no
+     aparece "RUC —" ni datos rotos). El WhatsApp se muestra formateado.
+     Usado por las páginas legales y el pie. ───────────────────────────────── */
   function fillCfgSpans() {
     var cfg = _config || {};
     document.querySelectorAll('[data-cfg]').forEach(function (el) {
       var key = el.getAttribute('data-cfg');
       var val = cfg[key];
-      el.textContent = (val == null || String(val).trim() === '') ? '—' : String(val).trim();
+      var has = !(val == null || String(val).trim() === '');
+      var wrap = el.closest('[data-cfg-optional]');
+      if (has) {
+        el.textContent = (key === 'whatsapp') ? fmtWhatsapp(val) : String(val).trim();
+        if (wrap) wrap.style.display = '';
+        return;
+      }
+      if (wrap) wrap.style.display = 'none';   // vacío + opcional → ocultar (nada de "—")
+      // vacío sin wrapper → se respeta el texto de respaldo ya presente en el HTML
     });
   }
 
