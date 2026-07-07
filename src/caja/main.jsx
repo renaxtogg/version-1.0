@@ -1270,13 +1270,14 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const cashChangeNum   = cashAmountNum>0 ? cashAmountNum-(totalReal+deliveryFeeNum) : 0;
 
   if(successTicket){
+    const ce=successTicket.contraEntrega;
     return(
-      <Modal title="Pedido cobrado" onClose={cerrarTrasExito} width={420}>
+      <Modal title={ce?'Pedido enviado a despacho':'Pedido cobrado'} onClose={cerrarTrasExito} width={420}>
         <div style={{textAlign:'center',padding:'20px 0 8px'}}>
           <div style={{fontSize:48,marginBottom:8}}>✓</div>
-          <div style={{fontSize:18,fontWeight:800,color:'#34C759',marginBottom:4}}>¡Cobrado!</div>
+          <div style={{fontSize:18,fontWeight:800,color:'#34C759',marginBottom:4}}>{ce?'¡Enviado!':'¡Cobrado!'}</div>
           <div style={{fontSize:13,color:C.mid,marginBottom:2}}>Pedido #{successTicket.orderNumber}</div>
-          <div style={{fontSize:12,color:C.mid}}>{successTicket.mesa}</div>
+          <div style={{fontSize:12,color:C.mid}}>{ce?'El rider cobra al entregar':successTicket.mesa}</div>
         </div>
         <div style={{background:C.bg,borderRadius:10,padding:'12px 14px',marginTop:12,marginBottom:16}}>
           {successTicket.items.map((it,i)=>(
@@ -2500,7 +2501,7 @@ function ExtrasModal({item,extras,onClose,onConfirm}){
 /* ═══════════════════════════════════════════
    MODAL: COBRO INMEDIATO (antes de enviar a cocina)
 ═══════════════════════════════════════════ */
-function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,turno,profile,onClose,onConfirmed}){
+function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,turno,profile,deliv,zones,channels,onClose,onConfirmed}){
   const [metodo,setMetodo]=useState('efectivo');
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
@@ -2519,14 +2520,20 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   const gate=(k,fn)=>()=>hasFeat(k)?fn():setLockFeat(k);
 
   const subtotal=cart.reduce((s,c)=>s+c.linePrice*c.quantity,0);
+  // Delivery: envío desde la zona elegida (DB) → total = productos + envío.
+  const isDeliv=orderType==='delivery';
+  const selZone=isDeliv&&deliv?.zoneId?(zones||[]).find(z=>z.id===deliv.zoneId):null;
+  const deliveryFee=selZone?.price_guarani||0;
+  const total=subtotal+deliveryFee;               // = subtotal cuando no es delivery (fee 0)
+  const contraEntrega=isDeliv&&!deliv?.paid;      // cobra el rider → no se cobra en mostrador
   const montoNum=parseInt(montoPagado)||0;
-  const cambio=metodo==='efectivo'?montoNum-subtotal:0;
+  const cambio=metodo==='efectivo'?montoNum-total:0;
   const BILLETES=[1000,2000,5000,10000,20000,50000,100000];
   const mesa=tableId&&tableId!=='sin_mesa'?tables.find(t=>t.id===tableId):null;
   const origen=orderType==='dine_in'?(tableId==='sin_mesa'?'Sin número de mesa':`Mesa ${mesa?.number||'?'}`):orderType==='delivery'?'Delivery':'Para llevar';
 
   async function confirmar(){
-    if(metodo==='efectivo'&&montoNum<subtotal){toast('El monto recibido es menor al total',false);return;}
+    if(!contraEntrega&&metodo==='efectivo'&&montoNum<total){toast('El monto recibido es menor al total',false);return;}
     setBusy(true);
     try{
       /* 1. crear order */
@@ -2554,7 +2561,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         status:'paid',
         payment_status:'paid',
         customer_name:invoiceType==='fiscal'?(invName||customerName||null):(customerName||null),
-        subtotal,discount_amount:0,total:subtotal,
+        subtotal,discount_amount:0,total,
         payment_method:mapOrderPM(metodo),
       };
       let{data:order,error:e1}=await db.from('orders').insert({...baseInsert,...invoiceFields}).select().single();
@@ -2585,16 +2592,43 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
       /* 4. historial */
       await db.from('order_status_history').insert({order_id:order.id,status:'paid',changed_by:'caja'});
 
-      /* 5. movimiento_caja */
-      const mov={
-        turno_id:turno.id,restaurant_id:RID,tipo:'cobro',
-        monto:subtotal,metodo_pago:metodo,pedido_id:order.id,
-        descripcion:`Cobro pedido #${orderNum} — ${origen}`,
-        usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
-        metadata:{orden_numero:orderNum,mesa:origen,monto_pagado:montoNum||subtotal,cambio:Math.max(0,cambio),transaction_id:null,auth_code:null,raw_response:null},
-      };
-      const{data:movData,error:e4}=await db.from('movimientos_caja').insert(mov).select().single();
-      if(e4)throw e4;
+      /* 4b. delivery_orders + despacho (Part 1) — replica el camino del "+ Nuevo pedido" del admin.
+         El bug era que Caja creaba el pedido en orders pero NUNCA en delivery_orders → no caía a
+         ningún rider ni aparecía en Admin→Delivery. Ahora sí crea la ficha de dispatch y la asigna. */
+      if(isDeliv){
+        const selChan=(channels||[]).find(c=>c.id===(deliv?.channel||'propio'));
+        const{data:delRow,error:dErr}=await db.from('delivery_orders').insert({
+          restaurant_id:RID, order_id:order.id, order_number:orderNum,
+          order_type:'delivery', customer_name:order.customer_name||customerName||null,
+          customer_phone:(deliv?.phone||'').trim()||null,
+          delivery_address:(deliv?.address||'').trim()||null,
+          delivery_references:(deliv?.reference||'').trim()||null,
+          zone_id:deliv?.zoneId||null, zone_name:selZone?.name||null,
+          delivery_fee:deliveryFee, estimated_minutes:selZone?.estimated_minutes||null,
+          channel:deliv?.channel||'propio', channel_commission:selChan?.commission||0,
+          order_total:subtotal, rider_status:'pending',
+          cash_amount:contraEntrega?total:null,
+        }).select('id').single();
+        if(dErr)throw new Error('Delivery: '+dErr.message);
+        // Dispatch centralizado (mig 156): cae a un rider disponible o queda Pendiente/Sin asignar.
+        try{ await db.rpc('assign_delivery_order',{p_order_id:delRow.id}); }catch(_){}
+      }
+
+      /* 5. movimiento_caja — SÓLO si el dinero entra a la caja. En contra-entrega
+         (cobra el rider) no se registra cobro para no descuadrar el arqueo. */
+      let movData=null;
+      if(!contraEntrega){
+        const mov={
+          turno_id:turno.id,restaurant_id:RID,tipo:'cobro',
+          monto:total,metodo_pago:metodo,pedido_id:order.id,
+          descripcion:`Cobro pedido #${orderNum} — ${origen}`,
+          usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
+          metadata:{orden_numero:orderNum,mesa:origen,monto_pagado:montoNum||total,cambio:Math.max(0,cambio),transaction_id:null,auth_code:null,raw_response:null},
+        };
+        const{data:mv,error:e4}=await db.from('movimientos_caja').insert(mov).select().single();
+        if(e4)throw e4;
+        movData=mv;
+      }
 
       movDataRef.current=movData;
       orderRef.current=order;
@@ -2602,7 +2636,9 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         orderNumber:order.order_number,
         mesa:origen,
         items:cart.map(c=>({item_name:c.item.name,quantity:c.quantity,unit_price:c.linePrice})),
-        total:subtotal,
+        total,
+        deliveryFee,
+        contraEntrega,
         metodo,
         cambio:Math.max(0,cambio),
         customerName:order.customer_name||null,
@@ -2621,13 +2657,14 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   }
 
   if(successTicket){
+    const ce=successTicket.contraEntrega;
     return(
-      <Modal title="Pedido cobrado" onClose={cerrarTrasExito} width={420}>
+      <Modal title={ce?'Pedido enviado a despacho':'Pedido cobrado'} onClose={cerrarTrasExito} width={420}>
         <div style={{textAlign:'center',padding:'20px 0 8px'}}>
           <div style={{fontSize:48,marginBottom:8}}>✓</div>
-          <div style={{fontSize:18,fontWeight:800,color:'#34C759',marginBottom:4}}>¡Cobrado!</div>
+          <div style={{fontSize:18,fontWeight:800,color:'#34C759',marginBottom:4}}>{ce?'¡Enviado!':'¡Cobrado!'}</div>
           <div style={{fontSize:13,color:C.mid,marginBottom:2}}>Pedido #{successTicket.orderNumber}</div>
-          <div style={{fontSize:12,color:C.mid}}>{successTicket.mesa}</div>
+          <div style={{fontSize:12,color:C.mid}}>{ce?'El rider cobra al entregar':successTicket.mesa}</div>
         </div>
         <div style={{background:C.bg,borderRadius:10,padding:'12px 14px',marginTop:12,marginBottom:16}}>
           {successTicket.items.map((it,i)=>(
@@ -2668,12 +2705,23 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
               </div>
             ))}
           </div>
+          {isDeliv&&deliveryFee>0&&(
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:C.mid,marginBottom:4}}>
+              <span>Envío{selZone?` · ${selZone.name}`:''}</span>
+              <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(deliveryFee)}</span>
+            </div>
+          )}
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',borderTop:`1px solid ${C.border}`,paddingTop:10}}>
-            <span style={{fontSize:14,fontWeight:800,color:C.ink}}>TOTAL A COBRAR</span>
-            <span style={{fontSize:26,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(subtotal)}</span>
+            <span style={{fontSize:14,fontWeight:800,color:C.ink}}>{contraEntrega?'TOTAL (lo cobra el rider)':'TOTAL A COBRAR'}</span>
+            <span style={{fontSize:26,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(total)}</span>
           </div>
         </div>
 
+        {contraEntrega ? (
+          <div style={{marginBottom:14,padding:'12px 14px',background:'rgba(255,149,0,0.08)',border:'1px solid rgba(255,149,0,0.3)',borderRadius:8,fontSize:12,color:TINT.amberText,fontWeight:600,display:'flex',alignItems:'center',gap:6}}>
+            <Icon name="bike" size={16} /> El rider cobra {fmt(total)} al entregar (efectivo contra-entrega). No se cobra en caja.
+          </div>
+        ) : (<>
         <div style={{marginBottom:14}}>
           <Lbl required>MÉTODO DE PAGO</Lbl>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
@@ -2717,13 +2765,13 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
                   background:C.bg,color:C.ink,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer',
                 }}>{v>=1000?`${v/1000}k`:v}</button>
               ))}
-              <button onClick={()=>setMontoPagado(String(subtotal))} style={{
+              <button onClick={()=>setMontoPagado(String(total))} style={{
                 padding:'9px 4px',borderRadius:6,border:`1px solid ${C.blue}55`,
                 background:'rgba(59,130,246,0.1)',color:C.blue,fontSize:11,fontWeight:700,cursor:'pointer',
               }}>Exacto</button>
             </div>
             <Lbl required>MONTO RECIBIDO (₲)</Lbl>
-            <Inp gs mono value={montoPagado} onChange={setMontoPagado} placeholder={formatGs(subtotal)}/>
+            <Inp gs mono value={montoPagado} onChange={setMontoPagado} placeholder={formatGs(total)}/>
             {montoNum>0&&(
               cambio>=0?(
                 <div style={{marginTop:8,padding:'12px 14px',background:'rgba(34,197,94,0.1)',border:'1px solid rgba(34,197,94,0.3)',borderRadius:8,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -2732,12 +2780,13 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
                 </div>
               ):(
                 <div style={{marginTop:8,padding:'10px 12px',background:'rgba(255,59,48,0.08)',border:'1px solid rgba(255,59,48,0.3)',borderRadius:7}}>
-                  <span style={{fontSize:13,color:C.red,fontWeight:700}}>Faltan {fmt(subtotal-montoNum)}</span>
+                  <span style={{fontSize:13,color:C.red,fontWeight:700}}>Faltan {fmt(total-montoNum)}</span>
                 </div>
               )
             )}
           </div>
         )}
+        </>)}
       </div>
 
       {/* Toggle SIFEN */}
@@ -2786,7 +2835,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
 
       <div style={{display:'flex',gap:10}}>
         <Btn full onClick={confirmar} disabled={busy} variant="success">
-          {busy?<><span className="spin"/> Procesando…</>:'✓ Cobrar y enviar a cocina'}
+          {busy?<><span className="spin"/> Procesando…</>:(contraEntrega?'✓ Enviar a despacho':isDeliv?'✓ Cobrar y despachar':'✓ Cobrar y enviar a cocina')}
         </Btn>
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
       </div>
@@ -2812,8 +2861,26 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
   const [extrasModal,setExtrasModal]=useState(null);
   const [pagoModal,setPagoModal]=useState(false);
   const [busy,setBusy]=useState(false);
+  // ── Delivery (Part 1): campos estructurados + zona (DB) + canal + modo de pago ──
+  const [delivPhone,setDelivPhone]=useState('');
+  const [delivAddress,setDelivAddress]=useState('');
+  const [delivRef,setDelivRef]=useState('');
+  const [delivZoneId,setDelivZoneId]=useState('');
+  const [delivChannel,setDelivChannel]=useState('propio');
+  const [delivPaid,setDelivPaid]=useState(false);   // false = contra-entrega (cobra el rider) · true = ya pagó en caja
+  const [zones,setZones]=useState([]);
+  const [channels,setChannels]=useState([]);
 
   useEffect(()=>{load();},[]);
+  // Zonas desde delivery_zones (DB — misma fuente que la cotización del cliente).
+  // Canales desde localStorage (deliv_channels_<RID>) — Part 3 los mueve a la DB.
+  useEffect(()=>{
+    if(!db) return;
+    db.from('delivery_zones').select('id,name,price_guarani,estimated_minutes').eq('restaurant_id',RID).eq('is_active',true).order('price_guarani')
+      .then(({data})=>setZones(data||[])).catch(()=>{});
+    const DEF_CH=[{id:'propio',name:'Propio',commission:0,active:true},{id:'pedidosya',name:'PedidosYa',commission:18,active:true},{id:'monchis',name:'Monchis',commission:15,active:true}];
+    try{ const raw=localStorage.getItem('deliv_channels_'+RID); setChannels(raw?JSON.parse(raw):DEF_CH); }catch(_){ setChannels(DEF_CH); }
+  },[]);
   useEffect(()=>{localStorage.setItem(lsk('caja_cart'),JSON.stringify(cart));},[cart]);
   useEffect(()=>{localStorage.setItem(lsk('caja_order_type'),orderType);},[orderType]);
   useEffect(()=>{localStorage.setItem(lsk('caja_table_id'),tableId);},[tableId]);
@@ -2863,14 +2930,19 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
   function abrirPago(){
     if(cart.length===0){toast('El carrito está vacío',false);return;}
     if(orderType==='dine_in'&&!tableId){toast('Seleccioná una mesa o "Sin número de mesa"',false);return;}
+    if(orderType==='delivery'){
+      if(!customerName.trim()){toast('Nombre del cliente requerido',false);return;}
+      if(!delivAddress.trim()){toast('Dirección de entrega requerida',false);return;}
+    }
     setPagoModal(true);
   }
 
   function onPagoConfirmado(movData,order){
     setPagoModal(false);
     if(movData&&onMovimiento)onMovimiento(movData);
-    toast(`Pedido #${order?.order_number||''} cobrado y enviado a cocina ✓`);
+    toast(`Pedido #${order?.order_number||''} ${order?.order_type==='delivery'?'enviado a despacho':'cobrado y enviado a cocina'} ✓`);
     setCart([]);setCustomerName('');setTableId('');
+    setDelivPhone('');setDelivAddress('');setDelivRef('');setDelivZoneId('');setDelivChannel('propio');setDelivPaid(false);
     localStorage.removeItem(lsk('caja_cart'));localStorage.removeItem(lsk('caja_customer_name'));localStorage.removeItem(lsk('caja_table_id'));
   }
 
@@ -2955,10 +3027,36 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
                     {tables.map(t=><option key={t.id} value={t.id}>Mesa {t.number}</option>)}
                   </Sel>
                 </>
+              ):orderType==='delivery'?(
+                <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                  <div><Lbl required>NOMBRE</Lbl><Inp value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Nombre del cliente"/></div>
+                  <div><Lbl>TELÉFONO</Lbl><Inp value={delivPhone} onChange={e=>setDelivPhone(e.target.value)} placeholder="09xx xxx xxx"/></div>
+                  <div><Lbl required>DIRECCIÓN</Lbl><Inp value={delivAddress} onChange={e=>setDelivAddress(e.target.value)} placeholder="Calle, número, barrio"/></div>
+                  <div><Lbl>REFERENCIA</Lbl><Inp value={delivRef} onChange={e=>setDelivRef(e.target.value)} placeholder="Casa, timbre, entre calles…"/></div>
+                  <div><Lbl>ZONA / ENVÍO</Lbl>
+                    <Sel value={delivZoneId} onChange={e=>setDelivZoneId(e.target.value)}>
+                      <option value="">Sin zona (envío ₲0)</option>
+                      {zones.map(z=><option key={z.id} value={z.id}>{z.name} — {fmt(z.price_guarani)}</option>)}
+                    </Sel>
+                  </div>
+                  <div><Lbl>CANAL</Lbl>
+                    <Sel value={delivChannel} onChange={e=>setDelivChannel(e.target.value)}>
+                      {channels.filter(c=>c.active!==false).map(c=><option key={c.id} value={c.id}>{c.name}{c.commission?` (${c.commission}%)`:''}</option>)}
+                    </Sel>
+                  </div>
+                  <div><Lbl>PAGO</Lbl>
+                    <div style={{display:'flex',gap:6}}>
+                      {[[false,'Cobra el rider'],[true,'Ya pagó en caja']].map(([v,lbl])=>(
+                        <button key={String(v)} onClick={()=>setDelivPaid(v)} style={{flex:1,padding:'8px 6px',fontSize:11,borderRadius:7,cursor:'pointer',fontWeight:delivPaid===v?700:400,border:`1px solid ${delivPaid===v?C.ink:C.border}`,background:delivPaid===v?C.ink:'transparent',color:delivPaid===v?C.surface:C.mid}}>{lbl}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {(()=>{const fee=zones.find(z=>z.id===delivZoneId)?.price_guarani||0;return <div style={{fontSize:11,color:C.mid,display:'flex',justifyContent:'space-between'}}><span>Envío {fmt(fee)}</span><span style={{fontWeight:700}}>Total {fmt(subtotal+fee)}</span></div>;})()}
+                </div>
               ):(
                 <>
-                  <Lbl>{orderType==='delivery'?'CLIENTE / DIRECCIÓN':'NOMBRE DEL CLIENTE'}</Lbl>
-                  <Inp value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder={orderType==='delivery'?'Nombre y dirección…':'Nombre…'}/>
+                  <Lbl>NOMBRE DEL CLIENTE</Lbl>
+                  <Inp value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Nombre…"/>
                 </>
               )}
             </div>
@@ -3022,6 +3120,9 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
           tables={tables}
           turno={turno}
           profile={profile}
+          deliv={{phone:delivPhone,address:delivAddress,reference:delivRef,zoneId:delivZoneId,channel:delivChannel,paid:delivPaid}}
+          zones={zones}
+          channels={channels}
           onClose={()=>setPagoModal(false)}
           onConfirmed={onPagoConfirmado}
         />
