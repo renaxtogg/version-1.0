@@ -453,6 +453,13 @@ async function dbDismissTicket(supabaseId) {
 /* ── AUTO-ASIGNACIÓN DE RIDER (round-robin equitativo) ─── */
 async function autoAssignRider(deliveryOrderId) {
   if (!db || !deliveryOrderId) return null;
+  // Despacho centralizado (mig 156): DISPONIBLE primero; si no hay, al rider EN RUTA
+  // (cola "próximo viaje"). Atómico + idempotente (evita doble asignación). Fallback
+  // al round-robin cliente si la RPC no está aplicada aún.
+  try {
+    const { data, error } = await db.rpc('assign_delivery_order', { p_order_id: deliveryOrderId });
+    if (!error) return (data && data.ok) ? { id: data.rider_id, name: data.rider_name } : null;
+  } catch(_) { /* RPC ausente → fallback */ }
   try {
     // Evitar doble asignación
     const { data: existing } = await db.from('delivery_orders')

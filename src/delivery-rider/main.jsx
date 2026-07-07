@@ -52,6 +52,36 @@ const diffMin = (a,b) => Math.round((new Date(b)-new Date(a))/60000);
 const vibrate = () => { try { navigator.vibrate && navigator.vibrate([200,100,200]); } catch(e) {} };
 const VEHICLE = { moto:'bike', bici:'bike', auto:'truck', pie:'user' };
 
+/* ── HOJA DE RUTA: ordenar paradas por cercanía (más cerca primero) ──
+   Nearest-neighbor desde el origen (el local). Los pedidos sin coordenadas
+   (delivery_lat/lng, mig 121) quedan al final en su orden original. */
+const _num = v => (v==null || v==='') ? null : Number(v);
+function haversineKm(lat1,lng1,lat2,lng2){
+  const R=6371, dLat=(lat2-lat1)*Math.PI/180, dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function sortByProximity(orders, origin){
+  const withC=[], without=[];
+  for(const o of (orders||[])){
+    const la=_num(o.delivery_lat), ln=_num(o.delivery_lng);
+    if(la!=null && ln!=null && Number.isFinite(la) && Number.isFinite(ln)) withC.push({o,la,ln});
+    else without.push(o);
+  }
+  const oLat=_num(origin?.lat), oLng=_num(origin?.lng);
+  if(oLat==null || oLng==null || !Number.isFinite(oLat) || !Number.isFinite(oLng) || withC.length<2){
+    return orders || [];
+  }
+  const rem=[...withC], route=[]; let cur={lat:oLat,lng:oLng};
+  while(rem.length){
+    let bi=0, bd=Infinity;
+    rem.forEach((x,i)=>{ const d=haversineKm(cur.lat,cur.lng,x.la,x.ln); if(d<bd){bd=d;bi=i;} });
+    const nx=rem.splice(bi,1)[0];
+    route.push(nx.o); cur={lat:nx.la,lng:nx.ln};
+  }
+  return [...route, ...without];
+}
+
 /* ── SPINNER ── */
 function Spinner() {
   return <div style={{width:22,height:22,border:'2px solid var(--border)',borderTopColor:'var(--text-primary)',borderRadius:'50%',animation:'spin .7s linear infinite',margin:'48px auto',display:'block'}} />;
@@ -91,6 +121,12 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
     setChangingStatus(true);
     const next = status === 'disponible' ? 'offline' : 'disponible';
     await db.from('delivery_riders').update({ current_status: next }).eq('id', rider.id);
+    // Al ponerse EN LÍNEA (Disponible): rebalanceo → jala pedidos transferibles
+    // (aún en el local, no recogidos) de los riders en ruta para agilizar.
+    if (next === 'disponible' && rider.restaurant_id) {
+      try { await db.rpc('rebalance_delivery_dispatch', { p_restaurant_id: rider.restaurant_id }); } catch(_) {}
+      onRefresh && onRefresh();
+    }
     onStatusChange(next);
     setChangingStatus(false);
   }
@@ -341,7 +377,11 @@ function RouteScreen({ rider, initialOrders, onDone }) {
     setOrders(updated);
 
     if (updated.every(o => o._done)) {
-      if (db) await db.from('delivery_riders').update({ current_status:'disponible' }).eq('id', rider.id);
+      if (db) {
+        await db.from('delivery_riders').update({ current_status:'disponible' }).eq('id', rider.id);
+        // Ruta terminada → rider disponible → rebalancear (puede recibir cola nueva).
+        if (rider.restaurant_id) { try { await db.rpc('rebalance_delivery_dispatch', { p_restaurant_id: rider.restaurant_id }); } catch(_) {} }
+      }
       vibrate();
       setAllDone(true);
     }
@@ -565,6 +605,7 @@ function App() {
   const [activeOrders, setActiveOrders] = useState([]);
   const [stats, setStats]         = useState({ count:0, earned:0, avgMin:0 });
   const [errMsg, setErrMsg]       = useState('');
+  const [origin, setOrigin]       = useState(null);   // {lat,lng} del local → ordenar ruta por cercanía
 
   // Multi-tenant Engine: fail-safe — sin tenant en sesión, limpia y expulsa al login (salvo superadmin).
   useEffect(() => {
@@ -610,6 +651,11 @@ function App() {
         setErrMsg('El panel de Rider Delivery no está incluido en el plan de este restaurante. Contactá al administrador.');
         setScreen('error'); return;
       }
+      // Origen para la hoja de ruta (ordenar paradas por cercanía). Best-effort.
+      try {
+        const { data: rest } = await db.from('restaurants').select('lat,lng').eq('id', data.restaurant_id).maybeSingle();
+        if (!cancelled && rest && rest.lat!=null && rest.lng!=null) setOrigin({ lat: rest.lat, lng: rest.lng });
+      } catch(_) {}
       startRiderSession(data);
     })();
     return () => { cancelled = true; };
@@ -702,8 +748,10 @@ function App() {
   function handleAllDelivered() {
     const updated = rider ? { ...rider, current_status:'disponible' } : rider;
     setRider(updated);
-    setActiveOrders([]);
-    if (updated) loadStats(updated);
+    // Al liberarse, el rebalanceo (disparado en RouteScreen) pudo asignarle nuevos
+    // pedidos → recargar la cola en vez de vaciarla a ciegas.
+    if (updated) { loadActiveOrders(updated); loadStats(updated); }
+    else setActiveOrders([]);
     setScreen('home');
   }
 
@@ -731,7 +779,7 @@ function App() {
           {screen === 'route' && rider && (
             <RouteScreen
               rider={rider}
-              initialOrders={activeOrders.filter(o => o.rider_status === 'on_way')}
+              initialOrders={sortByProximity(activeOrders.filter(o => o.rider_status === 'on_way'), origin)}
               onDone={handleAllDelivered}
             />
           )}

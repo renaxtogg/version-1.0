@@ -423,6 +423,17 @@ async function dbGetOrderStatus(orderNumber) {
 
 async function dbAutoAssignRider(deliveryOrderId) {
   if (!db || !deliveryOrderId) return;
+  // Despacho centralizado (mig 156): DISPONIBLE primero; si no hay, se acumula al
+  // rider EN RUTA en su cola "próximo viaje". Atómico en el servidor. Si la RPC no
+  // está aplicada todavía, cae al round-robin cliente de abajo (best-effort).
+  try {
+    const { data, error } = await db.rpc('assign_delivery_order', { p_order_id: deliveryOrderId });
+    if (!error) {
+      if (data && data.ok) console.info('[delivery] dispatch:', data.rider_name, `(${data.reason})`, 'a orden', deliveryOrderId);
+      else console.warn('[delivery] dispatch sin rider:', data?.reason);
+      return;
+    }
+  } catch(_) { /* RPC ausente → fallback */ }
   try {
     const { data: riders, error: ridersErr } = await db.from('delivery_riders')
       .select('id,name')

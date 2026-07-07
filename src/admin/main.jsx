@@ -7684,12 +7684,46 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
 }
 
 /* ── DelivRiders ── */
-function DelivRiders({riders, onRefresh}) {
+function DelivRiders({riders, deliveryOrders=[], settings, onRefresh, onRebalance, onTransfer}) {
   const [modal,setModal] = useState(null);
   const [form,setForm] = useState({name:'',phone:'',vehicle:'moto',commission_type:'pct',commission_value:0,username:'',password:'',active:true});
   const [saving,setSaving] = useState(false);
+  const [rebalancing,setRebalancing] = useState(false);
+  const [target,setTarget] = useState({});       // {orderId: riderId destino}
+  const [transferringId,setTransferringId] = useState(null);
   const VEHICLE_LABELS = {moto:'Moto',bici:'Bici',auto:'Auto',pie:'A pie'};
   const COMM_LABELS = {pct:'% del pedido',fixed:'₲ por entrega',salary:'₲ sueldo/mes'};
+
+  // ── Despacho / cola por rider (mig 156) ──
+  const cap = Number(settings?.max_orders_per_rider) || 0;   // 0 = sin límite
+  // Carga por rider: bolsón = ya recogido (on_way, BLOQUEADO); cola = confirmado sin
+  // recoger (TRANSFERIBLE). active = bolsón + cola (contra la que se mide la alerta).
+  function riderCounts(rid){
+    const mine = (deliveryOrders||[]).filter(o=>o.rider_id===rid);
+    const bag   = mine.filter(o=>o.rider_status==='on_way').length;
+    const queue = mine.filter(o=>o.rider_status==='confirmed' && !o.picked_up_at).length;
+    return { bag, queue, active: bag+queue };
+  }
+  const riderById = id => riders.find(r=>r.id===id);
+  const statusPill = r => { const off=r?.active===false; return off?'offline':(r?.current_status||'disponible'); };
+  // Pedidos TRANSFERIBLES: confirmados y NO recogidos (aún en el local).
+  const transferable = (deliveryOrders||[]).filter(o=>o.rider_status==='confirmed' && !o.picked_up_at && o.rider_id);
+  const overCapRiders = riders.filter(r=>cap>0 && r.active!==false && riderCounts(r.id).active>cap);
+
+  async function doTransfer(orderId){
+    const rid = target[orderId];
+    if(!rid || !onTransfer){ toast('Elegí un rider destino',false); return; }
+    setTransferringId(orderId);
+    const res = await onTransfer(orderId, rid);
+    if(res && res.ok) setTarget(t=>{ const n={...t}; delete n[orderId]; return n; });
+    setTransferringId(null);
+  }
+  async function doRebalance(){
+    if(!onRebalance) return;
+    setRebalancing(true);
+    await onRebalance();
+    setRebalancing(false);
+  }
 
   function openNew() { setForm({name:'',phone:'',vehicle:'moto',commission_type:'pct',commission_value:0,username:'',password:'',active:true}); setModal('new'); }
   function openEdit(r) { setForm({name:r.name||'',phone:r.phone||'',vehicle:r.vehicle||'moto',commission_type:r.commission_type||'pct',commission_value:r.commission_value||0,username:'',password:'',active:r.active!==false}); setModal(r); }
@@ -7753,6 +7787,54 @@ function DelivRiders({riders, onRefresh}) {
         <div style={{fontSize:13,color:C.mid}}>{riders.length} riders registrados</div>
         <Btn onClick={openNew}>+ Nuevo Rider</Btn>
       </div>
+
+      {/* ── Despacho: rebalanceo + transferencias (mig 156) ── */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:18,marginBottom:20}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:transferable.length?14:0}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:800,color:C.ink}}>Despacho de riders</div>
+            <div style={{fontSize:11,color:C.dim,marginTop:2}}>El rebalanceo mueve pedidos <strong>transferibles</strong> (aún en el local, sin recoger) de los riders en ruta a los disponibles.</div>
+          </div>
+          <Btn variant="secondary" onClick={doRebalance} disabled={rebalancing}>{rebalancing?'Rebalanceando…':'↻ Rebalancear ahora'}</Btn>
+        </div>
+
+        {/* Alerta de cola llena */}
+        {overCapRiders.length>0 && (
+          <div style={{padding:'9px 12px',background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:8,fontSize:12,color:'#991B1B',lineHeight:1.5,marginBottom:transferable.length?12:0,display:'flex',gap:8,alignItems:'flex-start'}}>
+            <span style={{flexShrink:0,display:'flex',marginTop:1}}><Icon name="alert" size={14}/></span>
+            <span>Cola llena (límite {cap}/rider): {overCapRiders.map(r=>`${r.name} (${riderCounts(r.id).active})`).join(', ')}. Rebalanceá o transferí pedidos.</span>
+          </div>
+        )}
+
+        {/* Lista de pedidos transferibles con transferencia manual */}
+        {transferable.length===0
+          ? <div style={{fontSize:12,color:C.dim,paddingTop:transferable.length?0:12}}>No hay pedidos transferibles ahora (todos recogidos o sin asignar).</div>
+          : <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>PEDIDOS TRANSFERIBLES ({transferable.length})</div>
+              {transferable.map(o=>{
+                const owner = riderById(o.rider_id);
+                const opts = riders.filter(r=>r.active!==false && (r.current_status||'disponible')!=='offline' && r.id!==o.rider_id);
+                return (
+                  <div key={o.id} style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',padding:'8px 10px',background:C.card,borderRadius:8}}>
+                    <div style={{flex:1,minWidth:160}}>
+                      <div style={{fontSize:12,fontWeight:700,color:C.ink}}>{o.customer_name||'Cliente'}</div>
+                      <div style={{fontSize:11,color:C.dim,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:280}}>{o.delivery_address||'—'}</div>
+                    </div>
+                    <div style={{fontSize:11,color:C.mid}}>Actual: <strong>{owner?.name||o.rider_name||'—'}</strong></div>
+                    <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                      <Sel value={target[o.id]||''} onChange={e=>setTarget(t=>({...t,[o.id]:e.target.value}))} style={{minWidth:130}}>
+                        <option value="">Transferir a…</option>
+                        {opts.map(r=><option key={r.id} value={r.id}>{r.name}{(r.current_status||'disponible')==='en_ruta'?' (en ruta)':''}</option>)}
+                      </Sel>
+                      <Btn small onClick={()=>doTransfer(o.id)} disabled={transferringId===o.id||!target[o.id]}>{transferringId===o.id?'…':'Transferir'}</Btn>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+        }
+      </div>
+
       {riders.length===0
         ? <div style={{textAlign:'center',padding:60,color:C.dim,fontSize:14}}>No hay riders — creá el primero</div>
         : <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}}>
@@ -7778,6 +7860,17 @@ function DelivRiders({riders, onRefresh}) {
                     <span style={{width:5,height:5,borderRadius:'50%',background:statusCol}}/>{statusLabel}
                   </div>
                   <div style={{fontSize:11,color:C.dim,marginBottom:4}}>{commLabel(r)}</div>
+                  {(() => {
+                    const c = riderCounts(r.id);
+                    const over = cap>0 && r.active!==false && c.active>cap;
+                    return (
+                      <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',fontSize:11,marginBottom:8}}>
+                        <span style={{color:C.mid}} title="En el bolsón — ya recogidos (no transferibles)">Bolsón: <strong style={{color:C.ink}}>{c.bag}</strong></span>
+                        <span style={{color:C.mid}} title="En cola — asignados sin recoger (transferibles)">Cola: <strong style={{color:C.ink}}>{c.queue}</strong></span>
+                        {over && <span style={{color:'#DC2626',fontWeight:800,display:'inline-flex',alignItems:'center',gap:3}}><Icon name="alert" size={11}/> {c.active}/{cap}</span>}
+                      </div>
+                    );
+                  })()}
                   {r.rider_pin&&(
                     <div style={{fontSize:11,color:C.dim,marginBottom:12}}>
                       PIN: <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:800,color:'#007AFF',letterSpacing:2}}>{r.rider_pin}</span>
@@ -8312,6 +8405,8 @@ function pricingFromSettings(s){
     max_km:           (s?.max_km ?? '') === null ? '' : (s?.max_km ?? ''),
     free_over_amount: (s?.free_over_amount ?? '') === null ? '' : (s?.free_over_amount ?? ''),
     round_to:         s?.round_to ?? 500,
+    // Alerta de cola: máximo de pedidos por rider (mig 156). Vacío = sin límite.
+    max_orders_per_rider: (s?.max_orders_per_rider ?? '') === null ? '' : (s?.max_orders_per_rider ?? ''),
   };
 }
 function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRestaurant, settings, onSaveSettings}) {
@@ -8339,7 +8434,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
     const r = onSaveSettings ? await onSaveSettings(pm) : {ok:false};
     setSavingPm(false);
     if(r?.ok) toast('Modo de cotización guardado');
-    else toast('No se pudo guardar el modo'+(r?.error?.message?` · ${r.error.message}`:'')+'. Verificá que la migración 124 esté aplicada.',false);
+    else toast('No se pudo guardar la configuración'+(r?.error?.message?` · ${r.error.message}`:'')+'. Verificá que las migraciones 124 y 156 estén aplicadas.',false);
   }
 
   function saveZone() {
@@ -8425,8 +8520,17 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
             </div>
           )}
 
+          {/* Alerta de cola por rider (mig 156) — aplica a todos los modos */}
+          <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14,marginTop:2}}>
+            <div style={{maxWidth:320}}>
+              <Lbl>MÁXIMO DE PEDIDOS EN COLA POR RIDER</Lbl>
+              <Inp type="number" min="0" value={pm.max_orders_per_rider} onChange={e=>pf('max_orders_per_rider',e.target.value)} placeholder="vacío = sin límite" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/>
+              <div style={{fontSize:11,color:C.dim,marginTop:4,lineHeight:1.5}}>Si un rider supera esta cantidad de pedidos activos (en bolsón + en cola), te avisamos en la pestaña <strong>Riders</strong>. Vacío o 0 = sin límite.</div>
+            </div>
+          </div>
+
           <div style={{display:'flex',alignItems:'center',gap:12}}>
-            <Btn onClick={handleSavePm} disabled={savingPm}>{savingPm?'Guardando…':'Guardar modo'}</Btn>
+            <Btn onClick={handleSavePm} disabled={savingPm}>{savingPm?'Guardando…':'Guardar configuración'}</Btn>
             <span style={{fontSize:11,color:C.dim}}>Modo actual: <strong style={{color:C.mid}}>{(PRICING_MODE_OPTS.find(o=>o.v===effectivePricingMode(settings?.pricing_mode))||{}).label}</strong></span>
           </div>
         </div>
@@ -8610,9 +8714,19 @@ function DeliveryModule() {
       free_over_amount: optNum(next.free_over_amount),
       // round_to: 0 = sin redondeo (válido); negativo/NaN → default 500.
       round_to:         (() => { const n = Number(next.round_to); return Number.isFinite(n) && n >= 0 ? n : 500; })(),
+      // Máximo de pedidos en cola por rider (mig 156). Vacío/≤0 = sin límite.
+      max_orders_per_rider: optNum(next.max_orders_per_rider),
       updated_at:       new Date().toISOString(),
     };
-    const { data, error } = await db.from('delivery_settings').upsert(payload,{onConflict:'restaurant_id'}).select().maybeSingle();
+    let { data, error } = await db.from('delivery_settings').upsert(payload,{onConflict:'restaurant_id'}).select().maybeSingle();
+    // Degradación si la mig 156 (max_orders_per_rider) aún no está aplicada: reintentar
+    // sin esa columna para no bloquear el guardado del resto de la config.
+    if(error && /max_orders_per_rider|PGRST204|42703|column|schema cache/i.test(`${error.message||''} ${error.code||''}`)){
+      const { max_orders_per_rider, ...rest } = payload;
+      const retry = await db.from('delivery_settings').upsert(rest,{onConflict:'restaurant_id'}).select().maybeSingle();
+      data = retry.data; error = retry.error;
+      if(!error) console.warn('[delivery] max_orders_per_rider no disponible aún — guardado sin la alerta de cola. Aplicar migración 156.');
+    }
     if(error) return { ok:false, error };
     setSettings(data || payload);
     return { ok:true };
@@ -8652,6 +8766,17 @@ function DeliveryModule() {
   // Auto-asignación de rider
   async function autoAssignRider(order) {
     if(!db) return;
+    // Despacho centralizado (mig 156): DISPONIBLE primero; si no hay, se acumula al
+    // rider EN RUTA en su cola "próximo viaje". Atómico/idempotente en el servidor.
+    // Fallback al balanceo cliente de abajo si la RPC no está aplicada todavía.
+    try {
+      const { data, error } = await db.rpc('assign_delivery_order', { p_order_id: order.id });
+      if(!error){
+        if(data && data.ok) toast(`Rider asignado automáticamente: ${data.rider_name}`);
+        loadDelivery(true);
+        return;
+      }
+    } catch(_) { /* RPC ausente → fallback */ }
     const available = riders.filter(r=>r.active!==false&&r.current_status==='disponible');
     if(!available.length) return;
     const activos = deliveryOrders.filter(o=>!['delivered','cancelled'].includes(o.rider_status)&&o.rider_id);
@@ -8662,6 +8787,31 @@ function DeliveryModule() {
     await db.from('delivery_orders').update({rider_id:rider.id,rider_name:rider.name,rider_status:'confirmed'}).eq('id',order.id);
     toast(`Rider asignado automáticamente: ${rider.name}`);
     loadDelivery();
+  }
+
+  // Rebalanceo manual: mueve pedidos transferibles de riders en ruta a los
+  // disponibles (mig 156). El admin lo dispara desde la pestaña Riders.
+  async function handleRebalance() {
+    if(!db) return;
+    try {
+      const { data, error } = await db.rpc('rebalance_delivery_dispatch',{ p_restaurant_id: RID });
+      if(error){ toast('No se pudo rebalancear'+(error.message?` · ${error.message}`:'')+'. Verificá que la migración 156 esté aplicada.',false); return; }
+      const moved = data?.moved || 0;
+      toast(moved>0 ? `Rebalanceo: ${moved} pedido${moved>1?'s':''} movido${moved>1?'s':''} a riders disponibles` : 'No había pedidos para rebalancear');
+      loadDelivery(true);
+    } catch(e){ toast('Error al rebalancear',false); }
+  }
+
+  // Transferencia manual de un pedido transferible a otro rider (mig 156).
+  async function handleTransferOrder(orderId, riderId) {
+    if(!db || !orderId || !riderId) return { ok:false };
+    try {
+      const { data, error } = await db.rpc('transfer_delivery_order',{ p_order_id: orderId, p_rider_id: riderId });
+      if(error){ toast('No se pudo transferir'+(error.message?` · ${error.message}`:'')+'. Verificá la migración 156.',false); return { ok:false }; }
+      if(data && data.ok){ toast(`Pedido transferido a ${data.rider_name}`); loadDelivery(true); return { ok:true }; }
+      toast('No se pudo transferir: '+(data?.reason||'motivo desconocido'),false);
+      return { ok:false };
+    } catch(e){ toast('Error al transferir',false); return { ok:false }; }
   }
 
   // Realtime delivery
@@ -8686,7 +8836,7 @@ function DeliveryModule() {
     switch(tab){
       case 'dashboard': return <DelivDashboard deliveryOrders={deliveryOrders} channels={channels}/>;
       case 'pedidos':   return <DelivPedidos deliveryOrders={deliveryOrders} riders={riders} channels={channels} zones={zones} onRefresh={loadDelivery}/>;
-      case 'riders':    return <DelivRiders riders={riders} onRefresh={loadDelivery}/>;
+      case 'riders':    return <DelivRiders riders={riders} deliveryOrders={deliveryOrders} settings={settings} onRefresh={loadDelivery} onRebalance={handleRebalance} onTransfer={handleTransferOrder}/>;
       case 'config':    return <DelivConfig zones={zones} setZones={setZones} channels={channels} setChannels={setChannels} restaurant={restaurant} setRestaurant={setRestaurant} settings={settings} onSaveSettings={saveSettings}/>;
       default: return null;
     }
