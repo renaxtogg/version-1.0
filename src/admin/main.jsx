@@ -4711,6 +4711,27 @@ function FinanzasPage({orders, restaurant, onRefresh}) {
   const [alertas,setAlertas] = useState({ordesSinMonto:[],turnosSinCierre:[],diferencias:[]});
   const [loadingAlertas,setLoadingAlertas] = useState(false);
   const [exportMes,setExportMes] = useState(new Date().toISOString().slice(0,7));
+  const [delivRows,setDelivRows] = useState([]);   // delivery por canal del período (Parte 4)
+
+  // Delivery por canal: bruto/comisión/neto CONGELADOS por pedido (delivery_orders),
+  // nombres desde delivery_channels. Se recarga al cambiar el período.
+  async function loadDelivByChannel(){
+    if(!db){ setDelivRows([]); return; }
+    const st = periodStart(period);
+    const [doR,chR] = await Promise.all([
+      db.from('delivery_orders').select('channel,channel_commission,order_total,rider_status,created_at').eq('restaurant_id',RID).gte('created_at',st.toISOString()),
+      db.from('delivery_channels').select('slug,name').eq('restaurant_id',RID),
+    ]);
+    const nameBySlug = Object.fromEntries(((chR&&chR.data)||[]).map(c=>[c.slug,c.name]));
+    const map = {};
+    (((doR&&doR.data))||[]).filter(o=>o.rider_status!=='cancelled').forEach(o=>{
+      const slug=o.channel||'propio', bruto=o.order_total||0, com=Math.round(bruto*(o.channel_commission||0)/100);
+      if(!map[slug]) map[slug]={canal:nameBySlug[slug]||slug,pedidos:0,bruto:0,comision:0};
+      map[slug].pedidos++; map[slug].bruto+=bruto; map[slug].comision+=com;
+    });
+    setDelivRows(Object.values(map).map(r=>({...r,neto:r.bruto-r.comision})).sort((a,b)=>b.bruto-a.bruto));
+  }
+  React.useEffect(()=>{ loadDelivByChannel(); },[period]);
 
   async function loadEgresos() {
     if(!db){setEgresos(LS.get(EGRESOS_KEY,[]));return;}
@@ -4870,8 +4891,8 @@ function FinanzasPage({orders, restaurant, onRefresh}) {
           <KpiCard label={`Ingresos (${period})`} value={fmt(ingresos)} sub={`${periodOrders.length} pedidos`} accent={C.green}/>
           <KpiCard label={`Egresos (${period})`}  value={fmt(egresoTotal)} sub={`${egPeriod.length} registros`} accent={C.red}/>
           <KpiCard label="Margen estimado"         value={fmt(margen)} sub={`${margenPct}% del ingreso`} accent={margenPct>=30?C.green:margenPct>=10?C.yellow:C.red}/>
-          <KpiCard label="Ventas delivery"         value={fmt(llevarTotal)} sub={`${llevarOrders.length} pedidos llevar`}/>
-          <KpiCard label="Comision delivery"       value={fmt(comision)} sub={`${delivPct}% del delivery`} accent={C.orange}/>
+          <KpiCard label="Ventas para llevar"      value={fmt(llevarTotal)} sub={`${llevarOrders.length} pedidos llevar`}/>
+          <KpiCard label="Comisión s/ llevar"      value={fmt(comision)} sub={`${delivPct}% s/ para llevar`} accent={C.orange}/>
         </div>
 
         {/* Config comisión delivery */}
@@ -4879,6 +4900,37 @@ function FinanzasPage({orders, restaurant, onRefresh}) {
           <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1}}>COMISION DELIVERY %</div>
           <input type="number" value={delivPct} onChange={e=>{const v=parseInt(e.target.value)||0;setDelivPct(v);LS.set(DELIV_KEY,v);}} min={0} max={50} style={{width:70,padding:'6px 9px',fontSize:14,fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'right',border:`1px solid ${C.border}`,borderRadius:6}}/>
           <span style={{fontSize:12,color:C.mid}}>% sobre total pedidos para llevar</span>
+        </div>
+
+        {/* Delivery por canal (Parte 4) — bruto/comisión/neto congelados por pedido */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginBottom:14}}>
+          <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1}}>DELIVERY POR CANAL · {period.toUpperCase()}</div>
+          {delivRows.length===0
+            ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>Sin pedidos de delivery en el período</div>
+            : <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}><Th>Canal</Th><Th right>Pedidos</Th><Th right>Bruto</Th><Th right>Comisión</Th><Th right>Neto</Th></tr></thead>
+                <tbody>
+                  {delivRows.map(r=>(
+                    <tr key={r.canal} style={{borderBottom:`1px solid ${C.border}`}}>
+                      <Td>{r.canal}</Td>
+                      <Td right mono>{r.pedidos}</Td>
+                      <Td right mono>{fmt(r.bruto)}</Td>
+                      <Td right mono>{r.comision>0?<span style={{color:C.red}}>-{fmt(r.comision)}</span>:fmt(0)}</Td>
+                      <Td right mono>{fmt(r.neto)}</Td>
+                    </tr>
+                  ))}
+                  {delivRows.length>1&&(
+                    <tr style={{borderTop:`2px solid ${C.border}`}}>
+                      <Td><strong>Total</strong></Td>
+                      <Td right mono><strong>{delivRows.reduce((s,r)=>s+r.pedidos,0)}</strong></Td>
+                      <Td right mono><strong>{fmt(delivRows.reduce((s,r)=>s+r.bruto,0))}</strong></Td>
+                      <Td right mono><span style={{color:C.red}}><strong>-{fmt(delivRows.reduce((s,r)=>s+r.comision,0))}</strong></span></Td>
+                      <Td right mono><strong>{fmt(delivRows.reduce((s,r)=>s+r.neto,0))}</strong></Td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+          }
         </div>
 
         <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:14}}>
@@ -6192,6 +6244,7 @@ function ReportesPage({orders}) {
     {id:'ventas_periodo',   label:'Ventas por período',        cat:'ventas',    desc:'Total, pedidos y ticket promedio del período'},
     {id:'ventas_producto',  label:'Ventas por producto',       cat:'ventas',    desc:'Ranking de productos por cantidad e ingreso'},
     {id:'ventas_mesa',      label:'Ventas por mesa',           cat:'ventas',    desc:'Ingresos generados por cada mesa o canal'},
+    {id:'delivery_canal',   label:'Delivery por canal',        cat:'ventas',    desc:'Pedidos, bruto, comisión y neto por canal (Propio, PedidosYa, Monchis…)'},
     {id:'metodo_pago',      label:'Métodos de pago',           cat:'ventas',    desc:'Distribución por efectivo, tarjeta, QR, POS'},
     {id:'rentabilidad',     label:'Rentabilidad por producto', cat:'ventas',    desc:'Margen bruto descontando costo de insumos'},
     {id:'egresos',          label:'Egresos / Gastos',          cat:'finanzas',  desc:'Gastos registrados por categoría en el período'},
@@ -6283,6 +6336,32 @@ function ReportesPage({orders}) {
         {label:'Total pedidos', value:f.length,    color:'#FF9500'},
       ]);
       setRows({ cols:['Mesa / Canal','Pedidos','Ingreso','Ticket promedio'], data:rows2.map(r=>[r.mesa, r.pedidos, fmt(r.total), fmt(r.pedidos?Math.round(r.total/r.pedidos):0)]) });
+    }
+
+    else if(type==='delivery_canal') {
+      // Fuente: delivery_orders (canal + comisión CONGELADOS por pedido). Nombres desde delivery_channels.
+      const [doR, chR] = await Promise.all([
+        db ? db.from('delivery_orders').select('channel,channel_commission,order_total,rider_status,created_at').eq('restaurant_id',RID).gte('created_at',from.toISOString()).lte('created_at',to.toISOString()) : {data:[]},
+        db ? db.from('delivery_channels').select('slug,name').eq('restaurant_id',RID) : {data:[]},
+      ]);
+      const dords = (doR.data||[]).filter(o=>o.rider_status!=='cancelled');
+      const nameBySlug = Object.fromEntries((chR.data||[]).map(c=>[c.slug,c.name]));
+      const map = {};
+      dords.forEach(o=>{
+        const slug = o.channel||'propio';
+        const bruto = o.order_total||0;
+        const com = Math.round(bruto*(o.channel_commission||0)/100);
+        if(!map[slug]) map[slug]={canal:nameBySlug[slug]||slug, pedidos:0, bruto:0, comision:0};
+        map[slug].pedidos++; map[slug].bruto+=bruto; map[slug].comision+=com;
+      });
+      const rows2 = Object.values(map).map(r=>({...r, neto:r.bruto-r.comision})).sort((a,b)=>b.bruto-a.bruto);
+      const totB=rows2.reduce((s,r)=>s+r.bruto,0), totC=rows2.reduce((s,r)=>s+r.comision,0);
+      setSummary([
+        {label:'Bruto delivery',   value:fmt(totB),      color:'#34C759'},
+        {label:'Comisión canales', value:fmt(totC),      color:'#FF3B30'},
+        {label:'Neto',             value:fmt(totB-totC), color:'#007AFF'},
+      ]);
+      setRows({ cols:['Canal','Pedidos','Bruto','Comisión','Neto'], data:rows2.map(r=>[r.canal, r.pedidos, fmt(r.bruto), r.comision>0?'-'+fmt(r.comision):fmt(0), fmt(r.neto)]) });
     }
 
     else if(type==='metodo_pago') {
@@ -7288,12 +7367,23 @@ function DelivDashboard({deliveryOrders, channels}) {
 
   const weekStart = new Date(); weekStart.setDate(weekStart.getDate()-6); weekStart.setHours(0,0,0,0);
   const weekOrds = deliveryOrders.filter(o=>new Date(o.created_at)>=weekStart&&o.rider_status!=='cancelled');
-  const channelData = channels.map(ch=>{
-    const chOrds = weekOrds.filter(o=>(o.channel||'propio')===ch.id);
-    const monto = chOrds.reduce((s,o)=>s+(o.order_total||0),0);
-    const commission = Math.round(monto*ch.commission/100);
-    return {...ch,monto,count:chOrds.length,neto:monto-commission};
-  }).filter(ch=>ch.monto>0);
+  // Agrupar por el canal REAL congelado en cada pedido (o.channel) usando la comisión
+  // CONGELADA por pedido (o.channel_commission), no la viva del canal. Incluye canales
+  // inactivos/borrados: si el slug no está en `channels`, cae al slug + gris.
+  const chIndex = Object.fromEntries((channels||[]).map(c=>[c.id,c]));
+  const chAgg = {};
+  weekOrds.forEach(o=>{
+    const slug = o.channel||'propio';
+    const monto = o.order_total||0;
+    const com = Math.round(monto*(o.channel_commission||0)/100);
+    if(!chAgg[slug]) chAgg[slug]={slug,monto:0,commissionAmt:0,count:0};
+    chAgg[slug].monto+=monto; chAgg[slug].commissionAmt+=com; chAgg[slug].count++;
+  });
+  const channelData = Object.values(chAgg).map(x=>{
+    const def = chIndex[x.slug];
+    return {id:x.slug, name:def?.name||x.slug, color:def?.color||'#8E8E93',
+            monto:x.monto, count:x.count, commissionAmt:x.commissionAmt, neto:x.monto-x.commissionAmt};
+  }).filter(x=>x.monto>0).sort((a,b)=>b.monto-a.monto);
   const maxMonto = Math.max(...channelData.map(c=>c.monto),1);
   const activeOrds = deliveryOrders.filter(o=>!['delivered','cancelled'].includes(o.rider_status)).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
 
@@ -7323,7 +7413,7 @@ function DelivDashboard({deliveryOrders, channels}) {
                   <div style={{height:'100%',background:ch.color,borderRadius:4,width:`${Math.round(ch.monto/maxMonto*100)}%`,transition:'width .3s'}}/>
                 </div>
                 <div style={{display:'flex',justifyContent:'space-between',marginTop:4}}>
-                  <span style={{fontSize:10,color:C.dim}}>{ch.count} pedidos · comisión {ch.commission}%</span>
+                  <span style={{fontSize:10,color:C.dim}}>{ch.count} pedidos · comisión {fmt(ch.commissionAmt)}</span>
                   <span style={{fontSize:10,color:C.dim}}>Neto: {fmt(ch.neto)}</span>
                 </div>
               </div>
@@ -7408,7 +7498,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
         quantity:Number(it.qty), unit_price:Number(it.price),
         total_price:Number(it.price)*Number(it.qty),
       })));
-      const{error:dErr}=await db.from('delivery_orders').insert({
+      const delivPayload={
         restaurant_id:RID, order_id:order.id, order_number:orderNum,
         order_type:'delivery', customer_name:newForm.customer_name.trim()||null,
         customer_phone:newForm.customer_phone.trim()||null,
@@ -7421,7 +7511,13 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
         external_order_id:newForm.channel!=='propio'?(newForm.external_order_id.trim()||null):null,
         order_total:newSubtotal, rider_status:'pending',
         delivery_notes:newForm.notes.trim()||null,
-      });
+      };
+      let{error:dErr}=await db.from('delivery_orders').insert(delivPayload);
+      // Defensivo: si la mig 161 (external_order_id) aún no está aplicada, reintentar sin esa columna.
+      if(dErr && /external_order_id|PGRST204|42703|schema cache/i.test(`${dErr.message||''} ${dErr.code||''}`)){
+        const {external_order_id, ...noExt}=delivPayload;
+        dErr=(await db.from('delivery_orders').insert(noExt)).error;
+      }
       if(dErr) throw new Error(dErr.message);
       await db.from('order_status_history').insert({order_id:order.id,status:'paid',changed_by:'admin'});
       toast('Pedido delivery creado');

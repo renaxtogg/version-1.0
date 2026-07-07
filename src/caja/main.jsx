@@ -2598,7 +2598,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
          ningún rider ni aparecía en Admin→Delivery. Ahora sí crea la ficha de dispatch y la asigna. */
       if(isDeliv){
         const selChan=(channels||[]).find(c=>c.id===(deliv?.channel||'propio'));
-        const{data:delRow,error:dErr}=await db.from('delivery_orders').insert({
+        const delivPayload={
           restaurant_id:RID, order_id:order.id, order_number:orderNum,
           order_type:'delivery', customer_name:order.customer_name||customerName||null,
           customer_phone:(deliv?.phone||'').trim()||null,
@@ -2610,7 +2610,14 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
           external_order_id:(deliv?.channel!=='propio'?(deliv?.externalId||'').trim():'')||null,
           order_total:subtotal, rider_status:'pending',
           cash_amount:contraEntrega?total:null,
-        }).select('id').single();
+        };
+        let{data:delRow,error:dErr}=await db.from('delivery_orders').insert(delivPayload).select('id').single();
+        // Defensivo: si la mig 161 (external_order_id) aún no está aplicada, reintentar sin esa columna.
+        if(dErr && /external_order_id|PGRST204|42703|schema cache/i.test(`${dErr.message||''} ${dErr.code||''}`)){
+          const {external_order_id, ...noExt}=delivPayload;
+          const retry=await db.from('delivery_orders').insert(noExt).select('id').single();
+          delRow=retry.data; dErr=retry.error;
+        }
         if(dErr)throw new Error('Delivery: '+dErr.message);
         // Dispatch centralizado (mig 156): cae a un rider disponible o queda Pendiente/Sin asignar.
         try{ await db.rpc('assign_delivery_order',{p_order_id:delRow.id}); }catch(_){}
