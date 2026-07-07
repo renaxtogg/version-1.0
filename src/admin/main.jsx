@@ -8419,7 +8419,7 @@ function pricingFromSettings(s){
     max_orders_per_rider: (s?.max_orders_per_rider ?? '') === null ? '' : (s?.max_orders_per_rider ?? ''),
   };
 }
-function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRestaurant, settings, onSaveSettings}) {
+function DelivConfig({zones, setZones, channels, setChannels, reloadChannels, restaurant, setRestaurant, settings, onSaveSettings}) {
   const [zoneModal,setZoneModal] = useState(null);
   const [chanModal,setChanModal] = useState(null);
   const [mapOpen,setMapOpen] = useState(false);
@@ -8457,18 +8457,37 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
 
   function deleteZone(id) { if(!confirm('¿Eliminar esta zona?'))return; setZones(zones.filter(z=>z.id!==id)); toast('Zona eliminada'); }
 
-  function saveChan() {
+  async function saveChan() {
     if(!cForm.name.trim()){toast('El nombre es obligatorio',false);return;}
+    if(!db){toast('Sin conexión',false);return;}
+    const commission = Number(cForm.commission)||0;
     if(chanModal==='new'){
-      const ch={id:cForm.name.toLowerCase().replace(/\s+/g,'_')+'_'+Date.now(),...cForm,commission:Number(cForm.commission)};
-      setChannels([...channels,ch]);
+      // slug estable derivado del nombre; único por tenant (mig 162). Colisión → sufijo.
+      const base = cForm.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'canal';
+      const payload = {restaurant_id:RID, name:cForm.name.trim(), slug:base, commission_pct:commission, color:cForm.color||'#8E8E93', is_active:cForm.active!==false};
+      let {error} = await db.from('delivery_channels').insert(payload);
+      if(error && /duplicate|unique|23505/i.test(`${error.message||''} ${error.code||''}`)){
+        const retry = await db.from('delivery_channels').insert({...payload, slug:base+'_'+Date.now().toString(36)});
+        error = retry.error;
+      }
+      if(error){toast('No se pudo crear el canal: '+error.message+(/relation|does not exist|schema cache|PGRST205/i.test(`${error.message} ${error.code||''}`)?' — aplicá la migración 162':''),false);return;}
     } else {
-      setChannels(channels.map(c=>c.id===chanModal.id?{...c,...cForm,commission:Number(cForm.commission)}:c));
+      // Editar NO cambia el slug: es la identidad congelada en los pedidos históricos.
+      if(!chanModal.uuid){toast('Canal por defecto (sin id de DB) — aplicá la migración 162 y recargá',false);return;}
+      const {error} = await db.from('delivery_channels').update({name:cForm.name.trim(), commission_pct:commission, color:cForm.color||'#8E8E93', is_active:cForm.active!==false}).eq('id',chanModal.uuid);
+      if(error){toast('No se pudo actualizar: '+error.message,false);return;}
     }
-    toast(chanModal==='new'?'Canal creado':'Canal actualizado'); setChanModal(null);
+    toast(chanModal==='new'?'Canal creado':'Canal actualizado');
+    setChanModal(null);
+    if(reloadChannels) await reloadChannels();
   }
 
-  function toggleChan(id) { setChannels(channels.map(c=>c.id===id?{...c,active:!c.active}:c)); }
+  async function toggleChan(c) {
+    if(!db||!c?.uuid){toast('Canal por defecto — aplicá la migración 162',false);return;}
+    const {error} = await db.from('delivery_channels').update({is_active:!c.active}).eq('id',c.uuid);
+    if(error){toast('No se pudo cambiar el estado: '+error.message,false);return;}
+    if(reloadChannels) await reloadChannels();
+  }
 
   return (
     <div style={{display:'flex',flexDirection:'column',gap:20,maxWidth:820}}>
@@ -8604,7 +8623,7 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
                 <Td mono right>{c.commission}%</Td>
                 <Td><code style={{fontSize:10,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.mid}}>{c.color}</code></Td>
                 <Td>
-                  <button onClick={()=>toggleChan(c.id)} style={{background:c.active?'rgba(52,199,89,0.1)':'rgba(142,142,147,0.1)',border:`1px solid ${c.active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,color:c.active?C.green:'#86868B',padding:'3px 10px',fontSize:11,fontWeight:700,borderRadius:5,cursor:'pointer'}}>
+                  <button onClick={()=>toggleChan(c)} style={{background:c.active?'rgba(52,199,89,0.1)':'rgba(142,142,147,0.1)',border:`1px solid ${c.active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,color:c.active?C.green:'#86868B',padding:'3px 10px',fontSize:11,fontWeight:700,borderRadius:5,cursor:'pointer'}}>
                     {c.active?'Activo':'Inactivo'}
                   </button>
                 </Td>
@@ -8690,6 +8709,12 @@ function DelivConfig({zones, setZones, channels, setChannels, restaurant, setRes
 }
 
 /* ── DeliveryModule (root) ── */
+// Canales por defecto (fallback en memoria si delivery_channels/mig 162 no está aplicada).
+const DEFAULT_CHANNELS = [
+  {id:'propio',    name:'Propio',     commission:0,  color:'#8E8E93', active:true},
+  {id:'pedidosya', name:'PedidosYa',  commission:18, color:'#FF6000', active:true},
+  {id:'monchis',   name:'Monchis',    commission:15, color:'#00B04F', active:true},
+];
 function DeliveryModule() {
   const [tab,setTab] = useState('dashboard');
   const [deliveryOrders,setDeliveryOrders] = useState([]);
@@ -8697,16 +8722,27 @@ function DeliveryModule() {
   const [loading,setLoading] = useState(true);
   const [restaurant,setRestaurant] = useState(null);
   const [zones,setZonesState] = useState(()=>LS.get(`deliv_zones_${RID}`,[]) );
-  const [channels,setChannelsState] = useState(()=>LS.get(`deliv_channels_${RID}`,[
-    {id:'propio',    name:'Propio',     commission:0,  color:'#8E8E93', active:true},
-    {id:'pedidosya', name:'PedidosYa',  commission:18, color:'#FF6000', active:true},
-    {id:'monchis',   name:'Monchis',    commission:15, color:'#00B04F', active:true},
-  ]));
+  // Canales por defecto EN MEMORIA (fallback si la mig 162 aún no está aplicada).
+  // Fuente real: tabla delivery_channels (DB, tenant-scoped). id = slug estable.
+  const [channels,setChannelsState] = useState(DEFAULT_CHANNELS);
 
   const [settings,setSettings] = useState(null);   // delivery_settings (mig 124) · null = modo 'zone' por defecto
 
   function setZones(z)    { setZonesState(z);    LS.set(`deliv_zones_${RID}`,z); }
-  function setChannels(ch){ setChannelsState(ch); LS.set(`deliv_channels_${RID}`,ch); }
+  // setChannels ya NO persiste a localStorage: los canales viven en delivery_channels (DB, mig 162).
+  function setChannels(ch){ setChannelsState(ch); }
+
+  // Carga canales desde la DB → shape del front ({id:slug, uuid, name, commission, color, active}).
+  // Defensivo: si la mig 162 no está o no hay filas, cae a los defaults en memoria (no rompe).
+  async function loadChannels(){
+    if(!db){ setChannelsState(DEFAULT_CHANNELS); return; }
+    const {data,error} = await db.from('delivery_channels').select('*').eq('restaurant_id',RID).order('name');
+    if(error || !data || !data.length){ setChannelsState(DEFAULT_CHANNELS); return; }
+    setChannelsState(data.map(r=>({
+      id: r.slug || String(r.id), uuid: r.id, name: r.name,
+      commission: Number(r.commission_pct)||0, color: r.color || '#8E8E93', active: r.is_active !== false,
+    })));
+  }
 
   // Guarda el modo de cotización (upsert por restaurant_id). Defensivo: devuelve
   // {ok,error} y DelivConfig avisa si la migración 124 todavía no está aplicada.
@@ -8770,6 +8806,7 @@ function DeliveryModule() {
       const sR = await db.from('delivery_settings').select('*').eq('restaurant_id',RID).maybeSingle();
       setSettings(sR && !sR.error ? (sR.data || null) : null);
     } catch(_) { setSettings(null); }
+    await loadChannels();
     setLoading(false);
   }
 
@@ -8847,7 +8884,7 @@ function DeliveryModule() {
       case 'dashboard': return <DelivDashboard deliveryOrders={deliveryOrders} channels={channels}/>;
       case 'pedidos':   return <DelivPedidos deliveryOrders={deliveryOrders} riders={riders} channels={channels} zones={zones} onRefresh={loadDelivery}/>;
       case 'riders':    return <DelivRiders riders={riders} deliveryOrders={deliveryOrders} settings={settings} onRefresh={loadDelivery} onRebalance={handleRebalance} onTransfer={handleTransferOrder}/>;
-      case 'config':    return <DelivConfig zones={zones} setZones={setZones} channels={channels} setChannels={setChannels} restaurant={restaurant} setRestaurant={setRestaurant} settings={settings} onSaveSettings={saveSettings}/>;
+      case 'config':    return <DelivConfig zones={zones} setZones={setZones} channels={channels} setChannels={setChannels} reloadChannels={loadChannels} restaurant={restaurant} setRestaurant={setRestaurant} settings={settings} onSaveSettings={saveSettings}/>;
       default: return null;
     }
   }

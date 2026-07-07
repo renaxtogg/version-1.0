@@ -2876,13 +2876,18 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
 
   useEffect(()=>{load();},[]);
   // Zonas desde delivery_zones (DB — misma fuente que la cotización del cliente).
-  // Canales desde localStorage (deliv_channels_<RID>) — Part 3 los mueve a la DB.
+  // Canales desde delivery_channels (DB, tenant-scoped, mig 162 — Parte 3).
   useEffect(()=>{
     if(!db) return;
     db.from('delivery_zones').select('id,name,price_guarani,estimated_minutes').eq('restaurant_id',RID).eq('is_active',true).order('price_guarani')
       .then(({data})=>setZones(data||[])).catch(()=>{});
     const DEF_CH=[{id:'propio',name:'Propio',commission:0,active:true},{id:'pedidosya',name:'PedidosYa',commission:18,active:true},{id:'monchis',name:'Monchis',commission:15,active:true}];
-    try{ const raw=localStorage.getItem('deliv_channels_'+RID); setChannels(raw?JSON.parse(raw):DEF_CH); }catch(_){ setChannels(DEF_CH); }
+    // Defensivo: si la mig 162 no está aplicada o no hay filas, cae a los defaults en memoria.
+    db.from('delivery_channels').select('slug,name,commission_pct,is_active').eq('restaurant_id',RID).eq('is_active',true).order('name')
+      .then(({data,error})=>{
+        if(error||!data||!data.length){ setChannels(DEF_CH); return; }
+        setChannels(data.map(r=>({id:r.slug||'propio', name:r.name, commission:Number(r.commission_pct)||0, active:r.is_active!==false})));
+      }).catch(()=>setChannels(DEF_CH));
   },[]);
   useEffect(()=>{localStorage.setItem(lsk('caja_cart'),JSON.stringify(cart));},[cart]);
   useEffect(()=>{localStorage.setItem(lsk('caja_order_type'),orderType);},[orderType]);
