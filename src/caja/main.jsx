@@ -2563,6 +2563,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         customer_name:invoiceType==='fiscal'?(invName||customerName||null):(customerName||null),
         subtotal,discount_amount:0,total,
         payment_method:mapOrderPM(metodo),
+        ...(isDeliv?{channel:deliv?.channel||'propio', external_order_id:(deliv?.channel!=='propio'?(deliv?.externalId||'').trim():'')||null}:{}),
       };
       let{data:order,error:e1}=await db.from('orders').insert({...baseInsert,...invoiceFields}).select().single();
       if(e1){
@@ -2606,6 +2607,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
           zone_id:deliv?.zoneId||null, zone_name:selZone?.name||null,
           delivery_fee:deliveryFee, estimated_minutes:selZone?.estimated_minutes||null,
           channel:deliv?.channel||'propio', channel_commission:selChan?.commission||0,
+          external_order_id:(deliv?.channel!=='propio'?(deliv?.externalId||'').trim():'')||null,
           order_total:subtotal, rider_status:'pending',
           cash_amount:contraEntrega?total:null,
         }).select('id').single();
@@ -2867,6 +2869,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
   const [delivRef,setDelivRef]=useState('');
   const [delivZoneId,setDelivZoneId]=useState('');
   const [delivChannel,setDelivChannel]=useState('propio');
+  const [delivExtId,setDelivExtId]=useState('');     // Nº de pedido de la plataforma (obligatorio si canal ≠ Propio)
   const [delivPaid,setDelivPaid]=useState(false);   // false = contra-entrega (cobra el rider) · true = ya pagó en caja
   const [zones,setZones]=useState([]);
   const [channels,setChannels]=useState([]);
@@ -2933,6 +2936,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
     if(orderType==='delivery'){
       if(!customerName.trim()){toast('Nombre del cliente requerido',false);return;}
       if(!delivAddress.trim()){toast('Dirección de entrega requerida',false);return;}
+      if(delivChannel!=='propio'&&!delivExtId.trim()){toast('Nº de pedido de la plataforma requerido',false);return;}
     }
     setPagoModal(true);
   }
@@ -2942,7 +2946,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
     if(movData&&onMovimiento)onMovimiento(movData);
     toast(`Pedido #${order?.order_number||''} ${order?.order_type==='delivery'?'enviado a despacho':'cobrado y enviado a cocina'} ✓`);
     setCart([]);setCustomerName('');setTableId('');
-    setDelivPhone('');setDelivAddress('');setDelivRef('');setDelivZoneId('');setDelivChannel('propio');setDelivPaid(false);
+    setDelivPhone('');setDelivAddress('');setDelivRef('');setDelivZoneId('');setDelivChannel('propio');setDelivExtId('');setDelivPaid(false);
     localStorage.removeItem(lsk('caja_cart'));localStorage.removeItem(lsk('caja_customer_name'));localStorage.removeItem(lsk('caja_table_id'));
   }
 
@@ -3044,6 +3048,9 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
                       {channels.filter(c=>c.active!==false).map(c=><option key={c.id} value={c.id}>{c.name}{c.commission?` (${c.commission}%)`:''}</option>)}
                     </Sel>
                   </div>
+                  {delivChannel!=='propio'&&(
+                    <div><Lbl required>Nº PEDIDO PLATAFORMA</Lbl><Inp value={delivExtId} onChange={e=>setDelivExtId(e.target.value)} placeholder="Ej: PY-8842193"/></div>
+                  )}
                   <div><Lbl>PAGO</Lbl>
                     <div style={{display:'flex',gap:6}}>
                       {[[false,'Cobra el rider'],[true,'Ya pagó en caja']].map(([v,lbl])=>(
@@ -3120,7 +3127,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
           tables={tables}
           turno={turno}
           profile={profile}
-          deliv={{phone:delivPhone,address:delivAddress,reference:delivRef,zoneId:delivZoneId,channel:delivChannel,paid:delivPaid}}
+          deliv={{phone:delivPhone,address:delivAddress,reference:delivRef,zoneId:delivZoneId,channel:delivChannel,externalId:delivExtId,paid:delivPaid}}
           zones={zones}
           channels={channels}
           onClose={()=>setPagoModal(false)}

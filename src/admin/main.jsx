@@ -7370,7 +7370,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
   const [assigning,setAssigning] = useState(false);
   const [selRider,setSelRider] = useState('');
   const [showNew,setShowNew] = useState(false);
-  const [newForm,setNewForm] = useState({customer_name:'',customer_phone:'',delivery_address:'',delivery_detail:'',delivery_references:'',zone_id:'',channel:'propio',payment_method:'efectivo',notes:'',items:[{name:'',qty:1,price:0}]});
+  const [newForm,setNewForm] = useState({customer_name:'',customer_phone:'',delivery_address:'',delivery_detail:'',delivery_references:'',zone_id:'',channel:'propio',external_order_id:'',payment_method:'efectivo',notes:'',items:[{name:'',qty:1,price:0}]});
   const [saving,setSaving] = useState(false);
   const DFILTS = [{id:'all',label:'Todos'},{id:'active',label:'Activos'},{id:'delivered',label:'Entregados'},{id:'cancelled',label:'Cancelados'}];
 
@@ -7389,6 +7389,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
     if(!db) return;
     if(!newForm.customer_name.trim()){toast('Nombre requerido',false);return;}
     if(!newForm.delivery_address.trim()){toast('Dirección requerida',false);return;}
+    if(newForm.channel!=='propio'&&!newForm.external_order_id.trim()){toast('Nº de pedido de la plataforma requerido',false);return;}
     const validItems = newForm.items.filter(it=>it.name.trim()&&Number(it.price)>0);
     if(!validItems.length){toast('Agregá al menos un producto con precio',false);return;}
     setSaving(true);
@@ -7399,6 +7400,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
         status:'paid', subtotal:newSubtotal, discount_amount:0,
         total:newTotal, payment_method:newForm.payment_method,
         customer_name:newForm.customer_name.trim()||null,
+        channel:newForm.channel||null, external_order_id:newForm.channel!=='propio'?(newForm.external_order_id.trim()||null):null,
       }).select().single();
       if(oErr) throw new Error(oErr.message);
       await db.from('order_items').insert(validItems.map(it=>({
@@ -7416,6 +7418,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
         zone_id:newForm.zone_id||null, zone_name:selZone?.name||null,
         delivery_fee:newDelivFee, estimated_minutes:selZone?.time||null,
         channel:newForm.channel||'propio', channel_commission:selChan?.commission||0,
+        external_order_id:newForm.channel!=='propio'?(newForm.external_order_id.trim()||null):null,
         order_total:newSubtotal, rider_status:'pending',
         delivery_notes:newForm.notes.trim()||null,
       });
@@ -7423,7 +7426,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
       await db.from('order_status_history').insert({order_id:order.id,status:'paid',changed_by:'admin'});
       toast('Pedido delivery creado');
       setShowNew(false);
-      setNewForm({customer_name:'',customer_phone:'',delivery_address:'',delivery_detail:'',delivery_references:'',zone_id:'',channel:'propio',payment_method:'efectivo',notes:'',items:[{name:'',qty:1,price:0}]});
+      setNewForm({customer_name:'',customer_phone:'',delivery_address:'',delivery_detail:'',delivery_references:'',zone_id:'',channel:'propio',external_order_id:'',payment_method:'efectivo',notes:'',items:[{name:'',qty:1,price:0}]});
       onRefresh();
     } catch(e){ toast('Error: '+e.message,false); }
     setSaving(false);
@@ -7502,7 +7505,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
             {filtered.map(o=>(
               <tr key={o.id} onClick={()=>openOrder(o)} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='var(--surface-hover)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                 <Td mono dim>#{o.order_number||o.id.slice(0,8)}</Td>
-                <Td>{o.channel||'Propio'}</Td>
+                <Td>{o.channel||'Propio'}{o.external_order_id?<span style={{display:'block',fontSize:10,color:C.dim,fontFamily:"'SF Mono',ui-monospace,monospace"}}>Nº {o.external_order_id}</span>:null}</Td>
                 <Td>{o.customer_name||'—'}</Td>
                 <Td dim>{o.delivery_address?o.delivery_address.slice(0,28)+'…':'—'}</Td>
                 <Td dim>{o.rider_name||'Sin asignar'}</Td>
@@ -7567,6 +7570,12 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
                 </Sel>
               </div>
             </div>
+            {newForm.channel!=='propio'&&(
+              <div>
+                <Lbl>Nº DE PEDIDO DE LA PLATAFORMA *</Lbl>
+                <Inp value={newForm.external_order_id} onChange={e=>updForm('external_order_id',e.target.value)} placeholder="Ej: PY-8842193"/>
+              </div>
+            )}
             <div>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
                 <Lbl style={{marginBottom:0}}>PRODUCTOS *</Lbl>
@@ -7609,6 +7618,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
               <div style={{fontSize:12,color:C.ink,marginTop:6}}>{selected.delivery_address||'—'}</div>
               {selected.delivery_detail&&<div style={{fontSize:11,color:C.mid,marginTop:2}}>{selected.delivery_detail}</div>}
               {selected.delivery_notes&&<div style={{fontSize:11,color:C.dim,marginTop:2,fontStyle:'italic'}}>{selected.delivery_notes}</div>}
+              {selected.external_order_id&&<div style={{fontSize:11,marginTop:6}}><span style={{color:C.dim}}>Nº plataforma:</span> <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color:C.ink}}>{selected.external_order_id}</span>{selected.channel&&selected.channel!=='propio'?<span style={{color:C.mid}}> · {selected.channel}</span>:null}</div>}
             </div>
             {items.length>0&&(
               <div>
