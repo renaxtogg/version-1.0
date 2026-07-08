@@ -8,6 +8,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
+// CAPTCHA Turnstile (nativo de Supabase Auth) para los flujos in-app que
+// re-autentican (modal "Cambiar contraseña" → signInWithPassword).
+import { useTurnstile } from "../shared/turnstile.js";
 // PR-MKT-2: módulo Marketplace B2B (tablas marketplace_*, migs 142/143) —
 // compartido con el panel gerente. NO confundir con ProveedoresPage (los
 // proveedores internos de compras: public.suppliers, mig 072).
@@ -10759,6 +10762,7 @@ function AdminChangePasswordModal({ email, onClose }) {
   const [n2,setN2]   = useState('');
   const [busy,setBusy] = useState(false);
   const [err,setErr]   = useState('');
+  const cap = useTurnstile(true);   // CAPTCHA para re-autenticar (signInWithPassword)
   const iStyle = {width:'100%',padding:'9px 12px',fontSize:13.5,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,outline:'none',boxSizing:'border-box'};
   const lStyle = {display:'block',fontSize:11,color:C.mid,fontWeight:700,marginBottom:5,textTransform:'uppercase',letterSpacing:.4};
   const submit = async () => {
@@ -10770,15 +10774,17 @@ function AdminChangePasswordModal({ email, onClose }) {
     if (!db || !email) { setErr('No hay sesión activa.'); return; }
     setBusy(true);
     try {
-      const { error: e1 } = await db.auth.signInWithPassword({ email, password: cur });
+      // Re-autentica con la clave actual; manda el captchaToken (Supabase lo exige
+      // si el Turnstile está activo, lo ignora si no). updateUser (abajo) usa la
+      // sesión → NO necesita captcha.
+      const { error: e1 } = await db.auth.signInWithPassword({ email, password: cur, options: { captchaToken: cap.token } });
       if (e1) {
-        // Si algún día se activa el CAPTCHA en Supabase, el sign-in sin token falla:
-        // no es "clave incorrecta". Distinguirlo evita un mensaje engañoso.
-        setErr(/captcha/i.test(e1.message||'') ? 'La verificación de seguridad no está disponible en este panel. Cambiá tu contraseña desde el login (¿Olvidaste tu contraseña?).' : 'La contraseña actual es incorrecta.');
+        cap.reset();   // token de un solo uso: renovar para el reintento
+        setErr(/captcha/i.test(e1.message||'') ? 'No pudimos validar la verificación de seguridad. Resolvé el captcha de abajo y probá de nuevo.' : 'La contraseña actual es incorrecta.');
         setBusy(false); return;
       }
       const { error: e2 } = await db.auth.updateUser({ password: n1 });
-      if (e2) { setErr('No se pudo cambiar: ' + (e2.message || 'probá con otra')); setBusy(false); return; }
+      if (e2) { cap.reset(); setErr('No se pudo cambiar: ' + (e2.message || 'probá con otra')); setBusy(false); return; }
       toast('Contraseña actualizada');
       onClose();
     } catch(e) { setErr('Error: ' + (e.message || 'intentá de nuevo')); }
@@ -10789,7 +10795,8 @@ function AdminChangePasswordModal({ email, onClose }) {
       {err && <div style={{background:C.red+'22',color:C.red,border:`1px solid ${C.red}55`,borderRadius:8,padding:'9px 12px',fontSize:12.5,marginBottom:14}}>{err}</div>}
       <div style={{marginBottom:14}}><label style={lStyle}>Contraseña actual</label><input type="password" value={cur} onChange={e=>setCur(e.target.value)} autoFocus autoComplete="current-password" style={iStyle}/></div>
       <div style={{marginBottom:14}}><label style={lStyle}>Nueva contraseña</label><input type="password" value={n1} onChange={e=>setN1(e.target.value)} autoComplete="new-password" style={iStyle}/><div style={{fontSize:11,color:C.dim,marginTop:4}}>Mínimo 8 caracteres.</div></div>
-      <div style={{marginBottom:18}}><label style={lStyle}>Repetir nueva contraseña</label><input type="password" value={n2} onChange={e=>setN2(e.target.value)} autoComplete="new-password" style={iStyle}/></div>
+      <div style={{marginBottom:14}}><label style={lStyle}>Repetir nueva contraseña</label><input type="password" value={n2} onChange={e=>setN2(e.target.value)} autoComplete="new-password" style={iStyle}/></div>
+      <div ref={cap.ref} style={{marginBottom:18,minHeight:65}}></div>
       <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
         <Btn onClick={submit} disabled={busy}>{busy?'Guardando…':'Cambiar contraseña'}</Btn>

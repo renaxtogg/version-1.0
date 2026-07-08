@@ -8,6 +8,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
+// CAPTCHA Turnstile (nativo de Supabase Auth) para el modal "Cambiar contraseña"
+// (re-autentica con signInWithPassword).
+import { useTurnstile } from "../shared/turnstile.js";
 
 const { useState, useEffect, useCallback, useRef, useReducer } = React;
 
@@ -7146,6 +7149,7 @@ function ChangePasswordModal({email, onClose, setFlash}) {
   const [n2,setN2]   = useState('');
   const [busy,setBusy] = useState(false);
   const [err,setErr]   = useState('');
+  const cap = useTurnstile(true);   // CAPTCHA para re-autenticar (signInWithPassword)
   const submit = async () => {
     setErr('');
     if (!cur) { setErr('Ingresá tu contraseña actual.'); return; }
@@ -7155,15 +7159,17 @@ function ChangePasswordModal({email, onClose, setFlash}) {
     if (!db || !email) { setErr('No hay sesión activa.'); return; }
     setBusy(true);
     try {
-      const { error: e1 } = await db.auth.signInWithPassword({ email, password: cur });
+      // Re-autentica con la clave actual; manda el captchaToken (Supabase lo exige
+      // si el Turnstile está activo, lo ignora si no). updateUser (abajo) usa la
+      // sesión → NO necesita captcha.
+      const { error: e1 } = await db.auth.signInWithPassword({ email, password: cur, options: { captchaToken: cap.token } });
       if (e1) {
-        // Si se activa el CAPTCHA en Supabase, el sign-in sin token falla: no es
-        // "clave incorrecta". Distinguirlo evita un mensaje engañoso.
-        setErr(/captcha/i.test(e1.message||'') ? 'La verificación de seguridad no está disponible en este panel. Cambiá tu contraseña desde el login (¿Olvidaste tu contraseña?).' : 'La contraseña actual es incorrecta.');
+        cap.reset();   // token de un solo uso: renovar para el reintento
+        setErr(/captcha/i.test(e1.message||'') ? 'No pudimos validar la verificación de seguridad. Resolvé el captcha de abajo y probá de nuevo.' : 'La contraseña actual es incorrecta.');
         setBusy(false); return;
       }
       const { error: e2 } = await db.auth.updateUser({ password: n1 });
-      if (e2) { setErr('No se pudo cambiar: ' + (e2.message || 'probá con otra')); setBusy(false); return; }
+      if (e2) { cap.reset(); setErr('No se pudo cambiar: ' + (e2.message || 'probá con otra')); setBusy(false); return; }
       setFlash({type:'ok',text:'Contraseña actualizada'});
       onClose();
     } catch(e) { setErr('Error: ' + (e.message || 'intentá de nuevo')); }
@@ -7175,6 +7181,7 @@ function ChangePasswordModal({email, onClose, setFlash}) {
       <FormField label="Contraseña actual"><input type="password" value={cur} onChange={e=>setCur(e.target.value)} autoFocus autoComplete="current-password"/></FormField>
       <FormField label="Nueva contraseña" hint="Mínimo 8 caracteres."><input type="password" value={n1} onChange={e=>setN1(e.target.value)} autoComplete="new-password"/></FormField>
       <FormField label="Repetir nueva contraseña"><input type="password" value={n2} onChange={e=>setN2(e.target.value)} autoComplete="new-password"/></FormField>
+      <div ref={cap.ref} style={{margin:'4px 0 8px',minHeight:65}}></div>
       <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
         <Btn onClick={submit} disabled={busy}>{busy?'Guardando…':'Cambiar contraseña'}</Btn>
