@@ -2790,7 +2790,12 @@ function PersonalPage() {
       });
       const result=await resp.json();
       if(!resp.ok) throw new Error(result.error||'Error desconocido');
-      toast(`Empleado "${result.username}" creado`);
+      // reused = la cédula ya tenía cuenta (trabaja en otro local) → se la vinculó a
+      // este restaurante reusando su usuario. Se nombra a la persona para detectar
+      // una cédula mal tipeada ("otra persona").
+      toast(result.reused
+        ? `Vinculado a la cuenta existente${result.linked_name?` de ${result.linked_name}`:''} en este restaurante`
+        : `Empleado "${result.username}" creado`);
       if(addForm._reqId){
         const{data:{user:me}}=await db.auth.getUser();
         await db.from('staff_requests').update({status:'approved',reviewed_by:me?.id,reviewed_at:new Date().toISOString()}).eq('id',addForm._reqId);
@@ -7866,7 +7871,10 @@ function DelivRiders({riders, deliveryOrders=[], settings, onRefresh, onRebalanc
         });
         const result=await resp.json();
         if(!resp.ok) throw new Error(result.error||'Error desconocido');
-        toast('Rider creado'); onRefresh(); setModal(null);
+        toast(result.reused
+          ? `Rider vinculado${result.linked_name?` (${result.linked_name})`:''} a este restaurante`
+          : 'Rider creado');
+        onRefresh(); setModal(null);
       }catch(e){toast(e.message,false);}
       setSaving(false);
       return;

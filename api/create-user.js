@@ -162,7 +162,19 @@ module.exports = async function handler(req, res) {
         res.status(400).json({ error: 'Nombre de usuario requerido (mínimo 2 caracteres)' }); return;
       }
       usernameClean = username.trim().toLowerCase();
-      email = `${usernameClean.replace(/[^a-z0-9._-]/g, '')}@mythos.internal`;
+      const localPart = usernameClean.replace(/[^a-z0-9._-]/g, '');
+      if (localPart.length < 2) {
+        res.status(400).json({ error: 'Nombre de usuario inválido' }); return;
+      }
+      // Separación de namespace del email interno: las cédulas ocupan
+      // `${dígitos}@mythos.internal`. Un username cuyo local-part sea SÓLO dígitos
+      // colisionaría con una cédula y haría "reuse" sobre la cuenta equivocada
+      // (un empleado podría terminar con rol admin). Se reservan los números
+      // para cédulas.
+      if (/^\d+$/.test(localPart)) {
+        res.status(400).json({ error: 'El nombre de usuario no puede ser sólo números (los números quedan reservados para cédulas).' }); return;
+      }
+      email = `${localPart}@mythos.internal`;
     }
 
     // Hard-limit por plan: rechazar antes de crear el usuario auth (evita huérfanos).
@@ -188,23 +200,72 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    // Crear usuario en auth.users
-    const createResp = await httpsPost(
-      `${SUPABASE_URL}/auth/v1/admin/users`,
-      { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY },
-      JSON.stringify({ email, password, email_confirm: true, user_metadata: { display_name: display_name || usernameClean, username: usernameClean } })
+    // ── Reuse multi-sucursal: una cédula/username = UN usuario auth ─────────────
+    // La identidad (cédula para empleados, username para admin) se materializa en el
+    // email sintético `${...}@mythos.internal`, único en auth.users. Si ya existe, NO
+    // se crea otra cuenta: se agrega el rol en el restaurante destino (reuse). La
+    // contraseña del existente NO se toca — un admin de otro local no puede resetear
+    // las credenciales de una persona ya registrada. El respaldo DB es la constraint
+    // EXCLUDE (mig 166): la misma cédula/username no puede caer en dos user_id.
+    let existingUserId = null, existingName = null;
+    const lookupResp = await httpsGet(
+      `${SUPABASE_URL}/rest/v1/user_roles?email=eq.${encodeURIComponent(email)}&select=user_id,restaurant_id,role,display_name`,
+      { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY }
     );
-    if (!createResp.ok) {
-      const msg  = createResp.data?.msg || createResp.data?.message || JSON.stringify(createResp.data);
-      const code = createResp.data?.error_code || createResp.data?.code || '';
-      // Usuario/email ya registrado: mensaje claro (no el crudo de Supabase).
-      if (/already.*regist|email_exists|user_already_exists/i.test(`${msg} ${code}`)) {
-        res.status(409).json({ error: isEmployee ? 'Esa cédula ya tiene una cuenta. Verificá el número.' : 'Ese nombre de usuario ya está en uso. Elegí otro.' }); return;
-      }
-      res.status(400).json({ error: `Error al crear usuario: ${msg}` }); return;
+    const existingRows = Array.isArray(lookupResp.data) ? lookupResp.data : [];
+    if (existingRows.length > 0) {
+      existingUserId = existingRows[0].user_id;
+      existingName = (existingRows.find(r => r.display_name) || {}).display_name || null;
     }
 
-    const newUserId = createResp.data.id;
+    let newUserId, reused = false;
+    if (existingUserId) {
+      // Ya registrada en ESTE restaurante con ESTE rol → 409 (duplicado exacto).
+      const dupHere = existingRows.some(r =>
+        (r.restaurant_id || null) === (finalRestaurantId || null) && r.role === role);
+      if (dupHere) {
+        res.status(409).json({ error: 'Esta persona ya está registrada en este restaurante con ese rol.' }); return;
+      }
+      if (isEmployee) {
+        // ── REUSE por CÉDULA: identidad fuerte 1:1 con la persona → se la vincula
+        //    a este restaurante reusando su usuario. Defensa extra: el match debe
+        //    ser realmente una fila de cédula (no una colisión de namespace).
+        const sameCedula = existingRows.some(r => (r.cedula || null) === cedulaDigits);
+        if (!sameCedula) {
+          res.status(409).json({ error: 'Esa identidad ya está en uso. Verificá el número de cédula.' }); return;
+        }
+        newUserId = existingUserId;
+        reused = true;
+      } else if (body.link_existing === true) {
+        // Vínculo EXPLÍCITO de un admin/owner existente a otro restaurante (futuro
+        // multi-local de dueños). Requiere opt-in del caller — nunca implícito.
+        newUserId = existingUserId;
+        reused = true;
+      } else {
+        // Admin/owner: el username NO identifica unívocamente a una persona (dos
+        // personas distintas podrían pedir el mismo nick). NO se reusa en silencio
+        // (sería quedarse con la cuenta de otra persona) → se BLOQUEA.
+        res.status(409).json({ error: 'Ese nombre de usuario ya está en uso. Elegí otro.' }); return;
+      }
+    } else {
+      // ── Alta nueva: crear la cuenta en auth.users ──
+      const createResp = await httpsPost(
+        `${SUPABASE_URL}/auth/v1/admin/users`,
+        { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY },
+        JSON.stringify({ email, password, email_confirm: true, user_metadata: { display_name: display_name || usernameClean, username: usernameClean } })
+      );
+      if (!createResp.ok) {
+        const msg  = createResp.data?.msg || createResp.data?.message || JSON.stringify(createResp.data);
+        const code = createResp.data?.error_code || createResp.data?.code || '';
+        // email_exists SIN fila en user_roles = cuenta huérfana (no debería ocurrir:
+        // el alta es atómica con rollback). Mensaje claro; no reusamos a ciegas.
+        if (/already.*regist|email_exists|user_already_exists/i.test(`${msg} ${code}`)) {
+          res.status(409).json({ error: isEmployee ? 'Esa cédula ya tiene una cuenta pero sin rol asignado. Avisá al superadmin.' : 'Ese nombre de usuario ya está en uso. Elegí otro.' }); return;
+        }
+        res.status(400).json({ error: `Error al crear usuario: ${msg}` }); return;
+      }
+      newUserId = createResp.data.id;
+    }
 
     // Insertar en user_roles
     const roleInsertResp = await httpsPost(
@@ -214,17 +275,27 @@ module.exports = async function handler(req, res) {
     );
     if (!roleInsertResp.ok) {
       const roleErr = roleInsertResp.data;
-      await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
-        { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+      // Rollback: si creamos la cuenta auth recién ahora, borrarla. En REUSE la
+      // cuenta es compartida (existía antes) → NUNCA se borra.
+      if (!reused) {
+        await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
+          { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+      }
       res.status(400).json({ error: roleErr?.message || 'Error al asignar rol' }); return;
     }
+    // id de la fila de rol recién creada — para rollback quirúrgico (no tocar las
+    // filas de la misma persona en otros restaurantes).
+    const newRoleRow = Array.isArray(roleInsertResp.data) ? roleInsertResp.data[0] : roleInsertResp.data;
+    const newRoleRowId = newRoleRow && newRoleRow.id;
 
     // AUTH-1: forzar cambio de contraseña en el primer ingreso. El admin/superadmin
     // eligió la contraseña (genérica/temporal); el usuario debe crear la suya antes
     // de entrar al panel. Por defecto SIEMPRE se fuerza; pasar force_password_change:
     // false (explícito) lo desactiva si en el futuro se crea con contraseña final.
     // Si el flag no se puede crear, NO dejar el usuario a medias: rollback total.
-    const forcePwdChange = body.force_password_change !== false;
+    // En REUSE no se toca la seguridad de la cuenta existente (ya tiene contraseña
+    // propia): sólo se fuerza el cambio en ALTAS nuevas con contraseña genérica.
+    const forcePwdChange = !reused && body.force_password_change !== false;
     if (forcePwdChange) {
       const flagResp = await httpsPost(
         `${SUPABASE_URL}/rest/v1/user_security_flags`,
@@ -232,8 +303,10 @@ module.exports = async function handler(req, res) {
         JSON.stringify({ user_id: newUserId, must_change_password: true, forced_reason: 'initial_generic_password' })
       );
       if (!flagResp.ok) {
-        await httpsDelete(`${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${newUserId}`,
-          { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+        if (newRoleRowId) {
+          await httpsDelete(`${SUPABASE_URL}/rest/v1/user_roles?id=eq.${newRoleRowId}`,
+            { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+        }
         await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
           { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
         res.status(500).json({ error: 'No se pudo configurar la cuenta (seguridad). Intentá de nuevo.' }); return;
@@ -266,17 +339,23 @@ module.exports = async function handler(req, res) {
       );
       if (!riderInsertResp.ok) {
         const rErr = riderInsertResp.data;
-        // Rollback total: borrar user_roles + cuenta auth para no dejar huérfanos.
-        await httpsDelete(`${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${newUserId}`,
-          { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
-        await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
-          { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+        // Rollback quirúrgico: borrar SÓLO la fila de rol recién creada (no las de la
+        // misma persona en otros restaurantes). La cuenta auth se borra únicamente si
+        // la creamos en esta alta (en REUSE es compartida → NO se toca).
+        if (newRoleRowId) {
+          await httpsDelete(`${SUPABASE_URL}/rest/v1/user_roles?id=eq.${newRoleRowId}`,
+            { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+        }
+        if (!reused) {
+          await httpsDelete(`${SUPABASE_URL}/auth/v1/admin/users/${newUserId}`,
+            { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
+        }
         res.status(400).json({ error: (rErr && (rErr.message || rErr.msg)) || 'Error al crear la ficha del rider' });
         return;
       }
     }
 
-    res.status(200).json({ success: true, user_id: newUserId, username: usernameClean, email, must_change_password: forcePwdChange });
+    res.status(200).json({ success: true, reused, user_id: newUserId, username: usernameClean, email, must_change_password: forcePwdChange, linked_name: reused ? existingName : undefined });
   } catch(e) {
     res.status(500).json({ error: e.message || 'Error interno del servidor' });
   }
