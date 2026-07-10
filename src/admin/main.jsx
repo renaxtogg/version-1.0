@@ -1834,6 +1834,22 @@ function MenuPage({categories,menuItems,onRefresh}) {
     else{toast('Categoría agregada');setNewCat('');onRefresh();}
   }
 
+  async function deleteCategory(cat) {
+    if(!db) return;
+    // menu_items.category_id es ON DELETE CASCADE: borrar una categoría con
+    // productos los borraría a todos. Bloqueamos y pedimos vaciar primero.
+    const count = menuItems.filter(i=>i.category_id===cat.id).length;
+    if(count>0){
+      toast(`"${cat.name}" tiene ${count} producto(s). Movelos a otra categoría o eliminalos antes de borrarla.`,false);
+      return;
+    }
+    if(!confirm(`¿Eliminar la categoría "${cat.name}"?`)) return;
+    const{data,error}=await db.from('menu_categories').delete().eq('id',cat.id).select('id');
+    if(error){toast('Error: '+error.message,false);}
+    else if(!data||data.length===0){toast('No se pudo eliminar — verificá permisos RLS en Supabase',false);}
+    else{toast('Categoría eliminada');if(catFilter===cat.id)setCatFilter('all');onRefresh();}
+  }
+
   async function toggleAvail(item) {
     if(!db) return;
     const{data,error}=await db.from('menu_items').update({is_available:!item.is_available}).eq('id',item.id).select('id');
@@ -1954,9 +1970,13 @@ function MenuPage({categories,menuItems,onRefresh}) {
             <div style={{padding:'8px 12px',fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,borderBottom:`1px solid ${C.border}`}}>CATEGORÍAS</div>
             {[{id:'all',name:'Todas',cnt:menuItems.length},...categories.map(c=>({id:c.id,name:c.name,cnt:menuItems.filter(i=>i.category_id===c.id).length}))].map(c=>{
               const active=catFilter===c.id;
-              return <button key={c.id} onClick={()=>setCatFilter(c.id)} style={{display:'flex',justifyContent:'space-between',width:'100%',textAlign:'left',padding:'8px 12px',background:active?C.card:'none',border:'none',color:active?C.ink:C.dim,fontSize:13,cursor:'pointer',borderBottom:`1px solid ${C.border}`,borderLeft:active?'2px solid '+C.ink:'2px solid transparent'}}>
-                <span>{c.name}</span><span style={{color:C.bs,fontSize:11}}>{c.cnt}</span>
-              </button>;
+              const isAll=c.id==='all';
+              return <div key={c.id} style={{display:'flex',alignItems:'stretch',background:active?C.card:'none',borderBottom:`1px solid ${C.border}`,borderLeft:active?'2px solid '+C.ink:'2px solid transparent'}}>
+                <button onClick={()=>setCatFilter(c.id)} style={{display:'flex',justifyContent:'space-between',flex:1,minWidth:0,textAlign:'left',padding:'8px 12px',background:'none',border:'none',color:active?C.ink:C.dim,fontSize:13,cursor:'pointer'}}>
+                  <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.name}</span><span style={{color:C.bs,fontSize:11,flexShrink:0,marginLeft:6}}>{c.cnt}</span>
+                </button>
+                {!isAll&&<button onClick={()=>deleteCategory(c)} title="Eliminar categoría" style={{background:'none',border:'none',color:C.dim,cursor:'pointer',padding:'0 9px',fontSize:15,lineHeight:1,flexShrink:0}}>×</button>}
+              </div>;
             })}
           </div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:12}}>
