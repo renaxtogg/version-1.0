@@ -1792,7 +1792,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
     const{data,error}=await db.from('menu_items').delete().in('id',ids).select('id');
     if(error){
       const msg=error.message.includes('foreign key')||error.message.includes('order_items')
-        ?'Uno o más items tienen pedidos históricos y no pueden eliminarse.'
+        ?'Uno o más productos tienen pedidos y no pueden borrarse. Desactivalos para ocultarlos de la carta.'
         :'Error: '+error.message;
       toast(msg,false);
     } else {
@@ -1847,7 +1847,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
     const{data,error}=await db.from('menu_items').delete().eq('id',item.id).select('id');
     if(error){
       const msg = error.message.includes('foreign key')||error.message.includes('order_items')
-        ? 'Este item tiene pedidos históricos. Ejecutá la migración 012 en Supabase para habilitarlo.'
+        ? 'Este producto tiene pedidos y no puede borrarse. Desactivalo para ocultarlo de la carta.'
         : 'Error: '+error.message;
       toast(msg,false);
     }
