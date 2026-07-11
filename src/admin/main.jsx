@@ -7420,7 +7420,6 @@ function ConfigPage({restaurant,onRefresh}) {
   const [openOverride,setOpenOverride] = useState('auto'); // 'auto' | 'open' | 'closed'
   const [saving,setSaving] = useState(false);
   const [savingH,setSavingH] = useState(false);
-  const [savingR,setSavingR] = useState(false);
   const [savingHH,setSavingHH] = useState(false);
 
   useEffect(()=>{
@@ -7456,17 +7455,6 @@ function ConfigPage({restaurant,onRefresh}) {
     else if(!data||data.length===0){toast('No se pudo guardar los horarios — verificá RLS en Supabase',false);}
     else{toast('Horarios guardados');onRefresh();}
     setSavingH(false);
-  }
-  async function saveReservas(){
-    if(!db)return;setSavingR(true);
-    const w=Number(form.reservation_window_hours);
-    const a=Number(form.reservation_alert_minutes);
-    if(!(w>0)||!(a>=0)){toast('Valores inválidos',false);setSavingR(false);return;}
-    const{data,error}=await db.from('restaurants').update({reservation_window_hours:w,reservation_alert_minutes:a}).eq('id',RID).select('id');
-    if(error){toast('Error: '+error.message,false);}
-    else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS / migración 070',false);}
-    else{toast('Reservas: configuración guardada');onRefresh();}
-    setSavingR(false);
   }
   async function saveHalfRule(){
     if(!db)return;setSavingHH(true);
@@ -7585,24 +7573,6 @@ function ConfigPage({restaurant,onRefresh}) {
               })}
             </div>
             <Btn onClick={saveHours} disabled={savingH}>{savingH?'Guardando…':'Guardar horarios'}</Btn>
-          </div>
-
-          {/* Configuración de reservas */}
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
-            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>RESERVAS</div>
-            <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:14}}>
-              <div>
-                <Lbl>VENTANA PARA MARCAR MESA COMO "RESERVADA" (HORAS)</Lbl>
-                <Inp type="number" min="0.5" max="12" step="0.5" value={form.reservation_window_hours??3} onChange={e=>setForm({...form,reservation_window_hours:e.target.value})} style={{width:90}}/>
-                <div style={{fontSize:11,color:C.dim,marginTop:6,lineHeight:1.5}}>Las mesas con reserva confirmada se marcan como <strong>Reservada</strong> en mozo/caja/admin cuando faltan menos de estas horas para la hora de la reserva. Recomendado: 3h.</div>
-              </div>
-              <div>
-                <Lbl>ALERTA AL MOZO SI MESA SIGUE OCUPADA (MINUTOS ANTES)</Lbl>
-                <Inp type="number" min="0" max="120" step="5" value={form.reservation_alert_minutes??30} onChange={e=>setForm({...form,reservation_alert_minutes:e.target.value})} style={{width:90}}/>
-                <div style={{fontSize:11,color:C.dim,marginTop:6,lineHeight:1.5}}>Si una mesa con reserva próxima sigue ocupada cuando faltan estos minutos, aparece una alerta roja al mozo para pedir la cuenta. Recomendado: 30 min.</div>
-              </div>
-            </div>
-            <Btn onClick={saveReservas} disabled={savingR}>{savingR?'Guardando…':'Guardar reservas'}</Btn>
           </div>
 
           {/* Regla de precio mitad-y-mitad (default del local) */}
@@ -9311,7 +9281,47 @@ function DeliveryModule() {
 /* ══════════════════════════════════════════════
    PÁGINA: RESERVAS (ADMIN)
 ══════════════════════════════════════════════ */
-function ReservasPage({tables,embedded,mode}) {
+// Config de reservas (ventana "Reservada" + alerta al mozo). Vive dentro del módulo
+// Agenda → Reservas (antes estaba en Configuración). Guarda sobre restaurants; los
+// valores los consumen mozo/caja/admin (ver buildReservationByTableA en MesasPage).
+function ReservasConfigModal({restaurant, onClose, onSaved}) {
+  const [win,setWin]     = useState(restaurant?.reservation_window_hours ?? 3);
+  const [alertM,setAlert]= useState(restaurant?.reservation_alert_minutes ?? 30);
+  const [saving,setSaving] = useState(false);
+  async function save(){
+    if(!db) return;
+    const w=Number(win), a=Number(alertM);
+    if(!(w>0)||!(a>=0)){ toast('Valores inválidos',false); return; }
+    setSaving(true);
+    const{data,error}=await db.from('restaurants').update({reservation_window_hours:w,reservation_alert_minutes:a}).eq('id',RID).select('id');
+    if(error){ toast('Error: '+error.message,false); }
+    else if(!data||data.length===0){ toast('No se pudo guardar — verificá RLS / migración 070',false); }
+    else{ toast('Reservas: configuración guardada'); onSaved&&onSaved(); onClose(); }
+    setSaving(false);
+  }
+  return (
+    <Modal title="Configuración de reservas" onClose={onClose} width={460}>
+      <div style={{display:'flex',flexDirection:'column',gap:14,marginBottom:18}}>
+        <div>
+          <Lbl>VENTANA PARA MARCAR MESA COMO "RESERVADA" (HORAS)</Lbl>
+          <Inp type="number" min="0.5" max="12" step="0.5" value={win} onChange={e=>setWin(e.target.value)} style={{width:90}}/>
+          <div style={{fontSize:11,color:C.dim,marginTop:6,lineHeight:1.5}}>Las mesas con reserva confirmada se marcan como <strong>Reservada</strong> en mozo/caja/admin cuando faltan menos de estas horas para la hora de la reserva. Recomendado: 3h.</div>
+        </div>
+        <div>
+          <Lbl>ALERTA AL MOZO SI MESA SIGUE OCUPADA (MINUTOS ANTES)</Lbl>
+          <Inp type="number" min="0" max="120" step="5" value={alertM} onChange={e=>setAlert(e.target.value)} style={{width:90}}/>
+          <div style={{fontSize:11,color:C.dim,marginTop:6,lineHeight:1.5}}>Si una mesa con reserva próxima sigue ocupada cuando faltan estos minutos, aparece una alerta roja al mozo para pedir la cuenta. Recomendado: 30 min.</div>
+        </div>
+      </div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar reservas'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function ReservasPage({tables,embedded,mode,restaurant,onRefresh}) {
   // mode==='cola' → cola de próximas PENDIENTES (sin filtro de día, ordenadas por
   // fecha) para que el dueño las confirme de un vistazo, sin adivinar el día.
   const isCola = mode==='cola';
@@ -9325,6 +9335,7 @@ function ReservasPage({tables,embedded,mode}) {
   const [statusFilter,setStatusFilter] = useState(isCola ? 'pending' : 'all');
   const [editModal,setEditModal] = useState(null);
   const [newModal,setNewModal]  = useState(false);
+  const [cfgModal,setCfgModal]  = useState(false);
 
   const OCCASION_LABEL={birthday:'Cumpleaños',anniversary:'Aniversario',business:'Reunión',celebration:'Celebración',other:'Otro'};
   const STATUS_CFG={
@@ -9393,6 +9404,7 @@ function ReservasPage({tables,embedded,mode}) {
             {ALL_STATUS.map(([id,cfg])=><option key={id} value={id}>{cfg.label}</option>)}
           </select>
           <button onClick={load} style={{height:34,padding:'0 10px',border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,color:C.mid,fontSize:12,cursor:'pointer'}}>↺</button>
+          <button onClick={()=>setCfgModal(true)} title="Configuración de reservas" style={{height:34,padding:'0 12px',border:`1px solid ${C.border}`,borderRadius:6,background:C.surface,color:C.mid,fontSize:12,cursor:'pointer',display:'inline-flex',alignItems:'center',gap:6}}><Icon name="settings" size={14}/> Config</button>
           <button onClick={()=>setNewModal(true)} style={{height:34,padding:'0 14px',border:'none',borderRadius:6,background:C.ink,color:C.sidebar,fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Nueva reserva</button>
         </div>
       </div>
@@ -9482,6 +9494,15 @@ function ReservasPage({tables,embedded,mode}) {
           tables={tables||[]}
           onClose={()=>{setEditModal(null);setNewModal(false);}}
           onSaved={()=>{setEditModal(null);setNewModal(false);load();}}
+        />
+      )}
+
+      {/* Modal configuración de reservas (movido desde Configuración) */}
+      {cfgModal&&(
+        <ReservasConfigModal
+          restaurant={restaurant}
+          onClose={()=>setCfgModal(false)}
+          onSaved={()=>{ if(onRefresh) onRefresh(true); }}
         />
       )}
     </div>
@@ -11011,7 +11032,7 @@ function CalendarioPage({tables, embedded}) {
 /* ══════════════════════════════════════════════
    AGENDA — módulo unificado (Calendario + Reservas)
 ══════════════════════════════════════════════ */
-function AgendaPage({tables, initialView='calendario'}) {
+function AgendaPage({tables, initialView='calendario', restaurant, onRefresh}) {
   const [view,setView] = useState(initialView);
   const TABS = [['pendientes','Pendientes'],['calendario','Calendario'],['lista','Lista']];
   return (
@@ -11029,8 +11050,8 @@ function AgendaPage({tables, initialView='calendario'}) {
       {view==='calendario'
         ? <CalendarioPage tables={tables} embedded/>
         : view==='pendientes'
-          ? <ReservasPage tables={tables} embedded mode='cola'/>
-          : <ReservasPage tables={tables} embedded/>}
+          ? <ReservasPage tables={tables} embedded mode='cola' restaurant={restaurant} onRefresh={onRefresh}/>
+          : <ReservasPage tables={tables} embedded restaurant={restaurant} onRefresh={onRefresh}/>}
     </div>
   );
 }
@@ -11468,7 +11489,7 @@ function AdminApp() {
         : <MesasPage tables={tables} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'agenda':
       case 'reservas':
-      case 'calendario':return <AgendaPage tables={tables} initialView={page==='reservas'?'pendientes':(page==='agenda'?'pendientes':'calendario')}/>;
+      case 'calendario':return <AgendaPage tables={tables} initialView={page==='reservas'?'pendientes':(page==='agenda'?'pendientes':'calendario')} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'estaciones':return caps.hasPanel('cocina') ? <EstacionesPage categories={categories} tables={tables}/> : <window.MythosGating.PanelLock panelKey="cocina" variant="inline"/>;
       case 'personal':  return <PersonalPage/>;
       case 'clientes':  return caps.hasFeature('admin:crm') ? <ClientesPage orders={orders}/> : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;
