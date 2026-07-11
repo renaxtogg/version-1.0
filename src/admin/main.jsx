@@ -1565,6 +1565,8 @@ function ItemModal({item, categories, onClose, onSaved}) {
   });
   const [extras, setExtras]         = useState([]);
   const [extrasReady, setExtrasReady] = useState(isNew);
+  const [variants, setVariants]       = useState([]);
+  const [variantsReady, setVariantsReady] = useState(isNew);
   const [saving, setSaving]         = useState(false);
 
   const f = (k,v) => setForm(p=>({...p,[k]:v}));
@@ -1573,12 +1575,25 @@ function ItemModal({item, categories, onClose, onSaved}) {
     if(!isNew && db){
       db.from('menu_item_extras').select('*').eq('item_id',item.id).order('id')
         .then(({data})=>{ setExtras(data||[]); setExtrasReady(true); });
+      db.from('menu_item_variants').select('*').eq('item_id',item.id).order('sort_order')
+        .then(({data})=>{ setVariants(data||[]); setVariantsReady(true); });
     }
   },[]);
 
   const addExtra    = () => setExtras(p=>[...p,{id:null,name:'',price_guarani:0,is_active:true}]);
   const removeExtra = i  => setExtras(p=>p.filter((_,j)=>j!==i));
   const updExtra    = (i,k,v) => setExtras(p=>p.map((e,j)=>j===i?{...e,[k]:v}:e));
+
+  // Tamaños/variantes: el primero agregado queda por defecto; al borrar el
+  // default, el primero restante lo hereda. Siempre hay exactamente 1 default.
+  const addVariant    = () => setVariants(p=>[...p,{id:null,name:'',price_guarani:'',sort_order:p.length,is_default:p.length===0,is_active:true}]);
+  const removeVariant = i  => setVariants(p=>{
+    let n=p.filter((_,j)=>j!==i);
+    if(n.length && !n.some(v=>v.is_default)) n=n.map((v,j)=>j===0?{...v,is_default:true}:v);
+    return n;
+  });
+  const updVariant        = (i,k,v) => setVariants(p=>p.map((x,j)=>j===i?{...x,[k]:v}:x));
+  const setDefaultVariant = i  => setVariants(p=>p.map((x,j)=>({...x,is_default:j===i})));
 
   const finalPrice = () => {
     const p = parseInt(form.price_guarani)||0;
@@ -1587,14 +1602,19 @@ function ItemModal({item, categories, onClose, onSaved}) {
   };
 
   async function save() {
-    if(!form.name.trim()||!form.price_guarani||!form.category_id){
-      toast('Completá nombre, precio y categoría',false); return;
+    // Si hay tamaños, el precio base = precio del tamaño por defecto (o el 1º).
+    const validVariants = variants.filter(v=>v.name.trim() && parseInt(v.price_guarani)>0);
+    const effBase = validVariants.length>0
+      ? parseInt((validVariants.find(v=>v.is_default)||validVariants[0]).price_guarani)
+      : parseInt(form.price_guarani)||0;
+    if(!form.name.trim()||!form.category_id||effBase<=0){
+      toast('Completá nombre, categoría y un precio (o al menos un tamaño con precio)',false); return;
     }
     setSaving(true);
     const payload = {
       name:          form.name.trim(),
       description:   form.description||null,
-      price_guarani: parseInt(form.price_guarani),
+      price_guarani: effBase,
       discount_pct:  parseInt(form.discount_pct)||0,
       category_id:   form.category_id,
       restaurant_id: RID,
@@ -1622,6 +1642,17 @@ function ItemModal({item, categories, onClose, onSaved}) {
       await db.from('menu_item_extras').insert(
         validExtras.map(e=>({item_id:itemId,name:e.name.trim(),price_guarani:parseInt(e.price_guarani)||0,is_active:e.is_active!==false}))
       );
+    }
+    // Tamaños/variantes (mismo patrón delete-all + re-insert que los extras).
+    // Guardado solo si ya cargaron: evita borrarlos al guardar antes de que lleguen.
+    if(variantsReady){
+      if(!isNew){ await db.from('menu_item_variants').delete().eq('item_id',item.id); }
+      if(validVariants.length>0){
+        const defIdx = Math.max(0, validVariants.findIndex(v=>v.is_default));
+        await db.from('menu_item_variants').insert(
+          validVariants.map((v,i)=>({item_id:itemId,name:v.name.trim(),price_guarani:parseInt(v.price_guarani),sort_order:i,is_default:i===defIdx,is_active:v.is_active!==false}))
+        );
+      }
     }
     toast(isNew?'Producto creado — ya visible en la app':'Cambios guardados');
     setSaving(false);
@@ -1714,6 +1745,31 @@ function ItemModal({item, categories, onClose, onSaved}) {
           <Lbl>DESCRIPCIÓN</Lbl>
           <textarea value={form.description||''} onChange={e=>f('description',e.target.value)} rows={2}
             style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:C.surface,border:`1px solid ${C.border}`,color:C.ink,borderRadius:6,boxSizing:'border-box'}}/>
+        </div>
+
+        {/* Tamaños / variantes */}
+        <div style={{gridColumn:'1/-1',borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+          <Lbl>TAMAÑOS / VARIANTES (opcional)</Lbl>
+          <div style={{color:C.dim,fontSize:11,marginBottom:8}}>Si agregás tamaños, el precio de arriba se toma del tamaño por defecto (●). Dejá vacío para un único precio.</div>
+          {variantsReady&&(<>
+            {variants.map((v,i)=>(
+              <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 140px 40px 76px 32px',gap:8,alignItems:'center',marginBottom:7}}>
+                <Inp value={v.name} onChange={ev=>updVariant(i,'name',ev.target.value)} placeholder="Ej: Chica, Mediana, Grande"/>
+                <MoneyInp value={v.price_guarani} onChange={val=>updVariant(i,'price_guarani',val)} placeholder="0"/>
+                <button title="Tamaño por defecto" onClick={()=>setDefaultVariant(i)}
+                  style={{padding:'5px 0',fontSize:14,borderRadius:5,cursor:'pointer',border:`1px solid ${v.is_default?'rgba(0,122,255,0.4)':C.border}`,background:v.is_default?'rgba(0,122,255,0.12)':'transparent',color:v.is_default?'#007AFF':C.dim}}>
+                  {v.is_default?'●':'○'}
+                </button>
+                <button onClick={()=>updVariant(i,'is_active',!v.is_active)}
+                  style={{padding:'5px 6px',fontSize:11,fontWeight:600,borderRadius:5,cursor:'pointer',border:`1px solid ${v.is_active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,background:v.is_active?'rgba(52,199,89,0.1)':'transparent',color:v.is_active?'#34C759':'#86868B'}}>
+                  {v.is_active?'Activo':'Inact.'}
+                </button>
+                <button onClick={()=>removeVariant(i)} style={{background:'none',border:'none',color:'#FF3B30',fontSize:20,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+              </div>
+            ))}
+            {variants.length===0&&<div style={{color:C.dim,fontSize:12,padding:'4px 0 10px'}}>Sin tamaños — este producto usa el precio único de arriba</div>}
+            <Btn variant="secondary" small onClick={addVariant}>+ Agregar tamaño</Btn>
+          </>)}
         </div>
 
         {/* Extras */}

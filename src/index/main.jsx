@@ -55,7 +55,7 @@ async function dbLoadMenu() {
   if (!db) return null;
   try {
     const { data: cats } = await db.from('menu_categories').select('id,name,sort_order').eq('restaurant_id', RESTAURANT_ID).order('sort_order');
-    const { data: items } = await db.from('menu_items').select('id,category_id,name,description,price_guarani,discount_pct,promo_tag,promo_type,dine_in_only,image_url,menu_item_extras(id,name,price_guarani,is_active)').eq('restaurant_id', RESTAURANT_ID).eq('is_available', true).order('sort_order');
+    const { data: items } = await db.from('menu_items').select('id,category_id,name,description,price_guarani,discount_pct,promo_tag,promo_type,dine_in_only,image_url,menu_item_extras(id,name,price_guarani,is_active),menu_item_variants(id,name,price_guarani,sort_order,is_default,is_active)').eq('restaurant_id', RESTAURANT_ID).eq('is_available', true).order('sort_order');
     if (!cats || !items) return null;
     const menu = {};
     for (const cat of cats) {
@@ -66,6 +66,7 @@ async function dbLoadMenu() {
         promo_type: i.promo_type || null,
         dine_in_only: i.dine_in_only || false,
         extras: (i.menu_item_extras || []).filter(e => e.is_active !== false).map(e => ({ n: e.name, p: e.price_guarani })),
+        variants: (i.menu_item_variants || []).filter(v => v.is_active !== false).sort((a, b) => a.sort_order - b.sort_order).map(v => ({ id: v.id, name: v.name, price: v.price_guarani, is_default: v.is_default })),
         image_url: i.image_url || null,
         category: cat.name
       }));
@@ -111,8 +112,11 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
     factura_formato: facturaFormato || null,
     language,
     items: items.map(ci => ({
-      item_id: ci.item.id || null, item_name: ci.item.name, quantity: ci.qty,
-      unit_price: ci.item.price, total_price: ci.total, observations: ci.notes || null,
+      item_id: ci.item.id || null,
+      item_name: ci.variant ? `${ci.item.name} (${ci.variant.name})` : ci.item.name,
+      quantity: ci.qty,
+      unit_price: ci.unitPrice != null ? ci.unitPrice : ci.item.price,
+      total_price: ci.total, observations: ci.notes || null,
       extras: (ci.extras || []).map(e => ({ extra_name: e.n, extra_price: e.p })),
     })),
   };
@@ -148,8 +152,9 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
   }
   for (const ci of items) {
     const { data: oi, error: itemErr } = await db.from('order_items').insert({
-      order_id: order.id, item_id: ci.item.id || null, item_name: ci.item.name,
-      quantity: ci.qty, unit_price: ci.item.price, total_price: ci.total,
+      order_id: order.id, item_id: ci.item.id || null,
+      item_name: ci.variant ? `${ci.item.name} (${ci.variant.name})` : ci.item.name,
+      quantity: ci.qty, unit_price: ci.unitPrice != null ? ci.unitPrice : ci.item.price, total_price: ci.total,
       observations: ci.notes || null
     }).select('id').single(); // RETURNING solo 'id' (no *): habilita revocar el SELECT de precios a anon (mig 130). El cliente solo usa oi.id.
     if (itemErr) console.error('order_items insert error:', itemErr);
@@ -845,12 +850,16 @@ function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
   const [selEx, setSelEx]     = useState([]);
   const [notes, setNotes]     = useState('');
   const [isCombo, setIsCombo] = useState(false);
+  const variants = item.variants || [];
+  const hasVariants = variants.length > 0;
+  const [selVariant, setSelVariant] = useState(() => variants.find(v => v.is_default) || variants[0] || null);
 
   const isBurger  = BURGER_CATS.includes((item.category || '').toLowerCase());
   const toggleEx  = (e) => setSelEx(p => p.find(x => x.n === e.n) ? p.filter(x => x.n !== e.n) : [...p, e]);
   const allExtras = isCombo ? [...selEx, ...COMBO_EXTRAS] : selEx;
   const exTotal   = allExtras.reduce((s, e) => s + e.p, 0);
-  const basePrice = item.discount_pct > 0 ? Math.round(item.price * (100 - item.discount_pct) / 100) : item.price;
+  const unitBase  = selVariant ? selVariant.price : item.price;
+  const basePrice = item.discount_pct > 0 ? Math.round(unitBase * (100 - item.discount_pct) / 100) : unitBase;
   const total     = (basePrice + exTotal) * qty;
 
   return (
@@ -876,9 +885,9 @@ function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
               {item.discount_pct > 0
                 ? <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                     <span style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz + 2, color: '#16A34A' }}>{fmt(basePrice)}</span>
-                    <span style={{ fontSize: 13, color: T.silver, textDecoration: 'line-through' }}>{fmt(item.price)}</span>
+                    <span style={{ fontSize: 13, color: T.silver, textDecoration: 'line-through' }}>{fmt(unitBase)}</span>
                   </div>
-                : <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz + 2, color: T.ink }}>{fmt(item.price)}</div>
+                : <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz + 2, color: T.ink }}>{fmt(unitBase)}</div>
               }
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -887,6 +896,25 @@ function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
               <button onClick={() => setQty(q => q + 1)} style={{ width: 34, height: 34, borderRadius: 8, border: 'none', background: T.black, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon name="plus" size={14} color={T.white} /></button>
             </div>
           </div>
+
+          {/* ── Tamaño / variante ── */}
+          {hasVariants && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10 }}>Tamaño</div>
+              {variants.map(v => {
+                const sel = selVariant && selVariant.id === v.id;
+                return <div key={v.id} onClick={() => setSelVariant(v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', marginBottom: 8, background: sel ? T.black : T.light, borderRadius: 12, cursor: 'pointer', border: `2px solid ${sel ? T.black : T.border}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${sel ? 'rgba(255,255,255,0.5)' : T.border}`, background: sel ? 'rgba(255,255,255,0.15)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {sel && <div style={{ width: 9, height: 9, borderRadius: '50%', background: T.white }} />}
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: sel ? T.white : T.ink }}>{v.name}</span>
+                  </div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: sel ? 'rgba(255,255,255,0.85)' : T.gray }}>{fmt(v.price)}</span>
+                </div>;
+              })}
+            </div>
+          )}
 
           {/* ── Opción Combo (solo hamburguesas) ── */}
           {isBurger && (
@@ -931,7 +959,7 @@ function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
             </div>
           </div>
           {canOrder ? (
-          <button onClick={() => { onAdd(item, qty, allExtras, notes); onClose(); }} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
+          <button onClick={() => { onAdd(item, qty, allExtras, notes, selVariant); onClose(); }} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
             <span>Agregar al pedido</span>
             <span style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz }}>{fmt(total)}</span>
           </button>
@@ -1017,7 +1045,7 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
                 : <Icon name="utensils" size={18} color="rgba(255,255,255,0.2)" />}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{ci.item.name}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{ci.item.name}{ci.variant ? ` · ${ci.variant.name}` : ''}</div>
               {ci.extras?.length > 0 && <div style={{ fontSize: 11, color: T.gray, marginTop: 2 }}>+ {ci.extras.map(e => e.n).join(', ')}</div>}
               {ci.notes && <div style={{ fontSize: 11, color: T.silver, fontStyle: 'italic', marginTop: 2 }}>"{ci.notes}"</div>}
             </div>
@@ -2130,11 +2158,12 @@ function App() {
     if (!canOrder && (screen === 'pay' || screen === 'cart')) setScreen('menu');
   }, [canOrder, screen]);
 
-  const addToCart = (item, qty, extras, notes) => {
+  const addToCart = (item, qty, extras, notes, variant = null) => {
     // Bloqueo de venta con el local CERRADO: se puede ver el menú, pero no pedir.
     if (!canOrder) { showToast(openState.next ? `Cerrado · Abre ${openState.next}. Podés ver el menú, pero no pedir ahora.` : 'El local está cerrado. Podés ver el menú, pero no pedir ahora.'); return; }
     const et = extras.reduce((s, e) => s + e.p, 0);
-    setCartItems(prev => [...prev, { item, qty, extras, notes, total: (item.price + et) * qty }]);
+    const unitPrice = variant ? variant.price : item.price;   // precio del tamaño elegido (o precio único)
+    setCartItems(prev => [...prev, { item, qty, extras, notes, variant, unitPrice, total: (unitPrice + et) * qty }]);
     showToast('Agregado al pedido');
   };
   const removeItem = (i) => setCartItems(prev => prev.filter((_, idx) => idx !== i));
@@ -2142,7 +2171,8 @@ function App() {
     if (idx !== i) return ci;
     const nq = ci.qty + d; if (nq <= 0) return null;
     const et = ci.extras.reduce((s, e) => s + e.p, 0);
-    return { ...ci, qty: nq, total: (ci.item.price + et) * nq };
+    const unitPrice = ci.unitPrice != null ? ci.unitPrice : ci.item.price;   // retrocompat: carritos viejos sin unitPrice
+    return { ...ci, qty: nq, total: (unitPrice + et) * nq };
   }).filter(Boolean));
 
   const handleCallWaiter = async () => {
