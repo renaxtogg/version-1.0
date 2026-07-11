@@ -82,6 +82,18 @@ function sortByProximity(orders, origin){
   return [...route, ...without];
 }
 
+/* Destino para el deep-link de navegación (Google Maps).
+   PRECISIÓN: preferir SIEMPRE la coordenada exacta del pin del cliente
+   (delivery_lat/lng) sobre el texto de la dirección. El texto viene del
+   reverse-geocode de Nominatim (cobertura pobre en PY); si se lo pasás a Google,
+   lo re-interpreta y suele caer a cuadras del punto real. La coordenada navega
+   al pin exacto que marcó el cliente. Cae al texto solo si no hay coords. */
+function navDest(o){
+  const la=_num(o?.delivery_lat), ln=_num(o?.delivery_lng);
+  if(la!=null && ln!=null && Number.isFinite(la) && Number.isFinite(ln)) return `${la},${ln}`;
+  return encodeURIComponent(o?.delivery_address || o?.customer_name || '');
+}
+
 /* ── SPINNER ── */
 function Spinner() {
   return <div style={{width:22,height:22,border:'2px solid var(--border)',borderTopColor:'var(--text-primary)',borderRadius:'50%',animation:'spin .7s linear infinite',margin:'48px auto',display:'block'}} />;
@@ -146,7 +158,7 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
   }
 
   function getMapsUrl(orders) {
-    const addrs = orders.map(o => encodeURIComponent(o.delivery_address || o.customer_name || ''));
+    const addrs = orders.map(navDest);   // coordenada exacta cuando existe; si no, texto
     if (!addrs.length) return null;
     if (addrs.length === 1) return `https://www.google.com/maps/dir/?api=1&destination=${addrs[0]}`;
     return `https://www.google.com/maps/dir/?api=1&destination=${addrs[addrs.length-1]}&waypoints=${addrs.slice(0,-1).join('|')}`;
@@ -261,7 +273,7 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
                     {o.customer_phone && (
                       <a href={`tel:${o.customer_phone}`} aria-label="Llamar" style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:8,color:'var(--text-primary)',textDecoration:'none',flexShrink:0}}><Icon name="phone" size={16} /></a>
                     )}
-                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.delivery_address||o.customer_name||'')}`} target="_blank" rel="noopener noreferrer" aria-label="Ver en mapa" style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:8,color:'var(--text-primary)',textDecoration:'none',flexShrink:0}}><Icon name="pin" size={16} /></a>
+                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${navDest(o)}`} target="_blank" rel="noopener noreferrer" aria-label="Ver en mapa" style={{display:'flex',alignItems:'center',justifyContent:'center',width:36,height:36,background:'var(--surface)',border:'1.5px solid var(--border)',borderRadius:8,color:'var(--text-primary)',textDecoration:'none',flexShrink:0}}><Icon name="pin" size={16} /></a>
                   </div>
                 </div>
                 );
@@ -388,7 +400,7 @@ function RouteScreen({ rider, initialOrders, onDone }) {
   }
 
   function getMapsUrl() {
-    const addrs = pending.map(o => encodeURIComponent(o.delivery_address || o.customer_name || ''));
+    const addrs = pending.map(navDest);   // coordenada exacta cuando existe; si no, texto
     if (!addrs.length) return null;
     if (addrs.length === 1) return `https://www.google.com/maps/dir/?api=1&destination=${addrs[0]}`;
     return `https://www.google.com/maps/dir/?api=1&destination=${addrs[addrs.length-1]}&waypoints=${addrs.slice(0,-1).join('|')}`;
@@ -462,7 +474,7 @@ function RouteScreen({ rider, initialOrders, onDone }) {
                 ><Icon name="phone" size={18} /></a>
               )}
               <a
-                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(o.delivery_address||o.customer_name||'')}`}
+                href={`https://www.google.com/maps/dir/?api=1&destination=${navDest(o)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Ver en mapa"

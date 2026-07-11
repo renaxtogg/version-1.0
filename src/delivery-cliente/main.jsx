@@ -51,16 +51,51 @@ const CANAL = _urlParams.get('canal') || 'web';
    intacto: el mapa nunca se monta. */
 const MAPS_API_KEY = (window.MYTHOS_CONFIG && window.MYTHOS_CONFIG.googleMapsApiKey || '').replace(/^﻿/, '').trim();
 const MAPS_READY = !!MAPS_API_KEY;   // SOLO habilita el autocomplete opcional de Google Places
-// El MAPA BASE (pin arrastrable para marcar la ubicación) usa Leaflet/OpenStreetMap,
-// que NO requiere API key (igual que el Editor de mapa del admin). Se carga por CDN
-// en delivery-cliente.html; el pin es un divIcon CSS porque el CSP no permite las
-// imágenes de marker de unpkg (solo *.tile.openstreetmap.org para img).
+// El MAPA BASE (pin FIJO al centro, patrón Uber/Bolt) usa Leaflet + tiles Carto,
+// que NO requieren API key (igual que el Editor de mapa del admin). Leaflet se carga
+// por CDN en delivery-cliente.html; los tiles Carto (light/dark) están habilitados en
+// img-src del CSP. El pin es un overlay SVG centrado, no un marker de Leaflet.
 const LEAFLET_READY = typeof window !== 'undefined' && !!window.L;
-const _pinIcon = () => window.L.divIcon({
-  className: '',
-  html: '<div style="width:22px;height:22px;background:#000;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,0.5);cursor:grab"></div>',
-  iconSize: [22, 22], iconAnchor: [11, 11],
+
+/* ── MAPA BASE (tiles Carto tema-consciente) + PIN CENTRAL ──────────────────
+   Reemplaza los tiles OSM crudos por Carto Positron (claro) / Dark Matter
+   (oscuro): look minimalista tipo Uber/Bolt, gratis y SIN API key (el host
+   *.basemaps.cartocdn.com está agregado a img-src en el CSP de vercel.json).
+   Interacción: el pin queda FIJO en el centro del mapa; el usuario mueve el
+   mapa por debajo y al soltar (moveend) el centro es la coordenada elegida. */
+const CARTO_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const CARTO_DARK  = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+const _isDark = () => {
+  try { if (window.MythosTheme && window.MythosTheme.get) return window.MythosTheme.get() === 'dark'; } catch (_) {}
+  return document.documentElement.getAttribute('data-theme') === 'dark';
+};
+const _cartoTiles = (dark) => window.L.tileLayer(dark ? CARTO_DARK : CARTO_LIGHT, {
+  subdomains: 'abcd', maxZoom: 20, detectRetina: true,
+  // TOS de Carto/OSM: en producción a escala conviene mostrar atribución.
+  attribution: '© OpenStreetMap · © CARTO',
 });
+// SVG del pin (teardrop). Tema-consciente: cuerpo oscuro sobre mapa claro y
+// claro sobre mapa oscuro, con punto interno de color opuesto.
+const _pinSvg = (dark) => {
+  const body = dark ? '#FFFFFF' : '#111111';
+  const hole = dark ? '#111111' : '#FFFFFF';
+  return '<svg width="30" height="40" viewBox="0 0 30 40" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    + '<path d="M15 0C6.7 0 0 6.7 0 15c0 10.5 13.2 23.4 13.8 24a1.7 1.7 0 0 0 2.4 0C16.8 38.4 30 25.5 30 15 30 6.7 23.3 0 15 0z" fill="' + body + '"/>'
+    + '<circle cx="15" cy="15" r="5.5" fill="' + hole + '"/></svg>';
+};
+// Inyecta 1 sola vez la CSS del pin central (posición fija + animación "lift").
+function _ensurePinCss() {
+  if (typeof document === 'undefined' || document.getElementById('mythos-cpin-css')) return;
+  const s = document.createElement('style');
+  s.id = 'mythos-cpin-css';
+  s.textContent =
+    '.mythos-cpin{position:absolute;left:50%;top:50%;z-index:600;pointer-events:none;transform:translate(-50%,-100%);transition:transform .18s cubic-bezier(.2,.8,.3,1);will-change:transform}'
+    + '.mythos-cpin.lift{transform:translate(-50%,-100%) translateY(-14px)}'
+    + '.mythos-cpin svg{display:block;filter:drop-shadow(0 4px 6px rgba(0,0,0,.35))}'
+    + '.mythos-cpin-sh{position:absolute;left:50%;top:50%;width:16px;height:6px;border-radius:50%;background:rgba(0,0,0,.45);transform:translate(-50%,-50%);pointer-events:none;z-index:599;transition:all .18s cubic-bezier(.2,.8,.3,1);filter:blur(1.5px)}'
+    + '.mythos-cpin-sh.lift{width:9px;height:5px;opacity:.55}';
+  document.head.appendChild(s);
+}
 
 /* ── THEME ENGINE ───────────────────────── */
 const ThemeCtx      = createContext({});
@@ -748,26 +783,90 @@ function loadGoogleMaps(key) {
   return _gmapsPromise;
 }
 
-function MapPicker({ center, onPick, T }) {
-  const ref = useRef(null);
+/* ── CENTER-PIN MAP (base reusable) ──────────────────────────────────────────
+   Mapa con PIN FIJO al centro (patrón Uber/Bolt): el usuario arrastra el mapa
+   y al soltar, el centro del viewport es la coordenada → onPick(lat,lng).
+   NO hay marcador arrastrable. Expone controlRef.moveTo(lat,lng,doEmit) para
+   reposicionar desde GPS / autocomplete sin re-montar el mapa. Tema-consciente
+   (tiles Carto claro/oscuro + color del pin). Fallback silencioso si no hay Leaflet. */
+function CenterPinMap({ initial, onPick, controlRef, T, height = 220, zoom = 16 }) {
+  const mapElRef = useRef(null);
+  const pinRef   = useRef(null);
+  const shRef    = useRef(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
-    if (!window.L || !ref.current) { setFailed(true); return; }
-    const c = { lat: (center && center.lat) || -25.2867, lng: (center && center.lng) || -57.6470 };
-    const map = window.L.map(ref.current, { zoomControl: true, attributionControl: false }).setView([c.lat, c.lng], 15);
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
-    const marker = window.L.marker([c.lat, c.lng], { draggable: true, icon: _pinIcon() }).addTo(map);
-    const emit = () => { const p = marker.getLatLng(); onPick(p.lat, p.lng); };
-    marker.on('dragend', emit);
-    map.on('click', (e) => { marker.setLatLng(e.latlng); emit(); });
+    if (!window.L || !mapElRef.current) { setFailed(true); return; }
+    _ensurePinCss();
+    const L = window.L;
+    const c = {
+      lat: (initial && Number.isFinite(initial.lat)) ? initial.lat : -25.2867,
+      lng: (initial && Number.isFinite(initial.lng)) ? initial.lng : -57.6470,
+    };
+    let dark = _isDark();
+    const map = L.map(mapElRef.current, { zoomControl: true, attributionControl: false }).setView([c.lat, c.lng], zoom);
+    let tiles = _cartoTiles(dark).addTo(map);
+    if (pinRef.current) pinRef.current.innerHTML = _pinSvg(dark);
+
+    let ready = false;         // no emitir por el setView inicial / invalidateSize
+    let ignoreMoveEnd = false; // no emitir por movimientos programáticos (moveTo con doEmit=false)
+    const lift = (on) => {
+      if (pinRef.current) pinRef.current.classList.toggle('lift', on);
+      if (shRef.current)  shRef.current.classList.toggle('lift', on);
+    };
+    map.on('movestart', () => lift(true));
+    map.on('moveend', () => {
+      lift(false);
+      if (!ready) return;
+      if (ignoreMoveEnd) { ignoreMoveEnd = false; return; }
+      const p = map.getCenter();
+      onPick(p.lat, p.lng);
+    });
+
+    if (controlRef) controlRef.current = {
+      moveTo: (lat, lng, doEmit = true) => {
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        if (!doEmit) {
+          ignoreMoveEnd = true;
+          map.once('moveend', () => { ignoreMoveEnd = false; });
+          setTimeout(() => { ignoreMoveEnd = false; }, 400); // fallback si setView no movió el centro
+        }
+        map.setView([lat, lng], Math.max(map.getZoom(), 17), { animate: true });
+      }
+    };
+
+    // Cambio de tema en vivo → intercambiar tiles + recolorear el pin.
+    const off = (window.MythosTheme && window.MythosTheme.onChange)
+      ? window.MythosTheme.onChange((mode) => {
+          dark = mode === 'dark';
+          try { map.removeLayer(tiles); } catch (_) {}
+          tiles = _cartoTiles(dark).addTo(map);
+          if (pinRef.current) pinRef.current.innerHTML = _pinSvg(dark);
+        })
+      : null;
+
     // El contenedor vive dentro de una .screen con animación slideUp → tras montar,
     // recalcular tamaño para que no queden tiles grises (fix clásico de Leaflet).
-    const t = setTimeout(() => { try { map.invalidateSize(); } catch (_) {} }, 150);
-    return () => { clearTimeout(t); try { map.remove(); } catch (_) {} };
+    // pan:false → no recentra (no dispara emit espurio); ready se habilita después.
+    const t = setTimeout(() => {
+      try { map.invalidateSize({ pan: false }); } catch (_) {}
+      ready = true;
+    }, 150);
+    return () => { clearTimeout(t); if (off) off(); try { map.remove(); } catch (_) {} if (controlRef) controlRef.current = null; };
   }, []);
   // Fallback silencioso: si Leaflet no cargó, se oculta y queda el flujo manual.
   if (failed) return null;
-  return <div ref={ref} style={{ width: '100%', height: 220, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 8 }} />;
+  return (
+    <div style={{ position: 'relative', width: '100%', height, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 8 }}>
+      <div ref={mapElRef} style={{ position: 'absolute', inset: 0 }} />
+      <div ref={shRef} className="mythos-cpin-sh" />
+      <div ref={pinRef} className="mythos-cpin" />
+    </div>
+  );
+}
+
+// Cobertura: pin central, sin handle imperativo. Reusa CenterPinMap.
+function MapPicker({ center, onPick, T }) {
+  return <CenterPinMap initial={center} onPick={onPick} T={T} height={220} zoom={15} />;
 }
 
 /* ── REVERSE GEOCODING ───────────────────────────────────────────────────────
@@ -790,35 +889,7 @@ async function reverseGeocode(lat, lng) {
    reposicionar el pin desde GPS / Places Autocomplete sin re-montar el mapa.
    El pin es la fuente de verdad de la coordenada: drag/click → onPick(lat,lng). */
 function DeliveryMapPicker({ initial, onPick, controlRef, T }) {
-  const ref = useRef(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    if (!window.L || !ref.current) { setFailed(true); return; }
-    const c = {
-      lat: (initial && Number.isFinite(initial.lat)) ? initial.lat : -25.2867,
-      lng: (initial && Number.isFinite(initial.lng)) ? initial.lng : -57.6470,
-    };
-    const map = window.L.map(ref.current, { zoomControl: true, attributionControl: false }).setView([c.lat, c.lng], 16);
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
-    const marker = window.L.marker([c.lat, c.lng], { draggable: true, icon: _pinIcon() }).addTo(map);
-    const emit = () => { const p = marker.getLatLng(); onPick(p.lat, p.lng); };
-    marker.on('dragend', emit);
-    map.on('click', (e) => { marker.setLatLng(e.latlng); map.panTo(e.latlng); emit(); });
-    // Handle imperativo: reposicionar el pin desde fuera (GPS / autocomplete).
-    // doEmit=false cuando el llamador ya conoce la dirección (no re-geocodificar).
-    if (controlRef) controlRef.current = {
-      moveTo: (lat, lng, doEmit = true) => {
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        marker.setLatLng([lat, lng]); map.panTo([lat, lng]); map.setZoom(17);
-        if (doEmit) onPick(lat, lng);
-      }
-    };
-    const t = setTimeout(() => { try { map.invalidateSize(); } catch (_) {} }, 150);
-    return () => { clearTimeout(t); try { map.remove(); } catch (_) {} if (controlRef) controlRef.current = null; };
-  }, []);
-  // Fallback silencioso: si Leaflet no cargó, se oculta y queda el flujo manual de texto.
-  if (failed) return null;
-  return <div ref={ref} style={{ width: '100%', height: 200, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 8 }} />;
+  return <CenterPinMap initial={initial} onPick={onPick} controlRef={controlRef} T={T} height={200} zoom={16} />;
 }
 
 /* ══ PANTALLA 2A — COBERTURA ════════════ */
@@ -1038,7 +1109,7 @@ function CoverageScreen({ zones, restaurant, settings, onCovered, onPickupFallba
                   onPick={(lat, lng) => quoteCoord(lat, lng)}
                 />
                 <div style={{ fontSize: 12, color: T.gray, marginBottom: 16, lineHeight: 1.5 }}>
-                  Arrastrá el pin o tocá el mapa para fijar tu ubicación exacta. También podés elegir la zona manualmente abajo.
+                  Mové el mapa hasta que el pin quede sobre tu ubicación exacta. También podés elegir la zona manualmente abajo.
                 </div>
               </div>
             )}
@@ -1331,7 +1402,7 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
                   {gpsBusy ? 'Detectando…' : 'Detectar mi ubicación'}
                 </button>
                 <div style={{ fontSize: 11, color: T.gray, marginTop: 8, lineHeight: 1.5 }}>
-                  Arrastrá el pin o tocá el mapa para fijar tu ubicación exacta.
+                  Mové el mapa hasta que el pin quede sobre tu punto de entrega exacto.
                 </div>
               </div>
             )}

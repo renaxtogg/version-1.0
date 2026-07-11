@@ -8359,14 +8359,52 @@ function reverseGeocode(lat, lng) {
   });
 }
 
+/* ── MAPA BASE (tiles Carto tema-consciente) + PIN CENTRAL ──────────────────
+   Reemplaza los tiles OSM crudos por Carto Positron (claro) / Dark Matter
+   (oscuro): look minimalista tipo Uber/Bolt, gratis y SIN API key (el host
+   *.basemaps.cartocdn.com está en img-src del CSP de vercel.json). El pin del
+   local queda FIJO al centro del mapa: se mueve el mapa por debajo y el centro
+   es la ubicación. Mismos helpers que el panel delivery-cliente. */
+const CARTO_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const CARTO_DARK  = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+const _mapIsDark = () => {
+  try { if (window.MythosTheme && window.MythosTheme.get) return window.MythosTheme.get() === 'dark'; } catch (_) {}
+  return document.documentElement.getAttribute('data-theme') === 'dark';
+};
+const _cartoTiles = (dark) => window.L.tileLayer(dark ? CARTO_DARK : CARTO_LIGHT, {
+  subdomains: 'abcd', maxZoom: 20, detectRetina: true,
+  attribution: '© OpenStreetMap · © CARTO',
+});
+const _pinSvg = (dark) => {
+  const body = dark ? '#FFFFFF' : '#111111';
+  const hole = dark ? '#111111' : '#FFFFFF';
+  return '<svg width="30" height="40" viewBox="0 0 30 40" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    + '<path d="M15 0C6.7 0 0 6.7 0 15c0 10.5 13.2 23.4 13.8 24a1.7 1.7 0 0 0 2.4 0C16.8 38.4 30 25.5 30 15 30 6.7 23.3 0 15 0z" fill="' + body + '"/>'
+    + '<circle cx="15" cy="15" r="5.5" fill="' + hole + '"/></svg>';
+};
+function _ensurePinCss() {
+  if (typeof document === 'undefined' || document.getElementById('mythos-cpin-css')) return;
+  const s = document.createElement('style');
+  s.id = 'mythos-cpin-css';
+  s.textContent =
+    '.mythos-cpin{position:absolute;left:50%;top:50%;z-index:600;pointer-events:none;transform:translate(-50%,-100%);transition:transform .18s cubic-bezier(.2,.8,.3,1);will-change:transform}'
+    + '.mythos-cpin.lift{transform:translate(-50%,-100%) translateY(-14px)}'
+    + '.mythos-cpin svg{display:block;filter:drop-shadow(0 4px 6px rgba(0,0,0,.35))}'
+    + '.mythos-cpin-sh{position:absolute;left:50%;top:50%;width:16px;height:6px;border-radius:50%;background:rgba(0,0,0,.45);transform:translate(-50%,-50%);pointer-events:none;z-index:599;transition:all .18s cubic-bezier(.2,.8,.3,1);filter:blur(1.5px)}'
+    + '.mythos-cpin-sh.lift{width:9px;height:5px;opacity:.55}';
+  document.head.appendChild(s);
+}
+
 /* ── MapEditor ── */
 function MapEditor({zones, restaurant, onSave, onClose}) {
   const mapDivRef = useRef(null);
   const mapRef    = useRef(null);
-  const pinRef    = useRef(null);
+  const pinElRef  = useRef(null);   // overlay SVG del pin central (no es un marker de Leaflet)
+  const shElRef   = useRef(null);   // sombra del pin
   const circlesRef= useRef({});
   const latRef    = useRef(restaurant?.lat || -25.2867);
   const lngRef    = useRef(restaurant?.lng || -57.6470);
+  const suppressGeoRef = useRef(false); // moveend programático (search/GPS) no re-geocodifica
 
   const ZCLR = {red:'#EF4444',orange:'#F97316',yellow:'#EAB308',green:'#22C55E'};
   const ZLBL = {red:'Roja',orange:'Naranja',yellow:'Amarilla',green:'Verde'};
@@ -8381,7 +8419,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
   const [geoBusy, setGeoBusy] = useState(false);
   const [hint, setHint] = useState(zones.length
     ? 'Tocá el mapa para definir el alcance de la zona activa'
-    : 'Arrastrá el pin (o usá "Mi ubicación") para fijar dónde está el local');
+    : 'Mové el mapa (o usá "Mi ubicación") para centrar el pin en el local');
 
   // Bloquear polling global mientras el editor esté abierto
   useEffect(()=>{ _modalCount++; return ()=>{ _modalCount=Math.max(0,_modalCount-1); }; },[]);
@@ -8420,14 +8458,19 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
     document.head.appendChild(s);
   },[]);
 
-  function _movePinTo(lat, lng) {
+  // Recentra el mapa (el pin fijo del centro = local). geocode=false → el moveend
+  // NO reverse-geocodifica ni pisa searchQ (el llamador ya tiene un nombre mejor:
+  // búsqueda por Places o su propio geocode). El moveend actualiza latRef/lngRef
+  // y reposiciona los círculos de zona sobre el nuevo centro.
+  function _movePinTo(lat, lng, geocode = false) {
     if(!mapRef.current||isNaN(lat)||isNaN(lng)) return;
+    // Fijar coords + recentrar círculos de inmediato (no esperar al moveend de la
+    // animación) para que "Guardar" nunca use coordenadas viejas.
     latRef.current = lat; lngRef.current = lng;
+    Object.values(circlesRef.current).forEach(c=>c.setLatLng([lat,lng]));
+    suppressGeoRef.current = !geocode;
+    setTimeout(()=>{ suppressGeoRef.current = false; }, 500); // fallback si setView no movió el centro
     mapRef.current.setView([lat,lng],17,{animate:true});
-    if(pinRef.current){
-      pinRef.current.setLatLng([lat,lng]);
-      Object.values(circlesRef.current).forEach(c=>c.setLatLng([lat,lng]));
-    }
   }
 
   function handleSearchChange(q) {
@@ -8511,31 +8554,13 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
 
   useEffect(()=>{
     if(!mapDivRef.current||!window.L) return;
+    _ensurePinCss();
     const L = window.L;
     const lat0 = latRef.current, lng0 = lngRef.current;
-    const map = L.map(mapDivRef.current,{zoomControl:true}).setView([lat0,lng0],13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-      attribution:'© OpenStreetMap',maxZoom:19
-    }).addTo(map);
-
-    // Pin del local
-    const pin = L.marker([lat0,lng0],{
-      draggable:true,
-      icon:L.divIcon({
-        className:'',
-        html:'<div style="width:22px;height:22px;background:#000;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,0.5);cursor:grab"></div>',
-        iconSize:[22,22],iconAnchor:[11,11]
-      })
-    }).addTo(map).bindTooltip('Local (arrastrar)',{permanent:false});
-    pin.on('dragend',async e=>{
-      const {lat,lng}=e.target.getLatLng();
-      latRef.current=lat; lngRef.current=lng;
-      Object.values(circlesRef.current).forEach(c=>c.setLatLng([lat,lng]));
-      setHint('Ubicación del local actualizada — guardá para confirmar');
-      const addr = await reverseGeocode(lat,lng);
-      if(addr) setSearchQ(addr);
-    });
-    pinRef.current = pin;
+    let dark = _mapIsDark();
+    const map = L.map(mapDivRef.current,{zoomControl:true}).setView([lat0,lng0], editZones.length?13:16);
+    let tiles = _cartoTiles(dark).addTo(map);
+    if(pinElRef.current) pinElRef.current.innerHTML = _pinSvg(dark);
 
     // Círculos de zonas (orden inverso: externo primero para que internos queden encima)
     const sorted = [...editZones].map((z,i)=>({...z,origIdx:i})).sort((a,b)=>(b.radius_km||99)-(a.radius_km||99));
@@ -8548,13 +8573,34 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
       circlesRef.current[z.origIdx] = c;
     });
 
-    // Click en mapa → actualiza radio de zona activa
+    // Pin FIJO al centro (patrón Uber/Bolt): el local = centro del mapa. Al mover el
+    // mapa, moveend fija latRef/lngRef y recentra los círculos sobre el nuevo centro.
+    let ready = false;
+    const lift = (on) => {
+      if(pinElRef.current) pinElRef.current.classList.toggle('lift', on);
+      if(shElRef.current)  shElRef.current.classList.toggle('lift', on);
+    };
+    map.on('movestart', ()=> lift(true));
+    map.on('moveend', async ()=>{
+      lift(false);
+      const {lat,lng} = map.getCenter();
+      latRef.current = lat; lngRef.current = lng;
+      Object.values(circlesRef.current).forEach(c=>c.setLatLng([lat,lng]));
+      if(!ready) return;
+      if(suppressGeoRef.current){ suppressGeoRef.current = false; return; }
+      setHint('Ubicación del local actualizada — guardá para confirmar');
+      const addr = await reverseGeocode(lat,lng);
+      if(addr) setSearchQ(addr);
+    });
+
+    // Click (tap sin arrastre) en mapa → radio de zona activa = distancia centro→click
     map._activeIdxRef = activeIdxRef;
     map.on('click',e=>{
-      const pinLL = pinRef.current.getLatLng();
-      const distM = pinLL.distanceTo(e.latlng);
-      const distKm = Math.max(0.3, Math.round(distM/100)/10);
       const idx = map._activeIdxRef.current;
+      if(!circlesRef.current[idx]) return;   // sin zona activa (p.ej. solo ubicando el local) → el toque no hace nada
+      const centerLL = map.getCenter();
+      const distM = centerLL.distanceTo(e.latlng);
+      const distKm = Math.max(0.3, Math.round(distM/100)/10);
       setEditZones(pz=>pz.map((z,i)=>{
         if(i!==idx) return z;
         if(circlesRef.current[i]) circlesRef.current[i].setRadius(distKm*1000);
@@ -8563,12 +8609,23 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
       setHint(`✓ Radio actualizado a ${distKm} km`);
     });
 
+    // Cambio de tema en vivo → intercambiar tiles + recolorear el pin.
+    const off = (window.MythosTheme && window.MythosTheme.onChange)
+      ? window.MythosTheme.onChange((mode)=>{
+          dark = mode === 'dark';
+          try { map.removeLayer(tiles); } catch(_){}
+          tiles = _cartoTiles(dark).addTo(map);
+          if(pinElRef.current) pinElRef.current.innerHTML = _pinSvg(dark);
+        })
+      : null;
+
     // Evitar que eventos del mapa burbujeen al DOM de React
     window.L.DomEvent.disableClickPropagation(mapDivRef.current);
     window.L.DomEvent.disableScrollPropagation(mapDivRef.current);
 
     mapRef.current = map;
-    return ()=>{ map.remove(); mapRef.current=null; circlesRef.current={}; };
+    const t = setTimeout(()=>{ try{ map.invalidateSize({pan:false}); }catch(_){} ready = true; }, 150);
+    return ()=>{ clearTimeout(t); if(off) off(); map.remove(); mapRef.current=null; circlesRef.current={}; };
   },[]);
 
   const updateRadius = (idx,km)=>{
@@ -8619,7 +8676,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
           <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:12}}>
             <div>
               <div style={{fontSize:17,fontWeight:800,color:C.ink}}>Ubicación del local{zones.length?' y zonas':''}</div>
-              <div style={{fontSize:12,color:C.dim,marginTop:2}}>Buscá por nombre · Usá tu ubicación · Arrastrá el pin{zones.length?' · Tocá el mapa para ajustar radios':''}</div>
+              <div style={{fontSize:12,color:C.dim,marginTop:2}}>Buscá por nombre · Usá tu ubicación · Mové el mapa{zones.length?' · Tocá el mapa para ajustar radios':''}</div>
             </div>
             <button onClick={e=>{e.stopPropagation();onClose();}} style={{background:C.bg,border:'none',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:18,color:C.dim,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginLeft:12}}>×</button>
           </div>
@@ -8686,6 +8743,9 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
         {/* Mapa */}
         <div style={{position:'relative',flexShrink:0}}>
           <div ref={mapDivRef} style={{height:320,width:'100%',touchAction:'none'}}/>
+          {/* Pin FIJO al centro (overlay, pointer-events:none → no bloquea el mapa) */}
+          <div ref={shElRef} className="mythos-cpin-sh" />
+          <div ref={pinElRef} className="mythos-cpin" />
           {/* Hint overlay */}
           <div style={{position:'absolute',bottom:8,left:'50%',transform:'translateX(-50%)',background:'rgba(0,0,0,0.65)',color:'#fff',borderRadius:20,padding:'5px 14px',fontSize:11,fontWeight:600,pointerEvents:'none',whiteSpace:'nowrap',maxWidth:'90%',overflow:'hidden',textOverflow:'ellipsis'}}>
             {hint}
@@ -8704,7 +8764,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
         <div style={{flex:1,overflowY:'auto',padding:'16px 20px'}}>
           {editZones.length===0 && (
             <div style={{background:'var(--bg-subtle)',border:`1px solid ${C.border}`,borderRadius:10,padding:'14px 16px',fontSize:13,color:C.dim,lineHeight:1.6}}>
-              Estás fijando la <strong style={{color:C.ink}}>ubicación del local</strong>. Buscala por nombre, usá “Mi ubicación” o arrastrá el pin, y guardá. Las zonas de delivery las agregás después en la tarjeta de Zonas.
+              Estás fijando la <strong style={{color:C.ink}}>ubicación del local</strong>. Buscala por nombre, usá “Mi ubicación” o mové el mapa hasta centrar el pin, y guardá. Las zonas de delivery las agregás después en la tarjeta de Zonas.
             </div>
           )}
           {/* Tabs selector */}
