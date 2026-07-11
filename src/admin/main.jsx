@@ -386,7 +386,6 @@ const NAV = [
   {id:'avisos',    label:'Avisos personal', icon:'bell', group:'SISTEMA'},
   {id:'soporte',   label:'Soporte',      icon:'chat'},
   {id:'config',    label:'Config',       icon:'settings'},
-  {id:'mi_cuenta', label:'Mi cuenta',    icon:'user'},
 ];
 
 function Sidebar({page,setPage,restaurant,onToggleTheme,badges={},themeMode='light'}) {
@@ -7421,6 +7420,7 @@ function ConfigPage({restaurant,onRefresh}) {
   const [saving,setSaving] = useState(false);
   const [savingH,setSavingH] = useState(false);
   const [savingHH,setSavingHH] = useState(false);
+  const [tab,setTab] = useState('general');   // general (config del local) | cuenta (Mi cuenta, consolidada desde el nav)
 
   useEffect(()=>{
     if(restaurant){
@@ -7473,6 +7473,19 @@ function ConfigPage({restaurant,onRefresh}) {
   return (
     <div className="page">
       <h1 style={{fontSize:22,fontWeight:800,color:C.ink,marginBottom:20}}>Configuración</h1>
+
+      {/* Sub-pestañas: configuración del local + Mi cuenta (consolidada desde el nav de nivel superior) */}
+      <div style={{display:'inline-flex',background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:2,marginBottom:20}}>
+        {[['general','General'],['cuenta','Mi cuenta']].map(([v,l])=>(
+          <button key={v} onClick={()=>setTab(v)}
+            style={{padding:'6px 16px',fontSize:13,fontWeight:700,border:'none',borderRadius:6,cursor:'pointer',
+              background:tab===v?C.ink:'transparent',color:tab===v?C.sidebar:C.mid}}>{l}</button>
+        ))}
+      </div>
+
+      {tab==='cuenta' && <MiCuentaPage restaurant={restaurant} onRefresh={onRefresh} embedded/>}
+
+      {tab==='general' && (
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,maxWidth:860}}>
 
         {/* ── Columna izquierda: info + imágenes ── */}
@@ -7604,6 +7617,7 @@ function ConfigPage({restaurant,onRefresh}) {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -11124,7 +11138,7 @@ function AdminChangePasswordModal({ email, onClose }) {
   );
 }
 
-function MiCuentaPage({ restaurant, onRefresh }) {
+function MiCuentaPage({ restaurant, onRefresh, embedded }) {
   const prof = window._userProfile || {};
   const canEditLocal = ['admin','owner','superadmin'].includes(MY_ROLE);
   const restHasCol = c => restaurant && Object.prototype.hasOwnProperty.call(restaurant, c);
@@ -11213,8 +11227,8 @@ function MiCuentaPage({ restaurant, onRefresh }) {
   };
 
   return (
-    <div className="page" style={{maxWidth:720}}>
-      <h1 style={{fontSize:20,fontWeight:800,marginBottom:18}}>Mi cuenta</h1>
+    <div className={embedded?'':'page'} style={{maxWidth:720}}>
+      {!embedded && <h1 style={{fontSize:20,fontWeight:800,marginBottom:18}}>Mi cuenta</h1>}
 
       {/* Perfil personal */}
       <div style={cardStyle}>
@@ -11505,7 +11519,6 @@ function AdminApp() {
       case 'avisos':    return <AvisosAdmin restaurant={restaurant}/>;
       case 'soporte':   return <SoportePage restaurant={restaurant}/>;
       case 'config':    return <ConfigPage restaurant={restaurant} onRefresh={loadAll}/>;
-      case 'mi_cuenta': return <MiCuentaPage restaurant={restaurant} onRefresh={loadAll}/>;
       default: return null;
     }
   }
