@@ -110,6 +110,21 @@ module.exports = async function handler(req, res) {
       res.status(400).json({ error: 'Elegí una contraseña menos predecible.' }); return;
     }
 
+    // Confirmación de correo del PRIMER INGRESO (opcional). La página cambiar-password
+    // manda `email` SÓLO cuando había un correo pendiente de confirmar. Se valida ACÁ,
+    // antes de tocar la contraseña, para no rechazar después de haberla cambiado.
+    //   • campo ausente  → cambio de contraseña normal/recuperación (no se toca el correo).
+    //   • '' (vacío)     → el usuario confirmó SIN correo (lo deja/limpia).
+    //   • correo válido  → se guarda como su correo real.
+    const hasEmailField = typeof body.email === 'string';
+    let confirmEmail = null;
+    if (hasEmailField) {
+      confirmEmail = body.email.trim().toLowerCase();
+      if (confirmEmail !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(confirmEmail)) {
+        res.status(400).json({ error: 'El correo no es válido. Corregilo o dejalo vacío.' }); return;
+      }
+    }
+
     // 3. Cambiar la contraseña con el TOKEN DEL USUARIO (no con service_role).
     const updResp = await httpsRequest('PUT', `${SUPABASE_URL}/auth/v1/user`,
       { 'Authorization': bearer, 'apikey': SERVICE_ROLE_KEY, 'Content-Type': 'application/json' },
@@ -128,6 +143,26 @@ module.exports = async function handler(req, res) {
       { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
       { must_change_password: false, password_changed_at: new Date().toISOString(), forced_reason: null }
     ).catch(() => {});
+
+    // 5. Confirmación de correo del primer ingreso — SÓLO si la página mandó `email`.
+    //    Escrituras BEST-EFFORT y SEPARADAS del flag crítico de arriba: si las columnas
+    //    de la mig 172 no existen todavía, se ignora sin romper el cambio de contraseña.
+    //    recovery_email se guarda igual (columna de la mig 123, ya en prod).
+    if (hasEmailField) {
+      const emailVal = confirmEmail === '' ? null : confirmEmail;
+      // (a) correo real del usuario en TODAS sus filas de rol (multi-sucursal).
+      await httpsRequest('PATCH',
+        `${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${encodeURIComponent(userId)}`,
+        { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+        { recovery_email: emailVal }
+      ).catch(() => {});
+      // (b) apagar el gate de confirmación + sellar cuándo se confirmó (columnas mig 172).
+      await httpsRequest('PATCH',
+        `${SUPABASE_URL}/rest/v1/user_security_flags?user_id=eq.${encodeURIComponent(userId)}`,
+        { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+        { must_confirm_email: false, email_confirmed_at: new Date().toISOString() }
+      ).catch(() => {});
+    }
 
     res.status(200).json({ success: true });
   } catch (e) {

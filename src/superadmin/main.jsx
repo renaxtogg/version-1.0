@@ -175,16 +175,21 @@ const eventMeta = {
   payment_received:     {label:'Pago'},
 };
 
-const ALL_ROLES = ['superadmin','admin','supervisor_local','cajero','cocina','mozo','delivery'];
-// Roles asignables al crear usuarios. 'rider' no vive en user_roles: se crea en
-// delivery_riders con PIN (el panel Delivery loguea por PIN, no por contraseña).
+// 'delivery' NO es un rol válido: es un fantasma. El rol real de repartidor es
+// 'rider' (crea ficha en delivery_riders, se enruta al panel Delivery y recibe
+// despacho). Un role='delivery' quedaba huérfano —sin ficha, sin ruta de login,
+// rechazado por /api/create-user— pero el RPC admin_update_user_role sí lo aceptaba,
+// así que el modal Editar podía fabricarlo. Se elimina de ambas listas asignables.
+const ALL_ROLES = ['superadmin','admin','supervisor_local','cajero','cocina','mozo'];
+// Roles asignables al crear usuarios. 'rider' crea la ficha en delivery_riders vía
+// /api/create-user (login por correo+contraseña, sin PIN).
 // 'supervisor_local' es el rol manager (etiqueta "Gerente"): el login lo enruta a
 // admin.html y desde ahí accede al sub-panel Gerente.
-const NEW_USER_ROLES = ['admin','supervisor_local','cajero','cocina','mozo','rider','delivery','superadmin'];
+const NEW_USER_ROLES = ['admin','supervisor_local','cajero','cocina','mozo','rider','superadmin'];
 // Etiquetas legibles para los dropdowns/badges (la clave es el string real en user_roles).
 const ROLE_LABEL = {
   superadmin:'Superadmin', admin:'Admin', supervisor_local:'Gerente',
-  cajero:'Cajero', cocina:'Cocina', mozo:'Mozo', delivery:'Delivery', rider:'Rider',
+  cajero:'Cajero', cocina:'Cocina', mozo:'Mozo', delivery:'Rider (legacy)', rider:'Rider',
   gerente:'Gerente', repartidor:'Rider', waiter:'Mozo'
 };
 const roleLabel = r => ROLE_LABEL[(r||'').toLowerCase()] || r || '—';
@@ -1387,6 +1392,8 @@ function ModulesModal({ r, onClose, setFlash, reload }) {
   const [caps, setCaps]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState(null);
+  const [mode, setMode]       = useState(r.service_mode || null);   // service_mode (mig 173)
+  const [modeBusy, setModeBusy] = useState(false);
   const arr = v => Array.isArray(v) ? v : [];
 
   const migMsg = m => /function|does not exist|schema cache/i.test(m||'') ? 'Falta aplicar la migración 146.' : ('Error: '+(m||''));
@@ -1404,6 +1411,23 @@ function ModulesModal({ r, onClose, setFlash, reload }) {
     if (!silent) setLoading(false);
   };
   useEffect(()=>{ load(); }, []);   // fresco al abrir
+
+  // Modo de operación (mig 173): salón (mesas+QR) vs delivery (a domicilio). Se
+  // guarda en restaurants.service_mode; degradación con gracia si falta la mig.
+  useEffect(()=>{
+    if (!db) return;
+    db.from('restaurants').select('service_mode').eq('id', r.id).maybeSingle()
+      .then(({ data })=>{ if (data) setMode(data.service_mode || 'salon'); })
+      .catch(()=>{});
+  }, []);
+  const setServiceMode = async (m) => {
+    if (!db || modeBusy || m === mode) return;
+    setModeBusy(true);
+    const { error } = await db.from('restaurants').update({ service_mode: m }).eq('id', r.id);
+    if (error) setFlash({ type:'error', text: /service_mode|column|schema cache/i.test(error.message||'') ? 'Falta aplicar la migración 173.' : ('Error: '+error.message) });
+    else { setMode(m); setFlash({ type:'ok', text:'Modo: '+(m==='delivery'?'Delivery a domicilio':'Local / Salón') }); if (reload) reload(); }
+    setModeBusy(false);
+  };
 
   const overrides  = (caps && caps.overrides) || {};
   const planPanels = arr(caps && caps.plan_panels);
@@ -1448,6 +1472,26 @@ function ModulesModal({ r, onClose, setFlash, reload }) {
           <div style={{fontSize:12,color:C.mid,marginBottom:16,lineHeight:1.5}}>
             El toggle define el valor <b>efectivo</b> para este restaurante. <b>Plan</b> = viene del plan/add-on; <b>Override</b> = forzado acá. Se aplica al recargar el panel del restaurante.
           </div>
+
+          {/* Modo de operación (mig 173) — salón vs delivery a domicilio */}
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,marginBottom:6}}>Modo de operación</div>
+          <div style={{display:'flex',gap:8,marginBottom:6}}>
+            {[{k:'salon',t:'Local / Salón',s:'Mesas + Menú QR'},{k:'delivery',t:'Delivery a domicilio',s:'Sólo delivery · sin mesas/QR'}].map(o=>{
+              const on = mode===o.k;
+              return (
+                <button key={o.k} onClick={()=>setServiceMode(o.k)} disabled={modeBusy}
+                  style={{flex:1,textAlign:'left',padding:'10px 12px',borderRadius:10,cursor:modeBusy?'default':'pointer',
+                    border:`1.5px solid ${on?C.ink:C.border}`, background:on?(TINT.blueBg||C.bg):C.bg, opacity:modeBusy?.6:1}}>
+                  <div style={{fontSize:12.5,fontWeight:700,color:C.ink}}>{o.t}{on?' ✓':''}</div>
+                  <div style={{fontSize:10.5,color:C.mid,marginTop:2}}>{o.s}</div>
+                </button>
+              );
+            })}
+          </div>
+          <div style={{fontSize:10.5,color:C.mid,marginBottom:16,lineHeight:1.45}}>
+            En <b>Delivery</b> se desbloquea el pedido a domicilio (delivery-cliente) y se bloquean el Menú QR y las mesas. El dueño ve los pedidos en Admin → Pedidos.
+          </div>
+
           <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,marginBottom:4}}>Paneles</div>
           {PANELS.map(p => {
             const s = panelState(p.key);
@@ -1580,7 +1624,7 @@ function NuevoClienteModal({plans, cityOptions, restHasCol, onOpenModules, onClo
     const resp = await fetch('/api/create-user', {
       method: 'POST',
       headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
-      body: JSON.stringify({ username: f.username, password: f.password, display_name: f.owner_name.trim()||f.username, role:'admin', restaurant_id: restId }),
+      body: JSON.stringify({ username: f.username, password: f.password, display_name: f.owner_name.trim()||f.username, recovery_email: f.owner_email.trim()||undefined, role:'admin', restaurant_id: restId }),
     });
     const r = await resp.json();
     if (!resp.ok) throw new Error(r.error || 'No se pudo crear la cuenta del dueño');
@@ -2794,18 +2838,28 @@ function PageUsuarios({restaurants, setFlash}) {
   const [editForm, setEditForm] = useState({role:'admin',restaurant_id:'',display_name:''});
   const [saving,   setSaving]   = useState(false);
   const [newModal, setNewModal] = useState(false);
-  const [newForm,  setNewForm]  = useState({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''});
+  const [newForm,  setNewForm]  = useState({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:'',email:''});
   const [creating, setCreating] = useState(false);
   const [expanded, setExpanded] = useState({}); // grupos de restaurante desplegados (acordeón)
 
+  // El email `${usuario}@mythos.internal` es el handle interno de login, no el correo
+  // real → no se muestra. Se muestra recovery_email (correo real) si existe, o "—".
+  function displayEmail(u) {
+    const e = (u && u.email) || '';
+    if (/@mythos\.internal$/i.test(e)) return (u && u.recovery_email) || '—';
+    return e || (u && u.recovery_email) || '—';
+  }
+
   const createUser = async () => {
     if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
-    const { username, password, pin, display_name, role, restaurant_id } = newForm;
+    const { username, password, pin, display_name, role, restaurant_id, email } = newForm;
 
     // Riders: se crean como el resto del personal (cuenta auth con usuario+contraseña).
     // /api/create-user, además de la cuenta, crea su ficha en delivery_riders vinculada por
     // user_id; el panel rider la resuelve con auth.uid() (login por correo+contraseña, sin PIN).
     if (!username.trim()) { setFlash({type:'warn',text:'Ingresá un nombre de usuario'}); return; }
+    if (!display_name.trim()) { setFlash({type:'warn',text:'Ingresá el nombre de la persona (para saber quién es)'}); return; }
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setFlash({type:'warn',text:'El correo no es válido.'}); return; }
     if (typeof password !== 'string' || !password.trim() || password.length < 8) { setFlash({type:'warn',text:'Ingresá una contraseña de al menos 8 caracteres para crear el usuario.'}); return; }
     // Roles operativos (todo menos superadmin) requieren restaurante: sin él, el login los rechaza.
     if (role !== 'superadmin' && !restaurant_id) { setFlash({type:'warn',text:`Asigná un restaurante al ${roleLabel(role)}`}); return; }
@@ -2817,13 +2871,13 @@ function PageUsuarios({restaurants, setFlash}) {
       const resp = await fetch('/api/create-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ username: username.trim(), password, display_name: display_name.trim(), role, restaurant_id: restaurant_id || null })
+        body: JSON.stringify({ username: username.trim(), password, display_name: display_name.trim(), recovery_email: email.trim()||undefined, role, restaurant_id: restaurant_id || null })
       });
       const result = await resp.json();
       if (!resp.ok) throw new Error(result.error || 'Error desconocido');
       setFlash({type:'ok',text:`Usuario "${result.username}" creado con éxito`});
       setNewModal(false);
-      setNewForm({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''});
+      setNewForm({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:'',email:''});
       loadUsers();
     } catch(e) { setFlash({type:'error',text:e.message}); }
     setCreating(false);
@@ -2841,7 +2895,7 @@ function PageUsuarios({restaurants, setFlash}) {
     } else if (error) {
       // Fallback: query directa a user_roles (funciona si las policies lo permiten)
       const { data: d2, error: e2 } = await db.from('user_roles')
-        .select('id,user_id,email,username,display_name,role,restaurant_id,is_active,created_at')
+        .select('id,user_id,email,recovery_email,username,display_name,role,restaurant_id,is_active,created_at')
         .order('created_at', { ascending: false });
       if (!e2 && d2) base = d2;
     }
@@ -2935,7 +2989,7 @@ function PageUsuarios({restaurants, setFlash}) {
         </div>
         <div style={{display:'flex',gap:10,alignItems:'center'}}>
           <input placeholder="Buscar usuario, email, restaurante..." value={search} onChange={e=>setSearch(e.target.value)} style={{width:260}}/>
-          <Btn onClick={()=>{ setNewForm({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:''}); setNewModal(true); }} disabled={!db}>+ Nuevo usuario</Btn>
+          <Btn onClick={()=>{ setNewForm({username:'',password:'',pin:'',display_name:'',role:'admin',restaurant_id:'',email:''}); setNewModal(true); }} disabled={!db}>+ Nuevo usuario</Btn>
         </div>
       </div>
 
@@ -2975,7 +3029,7 @@ function PageUsuarios({restaurants, setFlash}) {
                     <tr key={u.id} onMouseEnter={e=>e.currentTarget.style.background=C.bg} onMouseLeave={e=>e.currentTarget.style.background=''} style={{transition:'background .1s'}}>
                       <Td>
                         <div style={{fontFamily:'monospace',fontSize:13,fontWeight:600}}>{u.username||'—'}</div>
-                        <div style={{fontSize:11,color:C.dim,marginTop:2}}>{u.email||''}</div>
+                        <div style={{fontSize:11,color:C.dim,marginTop:2}}>{displayEmail(u)}</div>
                       </Td>
                       <Td style={{fontWeight:500}}>{u.display_name||'—'}</Td>
                       <Td>
@@ -3018,7 +3072,7 @@ function PageUsuarios({restaurants, setFlash}) {
                 autoFocus
               />
             </FormField>
-            <FormField label={newForm.role==='rider'?'Nombre del rider *':'Nombre para mostrar'}>
+            <FormField label={newForm.role==='rider'?'Nombre del rider *':'Nombre para mostrar *'}>
               <input
                 value={newForm.display_name}
                 onChange={e=>setNewForm(f=>({...f,display_name:e.target.value}))}
@@ -3036,6 +3090,15 @@ function PageUsuarios({restaurants, setFlash}) {
             />
             <div style={{fontSize:11,color:C.mid,marginTop:4}}>El usuario deberá cambiar esta contraseña en su primer ingreso.</div>
           </FormField>
+          <FormField label="Correo electrónico — opcional">
+            <input
+              type="email"
+              value={newForm.email}
+              onChange={e=>setNewForm(f=>({...f,email:e.target.value}))}
+              placeholder="ej: persona@correo.com"
+            />
+            <div style={{fontSize:11,color:C.mid,marginTop:4}}>Si lo cargás, el usuario lo confirma en su primer ingreso y queda como su correo de contacto. Si no, dejalo vacío — no se crea ningún correo.</div>
+          </FormField>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
             <FormField label="Rol">
               <select value={newForm.role} onChange={e=>setNewForm(f=>({...f,role:e.target.value}))}>
@@ -3052,7 +3115,7 @@ function PageUsuarios({restaurants, setFlash}) {
           <div style={{padding:'10px 14px',background:C.bg,borderRadius:8,fontSize:12,color:C.mid,marginTop:4}}>
             {newForm.role==='rider'
               ? 'El rider inicia sesión con su usuario y contraseña en el panel Delivery. Su ficha (vehículo, comisión) se crea automáticamente y se edita en el módulo Delivery del restaurante.'
-              : 'El usuario iniciará sesión con su nombre de usuario y contraseña. El email asignado es interno.'}
+              : 'El usuario iniciará sesión con su nombre de usuario y contraseña. Si no cargás correo, no se crea ninguno.'}
           </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
             <Btn variant="ghost" onClick={()=>setNewModal(false)} disabled={creating}>Cancelar</Btn>
@@ -3739,7 +3802,7 @@ const MKP_EVENT_LBL = {
   application_submitted:'Solicitud recibida', supplier_approved:'Proveedor aprobado',
   contact_revealed:'Contacto revelado', quote_created:'Cotización creada',
   supplier_suspended:'Proveedor suspendido', supplier_reactivated:'Proveedor reactivado',
-  supplier_estado_changed:'Cambio de estado',
+  supplier_estado_changed:'Cambio de estado', supplier_deleted:'Proveedor eliminado',
 };
 
 const MkBadge = ({map, value}) => {
@@ -4072,6 +4135,7 @@ function MkProveedores({suppliers, prodCountBySup, leadCountBySup, categories, l
   const [fEstado, setFEstado] = useState('all');
   const [editSup, setEditSup] = useState(null);
   const [contactSup, setContactSup] = useState(null);
+  const [deleteSup, setDeleteSup] = useState(null);
 
   const setEstado = async (sup, estado) => {
     const { error } = await db.rpc('superadmin_set_supplier_estado', {p_supplier_id:sup.id, p_estado:estado});
@@ -4137,9 +4201,12 @@ function MkProveedores({suppliers, prodCountBySup, leadCountBySup, categories, l
                       <Btn variant="ghost" size="sm" onClick={()=>setEditSup(s)}>Editar</Btn>
                       <Btn variant="ghost" size="sm" onClick={()=>viewContact(s)}>Contacto</Btn>
                       <Btn variant="ghost" size="sm" onClick={()=>gotoProducts(s.id)}>Productos</Btn>
-                      {s.estado==='suspendido'
-                        ? <Btn variant="success" size="sm" onClick={()=>setEstado(s,'activo')}>Reactivar</Btn>
-                        : <Btn variant="danger" size="sm" onClick={()=>setEstado(s,'suspendido')}>Suspender</Btn>}
+                      {/* On/off Activo↔Inactivo (un solo toggle): activo→Suspender; */}
+                      {/* pausado o suspendido→Activar (ambos son "Inactivo" para el super). */}
+                      {s.estado==='activo'
+                        ? <Btn variant="ghost" size="sm" style={{color:TINT.warnText}} onClick={()=>setEstado(s,'suspendido')}>Suspender</Btn>
+                        : <Btn variant="success" size="sm" onClick={()=>setEstado(s,'activo')}>Activar</Btn>}
+                      <Btn variant="danger" size="sm" onClick={()=>setDeleteSup(s)}>Eliminar</Btn>
                     </div>
                   </Td>
                 </tr>
@@ -4150,6 +4217,7 @@ function MkProveedores({suppliers, prodCountBySup, leadCountBySup, categories, l
       </SectionCard>
 
       {editSup && <MkEditSupplierModal sup={editSup} categories={categories} onClose={()=>setEditSup(null)} onDone={()=>{setEditSup(null);load();}} setFlash={setFlash}/>}
+      {deleteSup && <MkDeleteSupplierModal sup={deleteSup} prodCount={prodCountBySup[deleteSup.id]||0} leadCount={leadCountBySup[deleteSup.id]||0} onClose={()=>setDeleteSup(null)} onDone={()=>{setDeleteSup(null);load();}} setFlash={setFlash}/>}
       {contactSup && (
         <Modal title={`Contacto — ${contactSup.supplier.nombre_comercial}`} onClose={()=>setContactSup(null)} width={420}>
           {contactSup.loading ? <div style={{display:'flex',gap:10,alignItems:'center',color:C.mid}}><Spinner/> Cargando…</div> :
@@ -4163,6 +4231,52 @@ function MkProveedores({suppliers, prodCountBySup, leadCountBySup, categories, l
         </Modal>
       )}
     </div>
+  );
+}
+
+// ── Modal "Eliminar proveedor definitivamente" — Zona de peligro ──
+// Borrado permanente vía RPC superadmin_delete_supplier (mig 167). Confirmación
+// por nombre exacto (patrón DeleteRestaurantModal). Muestra el blast radius
+// (productos + leads) antes de borrar. La cuenta Auth del proveedor NO se toca.
+function MkDeleteSupplierModal({sup, prodCount, leadCount, onClose, onDone, setFlash}) {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy]   = useState(false);
+  const [err, setErr]     = useState('');
+  const match = typed.trim() === (sup.nombre_comercial||'').trim();
+
+  const doDelete = async () => {
+    if (!match || busy) return;
+    setErr(''); setBusy(true);
+    const { data, error } = await db.rpc('superadmin_delete_supplier', {p_supplier_id:sup.id});
+    setBusy(false);
+    if (error) { setErr(error.message||'No se pudo eliminar.'); return; }
+    const c = (data && data.counts) || {};
+    const extras = [];
+    if (c.products>0) extras.push(`${c.products} producto${c.products>1?'s':''}`);
+    if (c.leads>0)    extras.push(`${c.leads} lead${c.leads>1?'s':''}`);
+    setFlash({type:'ok', text:`"${sup.nombre_comercial}" eliminado${extras.length?` (+${extras.join(', ')})`:''}`});
+    onDone();
+  };
+
+  return (
+    <Modal title="Eliminar proveedor" onClose={onClose} width={480}>
+      <div style={{background:TINT.dangerBg,color:TINT.dangerText,border:`1px solid ${TINT.warnBorder}`,borderRadius:10,padding:'12px 14px',fontSize:12.5,lineHeight:1.55,marginBottom:16}}>
+        Acción <b>irreversible</b>. Se borran el proveedor y TODOS sus datos: productos, leads, conversaciones, guardados y reseñas. Los reclamos/eventos quedan (sin vínculo). La <b>cuenta de acceso</b> del proveedor no se borra: queda inerte.
+      </div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14}}>
+        <span style={{padding:'4px 10px',borderRadius:8,fontSize:12,fontWeight:600,background:'var(--bg-subtle)',color:C.mid}}>{fmtNum(prodCount)} producto{prodCount===1?'':'s'}</span>
+        <span style={{padding:'4px 10px',borderRadius:8,fontSize:12,fontWeight:600,background:'var(--bg-subtle)',color:C.mid}}>{fmtNum(leadCount)} lead{leadCount===1?'':'s'}</span>
+      </div>
+      {err && <div style={{color:C.red,fontSize:12.5,marginBottom:12,fontWeight:600}}>{err}</div>}
+      <FormField label="Escribí el nombre comercial exacto para confirmar">
+        <input value={typed} onChange={e=>setTyped(e.target.value)} placeholder={sup.nombre_comercial} autoFocus/>
+      </FormField>
+      <div style={{fontSize:11,color:C.dim,margin:'6px 0 18px'}}>Si sólo querés ocultarlo del marketplace de forma reversible, usá <b>Suspender</b> en vez de eliminar.</div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn variant="danger" onClick={doDelete} disabled={!match || busy}>{busy?'Eliminando…':'Eliminar definitivamente'}</Btn>
+      </div>
+    </Modal>
   );
 }
 

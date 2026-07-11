@@ -119,6 +119,11 @@ module.exports = async function handler(req, res) {
       res.status(400).json({ error: 'La contraseña es obligatoria y debe tener al menos 8 caracteres.' }); return;
     }
     if (!role) { res.status(400).json({ error: 'Rol requerido' }); return; }
+    // Nombre identificatorio OBLIGATORIO: sin esto la fila queda anónima ("—") y
+    // no se entiende quién es el usuario. Vale para todos los roles.
+    if (typeof display_name !== 'string' || display_name.trim().length < 2) {
+      res.status(400).json({ error: 'El nombre de la persona es obligatorio (para identificar quién es el usuario).' }); return;
+    }
 
     const ADMIN_ROLES = ['cajero', 'mozo', 'cocina', 'rider', 'supervisor_local'];
     const ALL_ROLES   = ['superadmin', 'admin', 'cajero', 'mozo', 'cocina', 'rider', 'supervisor_local'];
@@ -143,16 +148,20 @@ module.exports = async function handler(req, res) {
     const EMPLOYEE_ROLES = ['cajero', 'mozo', 'cocina', 'rider', 'supervisor_local'];
     const isEmployee = EMPLOYEE_ROLES.includes(role);
     let cedulaDigits = null, recoveryEmail = null, usernameClean, email;
+    // Correo REAL opcional para CUALQUIER rol (contacto + recuperación + confirmación
+    // en el primer ingreso). NO es la identidad de Auth: el login sigue por
+    // cédula/username → email sintético `@mythos.internal`. Se guarda en
+    // user_roles.recovery_email y NUNCA se muestra el sintético como "su correo".
+    if (body.recovery_email != null && String(body.recovery_email).trim() !== '') {
+      recoveryEmail = String(body.recovery_email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recoveryEmail)) {
+        res.status(400).json({ error: 'El correo no es válido.' }); return;
+      }
+    }
     if (isEmployee) {
       cedulaDigits = String(body.cedula || '').replace(/\D/g, '');
       if (cedulaDigits.length < 4 || cedulaDigits.length > 10) {
         res.status(400).json({ error: 'Cédula inválida' }); return;
-      }
-      if (body.recovery_email != null && String(body.recovery_email).trim() !== '') {
-        recoveryEmail = String(body.recovery_email).trim().toLowerCase();
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recoveryEmail)) {
-          res.status(400).json({ error: 'Email de recuperación inválido' }); return;
-        }
       }
       usernameClean = cedulaDigits;
       email = `${cedulaDigits}@mythos.internal`;
@@ -311,6 +320,18 @@ module.exports = async function handler(req, res) {
           { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY });
         res.status(500).json({ error: 'No se pudo configurar la cuenta (seguridad). Intentá de nuevo.' }); return;
       }
+      // Correo cargado por el jefe en un ALTA nueva → el empleado debe confirmarlo
+      // en su primer ingreso. Escritura BEST-EFFORT y SEPARADA del flag crítico de
+      // arriba: la fila ya existe (merge-duplicates la actualiza). Si la columna
+      // must_confirm_email aún no existe (mig 172 sin aplicar), el 400 se ignora y
+      // el alta NO se revierte — la confirmación simplemente no se activa hasta migrar.
+      if (recoveryEmail) {
+        await httpsPost(
+          `${SUPABASE_URL}/rest/v1/user_security_flags`,
+          { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+          JSON.stringify({ user_id: newUserId, must_confirm_email: true })
+        ).catch(() => {});
+      }
     }
 
     // Riders: además de la cuenta auth + user_roles, crear su ficha operativa en
@@ -355,7 +376,7 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    res.status(200).json({ success: true, reused, user_id: newUserId, username: usernameClean, email, must_change_password: forcePwdChange, linked_name: reused ? existingName : undefined });
+    res.status(200).json({ success: true, reused, user_id: newUserId, username: usernameClean, email, must_change_password: forcePwdChange, must_confirm_email: !!(recoveryEmail && forcePwdChange), linked_name: reused ? existingName : undefined });
   } catch(e) {
     res.status(500).json({ error: e.message || 'Error interno del servidor' });
   }

@@ -116,24 +116,28 @@ Ventaja: **cero cambio de esquema**, cocina ya muestra extras como chips (772-77
 
 **Primera clase (Fase 3, opcional):** columna `half_breakdown jsonb` en `order_items` → ruteo a 2 estaciones + reportes limpios. Requiere extender RPC create_order. **No en MVP.**
 
-### B.2 Config admin
+### B.2 Config admin (por producto)
 
-- Columna nueva en `menu_items`: `allows_half_and_half BOOLEAN NOT NULL DEFAULT false` (patrón `dine_in_only`, mig 043). Misma migración 169.
-- UI: checkbox en `ItemModal` (admin:1700-1710), estado (1553-1565) y payload (1594-1607).
+- `menu_items.allows_half_and_half BOOLEAN NOT NULL DEFAULT false` (ya agregada en mig 169).
+- **Regla de precio POR PRODUCTO** (decisión del dueño, 2026-07-10): cada producto apto elige su propia regla al editarlo. Columnas nuevas (migración de PR-3):
+  - `half_and_half_rule TEXT CHECK (half_and_half_rule IN ('max','avg','sum_halves','fixed'))` — default `'max'`.
+  - `half_and_half_fixed_price INTEGER` — solo se usa cuando la regla es `'fixed'` (CHECK `>0` o NULL).
+- UI: en `ItemModal` (admin:1700-1710) — checkbox "Apto para mitad-y-mitad"; al tildarlo, aparece un desplegable de regla y (si es `fixed`) un campo de precio. Estado (1553-1565) y payload (1594-1607).
 - **Combinabilidad:** sabores combinables = otros `menu_items` de la MISMA `category_id` con `allows_half_and_half=true`. Sin tabla de compatibilidad.
+- **Qué regla manda en un combo A+B:** la del producto **ANCLA** (el que el cliente abrió primero y sobre el que arma la mitad-y-mitad). El 2º sabor solo aporta su precio; la regla y el `fixed_price` salen del ancla.
 
-### B.3 REGLA DE PRECIO — decisión del dueño
+### B.3 REGLA DE PRECIO — configurable por el dueño, por producto
 
-Ejemplo: **Napolitana ₲40.000** + **Pepperoni Especial ₲50.000** (mismo tamaño).
+El dueño elige la regla en cada producto apto. Ejemplo: **Napolitana ₲40.000** + **Pepperoni Especial ₲50.000** (mismo tamaño).
 
-| Opción | Fórmula | Resultado | Nota |
+| `half_and_half_rule` | Fórmula | Resultado | Nota |
 |---|---|---|---|
-| **1. Mitad más cara** | `max(A, B)` | **₲50.000** | ⭐ Estándar en pizzerías. El cliente no "gana" mezclando. |
-| **2. Promedio** | `round((A+B)/2)` | **₲45.000** | "Justo" percibido. |
-| **3. Suma de medios** | `round(A/2 + B/2)` | **₲45.000** | Idéntico al promedio; "media pizza de cada uno". |
-| **4. Precio fijo** | constante | **₲48.000** (ej.) | Precio de "combinada" sin importar sabores. Requiere columna extra. |
+| `max` — **Mitad más cara** | `max(A, B)` | **₲50.000** | ⭐ Default. Estándar en pizzerías. |
+| `avg` — **Promedio** | `round((A+B)/2)` | **₲45.000** | "Justo" percibido. |
+| `fixed` — **Precio fijo** | `half_and_half_fixed_price` | **₲48.000** (ej.) | Precio de "combinada" fijo del ancla, sin importar sabores. |
 
-> Redondeo obligatorio con `Math.round` (enteros ₲).
+> Redondeo obligatorio con `Math.round` (enteros ₲). La función de precio se encapsula pura: `halfPrice(priceA, priceB, rule, fixed)` → entero.
+> **Nota (revisión adversarial 2026-07-10):** se descartó `sum_halves` de la UI (matemáticamente idéntica a `avg`; el CHECK de la DB la sigue aceptando por compat). El `half_and_half_rule='fixed'` requiere precio (validado en admin en ambos niveles). El precio mitad-y-mitad **no** aplica `discount_pct` del producto: lo fija la regla del dueño (aplicar un % sobre un precio de regla/fijo daría mostrado≠cobrado).
 
 ### B.4 Interacción con tamaños
 
@@ -181,7 +185,7 @@ En `ProductModal`, cuando `item.allows_half_and_half`: toggle "Pedir mitad y mit
 
 ## D. Decisiones que necesito del dueño
 
-1. **Regla de precio mitad-y-mitad** (B.3): mitad más cara / promedio / suma de medios / precio fijo. → bloquea PR-3.
+1. ✅ **RESUELTA (2026-07-10):** la regla de precio es **configurable por producto** (`half_and_half_rule` en `menu_items`, default `max`); manda la regla del producto ancla. Ver B.2/B.3.
 2. **¿Tamaño obligatorio** o hay "tamaño por defecto" preseleccionado? (Recomendado: default preseleccionado.)
 3. **Alcance de tamaños**: ¿solo pizzas o cualquier categoría? (El diseño soporta cualquiera.)
 4. **Sabores combinables**: ¿"misma categoría + apto", o lista explícita de prohibidas? (MVP: misma categoría.)

@@ -225,7 +225,8 @@
       case 'cocinero':
       case 'cocina':           return 'cocina.html';
       case 'rider':
-      case 'repartidor':       return 'delivery-rider.html';
+      case 'repartidor':
+      case 'delivery':         return 'delivery-rider.html'; // 'delivery' = rol legacy huérfano → tratar como rider
       case 'supplier':
       case 'proveedor':        return 'proveedor.html';
       default:                 return null;
@@ -264,7 +265,8 @@
       case 'cocinero':
       case 'cocina':           return 'Cocina';
       case 'rider':
-      case 'repartidor':       return 'Delivery (Rider)';
+      case 'repartidor':
+      case 'delivery':         return 'Delivery (Rider)';
       case 'supplier':
       case 'proveedor':        return 'Proveedor';
       default:                 return role || 'Panel';

@@ -90,7 +90,7 @@ const ROLES = ['cocina','admin','superadmin','waiter','cajero'];
 /* Roles que el Admin puede asignar (no puede crear admins ni superadmins) */
 const ADMIN_ALLOWED_ROLES = ['cajero','mozo','cocina','rider','supervisor_local'];
 /* Etiquetas legibles (la clave es el string real en user_roles). 'supervisor_local' = Gerente */
-const ROLE_LABEL = {superadmin:'Superadmin',admin:'Admin',supervisor_local:'Gerente',gerente:'Gerente',cajero:'Cajero',cocina:'Cocina',mozo:'Mozo',waiter:'Mozo',delivery:'Delivery',rider:'Rider',repartidor:'Rider'};
+const ROLE_LABEL = {superadmin:'Superadmin',admin:'Admin',supervisor_local:'Gerente',gerente:'Gerente',cajero:'Cajero',cocina:'Cocina',mozo:'Mozo',waiter:'Mozo',delivery:'Rider (legacy)',rider:'Rider',repartidor:'Rider'};
 const roleLabel = r => ROLE_LABEL[(r||'').toLowerCase()] || r || '—';
 /* PIN de 4 dígitos para riders (login del panel Delivery es por PIN, no por contraseña) */
 function genRiderPin() { return String(Math.floor(1000 + Math.random() * 9000)); }
@@ -403,7 +403,8 @@ function Sidebar({page,setPage,restaurant,onToggleTheme,badges={},themeMode='lig
         </button>
       </div>
       <nav style={{padding:'6px 0',flex:1}}>
-        {NAV.map((n,i) => {
+        {/* Modo delivery (mig 173): el local no atiende en salón → se oculta Mesas. */}
+        {NAV.filter(n => !(n && n.id==='mesas' && restaurant?.service_mode==='delivery')).map((n,i) => {
           if (!n) return <Divider key={i}/>;
           const active = page === n.id;
           const badge = badges[n.id]||0;
@@ -1258,6 +1259,112 @@ function DashboardPage({orders, ratings, setPage}) {
 /* ══════════════════════════════════════════════
    PEDIDOS
 ══════════════════════════════════════════════ */
+/* ── OrderDetailModal ── vista de detalle COMPLETO de un pedido.
+   Pensada para el dueño que NO tiene panel de Caja (Emprendedor pickup / solo-
+   delivery): muestra el DESTINO del pedido (dirección + referencias + teléfono
+   para delivery, retiro para llevar, mesa para local), cliente, items y pago.
+   Cierre solo con ESC o × (regla del proyecto — usa el <Modal> compartido). */
+function OrderDetailModal({ order, items, deliv, loading, onClose }) {
+  const o = order;
+  const isDelivery = o.order_type === 'delivery';
+  const isPickup   = ['llevar','pickup','counter'].includes(o.order_type);
+  const typeLabel  = isDelivery ? 'Delivery a domicilio'
+                   : (o.order_type==='llevar'||o.order_type==='pickup') ? 'Retiro / Para llevar'
+                   : o.order_type==='counter' ? 'Mostrador'
+                   : mesaLabel(o);
+  const typeColor  = isDelivery ? '#FF9500' : isPickup ? TINT.purpleText : '#007AFF';
+
+  const addr   = deliv?.delivery_address || '';
+  const detail = deliv?.delivery_detail || '';
+  const refs   = deliv?.delivery_references || '';
+  const phone  = o.customer_phone || deliv?.customer_phone || '';
+  const cash   = deliv?.cash_amount;
+  const lat = deliv?.latitude ?? deliv?.lat ?? null;
+  const lng = deliv?.longitude ?? deliv?.lng ?? null;
+  const mapUrl = (lat!=null && lng!=null) ? `https://www.google.com/maps?q=${lat},${lng}` : null;
+
+  const Row = ({label, value, mono, accent}) => (value!=null && value!=='') ? (
+    <div style={{display:'flex',justifyContent:'space-between',gap:12,padding:'5px 0',fontSize:13}}>
+      <span style={{color:C.mid,flexShrink:0}}>{label}</span>
+      <span style={{fontWeight:600,textAlign:'right',color:accent||'var(--text-primary)',fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit'}}>{value}</span>
+    </div>
+  ) : null;
+
+  const Section = ({icon, title, accent, children}) => (
+    <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:'12px 14px',marginBottom:12,background:C.surface}}>
+      <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:6,fontSize:11,fontWeight:800,letterSpacing:.5,textTransform:'uppercase',color:accent||C.mid}}>
+        <Icon name={icon} size={13}/> {title}
+      </div>
+      {children}
+    </div>
+  );
+
+  return (
+    <Modal title={`Pedido ${o.order_number||''}`} onClose={onClose} width={470}>
+      {/* estado + tipo + fecha */}
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:14}}>
+        <Badge status={o.status}/>
+        <span style={{fontSize:12,fontWeight:700,color:typeColor,display:'inline-flex',alignItems:'center',gap:5}}>
+          <Icon name={isDelivery?'bike':isPickup?'package':'utensils'} size={13}/> {typeLabel}
+        </span>
+        <span style={{fontSize:11,color:C.dim,marginLeft:'auto'}}>{fmtDT(o.created_at)}</span>
+      </div>
+
+      {/* DESTINO del pedido (lo más importante para pickup / solo-delivery) */}
+      <Section icon="pin" title="Destino del pedido" accent={isDelivery?'#FF9500':undefined}>
+        {isDelivery ? (
+          <>
+            <Row label="Dirección" value={addr || '— sin dirección cargada —'} accent={addr?undefined:C.dim}/>
+            <Row label="Detalle" value={detail}/>
+            <Row label="Referencias" value={refs}/>
+            {mapUrl && <div style={{marginTop:6}}><a href={mapUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:12,color:C.blue,fontWeight:700}}>📍 Ver ubicación en el mapa</a></div>}
+          </>
+        ) : isPickup ? (
+          <Row label="Modalidad" value="Retiro en el local (para llevar)"/>
+        ) : (
+          <Row label="Ubicación" value={mesaLabel(o)}/>
+        )}
+      </Section>
+
+      {/* CLIENTE */}
+      {(o.customer_name || phone || o.customer_email || o.requires_invoice) && (
+        <Section icon="user" title="Cliente">
+          <Row label="Nombre" value={o.customer_name}/>
+          <Row label="Teléfono" value={phone}/>
+          <Row label="Email" value={o.customer_email}/>
+          <Row label="¿Pide factura?" value={o.requires_invoice ? 'Sí' : null} accent={C.blue}/>
+        </Section>
+      )}
+
+      {/* ITEMS */}
+      <Section icon="clipboard" title="Productos">
+        {loading && <span className="spin"/>}
+        {!loading && items.length===0 && <div style={{fontSize:12,color:C.dim}}>Sin items registrados</div>}
+        {items.map((it,i)=>(
+          <div key={i} style={{borderBottom:i<items.length-1?`1px solid ${C.border}`:'none',padding:'7px 0'}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}>
+              <span style={{fontWeight:600}}>{it.quantity}× {it.item_name}</span>
+              <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.mid,marginLeft:6}}>{fmt(it.total_price)}</span>
+            </div>
+            {it.observations && <div style={{fontSize:11,color:C.mid,marginTop:2}}>→ {it.observations}</div>}
+          </div>
+        ))}
+      </Section>
+
+      {/* PAGO / TOTALES */}
+      <Section icon="money" title="Pago">
+        <Row label="Método" value={PL[o.payment_method]||o.payment_method||'—'}/>
+        {o.discount_amount>0 && <Row label="Descuento" value={'-'+fmt(o.discount_amount)} mono accent={C.green}/>}
+        {isDelivery && cash>0 && <Row label="Paga con (efectivo)" value={fmt(cash)} mono/>}
+        {isDelivery && cash>0 && o.total!=null && <Row label="Vuelto" value={fmt(Math.max(0,cash-(o.total||0)))} mono/>}
+        <div style={{display:'flex',justifyContent:'space-between',fontWeight:800,fontSize:16,marginTop:6,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+          <span>Total</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(o.total)}</span>
+        </div>
+      </Section>
+    </Modal>
+  );
+}
+
 function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
   const refreshOrders = onRefreshOrders || onRefresh;   // refresco liviano (fallback al pesado)
   const [typeFilter,setTypeFilter]     = useState('all');
@@ -1271,6 +1378,11 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
   const [loadingItems,setLoadingItems] = useState(false);
   const [upd,setUpd]                   = useState(false);
   const [newBadge,setNewBadge]         = useState(0);
+  // Detalle COMPLETO (modal): orden + items + fila delivery_orders (dirección/destino)
+  const [detail,setDetail]             = useState(null);
+  const [detailItems,setDetailItems]   = useState([]);
+  const [detailDeliv,setDetailDeliv]   = useState(null);
+  const [detailLoading,setDetailLoading] = useState(false);
 
   const TYPE_TABS = [
     {id:'all',      label:'Generales',  icon:'clipboard', color:C.ink},
@@ -1369,6 +1481,21 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
     const{data}=await db.from('order_items').select('item_name,quantity,unit_price,total_price,observations').eq('order_id',o.id);
     setItems(data||[]); setLoadingItems(false);
   }
+  // Abre el modal de detalle COMPLETO: trae items y, si es delivery, la fila de
+  // delivery_orders enlazada por order_id (dirección/zona/referencias/efectivo).
+  async function openDetail(o) {
+    setDetail(o); setDetailItems([]); setDetailDeliv(null);
+    if(!db) return;
+    setDetailLoading(true);
+    const{data:its}=await db.from('order_items').select('item_name,quantity,unit_price,total_price,observations').eq('order_id',o.id);
+    setDetailItems(its||[]);
+    if(o.order_type==='delivery'){
+      const{data:dv}=await db.from('delivery_orders').select('*').eq('order_id',o.id).limit(1);
+      if(dv&&dv[0]) setDetailDeliv(dv[0]);
+    }
+    setDetailLoading(false);
+  }
+  function closeDetail() { setDetail(null); setDetailItems([]); setDetailDeliv(null); }
   async function updateStatus(orderId,newStatus) {
     if(!db) return; setUpd(true);
     const{data,error}=await db.from('orders').update({status:newStatus,...(newStatus==='delivered'?{completed_at:new Date().toISOString()}:{})}).eq('id',orderId).select('id');
@@ -1454,7 +1581,7 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
           <table style={{width:'100%',borderCollapse:'collapse'}}>
             <thead>
               <tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
-                <Th>#</Th><Th>Tipo</Th><Th>Destino</Th><Th>Estado</Th><Th>Items</Th><Th right>Total</Th><Th>Pago</Th><Th>Hora</Th>
+                <Th>#</Th><Th>Tipo</Th><Th>Destino</Th><Th>Estado</Th><Th>Items</Th><Th right>Total</Th><Th>Pago</Th><Th>Hora</Th><Th></Th>
               </tr>
             </thead>
             <tbody>
@@ -1479,10 +1606,13 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
                     <Td mono right>{fmt(o.total)}</Td>
                     <Td dim>{PL[o.payment_method]||'—'}</Td>
                     <Td mono dim>{fmtTime(o.created_at)}</Td>
+                    <Td right style={{whiteSpace:'nowrap'}}>
+                      <Btn small variant="secondary" onClick={e=>{e.stopPropagation();openDetail(o);}}>Ver detalle</Btn>
+                    </Td>
                   </tr>
                 );
               })}
-              {filtered.length===0&&<EmptyRow cols={8} label="Sin pedidos en este período"/>}
+              {filtered.length===0&&<EmptyRow cols={9} label="Sin pedidos en este período"/>}
             </tbody>
           </table>
         </div>
@@ -1519,6 +1649,7 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
               <div style={{display:'flex',justifyContent:'space-between',fontWeight:800,fontSize:15}}><span>Total</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(selected.total)}</span></div>
             </div>
             <div style={{padding:'12px 16px',display:'flex',flexDirection:'column',gap:7}}>
+              <Btn variant="secondary" onClick={()=>openDetail(selected)}>Ver detalle completo</Btn>
               {selected.status==='paid'&&<Btn onClick={()=>updateStatus(selected.id,'cooking')} disabled={upd}>→ Iniciar preparación</Btn>}
               {selected.status==='cooking'&&<Btn onClick={()=>updateStatus(selected.id,'ready')} disabled={upd}>✓ Marcar listo</Btn>}
               {selected.status==='ready'&&<Btn onClick={()=>updateStatus(selected.id,'delivered')} disabled={upd}>✓ Entregar</Btn>}
@@ -1527,6 +1658,12 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
           </div>
         )}
       </div>
+
+      {detail && (
+        <OrderDetailModal
+          order={detail} items={detailItems} deliv={detailDeliv}
+          loading={detailLoading} onClose={closeDetail}/>
+      )}
     </div>
   );
 }
@@ -1562,6 +1699,9 @@ function ItemModal({item, categories, onClose, onSaved}) {
     dine_in_only:  item?.dine_in_only   ?? false,
     image_url:     item?.image_url      ?? '',
     stock_min:     item?.stock_min      ?? 0,
+    allows_half_and_half:      item?.allows_half_and_half      ?? false,
+    half_and_half_rule:        item?.half_and_half_rule        ?? '',
+    half_and_half_fixed_price: item?.half_and_half_fixed_price ?? '',
   });
   const [extras, setExtras]         = useState([]);
   const [extrasReady, setExtrasReady] = useState(isNew);
@@ -1610,6 +1750,9 @@ function ItemModal({item, categories, onClose, onSaved}) {
     if(!form.name.trim()||!form.category_id||effBase<=0){
       toast('Completá nombre, categoría y un precio (o al menos un tamaño con precio)',false); return;
     }
+    if(form.allows_half_and_half && form.half_and_half_rule==='fixed' && !(parseInt(form.half_and_half_fixed_price)>0)){
+      toast('Ingresá el precio fijo de la mitad-y-mitad, o elegí otra regla',false); return;
+    }
     setSaving(true);
     const payload = {
       name:          form.name.trim(),
@@ -1624,6 +1767,9 @@ function ItemModal({item, categories, onClose, onSaved}) {
       dine_in_only:  form.dine_in_only,
       image_url:     form.image_url||null,
       stock_min:     parseInt(form.stock_min)||0,
+      allows_half_and_half: form.allows_half_and_half,
+      half_and_half_rule:   form.allows_half_and_half ? (form.half_and_half_rule||null) : null,
+      half_and_half_fixed_price: (form.allows_half_and_half && form.half_and_half_rule==='fixed') ? (parseInt(form.half_and_half_fixed_price)||null) : null,
     };
     let itemId = item?.id;
     if(isNew){
@@ -1738,6 +1884,10 @@ function ItemModal({item, categories, onClose, onSaved}) {
             <input type="checkbox" checked={form.dine_in_only} onChange={e=>f('dine_in_only',e.target.checked)}/>
             Solo consumo en local
           </label>
+          <label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,cursor:'pointer'}}>
+            <input type="checkbox" checked={form.allows_half_and_half} onChange={e=>f('allows_half_and_half',e.target.checked)}/>
+            Apto para mitad y mitad
+          </label>
         </div>
 
         {/* Descripción */}
@@ -1746,6 +1896,25 @@ function ItemModal({item, categories, onClose, onSaved}) {
           <textarea value={form.description||''} onChange={e=>f('description',e.target.value)} rows={2}
             style={{width:'100%',padding:'8px 10px',fontSize:13,resize:'vertical',background:C.surface,border:`1px solid ${C.border}`,color:C.ink,borderRadius:6,boxSizing:'border-box'}}/>
         </div>
+
+        {/* Regla de precio mitad-y-mitad (override por producto) */}
+        {form.allows_half_and_half&&(
+        <div style={{gridColumn:'1/-1',borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+          <Lbl>REGLA DE PRECIO MITAD Y MITAD</Lbl>
+          <div style={{display:'grid',gridTemplateColumns:form.half_and_half_rule==='fixed'?'1fr 160px':'1fr',gap:10,alignItems:'center'}}>
+            <Sel value={form.half_and_half_rule||''} onChange={e=>f('half_and_half_rule',e.target.value)}>
+              <option value="">Usar la del local (por defecto)</option>
+              <option value="max">Mitad más cara</option>
+              <option value="avg">Promedio de los dos</option>
+              <option value="fixed">Precio fijo</option>
+            </Sel>
+            {form.half_and_half_rule==='fixed'&&(
+              <MoneyInp value={form.half_and_half_fixed_price} onChange={v=>f('half_and_half_fixed_price',v)} placeholder="Precio fijo ₲"/>
+            )}
+          </div>
+          <div style={{color:C.dim,fontSize:11,marginTop:6}}>En un combo manda la regla del primer sabor que elige el cliente. "Usar la del local" toma la de Configuración.</div>
+        </div>
+        )}
 
         {/* Tamaños / variantes */}
         <div style={{gridColumn:'1/-1',borderTop:`1px solid ${C.border}`,paddingTop:14}}>
@@ -2757,6 +2926,15 @@ function PersonalPage() {
     };
   }
 
+  // El email `${cédula|usuario}@mythos.internal` es un handle INTERNO de login, no el
+  // correo de la persona → nunca se muestra. Se muestra el correo real (recovery_email)
+  // si existe, o "—".
+  function displayEmail(p) {
+    const e = (p && p.email) || '';
+    if (/@mythos\.internal$/i.test(e)) return (p && p.recovery_email) || '—';
+    return e || (p && p.recovery_email) || '—';
+  }
+
   async function loadProfiles() {
     if(!db){setLoading(false);return;}
     setLoading(true); setError(null);
@@ -2767,11 +2945,11 @@ function PersonalPage() {
     const {data:rpcData,error:rpcErr} = await db.rpc('admin_list_restaurant_users',{p_restaurant_id:RID});
     if(!rpcErr){ base = rpcData||[]; }
     else {
-      const{data,error:e}=await db.from('user_roles').select('id,user_id,username,display_name,role,email,is_active,created_at').eq('restaurant_id',RID).order('created_at',{ascending:false});
+      const{data,error:e}=await db.from('user_roles').select('id,user_id,username,display_name,role,email,recovery_email,is_active,created_at').eq('restaurant_id',RID).order('created_at',{ascending:false});
       if(!e){ base = data||[]; }
       else {
         const uid=(await db.auth.getUser()).data?.user?.id||'';
-        const{data:me,error:meErr}=await db.from('user_roles').select('id,user_id,username,display_name,role,email,is_active,created_at').eq('user_id',uid).limit(1);
+        const{data:me,error:meErr}=await db.from('user_roles').select('id,user_id,username,display_name,role,email,recovery_email,is_active,created_at').eq('user_id',uid).limit(1);
         if(!meErr&&me?.length){ base = me; }
         else errMsg = rpcErr?.message||e?.message||'Sin acceso a user_roles';
       }
@@ -2972,7 +3150,7 @@ function PersonalPage() {
                   <tr key={p.id} style={{borderBottom:`1px solid ${C.border}`,opacity:p.is_active===false?0.5:1}}>
                     <Td mono>{p.username||'—'}</Td>
                     <Td>{p.display_name||'—'}</Td>
-                    <Td dim style={{fontSize:11}}>{p.email||'—'}</Td>
+                    <Td dim style={{fontSize:11}}>{displayEmail(p)}</Td>
                     <Td>
                       {editId===p.id&&!p._isRider
                         ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:140}}>{ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}</Sel>
@@ -3025,8 +3203,9 @@ function PersonalPage() {
                 <Inp value={addForm.phone} onChange={e=>setAddForm(f=>({...f,phone:e.target.value}))} placeholder="ej: 0981 123456"/>
               </div>
               <div style={{gridColumn:'1/-1'}}>
-                <Lbl>Email (recuperación) — opcional</Lbl>
+                <Lbl>Correo electrónico — opcional</Lbl>
                 <Inp type="email" value={addForm.email} onChange={e=>setAddForm(f=>({...f,email:e.target.value}))} placeholder="ej: juan@email.com"/>
+                <div style={{fontSize:11,color:C.dim,marginTop:4}}>Si lo cargás, el empleado lo confirma en su primer ingreso y queda como su correo de contacto. Si no, dejalo vacío — no se crea ningún correo.</div>
               </div>
               <div style={{gridColumn:'1/-1'}}>
                 <Lbl>Notas / observaciones</Lbl>
@@ -7242,6 +7421,7 @@ function ConfigPage({restaurant,onRefresh}) {
   const [saving,setSaving] = useState(false);
   const [savingH,setSavingH] = useState(false);
   const [savingR,setSavingR] = useState(false);
+  const [savingHH,setSavingHH] = useState(false);
 
   useEffect(()=>{
     if(restaurant){
@@ -7287,6 +7467,17 @@ function ConfigPage({restaurant,onRefresh}) {
     else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS / migración 070',false);}
     else{toast('Reservas: configuración guardada');onRefresh();}
     setSavingR(false);
+  }
+  async function saveHalfRule(){
+    if(!db)return;setSavingHH(true);
+    const rule=form.half_and_half_rule||'max';
+    const fixed=rule==='fixed'?(parseInt(form.half_and_half_fixed_price)||0):null;
+    if(rule==='fixed'&&!(fixed>0)){toast('Ingresá el precio fijo de la pizza mitad-y-mitad',false);setSavingHH(false);return;}
+    const{data,error}=await db.from('restaurants').update({half_and_half_rule:rule,half_and_half_fixed_price:fixed}).eq('id',RID).select('id');
+    if(error){toast('Error: '+error.message+' — ¿está aplicada la migración 170?',false);}
+    else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS',false);}
+    else{toast('Regla de mitad-y-mitad guardada');onRefresh();}
+    setSavingHH(false);
   }
 
   const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante'},{key:'address',label:'Dirección'},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@turestaurante'},{key:'website',label:'Sitio web',ph:'turestaurante.com.py'}];
@@ -7412,6 +7603,29 @@ function ConfigPage({restaurant,onRefresh}) {
               </div>
             </div>
             <Btn onClick={saveReservas} disabled={savingR}>{savingR?'Guardando…':'Guardar reservas'}</Btn>
+          </div>
+
+          {/* Regla de precio mitad-y-mitad (default del local) */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>PIZZA MITAD Y MITAD</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:14,lineHeight:1.5}}>Cuando una pizza combina dos sabores de distinto precio, ¿cuánto se cobra? Esta es la regla por defecto del local; cada producto puede usar otra al editarlo.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:14}}>
+              <div>
+                <Lbl>REGLA POR DEFECTO</Lbl>
+                <Sel value={form.half_and_half_rule||'max'} onChange={e=>setForm({...form,half_and_half_rule:e.target.value})}>
+                  <option value="max">Mitad más cara (recomendado)</option>
+                  <option value="avg">Promedio de los dos</option>
+                  <option value="fixed">Precio fijo</option>
+                </Sel>
+              </div>
+              {form.half_and_half_rule==='fixed'&&(
+                <div>
+                  <Lbl>PRECIO FIJO (₲)</Lbl>
+                  <MoneyInp value={form.half_and_half_fixed_price||''} onChange={v=>setForm({...form,half_and_half_fixed_price:v})} placeholder="45000"/>
+                </div>
+              )}
+            </div>
+            <Btn onClick={saveHalfRule} disabled={savingHH}>{savingHH?'Guardando…':'Guardar regla'}</Btn>
           </div>
 
           <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
@@ -11245,7 +11459,13 @@ function AdminApp() {
       case 'paneles':   return <PanelesPage caps={caps}/>;
       case 'pedidos':   return <PedidosPage orders={orders} tables={tables} onRefresh={loadAll} onRefreshOrders={refreshOrders}/>;
       case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
-      case 'mesas':     return <MesasPage tables={tables} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
+      case 'mesas':     return restaurant?.service_mode==='delivery'
+        ? <div className="page"><div style={{maxWidth:460,margin:'60px auto',textAlign:'center',border:`1px solid ${C.border}`,borderRadius:16,padding:'34px 28px',background:C.card}}>
+            <div style={{display:'flex',justifyContent:'center',color:C.mid,marginBottom:14}}><Icon name="bike" size={34}/></div>
+            <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:10}}>Mesas desactivadas</div>
+            <div style={{fontSize:13,color:C.mid,lineHeight:1.6}}>Este local opera en modo <b>Delivery a domicilio</b>, así que no gestiona mesas ni Menú QR. Para reactivar el salón, cambiá el modo de operación desde el Superadmin.</div>
+          </div></div>
+        : <MesasPage tables={tables} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'agenda':
       case 'reservas':
       case 'calendario':return <AgendaPage tables={tables} initialView={page==='reservas'?'pendientes':(page==='agenda'?'pendientes':'calendario')}/>;

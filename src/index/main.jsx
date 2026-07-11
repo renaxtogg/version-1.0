@@ -55,7 +55,7 @@ async function dbLoadMenu() {
   if (!db) return null;
   try {
     const { data: cats } = await db.from('menu_categories').select('id,name,sort_order').eq('restaurant_id', RESTAURANT_ID).order('sort_order');
-    const { data: items } = await db.from('menu_items').select('id,category_id,name,description,price_guarani,discount_pct,promo_tag,promo_type,dine_in_only,image_url,menu_item_extras(id,name,price_guarani,is_active),menu_item_variants(id,name,price_guarani,sort_order,is_default,is_active)').eq('restaurant_id', RESTAURANT_ID).eq('is_available', true).order('sort_order');
+    const { data: items } = await db.from('menu_items').select('id,category_id,name,description,price_guarani,discount_pct,promo_tag,promo_type,dine_in_only,allows_half_and_half,half_and_half_rule,half_and_half_fixed_price,image_url,menu_item_extras(id,name,price_guarani,is_active),menu_item_variants(id,name,price_guarani,sort_order,is_default,is_active)').eq('restaurant_id', RESTAURANT_ID).eq('is_available', true).order('sort_order');
     if (!cats || !items) return null;
     const menu = {};
     for (const cat of cats) {
@@ -65,6 +65,9 @@ async function dbLoadMenu() {
         promo: i.promo_tag ? { tag: i.promo_tag } : null,
         promo_type: i.promo_type || null,
         dine_in_only: i.dine_in_only || false,
+        allows_half_and_half: i.allows_half_and_half || false,
+        half_and_half_rule: i.half_and_half_rule || null,
+        half_and_half_fixed_price: i.half_and_half_fixed_price || null,
         extras: (i.menu_item_extras || []).filter(e => e.is_active !== false).map(e => ({ n: e.name, p: e.price_guarani })),
         variants: (i.menu_item_variants || []).filter(v => v.is_active !== false).sort((a, b) => a.sort_order - b.sort_order).map(v => ({ id: v.id, name: v.name, price: v.price_guarani, is_default: v.is_default })),
         image_url: i.image_url || null,
@@ -82,6 +85,13 @@ async function dbValidateCoupon(code) {
     const { data } = await db.from('coupons').select('*').eq('restaurant_id', RESTAURANT_ID).eq('code', code.toUpperCase()).eq('is_active', true).maybeSingle();
     return data;
   } catch(e) { return null; }
+}
+
+// Nombre snapshot de la línea: "1/2 A + 1/2 B" para mitad-y-mitad (1/2 en vez de
+// ½ por compatibilidad con impresoras 80mm), + "(Tamaño)" si tiene variante.
+function lineItemName(ci) {
+  const base = ci.half ? `1/2 ${ci.item.name} + 1/2 ${ci.half.secondName}` : ci.item.name;
+  return ci.variant ? `${base} (${ci.variant.name})` : base;
 }
 
 async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmount, couponCode, total, payMethod, custName, custRuc, custEmail, requiresInvoice, invoiceDeliveryMethod, language, facturaSolicitada, facturaRazonSocial, facturaRucCi, facturaEmail, facturaFormato }) {
@@ -113,7 +123,7 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
     language,
     items: items.map(ci => ({
       item_id: ci.item.id || null,
-      item_name: ci.variant ? `${ci.item.name} (${ci.variant.name})` : ci.item.name,
+      item_name: lineItemName(ci),
       quantity: ci.qty,
       unit_price: ci.unitPrice != null ? ci.unitPrice : ci.item.price,
       total_price: ci.total, observations: ci.notes || null,
@@ -153,7 +163,7 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
   for (const ci of items) {
     const { data: oi, error: itemErr } = await db.from('order_items').insert({
       order_id: order.id, item_id: ci.item.id || null,
-      item_name: ci.variant ? `${ci.item.name} (${ci.variant.name})` : ci.item.name,
+      item_name: lineItemName(ci),
       quantity: ci.qty, unit_price: ci.unitPrice != null ? ci.unitPrice : ci.item.price, total_price: ci.total,
       observations: ci.notes || null
     }).select('id').single(); // RETURNING solo 'id' (no *): habilita revocar el SELECT de precios a anon (mig 130). El cliente solo usa oi.id.
@@ -171,7 +181,7 @@ async function dbLoadRestaurant() {
   if (!db) return null;
   try {
     const { data, error } = await db.from('restaurants')
-      .select('id,name,address,phone,instagram,website,logo_initials,cover_style,timezone,is_active,created_at,updated_at,status,country,city,cover_image_url,logo_url,currency,maintenance_mode,maintenance_message,lat,lng,reservation_window_hours,reservation_alert_minutes,opening_hours,is_open,auto_provisioned,parent_company_id')
+      .select('id,name,address,phone,instagram,website,logo_initials,cover_style,timezone,is_active,created_at,updated_at,status,country,city,cover_image_url,logo_url,currency,maintenance_mode,maintenance_message,lat,lng,reservation_window_hours,reservation_alert_minutes,opening_hours,is_open,auto_provisioned,parent_company_id,half_and_half_rule,half_and_half_fixed_price')
       .eq('id', RESTAURANT_ID).maybeSingle();
     if (error || !data) return null;
     // Horario estructurado (mig 125) — best-effort: si la columna aún no existe,
@@ -179,6 +189,12 @@ async function dbLoadRestaurant() {
     try {
       const bh = await db.from('restaurants').select('business_hours,open_override').eq('id', RESTAURANT_ID).maybeSingle();
       if (bh && !bh.error && bh.data) { data.business_hours = bh.data.business_hours; data.open_override = bh.data.open_override; }
+    } catch (_) {}
+    // Modo de operación (mig 173) — best-effort: si la columna aún no existe, se
+    // ignora y el cliente degrada a 'salon' (Menú QR visible, sin cambios).
+    try {
+      const sm = await db.from('restaurants').select('service_mode').eq('id', RESTAURANT_ID).maybeSingle();
+      if (sm && !sm.error && sm.data) data.service_mode = sm.data.service_mode;
     } catch (_) {}
     return data;
   } catch(e) { return null; }
@@ -844,8 +860,20 @@ const PROMO_TYPE_LABEL = {pizza_corrida:'Pizza corrida',hamburgesa_corrida:'Hamb
 const COMBO_PRICE  = COMBO_EXTRAS.reduce((s, e) => s + e.p, 0);
 const BURGER_CATS  = ['hamburguesas', 'burger'];
 
+// Pizza mitad-y-mitad: precio combinado de dos sabores según la regla del ancla.
+function halfPrice(a, b, rule, fixed) {
+  switch (rule) {
+    case 'avg':        return Math.round((a + b) / 2);
+    case 'sum_halves': return Math.round(a / 2 + b / 2);
+    case 'fixed':      return (fixed > 0) ? fixed : Math.max(a, b); // sin precio fijo cargado → "mitad más cara"
+    default:           return Math.max(a, b); // 'max'
+  }
+}
+
 function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
+  const menu = useContext(MenuCtx);
+  const restaurant = useContext(RestaurantCtx);
   const [qty, setQty]         = useState(1);
   const [selEx, setSelEx]     = useState([]);
   const [notes, setNotes]     = useState('');
@@ -854,13 +882,35 @@ function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
   const hasVariants = variants.length > 0;
   const [selVariant, setSelVariant] = useState(() => variants.find(v => v.is_default) || variants[0] || null);
 
+  // Mitad y mitad
+  const canHalf = !!item.allows_half_and_half;
+  const [isHalf, setIsHalf] = useState(false);
+  const [second, setSecond] = useState(null);
+
   const isBurger  = BURGER_CATS.includes((item.category || '').toLowerCase());
   const toggleEx  = (e) => setSelEx(p => p.find(x => x.n === e.n) ? p.filter(x => x.n !== e.n) : [...p, e]);
   const allExtras = isCombo ? [...selEx, ...COMBO_EXTRAS] : selEx;
   const exTotal   = allExtras.reduce((s, e) => s + e.p, 0);
-  const unitBase  = selVariant ? selVariant.price : item.price;
-  const basePrice = item.discount_pct > 0 ? Math.round(unitBase * (100 - item.discount_pct) / 100) : unitBase;
+  const unitAnchor = selVariant ? selVariant.price : item.price;
+
+  // Candidatos a 2ª mitad: misma categoría, aptos, distintos y —si hay tamaño
+  // elegido— que tengan una variante activa con el MISMO nombre de tamaño.
+  const halfCandidates = canHalf ? ((menu && menu[item.category]) || []).filter(x =>
+    x.allows_half_and_half && x.id !== item.id &&
+    (!selVariant || (x.variants || []).some(v => v.name === selVariant.name))
+  ) : [];
+  const priceInSize = (x) => selVariant ? ((x.variants || []).find(v => v.name === selVariant.name)?.price ?? x.price) : x.price;
+  const effSecond = (isHalf && second && halfCandidates.some(c => c.id === second.id)) ? second : null;
+  const halfRule  = item.half_and_half_rule || restaurant?.half_and_half_rule || 'max';
+  const halfFixed = item.half_and_half_rule ? item.half_and_half_fixed_price : restaurant?.half_and_half_fixed_price;
+
+  const isHalfMode = isHalf && !!effSecond;
+  const unitBase  = isHalfMode ? halfPrice(unitAnchor, priceInSize(effSecond), halfRule, halfFixed) : unitAnchor;
+  // El precio mitad-y-mitad lo fija la regla del dueño: NO se le aplica discount_pct
+  // (aplicar un % sobre un precio de regla/fijo sería incorrecto y mostrado≠cobrado).
+  const basePrice = (!isHalfMode && item.discount_pct > 0) ? Math.round(unitBase * (100 - item.discount_pct) / 100) : unitBase;
   const total     = (basePrice + exTotal) * qty;
+  const halfIncomplete = isHalf && !effSecond;   // toggle ON pero falta elegir 2ª mitad
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'flex-end' }}>
@@ -882,7 +932,7 @@ function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
           <div style={{ fontSize: 13, color: T.gray, lineHeight: 1.55, marginBottom: 18 }}>{item.desc}</div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, background: T.light, borderRadius: 12, padding: '12px 16px' }}>
             <div>
-              {item.discount_pct > 0
+              {item.discount_pct > 0 && !isHalfMode
                 ? <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                     <span style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz + 2, color: '#16A34A' }}>{fmt(basePrice)}</span>
                     <span style={{ fontSize: 13, color: T.silver, textDecoration: 'line-through' }}>{fmt(unitBase)}</span>
@@ -913,6 +963,36 @@ function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
                   <span style={{ fontSize: 14, fontWeight: 700, color: sel ? 'rgba(255,255,255,0.85)' : T.gray }}>{fmt(v.price)}</span>
                 </div>;
               })}
+            </div>
+          )}
+
+          {/* ── Mitad y mitad ── */}
+          {canHalf && (
+            <div style={{ marginBottom: 20 }}>
+              <div onClick={() => setIsHalf(v => !v)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: isHalf ? T.black : T.light, borderRadius: 12, cursor: 'pointer', border: `2px solid ${isHalf ? T.black : T.border}` }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: isHalf ? T.white : T.ink }}>Mitad y mitad</div>
+                  <div style={{ fontSize: 11, color: isHalf ? 'rgba(255,255,255,0.55)' : T.gray, marginTop: 2 }}>Combiná esta pizza con otro sabor</div>
+                </div>
+                <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${isHalf ? 'rgba(255,255,255,0.4)' : T.border}`, background: isHalf ? 'rgba(255,255,255,0.15)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {isHalf && <Icon name="check" size={13} color={T.white} sw={3} />}
+                </div>
+              </div>
+              {isHalf && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>Segunda mitad</div>
+                  {halfCandidates.length === 0
+                    ? <div style={{ fontSize: 12, color: T.gray, padding: '4px 0' }}>No hay otros sabores aptos {selVariant ? `en tamaño ${selVariant.name}` : ''} para combinar.</div>
+                    : halfCandidates.map(c => {
+                        const sel = effSecond && effSecond.id === c.id;
+                        return <div key={c.id} onClick={() => setSecond(c)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 12px', marginBottom: 6, background: sel ? T.black : T.light, borderRadius: 10, cursor: 'pointer', border: `2px solid ${sel ? T.black : T.border}` }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: sel ? T.white : T.ink }}>{c.name}</span>
+                          <span style={{ fontSize: 12, color: sel ? 'rgba(255,255,255,0.7)' : T.gray }}>{fmt(priceInSize(c))}</span>
+                        </div>;
+                      })
+                  }
+                </div>
+              )}
             </div>
           )}
 
@@ -959,8 +1039,8 @@ function ProductModal({ item, onClose, onAdd, canOrder = true, openState }) {
             </div>
           </div>
           {canOrder ? (
-          <button onClick={() => { onAdd(item, qty, allExtras, notes, selVariant); onClose(); }} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
-            <span>Agregar al pedido</span>
+          <button onClick={() => { if (halfIncomplete) return; onAdd(item, qty, allExtras, notes, selVariant, (isHalf && effSecond) ? { secondName: effSecond.name, unitPrice: unitBase } : null); onClose(); }} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 15, fontWeight: 800, cursor: halfIncomplete ? 'default' : 'pointer', opacity: halfIncomplete ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
+            <span>{halfIncomplete ? 'Elegí la segunda mitad' : 'Agregar al pedido'}</span>
             <span style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: T.F.priceSz }}>{fmt(total)}</span>
           </button>
           ) : (
@@ -1045,7 +1125,7 @@ function CartScreen({ items, onBack, onPay, onRemove, onQty, onCouponApplied, on
                 : <Icon name="utensils" size={18} color="rgba(255,255,255,0.2)" />}
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{ci.item.name}{ci.variant ? ` · ${ci.variant.name}` : ''}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{ci.half ? `½ ${ci.item.name} + ½ ${ci.half.secondName}` : ci.item.name}{ci.variant ? ` · ${ci.variant.name}` : ''}</div>
               {ci.extras?.length > 0 && <div style={{ fontSize: 11, color: T.gray, marginTop: 2 }}>+ {ci.extras.map(e => e.n).join(', ')}</div>}
               {ci.notes && <div style={{ fontSize: 11, color: T.silver, fontStyle: 'italic', marginTop: 2 }}>"{ci.notes}"</div>}
             </div>
@@ -1951,6 +2031,13 @@ function GateScreen({ kind, message }) {
         ? String(message).trim()
         : 'Este local no está tomando pedidos en este momento. Volvé a intentarlo más tarde.',
     },
+    // Modo delivery (mig 173): el local no atiende en salón → el Menú QR se
+    // reemplaza por un acceso directo al pedido a domicilio.
+    'delivery-only': {
+      icon: <Icon name="bike" size={52} color={T.qrText} />,
+      title: 'Este local atiende por delivery',
+      body: 'Este restaurante trabaja solo con pedidos a domicilio. Tocá el botón para hacer tu pedido por delivery.',
+    },
   };
   const c = COPY[kind] || COPY['no-context'];
   return (
@@ -1958,6 +2045,12 @@ function GateScreen({ kind, message }) {
       <div style={{ fontSize: 54, lineHeight: 1 }}>{c.icon}</div>
       <div style={{ fontFamily: T.F.h, fontWeight: T.F.hW, fontSize: 22, color: T.qrText, lineHeight: 1.25 }}>{c.title}</div>
       <div style={{ fontSize: 14, color: T.qrSub, lineHeight: 1.7, maxWidth: 300 }}>{c.body}</div>
+      {kind === 'delivery-only' && RESTAURANT_ID && (
+        <a href={`delivery-cliente.html?r=${encodeURIComponent(RESTAURANT_ID)}`}
+           style={{ marginTop: 8, background: T.qrText, color: T.qrBg, textDecoration: 'none', fontWeight: 700, fontSize: 14, padding: '12px 22px', borderRadius: 12 }}>
+          Pedir por delivery
+        </a>
+      )}
     </div>
   );
 }
@@ -2158,12 +2251,13 @@ function App() {
     if (!canOrder && (screen === 'pay' || screen === 'cart')) setScreen('menu');
   }, [canOrder, screen]);
 
-  const addToCart = (item, qty, extras, notes, variant = null) => {
+  const addToCart = (item, qty, extras, notes, variant = null, half = null) => {
     // Bloqueo de venta con el local CERRADO: se puede ver el menú, pero no pedir.
     if (!canOrder) { showToast(openState.next ? `Cerrado · Abre ${openState.next}. Podés ver el menú, pero no pedir ahora.` : 'El local está cerrado. Podés ver el menú, pero no pedir ahora.'); return; }
     const et = extras.reduce((s, e) => s + e.p, 0);
-    const unitPrice = variant ? variant.price : item.price;   // precio del tamaño elegido (o precio único)
-    setCartItems(prev => [...prev, { item, qty, extras, notes, variant, unitPrice, total: (unitPrice + et) * qty }]);
+    // half.unitPrice = precio combinado de las 2 mitades; si no, precio del tamaño (o único).
+    const unitPrice = half ? half.unitPrice : (variant ? variant.price : item.price);
+    setCartItems(prev => [...prev, { item, qty, extras, notes, variant, half: half ? { secondName: half.secondName } : null, unitPrice, total: (unitPrice + et) * qty }]);
     showToast('Agregado al pedido');
   };
   const removeItem = (i) => setCartItems(prev => prev.filter((_, idx) => idx !== i));
@@ -2199,6 +2293,8 @@ function App() {
                   ? <GateScreen kind="not-found" />
                   : restUnavailable
                   ? <GateScreen kind="unavailable" message={restaurant?.maintenance_mode ? restaurant?.maintenance_message : ''} />
+                  : restaurant?.service_mode === 'delivery'
+                  ? <GateScreen kind="delivery-only" />
                   : <>
                 {scanStatus === 'checking'  && <QRCheckingScreen />}
                 {scanStatus === 'full'      && <MesaLlenaScreen scanCount={scanData.scanCount} maxScans={scanData.maxScans} />}
