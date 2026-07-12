@@ -8375,6 +8375,21 @@ const _cartoTiles = (dark) => window.L.tileLayer(dark ? CARTO_DARK : CARTO_LIGHT
   subdomains: 'abcd', maxZoom: 20, detectRetina: true,
   attribution: '© OpenStreetMap · © CARTO',
 });
+// Mapa base Carto CON FALLBACK a OSM: si Carto no carga (CSP/red/región), tras
+// varios tileerror sin ningún 'load' cae a OSM para no dejar el mapa en blanco.
+function _addBaseTiles(map, dark) {
+  const L = window.L;
+  const base = _cartoTiles(dark);
+  let loaded = false, errs = 0;
+  base.on('load', () => { loaded = true; });
+  base.on('tileerror', () => {
+    if (!loaded && ++errs >= 3) {
+      try { base.off(); map.removeLayer(base); } catch (_) {}
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    }
+  });
+  return base.addTo(map);
+}
 const _pinSvg = (dark) => {
   const body = dark ? '#FFFFFF' : '#111111';
   const hole = dark ? '#111111' : '#FFFFFF';
@@ -8559,7 +8574,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
     const lat0 = latRef.current, lng0 = lngRef.current;
     let dark = _mapIsDark();
     const map = L.map(mapDivRef.current,{zoomControl:true}).setView([lat0,lng0], editZones.length?13:16);
-    let tiles = _cartoTiles(dark).addTo(map);
+    let tiles = _addBaseTiles(map, dark);
     if(pinElRef.current) pinElRef.current.innerHTML = _pinSvg(dark);
 
     // Círculos de zonas (orden inverso: externo primero para que internos queden encima)
@@ -8614,7 +8629,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
       ? window.MythosTheme.onChange((mode)=>{
           dark = mode === 'dark';
           try { map.removeLayer(tiles); } catch(_){}
-          tiles = _cartoTiles(dark).addTo(map);
+          tiles = _addBaseTiles(map, dark);
           if(pinElRef.current) pinElRef.current.innerHTML = _pinSvg(dark);
         })
       : null;

@@ -74,6 +74,22 @@ const _cartoTiles = (dark) => window.L.tileLayer(dark ? CARTO_DARK : CARTO_LIGHT
   // TOS de Carto/OSM: en producción a escala conviene mostrar atribución.
   attribution: '© OpenStreetMap · © CARTO',
 });
+// Agrega el mapa base (Carto) CON FALLBACK a OSM: si Carto no logra cargar
+// (CSP no propagado, red/región, rate-limit), tras varios tileerror sin ningún
+// 'load' se cae a OSM para que el mapa NUNCA quede en blanco. Devuelve la capa.
+function _addBaseTiles(map, dark) {
+  const L = window.L;
+  const base = _cartoTiles(dark);
+  let loaded = false, errs = 0;
+  base.on('load', () => { loaded = true; });
+  base.on('tileerror', () => {
+    if (!loaded && ++errs >= 3) {
+      try { base.off(); map.removeLayer(base); } catch (_) {}
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    }
+  });
+  return base.addTo(map);
+}
 // SVG del pin (teardrop). Tema-consciente: cuerpo oscuro sobre mapa claro y
 // claro sobre mapa oscuro, con punto interno de color opuesto.
 const _pinSvg = (dark) => {
@@ -785,15 +801,20 @@ function loadGoogleMaps(key) {
 
 /* ── CENTER-PIN MAP (base reusable) ──────────────────────────────────────────
    Mapa con PIN FIJO al centro (patrón Uber/Bolt): el usuario arrastra el mapa
-   y al soltar, el centro del viewport es la coordenada → onPick(lat,lng).
-   NO hay marcador arrastrable. Expone controlRef.moveTo(lat,lng,doEmit) para
-   reposicionar desde GPS / autocomplete sin re-montar el mapa. Tema-consciente
-   (tiles Carto claro/oscuro + color del pin). Fallback silencioso si no hay Leaflet. */
+   por debajo del pin. SOLTAR NO fija la ubicación — solo actualiza el candidato.
+   La coordenada se confirma EXPLÍCITAMENTE con el botón "Confirmar ubicación"
+   (evita la fricción de soltar sin querer y perder la búsqueda). onPick(lat,lng)
+   se dispara únicamente al confirmar. Expone controlRef.moveTo(lat,lng,doEmit)
+   para reposicionar desde GPS / autocomplete. Tema-consciente (tiles Carto +
+   color del pin) con fallback a OSM. Fallback silencioso si no hay Leaflet. */
 function CenterPinMap({ initial, onPick, controlRef, T, height = 220, zoom = 16 }) {
   const mapElRef = useRef(null);
   const pinRef   = useRef(null);
   const shRef    = useRef(null);
+  const candRef  = useRef(null);        // último candidato {lat,lng} (centro del mapa)
   const [failed, setFailed] = useState(false);
+  const [pending, setPending] = useState(true); // movido desde la última confirmación → botón resaltado
+  const confirmFn = useRef(() => {});
   useEffect(() => {
     if (!window.L || !mapElRef.current) { setFailed(true); return; }
     _ensurePinCss();
@@ -802,71 +823,91 @@ function CenterPinMap({ initial, onPick, controlRef, T, height = 220, zoom = 16 
       lat: (initial && Number.isFinite(initial.lat)) ? initial.lat : -25.2867,
       lng: (initial && Number.isFinite(initial.lng)) ? initial.lng : -57.6470,
     };
+    candRef.current = { lat: c.lat, lng: c.lng };
     let dark = _isDark();
     const map = L.map(mapElRef.current, { zoomControl: true, attributionControl: false }).setView([c.lat, c.lng], zoom);
-    let tiles = _cartoTiles(dark).addTo(map);
+    let base = _addBaseTiles(map, dark);
     if (pinRef.current) pinRef.current.innerHTML = _pinSvg(dark);
 
-    let ready = false;         // no emitir por el setView inicial / invalidateSize
-    let ignoreMoveEnd = false; // no emitir por movimientos programáticos (moveTo con doEmit=false)
     const lift = (on) => {
       if (pinRef.current) pinRef.current.classList.toggle('lift', on);
       if (shRef.current)  shRef.current.classList.toggle('lift', on);
     };
     map.on('movestart', () => lift(true));
+    // SOLTAR = solo actualizar candidato + marcar pendiente. NO dispara onPick.
     map.on('moveend', () => {
       lift(false);
-      if (!ready) return;
-      if (ignoreMoveEnd) { ignoreMoveEnd = false; return; }
       const p = map.getCenter();
-      onPick(p.lat, p.lng);
+      candRef.current = { lat: p.lat, lng: p.lng };
+      setPending(true);
     });
+
+    // Confirmar: única vía que fija la ubicación (dispara onPick con el candidato).
+    confirmFn.current = () => {
+      const p = candRef.current || map.getCenter();
+      onPick(p.lat, p.lng);
+      setPending(false);
+    };
 
     if (controlRef) controlRef.current = {
       moveTo: (lat, lng, doEmit = true) => {
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-        if (!doEmit) {
-          ignoreMoveEnd = true;
-          map.once('moveend', () => { ignoreMoveEnd = false; });
-          setTimeout(() => { ignoreMoveEnd = false; }, 400); // fallback si setView no movió el centro
-        }
+        candRef.current = { lat, lng };
         map.setView([lat, lng], Math.max(map.getZoom(), 17), { animate: true });
+        // GPS / autocomplete = elección deliberada → ya "confirmada" a la vista.
+        setPending(false);
+        if (doEmit) onPick(lat, lng);
       }
     };
 
-    // Cambio de tema en vivo → intercambiar tiles + recolorear el pin.
+    // Cambio de tema en vivo → intercambiar tiles (con fallback) + recolorear el pin.
     const off = (window.MythosTheme && window.MythosTheme.onChange)
       ? window.MythosTheme.onChange((mode) => {
           dark = mode === 'dark';
-          try { map.removeLayer(tiles); } catch (_) {}
-          tiles = _cartoTiles(dark).addTo(map);
+          try { map.removeLayer(base); } catch (_) {}
+          base = _addBaseTiles(map, dark);
           if (pinRef.current) pinRef.current.innerHTML = _pinSvg(dark);
         })
       : null;
 
     // El contenedor vive dentro de una .screen con animación slideUp → tras montar,
     // recalcular tamaño para que no queden tiles grises (fix clásico de Leaflet).
-    // pan:false → no recentra (no dispara emit espurio); ready se habilita después.
-    const t = setTimeout(() => {
-      try { map.invalidateSize({ pan: false }); } catch (_) {}
-      ready = true;
-    }, 150);
+    const t = setTimeout(() => { try { map.invalidateSize({ pan: false }); } catch (_) {} }, 150);
     return () => { clearTimeout(t); if (off) off(); try { map.remove(); } catch (_) {} if (controlRef) controlRef.current = null; };
   }, []);
   // Fallback silencioso: si Leaflet no cargó, se oculta y queda el flujo manual.
   if (failed) return null;
   return (
-    <div style={{ position: 'relative', width: '100%', height, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 8 }}>
-      <div ref={mapElRef} style={{ position: 'absolute', inset: 0 }} />
+    <div style={{ position: 'relative', width: '100%', height, borderRadius: 14, overflow: 'hidden', border: `1px solid ${T.border}`, marginBottom: 8, background: T.light }}>
+      <div ref={mapElRef} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
       <div ref={shRef} className="mythos-cpin-sh" />
       <div ref={pinRef} className="mythos-cpin" />
+      {/* Botón de confirmación (overlay, pointer-events propios). Soltar el pin NO
+          confirma: la ubicación se fija SOLO acá. */}
+      <button
+        type="button"
+        onClick={() => confirmFn.current()}
+        style={{
+          position: 'absolute', left: '50%', bottom: 12, transform: 'translateX(-50%)',
+          zIndex: 650, pointerEvents: 'auto',
+          background: pending ? T.black : '#16A34A', color: '#FFF',
+          border: 'none', borderRadius: 999, padding: '10px 18px',
+          fontSize: 13, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap',
+          boxShadow: '0 6px 20px rgba(0,0,0,0.30)', display: 'flex', alignItems: 'center', gap: 7,
+          fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+        }}
+      >
+        {pending
+          ? <><Icon name="location" size={14} color="#FFF" />Confirmar ubicación</>
+          : <><Icon name="check" size={14} color="#FFF" sw={3} />Ubicación confirmada</>}
+      </button>
     </div>
   );
 }
 
-// Cobertura: pin central, sin handle imperativo. Reusa CenterPinMap.
+// Cobertura: pin central + confirmar, sin handle imperativo. Reusa CenterPinMap.
 function MapPicker({ center, onPick, T }) {
-  return <CenterPinMap initial={center} onPick={onPick} T={T} height={220} zoom={15} />;
+  return <CenterPinMap initial={center} onPick={onPick} T={T} height={240} zoom={15} />;
 }
 
 /* ── REVERSE GEOCODING ───────────────────────────────────────────────────────
@@ -1109,7 +1150,7 @@ function CoverageScreen({ zones, restaurant, settings, onCovered, onPickupFallba
                   onPick={(lat, lng) => quoteCoord(lat, lng)}
                 />
                 <div style={{ fontSize: 12, color: T.gray, marginBottom: 16, lineHeight: 1.5 }}>
-                  Mové el mapa hasta que el pin quede sobre tu ubicación exacta. También podés elegir la zona manualmente abajo.
+                  Mové el mapa hasta que el pin quede sobre tu ubicación y tocá <strong>Confirmar ubicación</strong>. También podés elegir la zona manualmente abajo.
                 </div>
               </div>
             )}
@@ -1402,7 +1443,7 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
                   {gpsBusy ? 'Detectando…' : 'Detectar mi ubicación'}
                 </button>
                 <div style={{ fontSize: 11, color: T.gray, marginTop: 8, lineHeight: 1.5 }}>
-                  Mové el mapa hasta que el pin quede sobre tu punto de entrega exacto.
+                  Mové el mapa hasta que el pin quede sobre tu punto de entrega y tocá <strong>Confirmar ubicación</strong>.
                 </div>
               </div>
             )}
