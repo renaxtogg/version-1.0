@@ -16,6 +16,11 @@
   <script>MythosTheme.init();</script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- Leaflet (mapa del módulo Prospección — tiles Carto, sin API key). El CSP de
+       vercel.json ya whitelistea unpkg (script), *.basemaps.cartocdn.com (tiles) y
+       nominatim.openstreetmap.org (geocoding). Mismo Leaflet que admin/delivery. -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     html,body,#root{height:100%}

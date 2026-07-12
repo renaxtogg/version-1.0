@@ -245,6 +245,10 @@ const addonName = (catalog, key) => (catalog.find(a=>a.key===key)?.name) || (DEF
 // Lectura robusta de columnas JSONB (pueden venir como array/objeto real o string)
 const asArr = v => Array.isArray(v) ? v : (typeof v==='string' ? (()=>{try{return JSON.parse(v||'[]')}catch{return[]}})() : []);
 const asObj = v => (v && typeof v==='object' && !Array.isArray(v)) ? v : (typeof v==='string' ? (()=>{try{return JSON.parse(v||'{}')}catch{return{}}})() : {});
+// Parse de topes del editor de planes: '' / null → null (ilimitado); un número → ese
+// número, PRESERVANDO 0 (que `|| null` convertiría a null = ilimitado). Un plan con
+// max_tables=0 (Emprendedor Delivery, sin salón) debe sobrevivir a un editar+guardar.
+const numOrNull = v => { if (v==='' || v==null) return null; const n = parseInt(v,10); return Number.isNaN(n) ? null : n; };
 
 // Ciclo de vida de un plan (subscription_plans). Fuente de verdad = status
 // (mig 152); si la columna aún no existe, se deriva de is_active para degradar
@@ -270,8 +274,14 @@ const buildMktConfig = op => ({
 });
 function buildSiteIncludes(op) {
   const panels = asArr(op.allowed_panels), feats = asArr(op.allowed_features), users = asObj(op.max_users_by_role);
-  const out = ['Carta digital con QR', 'Gestión (Admin)'];
-  SITE_PANEL_ORDER.forEach(k => { if (panels.includes(k)) out.push(SITE_PANEL_LABELS[k]); });
+  // Plan "delivery lite" (Emprendedor Delivery, mig 175): delivery-cliente SIN salón
+  // → base "Pedidos a domicilio" y sin repetir "Delivery Cliente". Espeja web-marketing.js.
+  const deliveryOnly = panels.includes('delivery-cliente')
+    && !panels.includes('caja') && !panels.includes('mozo') && !panels.includes('cocina');
+  const out = deliveryOnly
+    ? ['Pedidos a domicilio (menú digital)', 'Gestión de pedidos (Admin)']
+    : ['Carta digital con QR', 'Gestión (Admin)'];
+  SITE_PANEL_ORDER.forEach(k => { if (panels.includes(k) && !(deliveryOnly && k === 'delivery-cliente')) out.push(SITE_PANEL_LABELS[k]); });
   SITE_FEAT_ORDER.forEach(k => { if (feats.includes(k)) out.push(SITE_FEAT_LABELS[k]); });
   if (op.max_tables != null && op.max_tables > 0) out.push(op.max_tables + ' mesas');
   else if (panels.includes('mozo') || panels.includes('caja')) out.push('Mesas ilimitadas');
@@ -1433,6 +1443,11 @@ function ModulesModal({ r, onClose, setFlash, reload }) {
   const planPanels = arr(caps && caps.plan_panels);
   const effPanels  = arr(caps && caps.allowed_panels);
   const planFeats  = caps && caps.allowed_features;   // puede ser null (fail-open)
+  // Plan "delivery lite" (Emprendedor Delivery, mig 175): sólo el panel a domicilio,
+  // sin salón. Si el modo NO está en 'delivery', el Menú QR de salón sigue abierto y
+  // el plan no cumple su promesa "sin salón" → nudge para activar el modo Delivery.
+  const deliveryOnlyPlan = effPanels.includes('delivery-cliente')
+    && !effPanels.includes('caja') && !effPanels.includes('mozo') && !effPanels.includes('cocina');
 
   const panelState = key => {
     const ov = 'panel:'+key, has = Object.prototype.hasOwnProperty.call(overrides, ov);
@@ -1491,6 +1506,12 @@ function ModulesModal({ r, onClose, setFlash, reload }) {
           <div style={{fontSize:10.5,color:C.mid,marginBottom:16,lineHeight:1.45}}>
             En <b>Delivery</b> se desbloquea el pedido a domicilio (delivery-cliente) y se bloquean el Menú QR y las mesas. El dueño ve los pedidos en Admin → Pedidos.
           </div>
+
+          {deliveryOnlyPlan && mode && mode!=='delivery' && (
+            <div style={{background:TINT.warnBg,color:TINT.warnText,border:`1px solid ${TINT.warnBorder||C.orange}`,borderRadius:10,padding:'10px 12px',fontSize:11.5,lineHeight:1.45,marginBottom:16}}>
+              Este restaurante tiene un <b>plan de delivery</b> (sólo panel a domicilio). Activá arriba el modo <b>Delivery a domicilio</b> para bloquear el Menú QR de salón y las mesas; si no, el QR de salón sigue abierto.
+            </div>
+          )}
 
           <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,marginBottom:4}}>Paneles</div>
           {PANELS.map(p => {
@@ -2438,7 +2459,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
     const mubr = asObj(p.max_users_by_role);
     setPlanForm({
       name:p.name,price_usd:p.price_usd,billing_cycle:p.billing_cycle,
-      max_tables:p.max_tables||'',max_menu_items:p.max_menu_items||'',
+      max_tables:p.max_tables??'',max_menu_items:p.max_menu_items??'',
       features:Array.isArray(p.features)?p.features.join(', '):(typeof p.features==='string'?asArr(p.features).join(', '):''),
       is_active:p.is_active!==false,
       max_mozo:mubr.mozo??'',max_cajero:mubr.cajero??'',max_cocina:mubr.cocina??'',
@@ -2462,7 +2483,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
       // la tarjeta, NO desde este editor: por eso el payload NO envía is_active en
       // una edición (así no se re-activa un plan pausado al guardar cambios de
       // precio/nombre). Al CREAR, el plan nace 'active'.
-      const base = {name:planForm.name.trim(),price_usd:parseFloat(planForm.price_usd)||0,billing_cycle:planForm.billing_cycle,max_tables:parseInt(planForm.max_tables)||null,max_menu_items:parseInt(planForm.max_menu_items)||null,features:JSON.stringify(feats),max_users_by_role:mubr,allowed_panels:planForm.panels||[],allowed_features:planForm.allowed_features||[]};
+      const base = {name:planForm.name.trim(),price_usd:parseFloat(planForm.price_usd)||0,billing_cycle:planForm.billing_cycle,max_tables:numOrNull(planForm.max_tables),max_menu_items:numOrNull(planForm.max_menu_items),features:JSON.stringify(feats),max_users_by_role:mubr,allowed_panels:planForm.panels||[],allowed_features:planForm.allowed_features||[]};
       const payload = planModal==='create' ? {...base, status:'active'} : base;
       const writePlan = async pl => planModal==='create'
         ? db.from('subscription_plans').insert(pl)
@@ -4847,12 +4868,500 @@ function PageProveedores({restaurants, setFlash}) {
   );
 }
 
+/* ════════════════════════════════════════════════════════════════════════════
+   MÓDULO PROSPECCIÓN — CRM outbound de restaurantes + proveedores a contactar.
+   El equipo de Mythos carga prospectos, los ubica en un mapa (Leaflet + tiles
+   Carto, gratis, sin API key), clasifica por ciudad/zona/estado y registra la
+   bitácora de contacto. Cuando un prospecto se gana, se enlaza al restaurante
+   real (converted_restaurant_id) y queda como "Cliente activo". Tabla: prospects
+   (mig 174, SOLO-superadmin). NO confundir con los leads INBOUND del Sitio web.
+   ════════════════════════════════════════════════════════════════════════════ */
+const PROSPECT_ORDER = ['nuevo','contactado','en_conversacion','negociacion','activo','descartado'];
+// pin = color fijo del marker (hex, válido en ambos temas). color/bg del badge:
+// TINT.* son theme-adaptive; 'nuevo' usa C.mid como el resto de badges neutros.
+const PROSPECT_ESTADO = {
+  nuevo:           {label:'Nuevo',           color:C.mid,           bg:'var(--bg-subtle)', pin:'#9CA3AF'},
+  contactado:      {label:'Contactado',      color:TINT.infoText,   bg:TINT.infoBg,        pin:'#3B82F6'},
+  en_conversacion: {label:'En conversación', color:TINT.warnText,   bg:TINT.warnBg,        pin:'#F59E0B'},
+  negociacion:     {label:'Negociación',     color:TINT.purpleText, bg:TINT.purpleBg,      pin:'#A855F7'},
+  activo:          {label:'Cliente activo',  color:TINT.okText,     bg:TINT.okBg,          pin:'#22C55E'},
+  descartado:      {label:'Descartado',      color:TINT.dangerText, bg:TINT.dangerBg,      pin:'#EF4444'},
+};
+
+// ── Helpers de mapa (Leaflet global window.L; tiles Carto con fallback OSM) ──
+const PROS_CARTO_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+const PROS_CARTO_DARK  = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+const _prosDark = () => {
+  try { if (window.MythosTheme && window.MythosTheme.get) return window.MythosTheme.get() === 'dark'; } catch(_) {}
+  return document.documentElement.getAttribute('data-theme') === 'dark';
+};
+function _prosBaseTiles(map, dark) {
+  const L = window.L;
+  const base = L.tileLayer(dark ? PROS_CARTO_DARK : PROS_CARTO_LIGHT, {
+    subdomains:'abcd', maxZoom:20, detectRetina:true, attribution:'© OpenStreetMap · © CARTO',
+  });
+  let loaded = false, errs = 0;
+  base.on('load', () => { loaded = true; });
+  base.on('tileerror', () => {
+    if (!loaded && ++errs >= 3) {
+      try { base.off(); map.removeLayer(base); } catch(_) {}
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
+    }
+  });
+  return base.addTo(map);
+}
+const _prosPinSvg = (dark) => {
+  const body = dark ? '#FFFFFF' : '#111111', hole = dark ? '#111111' : '#FFFFFF';
+  return '<svg width="30" height="40" viewBox="0 0 30 40" fill="none" xmlns="http://www.w3.org/2000/svg">'
+    + '<path d="M15 0C6.7 0 0 6.7 0 15c0 10.5 13.2 23.4 13.8 24a1.7 1.7 0 0 0 2.4 0C16.8 38.4 30 25.5 30 15 30 6.7 23.3 0 15 0z" fill="' + body + '"/>'
+    + '<circle cx="15" cy="15" r="5.5" fill="' + hole + '"/></svg>';
+};
+function _prosEnsurePinCss() {
+  if (typeof document === 'undefined' || document.getElementById('mythos-pros-css')) return;
+  const s = document.createElement('style');
+  s.id = 'mythos-pros-css';
+  s.textContent =
+    '.mythos-cpin{position:absolute;left:50%;top:50%;z-index:600;pointer-events:none;transform:translate(-50%,-100%);transition:transform .18s cubic-bezier(.2,.8,.3,1)}'
+    + '.mythos-cpin.lift{transform:translate(-50%,-100%) translateY(-14px)}'
+    + '.mythos-cpin svg{display:block;filter:drop-shadow(0 4px 6px rgba(0,0,0,.35))}'
+    + '.mythos-cpin-sh{position:absolute;left:50%;top:50%;width:16px;height:6px;border-radius:50%;background:rgba(0,0,0,.45);transform:translate(-50%,-50%);pointer-events:none;z-index:599;transition:all .18s cubic-bezier(.2,.8,.3,1);filter:blur(1.5px)}'
+    + '.mythos-cpin-sh.lift{width:9px;height:5px;opacity:.55}'
+    + '.mythos-pros-marker{background:transparent;border:none}';
+  document.head.appendChild(s);
+}
+const _prosMarkerIcon = (statusKey) => {
+  const color = (PROSPECT_ESTADO[statusKey] || {}).pin || '#9CA3AF';
+  const html = '<svg width="28" height="38" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 2px 3px rgba(0,0,0,.4))">'
+    + '<path d="M15 0C6.7 0 0 6.7 0 15c0 10.5 13.2 23.4 13.8 24a1.7 1.7 0 0 0 2.4 0C16.8 38.4 30 25.5 30 15 30 6.7 23.3 0 15 0z" fill="' + color + '"/>'
+    + '<circle cx="15" cy="15" r="5.2" fill="#fff"/></svg>';
+  return window.L.divIcon({ html, className:'mythos-pros-marker', iconSize:[28,38], iconAnchor:[14,38], tooltipAnchor:[0,-30] });
+};
+const _prosCoord = (r) => {
+  const la = Number(r.lat), ln = Number(r.lng);
+  return (Number.isFinite(la) && Number.isFinite(ln) && (la !== 0 || ln !== 0)) ? [la, ln] : null;
+};
+const _prosEsc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const _prosEmptyNull = (v) => { const s = (v == null ? '' : String(v)).trim(); return s ? s : null; };
+const _prosFollowup = (d) => {
+  if (!d) return '—';
+  try { const t = new Date(d + 'T00:00:00'); const today = new Date(); today.setHours(0,0,0,0); return t < today ? `${d} · vencido` : d; }
+  catch(_) { return d; }
+};
+
+/* ── Mapa con PIN FIJO al centro (arrastrar = mover el punto). Para el modal. ── */
+function ProsCenterMap({ initial, onPick, controlRef, height = 240 }) {
+  const elRef = useRef(null), pinRef = useRef(null), shRef = useRef(null);
+  const readyRef = useRef(false);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!window.L || !elRef.current) { setFailed(true); return; }
+    _prosEnsurePinCss();
+    const L = window.L;
+    const hasInit = initial && Number.isFinite(initial.lat) && Number.isFinite(initial.lng);
+    const c = { lat: hasInit ? initial.lat : -25.2867, lng: hasInit ? initial.lng : -57.6470 };
+    let dark = _prosDark();
+    const map = L.map(elRef.current, { zoomControl:true, attributionControl:false }).setView([c.lat, c.lng], hasInit ? 16 : 12);
+    let base = _prosBaseTiles(map, dark);
+    if (pinRef.current) pinRef.current.innerHTML = _prosPinSvg(dark);
+    const lift = (on) => {
+      if (pinRef.current) pinRef.current.classList.toggle('lift', on);
+      if (shRef.current)  shRef.current.classList.toggle('lift', on);
+    };
+    map.on('movestart', () => lift(true));
+    // El moveend inicial (por setView) NO emite: solo la interacción real del usuario.
+    map.on('moveend', () => { lift(false); if (!readyRef.current) return; const p = map.getCenter(); onPick(p.lat, p.lng); });
+    if (controlRef) controlRef.current = {
+      moveTo: (lat, lng) => {
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        readyRef.current = true;
+        map.setView([lat, lng], Math.max(map.getZoom(), 16), { animate:true });
+        onPick(lat, lng);
+      }
+    };
+    const off = (e) => {
+      dark = e.detail.mode === 'dark';
+      try { map.removeLayer(base); } catch(_) {}
+      base = _prosBaseTiles(map, dark);
+      if (pinRef.current) pinRef.current.innerHTML = _prosPinSvg(dark);
+    };
+    document.addEventListener('mythos:themechange', off);
+    const t1 = setTimeout(() => { try { map.invalidateSize({pan:false}); } catch(_) {} }, 150);
+    const t2 = setTimeout(() => { readyRef.current = true; }, 400);
+    return () => { clearTimeout(t1); clearTimeout(t2); document.removeEventListener('mythos:themechange', off); try { map.remove(); } catch(_) {} if (controlRef) controlRef.current = null; };
+  }, []);
+  if (failed) return <div style={{padding:'22px 16px',textAlign:'center',color:C.dim,fontSize:12.5,border:`1px dashed ${C.border}`,borderRadius:12,marginBottom:8}}>El mapa no cargó (Leaflet no disponible). Podés registrar el prospecto igual, sin ubicación.</div>;
+  return (
+    <div style={{position:'relative',width:'100%',height,borderRadius:14,overflow:'hidden',border:`1px solid ${C.border}`,marginBottom:8,background:C.bg}}>
+      <div ref={elRef} style={{position:'absolute',inset:0}}/>
+      <div ref={shRef} className="mythos-cpin-sh"/>
+      <div ref={pinRef} className="mythos-cpin"/>
+    </div>
+  );
+}
+
+/* ── Mapa overview: TODOS los prospectos como markers de color por estado. ── */
+function ProspectOverviewMap({ rows, onSelect, height = 460 }) {
+  const elRef = useRef(null), mapRef = useRef(null), layerRef = useRef(null), baseRef = useRef(null), sigRef = useRef('');
+  const onSelRef = useRef(onSelect); onSelRef.current = onSelect;
+  const rowsRef = useRef(rows); rowsRef.current = rows;
+  const rebuild = () => {
+    const map = mapRef.current, layer = layerRef.current, L = window.L;
+    if (!map || !layer || !L) return;
+    const items = [], sigParts = [];
+    rowsRef.current.forEach(r => {
+      const c = _prosCoord(r); if (!c) return;
+      items.push([r, c]);
+      sigParts.push(`${r.id}:${r.status}:${c[0].toFixed(5)}:${c[1].toFixed(5)}`);
+    });
+    const sig = sigParts.join('|');
+    if (sig === sigRef.current) return;   // sin cambios reales → no reconstruir (evita re-fit en cada render)
+    sigRef.current = sig;
+    layer.clearLayers();
+    const pts = [];
+    items.forEach(([r, c]) => {
+      const m = L.marker(c, { icon: _prosMarkerIcon(r.status) });
+      m.on('click', () => onSelRef.current && onSelRef.current(r));
+      const est = (PROSPECT_ESTADO[r.status] || {}).label || r.status;
+      m.bindTooltip(`<strong>${_prosEsc(r.name)}</strong><br>${_prosEsc(est)}${r.city ? ' · ' + _prosEsc(r.city) : ''}`, {direction:'top'});
+      m.addTo(layer); pts.push(c);
+    });
+    if (pts.length) { try { pts.length === 1 ? map.setView(pts[0], 15) : map.fitBounds(pts, {padding:[40,40], maxZoom:15}); } catch(_) {} }
+  };
+  useEffect(() => {
+    if (!window.L || !elRef.current) return;
+    const L = window.L;
+    let dark = _prosDark();
+    const map = L.map(elRef.current, { zoomControl:true, attributionControl:false }).setView([-25.2867, -57.6470], 12);
+    mapRef.current = map; baseRef.current = _prosBaseTiles(map, dark); layerRef.current = L.layerGroup().addTo(map);
+    sigRef.current = '';
+    const off = (e) => { dark = e.detail.mode === 'dark'; try { map.removeLayer(baseRef.current); } catch(_) {} baseRef.current = _prosBaseTiles(map, dark); };
+    document.addEventListener('mythos:themechange', off);
+    const t = setTimeout(() => { try { map.invalidateSize(); } catch(_) {} sigRef.current = ''; rebuild(); }, 150);
+    return () => { clearTimeout(t); document.removeEventListener('mythos:themechange', off); try { map.remove(); } catch(_) {} mapRef.current = null; };
+  }, []);
+  useEffect(() => { rebuild(); });   // cada render; la guarda de firma evita trabajo redundante
+  if (typeof window !== 'undefined' && !window.L) {
+    return <div style={{height,display:'flex',alignItems:'center',justifyContent:'center',border:`1px dashed ${C.border}`,borderRadius:14,color:C.dim,fontSize:13,textAlign:'center',padding:16}}>El mapa no cargó (Leaflet no disponible). Usá la vista Lista.</div>;
+  }
+  return <div ref={elRef} style={{height,borderRadius:14,overflow:'hidden',border:`1px solid ${C.border}`}}/>;
+}
+
+/* ── Vista MAPA (overview + leyenda + conteo sin ubicación) ── */
+function ProspectMapView({ rows, onSelect }) {
+  const withGeo = rows.filter(_prosCoord);
+  return (
+    <div>
+      <ProspectOverviewMap rows={withGeo} onSelect={onSelect}/>
+      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginTop:12,alignItems:'center'}}>
+        {PROSPECT_ORDER.map(s => (
+          <span key={s} style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:12,color:C.mid}}>
+            <span style={{width:11,height:11,borderRadius:'50%',background:PROSPECT_ESTADO[s].pin,display:'inline-block'}}/>{PROSPECT_ESTADO[s].label}
+          </span>
+        ))}
+      </div>
+      {rows.length > withGeo.length && <div style={{fontSize:12,color:C.dim,marginTop:8}}>{rows.length - withGeo.length} sin ubicación (no aparecen en el mapa — editalos para marcar su pin).</div>}
+      {withGeo.length === 0 && <div style={{fontSize:13,color:C.dim,marginTop:10,textAlign:'center',padding:16}}>Ningún prospecto con ubicación todavía. Tocá “+ Nuevo” y marcá su punto en el mapa.</div>}
+    </div>
+  );
+}
+
+/* ── Vista LISTA (tabla filtrable) ── */
+function ProspectListView({ rows, restNameById, onSelect }) {
+  if (!rows.length) return <SectionCard><MkEmpty text="Sin prospectos para este filtro."/></SectionCard>;
+  return (
+    <SectionCard>
+      <div className="tbl-wrap">
+        <table style={{width:'100%',borderCollapse:'collapse'}}>
+          <thead><tr>
+            <Th>Nombre</Th><Th>Ciudad / Zona</Th><Th>Contacto</Th><Th>Estado</Th><Th>Últ. contacto</Th><Th>Próx. seguim.</Th><Th style={{textAlign:'right'}}>Acción</Th>
+          </tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id} style={{cursor:'pointer'}} onClick={()=>onSelect(r)}>
+                <Td>
+                  <div style={{fontWeight:600,color:C.ink}}>{r.name}</div>
+                  {r.owner_name && <div style={{fontSize:11,color:C.dim}}>{r.owner_name}</div>}
+                </Td>
+                <Td>{r.city || '—'}{r.zone ? <span style={{color:C.dim}}> · {r.zone}</span> : ''}</Td>
+                <Td style={{fontSize:12,color:C.mid}}>{r.contact_phone || r.contact_email || '—'}</Td>
+                <Td>
+                  <MkBadge map={PROSPECT_ESTADO} value={r.status || 'nuevo'}/>
+                  {r.status === 'activo' && r.converted_restaurant_id && restNameById[r.converted_restaurant_id] &&
+                    <div style={{fontSize:10.5,color:C.green,marginTop:3}}>→ {restNameById[r.converted_restaurant_id]}</div>}
+                </Td>
+                <Td style={{fontSize:12,color:C.mid}}>{r.last_contact_at || '—'}</Td>
+                <Td style={{fontSize:12,color:C.mid}}>{_prosFollowup(r.next_followup_at)}</Td>
+                <Td style={{textAlign:'right'}}><Btn variant="ghost" size="sm" onClick={(e)=>{e.stopPropagation();onSelect(r);}}>Editar</Btn></Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </SectionCard>
+  );
+}
+
+/* ── Modal crear/editar prospecto (datos + ubicación en mapa + bitácora) ── */
+function ProspectModal({ row, restaurants, onClose, onDone, setFlash }) {
+  const isNew = !row.id;
+  const [f, setF] = useState({
+    kind: row.kind || 'restaurant', name: row.name || '', owner_name: row.owner_name || '',
+    contact_phone: row.contact_phone || '', contact_email: row.contact_email || '',
+    city: row.city || '', zone: row.zone || '', address: row.address || '',
+    lat: (row.lat != null) ? Number(row.lat) : null, lng: (row.lng != null) ? Number(row.lng) : null,
+    status: row.status || 'nuevo', notes: row.notes || '',
+    last_contact_at: row.last_contact_at || '', next_followup_at: row.next_followup_at || '',
+    discard_reason: row.discard_reason || '', converted_restaurant_id: row.converted_restaurant_id || '',
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(o => ({...o, [k]: v}));
+  const mapCtrl = useRef(null);
+  const _ic0 = _prosCoord(row);   // rechaza null y (0,0): evita centrar el pin en el Atlántico
+  const initialCoordRef = useRef(_ic0 ? {lat:_ic0[0], lng:_ic0[1]} : null);
+
+  // Buscador de direcciones — Nominatim/OSM (sesgo a Paraguay), sin API key.
+  const [q, setQ] = useState(''); const [res, setRes] = useState([]); const [searching, setSearching] = useState(false);
+  const timer = useRef(null);
+  const doSearch = (val) => {
+    setQ(val); clearTimeout(timer.current);
+    if (!val.trim()) { setRes([]); return; }
+    timer.current = setTimeout(() => {
+      setSearching(true);
+      fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(val)}&format=json&limit=6&accept-language=es&addressdetails=1&countrycodes=py`)
+        .then(r => r.json())
+        .then(d => {
+          setRes((Array.isArray(d) ? d : []).map(x => ({
+            main: x.display_name.split(',').slice(0,2).join(',').trim(),
+            secondary: x.display_name.split(',').slice(2,4).join(',').trim(),
+            lat: parseFloat(x.lat), lng: parseFloat(x.lon),
+          })));
+          setSearching(false);
+        })
+        .catch(() => { setRes([]); setSearching(false); });
+    }, 450);
+  };
+  const pickAddr = (item) => {
+    if (mapCtrl.current) mapCtrl.current.moveTo(item.lat, item.lng);
+    setF(o => ({...o, lat:item.lat, lng:item.lng, address: o.address || item.main}));
+    setRes([]); setQ(item.main);
+  };
+  const useMyLoc = () => {
+    if (!navigator.geolocation) { setFlash({type:'warn', text:'Tu navegador no permite ubicación automática'}); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => { const la = p.coords.latitude, ln = p.coords.longitude; if (mapCtrl.current) mapCtrl.current.moveTo(la, ln); setF(o => ({...o, lat:la, lng:ln})); },
+      () => setFlash({type:'warn', text:'No pudimos acceder a tu ubicación'}),
+      { timeout:8000, enableHighAccuracy:true }
+    );
+  };
+
+  const save = async () => {
+    if (!f.name.trim()) { setFlash({type:'warn', text:'El nombre es obligatorio'}); return; }
+    if (!db) { setFlash({type:'error', text:'Sin conexión a Supabase'}); return; }
+    setBusy(true);
+    const fc = _prosCoord(f);   // [lat,lng] o null (null-safe: null/'' y (0,0) → sin ubicación)
+    const payload = {
+      kind: f.kind, name: f.name.trim(), owner_name: _prosEmptyNull(f.owner_name),
+      contact_phone: _prosEmptyNull(f.contact_phone), contact_email: _prosEmptyNull(f.contact_email),
+      city: _prosEmptyNull(f.city), zone: _prosEmptyNull(f.zone), address: _prosEmptyNull(f.address),
+      lat: fc ? fc[0] : null,
+      lng: fc ? fc[1] : null,
+      status: f.status, notes: _prosEmptyNull(f.notes),
+      last_contact_at: f.last_contact_at || null, next_followup_at: f.next_followup_at || null,
+      discard_reason: f.status === 'descartado' ? _prosEmptyNull(f.discard_reason) : null,
+      converted_restaurant_id: (f.status === 'activo' && f.converted_restaurant_id) ? f.converted_restaurant_id : null,
+    };
+    const { error } = isNew
+      ? await db.from('prospects').insert(payload)
+      : await db.from('prospects').update(payload).eq('id', row.id);
+    setBusy(false);
+    if (error) { setFlash({type:'error', text:error.message}); return; }
+    setFlash({type:'ok', text: isNew ? 'Prospecto creado' : 'Prospecto actualizado'}); onDone();
+  };
+  const del = async () => {
+    if (isNew || !db) return;
+    if (!window.confirm('¿Eliminar este prospecto? Esta acción no se puede deshacer.')) return;
+    setBusy(true);
+    const { error } = await db.from('prospects').delete().eq('id', row.id);
+    setBusy(false);
+    if (error) { setFlash({type:'error', text:error.message}); return; }
+    setFlash({type:'ok', text:'Prospecto eliminado'}); onDone();
+  };
+
+  const _fc = _prosCoord(f);
+  const hasCoord = !!_fc;
+  const coordTxt = hasCoord ? `${_fc[0].toFixed(5)}, ${_fc[1].toFixed(5)}` : 'sin ubicación';
+
+  return (
+    <Modal title={isNew ? `Nuevo ${f.kind === 'restaurant' ? 'restaurante' : 'proveedor'}` : f.name} onClose={onClose} width={600}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <FormField label="Nombre *" col="1 / -1"><SInp value={f.name} onChange={v=>set('name',v)} placeholder={f.kind === 'restaurant' ? 'Ej: Pizzería Napoli' : 'Ej: Distribuidora XYZ'}/></FormField>
+        <FormField label="Tipo"><SSel value={f.kind} onChange={v=>set('kind',v)}><option value="restaurant">Restaurante</option><option value="supplier">Proveedor</option></SSel></FormField>
+        <FormField label="Estado"><SSel value={f.status} onChange={v=>set('status',v)}>{PROSPECT_ORDER.map(s=><option key={s} value={s}>{PROSPECT_ESTADO[s].label}</option>)}</SSel></FormField>
+        <FormField label="Contacto (persona)"><SInp value={f.owner_name} onChange={v=>set('owner_name',v)} placeholder="Dueño / encargado"/></FormField>
+        <FormField label="Teléfono / WhatsApp"><SInp value={f.contact_phone} onChange={v=>set('contact_phone',v)} placeholder="09xx xxx xxx"/></FormField>
+        <FormField label="Email" col="1 / -1"><SInp type="email" value={f.contact_email} onChange={v=>set('contact_email',v)}/></FormField>
+        <FormField label="Ciudad">
+          <input value={f.city} onChange={e=>set('city',e.target.value)} placeholder="Asunción" list="pros-cities" style={sField}/>
+        </FormField>
+        <FormField label="Zona / Barrio"><SInp value={f.zone} onChange={v=>set('zone',v)} placeholder="Villa Morra"/></FormField>
+      </div>
+      <datalist id="pros-cities">{CITIES_PY.map(c=><option key={c} value={c}/>)}</datalist>
+
+      <div style={{marginTop:4,marginBottom:6,fontSize:11,color:C.mid,fontWeight:600,textTransform:'uppercase',letterSpacing:.4}}>Ubicación en el mapa</div>
+      <div style={{position:'relative',marginBottom:8}}>
+        <input value={q} onChange={e=>doSearch(e.target.value)} placeholder="Buscar dirección o lugar…" style={sField}/>
+        {(res.length > 0 || searching) && (
+          <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:20,background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,marginTop:4,boxShadow:'0 8px 24px rgba(0,0,0,.18)',overflow:'hidden',maxHeight:220,overflowY:'auto'}}>
+            {searching && <div style={{padding:'10px 12px',fontSize:12,color:C.dim}}>Buscando…</div>}
+            {res.map((item,i) => (
+              <div key={i} onClick={()=>pickAddr(item)} style={{padding:'9px 12px',cursor:'pointer',borderTop:i?`1px solid ${C.border}`:'none'}}
+                   onMouseEnter={e=>e.currentTarget.style.background=C.bg} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <div style={{fontSize:13,color:C.ink,fontWeight:600}}>{item.main}</div>
+                {item.secondary && <div style={{fontSize:11,color:C.dim}}>{item.secondary}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:8,flexWrap:'wrap'}}>
+        <Btn variant="ghost" size="sm" onClick={useMyLoc}>📍 Mi ubicación</Btn>
+        <span style={{fontSize:12,color:C.mid}}>Arrastrá el mapa: el pin marca el punto · <strong style={{color:hasCoord?C.ink:C.orange}}>{coordTxt}</strong></span>
+      </div>
+      <ProsCenterMap initial={initialCoordRef.current} onPick={(la,ln)=>setF(o=>({...o,lat:la,lng:ln}))} controlRef={mapCtrl} height={240}/>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:6}}>
+        <FormField label="Últ. contacto"><SInp type="date" value={f.last_contact_at} onChange={v=>set('last_contact_at',v)}/></FormField>
+        <FormField label="Próx. seguimiento"><SInp type="date" value={f.next_followup_at} onChange={v=>set('next_followup_at',v)}/></FormField>
+        <FormField label="Notas de la conversación" col="1 / -1"><STa value={f.notes} onChange={v=>set('notes',v)} rows={4} placeholder="Qué se habló, próximos pasos, objeciones…"/></FormField>
+      </div>
+
+      {f.status === 'descartado' && <FormField label="Motivo de descarte"><SInp value={f.discard_reason} onChange={v=>set('discard_reason',v)} placeholder="Ej: ya usa otro sistema"/></FormField>}
+      {f.status === 'activo' && (
+        <FormField label="Restaurante en Mythos (enlazar)" hint="Creá el restaurante en la pestaña Restaurantes y enlazalo acá para marcarlo como cliente activo.">
+          <SSel value={f.converted_restaurant_id} onChange={v=>set('converted_restaurant_id',v)}>
+            <option value="">— Sin enlazar todavía —</option>
+            {(restaurants || []).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </SSel>
+        </FormField>
+      )}
+
+      <div style={{display:'flex',gap:10,justifyContent:'space-between',marginTop:16,alignItems:'center'}}>
+        {!isNew ? <Btn variant="danger" onClick={del} disabled={busy}>Eliminar</Btn> : <span/>}
+        <div style={{display:'flex',gap:10}}>
+          <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+          <Btn onClick={save} disabled={busy}>{busy ? 'Guardando…' : (isNew ? 'Crear prospecto' : 'Guardar cambios')}</Btn>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── PÁGINA PROSPECCIÓN — sub-tabs (Restaurantes / Proveedores) + mapa/lista ── */
+function PageProspeccion({ setFlash, restaurants }) {
+  const [kind, setKind] = useState('restaurant');
+  const [view, setView] = useState('mapa');
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState([]);
+  const [edit, setEdit] = useState(null);   // row (o {kind} para nuevo); null = cerrado
+  const [fStatus, setFStatus] = useState('todos');
+  const [fCity, setFCity] = useState('');
+  const [q, setQ] = useState('');
+  const [loadErr, setLoadErr] = useState(null);
+
+  const load = useCallback(async () => {
+    if (!db) { setLoading(false); return; }
+    const { data, error } = await db.from('prospects').select('*').order('created_at', {ascending:false});
+    if (error) { setLoadErr(error.message || 'Error de carga'); }
+    else { setLoadErr(null); setRows(data || []); }
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); if (!db) return;
+    const id = setInterval(() => { if (!_shouldPause()) load(); }, 45000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const kindRows = React.useMemo(() => rows.filter(r => (r.kind || 'restaurant') === kind), [rows, kind]);
+  const cities   = React.useMemo(() => Array.from(new Set(kindRows.map(r => r.city).filter(Boolean))).sort(), [kindRows]);
+  const filtered = React.useMemo(() => {
+    const ql = q.trim().toLowerCase();
+    return kindRows.filter(r => {
+      if (fStatus !== 'todos' && (r.status || 'nuevo') !== fStatus) return false;
+      if (fCity && (r.city || '') !== fCity) return false;
+      if (ql) {
+        const hay = `${r.name||''} ${r.owner_name||''} ${r.zone||''} ${r.city||''} ${r.contact_phone||''}`.toLowerCase();
+        if (!hay.includes(ql)) return false;
+      }
+      return true;
+    });
+  }, [kindRows, fStatus, fCity, q]);
+  const counts = React.useMemo(() => {
+    const c = {total:kindRows.length, activo:0, pipeline:0, sinUbic:0};
+    kindRows.forEach(r => {
+      const s = r.status || 'nuevo';
+      if (s === 'activo') c.activo++;
+      if (['contactado','en_conversacion','negociacion'].includes(s)) c.pipeline++;
+      if (!_prosCoord(r)) c.sinUbic++;
+    });
+    return c;
+  }, [kindRows]);
+
+  const restNameById = {}; (restaurants || []).forEach(r => { restNameById[r.id] = r.name; });
+  const TABS = [{id:'restaurant', label:'Restaurantes'}, {id:'supplier', label:'Proveedores'}];
+  const vbtn = (on) => ({padding:'7px 14px',fontSize:12.5,fontWeight:700,border:'none',background:on?C.ink:'transparent',color:on?C.surface:C.mid,cursor:'pointer'});
+
+  if (loading) return <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:200,gap:14}}><Spinner/><span style={{color:C.mid}}>Cargando prospección…</span></div>;
+
+  return (
+    <div>
+      <MkTabBar tabs={TABS} active={kind} onSelect={k => { setKind(k); setFStatus('todos'); setFCity(''); }}/>
+
+      {loadErr && (
+        <div style={{border:`1px solid ${C.orange}`,background:TINT.warnBg,color:TINT.warnText,borderRadius:10,padding:'11px 14px',marginBottom:14,fontSize:12.5,lineHeight:1.5}}>
+          No se pudo cargar Prospección: <strong>{loadErr}</strong>. Si es la primera vez, aplicá la <strong>migración 174</strong> (tabla <strong>prospects</strong>) en el SQL Editor de Supabase y recargá la página.
+        </div>
+      )}
+
+      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:16}}>
+        <Kpi label="Total" value={counts.total}/>
+        <Kpi label="Clientes activos" value={counts.activo}/>
+        <Kpi label="En pipeline" value={counts.pipeline} sub="contactado · en charla · negociación"/>
+        <Kpi label="Sin ubicación" value={counts.sinUbic} sub="no aparecen en el mapa"/>
+      </div>
+
+      <div style={{display:'flex',flexWrap:'wrap',gap:10,alignItems:'center',marginBottom:14}}>
+        <div style={{display:'inline-flex',border:`1px solid ${C.border}`,borderRadius:9,overflow:'hidden'}}>
+          <button onClick={()=>setView('mapa')}  style={vbtn(view==='mapa')}>🗺️ Mapa</button>
+          <button onClick={()=>setView('lista')} style={vbtn(view==='lista')}>📋 Lista</button>
+        </div>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar nombre, contacto, zona…" style={{...sField,width:'auto',flex:'1 1 200px',minWidth:180}}/>
+        <select value={fCity} onChange={e=>setFCity(e.target.value)} style={{...sField,width:'auto',cursor:'pointer'}}>
+          <option value="">Todas las ciudades</option>
+          {cities.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <Btn onClick={()=>setEdit({kind})}>+ Nuevo {kind === 'restaurant' ? 'restaurante' : 'proveedor'}</Btn>
+      </div>
+
+      <div style={{display:'flex',gap:7,flexWrap:'wrap',marginBottom:16}}>
+        <FilterBtn active={fStatus==='todos'} onClick={()=>setFStatus('todos')}>Todos</FilterBtn>
+        {PROSPECT_ORDER.map(s => <FilterBtn key={s} active={fStatus===s} onClick={()=>setFStatus(s)}>{PROSPECT_ESTADO[s].label}</FilterBtn>)}
+      </div>
+
+      {view === 'mapa'
+        ? <ProspectMapView rows={filtered} onSelect={setEdit}/>
+        : <ProspectListView rows={filtered} restNameById={restNameById} onSelect={setEdit}/>}
+
+      {edit && <ProspectModal row={edit} restaurants={restaurants} onClose={()=>setEdit(null)} onDone={()=>{ setEdit(null); load(); }} setFlash={setFlash}/>}
+    </div>
+  );
+}
+
 // ── Navegación ───────────────────────────────────────────────
 const NAV = [
   {id:'dashboard',      label:'Dashboard'},
   {id:'paneles',        label:'Paneles'},
   {id:'capacidad',      label:'Capacidad'},
   {id:'restaurantes',   label:'Restaurantes'},
+  {id:'prospeccion',    label:'Prospección'},
   {id:'facturacion',    label:'Facturación'},
   {id:'finanzas',       label:'Finanzas'},
   {id:'fiscal',         label:'Fiscal'},
@@ -7947,7 +8456,7 @@ function App() {
   // Se aplica en el cuerpo del render para que los hijos formateen ya con la moneda correcta.
   setPlatformCurrency(platformConfig.find(c=>c.key==='platform_currency')?.value);
 
-  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',facturacion:'Facturación',finanzas:'Finanzas',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración'};
+  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',prospeccion:'Clientes contactados',facturacion:'Facturación',finanzas:'Finanzas',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración'};
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
@@ -7991,6 +8500,7 @@ function App() {
               {page==='paneles'       && <PageSuperPaneles restaurants={restaurants}/>}
               {page==='capacidad'     && <PageCapacidad    enriched={enriched}/>}
               {page==='restaurantes'  && <PageRestaurantes enriched={enriched} plans={plans} addonCatalog={addonCatalog} setFlash={setFlash} reload={reloadSilent}/>}
+              {page==='prospeccion'   && <PageProspeccion  setFlash={setFlash} restaurants={restaurants}/>}
               {page==='facturacion'   && <PageFacturacion  enriched={enriched} plans={plans} addonCatalog={addonCatalog} platformConfig={platformConfig} setFlash={setFlash} reload={reloadSilent}/>}
               {page==='finanzas'      && <PageFinanzas     enriched={enriched} setFlash={setFlash}/>}
               {page==='fiscal'        && <PageFiscal       setFlash={setFlash}/>}

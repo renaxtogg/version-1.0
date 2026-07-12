@@ -317,8 +317,15 @@
     cfg = cfg || {};
     var panels = asList(cfg.panels), feats = asList(cfg.features);
     var users = (cfg.max_users && typeof cfg.max_users === 'object') ? cfg.max_users : {};
-    var out = ['Carta digital con QR', 'Gestión (Admin)'];
-    PANEL_ORDER.forEach(function (k) { if (panels.indexOf(k) >= 0) out.push(PANEL_LABELS[k]); });
+    // Plan "delivery lite" (Emprendedor Delivery, mig 175): panel de pedidos a
+    // domicilio SIN salón (nada de caja/mozo/cocina). La base pasa de "Carta QR" a
+    // "Pedidos a domicilio" y NO repetimos "Delivery Cliente" (ya está en la base).
+    var deliveryOnly = panels.indexOf('delivery-cliente') >= 0
+      && panels.indexOf('caja') < 0 && panels.indexOf('mozo') < 0 && panels.indexOf('cocina') < 0;
+    var out = deliveryOnly
+      ? ['Pedidos a domicilio (menú digital)', 'Gestión de pedidos (Admin)']
+      : ['Carta digital con QR', 'Gestión (Admin)'];
+    PANEL_ORDER.forEach(function (k) { if (panels.indexOf(k) >= 0 && !(deliveryOnly && k === 'delivery-cliente')) out.push(PANEL_LABELS[k]); });
     FEATURE_ORDER.forEach(function (k) { if (feats.indexOf(k) >= 0) out.push(FEATURE_LABELS[k]); });
     if (cfg.max_tables != null && cfg.max_tables > 0) out.push(cfg.max_tables + ' mesas');
     else if (panels.indexOf('mozo') >= 0 || panels.indexOf('caja') >= 0) out.push('Mesas ilimitadas');

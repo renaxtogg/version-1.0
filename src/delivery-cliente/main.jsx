@@ -1232,14 +1232,35 @@ function CoverageScreen({ zones, restaurant, settings, onCovered, onPickupFallba
 }
 
 /* ══ PANTALLA 3 — DATOS DE ENTREGA ══════ */
-function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
+function CustomerDataScreen({ orderType, zones, settings, deliveryResult, onNext, onPickup, onBack }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
   const isDelivery = orderType === 'delivery';
 
-  // Coordenada inicial: la que ya capturó CoverageScreen por GPS (deliveryResult.userLat/userLng).
+  const restLat = (typeof restaurant?.lat === 'number') ? restaurant.lat : null;
+  const restLng = (typeof restaurant?.lng === 'number') ? restaurant.lng : null;
+
+  // Coordenada inicial: si se vuelve a esta pantalla con una cotización previa.
   const initLat = (typeof deliveryResult?.userLat === 'number') ? deliveryResult.userLat : null;
   const initLng = (typeof deliveryResult?.userLng === 'number') ? deliveryResult.userLng : null;
+
+  // ── COTIZACIÓN EN VIVO (etapa única) ───────────────────────────────────────
+  // FIX del bug: antes el precio se fijaba en la pantalla de cobertura y NO se
+  // recalculaba si el cliente movía la ubicación acá. Ahora la ubicación y la
+  // cotización viven en ESTA pantalla (junto a nombre/teléfono) y el costo se
+  // recalcula cada vez que se confirma/mueve el pin. Es la ÚNICA fuente del envío.
+  const [quote, setQuote]         = useState(deliveryResult && !deliveryResult.outOfCoverage ? deliveryResult : null);
+  const [quoteBusy, setQuoteBusy] = useState(false);
+  const quoteReq = useRef(0);
+  const runQuote = useCallback(async (qlat, qlng) => {
+    if (!Number.isFinite(qlat) || !Number.isFinite(qlng)) return;
+    const reqId = ++quoteReq.current;
+    setQuoteBusy(true);
+    const found = await quoteDelivery({ userLat: qlat, userLng: qlng, zones, settings, restLat, restLng });
+    if (reqId !== quoteReq.current) return;   // llegó una cotización más nueva → descartar
+    setQuote((found && !found.outOfCoverage) ? { ...found, userLat: qlat, userLng: qlng } : { outOfCoverage: true, userLat: qlat, userLng: qlng });
+    setQuoteBusy(false);
+  }, [zones, settings, restLat, restLng]);
 
   const [form, setForm] = useState({
     name: '', phone: '',
@@ -1293,10 +1314,12 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
     return () => { on = false; clearTimeout(predTimer.current); };
   }, []);
 
-  // Pin movido (arrastre/click): re-geocodificar y refrescar la dirección (editable).
+  // Confirmar ubicación en el mapa: fija la coordenada, re-cotiza el envío y
+  // re-geocodifica la dirección (editable). La cotización se actualiza acá.
   const handlePinPick = useCallback((plat, plng) => {
     setLat(plat); setLng(plng);
     setPreds([]);
+    runQuote(plat, plng);
     const reqId = ++geoReq.current;
     setGeoBusy(true);
     reverseGeocode(plat, plng).then(addr => {
@@ -1304,7 +1327,7 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
       if (addr) setForm(p => ({ ...p, address: addr }));
       setGeoBusy(false);
     });
-  }, []);
+  }, [runQuote]);
 
   // Escribir en "Dirección": pedir sugerencias a Places (debounced, restringido a PY).
   const handleAddressType = (v) => {
@@ -1338,6 +1361,7 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
         setLat(plat); setLng(plng);
         setGeoBusy(false);
         setForm(prev => ({ ...prev, address: place.formatted_address || prev.address }));
+        runQuote(plat, plng);
         if (pickerCtl.current) pickerCtl.current.moveTo(plat, plng, false);
       }
     );
@@ -1353,6 +1377,7 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
         const { latitude, longitude } = pos.coords;
         setLat(latitude); setLng(longitude);
         setGpsBusy(false);
+        runQuote(latitude, longitude);
         if (pickerCtl.current) pickerCtl.current.moveTo(latitude, longitude, false);
         const reqId = ++geoReq.current;
         setGeoBusy(true);
@@ -1367,12 +1392,35 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
     );
   };
 
-  const zoneName = deliveryResult?.zone?.name || null;
-  const zoneFee  = deliveryResult?.price != null ? deliveryResult.price : null;
-  const zoneMins = deliveryResult?.minutes || null;
+  // Derivados de la cotización EN VIVO (no del deliveryResult fijo).
+  const outOfCov       = quote?.outOfCoverage === true;
+  const pendingConfirm = quote?.pendingConfirm === true;
+  const zoneName = (quote && !outOfCov) ? (quote.zone?.name || null) : null;
+  const zoneFee  = (quote && !outOfCov && quote.price != null) ? quote.price : null;
+  const zoneMins = (quote && !outOfCov) ? (quote.minutes || null) : null;
 
-  const canNext = form.name.trim() && form.phone.trim() && (!isDelivery || form.address.trim());
-  const submit  = () => { if (canNext) onNext({ ...form, lat, lng }); };
+  // Para delivery con mapa disponible, exigir una cotización resuelta y dentro de
+  // cobertura. Si el mapa no cargó (LEAFLET no listo), se permite continuar y el
+  // equipo confirma el costo (fallback degradado, como antes en cobertura).
+  const needsQuote = isDelivery && LEAFLET_READY;
+  const canNext = form.name.trim() && form.phone.trim() && (
+    !isDelivery
+      ? true
+      : (form.address.trim() && !quoteBusy && (!needsQuote || (quote && !outOfCov)))
+  );
+  const submit = () => {
+    if (!canNext) return;
+    if (!isDelivery) { onNext({ ...form, lat, lng }); return; }
+    let q = quote;
+    if (!q || outOfCov) {
+      // Sin cotización válida (mapa no disponible): sin coordenada no se puede
+      // cotizar por distancia → tarifa fija si aplica, si no el equipo confirma.
+      q = (settings?.pricing_mode === 'fixed')
+        ? { zone: null, price: roundTo(Number(settings?.base_fee) || 0, settings?.round_to), minutes: estMinutesFromKm(NaN), mode: 'fixed' }
+        : { zone: null, price: 0, minutes: null, pendingConfirm: true };
+    }
+    onNext({ ...form, lat, lng }, q);
+  };
 
   // Centro inicial del mapa: coordenada GPS si la hay, si no el local, si no Asunción (default interno).
   const mapCenter = {
@@ -1396,22 +1444,56 @@ function CustomerDataScreen({ orderType, deliveryResult, onNext, onBack }) {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-        {/* Zona seleccionada (solo delivery) */}
-        {isDelivery && (zoneName || zoneFee != null) && (() => {
-          const c = deliveryResult?.zone ? zoneColors(deliveryResult.zone) : ZONE_COLOR_MAP.green;
-          return (
-            <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ width: 14, height: 14, borderRadius: '50%', background: c.dot, display: 'inline-block', flexShrink: 0 }} />
+        {/* Cotización EN VIVO del envío (solo delivery) — se actualiza al confirmar/mover la ubicación */}
+        {isDelivery && (() => {
+          // Calculando…
+          if (quoteBusy) return (
+            <div style={{ background: T.offwhite, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span className="dc-spin" style={{ width: 16, height: 16, border: `2px solid ${T.border}`, borderTopColor: T.ink, borderRadius: '50%', flexShrink: 0, display: 'inline-block', animation: 'spin .7s linear infinite' }} />
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.mid }}>Calculando el costo de envío…</div>
+            </div>
+          );
+          // Fuera de cobertura → ofrecer retiro o reubicar
+          if (outOfCov) return (
+            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: '14px 16px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <Icon name="location" size={18} color="#DC2626" />
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: c.text }}>{zoneName || 'Envío a tu ubicación'}</div>
-                  {deliveryResult?.pendingConfirm && <div style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }}>Pendiente de confirmación</div>}
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#B91C1C' }}>Por el momento no llegamos a esa zona</div>
+                  <div style={{ fontSize: 12, color: '#DC2626', lineHeight: 1.5 }}>Mové el pin a otra dirección o pasá a retirar por el local.</div>
                 </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                {zoneFee != null && <div style={{ fontSize: 13, fontWeight: 800, color: c.text }}>{fmt(zoneFee)}</div>}
-                {zoneMins && <div style={{ fontSize: 11, color: T.gray }}>~{zoneMins} min</div>}
+              {onPickup && (
+                <button onClick={onPickup} style={{ width: '100%', height: 42, background: T.black, color: T.white, border: 'none', borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
+                  Pasar a buscar (retiro en local)
+                </button>
+              )}
+            </div>
+          );
+          // Cotización lista
+          if (quote && (zoneFee != null || zoneName || pendingConfirm)) {
+            const c = quote.zone ? zoneColors(quote.zone) : ZONE_COLOR_MAP.green;
+            return (
+              <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ width: 14, height: 14, borderRadius: '50%', background: c.dot, display: 'inline-block', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: c.text }}>{zoneName || 'Envío a tu ubicación'}</div>
+                    {pendingConfirm && <div style={{ fontSize: 11, color: '#D97706', fontWeight: 600 }}>El equipo confirma el costo al despachar</div>}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  {zoneFee != null && <div style={{ fontSize: 13, fontWeight: 800, color: c.text }}>{zoneFee > 0 ? fmt(zoneFee) : 'A confirmar'}</div>}
+                  {zoneMins && <div style={{ fontSize: 11, color: T.gray }}>~{zoneMins} min</div>}
+                </div>
               </div>
+            );
+          }
+          // Sin ubicación todavía → guía
+          return (
+            <div style={{ background: T.offwhite, border: `1px dashed ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Icon name="location" size={18} color={T.gray} />
+              <div style={{ fontSize: 13, color: T.mid, lineHeight: 1.5 }}>Marcá tu ubicación en el mapa y confirmala para ver el <strong style={{ color: T.ink }}>costo de envío</strong>.</div>
             </div>
           );
         })()}
