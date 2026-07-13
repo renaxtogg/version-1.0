@@ -934,6 +934,9 @@ function DeliveryMapPicker({ initial, onPick, controlRef, T }) {
 }
 
 /* ══ PANTALLA 2A — COBERTURA ════════════ */
+// DEPRECADO (ya no se renderiza): la cobertura/cotización se unificó en
+// CustomerDataScreen (una sola etapa de ubicación + datos). Se conserva por
+// referencia; el bundler lo elimina por tree-shaking al no estar referenciado.
 function CoverageScreen({ zones, restaurant, settings, onCovered, onPickupFallback, onManual, onBack }) {
   const T = useContext(ThemeCtx);
   const [status, setStatus]       = useState('idle'); // idle | loading | ok | no | denied | manual
@@ -2782,16 +2785,24 @@ function App() {
     return { ...ci, qty: nq, total: (ci.item.price + et) * nq };
   }).filter(Boolean));
 
-  const handleDelivery = () => { setOrderType('delivery'); setScreen('coverage'); };
+  // Etapa única: delivery va directo a "customer" (ubicación + datos + cotización
+  // viven en una sola pantalla). Ya no existe la pantalla de cobertura previa.
+  const handleDelivery = () => { setOrderType('delivery'); setDeliveryResult(null); setScreen('customer'); };
   const handlePickup   = () => { setOrderType('pickup');   setScreen('customer'); };
   const handleReserva  = () => { setScreen('reserva'); };
   // Browse: ver el menú en modo solo-lectura (addToCart bloqueado si está cerrado).
   const handleBrowse   = () => { setOrderType('pickup'); setScreen('menu'); };
 
-  const handleCovered  = (result) => { setDeliveryResult(result); setScreen('customer'); };
-  const handlePickupFallback = () => { setOrderType('pickup'); setDeliveryResult(null); setScreen('customer'); };
+  // Fuera de cobertura → pasar a retiro, quedándose en la misma pantalla de datos.
+  const handlePickupFallback = () => { setOrderType('pickup'); setDeliveryResult(null); };
 
-  const handleCustomerNext = (data) => { setCustomerData(data); setScreen('menu'); };
+  // La cotización final (quote) se calcula en CustomerDataScreen y llega acá para
+  // que deliveryFee/deliveryResult reflejen la ubicación REALMENTE confirmada.
+  const handleCustomerNext = (data, quote) => {
+    setCustomerData(data);
+    if (quote !== undefined) setDeliveryResult(quote);
+    setScreen('menu');
+  };
 
   const handleCheckout = (sub, fee, total) => {
     if (!canOrder) { showToast('El local está cerrado. No se puede pedir ahora.'); return; }
@@ -2847,11 +2858,8 @@ function App() {
                 {screen === 'reserva' && (
                   <ReservaScreen onBack={() => setScreen('welcome')} onDone={() => setScreen('welcome')} />
                 )}
-                {screen === 'coverage' && (
-                  <CoverageScreen zones={zones} restaurant={restaurant} settings={deliverySettings} onCovered={handleCovered} onPickupFallback={handlePickupFallback} onManual={() => {}} onBack={() => setScreen('welcome')} />
-                )}
                 {screen === 'customer' && (
-                  <CustomerDataScreen orderType={orderType} deliveryResult={deliveryResult} onNext={handleCustomerNext} onBack={() => setScreen(orderType === 'delivery' ? 'coverage' : 'welcome')} />
+                  <CustomerDataScreen orderType={orderType} zones={zones} settings={deliverySettings} deliveryResult={deliveryResult} onNext={handleCustomerNext} onPickup={handlePickupFallback} onBack={() => setScreen('welcome')} />
                 )}
                 {screen === 'menu' && (
                   <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} orderType={orderType} menuStatus={menuStatus} canOrder={canOrder} openState={openState} />
