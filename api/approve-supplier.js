@@ -144,6 +144,20 @@ module.exports = async function handler(req, res) {
       slug = `${baseSlug}-${i}`;
     }
 
+    // ── 2b. Plan de lanzamiento: del body (default 'basico'). Se valida ANTES
+    //        de crear nada (fail-fast, sin rollback). trial_days/price_gs salen
+    //        del catálogo marketplace_supplier_plans (mig 177). ──
+    const planSlug = (typeof body.plan_slug === 'string' && body.plan_slug.trim())
+      ? body.plan_slug.trim() : 'basico';
+    const planResp = await httpsGet(
+      `${SUPABASE_URL}/rest/v1/marketplace_supplier_plans?slug=eq.${encodeURIComponent(planSlug)}&select=slug,price_gs,trial_days&limit=1`,
+      SR_HEADERS
+    );
+    const plan = Array.isArray(planResp.data) && planResp.data[0] ? planResp.data[0] : null;
+    if (!plan) {
+      res.status(400).json({ error: `Plan de proveedor inexistente: ${planSlug}` }); return;
+    }
+
     const displayName = displayNameIn || app.contacto_nombre || app.nombre_comercial;
 
     // Rollback total: borra en orden inverso todo lo creado hasta el fallo.
@@ -151,7 +165,7 @@ module.exports = async function handler(req, res) {
     async function rollback() {
       try {
         if (created.supplierId) {
-          // supplier_users / contacts / products caen por ON DELETE CASCADE
+          // supplier_users / contacts / products / subscription caen por ON DELETE CASCADE
           await httpsDelete(`${SUPABASE_URL}/rest/v1/marketplace_suppliers?id=eq.${created.supplierId}`, SR_HEADERS);
         }
         if (created.userId) {
@@ -225,6 +239,7 @@ module.exports = async function handler(req, res) {
         entrega_urgente:  !!app.entrega_urgente,
         acepta_credito:   !!app.acepta_credito,
         emite_factura:    !!app.emite_factura,
+        plan:             plan.slug,
         estado:           'activo',
         application_id:   applicationId
       })
@@ -235,6 +250,26 @@ module.exports = async function handler(req, res) {
       return;
     }
     created.supplierId = supplierInsertResp.data[0].id;
+
+    // ── 6b. Suscripción de lanzamiento (trial). Se crea "tras crear el proveedor";
+    //        su supplier_id es ON DELETE CASCADE → el rollback (que borra al
+    //        proveedor) la barre sola, sin trackearla aparte. ──
+    const trialEndsAt = new Date(Date.now() + Number(plan.trial_days || 0) * 86400000).toISOString();
+    const subInsertResp = await httpsPost(
+      `${SUPABASE_URL}/rest/v1/marketplace_supplier_subscriptions`,
+      { ...SR_JSON, 'Prefer': 'return=minimal' },
+      JSON.stringify({
+        supplier_id:    created.supplierId,
+        plan_slug:      plan.slug,
+        status:         'trial',
+        trial_ends_at:  trialEndsAt,
+        monthly_amount: plan.price_gs
+      })
+    );
+    if (!subInsertResp.ok) {
+      await rollback();
+      res.status(400).json({ error: subInsertResp.data?.message || 'Error al crear la suscripción del proveedor' }); return;
+    }
 
     // ── 7. Contacto (tabla separada, RLS dura) + vínculo usuario-proveedor ──
     const contactResp = await httpsPost(
@@ -278,7 +313,7 @@ module.exports = async function handler(req, res) {
       { ...SR_JSON, 'Prefer': 'return=minimal' },
       JSON.stringify({
         event_type: 'supplier_approved', supplier_id: created.supplierId,
-        actor_user: callerId, metadata: { application_id: applicationId, slug }
+        actor_user: callerId, metadata: { application_id: applicationId, slug, plan_slug: plan.slug }
       })
     ).catch(() => {});
 
