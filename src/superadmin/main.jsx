@@ -3819,6 +3819,19 @@ const MKP_REPORT_TIPO_LBL = {
 };
 const MKP_TIPO_PROV = ['productor','distribuidor','mayorista','minorista','importador','fabricante','servicio'];
 const MKP_PLANES = ['fundador','basico','pro'];
+// Estado de la suscripción del proveedor (mig 177) y ciclo de vida del plan.
+const MKP_SUB_ESTADO = {
+  trial:     {label:'Trial',      color:TINT.infoText,   bg:TINT.infoBg},
+  active:    {label:'Activa',     color:TINT.okText,     bg:TINT.okBg},
+  past_due:  {label:'Vencida',    color:TINT.warnText,   bg:TINT.warnBg},
+  cancelled: {label:'Cancelada',  color:C.mid,           bg:'var(--bg-subtle)'},
+  suspended: {label:'Suspendida', color:TINT.dangerText, bg:TINT.dangerBg},
+};
+const MKP_PLAN_ESTADO = {
+  active:   {label:'Activo',    color:TINT.okText,     bg:TINT.okBg},
+  inactive: {label:'Inactivo',  color:C.mid,           bg:'var(--bg-subtle)'},
+  archived: {label:'Archivado', color:TINT.dangerText, bg:TINT.dangerBg},
+};
 const MKP_EVENT_LBL = {
   application_submitted:'Solicitud recibida', supplier_approved:'Proveedor aprobado',
   contact_revealed:'Contacto revelado', quote_created:'Cotización creada',
@@ -3840,6 +3853,13 @@ const SSel = ({value,onChange,children,style={}}) =>
   <select value={value??''} onChange={e=>onChange(e.target.value)} style={{...sField,cursor:'pointer',...style}}>{children}</select>;
 const STa = ({value,onChange,placeholder,rows=3,style={}}) =>
   <textarea value={value??''} placeholder={placeholder} rows={rows} onChange={e=>onChange(e.target.value)} style={{...sField,resize:'vertical',...style}}/>;
+// Input de guaraníes con separador de miles en vivo; entrega el entero (string de dígitos).
+const MilesInput = ({value,onChange,style={}}) => {
+  const digits = String(value??'').replace(/\D/g,'');
+  const shown = digits==='' ? '' : Number(digits).toLocaleString('es-PY');
+  return <input inputMode="numeric" value={shown} placeholder="0"
+    onChange={e=>onChange(e.target.value.replace(/\D/g,''))} style={{...sField,...style}}/>;
+};
 
 // Chip de categoría seleccionable (multi) para el editor de proveedor.
 const MkChip = ({on,label,onClick}) => (
@@ -4151,12 +4171,14 @@ function MkRejectModal({ctx, onClose, onDone, setFlash}) {
 }
 
 /* ─── Tab PROVEEDORES ─── */
-function MkProveedores({suppliers, prodCountBySup, leadCountBySup, categories, load, setFlash, gotoProducts}) {
+function MkProveedores({suppliers, prodCountBySup, leadCountBySup, categories, supPlans, subBySupplier, load, setFlash, gotoProducts}) {
   const [search, setSearch] = useState('');
   const [fEstado, setFEstado] = useState('all');
   const [editSup, setEditSup] = useState(null);
   const [contactSup, setContactSup] = useState(null);
   const [deleteSup, setDeleteSup] = useState(null);
+  const [planSup, setPlanSup] = useState(null);
+  const planBySlug = {}; (supPlans||[]).forEach(p=>{ planBySlug[p.slug]=p; });
 
   const setEstado = async (sup, estado) => {
     const { error } = await db.rpc('superadmin_set_supplier_estado', {p_supplier_id:sup.id, p_estado:estado});
@@ -4207,9 +4229,22 @@ function MkProveedores({suppliers, prodCountBySup, leadCountBySup, categories, l
                   <Td><span style={{fontWeight:600,color:C.ink}}>{s.nombre_comercial}</span>{s.ruc && <div style={{fontSize:11,color:C.dim}}>RUC {s.ruc}</div>}</Td>
                   <Td><MkBadge map={MKP_SUP_ESTADO} value={s.estado}/></Td>
                   <Td>
-                    <SSel value={s.plan} onChange={v=>setField(s,{plan:v})} style={{width:110,padding:'5px 8px',fontSize:12}}>
-                      {MKP_PLANES.map(p=><option key={p} value={p}>{p}</option>)}
-                    </SSel>
+                    {(() => {
+                      const sub = (subBySupplier||{})[s.id];
+                      const pl = planBySlug[s.plan];
+                      return (
+                        <button type="button" onClick={()=>setPlanSup(s)} title="Cambiar plan / trial"
+                          style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:3,background:'transparent',border:'none',padding:0,cursor:'pointer'}}>
+                          <span style={{fontWeight:600,color:C.ink,fontSize:12.5}}>{pl?.name || s.plan || '—'}</span>
+                          {sub
+                            ? <span style={{display:'inline-flex',alignItems:'center',gap:5}}>
+                                <MkBadge map={MKP_SUB_ESTADO} value={sub.status}/>
+                                {sub.status==='trial' && sub.trial_ends_at && <span style={{fontSize:10,color:C.dim}}>{fmtDate(sub.trial_ends_at)}</span>}
+                              </span>
+                            : <span style={{fontSize:10.5,color:C.dim}}>sin suscripción</span>}
+                        </button>
+                      );
+                    })()}
                   </Td>
                   <Td style={{textAlign:'center'}}><div style={{display:'inline-flex'}}><Toggle checked={s.verificado} onChange={v=>setField(s,{verificado:v})}/></div></Td>
                   <Td style={{textAlign:'center'}}><div style={{display:'inline-flex'}}><Toggle checked={s.destacado} onChange={v=>setField(s,{destacado:v})}/></div></Td>
@@ -4238,6 +4273,7 @@ function MkProveedores({suppliers, prodCountBySup, leadCountBySup, categories, l
       </SectionCard>
 
       {editSup && <MkEditSupplierModal sup={editSup} categories={categories} onClose={()=>setEditSup(null)} onDone={()=>{setEditSup(null);load();}} setFlash={setFlash}/>}
+      {planSup && <MkSupplierPlanModal sup={planSup} sub={(subBySupplier||{})[planSup.id]} plans={supPlans||[]} onClose={()=>setPlanSup(null)} onDone={()=>{setPlanSup(null);load();}} setFlash={setFlash}/>}
       {deleteSup && <MkDeleteSupplierModal sup={deleteSup} prodCount={prodCountBySup[deleteSup.id]||0} leadCount={leadCountBySup[deleteSup.id]||0} onClose={()=>setDeleteSup(null)} onDone={()=>{setDeleteSup(null);load();}} setFlash={setFlash}/>}
       {contactSup && (
         <Modal title={`Contacto — ${contactSup.supplier.nombre_comercial}`} onClose={()=>setContactSup(null)} width={420}>
@@ -4306,7 +4342,7 @@ function MkEditSupplierModal({sup, categories, onClose, onDone, setFlash}) {
     nombre_comercial:sup.nombre_comercial||'', razon_social:sup.razon_social||'', ruc:sup.ruc||'',
     tipo_proveedor:sup.tipo_proveedor||'', descripcion:sup.descripcion||'', ciudad:sup.ciudad||'', departamento:sup.departamento||'',
     dias_entrega:sup.dias_entrega||'', horario_atencion:sup.horario_atencion||'', pedido_minimo:sup.pedido_minimo||'',
-    condiciones_comerciales:sup.condiciones_comerciales||'', plan:sup.plan||'fundador',
+    condiciones_comerciales:sup.condiciones_comerciales||'',
     verificado:!!sup.verificado, destacado:!!sup.destacado, emite_factura:!!sup.emite_factura,
     delivery_propio:!!sup.delivery_propio, retiro_local:!!sup.retiro_local, acepta_credito:!!sup.acepta_credito,
     categorias:Array.isArray(sup.categorias)?[...sup.categorias]:[],
@@ -4321,7 +4357,7 @@ function MkEditSupplierModal({sup, categories, onClose, onDone, setFlash}) {
       nombre_comercial:f.nombre_comercial.trim(), razon_social:f.razon_social.trim()||null, ruc:f.ruc.trim()||null,
       tipo_proveedor:f.tipo_proveedor||null, descripcion:f.descripcion.trim()||null, ciudad:f.ciudad.trim()||null, departamento:f.departamento.trim()||null,
       dias_entrega:f.dias_entrega.trim()||null, horario_atencion:f.horario_atencion.trim()||null, pedido_minimo:f.pedido_minimo.trim()||null,
-      condiciones_comerciales:f.condiciones_comerciales.trim()||null, plan:f.plan,
+      condiciones_comerciales:f.condiciones_comerciales.trim()||null,
       verificado:f.verificado, destacado:f.destacado, emite_factura:f.emite_factura,
       delivery_propio:f.delivery_propio, retiro_local:f.retiro_local, acepta_credito:f.acepta_credito,
       categorias:f.categorias,
@@ -4353,7 +4389,7 @@ function MkEditSupplierModal({sup, categories, onClose, onDone, setFlash}) {
         <FormField label="Horario de atención"><SInp value={f.horario_atencion} onChange={v=>set('horario_atencion',v)}/></FormField>
         <FormField label="Pedido mínimo"><SInp value={f.pedido_minimo} onChange={v=>set('pedido_minimo',v)}/></FormField>
         <FormField label="Plan">
-          <SSel value={f.plan} onChange={v=>set('plan',v)}>{MKP_PLANES.map(p=><option key={p} value={p}>{p}</option>)}</SSel>
+          <div style={{...sField,display:'flex',alignItems:'center',color:C.mid,fontSize:12.5}}>{sup.plan||'—'} · se gestiona en la columna “Plan”</div>
         </FormField>
       </div>
       <FormField label="Descripción"><STa value={f.descripcion} onChange={v=>set('descripcion',v)} rows={2}/></FormField>
@@ -4667,6 +4703,189 @@ function MkCategoriaModal({cat, categories, onClose, onDone, setFlash}) {
   );
 }
 
+/* ─── Modal: cambiar plan / trial de un proveedor (vía RPC auditada) ─── */
+// Único camino para cambiar el tier: superadmin_set_supplier_plan (mig 177),
+// que hace upsert de la suscripción + refleja marketplace_suppliers.plan +
+// registra el evento. Trial vacío = no toca el ciclo; con valor = (re)abre trial.
+function MkSupplierPlanModal({sup, sub, plans, onClose, onDone, setFlash}) {
+  const [slug, setSlug] = useState(sub?.plan_slug || sup.plan || (plans.find(p=>p.status==='active')||{}).slug || (plans[0]||{}).slug || 'basico');
+  const [trialDays, setTrialDays] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    const raw = String(trialDays).trim();
+    let td = null;
+    if (raw !== '') { td = parseInt(raw,10); if (isNaN(td) || td < 0) { setFlash({type:'warn',text:'Días de trial inválidos'}); return; } }
+    if (!slug) { setFlash({type:'warn',text:'Elegí un plan'}); return; }
+    setBusy(true);
+    const { error } = await db.rpc('superadmin_set_supplier_plan', {p_supplier_id:sup.id, p_plan:slug, p_trial_days:td});
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text:'Plan del proveedor actualizado'}); onDone();
+  };
+  return (
+    <Modal title={`Plan — ${sup.nombre_comercial}`} onClose={onClose} width={440}>
+      <div style={{fontSize:12.5,color:C.mid,marginBottom:14,lineHeight:1.5}}>
+        Cambia el tier y, opcional, setea o extiende el trial. Queda registrado en la auditoría del marketplace.
+      </div>
+      {sub && <div style={{fontSize:12,color:C.dim,marginBottom:12}}>
+        Suscripción actual: <b style={{color:C.mid}}>{(MKP_SUB_ESTADO[sub.status]||{}).label||sub.status}</b>
+        {sub.trial_ends_at ? ` · trial hasta ${fmtDate(sub.trial_ends_at)}` : ''}
+      </div>}
+      <FormField label="Plan">
+        <SSel value={slug} onChange={setSlug}>
+          {plans.length===0 && <option value="">— sin planes (aplicá la mig 177) —</option>}
+          {plans.map(p=><option key={p.slug} value={p.slug}>{p.name} · {fmtGuarani(p.price_gs)}{p.status!=='active'?` (${p.status})`:''}</option>)}
+        </SSel>
+      </FormField>
+      <FormField label="Días de trial (opcional)" hint="Vacío = no toca el ciclo (si ya está activa, solo cambia el tier). Con valor = reinicia a trial por esos días.">
+        <SInp type="number" value={trialDays} onChange={setTrialDays} placeholder="ej. 30"/>
+      </FormField>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:6}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={busy}>{busy?'Guardando…':'Guardar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ─── Tab PLANES (proveedor) — CRUD de marketplace_supplier_plans (mig 177) ─── */
+function MkPlanes({plans, load, setFlash}) {
+  const [edit, setEdit] = useState(null); // fila existente o {} para nuevo
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+        <span style={{fontSize:12,color:C.mid}}>{plans.length} plan{plans.length===1?'':'es'} de proveedor</span>
+        <Btn size="sm" onClick={()=>setEdit({})}>Nuevo plan</Btn>
+      </div>
+      <SectionCard>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:760}}>
+            <thead><tr>
+              <Th style={{width:56,textAlign:'center'}}>Orden</Th><Th>Plan</Th><Th>Precio</Th><Th style={{textAlign:'center'}}>Trial</Th><Th>Contacto lead</Th><Th style={{textAlign:'center'}}>Productos</Th><Th style={{textAlign:'center'}}>Estado</Th><Th style={{textAlign:'right'}}>Acciones</Th>
+            </tr></thead>
+            <tbody>
+              {plans.length===0 && <tr><Td colSpan={8} style={{textAlign:'center',color:C.dim}}>Sin planes. Creá el primero (o aplicá la migración 177).</Td></tr>}
+              {[...plans].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(p=>{
+                const lim = p.limits||{};
+                const cycle = p.billing_cycle==='annual'?'/año':p.billing_cycle==='free'?'':'/mes';
+                const cap = v => v===-1 ? '∞' : fmtNum(v||0);
+                return (
+                  <tr key={p.id}>
+                    <Td style={{textAlign:'center',color:C.mid}}>{p.sort_order}</Td>
+                    <Td><span style={{fontWeight:600,color:C.ink}}>{p.name}</span><div><code style={{fontSize:11,color:C.dim}}>{p.slug}</code></div></Td>
+                    <Td>{fmtGuarani(p.price_gs)}<span style={{fontSize:11,color:C.dim}}>{cycle}</span></Td>
+                    <Td style={{textAlign:'center'}}>{p.trial_days} d</Td>
+                    <Td><span style={{fontSize:12,color:C.mid}}>{lim.lead_contact||'—'}</span></Td>
+                    <Td style={{textAlign:'center'}}>{cap(lim.max_products)}</Td>
+                    <Td style={{textAlign:'center'}}><MkBadge map={MKP_PLAN_ESTADO} value={p.status}/></Td>
+                    <Td style={{textAlign:'right'}}><Btn variant="ghost" size="sm" onClick={()=>setEdit(p)}>Editar</Btn></Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+      {edit && <MkPlanModal plan={edit} onClose={()=>setEdit(null)} onDone={()=>{setEdit(null);load();}} setFlash={setFlash}/>}
+    </div>
+  );
+}
+
+function MkPlanModal({plan, onClose, onDone, setFlash}) {
+  const esNueva = !plan.id;
+  const lim0 = plan.limits || {};
+  const [f, setF] = useState({
+    name: plan.name||'', slug: plan.slug||'', price_gs: plan.price_gs??0,
+    billing_cycle: plan.billing_cycle||'monthly', trial_days: plan.trial_days??30,
+    status: plan.status||'active', sort_order: plan.sort_order??0,
+    features: Array.isArray(plan.features) ? plan.features.join('\n') : '',
+    max_products: lim0.max_products??0, max_users: lim0.max_users??0, max_catalog_files: lim0.max_catalog_files??0,
+    max_categorias: lim0.max_categorias??0, max_zonas: lim0.max_zonas??0, featured_slots: lim0.featured_slots??0,
+    lead_contact: lim0.lead_contact||'oculto', lead_priority: !!lim0.lead_priority,
+    analytics: lim0.analytics||'none', branding_banner: !!lim0.branding_banner,
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k,v)=>setF(o=>({...o,[k]:v}));
+  const slugify = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40);
+  const intOr = (v,d)=>{ const n=parseInt(v,10); return isNaN(n)?d:n; };
+  const save = async () => {
+    const name = f.name.trim();
+    const slug = (f.slug.trim() || slugify(name));
+    if (!name || !slug) { setFlash({type:'warn',text:'Nombre y slug obligatorios'}); return; }
+    setBusy(true);
+    const limits = {
+      max_products: intOr(f.max_products,0), max_users: intOr(f.max_users,0), max_catalog_files: intOr(f.max_catalog_files,0),
+      max_categorias: intOr(f.max_categorias,0), max_zonas: intOr(f.max_zonas,0), featured_slots: intOr(f.featured_slots,0),
+      lead_contact: f.lead_contact, lead_priority: !!f.lead_priority, analytics: f.analytics, branding_banner: !!f.branding_banner,
+    };
+    const features = f.features.split('\n').map(x=>x.trim()).filter(Boolean);
+    const payload = {
+      name, slug, price_gs: intOr(f.price_gs,0), billing_cycle: f.billing_cycle,
+      trial_days: intOr(f.trial_days,30), status: f.status, sort_order: intOr(f.sort_order,0), limits, features,
+    };
+    const q = esNueva
+      ? db.from('marketplace_supplier_plans').insert(payload)
+      : db.from('marketplace_supplier_plans').update(payload).eq('id',plan.id);
+    const { error } = await q;
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:/duplicate|unique/i.test(error.message)?'Ese slug ya existe':error.message}); return; }
+    setFlash({type:'ok',text:esNueva?'Plan creado':'Plan actualizado'}); onDone();
+  };
+  const numField = (k,label) => <FormField label={label}><SInp type="number" value={f[k]} onChange={v=>set(k,v)}/></FormField>;
+  return (
+    <Modal title={esNueva?'Nuevo plan de proveedor':`Editar — ${plan.name}`} onClose={onClose} width={640}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+        <FormField label="Nombre *"><SInp value={f.name} onChange={v=>set('name',v)} placeholder="Ej. Profesional"/></FormField>
+        <FormField label="Slug *" hint={esNueva?'Se genera del nombre si lo dejás vacío.':'Cambiarlo puede romper suscripciones que lo referencian.'}><SInp value={f.slug} onChange={v=>set('slug',v)} placeholder="profesional"/></FormField>
+        <FormField label="Precio (₲)"><MilesInput value={f.price_gs} onChange={v=>set('price_gs',v)}/></FormField>
+        <FormField label="Ciclo de facturación">
+          <SSel value={f.billing_cycle} onChange={v=>set('billing_cycle',v)}>
+            <option value="monthly">Mensual</option><option value="annual">Anual</option><option value="free">Gratis</option>
+          </SSel>
+        </FormField>
+        <FormField label="Días de trial"><SInp type="number" value={f.trial_days} onChange={v=>set('trial_days',v)}/></FormField>
+        <FormField label="Orden"><SInp type="number" value={f.sort_order} onChange={v=>set('sort_order',v)}/></FormField>
+        <FormField label="Estado (ciclo de vida)">
+          <SSel value={f.status} onChange={v=>set('status',v)}>
+            <option value="active">Activo</option><option value="inactive">Inactivo</option><option value="archived">Archivado</option>
+          </SSel>
+        </FormField>
+      </div>
+
+      <div style={{fontSize:12,fontWeight:700,color:C.ink,margin:'14px 0 8px'}}>Límites del plan <span style={{fontWeight:400,color:C.dim}}>(−1 = ilimitado)</span></div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 16px'}}>
+        {numField('max_products','Máx. productos')}
+        {numField('max_users','Máx. usuarios')}
+        {numField('max_catalog_files','Máx. catálogos')}
+        {numField('max_categorias','Máx. categorías')}
+        {numField('max_zonas','Máx. zonas')}
+        {numField('featured_slots','Espacios destacados')}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+        <FormField label="Contacto de lead">
+          <SSel value={f.lead_contact} onChange={v=>set('lead_contact',v)}>
+            <option value="inmediato">Inmediato</option><option value="demorado">Demorado (24 h)</option><option value="oculto">Oculto</option>
+          </SSel>
+        </FormField>
+        <FormField label="Analítica">
+          <SSel value={f.analytics} onChange={v=>set('analytics',v)}>
+            <option value="none">Ninguna</option><option value="basico">Básica</option><option value="completo">Completa</option>
+          </SSel>
+        </FormField>
+      </div>
+      <div style={{display:'flex',gap:'12px 24px',flexWrap:'wrap',margin:'6px 0 14px'}}>
+        <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:C.ink,cursor:'pointer'}}><Toggle checked={f.lead_priority} onChange={v=>set('lead_priority',v)}/> Prioridad en leads</label>
+        <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:C.ink,cursor:'pointer'}}><Toggle checked={f.branding_banner} onChange={v=>set('branding_banner',v)}/> Banner de marca</label>
+      </div>
+      <FormField label="Características (una por línea)"><STa value={f.features} onChange={v=>set('features',v)} rows={5} placeholder={'Hasta 50 productos\nContacto de leads inmediato\n…'}/></FormField>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={busy}>{busy?'Guardando…':(esNueva?'Crear':'Guardar')}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
 /* ─── Tab RECLAMOS ─── */
 function MkReclamos({reports, reviews, supNameById, prodNameById, restNameById, onSuspend, load, setFlash}) {
   const [fEstado, setFEstado] = useState('abiertos');
@@ -4792,11 +5011,13 @@ function PageProveedores({restaurants, setFlash}) {
   const [reports, setReports] = useState([]);
   const [reviews, setReviews] = useState([]);
   const [events, setEvents] = useState([]);
+  const [supPlans, setSupPlans] = useState([]);
+  const [supSubs, setSupSubs] = useState([]);
   const [prodFilterSup, setProdFilterSup] = useState(null);
 
   const load = useCallback(async () => {
     if (!db) { setLoading(false); return; }
-    const [st, su, ap, pr, le, ca, re, rv, ev] = await Promise.all([
+    const [st, su, ap, pr, le, ca, re, rv, ev, sp, ss] = await Promise.all([
       db.rpc('superadmin_marketplace_stats').then(r=>r.error?{data:null}:r),
       db.from('marketplace_suppliers').select('*').order('created_at',{ascending:false}).then(r=>r.error?{data:[]}:r),
       db.from('marketplace_applications').select('*').order('created_at',{ascending:false}).then(r=>r.error?{data:[]}:r),
@@ -4806,9 +5027,12 @@ function PageProveedores({restaurants, setFlash}) {
       db.from('marketplace_reports').select('*').order('created_at',{ascending:false}).limit(2000).then(r=>r.error?{data:[]}:r),
       db.from('marketplace_reviews').select('*').order('created_at',{ascending:false}).limit(2000).then(r=>r.error?{data:[]}:r),
       db.from('marketplace_events').select('*').order('created_at',{ascending:false}).limit(50).then(r=>r.error?{data:[]}:r),
+      db.from('marketplace_supplier_plans').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
+      db.from('marketplace_supplier_subscriptions').select('*').then(r=>r.error?{data:[]}:r),
     ]);
     setStats(st.data||null); setSuppliers(su.data||[]); setApps(ap.data||[]); setProducts(pr.data||[]);
     setLeads(le.data||[]); setCategories(ca.data||[]); setReports(re.data||[]); setReviews(rv.data||[]); setEvents(ev.data||[]);
+    setSupPlans(sp.data||[]); setSupSubs(ss.data||[]);
     setLoading(false);
   }, []);
   useEffect(()=>{ load(); if(!db) return;
@@ -4824,6 +5048,7 @@ function PageProveedores({restaurants, setFlash}) {
   // Conteos por proveedor.
   const prodCountBySup = {}; products.forEach(p=>{ prodCountBySup[p.supplier_id]=(prodCountBySup[p.supplier_id]||0)+1; });
   const leadCountBySup = {}; leads.forEach(l=>{ leadCountBySup[l.supplier_id]=(leadCountBySup[l.supplier_id]||0)+1; });
+  const subBySupplier = {}; supSubs.forEach(x=>{ subBySupplier[x.supplier_id]=x; });
 
   // Reportes indexados por producto y por proveedor.
   const reportsByProduct = {}, reportsBySupplier = {};
@@ -4849,6 +5074,7 @@ function PageProveedores({restaurants, setFlash}) {
     {id:'productos', label:'Productos'},
     {id:'leads', label:'Leads'},
     {id:'categorias', label:'Categorías'},
+    {id:'planes', label:'Planes'},
     {id:'reclamos', label:'Reclamos', badge:reclamosAbiertos},
   ];
 
@@ -4859,10 +5085,11 @@ function PageProveedores({restaurants, setFlash}) {
       <MkTabBar tabs={TABS} active={tab} onSelect={setTab}/>
       {tab==='resumen'     && <MkResumen stats={stats} events={events} supNameById={supNameById} restNameById={restNameById}/>}
       {tab==='solicitudes' && <MkSolicitudes apps={apps} load={load} setFlash={setFlash}/>}
-      {tab==='proveedores' && <MkProveedores suppliers={suppliers} prodCountBySup={prodCountBySup} leadCountBySup={leadCountBySup} categories={categories} load={load} setFlash={setFlash} gotoProducts={gotoProducts}/>}
+      {tab==='proveedores' && <MkProveedores suppliers={suppliers} prodCountBySup={prodCountBySup} leadCountBySup={leadCountBySup} categories={categories} supPlans={supPlans} subBySupplier={subBySupplier} load={load} setFlash={setFlash} gotoProducts={gotoProducts}/>}
       {tab==='productos'   && <MkProductos products={products} supNameById={supNameById} categories={categories} reportsByProduct={reportsByProduct} reportsBySupplier={reportsBySupplier} filterSupplier={prodFilterSup} setFilterSupplier={setProdFilterSup} load={load} setFlash={setFlash}/>}
       {tab==='leads'       && <MkLeads leads={leads} supNameById={supNameById} restNameById={restNameById}/>}
       {tab==='categorias'  && <MkCategorias categories={categories} load={load} setFlash={setFlash}/>}
+      {tab==='planes'      && <MkPlanes plans={supPlans} load={load} setFlash={setFlash}/>}
       {tab==='reclamos'    && <MkReclamos reports={reports} reviews={reviews} supNameById={supNameById} prodNameById={prodNameById} restNameById={restNameById} onSuspend={suspendFromReport} load={load} setFlash={setFlash}/>}
     </div>
   );
