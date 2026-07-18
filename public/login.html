@@ -126,7 +126,12 @@
 
   <div id="err" class="error"></div>
 
-  <form id="loginForm">
+  <!-- onsubmit="return false": blindaje a nivel HTML (se evalúa AUNQUE el JS falle
+       antes de adjuntar el listener de submit). Evita el submit NATIVO del form
+       —inputs sin name + sin action → GET a la misma URL con query vacío → recarga
+       a formulario en blanco sin error— que era el síntoma del bug de acceso. El
+       handler real de login (addEventListener más abajo) sigue corriendo igual. -->
+  <form id="loginForm" onsubmit="return false">
     <div class="field">
       <label for="email">Cédula o correo</label>
       <input id="email" type="text" autocomplete="username" inputmode="text" placeholder="Tu cédula o tu@correo.com" required/>
@@ -177,7 +182,19 @@
   }
   const url = cfg.url.replace(/^﻿/, '').trim();
   const key = cfg.anonKey.replace(/^﻿/, '').trim();
-  const db  = window.supabase.createClient(url, key);
+  // El SDK de Supabase (CDN) puede no haber cargado (escudos/bloqueadores, red, o
+  // un service worker interfiriendo el bundle). Si createClient falla, mostramos un
+  // error VISIBLE en vez de dejar que el IIFE aborte en silencio — que antes dejaba
+  // el <form> sin blindar y el navegador hacía un submit nativo (recarga a un
+  // formulario en blanco, sin mensaje). El onsubmit="return false" del form es el
+  // segundo cinturón que evita esa recarga pase lo que pase.
+  let db;
+  try {
+    db = window.supabase.createClient(url, key);
+  } catch (e) {
+    showErr('No se pudo cargar el sistema de acceso. Revisá tu conexión (o desactivá escudos/bloqueadores para este sitio) y recargá la página.');
+    return;
+  }
 
   function showErr(msg) {
     const el = document.getElementById('err');
@@ -199,6 +216,22 @@
   function clearSession() {
     ['mythos_role','mythos_restaurant_id','mythos_user_id','mythos_display_name','mythos_last_activity']
       .forEach(k => { try { localStorage.removeItem(k); } catch(_) {} });
+  }
+
+  // Barre TODAS las claves de sesión de Supabase (token base + chunks .0/.1 +
+  // code-verifier). Mismo patrón que mythos-session.js (prefijo sin ancla final para
+  // tolerar tokens "chunked"). Se usa para inmunizar el login contra una sesión
+  // "envenenada": un token revocado por el signOut GLOBAL de otro panel, o chunks
+  // huérfanos que dejó una limpieza parcial, pueden romper el nuevo inicio de sesión.
+  function purgeSupabaseAuthKeys() {
+    try {
+      const del = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && /^sb-.*-auth-token/.test(k)) del.push(k);
+      }
+      del.forEach(k => { try { localStorage.removeItem(k); } catch(_) {} });
+    } catch(_) {}
   }
 
   function saveSession(profile) {
@@ -393,13 +426,19 @@
     return resolveAndRoute(profile);
   }
 
-  // Sesión ya activa → revalidar perfil y enrutar; si es inválida, cerrar sesión.
-  db.auth.getSession().then(({ data: { session } }) => {
-    if (!session) return;
-    db.rpc('get_my_profile').then(async ({ data }) => {
-      const err = await routeAfterAuth(data);
-      if (err) db.auth.signOut();
-    });
+  // Sesión ya activa → revalidar perfil y enrutar. Si NO hay sesión válida (p.ej. el
+  // token fue revocado por un signOut global de otro panel y el refresh falló →
+  // getSession devuelve null), barremos cualquier token residual/huérfano para que el
+  // próximo login parta 100% limpio. Si el enrutamiento del perfil falla, cerramos
+  // localmente (sin red) y purgamos.
+  db.auth.getSession().then(async ({ data: { session } }) => {
+    if (!session) { purgeSupabaseAuthKeys(); return; }
+    const { data } = await db.rpc('get_my_profile');
+    const err = await routeAfterAuth(data);
+    if (err) {
+      try { await db.auth.signOut({ scope: 'local' }); } catch(_) {}
+      purgeSupabaseAuthKeys();
+    }
   });
 
   document.getElementById('loginForm').addEventListener('submit', async (e) => {
@@ -427,6 +466,13 @@
 
     setLoading(true);
     try {
+      // 0. Partir SIEMPRE de un estado limpio: una sesión previa "envenenada" (token
+      //    revocado por un signOut global de otro panel, o chunks .0/.1 huérfanos)
+      //    puede romper el nuevo login. signOut local (sin red) + purga garantizan
+      //    que signInWithPassword escriba una sesión sana desde cero.
+      try { await db.auth.signOut({ scope: 'local' }); } catch(_) {}
+      purgeSupabaseAuthKeys();
+
       // 1. Autenticar con Supabase Auth (correo + contraseña, sin PIN ni usuario interno)
       const { error: authErr } = await db.auth.signInWithPassword({ email, password, options: { captchaToken } });
       if (authErr) {
