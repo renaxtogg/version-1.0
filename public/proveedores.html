@@ -103,6 +103,11 @@
     .prov-planpick b{color:var(--text-primary)}
     .prov-planpick a{margin-left:auto;color:var(--text-primary);text-decoration:underline;cursor:pointer;font-weight:600;font-size:12.5px;white-space:nowrap}
 
+    /* El formulario arranca OCULTO: se despliega recién cuando el proveedor elige un plan. */
+    #registro{display:none}
+    #registro.prov-shown{display:block;animation:provUnfold .38s ease}
+    @keyframes provUnfold{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+
     @media (max-width:560px){
       .prov-grid{grid-template-columns:1fr}
       .prov-flags{grid-template-columns:1fr}
@@ -167,8 +172,8 @@
       <p class="center" style="font-size:12.5px;color:var(--text-secondary);margin-top:16px">Los precios se cobran recién una vez activada tu tienda, al terminar la prueba. Sin comisiones por venta.</p>
     </section>
 
-    <!-- ── FORMULARIO ───────────────────────────────────────────────────── -->
-    <section class="block wrap reveal" id="registro">
+    <!-- ── FORMULARIO (oculto hasta que el proveedor elige un plan) ───────── -->
+    <section class="block wrap" id="registro">
       <div class="prov-formwrap">
         <div class="prov-card">
 
@@ -350,6 +355,7 @@
     var planPick = document.getElementById('provPlanPick');
     var planPickName = document.getElementById('provPlanPickName');
     var planPickChange = document.getElementById('provPlanPickChange');
+    var formSection = document.getElementById('registro');
 
     function val(name) { var el = form.querySelector('[name="' + name + '"]'); return el ? String(el.value == null ? '' : el.value).trim() : ''; }
     function checked(name) { var el = form.querySelector('[name="' + name + '"]'); return !!(el && el.checked); }
@@ -417,8 +423,12 @@
       if (selectedPlan) { planPickName.textContent = name || slug; planPick.classList.add('show'); }
       else planPick.classList.remove('show');
       if (window.MythosWeb) { try { MythosWeb.track('supplier_plan_selected', { plan_slug: selectedPlan }); } catch (e) {} }
-      // Llevar al formulario.
-      try { document.getElementById('registro').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+      // Desplegar el formulario (arranca oculto) — re-dispara la animación cada vez.
+      formSection.classList.remove('prov-shown');
+      void formSection.offsetWidth;
+      formSection.classList.add('prov-shown');
+      // Llevar al formulario ya visible.
+      try { formSection.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
     }
 
     function renderPlans(list) {
