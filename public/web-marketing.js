@@ -272,6 +272,151 @@
   }
 
   /* ═══════════════════════════════════════════════════════════════════════
+     PROMO / OFERTA GLOBAL sobre los planes (superadmin → Sitio web)
+     ─────────────────────────────────────────────────────────────────────
+     Un solo interruptor (marketing_config.promo_*) enciende un cuadro
+     llamativo que ENVUELVE la vidriera de planes + descuento tachado en cada
+     tarjeta + cuenta regresiva. Aplica a TODA superficie que muestre planes:
+     restaurante (/web·/precios, acá abajo) y proveedores (proveedores.html,
+     que reusa estos helpers vía window.MythosWeb). Reusable a futuro para
+     riders/clientes: montá una barra con MythosWeb.mountPromoBar(grid) y
+     descontá precios con MythosWeb.promoPrice(n, pct).
+
+     Claves (is_public): promo_active (bool) · promo_percent (0–100, 100=gratis)
+     · promo_ends_at (ISO o '' = sin contador) · promo_label · promo_headline.
+     La expiración se chequea en el cliente: pasada la fecha, la promo se apaga
+     sola (getPromo → active:false) y se re-renderiza. ───────────────────── */
+  function promoNum(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+  function promoEndsMs(cfg) {
+    var raw = cfg && cfg.promo_ends_at;
+    if (raw == null || String(raw).trim() === '') return null;
+    var t = new Date(raw).getTime();
+    return isFinite(t) ? t : null;
+  }
+  // Estado normalizado de la promo (con chequeo de expiración client-side).
+  function getPromo(cfg) {
+    cfg = cfg || _config || {};
+    var pct = Math.max(0, Math.min(100, Math.round(promoNum(cfg.promo_percent))));
+    var ends = promoEndsMs(cfg);
+    var active = cfg.promo_active === true && pct > 0;
+    if (active && ends != null && Date.now() >= ends) active = false;   // expiró
+    return {
+      active: active, percent: pct, endsAt: ends, free: pct >= 100,
+      label: String(cfg.promo_label || '').trim(),
+      headline: String(cfg.promo_headline || '').trim()
+    };
+  }
+  // Precio con descuento aplicado (entero ₲). 100% → 0. n inválido → n.
+  function promoPrice(n, pct) {
+    if (n == null || isNaN(n)) return n;
+    return Math.round(Number(n) * (100 - promoNum(pct)) / 100);
+  }
+  // Cinta "-X%" / "GRATIS" para la esquina de una tarjeta.
+  function promoRibbonHTML(promo) {
+    if (!promo || !promo.active) return '';
+    return '<div class="plan-ribbon' + (promo.free ? ' is-free' : '') + '">' +
+      (promo.free ? 'GRATIS' : '-' + promo.percent + '%') + '</div>';
+  }
+
+  // ── Cuenta regresiva ────────────────────────────────────────────────────
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function cdCells(ms) {
+    ms = Math.max(0, ms);
+    var s = Math.floor(ms / 1000);
+    var d = Math.floor(s / 86400); s -= d * 86400;
+    var h = Math.floor(s / 3600);  s -= h * 3600;
+    var m = Math.floor(s / 60);    s -= m * 60;
+    function cell(v, l) { return '<span class="promo-cd-cell"><b>' + pad2(v) + '</b><i>' + l + '</i></span>'; }
+    return (d > 0 ? cell(d, d === 1 ? 'día' : 'días') : '') + cell(h, 'hs') + cell(m, 'min') + cell(s, 'seg');
+  }
+  function countdownHTML(endsAt) {
+    if (endsAt == null) return '';
+    return '<div class="promo-cd" data-countdown-to="' + endsAt + '" role="timer" aria-label="Tiempo restante de la oferta">' +
+      cdCells(endsAt - Date.now()) + '</div>';
+  }
+
+  // Ticker único de la página: refresca todos los [data-countdown-to] cada seg.
+  // Al llegar a 0, avisa a los suscriptores (que re-renderizan → la promo se
+  // apaga sola) y se detiene. Se auto-detiene si no quedan contadores.
+  var _promoTimer = null;
+  function stopPromoTicker() { if (_promoTimer) { clearInterval(_promoTimer); _promoTimer = null; } }
+  function tickCountdowns() {
+    var nodes = document.querySelectorAll('[data-countdown-to]');
+    if (!nodes.length) { stopPromoTicker(); return; }
+    var expired = false;
+    [].slice.call(nodes).forEach(function (node) {
+      var left = Number(node.getAttribute('data-countdown-to')) - Date.now();
+      if (left <= 0) expired = true;
+      node.innerHTML = cdCells(left);
+    });
+    if (expired) { stopPromoTicker(); notifyPromo(); }
+  }
+  function startPromoTicker() {
+    if (_promoTimer) return;
+    if (!document.querySelector('[data-countdown-to]')) return;
+    _promoTimer = setInterval(tickCountdowns, 1000);
+  }
+
+  // ── Suscripción al estado de promo (para superficies externas: proveedores)
+  var _promoSubs = [];
+  var _configLoaded = false;
+  function onPromoReady(fn) {
+    if (typeof fn !== 'function') return;
+    if (_promoSubs.indexOf(fn) < 0) _promoSubs.push(fn);
+    if (_configLoaded) { try { fn(getPromo()); } catch (e) {} }
+  }
+  function notifyPromo() {
+    var p = getPromo();
+    _promoSubs.forEach(function (fn) { try { fn(p); } catch (e) {} });
+  }
+
+  // Contenido del cuadro llamativo (barra sobre la grilla de planes).
+  function promoBarInnerHTML(p) {
+    var pctBig = p.free ? 'GRATIS' : (p.percent + '%');
+    var pctSub = p.free ? '' : '<span class="promo-bar-off">OFF</span>';
+    var label = esc(p.label || 'Oferta por tiempo limitado');
+    var head = esc(p.headline || (p.free
+      ? '¡Todos los planes gratis por tiempo limitado!'
+      : 'Todos los planes con ' + p.percent + '% de descuento'));
+    var cd = (p.endsAt != null)
+      ? '<div class="promo-bar-cd"><span class="promo-bar-cd-lbl">Termina en</span>' + countdownHTML(p.endsAt) + '</div>'
+      : '';
+    return '<span class="promo-bar-glow" aria-hidden="true"></span>' +
+      '<div class="promo-bar-body">' +
+        '<div class="promo-bar-lead">' +
+          '<span class="promo-bar-eyebrow"><span data-icon="star"></span> ' + label + '</span>' +
+          '<div class="promo-bar-pct"><span class="promo-bar-num">' + pctBig + '</span>' + pctSub + '</div>' +
+          '<span class="promo-bar-head">' + head + '</span>' +
+        '</div>' + cd +
+      '</div>';
+  }
+
+  // Monta/actualiza el cuadro llamativo y el marco alrededor de la grilla dada.
+  // Genérico: sirve para cualquier vidriera (planes de restaurante o proveedor).
+  // Sin promo activa → limpia todo. Idempotente.
+  function mountPromoBar(gridEl) {
+    if (!gridEl) return;
+    var promo = getPromo();
+    var section = (gridEl.closest && gridEl.closest('section')) || gridEl.parentNode;
+    var bar = document.getElementById('promoBar');
+    if (!promo.active) {
+      if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+      if (section && section.classList) section.classList.remove('promo-on');
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'promoBar';
+      bar.className = 'promo-bar reveal in';
+      gridEl.parentNode.insertBefore(bar, gridEl);
+    }
+    bar.innerHTML = promoBarInnerHTML(promo);
+    if (section && section.classList) section.classList.add('promo-on');
+    hydrateIcons();
+    startPromoTicker();
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
      PRECIOS DINÁMICOS (web.html / precios.html)
      ═══════════════════════════════════════════════════════════════════════ */
   function planTitle(p) { return esc(String(p.name || '').replace(/^MYTHOS\s+/i, '') || p.name || ''); }
@@ -340,14 +485,32 @@
   }
 
   function planCardHTML(p) {
-    var priceInner;
-    if (_annual && p.price_annual_gs != null)
-      priceInner = '<span class="gs">Gs</span>' + formatMiles(p.price_annual_gs) + '<small>/año</small>';
-    else
-      priceInner = '<span class="gs">Gs</span>' + formatMiles(p.price_monthly_gs) + '<small>/mes</small>';
+    var promo = getPromo();
+    var quote = planIsQuote(p);
+    var showAnnual = _annual && p.price_annual_gs != null;
+    var orig = showAnnual ? p.price_annual_gs : p.price_monthly_gs;
+    var unit = showAnnual ? '/año' : '/mes';
+    var onSale = promo.active && !quote && orig != null;
 
-    var save = (_annual && planSavings(p) > 0)
-      ? '<div class="plan-save">Ahorrás ' + formatGs(planSavings(p)) + ' al año</div>' : '';
+    var priceInner;
+    if (onSale) {
+      var now = promoPrice(orig, promo.percent);
+      var nowInner = promo.free
+        ? '<span class="price-free">GRATIS</span>'
+        : '<span class="gs">Gs</span>' + formatMiles(now) + '<small>' + unit + '</small>';
+      priceInner = '<span class="price-was"><span class="gs">Gs</span>' + formatMiles(orig) + '</span>' + nowInner;
+    } else if (orig != null) {
+      priceInner = '<span class="gs">Gs</span>' + formatMiles(orig) + '<small>' + unit + '</small>';
+    } else {
+      priceInner = '<span class="gs">Gs</span>' + formatMiles(showAnnual ? p.price_annual_gs : p.price_monthly_gs) + '<small>' + unit + '</small>';
+    }
+
+    // Ahorro anual (mensual vs anual). Con promo (no gratis) escala igual que
+    // los precios; con "gratis" no hay ahorro que mostrar (ambos ₲0).
+    var sv = planSavings(p);
+    if (promo.active) sv = promo.free ? 0 : promoPrice(sv, promo.percent);
+    var save = (_annual && sv > 0)
+      ? '<div class="plan-save">Ahorrás ' + formatGs(sv) + ' al año</div>' : '';
 
     // Lista "incluye" GENERADA desde la config real; fallback a features manuales.
     var incArr = p.plan_config ? planIncludes(p.plan_config) : null;
@@ -365,7 +528,8 @@
     var cta = '<a class="btn ' + (p.is_recommended ? 'btn-primary' : 'btn-secondary') +
       '" href="/registro?plan=' + encodeURIComponent(p.slug) + '" data-track="pricing_plan_click" data-plan="' + esc(p.slug) + '">Probar gratis</a>';
 
-    return '<div class="plan' + (p.is_recommended ? ' feat' : '') + sel + '" data-plan-card data-slug="' + esc(p.slug) + '">' +
+    return '<div class="plan' + (p.is_recommended ? ' feat' : '') + (onSale ? ' on-sale' : '') + sel + '" data-plan-card data-slug="' + esc(p.slug) + '">' +
+      (onSale ? promoRibbonHTML(promo) : '') +
       (p.badge ? '<div class="tag">' + esc(p.badge) + '</div>' : '') +
       '<h3>' + planTitle(p) + '</h3>' +
       '<div class="frase">' + esc(p.headline || '') + '</div>' +
@@ -431,6 +595,7 @@
       _selectedSlug = rec ? rec.slug : (real[0] ? real[0].slug : null);
     }
     grid.innerHTML = real.map(planCardHTML).join('') + quoteCardHTML();
+    mountPromoBar(grid);   // cuadro llamativo + marco + contador (o limpia si no hay promo)
     wirePlanSelection();
     wireContactLinks();
     wireTracking();
@@ -440,8 +605,13 @@
     var note = document.getElementById('saveNote');
     if (!note) return;
     if (!_annual || !_plans) { note.textContent = ''; return; }
+    var promo = getPromo();
     var max = 0;
-    _plans.forEach(function (p) { var s = planSavings(p); if (s > max) max = s; });
+    _plans.forEach(function (p) {
+      var s = planSavings(p);
+      if (promo.active) s = promo.free ? 0 : promoPrice(s, promo.percent);
+      if (s > max) max = s;
+    });
     note.textContent = max > 0 ? ('Pagando anual ahorrás hasta ' + formatGs(max) + ' al año') : '';
   }
 
@@ -578,7 +748,15 @@
       // Excluir add-ons pendientes (Bancard / Facturación electrónica) del render.
       _addons = (res[1] || []).filter(function (a) { return PENDING_ADDONS.indexOf(a.slug) === -1; });
       try {
-        if (hasPlans) { renderPlans(); updateSaveNote(); wireDynamicToggle(); }
+        if (hasPlans) {
+          renderPlans(); updateSaveNote(); wireDynamicToggle();
+          // Cuando la config (promo) llega o la oferta expira, re-renderizar la
+          // grilla para aplicar/quitar descuentos y el cuadro. onPromoReady
+          // dispara de una si la config ya estaba cargada.
+          onPromoReady(function () {
+            if (document.getElementById('plansGrid') && _plans) { renderPlans(); updateSaveNote(); }
+          });
+        }
         if (hasCalc) buildCalculator();
         track('pricing_view', {});
       } catch (e) { console.warn('[MythosWeb] pricing render', e); wireStaticPricingToggle(); }
@@ -678,9 +856,13 @@
         updateFooterDynamic();
         updateOG();
         updateFounder();
-      }).catch(function () { updateFounder(); });
+        _configLoaded = true; // habilita onPromoReady inmediato
+        notifyPromo();        // aplica la promo a toda superficie suscrita (planes/proveedores)
+      }).catch(function () { updateFounder(); _configLoaded = true; notifyPromo(); });
     } else {
       updateFounder();
+      _configLoaded = true;
+      notifyPromo();
     }
     initPricing();
     renderFaqs();
@@ -861,6 +1043,12 @@
     formatMiles: formatMiles,
     track: track,
     wireLeadForm: wireLeadForm,
-    config: CONFIG
+    config: CONFIG,
+    // ── API de promo (para vidrieras externas: proveedores, y futuras riders/clientes) ──
+    getPromo: function () { return getPromo(); },      // estado normalizado (ya chequea expiración)
+    promoPrice: promoPrice,                            // (n, pct) → precio con descuento
+    promoRibbonHTML: promoRibbonHTML,                  // cinta "-X%"/"GRATIS" para una tarjeta
+    mountPromoBar: mountPromoBar,                      // (gridEl) → monta/limpia el cuadro + marco + contador
+    onPromoReady: onPromoReady                         // (fn) → corre al cargar config y en cada cambio (expiración)
   };
 })();

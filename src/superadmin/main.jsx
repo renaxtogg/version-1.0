@@ -6942,6 +6942,31 @@ function SitioIdentidad({config, setFlash, reload}) {
   );
 }
 
+// datetime-local (local, sin tz) ⟷ ISO (UTC) para la fecha de fin de promo.
+function isoToLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function localInputToIso(local) {
+  if (!local) return '';
+  const d = new Date(local);   // interpreta el string local en la tz del navegador
+  return isNaN(d.getTime()) ? '' : d.toISOString();
+}
+// Texto de cuenta regresiva para el preview (discreto) del superadmin.
+function promoCountdownText(iso) {
+  if (!iso) return 'sin fecha de fin (sin contador)';
+  const end = new Date(iso).getTime();
+  if (isNaN(end)) return 'fecha inválida';
+  const ms = end - Date.now();
+  if (ms <= 0) return 'la oferta ya venció (no se muestra)';
+  const s = Math.floor(ms/1000);
+  const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60);
+  return `termina en ${d}d ${h}h ${m}m`;
+}
+
 function SitioConfig({config, setFlash, reload}) {
   const getVal = (k, dflt) => { const row = config.find(c=>c.key===k); return row ? row.value : dflt; };
   const hasKey = k => config.some(c=>c.key===k);
@@ -6952,21 +6977,29 @@ function SitioConfig({config, setFlash, reload}) {
   const [founderActive, setFounderActive] = useState(getVal('founder_offer_active', false) === true);
   const [founderLimit, setFounderLimit] = useState(String(getVal('founder_offer_limit', 0) ?? 0));
   const [trialDays, setTrialDays]       = useState(String(getVal('trial_days', 14) ?? 14));
+  // Promoción / Oferta (WEB-9) — cuadro llamativo + descuento en la web.
+  const [promoActive, setPromoActive]   = useState(getVal('promo_active', false) === true);
+  const [promoPercent, setPromoPercent] = useState(String(getVal('promo_percent', 0) ?? 0));
+  const [promoEndsAt, setPromoEndsAt]   = useState(isoToLocalInput(getVal('promo_ends_at', '')));
+  const [promoLabel, setPromoLabel]     = useState(String(getVal('promo_label', 'Oferta por tiempo limitado') ?? ''));
+  const [promoHeadline, setPromoHeadline] = useState(String(getVal('promo_headline', '') ?? ''));
   const [saving, setSaving]             = useState(false);
 
   const trialSignupExists = hasKey('trial_signup_enabled');
   const trialSignupOn = getVal('trial_signup_enabled', null) === true;
 
   // Guarda una clave en marketing_config con el TIPO JSONB correcto (number/bool/string).
+  // Devuelve true si persistió, false si no (para revertir toggles optimistas).
   const saveKey = async (key, value) => {
-    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return false; }
     setSaving(true);
     const { error } = await db.from('marketing_config')
       .upsert({ key, value, is_public:true, updated_at:new Date().toISOString() }, { onConflict:'key' });
     setSaving(false);
-    if (error) { setFlash({type:'error',text:'No se pudo guardar la configuración'}); return; }
+    if (error) { setFlash({type:'error',text:'No se pudo guardar la configuración'}); return false; }
     setFlash({type:'success',text:'Configuración guardada'});
     reload();
+    return true;
   };
 
   const saveWhatsapp = () => {
@@ -6974,7 +7007,8 @@ function SitioConfig({config, setFlash, reload}) {
     if (!/^\d{6,15}$/.test(v)) { setFlash({type:'error',text:'Usá solo dígitos: código de país + número (ej: 595986622735)'}); return; }
     saveKey('whatsapp', v);                        // fuente única (mig 148), string JSONB
   };
-  const saveFounderActive = (val) => { setFounderActive(val); saveKey('founder_offer_active', !!val); };  // boolean JSONB
+  // Optimista con reversión: si el guardado falla, el toggle vuelve a su estado real.
+  const saveFounderActive = async (val) => { setFounderActive(val); const ok = await saveKey('founder_offer_active', !!val); if (!ok) setFounderActive(!val); };  // boolean JSONB
   const saveFounderLimit = () => {
     const n = parseInt(founderLimit, 10);
     if (!Number.isFinite(n) || n < 0) { setFlash({type:'error',text:'El límite debe ser un número entero ≥ 0'}); return; }
@@ -6985,6 +7019,15 @@ function SitioConfig({config, setFlash, reload}) {
     if (!Number.isFinite(n) || n < 1) { setFlash({type:'error',text:'Los días deben ser un número entero ≥ 1'}); return; }
     saveKey('trial_days', n);                      // number JSONB
   };
+  const savePromoActive = async (val) => { setPromoActive(val); const ok = await saveKey('promo_active', !!val); if (!ok) setPromoActive(!val); };   // boolean JSONB (optimista con reversión)
+  const savePromoPercent = () => {
+    const n = parseInt(promoPercent, 10);
+    if (!Number.isFinite(n) || n < 0 || n > 100) { setFlash({type:'error',text:'El descuento debe ser un entero entre 0 y 100 (100 = gratis)'}); return; }
+    saveKey('promo_percent', n);                   // number JSONB
+  };
+  const savePromoEndsAt = () => { saveKey('promo_ends_at', localInputToIso(promoEndsAt)); };   // ISO string (o '')
+  const savePromoLabel = () => { saveKey('promo_label', (promoLabel||'').trim()); };
+  const savePromoHeadline = () => { saveKey('promo_headline', (promoHeadline||'').trim()); };
 
   return (
     <div style={{maxWidth:640}}>
@@ -7014,6 +7057,59 @@ function SitioConfig({config, setFlash, reload}) {
               <Btn variant="ghost" onClick={saveFounderLimit} disabled={saving}>Guardar</Btn>
             </div>
           </FormField>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Promoción / Oferta" style={{marginBottom:18}}>
+        <div style={{padding:'18px 20px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+            <div>
+              <div style={{fontWeight:600,fontSize:14,color:C.ink,marginBottom:4}}>Promoción activa</div>
+              <div style={{fontSize:12,color:C.mid}}>Enciende el cuadro de oferta + descuento en la web (planes de restaurante y proveedores).</div>
+            </div>
+            <Toggle checked={promoActive} onChange={savePromoActive}/>
+          </div>
+          <FormField label="Descuento (%)" hint="0–100. 100% = planes gratis.">
+            <div style={{display:'flex',gap:8}}>
+              <input type="number" min="0" max="100" value={promoPercent} onChange={e=>setPromoPercent(e.target.value)} style={{flex:1}}/>
+              <Btn variant="ghost" onClick={savePromoPercent} disabled={saving}>Guardar</Btn>
+            </div>
+          </FormField>
+          <FormField label="Termina el" hint="Fecha y hora de fin, para la cuenta regresiva. Vacío = sin contador (oferta abierta).">
+            <div style={{display:'flex',gap:8}}>
+              <input type="datetime-local" value={promoEndsAt} onChange={e=>setPromoEndsAt(e.target.value)} style={{flex:1}}/>
+              <Btn variant="ghost" onClick={savePromoEndsAt} disabled={saving}>Guardar</Btn>
+            </div>
+          </FormField>
+          <FormField label="Etiqueta" hint="Texto chico arriba del cuadro (ej: 'Oferta de lanzamiento').">
+            <div style={{display:'flex',gap:8}}>
+              <input value={promoLabel} onChange={e=>setPromoLabel(e.target.value)} maxLength={40} placeholder="Oferta por tiempo limitado" style={{flex:1}}/>
+              <Btn variant="ghost" onClick={savePromoLabel} disabled={saving}>Guardar</Btn>
+            </div>
+          </FormField>
+          <FormField label="Título (opcional)" hint="Frase principal del cuadro. Vacío = se arma sola con el %.">
+            <div style={{display:'flex',gap:8}}>
+              <input value={promoHeadline} onChange={e=>setPromoHeadline(e.target.value)} maxLength={80} placeholder="Todos los planes con 30% de descuento" style={{flex:1}}/>
+              <Btn variant="ghost" onClick={savePromoHeadline} disabled={saving}>Guardar</Btn>
+            </div>
+          </FormField>
+
+          {/* Vista previa discreta (no exagerada) de cómo queda en la web */}
+          <div style={{marginTop:6,padding:'12px 14px',border:`1px solid ${C.border}`,borderRadius:10,background:C.bg,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+            <span style={{fontSize:11,fontWeight:700,letterSpacing:.4,color:C.mid,textTransform:'uppercase'}}>Vista previa</span>
+            {(() => {
+              const pct = Math.max(0, Math.min(100, parseInt(promoPercent,10)||0));
+              const on = promoActive && pct>0;
+              if (!on) return <span style={{fontSize:13,color:C.dim}}>Promo apagada — la web muestra los precios normales.</span>;
+              const tag = pct>=100 ? 'GRATIS' : `−${pct}%`;
+              const ej = pct>=100 ? 'GRATIS' : 'Gs '+Math.round(300000*(100-pct)/100).toLocaleString('es-PY');
+              return (<>
+                <span style={{fontSize:13,fontWeight:800,color:C.surface,background:C.ink,padding:'3px 11px',borderRadius:20}}>{tag}</span>
+                <span style={{fontSize:13,color:C.mid}}>{promoCountdownText(localInputToIso(promoEndsAt))}</span>
+                <span style={{fontSize:12.5,color:C.dim}}>Ej: Consolidado <s>Gs 300.000</s> → <b style={{color:C.ink}}>{ej}</b>/mes</span>
+              </>);
+            })()}
+          </div>
         </div>
       </SectionCard>
 

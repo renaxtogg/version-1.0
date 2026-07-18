@@ -349,6 +349,7 @@
     var selectedCats = {};
     var selectedZonas = {};
     var selectedPlan = '';   // slug del plan elegido en la vidriera (SP3); '' = ninguno
+    var _lastPlans = null;   // último set de planes renderizado (para re-render de promo)
 
     // Refs de la vidriera de planes.
     var plansHost = document.getElementById('provPlans');
@@ -410,18 +411,25 @@
       return '₲ ' + v.toLocaleString('es-PY');
     }
 
-    function selectPlan(slug, name) {
-      selectedPlan = slug || '';
-      // Marcar la tarjeta elegida + resetear las demás.
+    // Solo re-marca la tarjeta elegida + el banner (SIN scroll/animación/track).
+    // Se usa al re-renderizar la grilla (p. ej. cuando entra o expira una promo)
+    // para restaurar el estado visual sin arrastrar al usuario de vuelta al
+    // formulario ni ensuciar la analítica.
+    function markPlanCard(slug) {
       [].slice.call(plansHost.querySelectorAll('.prov-plan')).forEach(function (card) {
         var on = card.getAttribute('data-slug') === slug;
         card.classList.toggle('sel', on);
         var btn = card.querySelector('.pchoose');
         if (btn) btn.textContent = on ? 'Elegido ✓' : 'Elegir este plan';
       });
-      // Banner en el formulario.
-      if (selectedPlan) { planPickName.textContent = name || slug; planPick.classList.add('show'); }
+      if (slug) planPick.classList.add('show');
       else planPick.classList.remove('show');
+    }
+
+    function selectPlan(slug, name) {
+      selectedPlan = slug || '';
+      if (selectedPlan) planPickName.textContent = name || slug;
+      markPlanCard(selectedPlan);
       if (window.MythosWeb) { try { MythosWeb.track('supplier_plan_selected', { plan_slug: selectedPlan }); } catch (e) {} }
       // Desplegar el formulario (arranca oculto) — re-dispara la animación cada vez.
       formSection.classList.remove('prov-shown');
@@ -431,24 +439,41 @@
       try { formSection.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
     }
 
+    // Estado de promo (helpers compartidos de web-marketing.js). Sin MythosWeb
+    // o sin promo activa → todo se ve como siempre.
+    function promoState() {
+      return (window.MythosWeb && MythosWeb.getPromo) ? MythosWeb.getPromo() : { active: false };
+    }
+
     function renderPlans(list) {
+      _lastPlans = list;
       plansHost.innerHTML = '';
+      var promo = promoState();
       (list || []).forEach(function (p) {
+        var onSale = promo.active && p.price_monthly_gs != null && Number(p.price_monthly_gs) > 0;
         var card = document.createElement('div');
-        card.className = 'prov-plan' + (p.is_recommended ? ' rec' : '');
+        card.className = 'prov-plan' + (p.is_recommended ? ' rec' : '') + (onSale ? ' on-sale' : '');
         card.setAttribute('data-slug', p.slug);
 
         var badge = p.badge ? '<span class="pbadge">' + p.badge + '</span>' : '';
+        var ribbon = onSale && MythosWeb.promoRibbonHTML ? MythosWeb.promoRibbonHTML(promo) : '';
         var priceStr = fmtGs(p.price_monthly_gs);
-        var price = priceStr
-          ? '<div class="pprice">' + priceStr + '<small>por mes</small></div>'
-          : '<div class="pprice" style="font-size:22px">A convenir</div>';
+        var price;
+        if (!priceStr) {
+          price = '<div class="pprice" style="font-size:22px">A convenir</div>';
+        } else if (onSale) {
+          var now = MythosWeb.promoPrice(p.price_monthly_gs, promo.percent);
+          var nowStr = promo.free ? '<span class="price-free">GRATIS</span>' : fmtGs(now) + '<small>por mes</small>';
+          price = '<div class="pprice"><span class="price-was">' + priceStr + '</span>' + nowStr + '</div>';
+        } else {
+          price = '<div class="pprice">' + priceStr + '<small>por mes</small></div>';
+        }
         var feats = (Array.isArray(p.features) ? p.features : []).map(function (f) {
           return '<li>' + String(f) + '</li>';
         }).join('');
 
         card.innerHTML =
-          badge +
+          ribbon + badge +
           '<h3>' + (p.name || p.slug) + '</h3>' +
           '<p class="phead">' + (p.headline || '') + '</p>' +
           price +
@@ -460,10 +485,13 @@
         });
         plansHost.appendChild(card);
       });
-      // Re-aplicar la selección si ya había una (p. ej. re-render).
+      // Cuadro llamativo + marco + cuenta regresiva (o limpia si no hay promo).
+      if (window.MythosWeb && MythosWeb.mountPromoBar) MythosWeb.mountPromoBar(plansHost);
+      // Re-aplicar la selección si ya había una (p. ej. re-render por promo).
+      // Solo re-marca visualmente — NO re-scrollea ni re-anima el formulario.
       if (selectedPlan) {
         var prev = plansHost.querySelector('.prov-plan[data-slug="' + selectedPlan + '"]');
-        if (prev) selectPlan(selectedPlan, planPickName.textContent);
+        if (prev) markPlanCard(selectedPlan);
         else { selectedPlan = ''; planPick.classList.remove('show'); }
       }
     }
@@ -476,6 +504,10 @@
           .catch(function () { renderPlans(fallback); });
       } else {
         renderPlans(fallback);
+      }
+      // Re-decorar cuando llega la config (promo) o cuando la oferta expira.
+      if (window.MythosWeb && MythosWeb.onPromoReady) {
+        MythosWeb.onPromoReady(function () { if (_lastPlans) renderPlans(_lastPlans); });
       }
     }
 

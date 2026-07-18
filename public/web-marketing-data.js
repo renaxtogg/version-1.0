@@ -91,6 +91,18 @@
     founder_offer_limit: 10,
     sales_whatsapp: '595000000000',
     site_home_path: '/inicio',
+    // ── Promoción / Oferta global sobre planes (superadmin → Sitio web) ────
+    // Un solo interruptor que enciende el cuadro llamativo + descuento en TODA
+    // vidriera de planes (restaurante /web·/precios + proveedores; reusable a
+    // futuro en riders/clientes). OFF por defecto. `promo_ends_at` = ISO o ''
+    // (sin fecha = sin cuenta regresiva). Si la fecha ya pasó, el sitio la trata
+    // como inactiva. `promo_percent` 0–100 (100 = planes gratis). Estos son el
+    // fallback offline; la DB (marketing_config, is_public) manda.
+    promo_active: false,
+    promo_percent: 0,
+    promo_ends_at: '',
+    promo_label: 'Oferta por tiempo limitado',
+    promo_headline: '',
     // Identidad del negocio (WEB-8, mig 148/164) — fuente única del sitio + legales.
     // Identidad OFICIAL (07-jul-2026): marca MYTHOS, sin razón social/RUC públicos.
     // `legal_name`/`ruc` VACÍOS a propósito → el sitio NO los muestra (fix L2).
