@@ -144,11 +144,14 @@ module.exports = async function handler(req, res) {
       slug = `${baseSlug}-${i}`;
     }
 
-    // ── 2b. Plan de lanzamiento: del body (default 'basico'). Se valida ANTES
-    //        de crear nada (fail-fast, sin rollback). trial_days/price_gs salen
-    //        del catálogo marketplace_supplier_plans (mig 177). ──
-    const planSlug = (typeof body.plan_slug === 'string' && body.plan_slug.trim())
-      ? body.plan_slug.trim() : 'basico';
+    // ── 2b. Plan de lanzamiento. Prioridad: override explícito del superadmin
+    //        (body.plan_slug) → el plan que ELIGIÓ el proveedor al postular
+    //        (app.plan_slug, mig 179) → piso 'basico'. Se valida ANTES de crear
+    //        nada (fail-fast, sin rollback). trial_days/price_gs salen del
+    //        catálogo marketplace_supplier_plans (mig 177). ──
+    const bodyPlan = (typeof body.plan_slug === 'string' && body.plan_slug.trim()) ? body.plan_slug.trim() : '';
+    const appPlan  = (typeof app.plan_slug === 'string' && app.plan_slug.trim()) ? app.plan_slug.trim() : '';
+    const planSlug = bodyPlan || appPlan || 'basico';
     const planResp = await httpsGet(
       `${SUPABASE_URL}/rest/v1/marketplace_supplier_plans?slug=eq.${encodeURIComponent(planSlug)}&select=slug,price_gs,trial_days&limit=1`,
       SR_HEADERS

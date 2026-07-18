@@ -81,6 +81,28 @@
 
     .prov-launch{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--text-primary);background:var(--bg-subtle);border:1px solid var(--border);border-radius:20px;padding:6px 14px}
 
+    /* ── Planes de proveedor (vidriera; "elegí y arrancá con ese") ─────────── */
+    .prov-plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;margin-top:14px;align-items:stretch;max-width:900px;margin-left:auto;margin-right:auto}
+    .prov-plan{position:relative;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:18px;padding:26px 22px;background:var(--surface);transition:border-color .15s,box-shadow .15s}
+    .prov-plan.rec{border-color:var(--text-primary);box-shadow:0 10px 40px rgba(0,0,0,.06)}
+    .prov-plan.sel{border-color:var(--success);box-shadow:0 0 0 2px color-mix(in srgb,var(--success) 45%,transparent)}
+    .prov-plan .pbadge{position:absolute;top:-11px;left:50%;transform:translateX(-50%);white-space:nowrap;background:var(--text-primary);color:var(--surface);font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:4px 12px;border-radius:20px;text-transform:uppercase}
+    .prov-plan h3{margin:0 0 3px;font-size:19px}
+    .prov-plan .phead{font-size:13px;color:var(--text-secondary);margin:0 0 16px;line-height:1.4;min-height:36px}
+    .prov-plan .pprice{font-size:30px;font-weight:800;color:var(--text-primary);line-height:1}
+    .prov-plan .pprice small{display:block;font-size:12.5px;font-weight:600;color:var(--text-secondary);margin-top:4px}
+    .prov-plan .pfeats{list-style:none;padding:0;margin:18px 0 22px;display:flex;flex-direction:column;gap:9px;flex:1}
+    .prov-plan .pfeats li{font-size:13px;color:var(--text-primary);display:flex;gap:9px;align-items:flex-start;line-height:1.4}
+    .prov-plan .pfeats li::before{content:"\2713";color:var(--success);font-weight:800;flex-shrink:0}
+    .prov-plan .btn{width:100%;justify-content:center}
+    .prov-plan.sel .pchoose{background:var(--success);border-color:var(--success);color:#fff}
+
+    .prov-planpick{display:none;align-items:center;gap:10px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:12px;padding:11px 14px;margin-bottom:18px;font-size:13.5px;line-height:1.4}
+    .prov-planpick.show{display:flex}
+    .prov-planpick .dot{width:9px;height:9px;border-radius:50%;background:var(--success);flex-shrink:0}
+    .prov-planpick b{color:var(--text-primary)}
+    .prov-planpick a{margin-left:auto;color:var(--text-primary);text-decoration:underline;cursor:pointer;font-weight:600;font-size:12.5px;white-space:nowrap}
+
     @media (max-width:560px){
       .prov-grid{grid-template-columns:1fr}
       .prov-flags{grid-template-columns:1fr}
@@ -105,7 +127,7 @@
       <h1>Vendé tus productos a restaurantes.</h1>
       <p class="sub">Llegá a los restaurantes que ya gestionan su negocio con Mythos. Publicá tu catálogo, mostrá tus zonas de entrega y recibí consultas de compra directas.</p>
       <div class="hero-cta">
-        <a class="btn btn-primary" href="#registro">Quiero ser proveedor</a>
+        <a class="btn btn-primary" href="#planes">Quiero ser proveedor</a>
         <a class="btn btn-secondary" href="#como-funciona">Cómo funciona</a>
       </div>
       <!-- Microcopy promocional retirada 2026-07-07 (decisión de producto). -->
@@ -135,10 +157,27 @@
       </div>
     </section>
 
+    <!-- ── PLANES (vidriera; el proveedor ELIGE antes del formulario) ─────── -->
+    <section class="block wrap reveal" id="planes">
+      <h2 class="center">Elegí tu plan</h2>
+      <p class="lead center">Arrancás con <strong>30 días de prueba</strong>, sin tarjeta. Elegí el plan con el que querés empezar — lo podés cambiar cuando quieras.</p>
+      <div class="prov-plans" id="provPlans">
+        <span style="grid-column:1/-1;text-align:center;font-size:13px;color:var(--text-secondary)">Cargando planes…</span>
+      </div>
+      <p class="center" style="font-size:12.5px;color:var(--text-secondary);margin-top:16px">Los precios se cobran recién una vez activada tu tienda, al terminar la prueba. Sin comisiones por venta.</p>
+    </section>
+
     <!-- ── FORMULARIO ───────────────────────────────────────────────────── -->
     <section class="block wrap reveal" id="registro">
       <div class="prov-formwrap">
         <div class="prov-card">
+
+          <!-- Plan elegido (se muestra cuando el proveedor tocó "Elegir" arriba) -->
+          <div class="prov-planpick" id="provPlanPick">
+            <span class="dot"></span>
+            <span>Plan elegido: <b id="provPlanPickName"></b></span>
+            <a id="provPlanPickChange">Cambiar</a>
+          </div>
 
           <!-- Progreso -->
           <div class="prov-progress" id="provProgress">
@@ -265,6 +304,7 @@
 
   <script src="mythos-icons.js"></script>
   <script defer src="mythos-cookie-banner.js"></script>
+  <script src="web-marketing-data.js"></script>
   <script src="web-marketing.js"></script>
   <script>MythosWeb.init({ active: 'proveedores' });</script>
 
@@ -303,6 +343,13 @@
     var current = 1;
     var selectedCats = {};
     var selectedZonas = {};
+    var selectedPlan = '';   // slug del plan elegido en la vidriera (SP3); '' = ninguno
+
+    // Refs de la vidriera de planes.
+    var plansHost = document.getElementById('provPlans');
+    var planPick = document.getElementById('provPlanPick');
+    var planPickName = document.getElementById('provPlanPickName');
+    var planPickChange = document.getElementById('provPlanPickChange');
 
     function val(name) { var el = form.querySelector('[name="' + name + '"]'); return el ? String(el.value == null ? '' : el.value).trim() : ''; }
     function checked(name) { var el = form.querySelector('[name="' + name + '"]'); return !!(el && el.checked); }
@@ -349,6 +396,83 @@
         host.appendChild(b);
       });
     }
+
+    // ── Vidriera de planes (SP3: el proveedor elige y arranca con ese) ──────
+    function fmtGs(n) {
+      var v = Number(n);
+      if (!isFinite(v) || v <= 0) return '';
+      return '₲ ' + v.toLocaleString('es-PY');
+    }
+
+    function selectPlan(slug, name) {
+      selectedPlan = slug || '';
+      // Marcar la tarjeta elegida + resetear las demás.
+      [].slice.call(plansHost.querySelectorAll('.prov-plan')).forEach(function (card) {
+        var on = card.getAttribute('data-slug') === slug;
+        card.classList.toggle('sel', on);
+        var btn = card.querySelector('.pchoose');
+        if (btn) btn.textContent = on ? 'Elegido ✓' : 'Elegir este plan';
+      });
+      // Banner en el formulario.
+      if (selectedPlan) { planPickName.textContent = name || slug; planPick.classList.add('show'); }
+      else planPick.classList.remove('show');
+      if (window.MythosWeb) { try { MythosWeb.track('supplier_plan_selected', { plan_slug: selectedPlan }); } catch (e) {} }
+      // Llevar al formulario.
+      try { document.getElementById('registro').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+    }
+
+    function renderPlans(list) {
+      plansHost.innerHTML = '';
+      (list || []).forEach(function (p) {
+        var card = document.createElement('div');
+        card.className = 'prov-plan' + (p.is_recommended ? ' rec' : '');
+        card.setAttribute('data-slug', p.slug);
+
+        var badge = p.badge ? '<span class="pbadge">' + p.badge + '</span>' : '';
+        var priceStr = fmtGs(p.price_monthly_gs);
+        var price = priceStr
+          ? '<div class="pprice">' + priceStr + '<small>por mes</small></div>'
+          : '<div class="pprice" style="font-size:22px">A convenir</div>';
+        var feats = (Array.isArray(p.features) ? p.features : []).map(function (f) {
+          return '<li>' + String(f) + '</li>';
+        }).join('');
+
+        card.innerHTML =
+          badge +
+          '<h3>' + (p.name || p.slug) + '</h3>' +
+          '<p class="phead">' + (p.headline || '') + '</p>' +
+          price +
+          '<ul class="pfeats">' + feats + '</ul>' +
+          '<button type="button" class="btn ' + (p.is_recommended ? 'btn-primary' : 'btn-secondary') + ' pchoose">Elegir este plan</button>';
+
+        card.querySelector('.pchoose').addEventListener('click', function () {
+          selectPlan(p.slug, p.name || p.slug);
+        });
+        plansHost.appendChild(card);
+      });
+      // Re-aplicar la selección si ya había una (p. ej. re-render).
+      if (selectedPlan) {
+        var prev = plansHost.querySelector('.prov-plan[data-slug="' + selectedPlan + '"]');
+        if (prev) selectPlan(selectedPlan, planPickName.textContent);
+        else { selectedPlan = ''; planPick.classList.remove('show'); }
+      }
+    }
+
+    function loadPlans() {
+      var fallback = (window.MythosWebData && MythosWebData.FALLBACK_SUPPLIER_PLANS) || [];
+      if (window.MythosWebData && MythosWebData.getSupplierPlans) {
+        MythosWebData.getSupplierPlans()
+          .then(function (rows) { renderPlans(rows && rows.length ? rows : fallback); })
+          .catch(function () { renderPlans(fallback); });
+      } else {
+        renderPlans(fallback);
+      }
+    }
+
+    // "Cambiar" en el banner → volver a la vidriera.
+    if (planPickChange) planPickChange.addEventListener('click', function () {
+      try { document.getElementById('planes').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+    });
 
     function paintProgress() {
       nodes.forEach(function (n) {
@@ -420,6 +544,7 @@
         email: val('email'),
         categorias: Object.keys(selectedCats),
         zonas_entrega: Object.keys(selectedZonas),
+        plan_slug: selectedPlan || '',
         productos_principales: val('productos_principales'),
         marcas: val('marcas'),
         vende_mayor: checked('vende_mayor'),
@@ -491,6 +616,7 @@
     });
 
     // Init
+    loadPlans();
     loadCats();
     loadZonas();
     showStep(1);

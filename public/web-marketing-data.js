@@ -63,6 +63,28 @@
     { slug: 'sucursal-adicional', name: 'Sucursal adicional', description: 'Cada sede extra, en un solo panel.', price_gs: 150000, price_type: 'cuota' }
   ];
 
+  // ── Planes de PROVEEDOR (vidriera pública, mig 179) — fallback offline ──────
+  // Espejo del seed de marketing_supplier_plans (linkeado al operativo mig 177:
+  // basico ₲99k / profesional ₲199k / premium ₲349k). Alimenta las tarjetas de
+  // /proveedores. Si la mig 179 no está aplicada o no hay cliente → este fallback.
+  var FALLBACK_SUPPLIER_PLANS = [
+    { slug: 'basico', name: 'Básico', headline: 'Empezá a recibir consultas',
+      description: 'Tu tienda en el marketplace, lista para recibir contactos de restaurantes.',
+      price_monthly_gs: 99000, price_annual_gs: 990000, currency: 'PYG',
+      features: ['Perfil de proveedor en el marketplace', 'Hasta 10 productos', '1 usuario', '1 categoría y 1 zona de cobertura', 'Contacto de leads con demora (24 h)'],
+      badge: null, is_recommended: false },
+    { slug: 'profesional', name: 'Profesional', headline: 'El plan que más venden',
+      description: 'Contacto inmediato con los restaurantes y más catálogo para destacar.',
+      price_monthly_gs: 199000, price_annual_gs: 1990000, currency: 'PYG',
+      features: ['Hasta 50 productos', 'Hasta 3 usuarios', '3 categorías y 3 zonas', 'Contacto de leads inmediato', '1 espacio destacado', 'Analítica básica', 'Hasta 3 catálogos PDF'],
+      badge: 'Recomendado', is_recommended: true },
+    { slug: 'premium', name: 'Premium', headline: 'Máxima visibilidad y prioridad',
+      description: 'Todo ilimitado, prioridad en los leads y tu marca destacada.',
+      price_monthly_gs: 349000, price_annual_gs: 3490000, currency: 'PYG',
+      features: ['Productos ilimitados', 'Usuarios ilimitados', 'Categorías y zonas ilimitadas', 'Contacto inmediato y prioritario', 'Destacados ilimitados', 'Analítica completa', 'Banner de marca', 'Catálogos PDF ilimitados'],
+      badge: null, is_recommended: false }
+  ];
+
   var DEFAULT_CONFIG = {
     trial_days: 14,
     founder_offer_active: true,
@@ -140,6 +162,14 @@
   function getAddOns() {
     return readOrdered('marketing_add_ons').then(function (rows) {
       return rows ? rows : FALLBACK_ADDONS.slice();
+    });
+  }
+
+  // Planes de proveedor para la vidriera pública (RLS filtra is_active). Normaliza
+  // features/plan_config igual que getPlans; null/vacío/error → fallback estático.
+  function getSupplierPlans() {
+    return readOrdered('marketing_supplier_plans').then(function (rows) {
+      return (rows ? rows.map(normalizeFeatures) : FALLBACK_SUPPLIER_PLANS.slice());
     });
   }
 
@@ -223,12 +253,14 @@
     available: function () { return !!db(); },
     getPlans: getPlans,
     getAddOns: getAddOns,
+    getSupplierPlans: getSupplierPlans,
     getFaqs: getFaqs,
     getPublicConfig: getPublicConfig,
     trackEvent: trackEvent,
     submitLead: submitLead,
     FALLBACK_PLANS: FALLBACK_PLANS,
     FALLBACK_ADDONS: FALLBACK_ADDONS,
+    FALLBACK_SUPPLIER_PLANS: FALLBACK_SUPPLIER_PLANS,
     DEFAULT_CONFIG: DEFAULT_CONFIG
   };
 })();
