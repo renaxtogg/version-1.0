@@ -228,9 +228,7 @@ const FEATURE_GROUPS = [
     {key:'caja:sifen',            label:'Facturación SIFEN',   desc:'e-Kuatia electrónica'},
     {key:'caja:digital_payments', label:'Pasarelas Bancard',   desc:'QR / VPos digital'},
   ]},
-  {group:'Mozo', icon:'utensils', items:[
-    {key:'mozo:digital_qr_pay',   label:'Cobro Mesa por QR',   desc:'Pago digital en mesa'},
-  ]},
+  // Módulo "Cobro Mesa por QR" (mozo:digital_qr_pay) oculto del catálogo — no funcional aún (2026-07-18).
 ];
 
 // Add-ons por defecto (fallback si plan_addons aún no está migrado)

@@ -449,8 +449,7 @@
   // Features aún NO vivas: NUNCA se listan como incluidas → van como "Próximamente".
   var PENDING_FEATURE_LABELS = {
     'caja:sifen': 'Facturación electrónica (SIFEN)',
-    'caja:digital_payments': 'Pagos online con Bancard',
-    'mozo:digital_qr_pay': 'Cobro en mesa por QR'
+    'caja:digital_payments': 'Pagos online con Bancard'
   };
   function asList(v) { return Array.isArray(v) ? v : []; }
 

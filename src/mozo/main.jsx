@@ -459,10 +459,17 @@ function App() {
   const [invEmail, setInvEmail] = useState('');
   const [mesaDialog, setMesaDialog] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
-  const [showBancardMozoToast, setShowBancardMozoToast] = useState(false);
-  const [showQrPaywall, setShowQrPaywall] = useState(false);
-  // Omni-Gating: cobro de mesa por QR digital según plan del comercio
-  const _caps = window.MythosGating ? window.MythosGating.useCapabilities(db, RID) : { hasFeature: () => true };
+  // Nº de comprobante/operación (opcional) al cobrar con tarjeta o transferencia (mig 180)
+  const [comprobante, setComprobante] = useState('');
+  // Datos de transferencia del comercio (para mostrar al cobrar por QR/transferencia — mig 180)
+  const [bankInfo, setBankInfo] = useState(null);
+  useEffect(() => {
+    if (!db || !RID) return;
+    db.from('restaurants')
+      .select('bank_holder,bank_name,bank_account,bank_alias,bank_doc,bank_qr_url')
+      .eq('id', RID).maybeSingle()
+      .then(r => setBankInfo((r && r.data) || null)).catch(() => {});
+  }, []);
 
   // Mapa de zonas
   const [mesaViewMode, setMesaViewMode] = useState(() => localStorage.getItem('mozo_mesa_view') || 'grid');
@@ -1480,6 +1487,7 @@ function App() {
     setInvName('');
     setInvRuc('');
     setInvEmail('');
+    setComprobante('');
     setCobroItemSel({});
     setCobroBusy(false);
     setCobroModal(true);
@@ -1572,7 +1580,7 @@ function App() {
         const payerName = mozoSession?.mozo_name || 'mozo';
         const touchedIds = [...new Set(toCharge.map(x => x.it._orderId))];
         if (touchedIds.length) {
-          await db.from('orders').update({ paid_by_name: payerName, paid_at: new Date().toISOString() }).in('id', touchedIds);
+          await db.from('orders').update({ paid_by_name: payerName, paid_at: new Date().toISOString(), payment_reference: (['tarjeta_credito','tarjeta_debito','qr'].includes(payMethod) && comprobante.trim()) ? comprobante.trim() : null }).in('id', touchedIds);
         }
       } catch (_) { /* columnas opcionales (mig 044) — ignorar si faltan */ }
       await loadData();
@@ -1663,6 +1671,7 @@ function App() {
           paid_by: payerId,
           paid_by_name: payerName,
           paid_at: nowIso,
+          payment_reference: (['tarjeta_credito','tarjeta_debito','qr'].includes(payMethod) && comprobante.trim()) ? comprobante.trim() : null,
           ...invoiceFields,
         };
         if (cerrarOrden) {
@@ -2252,9 +2261,6 @@ function App() {
                       )}
                       {hasPendingCobro && (
                         <button className="order-action-btn primary-action" onClick={openCobroModal} title="Cobrar">₲</button>
-                      )}
-                      {hasPendingCobro && (
-                        <button className="order-action-btn" onClick={() => _caps.hasFeature('mozo:digital_qr_pay') ? setShowBancardMozoToast(true) : setShowQrPaywall(true)} title="Cobrar Mesa con QR Digital"><Icon name="creditCard" size={15} /></button>
                       )}
                       {activeOrder && (
                         // Mostrar ✓ sólo cuando hay acción real:
@@ -3130,6 +3136,47 @@ function App() {
                 </div>
               </div>
 
+              {/* Nº de comprobante (tarjeta POS / transferencia) — opcional, mig 180 */}
+              {(payMethod === 'tarjeta_credito' || payMethod === 'tarjeta_debito' || payMethod === 'qr') && (
+                <div className="tip-section">
+                  <div className="section-label">N° de comprobante / operación <span style={{ fontWeight: 400, color: 'var(--text3)' }}>(opcional)</span></div>
+                  <input value={comprobante} onChange={e => setComprobante(e.target.value)}
+                    placeholder={payMethod === 'qr' ? 'N° de operación de la transferencia' : 'N° del comprobante del POS'}
+                    style={{ width: '100%', height: 38, border: '1px solid var(--border)', borderRadius: 7, padding: '0 10px', fontSize: 13, fontFamily: 'inherit', color: 'var(--text)', outline: 'none', background: 'var(--bg2)', boxSizing: 'border-box' }} />
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Para revisar después si el pago llegó. Podés dejarlo vacío.</div>
+                </div>
+              )}
+
+              {/* Datos para la transferencia (los carga el dueño en Admin → Configuración) — mig 180 */}
+              {payMethod === 'qr' && (() => {
+                const hasData = bankInfo && (bankInfo.bank_holder || bankInfo.bank_name || bankInfo.bank_account || bankInfo.bank_alias || bankInfo.bank_qr_url);
+                if (!hasData) return (
+                  <div className="tip-section">
+                    <div style={{ padding: '10px 12px', background: 'var(--bg2)', border: '1px dashed var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text2)', lineHeight: 1.5 }}>
+                      El dueño todavía no cargó los datos de transferencia. Se configuran en <strong>Admin → Configuración → Datos para transferencias</strong>.
+                    </div>
+                  </div>
+                );
+                return (
+                  <div className="tip-section">
+                    <div className="section-label">Datos para la transferencia</div>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+                      <div style={{ flex: 1, fontSize: 13, lineHeight: 1.6, color: 'var(--text)', wordBreak: 'break-word' }}>
+                        {bankInfo.bank_holder && <div><span style={{ color: 'var(--text3)' }}>Titular:</span> <strong>{bankInfo.bank_holder}</strong></div>}
+                        {bankInfo.bank_name && <div><span style={{ color: 'var(--text3)' }}>Banco:</span> {bankInfo.bank_name}</div>}
+                        {bankInfo.bank_account && <div><span style={{ color: 'var(--text3)' }}>Cuenta:</span> {bankInfo.bank_account}</div>}
+                        {bankInfo.bank_alias && <div><span style={{ color: 'var(--text3)' }}>Alias:</span> {bankInfo.bank_alias}</div>}
+                        {bankInfo.bank_doc && <div><span style={{ color: 'var(--text3)' }}>CI/RUC:</span> {bankInfo.bank_doc}</div>}
+                      </div>
+                      {bankInfo.bank_qr_url && (
+                        <img src={bankInfo.bank_qr_url} alt="QR transferencia" style={{ width: 96, height: 96, objectFit: 'contain', borderRadius: 8, border: '1px solid var(--border)', background: '#fff', flexShrink: 0 }} />
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Mostrale estos datos al cliente. Si hay QR, puede escanearlo y transferir directo.</div>
+                  </div>
+                );
+              })()}
+
               {/* Comprobante */}
               <div className="tip-section">
                 <div className="section-label">Comprobante</div>
@@ -3452,27 +3499,6 @@ function App() {
         {toast && <span>{toast}</span>}
       </div>
 
-      {/* Paywall — Cobro de Mesa por QR Digital (módulo premium) */}
-      {showQrPaywall && window.MythosGating && <window.MythosGating.FeatureLock featureKey="mozo:digital_qr_pay" onClose={() => setShowQrPaywall(false)}/>}
-
-      {/* BANCARD PRÓXIMAMENTE */}
-      {showBancardMozoToast && (() => {
-        const dismiss = () => setShowBancardMozoToast(false);
-        setTimeout(dismiss, 4000);
-        return (
-          <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',zIndex:9999,
-            background:'#1C1C1E',color:'#F5F5F7',borderRadius:14,padding:'14px 20px',
-            maxWidth:340,width:'calc(100% - 40px)',boxShadow:'0 8px 32px rgba(0,0,0,0.4)',
-            display:'flex',alignItems:'flex-start',gap:12,animation:'slideUp .25s ease',cursor:'pointer'}}
-            onClick={dismiss}>
-            <span style={{flexShrink:0,display:'flex',color:'#F5F5F7'}}><Icon name="building" size={22} /></span>
-            <div>
-              <div style={{fontWeight:700,fontSize:13,marginBottom:3}}>Módulo Bancard / SIFEN en fase de certificación</div>
-              <div style={{fontSize:11,color:'#AEAEB2',lineHeight:1.4}}>Esta pasarela se activará automáticamente al concluir los trámites del comercio.</div>
-            </div>
-          </div>
-        );
-      })()}
     </>
   );
 }

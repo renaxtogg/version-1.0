@@ -1978,7 +1978,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
   const [invName, setInvName] = useState('');
   const [invRuc, setInvRuc] = useState('');
   const [invEmail, setInvEmail] = useState('');
-  const [showBancardToast, setShowBancardToast] = useState(false);
+  // (Pago Online Bancard retirado — no funcional aún, 2026-07-18)
 
   const METHODS = isDelivery
     ? [
@@ -2104,17 +2104,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
           </div>
         )}
 
-        {/* ── Pago Online Bancard — Próximamente ── */}
-        <div onClick={() => setShowBancardToast(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'rgba(255,149,0,0.05)', border: `2px dashed rgba(255,149,0,0.35)`, borderRadius: 12, marginBottom: 8, cursor: 'pointer' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#92400E', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <Icon name="card" size={14} color="#92400E" /> Pago Online (Tarjeta/QR Bancard)
-              <span style={{ fontSize: 9, fontWeight: 800, background: '#FF9500', color: '#fff', borderRadius: 4, padding: '2px 5px', letterSpacing: '0.05em' }}>PRÓXIMAMENTE</span>
-            </div>
-            <div style={{ fontSize: 12, color: '#B45309', marginTop: 1 }}>Visa · Mastercard · QR Bancard</div>
-          </div>
-          <div style={{ fontSize: 18, opacity: 0.5 }}>›</div>
-        </div>
+        {/* "Pago Online (Tarjeta/QR Bancard)" retirado — no funcional aún (2026-07-18) */}
 
         {/* Vuelto — solo para efectivo */}
         {method === 'efectivo' && (
@@ -2220,18 +2210,6 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
           {canOrder ? 'Confirmar pedido' : (openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Local cerrado')}
         </button>
       </div>
-      {showBancardToast && (() => {
-        setTimeout(() => setShowBancardToast(false), 4000);
-        return (
-          <div onClick={() => setShowBancardToast(false)} style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 9999, background: '#1C1C1E', color: 'var(--bg-subtle)', borderRadius: 14, padding: '14px 20px', maxWidth: 340, width: 'calc(100% - 40px)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
-            <span style={{ flexShrink: 0, display: 'flex' }}><Icon name="building" size={22} color="var(--bg-subtle)" /></span>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3 }}>Módulo Bancard / SIFEN en fase de certificación</div>
-              <div style={{ fontSize: 11, color: '#AEAEB2', lineHeight: 1.4 }}>Esta pasarela se activará automáticamente al concluir los trámites del comercio.</div>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }

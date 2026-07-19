@@ -277,6 +277,66 @@ function Btn({children,onClick,variant='primary',disabled,small,full,style:sx}){
   return<button onClick={onClick} disabled={disabled} className={cls} style={{...(full?{width:'100%'}:{}),...sx}}>{children}</button>;
 }
 function Divider(){return<div style={{height:1,background:C.border,margin:'8px 0'}}/>;}
+
+/* ── Datos de transferencia del comercio (mig 180) — loader cacheado + hook ──
+   Los carga el dueño en Admin → Configuración. Caja los muestra al cobrar por
+   transferencia/QR para que el cliente transfiera o escanee el QR. Lectura del
+   PROPIO restaurante (tenant scoping vigente); no toca RLS ni al rol anon. */
+let _bankInfoCache;              // undefined = sin cargar · null = sin datos · obj = datos
+let _bankInfoPromise = null;
+function loadBankInfo(){
+  if(_bankInfoCache!==undefined) return Promise.resolve(_bankInfoCache);
+  if(_bankInfoPromise) return _bankInfoPromise;
+  if(!db||!RID){ _bankInfoCache=null; return Promise.resolve(null); }
+  _bankInfoPromise = db.from('restaurants')
+    .select('bank_holder,bank_name,bank_account,bank_alias,bank_doc,bank_qr_url')
+    .eq('id',RID).maybeSingle()
+    .then(r=>{ _bankInfoCache=(r&&r.data)||null; return _bankInfoCache; })
+    .catch(()=>{ _bankInfoCache=null; return null; });
+  return _bankInfoPromise;
+}
+function useBankInfo(){
+  const [bi,setBi]=useState(_bankInfoCache||null);
+  useEffect(()=>{ let m=true; loadBankInfo().then(v=>{ if(m)setBi(v); }); return ()=>{m=false;}; },[]);
+  return bi;
+}
+// Métodos que admiten Nº de comprobante (tarjeta POS / transferencia / QR / mixto).
+const _needsRef = m => m==='tarjeta_credito'||m==='tarjeta_debito'||m==='qr'||m==='mixto';
+/* UI compartida por los modales de cobro: campo "N° de comprobante" (opcional) y,
+   para transferencia/QR, los datos de la cuenta del comercio + su QR. */
+function PagoRefTransfer({metodo, comprobante, setComprobante, bankInfo}){
+  if(!_needsRef(metodo)) return null;
+  const isQr = metodo==='qr';
+  const hasData = bankInfo && (bankInfo.bank_holder||bankInfo.bank_name||bankInfo.bank_account||bankInfo.bank_alias||bankInfo.bank_qr_url);
+  return (
+    <div style={{marginBottom:16}}>
+      <Lbl>N° DE COMPROBANTE / OPERACIÓN <span style={{fontWeight:400,color:C.dim,letterSpacing:0}}>(opcional)</span></Lbl>
+      <Inp value={comprobante} onChange={e=>setComprobante(e.target.value)}
+        placeholder={isQr?'N° de operación de la transferencia':'N° del comprobante del POS'}/>
+      <div style={{fontSize:11,color:C.mid,marginTop:4}}>Para conciliar después si el pago llegó. Podés dejarlo vacío.</div>
+      {isQr && (hasData ? (
+        <div style={{marginTop:12}}>
+          <Lbl>DATOS PARA LA TRANSFERENCIA</Lbl>
+          <div style={{display:'flex',gap:12,alignItems:'flex-start',background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+            <div style={{flex:1,fontSize:13,lineHeight:1.6,color:C.ink,wordBreak:'break-word'}}>
+              {bankInfo.bank_holder&&<div><span style={{color:C.mid}}>Titular:</span> <strong>{bankInfo.bank_holder}</strong></div>}
+              {bankInfo.bank_name&&<div><span style={{color:C.mid}}>Banco:</span> {bankInfo.bank_name}</div>}
+              {bankInfo.bank_account&&<div><span style={{color:C.mid}}>Cuenta:</span> {bankInfo.bank_account}</div>}
+              {bankInfo.bank_alias&&<div><span style={{color:C.mid}}>Alias:</span> {bankInfo.bank_alias}</div>}
+              {bankInfo.bank_doc&&<div><span style={{color:C.mid}}>CI/RUC:</span> {bankInfo.bank_doc}</div>}
+            </div>
+            {bankInfo.bank_qr_url&&<img src={bankInfo.bank_qr_url} alt="QR transferencia" style={{width:104,height:104,objectFit:'contain',borderRadius:8,border:`1px solid ${C.border}`,background:'#fff',flexShrink:0}}/>}
+          </div>
+          <div style={{fontSize:11,color:C.mid,marginTop:4}}>Mostrale estos datos al cliente. Si hay QR, puede escanearlo y transferir directo.</div>
+        </div>
+      ) : (
+        <div style={{marginTop:12,padding:'10px 12px',background:C.card,border:`1px dashed ${C.border}`,borderRadius:8,fontSize:12,color:C.mid,lineHeight:1.5}}>
+          El dueño todavía no cargó los datos de transferencia. Se configuran en <strong>Admin → Configuración → Datos para transferencias</strong>.
+        </div>
+      ))}
+    </div>
+  );
+}
 function KpiMini({label,value,accent,sub}){
   // PR-B3D: contenedor → .my-metric-card (superficie/borde/radio/sombra/padding por tokens).
   // Label → .my-metric-card__label (mismo look: xs, semibold, uppercase, secondary).
@@ -1140,6 +1200,8 @@ function BancardProximamente({onDismiss}){
 function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [metodo,setMetodo]=useState('efectivo');
   const [montoPagado,setMontoPagado]=useState('0');
+  const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
+  const bankInfo=useBankInfo();
   const [busy,setBusy]=useState(false);
   const [items,setItems]=useState([]);
   const [successTicket,setSuccessTicket]=useState(null);
@@ -1203,11 +1265,12 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       };
       const cerrarOrden = order.status==='pending_payment' && yaEnMesa;
       const pmOrder = mapOrderPM(metodo);
+      const payRef = (['tarjeta_credito','tarjeta_debito','qr'].includes(metodo) && comprobante.trim()) ? comprobante.trim() : null;
       const orderUpdate = order.status==='confirmed'
-        ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:pmOrder, ...invoiceFields}
+        ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:pmOrder, payment_reference:payRef, ...invoiceFields}
         : cerrarOrden
-          ? {payment_status:'paid', status:'delivered', completed_at:new Date().toISOString(), total:totalReal, payment_method:pmOrder, ...invoiceFields}
-          : {payment_status:'paid', total:totalReal, payment_method:pmOrder, ...invoiceFields};
+          ? {payment_status:'paid', status:'delivered', completed_at:new Date().toISOString(), total:totalReal, payment_method:pmOrder, payment_reference:payRef, ...invoiceFields}
+          : {payment_status:'paid', total:totalReal, payment_method:pmOrder, payment_reference:payRef, ...invoiceFields};
       let{error:e1}=await db.from('orders').update(orderUpdate).eq('id',order.id);
       // Fallback sin invoiceFields si la migración de requires_invoice no está aplicada
       if(e1){
@@ -1232,6 +1295,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       };
       const{data:movData,error:e2}=await db.from('movimientos_caja').insert(mov).select().single();
       if(e2)throw e2;
+      if(payRef&&movData){ try{ await db.from('movimientos_caja').update({comprobante_nro:payRef}).eq('id',movData.id); }catch(_){} }
       // Marcar como atendidas las solicitudes de cobro (waiter_calls) de la mesa
       if(order.table_id){
         try{
@@ -1375,26 +1439,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
             }}>{m.lbl}</button>
           ))}
         </div>
-        {/* ── Pago digital — Próximamente ── */}
-        <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${C.border}`}}>
-          <div style={{fontSize:10,color:C.dim,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:6}}>Pago digital (próximamente)</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-            <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
-              padding:'10px 6px',borderRadius:7,border:`1px solid rgba(255,149,0,0.35)`,
-              background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
-              display:'flex',alignItems:'center',justifyContent:'center',gap:5,
-            }}>
-              <Icon name="dashboard" size={14} /> QR Bancard
-            </button>
-            <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
-              padding:'10px 6px',borderRadius:7,border:`1px solid rgba(255,149,0,0.35)`,
-              background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
-              display:'flex',alignItems:'center',justifyContent:'center',gap:5,
-            }}>
-              <Icon name="creditCard" size={14} /> Tarjeta (VPos)
-            </button>
-          </div>
-        </div>
+        <PagoRefTransfer metodo={metodo} comprobante={comprobante} setComprobante={setComprobante} bankInfo={bankInfo}/>
       </div>
 
       {metodo==='efectivo'&&(
@@ -1443,22 +1488,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         </div>
       )}
 
-      {/* Toggle SIFEN */}
-      <div onClick={gate('caja:sifen',()=>setInvoiceType(v=>v==='fiscal'?'none':'fiscal'))} style={{
-        display:'flex',alignItems:'center',justifyContent:'space-between',
-        padding:'11px 14px',marginBottom:12,borderRadius:9,cursor:'pointer',
-        background:invoiceType==='fiscal'?'rgba(0,122,255,0.07)':'transparent',
-        border:`1px solid ${invoiceType==='fiscal'?'rgba(0,122,255,0.3)':C.border}`,
-        transition:'all .15s',
-      }}>
-        <div>
-          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?C.blue:C.ink,display:'flex',alignItems:'center',gap:6}}><Icon name="receipt" size={13} /> Emitir Factura Electrónica (SIFEN)</div>
-          <div style={{fontSize:10,color:C.mid,marginTop:2}}>e-Kuatia · Certificación en proceso</div>
-        </div>
-        <div style={{width:42,height:24,borderRadius:12,background:invoiceType==='fiscal'?C.blue:C.border,transition:'background .2s',position:'relative',flexShrink:0}}>
-          <div style={{position:'absolute',top:2,left:invoiceType==='fiscal'?'18px':'2px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
-        </div>
-      </div>
+      {/* Factura Electrónica (SIFEN) — oculto hasta certificación e-Kuatia (2026-07-18) */}
 
       {/* Comprobante */}
       <div style={{marginBottom:16}}>
@@ -1487,19 +1517,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         )}
       </div>
 
-      {/* ── SIFEN / Factura electrónica — Próximamente ── */}
-      <div style={{marginBottom:16,padding:'10px 12px',borderRadius:8,
-        border:'1px dashed rgba(0,122,255,0.3)',background:'rgba(0,122,255,0.04)',
-        display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
-        <div>
-          <div style={{fontSize:12,fontWeight:700,color:TINT.blueText,display:'flex',alignItems:'center',gap:6}}><Icon name="receipt" size={13} /> Factura Electrónica SIFEN</div>
-          <div style={{fontSize:10,color:C.dim,marginTop:2}}>e-Kuatia — en proceso de certificación SET</div>
-        </div>
-        <button onClick={gate('caja:sifen',()=>setShowBancardToast(true))} style={{
-          padding:'6px 12px',borderRadius:6,border:'1px solid rgba(0,122,255,0.4)',
-          background:'rgba(0,122,255,0.08)',color:TINT.blueText,fontSize:11,fontWeight:700,cursor:'pointer',flexShrink:0,
-        }}>Activar</button>
-      </div>
+      {/* Promo "Factura Electrónica SIFEN — Activar" retirada — no funcional aún (2026-07-18) */}
 
       <div style={{display:'flex',gap:10}}>
         <Btn full onClick={confirmar} disabled={busy} variant="success">
@@ -1534,6 +1552,8 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
   const [successTicket,setSuccessTicket]=useState(null);
   const successRef=React.useRef(null);
   const BILLETES=[1000,2000,5000,10000,20000,50000,100000];
+  const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
+  const bankInfo=useBankInfo();
 
   const selectedLines=lines.filter(l=>sel[l.itemId]?.checked&&(sel[l.itemId]?.qty||0)>0);
   const subtotal=selectedLines.reduce((s,l)=>s+Math.min(sel[l.itemId].qty,l.pend)*l.unitPrice,0);
@@ -1569,6 +1589,8 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
       if(!applied.length){toast('Estos ítems ya fueron cobrados por otra caja. Actualizá la lista.',false);setBusy(false);onSuccess(null,false);return;}
       const subReal=Number(res.sub)||0;
       const mesaSaldada=!!res.mesa_saldada;
+      const compRef=(['tarjeta_credito','tarjeta_debito','qr'].includes(metodo)&&comprobante.trim())?comprobante.trim():null;
+      if(compRef&&res.movimiento_id){ try{ await db.from('movimientos_caja').update({comprobante_nro:compRef}).eq('id',res.movimiento_id); }catch(_){} }
       const ticket={
         orderNumber:null, mesa:`Mesa ${tableNumber}`, partial:!mesaSaldada,
         items:applied.map(a=>({item_name:a.nombre,quantity:a.cantidad,unit_price:a.precio})),
@@ -1675,6 +1697,8 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
             ))}
           </div>
         </div>
+
+        <PagoRefTransfer metodo={metodo} comprobante={comprobante} setComprobante={setComprobante} bankInfo={bankInfo}/>
 
         {metodo==='efectivo'&&(
           <div style={{marginBottom:14}}>
@@ -2507,6 +2531,8 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   const [busy,setBusy]=useState(false);
   const [successTicket,setSuccessTicket]=useState(null);
   const [invoiceType,setInvoiceType]=useState('none'); // 'none'|'ticket'|'fiscal'
+  const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
+  const bankInfo=useBankInfo();
   const [invName,setInvName]=useState('');
   const [invRuc,setInvRuc]=useState('');
   const [invEmail,setInvEmail]=useState('');
@@ -2565,7 +2591,8 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         payment_method:mapOrderPM(metodo),
         ...(isDeliv?{channel:deliv?.channel||'propio', external_order_id:(deliv?.channel!=='propio'?(deliv?.externalId||'').trim():'')||null}:{}),
       };
-      let{data:order,error:e1}=await db.from('orders').insert({...baseInsert,...invoiceFields}).select().single();
+      const payRef = (['tarjeta_credito','tarjeta_debito','qr'].includes(metodo) && comprobante.trim()) ? comprobante.trim() : null;
+      let{data:order,error:e1}=await db.from('orders').insert({...baseInsert,...invoiceFields,...(payRef?{payment_reference:payRef}:{})}).select().single();
       if(e1){
         // Fallback si la migración de invoice no está aplicada
         const r=await db.from('orders').insert(baseInsert).select().single();
@@ -2637,6 +2664,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         const{data:mv,error:e4}=await db.from('movimientos_caja').insert(mov).select().single();
         if(e4)throw e4;
         movData=mv;
+        if(payRef&&mv){ try{ await db.from('movimientos_caja').update({comprobante_nro:payRef}).eq('id',mv.id); }catch(_){} }
       }
 
       movDataRef.current=movData;
@@ -2742,26 +2770,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
               }}>{m.lbl}</button>
             ))}
           </div>
-          {/* ── Pago digital — Próximamente ── */}
-          <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${C.border}`}}>
-            <div style={{fontSize:10,color:C.dim,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:8}}>Pago digital (próximamente)</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-              <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
-                padding:'10px 6px',borderRadius:7,border:'1px solid rgba(255,149,0,0.35)',
-                background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
-                display:'flex',alignItems:'center',justifyContent:'center',gap:5,
-              }}>
-                <Icon name="dashboard" size={14} /> QR Bancard
-              </button>
-              <button onClick={gate('caja:digital_payments',()=>setShowBancardToast(true))} style={{
-                padding:'10px 6px',borderRadius:7,border:'1px solid rgba(255,149,0,0.35)',
-                background:'rgba(255,149,0,0.06)',color:TINT.amberText,fontSize:11,fontWeight:700,cursor:'pointer',
-                display:'flex',alignItems:'center',justifyContent:'center',gap:5,
-              }}>
-                <Icon name="creditCard" size={14} /> Tarjeta (VPos Bancard)
-              </button>
-            </div>
-          </div>
+          <PagoRefTransfer metodo={metodo} comprobante={comprobante} setComprobante={setComprobante} bankInfo={bankInfo}/>
         </div>
 
         {metodo==='efectivo'&&(
@@ -2798,22 +2807,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         </>)}
       </div>
 
-      {/* Toggle SIFEN */}
-      <div onClick={gate('caja:sifen',()=>setInvoiceType(v=>v==='fiscal'?'none':'fiscal'))} style={{
-        display:'flex',alignItems:'center',justifyContent:'space-between',
-        padding:'11px 14px',marginBottom:12,borderRadius:9,cursor:'pointer',
-        background:invoiceType==='fiscal'?'rgba(0,122,255,0.07)':'transparent',
-        border:`1px solid ${invoiceType==='fiscal'?'rgba(0,122,255,0.3)':C.border}`,
-        transition:'all .15s',
-      }}>
-        <div>
-          <div style={{fontSize:12,fontWeight:700,color:invoiceType==='fiscal'?C.blue:C.ink,display:'flex',alignItems:'center',gap:6}}><Icon name="receipt" size={13} /> Emitir Factura Electrónica (SIFEN)</div>
-          <div style={{fontSize:10,color:C.mid,marginTop:2}}>e-Kuatia · Certificación en proceso</div>
-        </div>
-        <div style={{width:42,height:24,borderRadius:12,background:invoiceType==='fiscal'?C.blue:C.border,transition:'background .2s',position:'relative',flexShrink:0}}>
-          <div style={{position:'absolute',top:2,left:invoiceType==='fiscal'?'18px':'2px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
-        </div>
-      </div>
+      {/* Factura Electrónica (SIFEN) — oculto hasta certificación e-Kuatia (2026-07-18) */}
 
       {/* Comprobante */}
       <div style={{marginBottom:16}}>

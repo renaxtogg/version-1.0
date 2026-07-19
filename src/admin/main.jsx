@@ -7420,6 +7420,7 @@ function ConfigPage({restaurant,onRefresh}) {
   const [saving,setSaving] = useState(false);
   const [savingH,setSavingH] = useState(false);
   const [savingHH,setSavingHH] = useState(false);
+  const [savingBank,setSavingBank] = useState(false);
   const [tab,setTab] = useState('general');   // general (config del local) | cuenta (Mi cuenta, consolidada desde el nav)
 
   useEffect(()=>{
@@ -7466,6 +7467,20 @@ function ConfigPage({restaurant,onRefresh}) {
     else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS',false);}
     else{toast('Regla de mitad-y-mitad guardada');onRefresh();}
     setSavingHH(false);
+  }
+  // Datos de transferencia del comercio (mig 180): los muestran caja/mozo al cobrar por QR/transferencia.
+  async function saveBank(){
+    if(!db)return;setSavingBank(true);
+    const upd={
+      bank_holder:form.bank_holder||null, bank_name:form.bank_name||null,
+      bank_account:form.bank_account||null, bank_alias:form.bank_alias||null,
+      bank_doc:form.bank_doc||null, bank_qr_url:form.bank_qr_url||null,
+    };
+    const{data,error}=await db.from('restaurants').update(upd).eq('id',RID).select('id');
+    if(error){toast('Error: '+error.message+' — ¿está aplicada la migración 180?',false);}
+    else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS',false);}
+    else{toast('Datos de transferencia guardados');onRefresh();}
+    setSavingBank(false);
   }
 
   const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante'},{key:'address',label:'Dirección'},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@turestaurante'},{key:'website',label:'Sitio web',ph:'turestaurante.com.py'}];
@@ -7540,6 +7555,35 @@ function ConfigPage({restaurant,onRefresh}) {
               ))}
             </div>
             <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
+          </div>
+
+          {/* Datos para transferencias (cobro) — mig 180 */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>DATOS PARA TRANSFERENCIAS (COBRO)</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:14,lineHeight:1.5}}>Caja y mozo muestran estos datos cuando el cliente paga por transferencia / QR. Si cargás el QR de tu cuenta, el cliente puede escanearlo y transferir el monto directo.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
+              <div><Lbl>TITULAR DE LA CUENTA</Lbl><Inp value={form.bank_holder||''} onChange={e=>setForm({...form,bank_holder:e.target.value})} placeholder="Nombre del titular"/></div>
+              <div><Lbl>BANCO / ENTIDAD</Lbl><Inp value={form.bank_name||''} onChange={e=>setForm({...form,bank_name:e.target.value})} placeholder="Ueno, Itaú, Familiar…"/></div>
+              <div><Lbl>N° DE CUENTA</Lbl><Inp value={form.bank_account||''} onChange={e=>setForm({...form,bank_account:e.target.value})} placeholder="Número de cuenta"/></div>
+              <div><Lbl>ALIAS</Lbl><Inp value={form.bank_alias||''} onChange={e=>setForm({...form,bank_alias:e.target.value})} placeholder="Alias de transferencia"/></div>
+              <div><Lbl>CI / RUC DEL TITULAR</Lbl><Inp value={form.bank_doc||''} onChange={e=>setForm({...form,bank_doc:e.target.value})} placeholder="CI o RUC"/></div>
+            </div>
+            <Lbl>QR DE LA CUENTA (OPCIONAL)</Lbl>
+            <div style={{display:'flex',gap:14,alignItems:'flex-start',marginBottom:14}}>
+              <div style={{flexShrink:0}}>
+                {form.bank_qr_url
+                  ? <div style={{position:'relative',width:96,height:96}}>
+                      <img src={form.bank_qr_url} alt="QR" style={{width:96,height:96,objectFit:'contain',borderRadius:8,border:`1px solid ${C.border}`,background:'#fff'}} onError={e=>{e.target.style.display='none';}}/>
+                      <button onClick={()=>setForm({...form,bank_qr_url:''})} title="Quitar QR" style={{position:'absolute',top:-6,right:-6,width:18,height:18,borderRadius:'50%',background:'#FF3B30',border:'none',color:'#fff',fontSize:10,cursor:'pointer',fontWeight:700}}>✕</button>
+                    </div>
+                  : <div style={{width:96,height:96,borderRadius:8,background:C.white,border:`2px dashed ${C.border}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:C.dim,textAlign:'center',padding:6}}>Sin QR</div>}
+              </div>
+              <div style={{flex:1}}>
+                <ImageUploader compact value={form.bank_qr_url||''} onChange={url=>setForm({...form,bank_qr_url:url})} bucket="restaurant-images"/>
+                <div style={{fontSize:10,color:C.dim,marginTop:8}}>Subí la imagen del QR de tu cuenta bancaria (captura del app del banco).</div>
+              </div>
+            </div>
+            <Btn onClick={saveBank} disabled={savingBank}>{savingBank?'Guardando…':'Guardar datos de transferencia'}</Btn>
           </div>
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:14}}>
