@@ -6514,6 +6514,7 @@ function ReportesPage({orders}) {
     {id:'egresos',          label:'Egresos / Gastos',          cat:'finanzas',  desc:'Gastos registrados por categoría en el período'},
     {id:'balance',          label:'Balance del período',       cat:'finanzas',  desc:'Ingresos vs egresos y resultado neto'},
     {id:'movimientos_caja', label:'Movimientos de caja',       cat:'caja',      desc:'Cobros, egresos y movimientos por turno'},
+    {id:'transferencias',   label:'Transferencias y comprobantes', cat:'caja',  desc:'Cobros por transferencia / QR o tarjeta con su N° de comprobante'},
     {id:'stock_actual',     label:'Stock actual',              cat:'stock',     desc:'Inventario actual de ingredientes y alertas'},
     {id:'movimientos_stock',label:'Movimientos de stock',      cat:'stock',     desc:'Entradas, consumos y ajustes de inventario'},
     {id:'ratings',          label:'Calificaciones',            cat:'clientes',  desc:'Puntajes y comentarios de clientes'},
@@ -6729,6 +6730,25 @@ function ReportesPage({orders}) {
         {label:'Turnos',        value:(turnos||[]).length, color:'#007AFF'},
       ]);
       setRows({ cols:['Fecha/Hora','Tipo','Descripción','Monto','Cajero'], data:movs.slice(0,300).map(m=>[fmtDT(m.created_at), m.tipo||'—', m.descripcion||'—', fmt(Number(m.monto||0)), m.usuario_nombre||'—']) });
+    }
+
+    else if(type==='transferencias') {
+      // Detalle de cobros por transferencia/QR o tarjeta con su N° de comprobante (mig 180).
+      if(!db){toast('Sin conexión a base de datos',false);return;}
+      const{data:turnos}=await db.from('turnos_caja').select('id').eq('restaurant_id',RID).gte('fecha_apertura',from.toISOString()).lte('fecha_apertura',to.toISOString());
+      const tIds=(turnos||[]).map(t=>t.id);
+      let movs=[];
+      if(tIds.length>0){const{data:m}=await db.from('movimientos_caja').select('*').in('turno_id',tIds).eq('tipo','cobro').order('created_at',{ascending:false});movs=m||[];}
+      const ML={qr:'Transferencia / QR',tarjeta_credito:'Tarjeta crédito',tarjeta_debito:'Tarjeta débito',mixto:'Mixto'};
+      const trans=movs.filter(m=>['qr','tarjeta_credito','tarjeta_debito','mixto'].includes(m.metodo_pago)||m.comprobante_nro);
+      const totTrans=trans.reduce((s,m)=>s+Number(m.monto||0),0);
+      const conComp=trans.filter(m=>m.comprobante_nro).length;
+      setSummary([
+        {label:'Cobros transf./tarjeta', value:trans.length, color:'#007AFF'},
+        {label:'Con N° comprobante',     value:conComp,       color:'#34C759'},
+        {label:'Total',                  value:fmt(totTrans), color:'#34C759'},
+      ]);
+      setRows({ cols:['Fecha/Hora','Método','N° comprobante','Monto','Cajero','Detalle'], data:trans.slice(0,300).map(m=>[fmtDT(m.created_at), ML[m.metodo_pago]||m.metodo_pago||'—', m.comprobante_nro||'—', fmt(Number(m.monto||0)), m.usuario_nombre||'—', m.descripcion||'—']) });
     }
 
     else if(type==='stock_actual') {

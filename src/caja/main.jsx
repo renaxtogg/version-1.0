@@ -4785,6 +4785,7 @@ function HistorialPanel({onGoCobros}){
   const [rango,setRango]=useState('hoy');
   const [statusFlt,setStatusFlt]=useState('todos');
   const [tipoFlt,setTipoFlt]=useState('todos');
+  const [metFlt,setMetFlt]=useState('todos');   // filtro por método de pago (transferencia/tarjeta/efectivo)
   const [searchQ,setSearchQ]=useState('');
   const [alertaPendientes,setAlertaPendientes]=useState(0);
 
@@ -4799,7 +4800,7 @@ function HistorialPanel({onGoCobros}){
     else{from=new Date(0);}
 
     const{data,error}=await db.from('orders')
-      .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,payment_method,tables(number)')
+      .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,payment_method,payment_reference,tables(number)')
       .eq('restaurant_id',RID)
       .gte('created_at',from.toISOString())
       .order('created_at',{ascending:false})
@@ -4836,6 +4837,12 @@ function HistorialPanel({onGoCobros}){
   const display=orders.filter(o=>{
     if(statusFlt!=='todos'&&o.status!==statusFlt)return false;
     if(tipoFlt!=='todos'&&o.order_type!==tipoFlt)return false;
+    if(metFlt!=='todos'){
+      const pm=o.payment_method||'';
+      if(metFlt==='transferencia'&&!(pm==='qr'||pm==='transferencia'))return false;
+      if(metFlt==='tarjeta'&&!(pm==='tarjeta'||pm==='pos'))return false;
+      if(metFlt==='efectivo'&&pm!=='efectivo')return false;
+    }
     if(searchQ){
       const q=searchQ.toLowerCase();
       if(!(o.order_number||'').toLowerCase().includes(q)&&!(o.customer_name||'').toLowerCase().includes(q)&&!String(o.tables?.number||'').includes(q))return false;
@@ -4848,7 +4855,7 @@ function HistorialPanel({onGoCobros}){
   const totalCancelado=display.filter(o=>o.status==='cancelled').reduce((s,o)=>s+Number(o.total||0),0);
 
   const TIPO_LBL={local:'Caja/Salón',llevar:'Para llevar',delivery:'Delivery',dine_in:'QR mesa',takeaway:'Para llevar'};
-  const MET_LBL={efectivo:'Efectivo',tarjeta_credito:'Tarjeta Cred.',tarjeta_debito:'Tarjeta Déb.',qr:'QR/Transfer.',mixto:'Mixto'};
+  const MET_LBL={efectivo:'Efectivo',tarjeta_credito:'Tarjeta Cred.',tarjeta_debito:'Tarjeta Déb.',qr:'QR/Transfer.',mixto:'Mixto',tarjeta:'Tarjeta',pos:'POS/Mixto',transferencia:'Transferencia'};
 
   return(
     <div className="page">
@@ -4888,6 +4895,14 @@ function HistorialPanel({onGoCobros}){
         {/* Tipo filter */}
         <select value={tipoFlt} onChange={e=>setTipoFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,fontWeight:600}}>
           {TIPO_OPTIONS.map(t=><option key={t.id} value={t.id}>{t.lbl}</option>)}
+        </select>
+
+        {/* Método de pago filter — para revisar transferencias/tarjeta y sus comprobantes */}
+        <select value={metFlt} onChange={e=>setMetFlt(e.target.value)} style={{padding:'6px 10px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,fontWeight:600}}>
+          <option value="todos">Todos los pagos</option>
+          <option value="transferencia">Transferencia / QR</option>
+          <option value="tarjeta">Tarjeta</option>
+          <option value="efectivo">Efectivo</option>
         </select>
 
         {/* Búsqueda */}
@@ -4934,6 +4949,7 @@ function HistorialPanel({onGoCobros}){
                   <div style={{fontSize:11,color:C.mid,marginTop:4,display:'flex',gap:12}}>
                     <span>{fmtDT(o.created_at)}</span>
                     {o.payment_method&&<span style={{display:'inline-flex',alignItems:'center',gap:4}}><Icon name="creditCard" size={12} /> {metodo}</span>}
+                    {o.payment_reference&&<span style={{display:'inline-flex',alignItems:'center',gap:4,color:C.ink,fontWeight:600}}><Icon name="receipt" size={12} /> Comp. {o.payment_reference}</span>}
                   </div>
                 </div>
                 <div style={{textAlign:'right',flexShrink:0}}>
