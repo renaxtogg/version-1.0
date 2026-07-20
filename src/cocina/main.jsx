@@ -378,13 +378,15 @@ async function dbLoadTickets() {
     return { tickets: null, error: error.message || 'Error al cargar pedidos' };
   }
   if (!ordersRaw || ordersRaw.length === 0) return { tickets: [], error: null };
-  // Política B (mig 182/184): NO mostrar en cocina los pedidos con pago pendiente
-  // de validación (esperan que caja/admin apruebe el comprobante). Fail-open: con
-  // policy A/C o sin config, se muestran todos (comportamiento de hoy).
+  // Política B (mig 182/184): NO mostrar en cocina los pedidos cuyo pago aún no fue
+  // aprobado. Se ocultan tanto los 'pending' (esperan validación) como los 'rejected'
+  // (comprobante rechazado → no se cocina hasta que el cliente reenvíe, lo que resetea
+  // el estado a 'pending' — ver mozo). Sólo pasan 'approved' o sin comprobante (null =
+  // efectivo / no aplica). Fail-open: con policy A/C o sin config se muestran todos.
   let orders = ordersRaw;
   try {
     const policy = await getPrepPolicy();
-    if (policy === 'B') orders = ordersRaw.filter(o => o.payment_review_status !== 'pending');
+    if (policy === 'B') orders = ordersRaw.filter(o => o.payment_review_status !== 'pending' && o.payment_review_status !== 'rejected');
   } catch (_) {}
   if (orders.length === 0) return { tickets: [], error: null };
 

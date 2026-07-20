@@ -8980,11 +8980,13 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
   const handleSave = async ()=>{
     setSaving(true);
     const lat = latRef.current, lng = lngRef.current;
+    let saved = editZones;
     if(db){
       // Actualizar lat/lng del restaurante
       await db.from('restaurants').update({lat,lng}).eq('id',RID);
       // Upsert zonas
       const isUUID = s => typeof s==='string' && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(s);
+      saved = [];
       for(const z of editZones){
         const payload = {
           restaurant_id:RID, name:z.name, radius_km:z.radius_km,
@@ -8993,12 +8995,18 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
         };
         if(isUUID(z.id)){
           await db.from('delivery_zones').update(payload).eq('id',z.id);
+          saved.push(z);
         } else {
-          await db.from('delivery_zones').insert(payload);
+          // Capturar el UUID que asigna la DB. Sin esto, la zona conservaba su id
+          // local (timestamp) y un segundo "Guardar" la volvía a INSERT-ar → zonas
+          // duplicadas/triplicadas.
+          const {data,error} = await db.from('delivery_zones').insert(payload).select('id').single();
+          saved.push(error||!data ? z : {...z, id:data.id});
         }
       }
+      setEditZones(saved);
     }
-    onSave(lat, lng, editZones);
+    onSave(lat, lng, saved);
     setSaving(false);
   };
 
@@ -9207,7 +9215,7 @@ function pricingFromSettings(s){
     max_orders_per_rider: (s?.max_orders_per_rider ?? '') === null ? '' : (s?.max_orders_per_rider ?? ''),
   };
 }
-function DelivConfig({zones, setZones, channels, setChannels, reloadChannels, restaurant, setRestaurant, settings, onSaveSettings}) {
+function DelivConfig({zones, setZones, reloadZones, channels, setChannels, reloadChannels, restaurant, setRestaurant, settings, onSaveSettings}) {
   const [zoneModal,setZoneModal] = useState(null);
   const [chanModal,setChanModal] = useState(null);
   const [mapOpen,setMapOpen] = useState(false);
@@ -9235,15 +9243,53 @@ function DelivConfig({zones, setZones, channels, setChannels, reloadChannels, re
     else toast('No se pudo guardar la configuración'+(r?.error?.message?` · ${r.error.message}`:'')+'. Verificá que las migraciones 124 y 156 estén aplicadas.',false);
   }
 
-  function saveZone() {
+  const isZoneUUID = s => typeof s==='string' && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(s);
+
+  // La tabla delivery_zones (DB, tenant-scoped) es la ÚNICA fuente de verdad.
+  // Antes esto sólo mutaba el estado + localStorage: el precio nunca se persistía,
+  // y la zona sólo llegaba a la DB si además se abría el Editor de mapa (que la
+  // re-insertaba en cada guardado → zonas duplicadas/triplicadas).
+  async function saveZone() {
     if(!zForm.name.trim()){toast('El nombre es obligatorio',false);return;}
-    const zone={id:zoneModal==='new'?Date.now().toString():zoneModal.id,...zForm,price:Number(zForm.price),time:Number(zForm.time),radius:zForm.radius?Number(zForm.radius):null};
-    if(zoneModal==='new') setZones([...zones,zone]);
-    else setZones(zones.map(z=>z.id===zoneModal.id?zone:z));
+    if(!db){toast('Sin conexión',false);return;}
+    const radiusRaw = (zForm.radius===''||zForm.radius==null) ? null : Number(zForm.radius);
+    const payload = {
+      restaurant_id: RID,
+      name: zForm.name.trim(),
+      radius_km: (radiusRaw==null||isNaN(radiusRaw)) ? null : radiusRaw,   // null = sin límite (mig 185)
+      price_guarani: Number(zForm.price)||0,
+      estimated_minutes: Number(zForm.time)||30,
+      is_active: zForm.active!==false,
+      color: zForm.color||'red',
+    };
+    const write = p => (zoneModal!=='new' && isZoneUUID(zoneModal.id))
+      ? db.from('delivery_zones').update(p).eq('id',zoneModal.id)
+      : db.from('delivery_zones').insert(p);
+    let {error} = await write(payload);
+    // Degradación si la mig 185 (radius_km NULLABLE) aún no está aplicada: un radio
+    // "sin límite" viola el NOT NULL histórico → reintentar con un radio amplio para
+    // no bloquear el guardado. El cliente ya trata un radio grande como catch-all.
+    if(error && payload.radius_km==null && /radius_km|23502|null value|not-null/i.test(`${error.message||''} ${error.code||''}`)){
+      ({error} = await write({...payload, radius_km:999}));
+      if(!error) console.warn('[delivery] radius_km sigue NOT NULL — aplicá la migración 185 para "sin límite" real.');
+    }
+    if(error){toast('No se pudo guardar la zona: '+error.message,false);return;}
+    if(reloadZones) await reloadZones();
     toast(zoneModal==='new'?'Zona creada':'Zona actualizada'); setZoneModal(null);
   }
 
-  function deleteZone(id) { if(!confirm('¿Eliminar esta zona?'))return; setZones(zones.filter(z=>z.id!==id)); toast('Zona eliminada'); }
+  // Borra en la DB (fuente de verdad) y recarga. Antes sólo filtraba el estado
+  // local, así que en la próxima recarga (poll/realtime) la zona "revivía".
+  async function deleteZone(id) {
+    if(!confirm('¿Eliminar esta zona?'))return;
+    if(db && isZoneUUID(id)){
+      const {error} = await db.from('delivery_zones').delete().eq('id',id);
+      if(error){toast('No se pudo eliminar la zona: '+error.message,false);return;}
+    }
+    if(reloadZones) await reloadZones();
+    else setZones(zones.filter(z=>z.id!==id));
+    toast('Zona eliminada');
+  }
 
   async function saveChan() {
     if(!cForm.name.trim()){toast('El nombre es obligatorio',false);return;}
@@ -9459,10 +9505,12 @@ function DelivConfig({zones, setZones, channels, setChannels, reloadChannels, re
         <MapEditor
           zones={zones}
           restaurant={restaurant}
-          onSave={(lat,lng,updatedZones)=>{
+          onSave={async (lat,lng,updatedZones)=>{
             if(setRestaurant&&restaurant) setRestaurant({...restaurant,lat,lng});
-            const mapped = updatedZones.map(z=>({...z,radius:z.radius_km}));
-            setZones(mapped);
+            // handleSave del editor ya escribió en la DB; recargar desde la DB
+            // (fuente de verdad) en vez de pisar el front con ids locales.
+            if(reloadZones) await reloadZones();
+            else setZones(updatedZones.map(z=>({...z,radius:z.radius_km})));
             setMapOpen(false);
             toast(updatedZones.length?'Zonas y ubicación del local guardadas':'Ubicación del local guardada');
           }}
@@ -9532,6 +9580,20 @@ function DeliveryModule() {
     })));
   }
 
+  // Recarga SOLO las zonas desde la DB (fuente de verdad). Se llama tras cada
+  // alta/edición/borrado de zona en DelivConfig para que el front refleje la DB
+  // y no queden ids locales huérfanos ni duplicados.
+  async function reloadZones(){
+    if(!db) return;
+    const {data,error} = await db.from('delivery_zones').select('*').eq('restaurant_id',RID).order('radius_km');
+    if(error) return;
+    setZones((data||[]).map(z=>({
+      id:z.id, name:z.name, radius:z.radius_km, radius_km:z.radius_km,
+      price:z.price_guarani, time:z.estimated_minutes,
+      active:z.is_active!==false, color:z.color||'red'
+    })));
+  }
+
   // Guarda el modo de cotización (upsert por restaurant_id). Defensivo: devuelve
   // {ok,error} y DelivConfig avisa si la migración 124 todavía no está aplicada.
   async function saveSettings(next){
@@ -9580,13 +9642,16 @@ function DeliveryModule() {
     setDeliveryOrders(doR.data||[]);
     setRiders(rR.data||[]);
     if(restR.data) setRestaurant(restR.data);
-    if(zR.data?.length){
-      const mapped = zR.data.map(z=>({
+    // La DB es la fuente de verdad de las zonas: reflejar SIEMPRE lo que devuelve
+    // una lectura exitosa (incluido vacío). Antes sólo se pisaba el estado si había
+    // filas, así que al borrar la última zona "revivía" desde el caché local. Sólo
+    // se conserva el estado previo si la lectura falló (error transitorio).
+    if(!zR.error){
+      setZones((zR.data||[]).map(z=>({
         id:z.id, name:z.name, radius:z.radius_km, radius_km:z.radius_km,
         price:z.price_guarani, time:z.estimated_minutes,
         active:z.is_active!==false, color:z.color||'red'
-      }));
-      setZones(mapped);
+      })));
     }
     // Modo de cotización (mig 124) · feature-detect: si la tabla aún no existe,
     // settings queda null y DelivConfig cae al modo 'zone' (comportamiento actual).
@@ -9672,7 +9737,7 @@ function DeliveryModule() {
       case 'dashboard': return <DelivDashboard deliveryOrders={deliveryOrders} channels={channels}/>;
       case 'pedidos':   return <DelivPedidos deliveryOrders={deliveryOrders} riders={riders} channels={channels} zones={zones} onRefresh={loadDelivery}/>;
       case 'riders':    return <DelivRiders riders={riders} deliveryOrders={deliveryOrders} settings={settings} onRefresh={loadDelivery} onRebalance={handleRebalance} onTransfer={handleTransferOrder}/>;
-      case 'config':    return <DelivConfig zones={zones} setZones={setZones} channels={channels} setChannels={setChannels} reloadChannels={loadChannels} restaurant={restaurant} setRestaurant={setRestaurant} settings={settings} onSaveSettings={saveSettings}/>;
+      case 'config':    return <DelivConfig zones={zones} setZones={setZones} reloadZones={reloadZones} channels={channels} setChannels={setChannels} reloadChannels={loadChannels} restaurant={restaurant} setRestaurant={setRestaurant} settings={settings} onSaveSettings={saveSettings}/>;
       default: return null;
     }
   }
