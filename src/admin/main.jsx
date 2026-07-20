@@ -5795,11 +5795,28 @@ function StockPage() {
 
   const UNIT_LABELS = {g:'g (gramos)',kg:'kg (kilogramos)',l:'L (litros)',ml:'ml (mililitros)',unit:'unidades enteras',portion:'porciones'};
   const UNIT_DISPLAY = {g:'g',kg:'kg',l:'L',ml:'ml',unit:'u',portion:'p'};
+  // Dimensión de cada unidad: masa/volumen/conteo/porción. Para filtrar los
+  // selectores a unidades compatibles con el ingrediente (evita recetas g↔ml, etc.).
+  const UNIT_DIM = {g:'m',kg:'m',ml:'v',l:'v',unit:'c',portion:'p'};
+  const unitOpts = (ingUnit) => {
+    const d = UNIT_DIM[ingUnit];
+    const entries = Object.entries(UNIT_LABELS);
+    return d ? entries.filter(([v]) => UNIT_DIM[v] === d) : entries;
+  };
 
+  // El stock se guarda EN LA UNIDAD DEL INGREDIENTE (10 kg = 10). Se muestra en su
+  // unidad, escalando para legibilidad (kg<1 → g, g≥1000 → kg, ídem L/ml).
+  const _trimNum = (n) => {
+    const r = Math.round((Number(n) || 0) * 1000) / 1000;
+    return Number.isInteger(r) ? String(r) : r.toFixed(3).replace(/\.?0+$/, '');
+  };
   const fmtStock = (qty, unit) => {
-    if ((unit==='g'||unit==='kg') && qty>=1000) return `${(qty/1000).toFixed(2)} kg`;
-    if ((unit==='ml'||unit==='l') && qty>=1000) return `${(qty/1000).toFixed(2)} L`;
-    return `${qty} ${UNIT_DISPLAY[unit]||unit}`;
+    const q = Number(qty) || 0;
+    if (unit === 'kg') return q !== 0 && Math.abs(q) < 1 ? `${_trimNum(q * 1000)} g`  : `${_trimNum(q)} kg`;
+    if (unit === 'g')  return Math.abs(q) >= 1000        ? `${_trimNum(q / 1000)} kg` : `${_trimNum(q)} g`;
+    if (unit === 'l')  return q !== 0 && Math.abs(q) < 1 ? `${_trimNum(q * 1000)} ml` : `${_trimNum(q)} L`;
+    if (unit === 'ml') return Math.abs(q) >= 1000        ? `${_trimNum(q / 1000)} L`  : `${_trimNum(q)} ml`;
+    return `${_trimNum(q)} ${UNIT_DISPLAY[unit] || unit}`;
   };
   const stockColor = lvl => ({ok:C.green,bajo:C.yellow,critico:C.orange,sin_stock:C.red}[lvl]||C.mid);
   const stockLabel = lvl => ({ok:'OK',bajo:'Bajo',critico:'Crítico',sin_stock:'Sin stock'}[lvl]||lvl);
@@ -6147,7 +6164,7 @@ function StockPage() {
                 </FF>
                 <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}}>
                   <FF label="CANTIDAD *"><NumInp decimals={3} value={loadForm.quantity} onChange={v=>setLoadForm({...loadForm,quantity:v})} placeholder="ej: 5"/></FF>
-                  <FF label="UNIDAD"><Sel value={loadForm.unit} onChange={e=>setLoadForm({...loadForm,unit:e.target.value})}>{Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
+                  <FF label="UNIDAD"><Sel value={loadForm.unit} onChange={e=>setLoadForm({...loadForm,unit:e.target.value})}>{unitOpts(ingredients.find(i=>i.id===loadForm.ingredient_id)?.unit).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
                   <FF label="VENCIMIENTO" hint="Opcional, recomendado para perecederos"><Inp type="date" value={loadForm.expiry_date} onChange={e=>setLoadForm({...loadForm,expiry_date:e.target.value})}/></FF>
@@ -6474,7 +6491,7 @@ function StockPage() {
             </FF>
             <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}}>
               <FF label="CANTIDAD POR PORCIÓN *"><NumInp decimals={3} value={recForm.quantity_required} onChange={v=>setRecForm({...recForm,quantity_required:v})}/></FF>
-              <FF label="UNIDAD"><Sel value={recForm.unit} onChange={e=>setRecForm({...recForm,unit:e.target.value})}>{Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
+              <FF label="UNIDAD"><Sel value={recForm.unit} onChange={e=>setRecForm({...recForm,unit:e.target.value})}>{unitOpts(ingredients.find(i=>i.id===recForm.ingredient_id)?.unit).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
             </div>
             <FF label="NOTAS" hint="Opcional — ej: 'Sin grasa'"><Inp value={recForm.notes} onChange={e=>setRecForm({...recForm,notes:e.target.value})} placeholder="Opcional"/></FF>
             <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:4}}>
