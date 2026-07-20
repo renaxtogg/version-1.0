@@ -369,7 +369,7 @@ async function getPrepPolicy() {
 async function dbLoadTickets() {
   if (!db) return { tickets: null, error: null };
   const { data: ordersRaw, error } = await db.from('orders')
-    .select('id,order_number,order_type,status,created_at,table_id,payment_review_status')
+    .select('id,order_number,order_type,status,created_at,table_id,payment_method,payment_review_status')
     .eq('restaurant_id', RESTAURANT_ID)
     .in('status', ['paid','kitchen_received','cooking','ready'])
     .order('created_at', { ascending: true });
@@ -378,15 +378,21 @@ async function dbLoadTickets() {
     return { tickets: null, error: error.message || 'Error al cargar pedidos' };
   }
   if (!ordersRaw || ordersRaw.length === 0) return { tickets: [], error: null };
-  // Política B (mig 182/184): NO mostrar en cocina los pedidos cuyo pago aún no fue
-  // aprobado. Se ocultan tanto los 'pending' (esperan validación) como los 'rejected'
-  // (comprobante rechazado → no se cocina hasta que el cliente reenvíe, lo que resetea
-  // el estado a 'pending' — ver mozo). Sólo pasan 'approved' o sin comprobante (null =
-  // efectivo / no aplica). Fail-open: con policy A/C o sin config se muestran todos.
+  // Política B (mig 182/184): NO cocinar un pago por transferencia/QR hasta que
+  // caja/admin lo APRUEBE. Se decide por MÉTODO, no solo por payment_review_status:
+  //   • efectivo / tarjeta / POS → no llevan comprobante a validar → pasan siempre.
+  //   • qr / transferencia       → pasan SOLO con payment_review_status==='approved'.
+  // Antes se filtraba solo por status (!=='pending' && !=='rejected'), pero una
+  // transferencia SIN comprobante queda en NULL igual que el efectivo y se colaba a
+  // cocina sin validar (bug: "pasan pedidos sin que se carguen los comprobantes").
+  // Fail-open: con policy A/C o sin config se muestran todos.
   let orders = ordersRaw;
   try {
     const policy = await getPrepPolicy();
-    if (policy === 'B') orders = ordersRaw.filter(o => o.payment_review_status !== 'pending' && o.payment_review_status !== 'rejected');
+    if (policy === 'B') {
+      const needsVal = m => m === 'qr' || m === 'transferencia';
+      orders = ordersRaw.filter(o => !needsVal(o.payment_method) || o.payment_review_status === 'approved');
+    }
   } catch (_) {}
   if (orders.length === 0) return { tickets: [], error: null };
 
