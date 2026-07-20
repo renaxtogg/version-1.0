@@ -7,7 +7,7 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
+import { formatGs, parseGs, GsInput, NumInput } from "../shared/gs.jsx";
 // CAPTCHA Turnstile (nativo de Supabase Auth) para los flujos in-app que
 // re-autentican (modal "Cambiar contraseña" → signInWithPassword).
 import { useTurnstile } from "../shared/turnstile.js";
@@ -243,6 +243,21 @@ function MoneyInp({value, onChange, placeholder='0', full=true, style:sx, ...res
 }
 function Sel({value,onChange,children,...rest}) {
   return <select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'8px 10px',fontSize:13,borderRadius:6,...(rest.style||{})}}>{children}</select>;
+}
+/* Input numérico de magnitud: separador de miles con punto (10.000) y sin el
+   "0" pegado que no se puede borrar. Delega en el <NumInput> compartido; el
+   padre recibe el string crudo JS-parseable ('10000', '2.5', ''). decimals=0
+   → entero; decimals>0 → admite decimales (coma). Contrato onChange(rawString).
+   Para dinero en ₲ usar <MoneyInp>; esto es para cantidades/umbrales/stock. */
+function NumInp({value, onChange, decimals=0, placeholder, full=true, mono=true, style:sx, ...rest}) {
+  return <NumInput
+    value={value===''||value==null ? '' : value}
+    onChange={onChange}
+    decimals={decimals}
+    placeholder={placeholder}
+    {...rest}
+    style={{width:full?'100%':'auto',padding:'8px 10px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',borderRadius:6,...(sx||{})}}
+  />;
 }
 function Btn({children,onClick,variant='primary',disabled,small,style:sx}) {
   // PR-B3B: botón cableado a .my-btn + variante (sin cambio de props ni handlers).
@@ -1709,7 +1724,7 @@ function ItemModal({item, categories, onClose, onSaved}) {
     promo_tag:     item?.promo_tag      ?? '',
     dine_in_only:  item?.dine_in_only   ?? false,
     image_url:     item?.image_url      ?? '',
-    stock_min:     item?.stock_min      ?? 0,
+    stock_min:     item?.stock_min      ?? '',
     allows_half_and_half:      item?.allows_half_and_half      ?? false,
     half_and_half_rule:        item?.half_and_half_rule        ?? '',
     half_and_half_fixed_price: item?.half_and_half_fixed_price ?? '',
@@ -1882,7 +1897,7 @@ function ItemModal({item, categories, onClose, onSaved}) {
         {/* Stock mínimo */}
         <div>
           <Lbl>STOCK MÍNIMO</Lbl>
-          <Inp type="number" mono value={form.stock_min} onChange={e=>f('stock_min',e.target.value)} placeholder="0"/>
+          <NumInp value={form.stock_min} onChange={v=>f('stock_min',v)} placeholder="0"/>
         </div>
 
         {/* Checkboxes */}
@@ -5450,7 +5465,7 @@ function MarketingPage({coupons,orders,restaurant,onRefresh}) {
                 }
               </div>
               <div><Lbl>MONTO MÍN. (₲)</Lbl><MoneyInp value={form.min_order_amount} onChange={v=>setForm({...form,min_order_amount:v})} placeholder="0"/></div>
-              <div><Lbl>USOS MÁX.</Lbl><Inp type="number" mono value={form.max_uses} onChange={e=>setForm({...form,max_uses:e.target.value})} placeholder="∞"/></div>
+              <div><Lbl>USOS MÁX.</Lbl><NumInp value={form.max_uses} onChange={v=>setForm({...form,max_uses:v})} placeholder="∞"/></div>
             </div>
             <Btn onClick={addCoupon} disabled={saving||!form.code||!form.discount_value}>{saving?'Creando…':'Crear cupón'}</Btn>
           </div>
@@ -5771,7 +5786,7 @@ function StockPage() {
     setSavingToggle(false);
   }
 
-  const emptyIng  = {name:'',category:'',unit:'unit',min_threshold:'0',cost_per_unit:'',stock_quantity:'0'};
+  const emptyIng  = {name:'',category:'',unit:'unit',min_threshold:'',cost_per_unit:'',stock_quantity:''};
   const emptyLoad = {ingredient_id:'',quantity:'',unit:'unit',expiry_date:'',batch_id:'',cost_per_unit:'',notes:''};
   const emptyRec  = {menu_item_id:'',ingredient_id:'',quantity_required:'1',unit:'unit',notes:''};
   const [ingForm,  setIngForm]  = useState(emptyIng);
@@ -6131,7 +6146,7 @@ function StockPage() {
                   </Sel>
                 </FF>
                 <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}}>
-                  <FF label="CANTIDAD *"><Inp type="number" min="0" step="0.001" value={loadForm.quantity} onChange={e=>setLoadForm({...loadForm,quantity:e.target.value})} placeholder="ej: 5"/></FF>
+                  <FF label="CANTIDAD *"><NumInp decimals={3} value={loadForm.quantity} onChange={v=>setLoadForm({...loadForm,quantity:v})} placeholder="ej: 5"/></FF>
                   <FF label="UNIDAD"><Sel value={loadForm.unit} onChange={e=>setLoadForm({...loadForm,unit:e.target.value})}>{Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
@@ -6152,8 +6167,8 @@ function StockPage() {
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
                   <FF label="UNIDAD BASE"><Sel value={ingForm.unit} onChange={e=>setIngForm({...ingForm,unit:e.target.value})}>{Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
-                  <FF label="STOCK INICIAL" hint="Podés dejar en 0 y cargar después"><Inp type="number" min="0" step="0.001" value={ingForm.stock_quantity} onChange={e=>setIngForm({...ingForm,stock_quantity:e.target.value})}/></FF>
-                  <FF label="UMBRAL MÍN." hint="Alerta cuando baje de este nivel"><Inp type="number" min="0" step="0.001" value={ingForm.min_threshold} onChange={e=>setIngForm({...ingForm,min_threshold:e.target.value})}/></FF>
+                  <FF label="STOCK INICIAL" hint="Podés dejar en 0 y cargar después"><NumInp decimals={3} value={ingForm.stock_quantity} onChange={v=>setIngForm({...ingForm,stock_quantity:v})} placeholder="0"/></FF>
+                  <FF label="UMBRAL MÍN." hint="Alerta cuando baje de este nivel"><NumInp decimals={3} value={ingForm.min_threshold} onChange={v=>setIngForm({...ingForm,min_threshold:v})} placeholder="0"/></FF>
                 </div>
                 <Btn onClick={createIngredient} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Crear ingrediente'}</Btn>
               </div>
@@ -6351,9 +6366,9 @@ function StockPage() {
                           {fmtStock(it.system_quantity, it.unit)}
                         </div>
                         <div style={{display:'flex',alignItems:'center',gap:4}}>
-                          <Inp type="number" min="0" step="0.001"
+                          <NumInp decimals={3}
                             value={cnt.counted}
-                            onChange={e=>setTomaCounts(prev=>({...prev,[it.ingredient_id]:{...prev[it.ingredient_id],counted:e.target.value}}))}
+                            onChange={v=>setTomaCounts(prev=>({...prev,[it.ingredient_id]:{...prev[it.ingredient_id],counted:v}}))}
                             placeholder="—"
                             style={{width:70,textAlign:'right',fontFamily:"'SF Mono',ui-monospace,monospace",
                               background: hasDiff ? (diff>0?'#0a1a0a':'#1a0a0a') : undefined,
@@ -6458,7 +6473,7 @@ function StockPage() {
               </Sel>
             </FF>
             <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}}>
-              <FF label="CANTIDAD POR PORCIÓN *"><Inp type="number" min="0.001" step="0.001" value={recForm.quantity_required} onChange={e=>setRecForm({...recForm,quantity_required:e.target.value})}/></FF>
+              <FF label="CANTIDAD POR PORCIÓN *"><NumInp decimals={3} value={recForm.quantity_required} onChange={v=>setRecForm({...recForm,quantity_required:v})}/></FF>
               <FF label="UNIDAD"><Sel value={recForm.unit} onChange={e=>setRecForm({...recForm,unit:e.target.value})}>{Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
             </div>
             <FF label="NOTAS" hint="Opcional — ej: 'Sin grasa'"><Inp value={recForm.notes} onChange={e=>setRecForm({...recForm,notes:e.target.value})} placeholder="Opcional"/></FF>
@@ -8032,7 +8047,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
               {newForm.items.map((it,i)=>(
                 <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 60px 110px 28px',gap:6,marginBottom:6}}>
                   <Inp value={it.name} onChange={e=>updItem(i,'name',e.target.value)} placeholder="Nombre del producto"/>
-                  <Inp value={it.qty} type="number" min="1" onChange={e=>updItem(i,'qty',e.target.value)} placeholder="Qty"/>
+                  <NumInp decimals={3} value={it.qty} onChange={v=>updItem(i,'qty',v)} placeholder="Qty"/>
                   <MoneyInp value={it.price} onChange={v=>updItem(i,'price',v)} placeholder="Precio ₲"/>
                   {newForm.items.length>1&&<button onClick={()=>removeItem(i)} style={{background:'#FF3B30',color:'#fff',border:'none',borderRadius:4,cursor:'pointer',fontWeight:700}}>×</button>}
                 </div>
