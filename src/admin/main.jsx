@@ -5975,8 +5975,11 @@ function StockPage() {
           counted_quantity: parseFloat(tomaCounts[it.ingredient_id]?.counted)||0,
           apply_adjustment: !!tomaCounts[it.ingredient_id]?.adjust,
         }));
+      // p_counts es JSONB: pasar el array directo. supabase-js ya serializa el
+      // body, así que JSON.stringify lo mandaría como string escalar y el RPC
+      // fallaría con "cannot extract elements from a scalar" en jsonb_array_elements.
       const {data, error} = await db.rpc('admin_complete_stock_session',{
-        p_session_id: tomaSessionId, p_counts: JSON.stringify(counts)
+        p_session_id: tomaSessionId, p_counts: counts
       });
       if(error) throw error;
       setTomaResult({...data, items: tomaItems, counts: tomaCounts});
@@ -6361,7 +6364,7 @@ function StockPage() {
                   </div>
                 </div>
 
-                <div style={{background:'#0a1a0a',border:'1px solid #1a3a1a',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:12,color:C.green}}>
+                <div style={{background:TINT.greenBg,border:`1px solid ${TINT.greenBorder}`,borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:12,color:TINT.greenText}}>
                   <b>Tip:</b> los ítems que no contés quedan sin diferencia registrada. Podés completar solo lo que tenés a mano y continuar después.
                 </div>
 
@@ -6374,9 +6377,9 @@ function StockPage() {
                     const diff = cnt.counted!=='' ? parseFloat(cnt.counted||0)-it.system_quantity : null;
                     const hasDiff = diff!==null && Math.abs(diff)>0.001;
                     return (
-                      <div key={it.ingredient_id} style={{display:'grid',gridTemplateColumns:'1fr 100px 100px 90px',padding:'10px 14px',borderBottom:`1px solid ${C.border}20`,alignItems:'center',background:hasDiff?'#1a0a0a':'transparent'}}>
+                      <div key={it.ingredient_id} style={{display:'grid',gridTemplateColumns:'1fr 100px 100px 90px',padding:'10px 14px',borderBottom:`1px solid ${C.border}20`,alignItems:'center',background:hasDiff?(diff>0?TINT.greenBg:TINT.redBg):'transparent'}}>
                         <div>
-                          <div style={{fontWeight:600,fontSize:13}}>{it.name}</div>
+                          <div style={{fontWeight:600,fontSize:13,color:C.ink}}>{it.name}</div>
                           {it.category&&<div style={{fontSize:10,color:C.dim}}>{it.category}</div>}
                         </div>
                         <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,color:C.mid}}>
@@ -6388,8 +6391,9 @@ function StockPage() {
                             onChange={v=>setTomaCounts(prev=>({...prev,[it.ingredient_id]:{...prev[it.ingredient_id],counted:v}}))}
                             placeholder="—"
                             style={{width:70,textAlign:'right',fontFamily:"'SF Mono',ui-monospace,monospace",
-                              background: hasDiff ? (diff>0?'#0a1a0a':'#1a0a0a') : undefined,
-                              color: hasDiff ? (diff>0?C.green:C.red) : undefined,
+                              background: hasDiff ? (diff>0?TINT.greenBg:TINT.redBg) : undefined,
+                              color: hasDiff ? (diff>0?TINT.greenText:TINT.redText) : undefined,
+                              fontWeight: hasDiff ? 700 : undefined,
                             }}
                           />
                           <span style={{fontSize:10,color:C.dim}}>{UNIT_DISPLAY[it.unit]||it.unit}</span>
@@ -6397,7 +6401,7 @@ function StockPage() {
                         <div style={{display:'flex',alignItems:'center',gap:6}}>
                           {hasDiff&&(
                             <>
-                              <span style={{fontSize:11,fontWeight:700,color:diff>0?C.green:C.red}}>
+                              <span style={{fontSize:11,fontWeight:700,color:diff>0?TINT.greenText:TINT.redText}}>
                                 {diff>0?'+':''}{diff.toFixed(2)}
                               </span>
                               <input type="checkbox" checked={!!cnt.adjust}
@@ -6428,9 +6432,9 @@ function StockPage() {
             {/* Vista: resultado */}
             {tomaView==='result'&&tomaResult&&(
               <div>
-                <div style={{background:'#0a1a0a',border:'1px solid #1a3a1a',borderRadius:10,padding:'16px 20px',marginBottom:16,textAlign:'center'}}>
+                <div style={{background:TINT.greenBg,border:`1px solid ${TINT.greenBorder}`,borderRadius:10,padding:'16px 20px',marginBottom:16,textAlign:'center'}}>
                   <div style={{fontSize:24,marginBottom:6}}>✓</div>
-                  <div style={{fontWeight:700,fontSize:16,color:C.green,marginBottom:4,textTransform:'capitalize'}}>
+                  <div style={{fontWeight:700,fontSize:16,color:TINT.greenText,marginBottom:4,textTransform:'capitalize'}}>
                     Toma de {tomaType} completada
                   </div>
                   <div style={{fontSize:13,color:C.mid}}>
@@ -6451,11 +6455,11 @@ function StockPage() {
                         const diff = parseFloat(cnt.counted||0) - it.system_quantity;
                         return (
                           <div key={it.ingredient_id} style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}20`,display:'grid',gridTemplateColumns:'1fr 90px 90px 80px 60px',alignItems:'center',gap:8}}>
-                            <div style={{fontWeight:600,fontSize:13}}>{it.name}</div>
+                            <div style={{fontWeight:600,fontSize:13,color:C.ink}}>{it.name}</div>
                             <span style={{fontSize:12,color:C.mid,fontFamily:'monospace'}}>{fmtStock(it.system_quantity,it.unit)}</span>
-                            <span style={{fontSize:12,fontFamily:'monospace'}}>{fmtStock(parseFloat(cnt.counted),it.unit)}</span>
-                            <span style={{fontSize:12,fontWeight:700,color:diff>0?C.green:C.red,fontFamily:'monospace'}}>{diff>0?'+':''}{diff.toFixed(2)}</span>
-                            <span style={{fontSize:11,color:cnt.adjust?C.green:C.mid}}>{cnt.adjust?'Ajustado':'Sin ajuste'}</span>
+                            <span style={{fontSize:12,color:C.ink,fontFamily:'monospace'}}>{fmtStock(parseFloat(cnt.counted),it.unit)}</span>
+                            <span style={{fontSize:12,fontWeight:700,color:diff>0?TINT.greenText:TINT.redText,fontFamily:'monospace'}}>{diff>0?'+':''}{diff.toFixed(2)}</span>
+                            <span style={{fontSize:11,color:cnt.adjust?TINT.greenText:C.mid}}>{cnt.adjust?'Ajustado':'Sin ajuste'}</span>
                           </div>
                         );
                       })}
