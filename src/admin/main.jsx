@@ -7561,16 +7561,23 @@ function ConfigPage({restaurant,onRefresh}) {
   const [dcForm,setDcForm] = useState(null);   // política de cobro/validación/preparación (mig 182)
   const [tab,setTab] = useState('general');   // general (config del local) | cuenta (Mi cuenta, consolidada desde el nav)
 
+  // Sembramos el formulario UNA vez por restaurante (por id). loadAll(true) del
+  // poll/realtime (cada 30s) recrea el objeto restaurant en cada refresco (nueva
+  // referencia) → sin este guard el efecto se re-dispara y pisa las ediciones en
+  // curso: una portada/logo/QR recién subido pero AÚN sin guardar desaparecía si el
+  // poll llegaba antes de tocar «Guardar». Mismo patrón que MiCuentaPage.
+  const seededRestId = useRef(null);
   useEffect(()=>{
-    if(restaurant){
-      setForm(restaurant);
-      setPmForm(restaurant.payment_methods||null);
-      setDcForm(restaurant.delivery_config||null);
-      const bh=(restaurant.business_hours && typeof restaurant.business_hours==='object')?restaurant.business_hours:{};
-      const norm={}; for(let d=0; d<7; d++){ const r=bh[String(d)]; norm[String(d)]=Array.isArray(r)?r.map(x=>({start:x.start||'',end:x.end||''})):[]; }
-      setBhDays(norm);
-      setOpenOverride(restaurant.open_override || 'auto');
-    }
+    if(!restaurant) return;
+    if(seededRestId.current === restaurant.id) return;
+    seededRestId.current = restaurant.id;
+    setForm(restaurant);
+    setPmForm(restaurant.payment_methods||null);
+    setDcForm(restaurant.delivery_config||null);
+    const bh=(restaurant.business_hours && typeof restaurant.business_hours==='object')?restaurant.business_hours:{};
+    const norm={}; for(let d=0; d<7; d++){ const r=bh[String(d)]; norm[String(d)]=Array.isArray(r)?r.map(x=>({start:x.start||'',end:x.end||''})):[]; }
+    setBhDays(norm);
+    setOpenOverride(restaurant.open_override || 'auto');
   },[restaurant]);
 
   const addRange    = (d)=>setBhDays(p=>({...p,[d]:[...(p[d]||[]),{start:'12:00',end:'23:00'}]}));
