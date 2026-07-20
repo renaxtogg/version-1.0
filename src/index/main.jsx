@@ -1259,7 +1259,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   const METHODS_ALL = [
     { id: 'efectivo', label: 'Efectivo', sub: 'Se cobra en mesa o caja', info: 'El pago se realiza en mesa o caja. El mozo te asistirá.' },
     { id: 'tarjeta', label: 'Tarjeta', sub: 'Visa · Mastercard · Amex', info: 'El mozo acercará la terminal de pago a tu mesa.' },
-    { id: 'qr', label: 'QR / Transferencia', sub: 'Transferencia bancaria · Billetera', info: 'Transferí al alias/cuenta del local o escaneá el QR. Confirmá el pedido y mostrá el comprobante al mozo o caja.' },
+    { id: 'qr', label: 'QR / Transferencia', sub: 'Transferencia bancaria · Billetera', info: 'Transferí al alias/cuenta del local o escaneá el QR, y adjuntá la captura del comprobante para confirmar tu pedido.' },
     { id: 'pos', label: 'POS en mesa', sub: 'Terminal llega a tu mesa', info: 'El mozo acercará el POS a tu mesa en breve.' }
   ];
   // Config del restaurante (mig 181): oculta los medios que el dueño apagó. NULL/ausente = habilitado.
@@ -1271,6 +1271,14 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   }, [pmCfg]);
   const currentMethod = METHODS.find(m => m.id === method);
 
+  // Comprobante de transferencia OBLIGATORIO en el cliente (pedido de Renato): no dejar
+  // confirmar un pago por transferencia/QR sin subir el comprobante — así el pedido no
+  // entra "sin validar" y sin llegar a cocina. Incondicional para 'qr', igual que el
+  // checkout de delivery-cliente. (El toggle "Exigir comprobante" del admin sigue
+  // gateando el cobro STAFF-side en caja/mozo; acá el cliente que transfiere siempre sube.)
+  const mustUploadProof = method === 'qr';
+  const needProof = mustUploadProof && !proofPath;   // falta el comprobante obligatorio
+
   const submittingRef = useRef(false);   // WS3-B · guard anti doble-submit (sincrónico, no async como `step`)
   const handleConfirm = async () => {
     if (submittingRef.current) return;   // un 2º click rápido NO dispara otro insert
@@ -1280,6 +1288,11 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
     if (!cartItems || cartItems.length === 0) { setSubmitError('Tu carrito está vacío'); return; }
     const effectiveTotal = total > 0 ? total : cartItems.reduce((s, ci) => s + (ci.total || 0), 0);
     if (effectiveTotal <= 0) { setSubmitError('El total del pedido es inválido. Volvé al carrito y revisá los precios.'); return; }
+    // Transferencia/QR: exigir el comprobante ANTES de confirmar (si el local no lo desactivó).
+    if (mustUploadProof && !proofPath) {
+      setSubmitError(proofBusy ? 'Esperá a que termine de subir el comprobante.' : 'Subí la foto del comprobante de tu transferencia para poder confirmar el pedido.');
+      return;
+    }
     // Factura fiscal: validar datos del receptor ANTES de confirmar (no se puede
     // emitir una factura electrónica sin razón social + RUC/CI válido).
     if (invoiceType === 'fiscal') {
@@ -1427,8 +1440,8 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
             antes de confirmar el pago. Bucket privado → solo el staff lo ve (URL firmada). */}
         {method === 'qr' && (
           <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Comprobante de transferencia</div>
-            <div style={{ fontSize: 12, color: T.silver, marginBottom: 10, lineHeight: 1.5 }}>Subí la captura de tu transferencia. Caja la revisa y confirma tu pago.</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Comprobante de transferencia{mustUploadProof && <span style={{ color: '#EF4444' }}> · obligatorio</span>}</div>
+            <div style={{ fontSize: 12, color: T.silver, marginBottom: 10, lineHeight: 1.5 }}>{mustUploadProof ? 'Subí la captura de tu transferencia para poder confirmar el pedido. El local la revisa y confirma tu pago.' : 'Subí la captura de tu transferencia. Caja la revisa y confirma tu pago.'}</div>
             <input ref={proofInputRef} type="file" accept=".jpg,.jpeg,.png,.webp" style={{ display: 'none' }} onChange={e => { const f = e.target.files[0]; e.target.value = ''; handleProof(f); }} />
             {proofPreview ? (
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -1480,9 +1493,11 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
       </div>
       <div style={{ padding: '12px 20px 32px', background: T.offwhite }}>
         {submitError && <div style={{ background: '#FEE2E2', border: '1px solid #FECACA', borderRadius: 10, padding: '10px 14px', marginBottom: 10, fontSize: 13, color: '#B91C1C', fontWeight: 600 }}>Error: {submitError}</div>}
-        <button onClick={handleConfirm} disabled={!canOrder} style={{ width: '100%', height: 54, background: canOrder ? T.btnPrimary : T.light, color: canOrder ? T.btnPrimaryText : T.silver, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: canOrder ? 'pointer' : 'default', boxShadow: canOrder ? '0 8px 24px rgba(0,0,0,0.15)' : 'none' }}>
-          {!canOrder ? (openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Local cerrado') : (method === 'efectivo' || method === 'pos' ? 'Confirmar pedido' : `Confirmar y pagar ${fmt(total)}`)}
+        {(() => { const confirmEnabled = canOrder && !needProof && !proofBusy; return (
+        <button onClick={handleConfirm} disabled={!confirmEnabled} style={{ width: '100%', height: 54, background: confirmEnabled ? T.btnPrimary : T.light, color: confirmEnabled ? T.btnPrimaryText : T.silver, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: confirmEnabled ? 'pointer' : 'default', boxShadow: confirmEnabled ? '0 8px 24px rgba(0,0,0,0.15)' : 'none' }}>
+          {!canOrder ? (openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Local cerrado') : proofBusy ? 'Subiendo comprobante…' : needProof ? 'Adjuntá el comprobante para continuar' : (method === 'efectivo' || method === 'pos' ? 'Confirmar pedido' : `Confirmar y pagar ${fmt(total)}`)}
         </button>
+        ); })()}
       </div>
     </div>
   );
