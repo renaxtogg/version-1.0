@@ -196,6 +196,15 @@ async function dbLoadRestaurant() {
       const sm = await db.from('restaurants').select('service_mode').eq('id', RESTAURANT_ID).maybeSingle();
       if (sm && !sm.error && sm.data) data.service_mode = sm.data.service_mode;
     } catch (_) {}
+    // Métodos de pago habilitados (mig 181) + datos de transferencia del comercio (mig 180)
+    // — best-effort: si las columnas / el GRANT anon no están, se ignora y el cliente
+    // degrada a "todos los métodos, sin datos de transferencia" (no rompe la carga).
+    try {
+      const pm = await db.from('restaurants')
+        .select('payment_methods,bank_holder,bank_name,bank_account,bank_alias,bank_doc,bank_qr_url')
+        .eq('id', RESTAURANT_ID).maybeSingle();
+      if (pm && !pm.error && pm.data) Object.assign(data, pm.data);
+    } catch (_) {}
     return data;
   } catch(e) { return null; }
 }
@@ -1209,6 +1218,7 @@ const EMAIL_RE_CLIENTE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /* ══ SCREEN: PAGO ════════════════════════ */
 function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone, onNewOrder, cartItems, orderMode, lang, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
+  const restaurant = useContext(RestaurantCtx);
   const [step, setStep] = useState('form');
   const [method, setMethod] = useState('efectivo');
   const [invoiceType, setInvoiceType] = useState('none'); // 'none' | 'ticket' | 'fiscal'
@@ -1218,14 +1228,19 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   const [email, setEmail] = useState('');
   const [ordNum, setOrdNum] = useState('');
   const [submitError, setSubmitError] = useState(null);
-  const [showBancardToast, setShowBancardToast] = useState(false);
-
-  const METHODS = [
+  const METHODS_ALL = [
     { id: 'efectivo', label: 'Efectivo', sub: 'Se cobra en mesa o caja', info: 'El pago se realiza en mesa o caja. El mozo te asistirá.' },
     { id: 'tarjeta', label: 'Tarjeta', sub: 'Visa · Mastercard · Amex', info: 'El mozo acercará la terminal de pago a tu mesa.' },
-    { id: 'qr', label: 'QR / Billetera digital', sub: 'Tigo Money · Personal Pay', info: 'El pago digital estará disponible próximamente. Confirmá el pedido y pagá en mesa.' },
+    { id: 'qr', label: 'QR / Transferencia', sub: 'Transferencia bancaria · Billetera', info: 'Transferí al alias/cuenta del local o escaneá el QR. Confirmá el pedido y mostrá el comprobante al mozo o caja.' },
     { id: 'pos', label: 'POS en mesa', sub: 'Terminal llega a tu mesa', info: 'El mozo acercará el POS a tu mesa en breve.' }
   ];
+  // Config del restaurante (mig 181): oculta los medios que el dueño apagó. NULL/ausente = habilitado.
+  const pmCfg = restaurant && restaurant.payment_methods;
+  const METHODS = METHODS_ALL.filter(m => !pmCfg || pmCfg[m.id] !== false);
+  // Si el método elegido quedó deshabilitado (o no está en la lista), saltar al primero disponible.
+  useEffect(() => {
+    if (METHODS.length && !METHODS.find(m => m.id === method)) setMethod(METHODS[0].id);
+  }, [pmCfg]);
   const currentMethod = METHODS.find(m => m.id === method);
 
   const submittingRef = useRef(false);   // WS3-B · guard anti doble-submit (sincrónico, no async como `step`)
@@ -1347,30 +1362,35 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
             </div>
           </div>
         ))}
-        {/* ── Pago digital — Próximamente ── */}
-        <div onClick={() => setShowBancardToast(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'rgba(255,149,0,0.05)', border: `2px dashed rgba(255,149,0,0.35)`, borderRadius: 12, marginBottom: 8, cursor: 'pointer' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#92400E', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="card" size={14} color="#92400E" /> Pagar desde el celular
-              <span style={{ fontSize: 9, fontWeight: 800, background: '#FF9500', color: '#fff', borderRadius: 4, padding: '2px 5px', letterSpacing: '0.05em' }}>PRÓXIMAMENTE</span>
-            </div>
-            <div style={{ fontSize: 12, color: '#B45309', marginTop: 1 }}>Tarjeta / QR Bancard</div>
-          </div>
-          <div style={{ fontSize: 18, opacity: 0.5 }}>›</div>
-        </div>
+        {/* "Pagar desde el celular / Bancard" retirado — no funcional aún (2026-07-19) */}
         {/* Texto contextual por método */}
         {currentMethod && (
           <div style={{ background: method === 'qr' ? '#FFF7ED' : T.light, border: `1px solid ${method === 'qr' ? '#FDE68A' : T.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: method === 'qr' ? '#92400E' : T.mid, lineHeight: 1.5 }}>
             {method === 'qr' && <Icon name="alert" size={12} color="#92400E" style={{ marginRight: 6, verticalAlign: '-2px' }} />}{currentMethod.info}
           </div>
         )}
-        {method === 'qr' && (
-          <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '24px', marginBottom: 14, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: T.gray, marginBottom: 16, fontWeight: 600 }}>QR de referencia</div>
-            <div style={{ display: 'inline-block', border: `1px solid ${T.border}`, borderRadius: 8, padding: 8 }}><QRSvg size={140} fgColor={T.black} /></div>
-            <div style={{ fontSize: 11, color: T.silver, marginTop: 12 }}>Billetera PY · Tigo Money · Personal Pay</div>
-          </div>
-        )}
+        {method === 'qr' && (() => {
+          const b = restaurant || {};
+          const hasData = b.bank_holder || b.bank_name || b.bank_account || b.bank_alias || b.bank_qr_url;
+          return (
+            <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '20px', marginBottom: 14, textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: T.gray, marginBottom: 14, fontWeight: 600 }}>Datos para transferir</div>
+              {b.bank_qr_url
+                ? <div style={{ display: 'inline-block', border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, background: '#fff' }}><img src={b.bank_qr_url} alt="QR de transferencia" style={{ width: 160, height: 160, objectFit: 'contain', display: 'block' }} /></div>
+                : <div style={{ display: 'inline-block', border: `1px solid ${T.border}`, borderRadius: 8, padding: 8 }}><QRSvg size={140} fgColor={T.black} /></div>}
+              {hasData && (
+                <div style={{ marginTop: 14, textAlign: 'left', fontSize: 13, lineHeight: 1.7, color: T.ink, wordBreak: 'break-word' }}>
+                  {b.bank_holder && <div><span style={{ color: T.gray }}>Titular:</span> <strong>{b.bank_holder}</strong></div>}
+                  {b.bank_name && <div><span style={{ color: T.gray }}>Banco:</span> {b.bank_name}</div>}
+                  {b.bank_account && <div><span style={{ color: T.gray }}>Cuenta:</span> {b.bank_account}</div>}
+                  {b.bank_alias && <div><span style={{ color: T.gray }}>Alias:</span> {b.bank_alias}</div>}
+                  {b.bank_doc && <div><span style={{ color: T.gray }}>CI/RUC:</span> {b.bank_doc}</div>}
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: T.silver, marginTop: 12 }}>{hasData ? 'Transferí el total y mostrá el comprobante al mozo o caja.' : 'El local aún no cargó sus datos de transferencia. Consultá al mozo.'}</div>
+            </div>
+          );
+        })()}
         {/* Comprobante */}
         <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Comprobante</div>
@@ -1413,18 +1433,6 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
           {!canOrder ? (openState && openState.next ? `Cerrado · Abre ${openState.next}` : 'Local cerrado') : (method === 'efectivo' || method === 'pos' ? 'Confirmar pedido' : `Confirmar y pagar ${fmt(total)}`)}
         </button>
       </div>
-      {showBancardToast && (() => {
-        setTimeout(() => setShowBancardToast(false), 4000);
-        return (
-          <div onClick={() => setShowBancardToast(false)} style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 9999, background: '#1C1C1E', color: '#F5F5F7', borderRadius: 14, padding: '14px 20px', maxWidth: 340, width: 'calc(100% - 40px)', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer' }}>
-            <span style={{ flexShrink: 0, display: 'flex' }}><Icon name="building" size={22} color="#F5F5F7" /></span>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 3 }}>Módulo Bancard / SIFEN en fase de certificación</div>
-              <div style={{ fontSize: 11, color: '#AEAEB2', lineHeight: 1.4 }}>Esta pasarela se activará automáticamente al concluir los trámites del comercio.</div>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }

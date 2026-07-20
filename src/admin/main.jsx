@@ -7481,11 +7481,14 @@ function ConfigPage({restaurant,onRefresh}) {
   const [savingH,setSavingH] = useState(false);
   const [savingHH,setSavingHH] = useState(false);
   const [savingBank,setSavingBank] = useState(false);
+  const [savingPm,setSavingPm] = useState(false);
+  const [pmForm,setPmForm] = useState(null);   // métodos de pago habilitados (mig 181)
   const [tab,setTab] = useState('general');   // general (config del local) | cuenta (Mi cuenta, consolidada desde el nav)
 
   useEffect(()=>{
     if(restaurant){
       setForm(restaurant);
+      setPmForm(restaurant.payment_methods||null);
       const bh=(restaurant.business_hours && typeof restaurant.business_hours==='object')?restaurant.business_hours:{};
       const norm={}; for(let d=0; d<7; d++){ const r=bh[String(d)]; norm[String(d)]=Array.isArray(r)?r.map(x=>({start:x.start||'',end:x.end||''})):[]; }
       setBhDays(norm);
@@ -7541,6 +7544,16 @@ function ConfigPage({restaurant,onRefresh}) {
     else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS',false);}
     else{toast('Datos de transferencia guardados');onRefresh();}
     setSavingBank(false);
+  }
+  // Métodos de pago que ve el cliente en el menú QR (mig 181). Normaliza a objeto explícito.
+  async function savePaymentMethods(){
+    if(!db)return;setSavingPm(true);
+    const cfg={efectivo:true,tarjeta:true,qr:true,pos:true,...(pmForm||{})};
+    const{data,error}=await db.from('restaurants').update({payment_methods:cfg}).eq('id',RID).select('id');
+    if(error){toast('Error: '+error.message+' — ¿está aplicada la migración 181?',false);}
+    else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS',false);}
+    else{toast('Métodos de pago guardados');onRefresh();}
+    setSavingPm(false);
   }
 
   const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante'},{key:'address',label:'Dirección'},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@turestaurante'},{key:'website',label:'Sitio web',ph:'turestaurante.com.py'}];
@@ -7615,6 +7628,29 @@ function ConfigPage({restaurant,onRefresh}) {
               ))}
             </div>
             <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
+          </div>
+
+          {/* Métodos de pago que ve el cliente en el menú QR — mig 181 (FASE D2 · Módulo 1) */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>MÉTODOS DE PAGO (CLIENTE QR)</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:14,lineHeight:1.5}}>Elegí qué medios ve el cliente al pagar desde el menú QR. Los que apagues no aparecen. Los datos de "QR / Transferencia" se cargan en la tarjeta de abajo.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
+              {[['efectivo','Efectivo','Se cobra en mesa o caja'],['tarjeta','Tarjeta','Visa · Mastercard · Amex (POS)'],['qr','QR / Transferencia','Muestra tus datos + QR de transferencia'],['pos','POS en mesa','El mozo lleva la terminal a la mesa']].map(([id,label,sub])=>{
+                const on = !pmForm || pmForm[id] !== false;
+                return (
+                  <div key={id} onClick={()=>setPmForm(p=>({efectivo:true,tarjeta:true,qr:true,pos:true,...(p||{}),[id]:!on}))} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,cursor:'pointer',background:on?'transparent':C.bg}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:on?C.ink:C.mid}}>{label}</div>
+                      <div style={{fontSize:11,color:C.dim,marginTop:1}}>{sub}</div>
+                    </div>
+                    <div style={{width:42,height:24,borderRadius:12,background:on?C.green:C.border,position:'relative',flexShrink:0,transition:'background .2s'}}>
+                      <div style={{position:'absolute',top:2,left:on?'20px':'2px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <Btn onClick={savePaymentMethods} disabled={savingPm}>{savingPm?'Guardando…':'Guardar métodos de pago'}</Btn>
           </div>
 
           {/* Datos para transferencias (cobro) — mig 180 */}
