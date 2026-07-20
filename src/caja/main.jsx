@@ -302,6 +302,34 @@ function useBankInfo(){
   useEffect(()=>{ let m=true; loadBankInfo().then(v=>{ if(m)setBi(v); }); return ()=>{m=false;}; },[]);
   return bi;
 }
+
+/* ── Config de cobro (mig 182): require_proof = exigir comprobante (N° o foto)
+   para cobrar por transferencia/QR. Mismo loader cacheado (lectura del propio
+   restaurante). NULL / clave ausente = no exige (fail-open). ── */
+let _payCfgCache;                // undefined = sin cargar · obj = delivery_config · null = sin config
+let _payCfgPromise = null;
+function loadPayCfg(){
+  if(_payCfgCache!==undefined) return Promise.resolve(_payCfgCache);
+  if(_payCfgPromise) return _payCfgPromise;
+  if(!db||!RID){ _payCfgCache=null; return Promise.resolve(null); }
+  _payCfgPromise = db.from('restaurants')
+    .select('delivery_config')
+    .eq('id',RID).maybeSingle()
+    .then(r=>{ _payCfgCache=(r&&r.data&&r.data.delivery_config)||null; return _payCfgCache; })
+    .catch(()=>{ _payCfgCache=null; return null; });
+  return _payCfgPromise;
+}
+function useRequireProof(){
+  const [v,setV]=useState(!!(_payCfgCache&&_payCfgCache.require_proof));
+  useEffect(()=>{ let m=true; loadPayCfg().then(c=>{ if(m)setV(!!(c&&c.require_proof)); }); return ()=>{m=false;}; },[]);
+  return v;
+}
+// ¿Falta el comprobante exigido? Solo aplica a transferencia/QR (metodo 'qr').
+// Se cumple con el N° de operación O con la foto — cualquiera de los dos alcanza.
+function _faltaComprobante(requireProof, metodo, comprobante, proofUrl){
+  return requireProof && metodo==='qr' && !String(comprobante||'').trim() && !proofUrl;
+}
+const _MSG_FALTA_COMP='Este local exige comprobante para cobrar por transferencia/QR — cargá el N° de operación o la foto.';
 // Métodos que admiten Nº de comprobante (tarjeta POS / transferencia / QR / mixto).
 const _needsRef = m => m==='tarjeta_credito'||m==='tarjeta_debito'||m==='qr'||m==='mixto';
 /* UI compartida por los modales de cobro: campo "N° de comprobante" (opcional) y,
@@ -1210,6 +1238,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
   const [proofUrl,setProofUrl]=useState('');         // foto del comprobante (mig 182)
   const bankInfo=useBankInfo();
+  const requireProof=useRequireProof();              // exigir comprobante en QR (mig 182 · require_proof)
   const [busy,setBusy]=useState(false);
   const [items,setItems]=useState([]);
   const [successTicket,setSuccessTicket]=useState(null);
@@ -1249,6 +1278,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
     if(metodo==='efectivo'&&montoNum<totalReal){
       toast('El monto recibido es menor al total',false);return;
     }
+    if(_faltaComprobante(requireProof,metodo,comprobante,proofUrl)){ toast(_MSG_FALTA_COMP,false);return; }
     setBusy(true);
     try{
       // Solo cambiar status si el pedido aún no llegó a cocina — así kitchen puede continuar independiente.
@@ -1569,6 +1599,7 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
   const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
   const [proofUrl,setProofUrl]=useState('');         // foto del comprobante (mig 182)
   const bankInfo=useBankInfo();
+  const requireProof=useRequireProof();              // exigir comprobante en QR (mig 182 · require_proof)
 
   const selectedLines=lines.filter(l=>sel[l.itemId]?.checked&&(sel[l.itemId]?.qty||0)>0);
   const subtotal=selectedLines.reduce((s,l)=>s+Math.min(sel[l.itemId].qty,l.pend)*l.unitPrice,0);
@@ -1588,6 +1619,7 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
     if(toCharge.length===0){toast('Seleccioná al menos un ítem',false);return;}
     const subt=toCharge.reduce((s,x)=>s+x.qty*x.l.unitPrice,0);
     if(metodo==='efectivo'&&montoNum>0&&montoNum<subt){toast('El monto recibido es menor al total',false);return;}
+    if(_faltaComprobante(requireProof,metodo,comprobante,proofUrl)){ toast(_MSG_FALTA_COMP,false);return; }
     setBusy(true);
     try{
       // Todo el cobro ocurre ATÓMICAMENTE en la RPC (bloqueo de fila anti-doble-cobro,
@@ -2551,6 +2583,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
   const [proofUrl,setProofUrl]=useState('');         // foto del comprobante (mig 182)
   const bankInfo=useBankInfo();
+  const requireProof=useRequireProof();              // exigir comprobante en QR (mig 182 · require_proof)
   const [invName,setInvName]=useState('');
   const [invRuc,setInvRuc]=useState('');
   const [invEmail,setInvEmail]=useState('');
@@ -2578,6 +2611,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
 
   async function confirmar(){
     if(!contraEntrega&&metodo==='efectivo'&&montoNum<total){toast('El monto recibido es menor al total',false);return;}
+    if(!contraEntrega&&_faltaComprobante(requireProof,metodo,comprobante,proofUrl)){ toast(_MSG_FALTA_COMP,false);return; }
     setBusy(true);
     try{
       /* 1. crear order */

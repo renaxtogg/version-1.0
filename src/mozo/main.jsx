@@ -467,12 +467,18 @@ function App() {
   const [proofUrl, setProofUrl] = useState('');
   // Datos de transferencia del comercio (para mostrar al cobrar por QR/transferencia — mig 180)
   const [bankInfo, setBankInfo] = useState(null);
+  // Exigir comprobante en transferencia/QR (mig 182 · require_proof). NULL = no exige (fail-open).
+  const [requireProof, setRequireProof] = useState(false);
   useEffect(() => {
     if (!db || !RID) return;
     db.from('restaurants')
-      .select('bank_holder,bank_name,bank_account,bank_alias,bank_doc,bank_qr_url')
+      .select('bank_holder,bank_name,bank_account,bank_alias,bank_doc,bank_qr_url,delivery_config')
       .eq('id', RID).maybeSingle()
-      .then(r => setBankInfo((r && r.data) || null)).catch(() => {});
+      .then(r => {
+        const d = (r && r.data) || null;
+        setBankInfo(d);
+        setRequireProof(!!(d && d.delivery_config && d.delivery_config.require_proof));
+      }).catch(() => {});
   }, []);
 
   // Mapa de zonas
@@ -1503,9 +1509,17 @@ function App() {
   //   cobrarTodo=true  → todos los pendientes de la mesa ("Cobrar toda la mesa")
   //   cobrarTodo=false → solo los ítems tildados ("Cobrar seleccionados")
   // Si la mig 128 no está aplicada (sin paid_quantity / sin RPC) degrada al cobro clásico.
+  // Exige comprobante para transferencia/QR si el local lo activó (mig 182 · require_proof).
+  // Se cumple con el N° de operación O con la foto — cualquiera alcanza.
+  function _faltaComprobanteMozo() {
+    return requireProof && payMethod === 'qr' && !comprobante.trim() && !proofUrl;
+  }
+  const _MSG_FALTA_COMP = 'Este local exige comprobante para cobrar por transferencia/QR — cargá el N° de operación o la foto.';
+
   async function processPay(cobrarTodo) {
     if (!db) { showToast('Sin conexión'); return; }
     if (cobroBusy) return;
+    if (_faltaComprobanteMozo()) { showToast(_MSG_FALTA_COMP); return; }
 
     // Sin mig 128: cobro clásico de toda la mesa (no entra a caja, no requiere caja abierta).
     if (!partialOn) { return processPayLegacy(); }
@@ -1619,6 +1633,7 @@ function App() {
   // No registra en caja — se mantiene para no romper el cobro si la RPC no está disponible.
   async function processPayLegacy() {
     if (!db) { showToast('Sin conexión'); return; }
+    if (_faltaComprobanteMozo()) { showToast(_MSG_FALTA_COMP); return; }
     const base = cobroBase;
     if (base === 0) { showToast('Total en ₲0 — verificá los productos'); return; }
     const total = Math.round(base * (1 + tipPct / 100));
