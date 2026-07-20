@@ -7,8 +7,8 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
-// FASE D2 — foto del comprobante en el cobro (mig 182).
-import { ComprobanteUploader } from "../shared/comprobante.jsx";
+// FASE D2 — foto del comprobante en el cobro + validación del pago (mig 182).
+import { ComprobanteUploader, ProofImage, reviewMeta, recordPaymentReview } from "../shared/comprobante.jsx";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -1170,20 +1170,40 @@ function App() {
   async function loadTableOrders(tableId) {
     if (!db || !tableId) return;
     const tbl = tablesById[tableId];
-    let q = db.from('orders')
-      .select('id, order_number, status, payment_status, total, created_at, payment_method, delivered_to_table_at, order_items(id, item_name, quantity, unit_price, total_price, observations)')
-      .eq('restaurant_id', RID)
-      .eq('table_id', tableId)
-      .not('status', 'in', '("cancelled")')
-      // Excluir órdenes ya cobradas por mozo (delivered + payment_method seteado)
-      .or('status.neq.delivered,payment_method.is.null')
-      .order('created_at');
-    // Filtrar por sesión actual para no mostrar sesiones históricas de la misma mesa
-    if (tbl?.occupied_since) {
-      q = q.gte('created_at', tbl.occupied_since);
-    }
-    const { data } = await q;
+    // Columnas de validación del pago (mig 182). Si la mig no está, el select con
+    // esas columnas da error → se reintenta sin ellas (fail-open, igual que caja).
+    const EXT = 'payment_review_status, payment_review_note, payment_reference, payment_proof_url, ';
+    const buildSel = ext => `id, order_number, status, payment_status, total, created_at, payment_method, delivered_to_table_at, ${ext}order_items(id, item_name, quantity, unit_price, total_price, observations)`;
+    const run = sel => {
+      let q = db.from('orders')
+        .select(sel)
+        .eq('restaurant_id', RID)
+        .eq('table_id', tableId)
+        .not('status', 'in', '("cancelled")')
+        // Excluir órdenes ya cobradas por mozo (delivered + payment_method seteado)
+        .or('status.neq.delivered,payment_method.is.null')
+        .order('created_at');
+      // Filtrar por sesión actual para no mostrar sesiones históricas de la misma mesa
+      if (tbl?.occupied_since) q = q.gte('created_at', tbl.occupied_since);
+      return q;
+    };
+    let { data, error } = await run(buildSel(EXT));
+    if (error) { ({ data } = await run(buildSel(''))); }
     setTableOrders(data || []);
+  }
+
+  // Validación del pago (mig 182 · FASE D2): el mozo aprueba/rechaza una
+  // transferencia/QR — misma capacidad que caja. Al APROBAR, el pedido se libera
+  // a cocina (con policy B estaba frenado hasta la validación). Optimista + bitácora
+  // inmutable en payment_reviews. Fail-open si la mig no está.
+  async function doReview(order, action) {
+    let note = null;
+    if (action === 'rejected') { note = (window.prompt('Motivo del rechazo (opcional):') || '').trim() || null; }
+    setTableOrders(prev => prev.map(x => x.id === order.id ? { ...x, payment_review_status: action, payment_review_note: note } : x));
+    const r = await recordPaymentReview(db, { restaurantId: RID, orderId: order.id, action, note });
+    if (!r.applied) { showToast('No se pudo guardar la validación' + (r.error ? ' (' + r.error + ')' : '')); }
+    else { showToast(action === 'approved' ? 'Pago verificado — el pedido pasa a cocina' : 'Pago rechazado'); }
+    if (activeTableIdRef.current) loadTableOrders(activeTableIdRef.current);
   }
 
   // Carga items para el modal de cobro: sesión actual, excluye cobradas.
@@ -2328,6 +2348,36 @@ function App() {
                         {orderStatusText(activeOrder.status, activeOrder.payment_status).toUpperCase()}
                       </div>
                     </div>
+
+                    {/* Validación del pago por transferencia/QR (mig 182). El mozo ve el
+                        comprobante (si el cliente lo subió) y aprueba/rechaza; al aprobar,
+                        el pedido se libera a cocina (policy B lo tenía frenado). */}
+                    {tableOrders.filter(o => o.payment_method === 'qr' || o.payment_method === 'transferencia').map(o => {
+                      const meta = reviewMeta(o.payment_review_status);
+                      const approved = o.payment_review_status === 'approved';
+                      return (
+                        <div key={'rev-' + o.id} style={{ background: 'var(--bg2)', border: `1px solid ${approved ? 'rgba(52,199,89,0.4)' : 'var(--border)'}`, borderRadius: 10, padding: '12px 14px', marginBottom: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            {o.payment_proof_url && <ProofImage db={db} value={o.payment_proof_url} size={46} />}
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)' }}>Pago por transferencia · #{o.order_number}</div>
+                              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                {meta
+                                  ? <span style={{ color: meta.color, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: '50%', background: meta.color }} />{meta.label}</span>
+                                  : <span style={{ color: '#FF9500', fontWeight: 700 }}>Esperando validación</span>}
+                                {o.payment_reference && <span>· Comp. {o.payment_reference}</span>}
+                              </div>
+                              {o.payment_review_note && <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic', marginTop: 2 }}>“{o.payment_review_note}”</div>}
+                              {!o.payment_proof_url && !approved && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>El cliente no adjuntó foto — verificá que la transferencia haya llegado antes de aprobar.</div>}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                            {!approved && <button onClick={() => doReview(o, 'approved')} style={{ flex: 1, background: 'rgba(52,199,89,0.14)', border: '1px solid rgba(52,199,89,0.4)', color: '#2FA84F', padding: '8px 10px', fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit' }}>✓ Aprobar pago</button>}
+                            {o.payment_review_status !== 'rejected' && <button onClick={() => doReview(o, 'rejected')} style={{ flex: approved ? 1 : '0 0 auto', background: 'rgba(255,59,48,0.10)', border: '1px solid rgba(255,59,48,0.3)', color: '#FF3B30', padding: '8px 14px', fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>✕ Rechazar</button>}
+                          </div>
+                        </div>
+                      );
+                    })}
 
                     <div className="items-list">
                       {tableOrders.length === 0 || tableOrders.every(o => (o.order_items||[]).length === 0) ? (
