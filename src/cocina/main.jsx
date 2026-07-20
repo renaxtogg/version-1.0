@@ -352,10 +352,24 @@ function applyStationScope(ticket) {
   return { ...ticket, items: filtered };
 }
 
+// Política de preparación del local (mig 182/184), cacheada 2 min. 'A' (default) =
+// preparar apenas entra; 'B' = esperar validación del pago; 'C' = inteligente.
+let _prepPolicyCache = { v: null, at: 0 };
+async function getPrepPolicy() {
+  const now = Date.now();
+  if (_prepPolicyCache.v !== null && now - _prepPolicyCache.at < 120000) return _prepPolicyCache.v;
+  try {
+    const { data } = await db.from('restaurants').select('delivery_config').eq('id', RESTAURANT_ID).maybeSingle();
+    const p = (data && data.delivery_config && data.delivery_config.prep_policy) || 'A';
+    _prepPolicyCache = { v: p, at: now };
+    return p;
+  } catch (_) { return _prepPolicyCache.v || 'A'; }
+}
+
 async function dbLoadTickets() {
   if (!db) return { tickets: null, error: null };
-  const { data: orders, error } = await db.from('orders')
-    .select('id,order_number,order_type,status,created_at,table_id')
+  const { data: ordersRaw, error } = await db.from('orders')
+    .select('id,order_number,order_type,status,created_at,table_id,payment_review_status')
     .eq('restaurant_id', RESTAURANT_ID)
     .in('status', ['paid','kitchen_received','cooking','ready'])
     .order('created_at', { ascending: true });
@@ -363,7 +377,16 @@ async function dbLoadTickets() {
     console.error('dbLoadTickets error:', error);
     return { tickets: null, error: error.message || 'Error al cargar pedidos' };
   }
-  if (!orders || orders.length === 0) return { tickets: [], error: null };
+  if (!ordersRaw || ordersRaw.length === 0) return { tickets: [], error: null };
+  // Política B (mig 182/184): NO mostrar en cocina los pedidos con pago pendiente
+  // de validación (esperan que caja/admin apruebe el comprobante). Fail-open: con
+  // policy A/C o sin config, se muestran todos (comportamiento de hoy).
+  let orders = ordersRaw;
+  try {
+    const policy = await getPrepPolicy();
+    if (policy === 'B') orders = ordersRaw.filter(o => o.payment_review_status !== 'pending');
+  } catch (_) {}
+  if (orders.length === 0) return { tickets: [], error: null };
 
   const tableIds = [...new Set(orders.map(o => o.table_id).filter(Boolean))];
   const tableMap = {};

@@ -3440,6 +3440,29 @@ function ClientesPage({orders}) {
   const [search,setSearch]     = useState('');
   const [detalle,setDetalle]   = useState(null);
   const [detalleOrders,setDetalleOrders] = useState([]);
+  // Clientes frecuentes marcados a mano (mig 184) — set de teléfonos normalizados (dígitos).
+  const [freqPhones,setFreqPhones] = useState(()=>new Set());
+  useEffect(()=>{
+    if(!db) return;
+    db.from('frequent_customers').select('phone').eq('restaurant_id',RID)
+      .then(({data,error})=>{ if(!error&&data) setFreqPhones(new Set(data.map(r=>(r.phone||'').replace(/\D/g,'')).filter(x=>x.length>=6))); })
+      .catch(()=>{});
+  },[]);
+  const isFreqReg = p => { const n=(p||'').replace(/\D/g,''); return n.length>=6 && freqPhones.has(n); };
+  async function toggleFrequent(c){
+    if(!db||!c||!c.phone) return;
+    const n=(c.phone||'').replace(/\D/g,'');
+    if(n.length<6){ toast('El cliente no tiene un teléfono válido para marcar',false); return; }
+    if(freqPhones.has(n)){
+      const{error}=await db.from('frequent_customers').delete().eq('restaurant_id',RID).eq('phone',c.phone);
+      if(error){ toast('Error: '+error.message+' — ¿está aplicada la migración 184?',false); return; }
+      setFreqPhones(prev=>{const s=new Set(prev);s.delete(n);return s;}); toast('Quitado de clientes frecuentes');
+    }else{
+      const{error}=await db.from('frequent_customers').insert({restaurant_id:RID,phone:c.phone,name:c.name||null});
+      if(error){ toast('Error: '+error.message+' — ¿está aplicada la migración 184?',false); return; }
+      setFreqPhones(prev=>new Set(prev).add(n)); toast('Marcado como cliente frecuente — ya puede pagar en efectivo');
+    }
+  }
 
   // Reporte CRM
   const [rType,setRType]               = useState('');
@@ -4218,15 +4241,23 @@ function ClientesPage({orders}) {
                 <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
                   <TypeBadge c={detalle}/>
                   {detalle.orders>=3&&<span style={{background:TINT.greenBg,color:C.green,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>FRECUENTE</span>}
+                  {isFreqReg(detalle.phone)&&<span style={{background:'rgba(255,149,0,0.14)',color:'#FF9500',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>★ REGISTRADO</span>}
                   {detalle.pideFactura&&<span style={{background:TINT.blueBg,color:TINT.blueText,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>PIDE FACTURA</span>}
                   {(detalle.canalCount['delivery']||0)>0&&<span style={{background:TINT.amberBg,color:'#FF9500',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="bike" size={10}/> DELIVERY</span>}
                 </div>
               </div>
-              {detalle.phone&&(
-                <a href={`https://wa.me/595${detalle.phone.replace(/\D/g,'').replace(/^0/,'').replace(/^595/,'')}`} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',gap:6,background:'#25D366',color:'#fff',padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:700,textDecoration:'none',whiteSpace:'nowrap'}}>
-                  <Icon name="chat" size={14}/> WhatsApp
-                </a>
-              )}
+              <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',flexShrink:0}}>
+                {detalle.phone&&(
+                  <button onClick={()=>toggleFrequent(detalle)} title="Los clientes frecuentes pueden pagar en efectivo en delivery" style={{display:'flex',alignItems:'center',gap:6,background:isFreqReg(detalle.phone)?'#FF9500':'transparent',color:isFreqReg(detalle.phone)?'#fff':C.mid,border:`1px solid ${isFreqReg(detalle.phone)?'#FF9500':C.border}`,padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+                    {isFreqReg(detalle.phone)?'★ Frecuente':'☆ Marcar frecuente'}
+                  </button>
+                )}
+                {detalle.phone&&(
+                  <a href={`https://wa.me/595${detalle.phone.replace(/\D/g,'').replace(/^0/,'').replace(/^595/,'')}`} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',gap:6,background:'#25D366',color:'#fff',padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:700,textDecoration:'none',whiteSpace:'nowrap'}}>
+                    <Icon name="chat" size={14}/> WhatsApp
+                  </a>
+                )}
+              </div>
             </div>
 
             {/* Datos de contacto */}
@@ -7610,6 +7641,11 @@ function ConfigPage({restaurant,onRefresh}) {
       prep_policy: ['A','B','C'].includes(cur.prep_policy)?cur.prep_policy:'A',
       prep_threshold: Math.max(0, parseInt(cur.prep_threshold)||0),
       frequent_min_orders: Math.max(0, parseInt(cur.frequent_min_orders)||0),
+      // Pago de delivery a domicilio (mig 184). Transferencia siempre disponible;
+      // efectivo opcional y opcionalmente solo para clientes frecuentes.
+      delivery_transfer: cur.delivery_transfer!==false,
+      delivery_cash: cur.delivery_cash===true,
+      delivery_cash_frequent_only: cur.delivery_cash_frequent_only!==false,
     };
     const{data,error}=await db.from('restaurants').update({delivery_config:cfg}).eq('id',RID).select('id');
     if(error){toast('Error: '+error.message+' — ¿está aplicada la migración 182?',false);}
@@ -7796,6 +7832,40 @@ function ConfigPage({restaurant,onRefresh}) {
                 </div>
               </div>
             )}
+
+            {/* Pago en DELIVERY a domicilio (mig 184) */}
+            <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:0.5,marginTop:6,marginBottom:8}}>PAGO EN DELIVERY A DOMICILIO</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
+              {[
+                ['delivery_transfer','Transferencia + comprobante','El cliente transfiere y sube la captura. Caja/admin la validan antes de preparar.',true],
+                ['delivery_cash','Efectivo (contra entrega)','Habilita pagar en efectivo al recibir el pedido.',false],
+              ].map(([key,label,sub,def])=>{
+                const on = dcForm ? (dcForm[key]!==undefined?dcForm[key]:def) : def;
+                return(
+                  <div key={key} onClick={()=>setDcForm(p=>({...(p||{}),[key]:!on}))} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,cursor:'pointer',background:on?'transparent':C.bg}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:on?C.ink:C.mid}}>{label}</div>
+                      <div style={{fontSize:11,color:C.dim,marginTop:1,lineHeight:1.4}}>{sub}</div>
+                    </div>
+                    <div style={{width:42,height:24,borderRadius:12,background:on?C.green:C.border,position:'relative',flexShrink:0,transition:'background .2s'}}>
+                      <div style={{position:'absolute',top:2,left:on?'20px':'2px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
+                    </div>
+                  </div>
+                );
+              })}
+              {/* Sub-opción: efectivo solo para frecuentes (solo si el efectivo está habilitado) */}
+              {(dcForm&&dcForm.delivery_cash===true) && (()=>{ const on=!dcForm||dcForm.delivery_cash_frequent_only!==false; return(
+                <div onClick={()=>setDcForm(p=>({...(p||{}),delivery_cash_frequent_only:!on}))} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,cursor:'pointer',marginLeft:12,background:on?'transparent':C.bg}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:on?C.ink:C.mid}}>Efectivo solo para clientes frecuentes</div>
+                    <div style={{fontSize:11,color:C.dim,marginTop:1,lineHeight:1.4}}>Los nuevos/anónimos pagan por transferencia + comprobante. Marcá los frecuentes en Clientes.</div>
+                  </div>
+                  <div style={{width:42,height:24,borderRadius:12,background:on?C.green:C.border,position:'relative',flexShrink:0,transition:'background .2s'}}>
+                    <div style={{position:'absolute',top:2,left:on?'20px':'2px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
+                  </div>
+                </div>
+              );})()}
+            </div>
 
             <Btn onClick={saveDeliveryConfig} disabled={savingDc}>{savingDc?'Guardando…':'Guardar política de cobro'}</Btn>
           </div>

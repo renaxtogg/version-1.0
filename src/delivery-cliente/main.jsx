@@ -9,6 +9,8 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { formatGs, parseGs, GsInput } from '../shared/gs.jsx';
+// FASE D2 — el cliente delivery sube el comprobante de transferencia (mig 183).
+import { uploadComprobante } from '../shared/comprobante.jsx';
 const { useState, useEffect, useRef, createContext, useContext, useCallback } = React;
 
 /* ── SUPABASE CLIENT ─────────────────────── */
@@ -260,6 +262,14 @@ async function dbLoadRestaurant() {
       const bh = await db.from('restaurants').select('business_hours,open_override').eq('id', RESTAURANT_ID).maybeSingle();
       if (bh && !bh.error && bh.data) { data.business_hours = bh.data.business_hours; data.open_override = bh.data.open_override; }
     } catch (_) {}
+    // Datos de transferencia (mig 180) + config de cobro/delivery (mig 182/184) — best-effort:
+    // si las columnas / el GRANT anon no están, se ignora y degrada al flujo de hoy.
+    try {
+      const pm = await db.from('restaurants')
+        .select('bank_holder,bank_name,bank_account,bank_alias,bank_doc,bank_qr_url,delivery_config,payment_methods')
+        .eq('id', RESTAURANT_ID).maybeSingle();
+      if (pm && !pm.error && pm.data) Object.assign(data, pm.data);
+    } catch (_) {}
     return data;
   } catch(e) { return null; }
 }
@@ -309,10 +319,16 @@ async function dbLoadDeliverySettings() {
   } catch (e) { return null; }
 }
 
-async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryFee, total, payMethod, customerData, zone, estimatedMinutes, canal, cashAmount, requiresInvoice, custRuc, custEmail, invoiceDeliveryMethod }) {
+async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryFee, total, payMethod, customerData, zone, estimatedMinutes, canal, cashAmount, requiresInvoice, custRuc, custEmail, invoiceDeliveryMethod, paymentProofPath, paymentReference }) {
   const orderNum = 'D-' + String(Math.floor(Date.now() % 90000) + 10000);
   if (!db) return { id: null, order_number: orderNum };
   if (!RESTAURANT_ID) throw new Error('No se identificó el restaurante. Abrí el link de delivery con ?r=<restaurante>.');
+
+  // FASE D2 (mig 183): adjuntar la foto del comprobante al pedido creado. Best-effort.
+  const _attachProof = async (oid) => {
+    if (!oid || !paymentProofPath) return;
+    try { await db.rpc('attach_payment_proof', { p_order_id: oid, p_url: paymentProofPath, p_reference: paymentReference || null }); } catch (_) {}
+  };
 
   // order_type='delivery' para domicilio real; 'llevar' para retiro en local
   const dbOrderType = orderType === 'delivery' ? 'delivery' : 'llevar';
@@ -350,7 +366,7 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
   };
   {
     const { data: rpcData, error: rpcErr } = await db.rpc('create_order', { payload: rpcPayload });
-    if (!rpcErr && rpcData && rpcData.id) return rpcData;
+    if (!rpcErr && rpcData && rpcData.id) { await _attachProof(rpcData.id); return rpcData; }
     const missing = rpcErr && /PGRST202|could not find the function|42883/i.test(`${rpcErr.message || ''} ${rpcErr.code || ''}`);
     if (rpcErr && !missing) { console.error('create_order RPC error:', rpcErr); throw new Error(rpcErr.message || 'No se pudo crear el pedido'); }
     // missing → insert directo (compat pre-ETAPA 1).
@@ -450,6 +466,7 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
   // después de que delivery_orders y el rider ya estén asignados
   await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
 
+  await _attachProof(order.id);
   return order;
 }
 
@@ -1967,8 +1984,9 @@ function CartScreen({ items, orderType, deliveryFee, deliveryResult, onBack, onC
 /* ══ PANTALLA 6 — PAGO ══════════════════ */
 function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deliveryResult, cartItems, onBack, onConfirmed, canOrder = true, openState }) {
   const T = useContext(ThemeCtx);
+  const restaurant = useContext(RestaurantCtx);
   const isDelivery = orderType === 'delivery';
-  const [method, setMethod] = useState('efectivo');
+  const [method, setMethod] = useState('qr');   // default: transferencia (mig 184)
   const [step, setStep]     = useState('form');
   const [submitError, setSubmitError] = useState(null);
   const [cashOption, setCashOption] = useState('exact'); // 'exact' | 'change'
@@ -1978,17 +1996,49 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
   const [invName, setInvName] = useState('');
   const [invRuc, setInvRuc] = useState('');
   const [invEmail, setInvEmail] = useState('');
-  // (Pago Online Bancard retirado — no funcional aún, 2026-07-18)
+  // FASE D2 (mig 183/184): comprobante de transferencia + cliente frecuente.
+  const [proofPath, setProofPath] = useState('');
+  const [proofPreview, setProofPreview] = useState('');
+  const [proofBusy, setProofBusy] = useState(false);
+  const [proofRef, setProofRef] = useState('');
+  const proofInputRef = useRef();
+  const [isFreq, setIsFreq] = useState(false);
+  const handleProof = async (file) => {
+    if (!file) return;
+    setSubmitError(null); setProofBusy(true);
+    try {
+      const p = await uploadComprobante(db, RESTAURANT_ID, file);
+      try { setProofPreview(URL.createObjectURL(file)); } catch (_) {}
+      setProofPath(p);
+    } catch (e) { setSubmitError(e.message || 'No se pudo subir el comprobante'); }
+    setProofBusy(false);
+  };
+  // ¿Es cliente frecuente? (registro manual, mig 184) → habilita efectivo si el dueño lo restringe.
+  const _phone = customerData && customerData.phone;
+  useEffect(() => {
+    let on = true;
+    if (!db || !_phone) { setIsFreq(false); return; }
+    db.rpc('is_frequent_customer', { p_restaurant_id: RESTAURANT_ID, p_phone: _phone })
+      .then(({ data, error }) => { if (on && !error) setIsFreq(data === true); })
+      .catch(() => {});
+    return () => { on = false; };
+  }, [_phone]);
 
-  const METHODS = isDelivery
-    ? [
-        { id: 'efectivo', label: 'Efectivo al repartidor', sub: 'Pagás cuando recibís el pedido' },
-        { id: 'qr', label: 'QR / Billetera digital', sub: 'Tigo Money · Personal Pay' }
-      ]
-    : [
-        { id: 'efectivo', label: 'Efectivo al retirar', sub: 'Pagás cuando pasás a buscar' },
-        { id: 'qr', label: 'QR / Billetera digital', sub: 'Tigo Money · Personal Pay' }
-      ];
+  // Métodos de pago para delivery configurables por el dueño (mig 184).
+  const dcfg = (restaurant && restaurant.delivery_config) || {};
+  const transferEnabled = dcfg.delivery_transfer !== false;          // default ON
+  const cashEnabled     = dcfg.delivery_cash === true;               // default OFF
+  const cashFreqOnly    = dcfg.delivery_cash_frequent_only !== false; // default ON (solo frecuentes)
+  const cashAllowed     = cashEnabled && (!cashFreqOnly || isFreq);
+  const METHODS = [
+    transferEnabled && { id: 'qr', label: 'Transferencia al local', sub: 'Transferí y subí el comprobante' },
+    cashAllowed && { id: 'efectivo', label: isDelivery ? 'Efectivo al repartidor' : 'Efectivo al retirar', sub: 'Pagás cuando recibís el pedido' },
+  ].filter(Boolean);
+  const METHODS_SAFE = METHODS.length ? METHODS : [{ id: 'qr', label: 'Transferencia al local', sub: 'Transferí y subí el comprobante' }];
+  // Si el método actual quedó deshabilitado, saltar al primero disponible.
+  useEffect(() => {
+    if (!METHODS_SAFE.find(m => m.id === method)) setMethod(METHODS_SAFE[0].id);
+  }, [transferEnabled, cashAllowed]);
 
   const cashAmountNum = parseInt(cashInput) || 0;
   const cashChange    = cashAmountNum > 0 ? cashAmountNum - total : 0;
@@ -2002,6 +2052,8 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
     // WS3 · No enviar un pedido vacío ni con total inválido (alineado al cliente QR /index).
     if (!cartItems || cartItems.length === 0) { setSubmitError('Tu carrito está vacío. Volvé al menú.'); return; }
     if (!(total > 0)) { setSubmitError('El total del pedido es inválido. Volvé al carrito y revisá tu pedido.'); return; }
+    // Transferencia: exigir el comprobante (es lo que el local verifica antes de preparar).
+    if (method === 'qr' && !proofPath) { setSubmitError('Subí la captura del comprobante de tu transferencia para confirmar el pedido.'); return; }
     submittingRef.current = true;        // se setea ANTES del primer await → bloquea reentrada
     setStep('proc');
     try {
@@ -2021,6 +2073,8 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
         custRuc: invoiceType === 'fiscal' ? (invRuc || null) : null,
         custEmail: invoiceType === 'fiscal' ? (invEmail || null) : null,
         invoiceDeliveryMethod: invoiceType !== 'none' ? invoiceDelivery : null,
+        paymentProofPath: method === 'qr' ? (proofPath || null) : null,
+        paymentReference: method === 'qr' ? (proofRef.trim() || null) : null,
       });
       setStep('form');
       onConfirmed(order);
@@ -2086,7 +2140,7 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
 
         {/* Método de pago */}
         <div style={{ fontSize: 11, fontWeight: 700, color: T.silver, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10 }}>Método de pago</div>
-        {METHODS.map(m => (
+        {METHODS_SAFE.map(m => (
           <div key={m.id} onClick={() => setMethod(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: T.white, border: `2px solid ${method === m.id ? T.black : T.border}`, borderRadius: 12, marginBottom: 8, cursor: 'pointer', transition: 'border-color 150ms' }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{m.label}</div>
@@ -2098,13 +2152,45 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
           </div>
         ))}
 
-        {method === 'qr' && (
-          <div style={{ background: '#FFF7ED', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400E', lineHeight: 1.5 }}>
-            El pago digital estará disponible próximamente. Confirmá el pedido y coordinamos el pago por WhatsApp.
-          </div>
-        )}
-
-        {/* "Pago Online (Tarjeta/QR Bancard)" retirado — no funcional aún (2026-07-18) */}
+        {method === 'qr' && (() => {
+          const b = restaurant || {};
+          const hasData = b.bank_holder || b.bank_name || b.bank_account || b.bank_alias || b.bank_qr_url;
+          return (
+            <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '16px', marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>Datos para transferir</div>
+              {hasData ? (
+                <>
+                  {b.bank_qr_url && <div style={{ textAlign: 'center', marginBottom: 12 }}><div style={{ display: 'inline-block', border: `1px solid ${T.border}`, borderRadius: 8, padding: 8, background: '#fff' }}><img src={b.bank_qr_url} alt="QR de transferencia" style={{ width: 150, height: 150, objectFit: 'contain', display: 'block' }} /></div></div>}
+                  <div style={{ fontSize: 13, lineHeight: 1.7, color: T.ink, wordBreak: 'break-word' }}>
+                    {b.bank_holder && <div><span style={{ color: T.gray }}>Titular:</span> <strong>{b.bank_holder}</strong></div>}
+                    {b.bank_name && <div><span style={{ color: T.gray }}>Banco:</span> {b.bank_name}</div>}
+                    {b.bank_account && <div><span style={{ color: T.gray }}>Cuenta:</span> {b.bank_account}</div>}
+                    {b.bank_alias && <div><span style={{ color: T.gray }}>Alias:</span> {b.bank_alias}</div>}
+                    {b.bank_doc && <div><span style={{ color: T.gray }}>CI/RUC:</span> {b.bank_doc}</div>}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 12, color: T.gray, lineHeight: 1.5 }}>El local aún no cargó sus datos de transferencia. Coordiná el pago por WhatsApp.</div>
+              )}
+              {/* Subir comprobante — ingresa al panel del restaurante para validar antes de preparar */}
+              <div style={{ marginTop: 14, borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, marginBottom: 4 }}>Comprobante de transferencia</div>
+                <div style={{ fontSize: 12, color: T.silver, marginBottom: 10, lineHeight: 1.5 }}>Subí la captura. El local la verifica y confirma antes de preparar tu pedido.</div>
+                <input ref={proofInputRef} type="file" accept=".jpg,.jpeg,.png,.webp" style={{ display: 'none' }} onChange={e => { const f = e.target.files[0]; e.target.value = ''; handleProof(f); }} />
+                {proofPreview ? (
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <img src={proofPreview} alt="comprobante" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, border: `1px solid ${T.border}` }} />
+                    <button onClick={() => proofInputRef.current.click()} disabled={proofBusy} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.offwhite, color: T.ink, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{proofBusy ? 'Subiendo…' : 'Cambiar'}</button>
+                    <button onClick={() => { setProofPath(''); setProofPreview(''); }} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: '#EF4444', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Quitar</button>
+                  </div>
+                ) : (
+                  <button onClick={() => proofInputRef.current.click()} disabled={proofBusy} style={{ width: '100%', padding: '12px', borderRadius: 10, border: `1.5px dashed ${T.border}`, background: T.offwhite, color: T.ink, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{proofBusy ? 'Subiendo…' : '📷  Adjuntar comprobante'}</button>
+                )}
+                <input value={proofRef} onChange={e => setProofRef(e.target.value)} placeholder="N° de operación (opcional)" style={{ marginTop: 10, width: '100%', height: 40, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, color: T.ink, outline: 'none', background: T.offwhite, boxSizing: 'border-box', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }} />
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Vuelto — solo para efectivo */}
         {method === 'efectivo' && (
