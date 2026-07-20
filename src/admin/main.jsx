@@ -213,6 +213,18 @@ function Th({children,right}) { return <th style={{padding:'9px 14px',textAlign:
 function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?'var(--text-secondary)':'var(--text-primary)',textAlign:right?'right':'left',...sx}}>{children}</td>; }
 function EmptyRow({cols,label}) { return <tr><td colSpan={cols} style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>{label||'Sin datos'}</td></tr>; }
 function Lbl({children}) { return <label style={{fontSize:10,color:C.mid,display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}</label>; }
+/* Campo de formulario (label + control + hint). DEBE vivir a nivel de módulo:
+   si se define dentro de un componente, cada render le da una identidad nueva y
+   React desmonta/remonta el <input> hijo → el foco se pierde en cada tecla. */
+function FF({label,hint,children}) {
+  return (
+    <div>
+      <Lbl>{label}</Lbl>
+      {children}
+      {hint&&<div style={{fontSize:10,color:C.dim,marginTop:3}}>{hint}</div>}
+    </div>
+  );
+}
 function Inp({value,onChange,placeholder,type='text',mono,full=true,...rest}) {
   return <input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={{width:full?'100%':'auto',padding:'8px 10px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',borderRadius:6,...(rest.style||{})}}/>;
 }
@@ -5955,14 +5967,6 @@ function StockPage() {
       {label}
       {badge&&<span style={{position:'absolute',top:2,right:2,width:7,height:7,borderRadius:4,background:C.red,display:'block'}}/>}
     </button>
-  );
-
-  const FF = ({label,hint,children}) => (
-    <div>
-      <Lbl>{label}</Lbl>
-      {children}
-      {hint&&<div style={{fontSize:10,color:C.dim,marginTop:3}}>{hint}</div>}
-    </div>
   );
 
   /* Alertas de vencimiento: ítems que vencen en los próximos 7 días */
