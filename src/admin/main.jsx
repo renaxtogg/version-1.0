@@ -8,6 +8,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput, NumInput } from "../shared/gs.jsx";
+// FASE D2 — validación de comprobantes (etiquetas de estado en reportes).
+import { reviewMeta } from "../shared/comprobante.jsx";
 // CAPTCHA Turnstile (nativo de Supabase Auth) para los flujos in-app que
 // re-autentican (modal "Cambiar contraseña" → signInWithPassword).
 import { useTurnstile } from "../shared/turnstile.js";
@@ -6773,22 +6775,36 @@ function ReportesPage({orders}) {
     }
 
     else if(type==='transferencias') {
-      // Detalle de cobros por transferencia/QR o tarjeta con su N° de comprobante (mig 180).
+      // Detalle de cobros por transferencia/QR o tarjeta con su N° de comprobante,
+      // la FOTO del comprobante y el estado de validación (mig 180 + 182 · FASE D2).
+      // Lee de orders (más completo que el ledger: incluye cobros de caja Y mozo).
       if(!db){toast('Sin conexión a base de datos',false);return;}
-      const{data:turnos}=await db.from('turnos_caja').select('id').eq('restaurant_id',RID).gte('fecha_apertura',from.toISOString()).lte('fecha_apertura',to.toISOString());
-      const tIds=(turnos||[]).map(t=>t.id);
-      let movs=[];
-      if(tIds.length>0){const{data:m}=await db.from('movimientos_caja').select('*').in('turno_id',tIds).eq('tipo','cobro').order('created_at',{ascending:false});movs=m||[];}
-      const ML={qr:'Transferencia / QR',tarjeta_credito:'Tarjeta crédito',tarjeta_debito:'Tarjeta débito',mixto:'Mixto'};
-      const trans=movs.filter(m=>['qr','tarjeta_credito','tarjeta_debito','mixto'].includes(m.metodo_pago)||m.comprobante_nro);
-      const totTrans=trans.reduce((s,m)=>s+Number(m.monto||0),0);
-      const conComp=trans.filter(m=>m.comprobante_nro).length;
+      const METS=['qr','transferencia','tarjeta_credito','tarjeta_debito','tarjeta','pos','mixto'];
+      const base='id,order_number,created_at,payment_method,payment_reference,total,customer_name,paid_by_name';
+      const ext=base+',payment_proof_url,payment_review_status';
+      const runQ=cols=>db.from('orders').select(cols).eq('restaurant_id',RID).eq('payment_status','paid')
+        .gte('created_at',from.toISOString()).lte('created_at',to.toISOString())
+        .in('payment_method',METS).order('created_at',{ascending:false}).limit(300);
+      let hasExt=true; let r=await runQ(ext);
+      if(r.error){ hasExt=false; r=await runQ(base); }   // fail-open: mig 182 sin aplicar
+      const trans=r.data||[];
+      const ML={qr:'Transferencia / QR',transferencia:'Transferencia',tarjeta_credito:'Tarjeta crédito',tarjeta_debito:'Tarjeta débito',tarjeta:'Tarjeta',pos:'POS/Mixto',mixto:'Mixto'};
+      const totTrans=trans.reduce((s,o)=>s+Number(o.total||0),0);
+      const conComp=trans.filter(o=>o.payment_reference||o.payment_proof_url).length;
+      const pend=trans.filter(o=>o.payment_review_status==='pending').length;
+      const rech=trans.filter(o=>o.payment_review_status==='rejected').length;
       setSummary([
         {label:'Cobros transf./tarjeta', value:trans.length, color:'#007AFF'},
-        {label:'Con N° comprobante',     value:conComp,       color:'#34C759'},
-        {label:'Total',                  value:fmt(totTrans), color:'#34C759'},
-      ]);
-      setRows({ cols:['Fecha/Hora','Método','N° comprobante','Monto','Cajero','Detalle'], data:trans.slice(0,300).map(m=>[fmtDT(m.created_at), ML[m.metodo_pago]||m.metodo_pago||'—', m.comprobante_nro||'—', fmt(Number(m.monto||0)), m.usuario_nombre||'—', m.descripcion||'—']) });
+        {label:'Con comprobante',        value:conComp,       color:'#34C759'},
+        hasExt?{label:'Sin validar',     value:pend,          color:pend?'#FF9500':'#8E8E93'}:null,
+        hasExt?{label:'Rechazados',      value:rech,          color:rech?'#FF3B30':'#8E8E93'}:null,
+      ].filter(Boolean));
+      const cols=['Fecha/Hora','Método','N° comprobante','Foto','Validación','Monto','Cliente/Cajero'];
+      setRows({ cols, data:trans.map(o=>{
+        const meta=hasExt?reviewMeta(o.payment_review_status):null;
+        return [fmtDT(o.created_at), ML[o.payment_method]||o.payment_method||'—', o.payment_reference||'—',
+          o.payment_proof_url?'Con foto':'—', meta?meta.short:'—', fmt(Number(o.total||0)), o.paid_by_name||o.customer_name||'—'];
+      }) });
     }
 
     else if(type==='stock_actual') {
@@ -7483,12 +7499,15 @@ function ConfigPage({restaurant,onRefresh}) {
   const [savingBank,setSavingBank] = useState(false);
   const [savingPm,setSavingPm] = useState(false);
   const [pmForm,setPmForm] = useState(null);   // métodos de pago habilitados (mig 181)
+  const [savingDc,setSavingDc] = useState(false);
+  const [dcForm,setDcForm] = useState(null);   // política de cobro/validación/preparación (mig 182)
   const [tab,setTab] = useState('general');   // general (config del local) | cuenta (Mi cuenta, consolidada desde el nav)
 
   useEffect(()=>{
     if(restaurant){
       setForm(restaurant);
       setPmForm(restaurant.payment_methods||null);
+      setDcForm(restaurant.delivery_config||null);
       const bh=(restaurant.business_hours && typeof restaurant.business_hours==='object')?restaurant.business_hours:{};
       const norm={}; for(let d=0; d<7; d++){ const r=bh[String(d)]; norm[String(d)]=Array.isArray(r)?r.map(x=>({start:x.start||'',end:x.end||''})):[]; }
       setBhDays(norm);
@@ -7554,6 +7573,22 @@ function ConfigPage({restaurant,onRefresh}) {
     else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS',false);}
     else{toast('Métodos de pago guardados');onRefresh();}
     setSavingPm(false);
+  }
+  // Política de cobro/validación/preparación (mig 182 · FASE D2 · Módulos 4/5/9).
+  async function saveDeliveryConfig(){
+    if(!db)return;setSavingDc(true);
+    const cur=dcForm||{};
+    const cfg={
+      require_proof: cur.require_proof===true,
+      prep_policy: ['A','B','C'].includes(cur.prep_policy)?cur.prep_policy:'A',
+      prep_threshold: Math.max(0, parseInt(cur.prep_threshold)||0),
+      frequent_min_orders: Math.max(0, parseInt(cur.frequent_min_orders)||0),
+    };
+    const{data,error}=await db.from('restaurants').update({delivery_config:cfg}).eq('id',RID).select('id');
+    if(error){toast('Error: '+error.message+' — ¿está aplicada la migración 182?',false);}
+    else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS',false);}
+    else{toast('Política de cobro guardada');setDcForm(cfg);onRefresh();}
+    setSavingDc(false);
   }
 
   const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante'},{key:'address',label:'Dirección'},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@turestaurante'},{key:'website',label:'Sitio web',ph:'turestaurante.com.py'}];
@@ -7680,6 +7715,62 @@ function ConfigPage({restaurant,onRefresh}) {
               </div>
             </div>
             <Btn onClick={saveBank} disabled={savingBank}>{savingBank?'Guardando…':'Guardar datos de transferencia'}</Btn>
+          </div>
+
+          {/* Política de cobro / validación / preparación — mig 182 (FASE D2 · Módulos 4/5/9) */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>POLÍTICA DE COBRO Y VALIDACIÓN</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:14,lineHeight:1.5}}>Cómo maneja tu local los pagos por transferencia: si exigís comprobante y cuándo se empieza a preparar el pedido. Mythos nunca decide por vos — lo configurás acá.</div>
+
+            {/* Exigir comprobante */}
+            {(()=>{const on=!!(dcForm&&dcForm.require_proof);return(
+              <div onClick={()=>setDcForm(p=>({...(p||{}),require_proof:!on}))} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:9,cursor:'pointer',marginBottom:14,background:on?'transparent':C.bg}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:on?C.ink:C.mid}}>Exigir comprobante en transferencia/QR</div>
+                  <div style={{fontSize:11,color:C.dim,marginTop:1}}>Caja/mozo deben cargar el N° o la foto del comprobante para cobrar.</div>
+                </div>
+                <div style={{width:42,height:24,borderRadius:12,background:on?C.green:C.border,position:'relative',flexShrink:0,transition:'background .2s'}}>
+                  <div style={{position:'absolute',top:2,left:on?'20px':'2px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
+                </div>
+              </div>
+            );})()}
+
+            {/* Política de inicio de preparación A/B/C */}
+            <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:0.5,marginBottom:8}}>¿CUÁNDO SE EMPIEZA A PREPARAR?</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
+              {[
+                ['A','Preparar apenas entra','No espera la validación del pago (lo más rápido).'],
+                ['B','Esperar validación del pago','El pedido queda "esperando validación" hasta que caja/admin apruebe el comprobante.'],
+                ['C','Inteligente','Prepara ya, salvo montos altos o clientes nuevos (definís los umbrales abajo).'],
+              ].map(([id,label,sub])=>{
+                const sel=((dcForm&&dcForm.prep_policy)||'A')===id;
+                return(
+                  <div key={id} onClick={()=>setDcForm(p=>({...(p||{}),prep_policy:id}))} style={{display:'flex',gap:10,alignItems:'flex-start',padding:'10px 12px',border:`1px solid ${sel?C.green:C.border}`,borderRadius:9,cursor:'pointer',background:sel?'rgba(52,199,89,0.06)':'transparent'}}>
+                    <div style={{width:18,height:18,borderRadius:'50%',border:`2px solid ${sel?C.green:C.border}`,flexShrink:0,marginTop:1,display:'flex',alignItems:'center',justifyContent:'center'}}>{sel&&<div style={{width:9,height:9,borderRadius:'50%',background:C.green}}/>}</div>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:C.ink}}>{label}</div>
+                      <div style={{fontSize:11,color:C.dim,marginTop:1,lineHeight:1.4}}>{sub}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Umbrales del modo inteligente (solo C) */}
+            {((dcForm&&dcForm.prep_policy)||'A')==='C' && (
+              <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14,paddingLeft:12,borderLeft:`2px solid ${C.border}`}}>
+                <div>
+                  <Lbl>PREPARAR SIN ESPERAR SI EL TOTAL ES MENOR A (₲)</Lbl>
+                  <GsInput value={(dcForm&&dcForm.prep_threshold)||''} onChange={v=>setDcForm(p=>({...(p||{}),prep_threshold:v}))} placeholder="0 = siempre esperar validación"/>
+                </div>
+                <div>
+                  <Lbl>CLIENTE FRECUENTE A PARTIR DE (N° DE PEDIDOS PREVIOS)</Lbl>
+                  <NumInput value={(dcForm&&dcForm.frequent_min_orders)||''} onChange={v=>setDcForm(p=>({...(p||{}),frequent_min_orders:v}))} placeholder="Ej: 3 — a estos se les prepara ya"/>
+                </div>
+              </div>
+            )}
+
+            <Btn onClick={saveDeliveryConfig} disabled={savingDc}>{savingDc?'Guardando…':'Guardar política de cobro'}</Btn>
           </div>
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:14}}>

@@ -8,6 +8,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
+// FASE D2 — comprobante (foto) + validación del pago (mig 182).
+import { ComprobanteUploader, recordPaymentReview, reviewMeta } from "../shared/comprobante.jsx";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -304,7 +306,7 @@ function useBankInfo(){
 const _needsRef = m => m==='tarjeta_credito'||m==='tarjeta_debito'||m==='qr'||m==='mixto';
 /* UI compartida por los modales de cobro: campo "N° de comprobante" (opcional) y,
    para transferencia/QR, los datos de la cuenta del comercio + su QR. */
-function PagoRefTransfer({metodo, comprobante, setComprobante, bankInfo}){
+function PagoRefTransfer({metodo, comprobante, setComprobante, bankInfo, proofUrl, setProofUrl}){
   if(!_needsRef(metodo)) return null;
   const isQr = metodo==='qr';
   const hasData = bankInfo && (bankInfo.bank_holder||bankInfo.bank_name||bankInfo.bank_account||bankInfo.bank_alias||bankInfo.bank_qr_url);
@@ -314,6 +316,11 @@ function PagoRefTransfer({metodo, comprobante, setComprobante, bankInfo}){
       <Inp value={comprobante} onChange={e=>setComprobante(e.target.value)}
         placeholder={isQr?'N° de operación de la transferencia':'N° del comprobante del POS'}/>
       <div style={{fontSize:11,color:C.mid,marginTop:4}}>Para conciliar después si el pago llegó. Podés dejarlo vacío.</div>
+      {setProofUrl && (
+        <div style={{marginTop:12}}>
+          <ComprobanteUploader db={db} restaurantId={RID} value={proofUrl||''} onChange={setProofUrl} onMsg={(m,ok)=>toast(m,ok)}/>
+        </div>
+      )}
       {isQr && (hasData ? (
         <div style={{marginTop:12}}>
           <Lbl>DATOS PARA LA TRANSFERENCIA</Lbl>
@@ -1201,6 +1208,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [metodo,setMetodo]=useState('efectivo');
   const [montoPagado,setMontoPagado]=useState('0');
   const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
+  const [proofUrl,setProofUrl]=useState('');         // foto del comprobante (mig 182)
   const bankInfo=useBankInfo();
   const [busy,setBusy]=useState(false);
   const [items,setItems]=useState([]);
@@ -1296,6 +1304,12 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       const{data:movData,error:e2}=await db.from('movimientos_caja').insert(mov).select().single();
       if(e2)throw e2;
       if(payRef&&movData){ try{ await db.from('movimientos_caja').update({comprobante_nro:payRef}).eq('id',movData.id); }catch(_){} }
+      // Foto del comprobante (mig 182): best-effort, no rompe el cobro si la mig no está.
+      if(proofUrl){
+        try{ await db.from('orders').update({payment_proof_url:proofUrl,payment_review_status:'pending'}).eq('id',order.id); }catch(_){}
+        if(movData){ try{ await db.from('movimientos_caja').update({comprobante_url:proofUrl}).eq('id',movData.id); }catch(_){} }
+        try{ await recordPaymentReview(db,{restaurantId:RID,orderId:order.id,action:'proof_added'}); }catch(_){}
+      }
       // Marcar como atendidas las solicitudes de cobro (waiter_calls) de la mesa
       if(order.table_id){
         try{
@@ -1439,7 +1453,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
             }}>{m.lbl}</button>
           ))}
         </div>
-        <PagoRefTransfer metodo={metodo} comprobante={comprobante} setComprobante={setComprobante} bankInfo={bankInfo}/>
+        <PagoRefTransfer metodo={metodo} comprobante={comprobante} setComprobante={setComprobante} bankInfo={bankInfo} proofUrl={proofUrl} setProofUrl={setProofUrl}/>
       </div>
 
       {metodo==='efectivo'&&(
@@ -1553,6 +1567,7 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
   const successRef=React.useRef(null);
   const BILLETES=[1000,2000,5000,10000,20000,50000,100000];
   const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
+  const [proofUrl,setProofUrl]=useState('');         // foto del comprobante (mig 182)
   const bankInfo=useBankInfo();
 
   const selectedLines=lines.filter(l=>sel[l.itemId]?.checked&&(sel[l.itemId]?.qty||0)>0);
@@ -1591,6 +1606,8 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
       const mesaSaldada=!!res.mesa_saldada;
       const compRef=(['tarjeta_credito','tarjeta_debito','qr'].includes(metodo)&&comprobante.trim())?comprobante.trim():null;
       if(compRef&&res.movimiento_id){ try{ await db.from('movimientos_caja').update({comprobante_nro:compRef}).eq('id',res.movimiento_id); }catch(_){} }
+      // Foto del comprobante (mig 182) — cobro parcial por ítems: se guarda en el ledger de caja.
+      if(proofUrl&&res.movimiento_id){ try{ await db.from('movimientos_caja').update({comprobante_url:proofUrl}).eq('id',res.movimiento_id); }catch(_){} }
       const ticket={
         orderNumber:null, mesa:`Mesa ${tableNumber}`, partial:!mesaSaldada,
         items:applied.map(a=>({item_name:a.nombre,quantity:a.cantidad,unit_price:a.precio})),
@@ -1698,7 +1715,7 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
           </div>
         </div>
 
-        <PagoRefTransfer metodo={metodo} comprobante={comprobante} setComprobante={setComprobante} bankInfo={bankInfo}/>
+        <PagoRefTransfer metodo={metodo} comprobante={comprobante} setComprobante={setComprobante} bankInfo={bankInfo} proofUrl={proofUrl} setProofUrl={setProofUrl}/>
 
         {metodo==='efectivo'&&(
           <div style={{marginBottom:14}}>
@@ -2532,6 +2549,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
   const [successTicket,setSuccessTicket]=useState(null);
   const [invoiceType,setInvoiceType]=useState('none'); // 'none'|'ticket'|'fiscal'
   const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
+  const [proofUrl,setProofUrl]=useState('');         // foto del comprobante (mig 182)
   const bankInfo=useBankInfo();
   const [invName,setInvName]=useState('');
   const [invRuc,setInvRuc]=useState('');
@@ -2665,6 +2683,12 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         if(e4)throw e4;
         movData=mv;
         if(payRef&&mv){ try{ await db.from('movimientos_caja').update({comprobante_nro:payRef}).eq('id',mv.id); }catch(_){} }
+        // Foto del comprobante (mig 182): best-effort.
+        if(proofUrl){
+          try{ await db.from('orders').update({payment_proof_url:proofUrl,payment_review_status:'pending'}).eq('id',order.id); }catch(_){}
+          if(mv){ try{ await db.from('movimientos_caja').update({comprobante_url:proofUrl}).eq('id',mv.id); }catch(_){} }
+          try{ await recordPaymentReview(db,{restaurantId:RID,orderId:order.id,action:'proof_added'}); }catch(_){}
+        }
       }
 
       movDataRef.current=movData;
@@ -2770,7 +2794,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
               }}>{m.lbl}</button>
             ))}
           </div>
-          <PagoRefTransfer metodo={metodo} comprobante={comprobante} setComprobante={setComprobante} bankInfo={bankInfo}/>
+          <PagoRefTransfer metodo={metodo} comprobante={comprobante} setComprobante={setComprobante} bankInfo={bankInfo} proofUrl={proofUrl} setProofUrl={setProofUrl}/>
         </div>
 
         {metodo==='efectivo'&&(
@@ -4799,12 +4823,12 @@ function HistorialPanel({onGoCobros}){
     else if(rango==='30d'){from=new Date(Date.now()-30*86400000);}
     else{from=new Date(0);}
 
-    const{data,error}=await db.from('orders')
-      .select('id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,payment_method,payment_reference,tables(number)')
-      .eq('restaurant_id',RID)
-      .gte('created_at',from.toISOString())
-      .order('created_at',{ascending:false})
-      .limit(300);
+    const baseCols='id,order_number,status,payment_status,total,order_type,customer_name,created_at,table_id,payment_method,payment_reference,tables(number)';
+    const extCols=baseCols+',payment_proof_url,payment_review_status,payment_review_note';
+    const runQ=cols=>db.from('orders').select(cols).eq('restaurant_id',RID)
+      .gte('created_at',from.toISOString()).order('created_at',{ascending:false}).limit(300);
+    let {data,error}=await runQ(extCols);
+    if(error){ const r=await runQ(baseCols); data=r.data; error=r.error; }  // fail-open: mig 182 sin aplicar
     if(!error){
       const rows=data||[];
       setOrders(rows);
@@ -4813,6 +4837,17 @@ function HistorialPanel({onGoCobros}){
       setAlertaPendientes(pendCount);
     }
     setLoading(false);
+  }
+
+  // Validación del pago (mig 182 · FASE D2): aprobar/rechazar un cobro por
+  // transferencia + bitácora inmutable. Optimista; fail-open si la mig no está.
+  async function doReview(o,action){
+    let note=null;
+    if(action==='rejected'){ note=(window.prompt('Motivo del rechazo (opcional):')||'').trim()||null; }
+    setOrders(prev=>prev.map(x=>x.id===o.id?{...x,payment_review_status:action,payment_review_note:note}:x));
+    const r=await recordPaymentReview(db,{restaurantId:RID,orderId:o.id,action,note});
+    if(!r.applied){ toast('No se pudo persistir la validación — ¿está aplicada la migración 182?'+(r.error?' ('+r.error+')':''),false); }
+    else{ toast(action==='approved'?'Pago verificado':'Pago rechazado'); }
   }
 
   const STATUS_OPTIONS=[
@@ -4937,25 +4972,47 @@ function HistorialPanel({onGoCobros}){
             const esCancelado=o.status==='cancelled';
             const esSinCobrar=!esCancelado&&o.payment_status!=='paid';
             const borderColor=esCancelado?'rgba(255,59,48,0.3)':esSinCobrar?'rgba(255,149,0,0.4)':esCobrado?'rgba(52,199,89,0.3)':C.border;
+            const isTransfer=['qr','transferencia','tarjeta','pos','tarjeta_credito','tarjeta_debito','mixto'].includes(o.payment_method);
+            const showReview=esCobrado&&(isTransfer||o.payment_proof_url||o.payment_review_status);
+            const rMeta=reviewMeta(o.payment_review_status);
             return(
-              <div key={o.id} style={{background:C.surface,border:`1px solid ${borderColor}`,borderRadius:8,padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
-                <div style={{minWidth:0,flex:1}}>
-                  <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-                    <span style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>#{o.order_number}</span>
-                    <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
-                    <span style={{fontSize:11,color:C.mid,fontWeight:500}}>{tipo}</span>
-                    <span style={{fontSize:11,color:C.mid}}>{mesa}</span>
+              <div key={o.id} style={{background:C.surface,border:`1px solid ${borderColor}`,borderRadius:8,padding:'10px 16px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                      <span style={{fontSize:13,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>#{o.order_number}</span>
+                      <Badge txt={SL[o.status]||o.status} color={SC[o.status]||'#6E6E73'}/>
+                      <span style={{fontSize:11,color:C.mid,fontWeight:500}}>{tipo}</span>
+                      <span style={{fontSize:11,color:C.mid}}>{mesa}</span>
+                    </div>
+                    <div style={{fontSize:11,color:C.mid,marginTop:4,display:'flex',gap:12,flexWrap:'wrap'}}>
+                      <span>{fmtDT(o.created_at)}</span>
+                      {o.payment_method&&<span style={{display:'inline-flex',alignItems:'center',gap:4}}><Icon name="creditCard" size={12} /> {metodo}</span>}
+                      {o.payment_reference&&<span style={{display:'inline-flex',alignItems:'center',gap:4,color:C.ink,fontWeight:600}}><Icon name="receipt" size={12} /> Comp. {o.payment_reference}</span>}
+                    </div>
                   </div>
-                  <div style={{fontSize:11,color:C.mid,marginTop:4,display:'flex',gap:12}}>
-                    <span>{fmtDT(o.created_at)}</span>
-                    {o.payment_method&&<span style={{display:'inline-flex',alignItems:'center',gap:4}}><Icon name="creditCard" size={12} /> {metodo}</span>}
-                    {o.payment_reference&&<span style={{display:'inline-flex',alignItems:'center',gap:4,color:C.ink,fontWeight:600}}><Icon name="receipt" size={12} /> Comp. {o.payment_reference}</span>}
+                  <div style={{textAlign:'right',flexShrink:0}}>
+                    <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:esCancelado?C.red:esSinCobrar?C.orange:C.green}}>{fmt(o.total)}</div>
+                    {esSinCobrar&&<div style={{fontSize:10,color:C.orange,fontWeight:700,marginTop:2}}>PENDIENTE</div>}
                   </div>
                 </div>
-                <div style={{textAlign:'right',flexShrink:0}}>
-                  <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:esCancelado?C.red:esSinCobrar?C.orange:C.green}}>{fmt(o.total)}</div>
-                  {esSinCobrar&&<div style={{fontSize:10,color:C.orange,fontWeight:700,marginTop:2}}>PENDIENTE</div>}
-                </div>
+                {showReview&&(
+                  <div style={{marginTop:8,paddingTop:8,borderTop:`1px dashed ${C.border}`,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+                    {o.payment_proof_url&&(
+                      <a href={o.payment_proof_url} target="_blank" rel="noreferrer" style={{flexShrink:0,lineHeight:0}}>
+                        <img src={o.payment_proof_url} alt="comprobante" style={{width:38,height:38,objectFit:'cover',borderRadius:6,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
+                      </a>
+                    )}
+                    {rMeta
+                      ? <span style={{fontSize:11,fontWeight:700,color:rMeta.color,display:'inline-flex',alignItems:'center',gap:5}}><span style={{width:7,height:7,borderRadius:'50%',background:rMeta.color}}/>{rMeta.label}</span>
+                      : <span style={{fontSize:11,color:C.mid,display:'inline-flex',alignItems:'center',gap:5}}><span style={{width:7,height:7,borderRadius:'50%',background:C.mid}}/>Sin validar</span>}
+                    {o.payment_review_note&&<span style={{fontSize:11,color:C.mid,fontStyle:'italic'}}>“{o.payment_review_note}”</span>}
+                    <div style={{marginLeft:'auto',display:'flex',gap:6}}>
+                      {o.payment_review_status!=='approved'&&<button onClick={()=>doReview(o,'approved')} style={{background:'rgba(52,199,89,0.12)',border:'1px solid rgba(52,199,89,0.35)',color:'#2FA84F',padding:'4px 12px',fontSize:11,fontWeight:700,borderRadius:6,cursor:'pointer'}}>✓ Aprobar</button>}
+                      {o.payment_review_status!=='rejected'&&<button onClick={()=>doReview(o,'rejected')} style={{background:'rgba(255,59,48,0.10)',border:'1px solid rgba(255,59,48,0.30)',color:'#FF3B30',padding:'4px 12px',fontSize:11,fontWeight:700,borderRadius:6,cursor:'pointer'}}>✕ Rechazar</button>}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}

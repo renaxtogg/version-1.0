@@ -7,6 +7,8 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
+// FASE D2 — foto del comprobante en el cobro (mig 182).
+import { ComprobanteUploader } from "../shared/comprobante.jsx";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -461,6 +463,8 @@ function App() {
   const [confirmDialog, setConfirmDialog] = useState(null);
   // Nº de comprobante/operación (opcional) al cobrar con tarjeta o transferencia (mig 180)
   const [comprobante, setComprobante] = useState('');
+  // Foto del comprobante (opcional) — mig 182
+  const [proofUrl, setProofUrl] = useState('');
   // Datos de transferencia del comercio (para mostrar al cobrar por QR/transferencia — mig 180)
   const [bankInfo, setBankInfo] = useState(null);
   useEffect(() => {
@@ -1581,9 +1585,12 @@ function App() {
         const touchedIds = [...new Set(toCharge.map(x => x.it._orderId))];
         if (touchedIds.length) {
           await db.from('orders').update({ paid_by_name: payerName, paid_at: new Date().toISOString(), payment_reference: (['tarjeta_credito','tarjeta_debito','qr'].includes(payMethod) && comprobante.trim()) ? comprobante.trim() : null }).in('id', touchedIds);
+          // Foto del comprobante (mig 182): best-effort, no bloquea el cobro.
+          if (proofUrl) { try { await db.from('orders').update({ payment_proof_url: proofUrl, payment_review_status: 'pending' }).in('id', touchedIds); } catch (_) {} }
         }
       } catch (_) { /* columnas opcionales (mig 044) — ignorar si faltan */ }
       await loadData();
+      setComprobante(''); setProofUrl('');   // no reutilizar el comprobante en el próximo cobro
       if (mesaSaldada) {
         setCobroModal(false);
         setTableOrders([]);
@@ -1698,9 +1705,12 @@ function App() {
           status: cerrarOrden ? 'delivered' : 'paid_in_kitchen',
           changed_by: payerName,
         });
+        // Foto del comprobante (mig 182): best-effort.
+        if (proofUrl) { try { await db.from('orders').update({ payment_proof_url: proofUrl, payment_review_status: 'pending' }).eq('id', ord.id); } catch (_) {} }
       }
 
       await loadData();
+      setComprobante(''); setProofUrl('');   // no reutilizar el comprobante en el próximo cobro
       setCobroModal(false);
       setTableOrders([]);
       setActiveTableId(null);
@@ -3144,6 +3154,9 @@ function App() {
                     placeholder={payMethod === 'qr' ? 'N° de operación de la transferencia' : 'N° del comprobante del POS'}
                     style={{ width: '100%', height: 38, border: '1px solid var(--border)', borderRadius: 7, padding: '0 10px', fontSize: 13, fontFamily: 'inherit', color: 'var(--text)', outline: 'none', background: 'var(--bg2)', boxSizing: 'border-box' }} />
                   <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Para revisar después si el pago llegó. Podés dejarlo vacío.</div>
+                  <div style={{ marginTop: 12 }}>
+                    <ComprobanteUploader db={db} restaurantId={RID} value={proofUrl} onChange={setProofUrl} onMsg={(m) => showToast(m)} />
+                  </div>
                 </div>
               )}
 
