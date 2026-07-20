@@ -237,12 +237,13 @@ module.exports = async function handler(req, res) {
       }
       if (isEmployee) {
         // ── REUSE por CÉDULA: identidad fuerte 1:1 con la persona → se la vincula
-        //    a este restaurante reusando su usuario. Defensa extra: el match debe
-        //    ser realmente una fila de cédula (no una colisión de namespace).
-        const sameCedula = existingRows.some(r => (r.cedula || null) === cedulaDigits);
-        if (!sameCedula) {
-          res.status(409).json({ error: 'Esa identidad ya está en uso. Verificá el número de cédula.' }); return;
-        }
+        //    a este restaurante reusando su usuario. El email sintético
+        //    `${cedula}@mythos.internal` YA identifica la cédula POR CONSTRUCCIÓN
+        //    (el lookup de arriba se hizo por ese email). Antes chequeábamos la
+        //    columna `user_roles.cedula`, pero en filas creadas antes de poblarla
+        //    (NULL) daba un falso "Esa identidad ya está en uso" que bloqueaba, por
+        //    ejemplo, agregar el mismo empleado con otro rol (mozo → gerente).
+        //    Se confía en el match por email (namespace reservado a cédulas).
         newUserId = existingUserId;
         reused = true;
       } else if (body.link_existing === true) {

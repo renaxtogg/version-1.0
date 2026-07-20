@@ -473,7 +473,8 @@ function QRScreen({ onScan }) {
 /* ── ESTADO ABIERTO/CERRADO (horario estructurado + override manual) ─────────
    business_hours: { "0":[{start:"HH:MM",end:"HH:MM"}], … "6":[…] } (0=Dom…6=Sáb).
    open_override: 'auto' | 'open' | 'closed' (override del dueño; gana al horario).
-   Defensivo: sin business_hours válido en 'auto' → ABIERTO (no bloquear ventas).
+   En 'auto' sin business_hours cargado → CERRADO (coherente con "día sin rangos = cerrado";
+   el dueño debe cargar horarios o forzar "Abierto ahora"). Ver punto reportado 2026-07-20.
    Calcula la hora en la zona horaria del local (restaurants.timezone) vía Intl.
    ⚠ Mantener IDÉNTICO a src/delivery-cliente/main.jsx. */
 const _DOW_ES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
@@ -523,7 +524,7 @@ function restaurantOpenState(restaurant) {
   if (ov === 'open') return { open: true, manual: true, next: null };
   const { dow, min } = _nowInTz(tz);
   if (ov === 'closed') return { open: false, manual: true, next: _bhHasHours(bh) ? _nextOpen(bh, dow, min) : null };
-  if (!_bhHasHours(bh)) return { open: true, noSchedule: true, next: null };   // defensivo: sin horario → abierto
+  if (!_bhHasHours(bh)) return { open: false, noSchedule: true, next: null };   // 'auto' sin horario cargado → CERRADO (día sin rangos = cerrado; el dueño debe cargar horarios o forzar "Abierto ahora")
   const open = _openNow(bh, dow, min);
   return { open, next: open ? null : _nextOpen(bh, dow, min) };
 }

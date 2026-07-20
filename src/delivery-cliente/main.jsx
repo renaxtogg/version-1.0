@@ -706,7 +706,7 @@ function restaurantOpenState(restaurant) {
   if (ov === 'open') return { open: true, manual: true, next: null };
   const { dow, min } = _nowInTz(tz);
   if (ov === 'closed') return { open: false, manual: true, next: _bhHasHours(bh) ? _nextOpen(bh, dow, min) : null };
-  if (!_bhHasHours(bh)) return { open: true, noSchedule: true, next: null };   // defensivo: sin horario → abierto
+  if (!_bhHasHours(bh)) return { open: false, noSchedule: true, next: null };   // 'auto' sin horario cargado → CERRADO (día sin rangos = cerrado; ⚠ idéntico a src/index/main.jsx)
   const open = _openNow(bh, dow, min);
   return { open, next: open ? null : _nextOpen(bh, dow, min) };
 }

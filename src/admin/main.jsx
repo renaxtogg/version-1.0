@@ -404,10 +404,10 @@ const NAV = [
   {id:'proveedores',label:'Proveedores',  icon:'building'},
   {id:'marketplace',label:'Marketplace',  icon:'store'},
   null,
-  {id:'clientes',  label:'Clientes',     icon:'user', group:'ANÁLISIS'},
-  {id:'reportes',  label:'Reportes',     icon:'chart'},
-  {id:'finanzas',  label:'Finanzas',     icon:'money'},
-  {id:'caja',      label:'Caja',         icon:'creditCard'},
+  {id:'reportes',  label:'Reportes',        icon:'chart', group:'REPORTES'},
+  {id:'clientes',  label:'Clientes · CRM',  icon:'user'},
+  {id:'finanzas',  label:'Finanzas',        icon:'money', group:'FINANZAS'},
+  {id:'caja',      label:'Caja',            icon:'creditCard'},
   null,
   {id:'marketing', label:'Marketing',    icon:'megaphone', group:'ACCIONES'},
   {id:'ratings',   label:'Calificaciones',icon:'star'},
@@ -2945,7 +2945,7 @@ function QrAllModal({tables, restaurant, onClose}) {
 /* ══════════════════════════════════════════════
    PERSONAL
 ══════════════════════════════════════════════ */
-function PersonalPage() {
+function PersonalPage({caps}) {
   const [tab,setTab]           = useState('empleados');
   const [profiles,setProfiles] = useState([]);
   const [loading,setLoading]   = useState(true);
@@ -2953,9 +2953,22 @@ function PersonalPage() {
   const [editId,setEditId]     = useState(null);
   const [editRole,setEditRole] = useState('');
   const [editActive,setEditActive] = useState(true);
+  const [savingEdit,setSavingEdit] = useState(false);
+  const [removeModal,setRemoveModal] = useState(null);  // perfil a quitar (confirmación)
+  const [removingId,setRemovingId]   = useState(null);
   const [addModal,setAddModal] = useState(false);
   const [addForm,setAddForm]   = useState({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});
   const [addLoading,setAddLoading] = useState(false);
+
+  // Gating de roles por plan: no ofrecer crear un puesto cuyo panel NO está en el
+  // plan (evita crear p.ej. un rider que después ve "módulo no disponible" y quedó
+  // con la cédula reservada). hasPanel falla-abierto → si no hay caps, muestra todo.
+  const ROLE_PANEL = {cajero:'caja', mozo:'mozo', cocina:'cocina', rider:'delivery-rider', supervisor_local:'gerente'};
+  const roleAvailable = r => { const pk=ROLE_PANEL[r]; return !pk || (caps&&caps.hasPanel ? caps.hasPanel(pk) : true); };
+  const availableRoles = ADMIN_ALLOWED_ROLES.filter(roleAvailable);
+  // Para EDITAR el rol de un empleado: mismos roles, pero sin 'rider' (convertir a
+  // rider requiere ficha de reparto → se hace quitando y recreando).
+  const editableRoles = availableRoles.filter(r=>r!=='rider');
 
   // Turnos / Conexiones — se alimenta de staff_sessions (login real de cada panel), no de carga manual.
   const [shifts,setShifts]         = useState([]);
@@ -3050,29 +3063,51 @@ function PersonalPage() {
     return ()=>{ db.removeChannel(ch); };
   },[tab]);
 
+  // Editar rol/estado del personal — vía endpoint backend /api/manage-staff (valida
+  // token del caller + tenant + rol de empleado y opera con service_role). Reemplaza
+  // el UPDATE directo a user_roles que RLS bloqueaba (era superadmin-only → ghost write).
   async function saveRole(id) {
     if(!db)return;
     const prof = profiles.find(x=>x.id===id);
-    // Riders viven en delivery_riders: su rol es fijo, sólo se cambia el estado activo.
-    if(prof?._isRider){
-      const{error}=await db.from('delivery_riders').update({active:editActive}).eq('id',id);
-      if(error){toast('Error: '+error.message,false);return;}
-      toast('Rider actualizado');
-      setProfiles(p=>p.map(x=>x.id===id?{...x,is_active:editActive}:x));
+    if(!prof) return;
+    setSavingEdit(true);
+    try {
+      const{data:{session}}=await db.auth.getSession();
+      const token=session?.access_token;
+      if(!token) throw new Error('Sin sesión activa');
+      const payload = prof._isRider
+        ? { action:'update', restaurant_id:RID, rider_id:prof.id, is_active:editActive }
+        : { action:'update', restaurant_id:RID, role_row_id:prof.id, new_role:editRole, is_active:editActive };
+      const resp=await fetch('/api/manage-staff',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify(payload)});
+      const result=await resp.json();
+      if(!resp.ok) throw new Error(result.error||'No se pudo actualizar');
+      toast(prof._isRider?'Rider actualizado':'Empleado actualizado');
       setEditId(null);
-      return;
-    }
-    // PR-3: la gestión de roles/estado del personal es superadmin-only en el backend
-    // (admin_update_user_role y admin_toggle_user exigen superadmin; la RLS de
-    // user_roles sólo permite escritura a superadmin). La llamada previa pasaba
-    // argumentos que NO coinciden con la firma real del RPC
-    // (admin_update_user_role(p_user_id, p_role, p_restaurant_id, p_display_name))
-    // y caía a un UPDATE directo a user_roles que RLS bloquea sin error → mostraba
-    // "Usuario actualizado" sin persistir (ghost write). Hasta que el backend
-    // habilite la gestión por un admin del mismo restaurante (migración con tenant
-    // guard), se deshabilita con un mensaje claro en vez de simular el guardado.
-    toast('La gestión de roles y estado del personal se realiza desde el panel Superadmin.', false);
-    setEditId(null);
+      loadProfiles();
+    } catch(e){ toast(e.message,false); }
+    setSavingEdit(false);
+  }
+
+  // Quitar personal del local — libera cédula + cupo del puesto (y borra el acceso si
+  // la persona no trabaja en ningún otro local). Vía /api/manage-staff (action:'remove').
+  async function removeStaff(prof) {
+    if(!db||!prof) return;
+    setRemovingId(prof.id);
+    try {
+      const{data:{session}}=await db.auth.getSession();
+      const token=session?.access_token;
+      if(!token) throw new Error('Sin sesión activa');
+      const payload = prof._isRider
+        ? { action:'remove', restaurant_id:RID, rider_id:prof.id }
+        : { action:'remove', restaurant_id:RID, role_row_id:prof.id };
+      const resp=await fetch('/api/manage-staff',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify(payload)});
+      const result=await resp.json();
+      if(!resp.ok) throw new Error(result.error||'No se pudo quitar');
+      toast('Personal quitado del local');
+      setRemoveModal(null);
+      loadProfiles();
+    } catch(e){ toast(e.message,false); }
+    setRemovingId(null);
   }
 
   async function addEmployee() {
@@ -3192,7 +3227,7 @@ function PersonalPage() {
       {tab==='empleados'&&(<>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
           <div style={{fontSize:12,color:C.mid}}>Usuarios con acceso al sistema · restaurante {RID.slice(0,8)}…</div>
-          <Btn small onClick={()=>{setAddForm({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});setAddModal(true);}}>+ Nuevo empleado</Btn>
+          <Btn small onClick={()=>{setAddForm({full_name:'',username:'',password:'',pin:'',role:(availableRoles.includes('mozo')?'mozo':(availableRoles[0]||'mozo')),dni:'',phone:'',email:'',notes:'',_reqId:null});setAddModal(true);}}>+ Nuevo empleado</Btn>
         </div>
         {loading&&<div style={{display:'flex',gap:10,alignItems:'center',color:C.mid,fontSize:13}}><span className="spin"/>Cargando personal…</div>}
         {error&&<div style={{color:C.orange,fontSize:13,padding:16,background:'rgba(249,115,22,0.08)',border:'1px solid rgba(249,115,22,0.2)',borderRadius:8,marginBottom:14}}><div style={{fontWeight:700,marginBottom:4}}>Atención</div>{error}</div>}
@@ -3208,7 +3243,7 @@ function PersonalPage() {
                     <Td dim style={{fontSize:11}}>{displayEmail(p)}</Td>
                     <Td>
                       {editId===p.id&&!p._isRider
-                        ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:140}}>{ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}</Sel>
+                        ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:140}}>{editableRoles.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}</Sel>
                         :<span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{roleLabel(p.role)}{p._isRider?' · delivery':''}</span>}
                     </Td>
                     <Td>
@@ -3219,8 +3254,14 @@ function PersonalPage() {
                     <Td mono dim>{fmtDate(p.created_at)}</Td>
                     <Td>
                       {editId===p.id
-                        ?<div style={{display:'flex',gap:5}}><Btn small onClick={()=>saveRole(p.id)}>✓</Btn><Btn small variant="ghost" onClick={()=>setEditId(null)}>✕</Btn></div>
-                        :<Btn small variant="secondary" onClick={()=>{setEditId(p.id);setEditRole(p.role);setEditActive(p.is_active!==false);}}>Editar</Btn>}
+                        ?<div style={{display:'flex',gap:6}}>
+                           <Btn small onClick={()=>saveRole(p.id)} disabled={savingEdit}>{savingEdit?'Guardando…':'Guardar'}</Btn>
+                           <Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={savingEdit}>Cancelar</Btn>
+                         </div>
+                        :<div style={{display:'flex',gap:6}}>
+                           <Btn small variant="secondary" onClick={()=>{setEditId(p.id);setEditRole(editableRoles.includes(p.role)?p.role:(editableRoles[0]||p.role));setEditActive(p.is_active!==false);}}>Editar</Btn>
+                           <Btn small variant="danger" onClick={()=>setRemoveModal(p)}>Eliminar</Btn>
+                         </div>}
                     </Td>
                   </tr>
                 ))}
@@ -3241,8 +3282,11 @@ function PersonalPage() {
               <div>
                 <Lbl>Rol</Lbl>
                 <Sel value={addForm.role} onChange={e=>setAddForm(f=>({...f,role:e.target.value}))} style={{width:'100%'}}>
-                  {ADMIN_ALLOWED_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}
+                  {availableRoles.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}
                 </Sel>
+                {availableRoles.length<ADMIN_ALLOWED_ROLES.length&&(
+                  <div style={{fontSize:11,color:C.dim,marginTop:4}}>Algunos puestos no aparecen porque su panel no está incluido en tu plan.</div>
+                )}
               </div>
               <div>
                 <Lbl>Cédula *</Lbl>
@@ -3280,6 +3324,21 @@ function PersonalPage() {
             <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:16}}>
               <Btn variant="ghost" onClick={()=>{setAddModal(false);setAddForm({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});}} disabled={addLoading}>Cancelar</Btn>
               <Btn onClick={addEmployee} disabled={addLoading}>{addLoading?'Creando…':(addForm.role==='rider'?'Crear rider':'Crear empleado')}</Btn>
+            </div>
+          </Modal>
+        )}
+
+        {removeModal&&(
+          <Modal title="Quitar personal" onClose={()=>setRemoveModal(null)} width={440}>
+            <div style={{fontSize:13,color:C.mid,lineHeight:1.6}}>
+              ¿Seguro que querés quitar a <strong style={{color:C.ink}}>{removeModal.display_name||removeModal.username||'este empleado'}</strong> del local?
+            </div>
+            <div style={{marginTop:12,padding:'10px 12px',background:C.bg,borderRadius:8,fontSize:12,color:C.dim,lineHeight:1.55}}>
+              Se libera su <strong>cédula</strong> y el <strong>cupo</strong> de su puesto — podés volver a crearlo o crear otro empleado en su lugar. Si no trabaja en ningún otro local, también se elimina su acceso al sistema.
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:18}}>
+              <Btn variant="ghost" onClick={()=>setRemoveModal(null)} disabled={removingId===removeModal.id}>Cancelar</Btn>
+              <Btn variant="danger" onClick={()=>removeStaff(removeModal)} disabled={removingId===removeModal.id}>{removingId===removeModal.id?'Quitando…':'Quitar del local'}</Btn>
             </div>
           </Modal>
         )}
@@ -4383,6 +4442,12 @@ function CajaAdminPage() {
   const [selTurno,setSelTurno] = useState(null);
   const [cfg,setCfg]         = useState({cash_mode_default:'libre',cash_fondo_fijo:0,cash_diff_umbral:50000,cash_auto_retiro_excedente:false});
   const [savingCfg,setSavingCfg] = useState(false);
+  // Cierre de caja ciego (mig 186) — restaurante-nivel. true = cajero no ve totales
+  // del sistema al cerrar (comportamiento vigente). Feature-detect: query separada
+  // para no romper la config de caja si la migración aún no está aplicada.
+  const [cierreCiego,setCierreCiego] = useState(true);
+  const [ciegoAvailable,setCiegoAvailable] = useState(true);
+  const [savingCiego,setSavingCiego] = useState(false);
   // Multi-caja (mig 126). cajasAvailable=false ⇒ migración aún no aplicada → ocultar card (sin romper la página).
   const [cajas,setCajas]           = useState([]);
   const [cajaInfo,setCajaInfo]     = useState(null);   // {max_cajas,extra_cajas,effective_limit,active_count} | null
@@ -4411,7 +4476,7 @@ function CajaAdminPage() {
 
   async function loadAll() {
     setLoading(true);
-    const [tR,qR,rR,cR,lR,oR] = await Promise.all([
+    const [tR,qR,rR,cR,lR,oR,ciR] = await Promise.all([
       db.from('turnos_caja').select('*').eq('restaurant_id',RID).order('fecha_apertura',{ascending:false}).limit(30),
       db.from('quejas_sugerencias').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(50),
       db.from('restaurants').select('cash_mode_default,cash_fondo_fijo,cash_diff_umbral,cash_auto_retiro_excedente').eq('id',RID).maybeSingle(),
@@ -4419,11 +4484,15 @@ function CajaAdminPage() {
       db.rpc('get_my_caja_limit',{p_restaurant_id:RID}),
       // Turnos ABIERTOS sin recortar por la ventana de 30 (para el guard "no desactivar con turno abierto").
       db.from('turnos_caja').select('id,caja_id,estado').eq('restaurant_id',RID).eq('estado','abierto'),
+      // Cierre ciego (mig 186) — query separada para feature-detect sin romper la config de caja.
+      db.from('restaurants').select('cash_cierre_ciego').eq('id',RID).maybeSingle(),
     ]);
     const ts = tR.data||[];
     setTurnos(ts);
     setQuejas(qR.data||[]);
     setOpenTurnos(oR&&!oR.error ? (oR.data||[]) : []);
+    if(ciR&&ciR.error){ setCiegoAvailable(false); }
+    else { setCiegoAvailable(true); setCierreCiego(ciR&&ciR.data ? ciR.data.cash_cierre_ciego!==false : true); }
     // Defaults del restaurante (fallback de la config por caja).
     const rd = rR.data ? {
       cash_mode_default: rR.data.cash_mode_default || 'libre',
@@ -4470,6 +4539,17 @@ function CajaAdminPage() {
     else if(!data||data.length===0){toast('No se pudo guardar — verificá la migración y RLS',false);}
     else{toast(selCajaCfg?`Configuración de ${cajaNombreById(selCajaCfg)} guardada`:'Configuración de caja guardada'); if(selCajaCfg) reloadCajas();}
     setSavingCfg(false);
+  }
+
+  // Cierre ciego — restaurante-nivel, guardado inmediato al togglear (optimista).
+  async function saveCierreCiego(val){
+    if(!db) return;
+    const prev=cierreCiego;
+    setCierreCiego(val); setSavingCiego(true);
+    const{data,error}=await db.from('restaurants').update({cash_cierre_ciego:val}).eq('id',RID).select('id');
+    if(error||!data||data.length===0){ setCierreCiego(prev); toast(error?('Error: '+error.message):'No se pudo guardar — ¿está aplicada la migración 186?',false); }
+    else toast(val?'Cierre de caja ciego ACTIVADO':'Cierre de caja ciego DESACTIVADO');
+    setSavingCiego(false);
   }
 
   async function loadMovs(turno){
@@ -4686,6 +4766,26 @@ function CajaAdminPage() {
             </div>
             <Btn onClick={saveCfg} disabled={savingCfg}>{savingCfg?'Guardando…':'Guardar configuración de caja'}</Btn>
           </div>
+
+          {/* Cierre de caja ciego (mig 186) — restaurante-nivel */}
+          {ciegoAvailable&&(
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'16px 18px',marginBottom:14}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:16}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>CIERRE DE CAJA CIEGO</div>
+                  <div style={{fontSize:12,color:C.dim,lineHeight:1.55}}>
+                    {cierreCiego
+                      ? 'ACTIVADO: al cerrar, el cajero declara su conteo físico sin ver los totales del sistema (arqueo ciego). La diferencia se registra pero no se le muestra.'
+                      : 'DESACTIVADO: al cerrar, el cajero ve el total esperado por el sistema y la diferencia con su conteo.'}
+                  </div>
+                </div>
+                <button onClick={()=>!savingCiego&&saveCierreCiego(!cierreCiego)} disabled={savingCiego} title={cierreCiego?'Desactivar cierre ciego':'Activar cierre ciego'}
+                  style={{flexShrink:0,width:46,height:26,borderRadius:13,border:'none',background:cierreCiego?C.green:C.border,position:'relative',cursor:savingCiego?'wait':'pointer',transition:'background .2s',padding:0}}>
+                  <span style={{position:'absolute',top:3,left:cierreCiego?'23px':'3px',width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}/>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Estado del turno actual */}
           <div style={{background:turnoActivo?'rgba(34,197,94,0.06)':C.surface,border:`1px solid ${turnoActivo?'rgba(34,197,94,0.25)':C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:14,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -7893,6 +7993,11 @@ function ConfigPage({restaurant,onRefresh}) {
                 );
               })}
             </div>
+            {openOverride==='auto' && !Object.values(bhDays).some(r=>Array.isArray(r)&&r.some(x=>x.start&&x.end)) && (
+              <div style={{marginTop:2,padding:'8px 12px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,fontSize:11.5,color:C.orange,fontWeight:600,lineHeight:1.5}}>
+                ⚠ En «Automático» sin horarios cargados el local queda <strong>CERRADO</strong> y no recibe pedidos. Cargá los rangos de cada día abajo (y tocá «Guardar horarios»), o forzá «Abierto ahora».
+              </div>
+            )}
             <div style={{height:1,background:C.border,margin:'16px 0'}}/>
 
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
@@ -11623,6 +11728,11 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
   const [phone,setPhone] = useState('');
   const [savingProfile,setSavingProfile] = useState(false);
   const [pwModal,setPwModal] = useState(false);
+  // Cédula de acceso del admin (punto reportado 2026-07-20): permite entrar con
+  // cédula ADEMÁS del acceso actual (mig 187 + /api/set-admin-cedula).
+  const isAdminSelf = ['admin','owner'].includes((MY_ROLE||'').toLowerCase());
+  const [cedula,setCedula] = useState('');
+  const [savingCedula,setSavingCedula] = useState(false);
 
   // Dueño / encargado del local (desde el row de restaurants)
   const [loc,setLoc] = useState({owner_name:'',owner_email:'',owner_phone:'',owner_document:'',manager_name:'',manager_phone:''});
@@ -11636,7 +11746,7 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
       try {
         if (prof.id) {
           const { data } = await db.from('user_roles').select('*').eq('user_id',prof.id).eq('is_active',true).limit(1).maybeSingle();
-          if (alive && data) { setName(data.display_name || data.username || ''); setPhone(data.phone || ''); }
+          if (alive && data) { setName(data.display_name || data.username || ''); setPhone(data.phone || ''); setCedula(data.cedula || ''); }
         }
       } catch(_){}
     })();
@@ -11678,6 +11788,28 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
       toast(/update_my_profile|schema cache|does not exist|function/i.test(m) ? 'Falta aplicar la migración 145 para editar el perfil' : ('Error: '+m), false);
     }
     setSavingProfile(false);
+  };
+
+  const saveCedula = async () => {
+    const digits = (cedula||'').replace(/\D/g,'');
+    if (digits.length < 4 || digits.length > 10) { toast('Ingresá una cédula válida (solo números).', false); return; }
+    if (!db) return;
+    setSavingCedula(true);
+    try {
+      const { data:{ session } } = await db.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Sin sesión activa');
+      const resp = await fetch('/api/set-admin-cedula', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
+        body: JSON.stringify({ cedula: digits })
+      });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error || 'No se pudo guardar');
+      setCedula(digits);
+      toast('Cédula guardada — ya podés entrar con tu cédula');
+    } catch(e) { toast(e.message, false); }
+    setSavingCedula(false);
   };
 
   const saveLoc = async () => {
@@ -11730,6 +11862,24 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
           <Btn variant="ghost" onClick={()=>setPwModal(true)}>Cambiar contraseña</Btn>
         </div>
       </div>
+
+      {/* Cédula de acceso del admin — entrar con cédula además del acceso actual */}
+      {isAdminSelf && (
+        <div style={cardStyle}>
+          <div style={{fontSize:14,fontWeight:700,marginBottom:3}}>Cédula de acceso</div>
+          <div style={{fontSize:12.5,color:C.mid,marginBottom:14,lineHeight:1.55}}>
+            Cargá tu cédula para poder <strong>iniciar sesión con tu número de cédula</strong> (igual que el personal), <strong>además</strong> de tu acceso actual. La contraseña sigue siendo la misma.
+          </div>
+          <div style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>
+            <div style={{flex:'1 1 220px'}}>
+              <AcctField label="Mi cédula (solo números)">
+                <input value={cedula} onChange={e=>setCedula(e.target.value.replace(/\D/g,''))} inputMode="numeric" placeholder="ej: 4123456" style={{...iStyle,fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
+              </AcctField>
+            </div>
+            <Btn onClick={saveCedula} disabled={savingCedula}>{savingCedula?'Guardando…':'Guardar cédula'}</Btn>
+          </div>
+        </div>
+      )}
 
       {/* Dueño y encargado del local */}
       <div style={cardStyle}>
@@ -11980,7 +12130,7 @@ function AdminApp() {
       case 'reservas':
       case 'calendario':return <AgendaPage tables={tables} initialView={page==='reservas'?'pendientes':(page==='agenda'?'pendientes':'calendario')} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'estaciones':return caps.hasPanel('cocina') ? <EstacionesPage categories={categories} tables={tables}/> : <window.MythosGating.PanelLock panelKey="cocina" variant="inline"/>;
-      case 'personal':  return <PersonalPage/>;
+      case 'personal':  return <PersonalPage caps={caps}/>;
       case 'clientes':  return caps.hasFeature('admin:crm') ? <ClientesPage orders={orders}/> : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;
       case 'caja':      return caps.hasPanel('caja') ? <CajaAdminPage/> : <window.MythosGating.PanelLock panelKey="caja" variant="inline"/>;
       case 'reportes':  return <ReportesPage orders={orders}/>;

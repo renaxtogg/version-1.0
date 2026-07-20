@@ -637,7 +637,6 @@ function AperturaTurnoScreen({profile,cajas=[],openTurnos=[],onTurnoAbierto,onRe
           <Btn full onClick={abrir} disabled={busy||!cfgLoaded||needCaja}>
             {busy?<><span className="spin"/> Abriendo…</>:needCaja?'Elegí una caja':'Abrir Turno →'}
           </Btn>
-          <Btn variant="ghost" onClick={()=>window.location.href='admin.html'}>Admin</Btn>
           <Btn variant="ghost" onClick={cerrarSesion}>Cambiar usuario</Btn>
         </div>
       </div>
@@ -776,13 +775,10 @@ function SidebarTurno({turno,cajaNombre,movimientos,panel,setPanel,onCierre,prof
       )}
 
       <div style={{padding:'10px 8px',borderTop:`1px solid ${C.border}`}}>
-        <button onClick={()=>window.location.href='admin.html'} style={{display:'flex',alignItems:'center',gap:8,width:'100%',padding:'7px 10px',borderRadius:6,border:'none',background:'transparent',color:C.mid,fontSize:11,cursor:'pointer'}}>
-          ← Admin
-        </button>
         <button
           onClick={cerrarSesion}
           title="Cerrar sesión"
-          style={{marginTop:4,width:'100%',borderRadius:6,padding:'6px 10px',background:'rgba(239,68,68,0.07)',border:'1px solid rgba(239,68,68,0.2)',color:'#FF3B30',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
+          style={{width:'100%',borderRadius:6,padding:'6px 10px',background:'rgba(239,68,68,0.07)',border:'1px solid rgba(239,68,68,0.2)',color:'#FF3B30',fontSize:12,cursor:'pointer',fontFamily:'inherit',fontWeight:600}}
         >
           <Icon name="logout" size={13} style={{verticalAlign:'-2px',marginRight:5}}/> Cerrar sesión
         </button>
@@ -4232,6 +4228,16 @@ function CierreCajaPanel({turno,cajaNombre,movimientos,profile,onCierre}){
   const [transferTxt,setTransferTxt]=useState('');
   const [obs,setObs]=useState('');
   const [busy,setBusy]=useState(false);
+  // Cierre ciego (mig 186): true (default) = no mostrar totales del sistema al cajero.
+  // Si el admin lo desactivó, el cajero ve el esperado y la diferencia. Feature-detect:
+  // si la columna no existe todavía, queda en true (ciego) — comportamiento vigente.
+  const [blindClose,setBlindClose]=useState(true);
+  useEffect(()=>{
+    if(!db) return;
+    db.from('restaurants').select('cash_cierre_ciego').eq('id',RID).maybeSingle()
+      .then(({data,error})=>{ if(!error&&data) setBlindClose(data.cash_cierre_ciego!==false); })
+      .catch(()=>{});
+  },[]);
 
   const contadoEfectivo=calcDenomTotal(denoms);
   const vouchersTarjeta=Math.max(0,parseInt(vouchersTxt)||0);
@@ -4298,7 +4304,9 @@ function CierreCajaPanel({turno,cajaNombre,movimientos,profile,onCierre}){
         </div>
 
         <AlertBox type="info">
-          Ingresá el conteo físico de tu caja. El sistema registra el arqueo y cierra tu turno; no verás totales del sistema en pantalla.
+          {blindClose
+            ? 'Ingresá el conteo físico de tu caja. El sistema registra el arqueo y cierra tu turno; no verás totales del sistema en pantalla.'
+            : 'Ingresá el conteo físico de tu caja. Al cerrar verás el total esperado por el sistema y la diferencia.'}
         </AlertBox>
 
         <DenomGrid values={denoms} onChange={setDenoms} label="Conteo físico de efectivo en caja"/>
@@ -4316,10 +4324,28 @@ function CierreCajaPanel({turno,cajaNombre,movimientos,profile,onCierre}){
           <Textarea value={obs} onChange={e=>setObs(e.target.value)} placeholder="Novedades, incidentes o aclaraciones del turno…" rows={3}/>
         </div>
 
-        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:blindClose?18:10}}>
           <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1}}>TOTAL DECLARADO</div>
           <div style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>{fmt(totalDeclarado)}</div>
         </div>
+
+        {/* Cierre NO ciego: mostrar el esperado del sistema y la diferencia (mig 186) */}
+        {!blindClose&&(
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px',marginBottom:18}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+              <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1}}>TOTAL ESPERADO (SISTEMA)</div>
+              <div style={{fontSize:16,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.mid}}>{fmt(montoSistema)}</div>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:diferencia===0?C.mid:(diferencia>0?'#34C759':'#FF3B30')}}>
+                {diferencia===0?'SIN DIFERENCIA':(diferencia>0?'SOBRANTE':'FALTANTE')}
+              </div>
+              <div style={{fontSize:18,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:diferencia===0?C.ink:(diferencia>0?'#34C759':'#FF3B30')}}>
+                {diferencia>0?'+':''}{fmt(diferencia)}
+              </div>
+            </div>
+          </div>
+        )}
 
         <Btn full variant="primary" onClick={cerrar} disabled={busy||totalDeclarado===0}>
           {busy?<><span className="spin"/> Registrando cierre…</>:'Confirmar Cierre de Caja'}
@@ -5427,7 +5453,6 @@ function CajaApp({profile}){
       <div style={{fontSize:13,color:C.mid}}>El arqueo quedó registrado correctamente.</div>
       <div style={{display:'flex',gap:10}}>
         <Btn onClick={()=>{setCerrado(false);setTurno(null);checkTurno();}}>Abrir nuevo turno</Btn>
-        <Btn variant="ghost" onClick={()=>window.location.href='admin.html'}>Ir al Admin</Btn>
         <Btn variant="danger" onClick={cerrarSesion}>Cerrar sesión</Btn>
       </div>
     </div>

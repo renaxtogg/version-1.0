@@ -449,12 +449,25 @@
     if (!ident || !password) { showErr('Completá tu cédula o correo y la contraseña'); return; }
     // Identificador flexible (NO migra cuentas demo):
     //   • con "@"             → correo del dueño, sin cambios (signInWithPassword igual).
-    //   • sólo dígitos/separad → cédula → ${digitos}@mythos.internal (staff nuevo).
+    //   • sólo dígitos/separad → cédula. Primero intenta resolver la cuenta del
+    //                            admin/owner (mig 187: resolve_login_identifier);
+    //                            si no hay match, cae al email sintético del staff
+    //                            `${digitos}@mythos.internal`.
     //   • con letras           → username legacy → sanitizado @mythos.internal (demo).
     let email;
-    if (ident.includes('@'))                 email = ident;
-    else if (/^[\d.\s-]+$/.test(ident))      email = `${ident.replace(/\D/g, '')}@mythos.internal`;
-    else                                     email = `${ident.toLowerCase().replace(/[^a-z0-9._-]/g, '')}@mythos.internal`;
+    if (ident.includes('@')) {
+      email = ident;
+    } else if (/^[\d.\s-]+$/.test(ident)) {
+      const digits = ident.replace(/\D/g, '');
+      let resolved = null;
+      try {
+        const { data } = await db.rpc('resolve_login_identifier', { p_ident: digits });
+        if (typeof data === 'string' && data.includes('@')) resolved = data;
+      } catch (_) { /* RPC no aplicado aún → fallback al staff */ }
+      email = resolved || `${digits}@mythos.internal`;
+    } else {
+      email = `${ident.toLowerCase().replace(/[^a-z0-9._-]/g, '')}@mythos.internal`;
+    }
 
     // CAPTCHA (Turnstile, nativo de Supabase). Token de un solo uso. Mientras el CAPTCHA
     // esté DESACTIVADO en Supabase se manda y se ignora (login sigue igual). Si el widget
