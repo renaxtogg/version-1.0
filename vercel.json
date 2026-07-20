@@ -56,6 +56,7 @@
     "api/facturasend/*.js": { "maxDuration": 30 }
   },
   "crons": [
-    { "path": "/api/cron/keep-alive", "schedule": "0 9 * * *" }
+    { "path": "/api/cron/keep-alive", "schedule": "0 9 * * *" },
+    { "path": "/api/cron/purge-comprobantes", "schedule": "30 4 * * *" }
   ]
 }

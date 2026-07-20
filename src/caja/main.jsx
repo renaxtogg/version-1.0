@@ -9,7 +9,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
 // FASE D2 — comprobante (foto) + validación del pago (mig 182).
-import { ComprobanteUploader, recordPaymentReview, reviewMeta } from "../shared/comprobante.jsx";
+import { ComprobanteUploader, recordPaymentReview, reviewMeta, ProofImage } from "../shared/comprobante.jsx";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -4973,7 +4973,10 @@ function HistorialPanel({onGoCobros}){
             const esSinCobrar=!esCancelado&&o.payment_status!=='paid';
             const borderColor=esCancelado?'rgba(255,59,48,0.3)':esSinCobrar?'rgba(255,149,0,0.4)':esCobrado?'rgba(52,199,89,0.3)':C.border;
             const isTransfer=['qr','transferencia','tarjeta','pos','tarjeta_credito','tarjeta_debito','mixto'].includes(o.payment_method);
-            const showReview=esCobrado&&(isTransfer||o.payment_proof_url||o.payment_review_status);
+            // Mostrar la fila de validación cuando hay comprobante/estado de revisión
+            // (incluye pedidos AÚN sin cobrar: el cliente subió su transferencia y el
+            // staff debe corroborarla ANTES de cobrar) o es un pago tipo transferencia ya cobrado.
+            const showReview=!!(o.payment_proof_url||o.payment_review_status||(isTransfer&&esCobrado));
             const rMeta=reviewMeta(o.payment_review_status);
             return(
               <div key={o.id} style={{background:C.surface,border:`1px solid ${borderColor}`,borderRadius:8,padding:'10px 16px'}}>
@@ -4998,11 +5001,7 @@ function HistorialPanel({onGoCobros}){
                 </div>
                 {showReview&&(
                   <div style={{marginTop:8,paddingTop:8,borderTop:`1px dashed ${C.border}`,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-                    {o.payment_proof_url&&(
-                      <a href={o.payment_proof_url} target="_blank" rel="noreferrer" style={{flexShrink:0,lineHeight:0}}>
-                        <img src={o.payment_proof_url} alt="comprobante" style={{width:38,height:38,objectFit:'cover',borderRadius:6,border:`1px solid ${C.border}`}} onError={e=>{e.target.style.display='none';}}/>
-                      </a>
-                    )}
+                    {o.payment_proof_url&&<ProofImage db={db} value={o.payment_proof_url} size={38} style={{borderRadius:6}}/>}
                     {rMeta
                       ? <span style={{fontSize:11,fontWeight:700,color:rMeta.color,display:'inline-flex',alignItems:'center',gap:5}}><span style={{width:7,height:7,borderRadius:'50%',background:rMeta.color}}/>{rMeta.label}</span>
                       : <span style={{fontSize:11,color:C.mid,display:'inline-flex',alignItems:'center',gap:5}}><span style={{width:7,height:7,borderRadius:'50%',background:C.mid}}/>Sin validar</span>}

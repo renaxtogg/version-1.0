@@ -8,6 +8,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { useTweaks, TweaksPanel, TweakSection, TweakRow, TweakSlider, TweakToggle, TweakRadio, TweakSelect, TweakText, TweakNumber, TweakColor, TweakButton } from "./tweaks-panel.jsx";
+// FASE D2 — el cliente sube la foto del comprobante al transferir (mig 183).
+import { uploadComprobante } from "../shared/comprobante.jsx";
 
 const { useState, useEffect, useRef, createContext, useContext, useCallback } = React;
 
@@ -94,7 +96,7 @@ function lineItemName(ci) {
   return ci.variant ? `${base} (${ci.variant.name})` : base;
 }
 
-async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmount, couponCode, total, payMethod, custName, custRuc, custEmail, requiresInvoice, invoiceDeliveryMethod, language, facturaSolicitada, facturaRazonSocial, facturaRucCi, facturaEmail, facturaFormato }) {
+async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmount, couponCode, total, payMethod, custName, custRuc, custEmail, requiresInvoice, invoiceDeliveryMethod, language, facturaSolicitada, facturaRazonSocial, facturaRucCi, facturaEmail, facturaFormato, paymentProofPath, paymentReference }) {
   if (!items || items.length === 0) throw new Error('El carrito está vacío');
   if (!RESTAURANT_ID) throw new Error('No se identificó el restaurante. Escaneá el QR de tu mesa o abrí el link con ?r=<restaurante>.');
   const safeTotal = total > 0 ? total : items.reduce((s, ci) => s + (ci.total || 0), 0);
@@ -103,6 +105,13 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
   subtotal = subtotal > 0 ? subtotal : safeTotal;
   const orderNum = 'T-' + String(Math.floor(Date.now() % 90000) + 10000);
   if (!db) return { id: null, order_number: orderNum };
+
+  // FASE D2 (mig 183): adjuntar la foto del comprobante al pedido recién creado.
+  // Best-effort: si la RPC/mig no está, el pedido igual se crea (solo no queda la foto).
+  const _attachProof = async (oid) => {
+    if (!oid || !paymentProofPath) return;
+    try { await db.rpc('attach_payment_proof', { p_order_id: oid, p_url: paymentProofPath, p_reference: paymentReference || null }); } catch (_) {}
+  };
 
   // ETAPA 2 (seguridad): crear el pedido por la RPC SECURITY DEFINER 'create_order'.
   // Es el único camino una vez aplicado el lockdown (ETAPA 3). Si la RPC todavía no
@@ -132,7 +141,7 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
   };
   {
     const { data: rpcData, error: rpcErr } = await db.rpc('create_order', { payload: rpcPayload });
-    if (!rpcErr && rpcData && rpcData.id) return rpcData;
+    if (!rpcErr && rpcData && rpcData.id) { await _attachProof(rpcData.id); return rpcData; }
     const missing = rpcErr && /PGRST202|could not find the function|42883/i.test(`${rpcErr.message || ''} ${rpcErr.code || ''}`);
     if (rpcErr && !missing) { console.error('create_order RPC error:', rpcErr); throw new Error(rpcErr.message || 'No se pudo crear el pedido'); }
     // missing → insert directo (compat pre-ETAPA 1).
@@ -174,6 +183,7 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
     }
   }
   await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
+  await _attachProof(order.id);
   return order;
 }
 
@@ -1228,6 +1238,24 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   const [email, setEmail] = useState('');
   const [ordNum, setOrdNum] = useState('');
   const [submitError, setSubmitError] = useState(null);
+  // FASE D2 (mig 183): comprobante de transferencia que sube el cliente.
+  const [proofPath, setProofPath] = useState('');       // path en el bucket privado
+  const [proofPreview, setProofPreview] = useState(''); // objectURL local (preview)
+  const [proofBusy, setProofBusy] = useState(false);
+  const [proofRef, setProofRef] = useState('');         // N° de operación (opcional)
+  const proofInputRef = useRef();
+  const handleProof = async (file) => {
+    if (!file) return;
+    setSubmitError(null); setProofBusy(true);
+    try {
+      const path = await uploadComprobante(db, RESTAURANT_ID, file);
+      try { setProofPreview(URL.createObjectURL(file)); } catch (_) {}
+      setProofPath(path);
+    } catch (e) {
+      setSubmitError(e.message || 'No se pudo subir el comprobante');
+    }
+    setProofBusy(false);
+  };
   const METHODS_ALL = [
     { id: 'efectivo', label: 'Efectivo', sub: 'Se cobra en mesa o caja', info: 'El pago se realiza en mesa o caja. El mozo te asistirá.' },
     { id: 'tarjeta', label: 'Tarjeta', sub: 'Visa · Mastercard · Amex', info: 'El mozo acercará la terminal de pago a tu mesa.' },
@@ -1286,7 +1314,10 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
         facturaRucCi: invoiceType === 'fiscal' ? ruc.trim() : null,
         facturaEmail: (invoiceType === 'fiscal' && email.trim()) ? email.trim() : null,
         facturaFormato: invoiceType === 'fiscal' ? (invoiceDelivery === 'email' ? 'email' : 'impreso') : null,
-        language: lang
+        language: lang,
+        // Comprobante de transferencia subido por el cliente (mig 183) — solo método QR/transferencia.
+        paymentProofPath: method === 'qr' ? (proofPath || null) : null,
+        paymentReference: method === 'qr' ? (proofRef.trim() || null) : null,
       });
       setOrdNum(order.order_number);
       setStep('ok');
@@ -1311,6 +1342,7 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
     const confirmSub = method === 'efectivo' ? 'Tu pedido fue recibido. Pagás en mesa o caja.' :
                        method === 'pos' ? 'Tu pedido fue recibido. El mozo acercará el POS.' :
                        method === 'tarjeta' ? 'Tu pedido fue recibido. El mozo procesará el pago.' :
+                       method === 'qr' ? (proofPath ? 'Recibimos tu comprobante. Caja lo verifica y confirma tu pago.' : 'Tu pedido fue recibido. Mostrá el comprobante al mozo o caja.') :
                        'Tu pedido fue recibido.';
     return (
       <div style={{ minHeight: '100%', background: T.black, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 28px', textAlign: 'center' }}>
@@ -1387,10 +1419,29 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
                   {b.bank_doc && <div><span style={{ color: T.gray }}>CI/RUC:</span> {b.bank_doc}</div>}
                 </div>
               )}
-              <div style={{ fontSize: 11, color: T.silver, marginTop: 12 }}>{hasData ? 'Transferí el total y mostrá el comprobante al mozo o caja.' : 'El local aún no cargó sus datos de transferencia. Consultá al mozo.'}</div>
+              <div style={{ fontSize: 11, color: T.silver, marginTop: 12 }}>{hasData ? 'Transferí el total y subí la captura del comprobante abajo.' : 'El local aún no cargó sus datos de transferencia. Consultá al mozo.'}</div>
             </div>
           );
         })()}
+        {/* Comprobante de transferencia que sube el CLIENTE (mig 183). Caja lo verifica
+            antes de confirmar el pago. Bucket privado → solo el staff lo ve (URL firmada). */}
+        {method === 'qr' && (
+          <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>Comprobante de transferencia</div>
+            <div style={{ fontSize: 12, color: T.silver, marginBottom: 10, lineHeight: 1.5 }}>Subí la captura de tu transferencia. Caja la revisa y confirma tu pago.</div>
+            <input ref={proofInputRef} type="file" accept=".jpg,.jpeg,.png,.webp" style={{ display: 'none' }} onChange={e => { const f = e.target.files[0]; e.target.value = ''; handleProof(f); }} />
+            {proofPreview ? (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <img src={proofPreview} alt="comprobante" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, border: `1px solid ${T.border}` }} />
+                <button onClick={() => proofInputRef.current.click()} disabled={proofBusy} style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.offwhite, color: T.ink, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{proofBusy ? 'Subiendo…' : 'Cambiar'}</button>
+                <button onClick={() => { setProofPath(''); setProofPreview(''); }} style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: '#EF4444', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Quitar</button>
+              </div>
+            ) : (
+              <button onClick={() => proofInputRef.current.click()} disabled={proofBusy} style={{ width: '100%', padding: '12px', borderRadius: 10, border: `1.5px dashed ${T.border}`, background: T.offwhite, color: T.ink, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{proofBusy ? 'Subiendo…' : '📷  Adjuntar comprobante'}</button>
+            )}
+            <input value={proofRef} onChange={e => setProofRef(e.target.value)} placeholder="N° de operación (opcional)" style={{ marginTop: 10, width: '100%', height: 40, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, color: T.ink, outline: 'none', background: T.offwhite, boxSizing: 'border-box', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }} />
+          </div>
+        )}
         {/* Comprobante */}
         <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Comprobante</div>

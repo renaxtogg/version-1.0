@@ -9,7 +9,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput, NumInput } from "../shared/gs.jsx";
 // FASE D2 — validación de comprobantes (etiquetas de estado en reportes).
-import { reviewMeta } from "../shared/comprobante.jsx";
+import { reviewMeta, ProofImage } from "../shared/comprobante.jsx";
 // CAPTCHA Turnstile (nativo de Supabase Auth) para los flujos in-app que
 // re-autentican (modal "Cambiar contraseña" → signInWithPassword).
 import { useTurnstile } from "../shared/turnstile.js";
@@ -1382,6 +1382,14 @@ function OrderDetailModal({ order, items, deliv, loading, onClose }) {
       {/* PAGO / TOTALES */}
       <Section icon="money" title="Pago">
         <Row label="Método" value={PL[o.payment_method]||o.payment_method||'—'}/>
+        {o.payment_reference && <Row label="N° comprobante" value={o.payment_reference} mono/>}
+        {(()=>{ const m=reviewMeta(o.payment_review_status); return m ? <Row label="Validación" value={m.label} accent={m.color}/> : null; })()}
+        {o.payment_proof_url && (
+          <div style={{display:'flex',justifyContent:'space-between',gap:12,padding:'7px 0',fontSize:13,alignItems:'center'}}>
+            <span style={{color:C.mid,flexShrink:0}}>Comprobante</span>
+            <ProofImage db={db} value={o.payment_proof_url} size={52}/>
+          </div>
+        )}
         {o.discount_amount>0 && <Row label="Descuento" value={'-'+fmt(o.discount_amount)} mono accent={C.green}/>}
         {isDelivery && cash>0 && <Row label="Paga con (efectivo)" value={fmt(cash)} mono/>}
         {isDelivery && cash>0 && o.total!=null && <Row label="Vuelto" value={fmt(Math.max(0,cash-(o.total||0)))} mono/>}
@@ -1397,6 +1405,7 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
   const refreshOrders = onRefreshOrders || onRefresh;   // refresco liviano (fallback al pesado)
   const [typeFilter,setTypeFilter]     = useState('all');
   const [statusFilter,setStatusFilter] = useState('all');
+  const [soloComp,setSoloComp]         = useState(false);   // solo transferencias con comprobante (mig 182/183)
   const [period,setPeriod]             = useState('hoy');
   const [dateFrom,setDateFrom]         = useState('');
   const [dateTo,setDateTo]             = useState('');
@@ -1466,9 +1475,13 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
 
   const filtered = useMemo(()=>{
     const st=STATUS_TABS.find(s=>s.id===statusFilter);
-    if(!st||statusFilter==='all') return typeFiltered;
-    return typeFiltered.filter(o=>st.statuses.includes(o.status));
-  },[typeFiltered,statusFilter]);
+    let res = (!st||statusFilter==='all') ? typeFiltered : typeFiltered.filter(o=>st.statuses.includes(o.status));
+    if(soloComp){
+      const TR=['qr','transferencia','tarjeta','pos','tarjeta_credito','tarjeta_debito','mixto'];
+      res = res.filter(o=>TR.includes(o.payment_method)&&(o.payment_proof_url||o.payment_reference));
+    }
+    return res;
+  },[typeFiltered,statusFilter,soloComp]);
 
   const rowBg = s => selected?.status===s?'':['paid','kitchen_received','cooking'].includes(s)?TINT.amberBg:s==='ready'?TINT.greenBg:s==='cancelled'?TINT.redBg:'transparent';
   const rowBorderColor = s => ['paid','kitchen_received','cooking'].includes(s)?'#FF9500':s==='ready'?'#34C759':s==='cancelled'?'#FF3B30':'transparent';
@@ -1603,8 +1616,16 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
         })}
       </div>
 
+      {/* Filtro de conciliación: solo transferencias/QR/tarjeta que tienen comprobante (N° o foto) */}
+      <div style={{display:'flex',alignItems:'center',gap:8,margin:'12px 0 0'}}>
+        <button onClick={()=>setSoloComp(v=>!v)} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:700,borderRadius:8,cursor:'pointer',border:`1px solid ${soloComp?'#34C759':C.border}`,background:soloComp?'rgba(52,199,89,0.10)':C.surface,color:soloComp?'#2FA84F':C.mid}}>
+          <span>🧾</span> Solo transferencias con comprobante {soloComp&&<span style={{fontSize:13,lineHeight:1}}>✓</span>}
+        </button>
+        {soloComp&&<span style={{fontSize:11,color:C.dim}}>{filtered.length} pedido{filtered.length!==1?'s':''}</span>}
+      </div>
+
       {/* Tabla + Panel de detalle */}
-      <div style={{display:'flex',gap:12,minHeight:400}}>
+      <div style={{display:'flex',gap:12,minHeight:400,marginTop:12}}>
         <div style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}>
             <thead>
@@ -1632,7 +1653,13 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
                     <Td><Badge status={o.status}/></Td>
                     <Td dim>{o.items_count||0}</Td>
                     <Td mono right>{fmt(o.total)}</Td>
-                    <Td dim>{PL[o.payment_method]||'—'}</Td>
+                    <Td dim>
+                      <span style={{display:'inline-flex',alignItems:'center',gap:5}}>
+                        {PL[o.payment_method]||'—'}
+                        {(o.payment_proof_url||o.payment_reference)&&<span title="Con comprobante" style={{fontSize:12}}>🧾</span>}
+                        {(()=>{const m=reviewMeta(o.payment_review_status);return m?<span title={m.label} style={{width:7,height:7,borderRadius:'50%',background:m.color,display:'inline-block'}}/>:null;})()}
+                      </span>
+                    </Td>
                     <Td mono dim>{fmtTime(o.created_at)}</Td>
                     <Td right style={{whiteSpace:'nowrap'}}>
                       <Btn small variant="secondary" onClick={e=>{e.stopPropagation();openDetail(o);}}>Ver detalle</Btn>

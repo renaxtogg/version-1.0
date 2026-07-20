@@ -10,7 +10,7 @@
 //   import { ComprobanteUploader, recordPaymentReview, reviewMeta,
 //            uploadComprobante } from '../shared/comprobante.jsx';
 // ════════════════════════════════════════════════════════════════════
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 
 // Comprime a WebP (máx 1400px, calidad 0.82) — mismo criterio que el
 // ImageUploader del admin; el bucket restaurant-images solo acepta imágenes.
@@ -31,20 +31,47 @@ function _compress(file) {
   });
 }
 
-// Sube la foto del comprobante al bucket restaurant-images bajo la carpeta
-// del restaurante (path `<rid>/comprobantes/...`) — mismo tenant-scoping que
-// portada/logo/QR (mig 165). Devuelve la URL pública o lanza el error.
+// Sube la foto del comprobante al bucket PRIVADO `comprobantes` bajo la carpeta
+// del restaurante (path `<rid>/<ts>.webp`) — mig 183 (anon INSERT / staff SELECT
+// tenant-scoped). Devuelve el PATH (no URL): el bucket es privado, se ve con URL
+// firmada temporal (ver resolveProofUrl). Lanza el error si falla.
+const PROOF_BUCKET = 'comprobantes';
 export async function uploadComprobante(db, restaurantId, file) {
   if (!db) throw new Error('Sin conexión a la base de datos');
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('Usá una foto JPG, PNG o WebP');
   if (file.size > 5 * 1024 * 1024) throw new Error('La imagen supera los 5 MB');
   const blob = await _compress(file);
   if (!blob) throw new Error('No se pudo procesar la imagen');
-  const path = `${restaurantId}/comprobantes/${Date.now()}_${Math.random().toString(36).slice(2)}.webp`;
-  const { error } = await db.storage.from('restaurant-images').upload(path, blob, { contentType: 'image/webp', upsert: false });
+  const path = `${restaurantId}/${Date.now()}_${Math.random().toString(36).slice(2)}.webp`;
+  const { error } = await db.storage.from(PROOF_BUCKET).upload(path, blob, { contentType: 'image/webp', upsert: false });
   if (error) throw error;
-  const { data } = db.storage.from('restaurant-images').getPublicUrl(path);
-  return data.publicUrl;
+  return path; // el path se guarda en orders.payment_proof_url
+}
+
+// Resuelve un valor de payment_proof_url a una URL visible:
+//   • URL http(s) → se devuelve tal cual (comprobantes viejos en bucket público).
+//   • path del bucket privado → URL firmada temporal (60 min) para el staff.
+// Devuelve null si no se puede (mig 183 sin aplicar / sin permiso).
+export async function resolveProofUrl(db, value) {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  if (!db) return null;
+  try {
+    const { data, error } = await db.storage.from(PROOF_BUCKET).createSignedUrl(value, 3600);
+    if (error) return null;
+    return data && data.signedUrl;
+  } catch (_) { return null; }
+}
+
+// Miniatura async del comprobante (resuelve la URL firmada). Placeholder 🧾 mientras
+// resuelve o si el archivo ya no está (purgado a los 31 días → onError lo oculta).
+export function ProofImage({ db, value, size = 54, style, alt = 'comprobante' }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => { let m = true; resolveProofUrl(db, value).then(u => { if (m) setUrl(u); }); return () => { m = false; }; }, [value]);
+  if (!value) return null;
+  const base = { width: size, height: size, borderRadius: 8, border: '1px solid var(--border,#e2e2e6)', flexShrink: 0, ...style };
+  if (!url) return <div style={{ ...base, background: 'var(--bg-subtle,#f2f2f4)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: size > 40 ? 18 : 12 }}>🧾</div>;
+  return <a href={url} target="_blank" rel="noreferrer" style={{ lineHeight: 0, flexShrink: 0 }}><img src={url} alt={alt} style={{ ...base, objectFit: 'cover' }} onError={e => { e.target.style.display = 'none'; }} /></a>;
 }
 
 // Uploader compacto y neutral (styling con tokens del design-system, presentes
@@ -52,30 +79,33 @@ export async function uploadComprobante(db, restaurantId, file) {
 export function ComprobanteUploader({ db, restaurantId, value, onChange, onMsg, label = 'FOTO DEL COMPROBANTE (OPCIONAL)' }) {
   const ref = useRef();
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState('');   // objectURL local (el bucket es privado, no hay URL directa)
   async function handle(file) {
     if (!file) return;
     setBusy(true);
     try {
-      const url = await uploadComprobante(db, restaurantId, file);
-      onChange(url);
+      const path = await uploadComprobante(db, restaurantId, file);
+      try { setPreview(URL.createObjectURL(file)); } catch (_) {}
+      onChange(path);
       onMsg && onMsg('Comprobante adjuntado', true);
     } catch (e) {
-      const hint = /Bucket not found/i.test(e.message || '') ? 'Falta el bucket restaurant-images (mig 015/165)' : (e.message || 'Error al subir');
+      const hint = /Bucket not found/i.test(e.message || '') ? 'Falta el bucket comprobantes (aplicá la mig 183)' : (e.message || 'Error al subir');
       onMsg && onMsg('No se pudo subir: ' + hint, false);
     }
     setBusy(false);
   }
   const box = { border: '1px solid var(--border,#e2e2e6)', background: 'var(--bg-subtle,#f7f7f8)', color: 'var(--text-mid,#6e6e73)' };
+  const hasProof = !!(value || preview);
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.5, color: 'var(--text-mid,#6e6e73)', marginBottom: 6 }}>{label}</div>
-      {value ? (
+      {hasProof ? (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <a href={value} target="_blank" rel="noreferrer" style={{ flexShrink: 0 }}>
-            <img src={value} alt="comprobante" style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border,#e2e2e6)' }} onError={e => { e.target.style.display = 'none'; }} />
-          </a>
+          {preview
+            ? <img src={preview} alt="comprobante" style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border,#e2e2e6)', flexShrink: 0 }} />
+            : <ProofImage db={db} value={value} size={54} />}
           <button type="button" onClick={() => ref.current.click()} disabled={busy} style={{ ...box, padding: '5px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer' }}>{busy ? 'Subiendo…' : 'Cambiar'}</button>
-          <button type="button" onClick={() => onChange('')} style={{ padding: '5px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: '#EF4444' }}>Quitar</button>
+          <button type="button" onClick={() => { onChange(''); setPreview(''); }} style={{ padding: '5px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: '1px solid rgba(239,68,68,0.3)', background: 'transparent', color: '#EF4444' }}>Quitar</button>
         </div>
       ) : (
         <button type="button" onClick={() => ref.current.click()} disabled={busy} style={{ ...box, padding: '9px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', width: '100%' }}>
