@@ -566,10 +566,25 @@ function App() {
           return;
         }
         setAuthOk(true);
-        if (mozoSession) return;   // ya inicializado: no re-setear la sesión
+        // Nombre visible del mozo: SIEMPRE display_name. get_my_profile NO devuelve
+        // `full_name` → leerlo daba undefined y caía al email sintético de Auth
+        // `${cedula}@mythos.internal`, que se mostraba como "nombre" del mozo y se
+        // propagaba a orders.waiter_name / tables.assigned_waiter_name (leak a
+        // cocina/caja). Nunca usar el email de Auth como nombre.
+        const goodName = profile.display_name || 'Mozo';
+        if (mozoSession) {
+          // Auto-sanado: sesiones viejas cacheadas con el email sintético como nombre
+          // (bug histórico) se corrigen al montar, sin necesidad de re-login.
+          if (!mozoSession.mozo_name || /@mythos\.internal$/i.test(mozoSession.mozo_name)) {
+            const fixed = { ...mozoSession, mozo_name: goodName };
+            localStorage.setItem('mozo_session', JSON.stringify(fixed));
+            setMozoSession(fixed);
+          }
+          return;   // ya inicializado: no re-setear el resto de la sesión
+        }
         const s = {
           mozo_id: session.user.id,
-          mozo_name: profile.full_name || session.user.email,
+          mozo_name: goodName,
           turno_inicio: localStorage.getItem('turno_inicio') || new Date().toISOString()
         };
         localStorage.setItem('mozo_session', JSON.stringify(s));
@@ -1098,7 +1113,7 @@ function App() {
       total: 0,
       // waiter_id y waiter_name requieren migración 044 aplicada en Supabase
       waiter_id: currentSession.user.id,
-      waiter_name: mozoSession?.mozo_name || currentSession.user.email,
+      waiter_name: mozoSession?.mozo_name || 'Mozo',
     };
 
     let { data: order, error } = await db.from('orders').insert(insertPayload).select().single();
@@ -1122,7 +1137,7 @@ function App() {
     }
     await db.from('order_status_history').insert({ order_id: order.id, status: 'confirmed', changed_by: 'mozo' });
     // Fix is_occupied: trigger may be slow, update directly
-    await db.from('tables').update({ is_occupied: true, occupied_since: order.created_at, assigned_waiter_name: mozoSession?.mozo_name || currentSession.user.email }).eq('id', tableId);
+    await db.from('tables').update({ is_occupied: true, occupied_since: order.created_at, assigned_waiter_name: mozoSession?.mozo_name || 'Mozo' }).eq('id', tableId);
     await loadData();
     openOrderView(tableId);
     showToast('Orden creada — Mesa ' + tableNum);
@@ -1348,7 +1363,7 @@ function App() {
         discount_amount: 0,
         total: 0,
         waiter_id: currentSession.user.id,
-        waiter_name: mozoSession?.mozo_name || currentSession.user.email,
+        waiter_name: mozoSession?.mozo_name || 'Mozo',
       };
       let { data: newOrder, error: newErr } = await db.from('orders').insert(insertPayload).select().single();
       if (newErr && (newErr.message?.includes('waiter_id') || newErr.message?.includes('waiter_name') || newErr.message?.includes('schema cache'))) {
@@ -1684,7 +1699,7 @@ function App() {
       const authRes = await db.auth.getSession();
       const paySession = authRes?.data?.session || null;
       const payerId = paySession?.user?.id || null;
-      const payerName = mozoSession?.mozo_name || paySession?.user?.email || 'mozo';
+      const payerName = mozoSession?.mozo_name || 'mozo';
       const nowIso = new Date().toISOString();
 
       const invoiceFields = {

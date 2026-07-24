@@ -132,7 +132,17 @@ export function reviewMeta(status) {
 export async function recordPaymentReview(db, { restaurantId, orderId, action, note, reviewerId, reviewerName }) {
   if (!db) return { applied: false, error: 'Sin conexión' };
   if (!reviewerId || !reviewerName) {
-    try { const { data } = await db.auth.getUser(); if (data && data.user) { reviewerId = reviewerId || data.user.id; reviewerName = reviewerName || data.user.email; } } catch (_) {}
+    // Nombre del revisor: usar el display_name del metadata de Auth, NUNCA el email.
+    // Para el staff (mozo/caja) el email es el sintético `${cedula}@mythos.internal`,
+    // que ensuciaría la bitácora inmutable payment_reviews.reviewer_name.
+    try {
+      const { data } = await db.auth.getUser();
+      if (data && data.user) {
+        reviewerId = reviewerId || data.user.id;
+        const md = data.user.user_metadata || {};
+        reviewerName = reviewerName || md.display_name || md.username || 'Staff';
+      }
+    } catch (_) {}
   }
   let applied = true, error = null;
   if (action === 'approved' || action === 'rejected') {
