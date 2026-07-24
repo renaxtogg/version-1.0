@@ -208,11 +208,17 @@ const PANEL_OPTIONS = [
   {key:'gerente',          label:'Gerente'},
 ];
 
-// Roles con límite estricto por plan (hard-limits) — nombres reales en user_roles
+// Roles con límite estricto por plan (hard-limits) — `key` = nombre real en user_roles.
+// Vacío/ausente en max_users_by_role = ilimitado. Para hacer limitable un rol nuevo,
+// basta agregarlo acá: el editor de plan (inputs, EMPTY_PLAN, openEditPlan, savePlan)
+// itera esta lista. El backstop server-side (trigger enforce_role_user_limit + API
+// create-user) enforca genéricamente por presencia de la clave, sin allowlist propia.
 const LIMIT_ROLES = [
-  {key:'mozo',   label:'Máx. Mozos'},
-  {key:'cajero', label:'Máx. Cajeros'},
-  {key:'cocina', label:'Máx. Cocineros'},
+  {key:'mozo',             label:'Máx. Mozos',     word:'mozos'},
+  {key:'cajero',           label:'Máx. Cajeros',   word:'cajeros'},
+  {key:'cocina',           label:'Máx. Cocineros', word:'cocineros'},
+  {key:'rider',            label:'Máx. Riders',    word:'riders'},
+  {key:'supervisor_local', label:'Máx. Gerentes',  word:'gerentes'},
 ];
 
 // Omni-Gating por feature: sub-módulos vendibles DENTRO de un panel.
@@ -2403,7 +2409,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 // MÓDULO 3 — FACTURACIÓN (planes + suscripciones)
 // ══════════════════════════════════════════════════════════════
 function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], setFlash, reload}) {
-  const EMPTY_PLAN = {name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true,max_mozo:'',max_cajero:'',max_cocina:'',panels:[],allowed_features:[]};
+  const EMPTY_PLAN = {name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true,...Object.fromEntries(LIMIT_ROLES.map(lr=>['max_'+lr.key,''])),panels:[],allowed_features:[]};
   const currentCcy = CURRENCIES[platformConfig.find(c=>c.key==='platform_currency')?.value] ? platformConfig.find(c=>c.key==='platform_currency').value : 'PYG';
   const [savingCcy, setSavingCcy] = useState(false);
   const saveCurrency = async (code) => {
@@ -2460,7 +2466,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
       max_tables:p.max_tables??'',max_menu_items:p.max_menu_items??'',
       features:Array.isArray(p.features)?p.features.join(', '):(typeof p.features==='string'?asArr(p.features).join(', '):''),
       is_active:p.is_active!==false,
-      max_mozo:mubr.mozo??'',max_cajero:mubr.cajero??'',max_cocina:mubr.cocina??'',
+      ...Object.fromEntries(LIMIT_ROLES.map(lr=>['max_'+lr.key, mubr[lr.key]??''])),
       panels:asArr(p.allowed_panels),
       allowed_features:asArr(p.allowed_features),
     });
@@ -2474,9 +2480,10 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
     try {
       const feats = planForm.features ? planForm.features.split(',').map(s=>s.trim()).filter(Boolean) : [];
       const mubr = {};
-      if (planForm.max_mozo!=='' && planForm.max_mozo!=null)     mubr.mozo   = parseInt(planForm.max_mozo);
-      if (planForm.max_cajero!=='' && planForm.max_cajero!=null) mubr.cajero = parseInt(planForm.max_cajero);
-      if (planForm.max_cocina!=='' && planForm.max_cocina!=null) mubr.cocina = parseInt(planForm.max_cocina);
+      LIMIT_ROLES.forEach(lr=>{
+        const v = planForm['max_'+lr.key];
+        if (v!=='' && v!=null) mubr[lr.key] = parseInt(v);
+      });
       // El ciclo de vida (activo/pausado/archivado) se maneja con los botones de
       // la tarjeta, NO desde este editor: por eso el payload NO envía is_active en
       // una edición (así no se re-activa un plan pausado al guardar cambios de
@@ -2617,7 +2624,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
           const pnls = asArr(p.allowed_panels);
           const feats = asArr(p.allowed_features);
           const mubr = asObj(p.max_users_by_role);
-          const limStr = LIMIT_ROLES.map(lr=>mubr[lr.key]!=null?`${mubr[lr.key]} ${lr.key}`:null).filter(Boolean).join(' · ');
+          const limStr = LIMIT_ROLES.map(lr=>mubr[lr.key]!=null?`${mubr[lr.key]} ${lr.word||lr.key}`:null).filter(Boolean).join(' · ');
           const featLabel = k=>{ for(const g of FEATURE_GROUPS){ const it=g.items.find(i=>i.key===k); if(it) return it.label; } return k; };
           return (
             <div style={{marginBottom:14}}>
@@ -2754,9 +2761,11 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
             <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Límite estricto de usuarios por rol</div>
             <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Vacío = ilimitado. El admin no podrá crear más usuarios de ese rol que el tope.</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 16px'}}>
-              <FormField label="Máx. Mozos"><input type="number" min="0" value={planForm.max_mozo} onChange={spf('max_mozo')} placeholder="∞"/></FormField>
-              <FormField label="Máx. Cajeros"><input type="number" min="0" value={planForm.max_cajero} onChange={spf('max_cajero')} placeholder="∞"/></FormField>
-              <FormField label="Máx. Cocineros"><input type="number" min="0" value={planForm.max_cocina} onChange={spf('max_cocina')} placeholder="∞"/></FormField>
+              {LIMIT_ROLES.map(lr=>(
+                <FormField key={lr.key} label={lr.label}>
+                  <input type="number" min="0" value={planForm['max_'+lr.key]} onChange={spf('max_'+lr.key)} placeholder="∞"/>
+                </FormField>
+              ))}
             </div>
           </div>
 

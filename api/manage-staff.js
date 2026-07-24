@@ -35,7 +35,8 @@ const httpsDelete = (url, h)       => httpsReq('DELETE', url, h);
 
 // Roles que un admin puede gestionar. Nunca admin/superadmin/owner.
 const EMPLOYEE_ROLES = ['cajero', 'mozo', 'cocina', 'rider', 'supervisor_local'];
-const LIMITED_ROLES  = ['mozo', 'cajero', 'cocina', 'rider'];
+// Palabra legible por rol para los mensajes de cupo (evita mostrar 'supervisor_local(s)').
+const ROLE_WORD = { mozo:'mozos', cajero:'cajeros', cocina:'cocineros', rider:'riders', supervisor_local:'gerentes' };
 
 module.exports = async function handler(req, res) {
   const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos-pos.vercel.app';
@@ -115,15 +116,50 @@ module.exports = async function handler(req, res) {
       res.status(403).json({ error: 'No podés gestionar tu propia cuenta desde aquí.' }); return;
     }
 
+    // ─────────────────────────────── DETAIL ───────────────────────────────
+    // Datos completos del empleado para pre-cargar el modal de edición. El RPC de
+    // listado (admin_list_restaurant_users) NO trae phone/recovery_email/cedula, y
+    // leerlos por RLS es frágil (el Sprint 1 la cierra). Acá vía service_role, con el
+    // tenant/rol guard ya aplicado arriba. Nunca devuelve el email sintético de Auth.
+    if (action === 'detail') {
+      if (target.kind === 'rider') {
+        const r = await httpsGet(`${SUPABASE_URL}/rest/v1/delivery_riders?id=eq.${target.riderId}&select=name,phone,active,cedula`, svc);
+        const row = Array.isArray(r.data) ? r.data[0] : null;
+        res.status(200).json({ success: true, detail: {
+          display_name: (row && row.name) || '', phone: (row && row.phone) || '',
+          recovery_email: '', cedula: (row && row.cedula) || '', role: 'rider',
+          is_active: !row || row.active !== false
+        }}); return;
+      }
+      const r = await httpsGet(`${SUPABASE_URL}/rest/v1/user_roles?id=eq.${target.roleRowId}&select=display_name,phone,recovery_email,cedula,role,is_active`, svc);
+      const row = Array.isArray(r.data) ? r.data[0] : null;
+      res.status(200).json({ success: true, detail: {
+        display_name: (row && row.display_name) || '', phone: (row && row.phone) || '',
+        recovery_email: (row && row.recovery_email) || '', cedula: (row && row.cedula) || '',
+        role: (row && row.role) || target.role, is_active: !row || row.is_active !== false
+      }}); return;
+    }
+
     // ─────────────────────────────── UPDATE ───────────────────────────────
     if (action === 'update') {
       const isActive = body.is_active !== false; // default true
       if (target.kind === 'rider') {
-        // El rol del rider es fijo; solo se cambia el estado activo (ficha operativa).
-        const u1 = await httpsPatch(`${SUPABASE_URL}/rest/v1/delivery_riders?id=eq.${target.riderId}`, svcJson, { active: isActive });
+        // El rol del rider es fijo; se editan estado + nombre + teléfono (ficha operativa).
+        // Vehículo/comisión se editan en Delivery → Riders. Solo se tocan columnas presentes.
+        const rpatch = { active: isActive };
+        if (typeof body.display_name === 'string') {
+          const dn = body.display_name.trim();
+          if (dn.length < 2) { res.status(400).json({ error: 'El nombre debe tener al menos 2 caracteres.' }); return; }
+          rpatch.name = dn;
+        }
+        if (body.phone !== undefined) rpatch.phone = (typeof body.phone === 'string' && body.phone.trim()) ? body.phone.trim() : null;
+        const u1 = await httpsPatch(`${SUPABASE_URL}/rest/v1/delivery_riders?id=eq.${target.riderId}`, svcJson, rpatch);
         if (!u1.ok) { res.status(400).json({ error: 'No se pudo actualizar el rider' }); return; }
-        // Reflejar el estado en su fila de user_roles (rol 'rider'), si existe.
-        await httpsPatch(`${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${target.user_id}&restaurant_id=eq.${restaurant_id}&role=eq.rider`, svcJson, { is_active: isActive });
+        // Reflejar estado/nombre/teléfono en su fila de user_roles (rol 'rider'), si existe.
+        const mirror = { is_active: isActive };
+        if (rpatch.name) mirror.display_name = rpatch.name;
+        if (body.phone !== undefined) mirror.phone = rpatch.phone;
+        await httpsPatch(`${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${target.user_id}&restaurant_id=eq.${restaurant_id}&role=eq.rider`, svcJson, mirror);
         res.status(200).json({ success: true, action: 'update' }); return;
       }
       // Empleado normal: puede cambiar rol (dentro de roles de empleado) y estado.
@@ -134,8 +170,9 @@ module.exports = async function handler(req, res) {
         if (body.new_role === 'rider') {
           res.status(400).json({ error: 'Para convertir a rider, quitá el empleado y creá el rider (necesita ficha de reparto).' }); return;
         }
-        // Cupo del plan para el rol destino (mismo criterio que create-user).
-        if (isActive && LIMITED_ROLES.includes(body.new_role)) {
+        // Cupo del plan para el rol destino (mismo criterio que create-user): aplica a
+        // cualquier rol de empleado, se enforca solo si el plan define un tope numérico.
+        if (isActive && EMPLOYEE_ROLES.includes(body.new_role)) {
           const subResp = await httpsGet(
             `${SUPABASE_URL}/rest/v1/subscriptions?restaurant_id=eq.${restaurant_id}&select=plan:subscription_plans(max_users_by_role)&order=created_at.desc&limit=1`, svc);
           const limitsMap = (Array.isArray(subResp.data) && subResp.data[0]?.plan?.max_users_by_role) || {};
@@ -146,11 +183,26 @@ module.exports = async function handler(req, res) {
               { ...svc, 'Prefer': 'count=exact' });
             const current = Array.isArray(countResp.data) ? countResp.data.length : 0;
             if (current >= roleLimit) {
-              res.status(403).json({ error: `Límite de puestos alcanzado: el plan permite ${roleLimit} ${body.new_role}(s).` }); return;
+              res.status(403).json({ error: `Límite de puestos alcanzado: el plan permite ${roleLimit} ${ROLE_WORD[body.new_role] || body.new_role+'(s)'}.` }); return;
             }
           }
         }
         patch.role = body.new_role; newRole = body.new_role;
+      }
+      // Datos editables del empleado (nombre / teléfono / correo de contacto). Solo se
+      // tocan las columnas presentes en el payload → un campo omitido NO se blanquea.
+      if (typeof body.display_name === 'string') {
+        const dn = body.display_name.trim();
+        if (dn.length < 2) { res.status(400).json({ error: 'El nombre debe tener al menos 2 caracteres.' }); return; }
+        patch.display_name = dn;
+      }
+      if (body.phone !== undefined) {
+        patch.phone = (typeof body.phone === 'string' && body.phone.trim()) ? body.phone.trim() : null;
+      }
+      if (body.recovery_email !== undefined) {
+        const re = (typeof body.recovery_email === 'string') ? body.recovery_email.trim().toLowerCase() : '';
+        if (re && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(re)) { res.status(400).json({ error: 'El correo no es válido.' }); return; }
+        patch.recovery_email = re || null;
       }
       const u = await httpsPatch(`${SUPABASE_URL}/rest/v1/user_roles?id=eq.${target.roleRowId}`, { ...svcJson, 'Prefer': 'return=representation' }, patch);
       if (!u.ok || !Array.isArray(u.data) || u.data.length === 0) {

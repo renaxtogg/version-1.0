@@ -187,9 +187,12 @@ module.exports = async function handler(req, res) {
     }
 
     // Hard-limit por plan: rechazar antes de crear el usuario auth (evita huérfanos).
-    // El trigger DB enforce_role_user_limit es el respaldo final.
-    const LIMITED_ROLES = ['mozo', 'cajero', 'cocina', 'rider'];
-    if (finalRestaurantId && LIMITED_ROLES.includes(role)) {
+    // Aplica a CUALQUIER rol de empleado (mozo/cajero/cocina/rider/supervisor_local) —
+    // se enforca solo si el plan define un tope numérico para ese rol en
+    // max_users_by_role (ausente = ilimitado). El trigger DB enforce_role_user_limit
+    // es el respaldo final. Para limitar un rol nuevo no hace falta tocar esto:
+    // basta que sea EMPLOYEE_ROLES y que el plan le ponga un número.
+    if (finalRestaurantId && EMPLOYEE_ROLES.includes(role)) {
       const subResp = await httpsGet(
         `${SUPABASE_URL}/rest/v1/subscriptions?restaurant_id=eq.${finalRestaurantId}&select=plan:subscription_plans(max_users_by_role)&order=created_at.desc&limit=1`,
         { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY }
@@ -203,7 +206,9 @@ module.exports = async function handler(req, res) {
         );
         const current = Array.isArray(countResp.data) ? countResp.data.length : 0;
         if (current >= roleLimit) {
-          res.status(403).json({ error: `Límite de puestos alcanzado: el plan permite ${roleLimit} ${role}(s). Ampliá el plan o contratá un add-on.` });
+          const ROLE_WORD = { mozo:'mozos', cajero:'cajeros', cocina:'cocineros', rider:'riders', supervisor_local:'gerentes' };
+          const word = ROLE_WORD[role] || `${role}(s)`;
+          res.status(403).json({ error: `Límite de puestos alcanzado: el plan permite ${roleLimit} ${word}. Ampliá el plan o contratá un add-on.` });
           return;
         }
       }

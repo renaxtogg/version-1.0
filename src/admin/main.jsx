@@ -2950,10 +2950,9 @@ function PersonalPage({caps}) {
   const [profiles,setProfiles] = useState([]);
   const [loading,setLoading]   = useState(true);
   const [error,setError]       = useState(null);
-  const [editId,setEditId]     = useState(null);
-  const [editRole,setEditRole] = useState('');
-  const [editActive,setEditActive] = useState(true);
-  const [savingEdit,setSavingEdit] = useState(false);
+  const [editStaff,setEditStaff] = useState(null);            // {prof, form} — modal de edición de datos
+  const [editStaffLoading,setEditStaffLoading] = useState(false); // cargando el detalle para pre-cargar
+  const [editStaffSaving,setEditStaffSaving]   = useState(false);
   const [removeModal,setRemoveModal] = useState(null);  // perfil a quitar (confirmación)
   const [removingId,setRemovingId]   = useState(null);
   const [addModal,setAddModal] = useState(false);
@@ -3063,29 +3062,71 @@ function PersonalPage({caps}) {
     return ()=>{ db.removeChannel(ch); };
   },[tab]);
 
-  // Editar rol/estado del personal — vía endpoint backend /api/manage-staff (valida
-  // token del caller + tenant + rol de empleado y opera con service_role). Reemplaza
-  // el UPDATE directo a user_roles que RLS bloqueaba (era superadmin-only → ghost write).
-  async function saveRole(id) {
-    if(!db)return;
-    const prof = profiles.find(x=>x.id===id);
+  // Abrir el modal de edición de datos del empleado. Pre-carga nombre/rol/estado de la
+  // fila ya listada y completa teléfono/correo/cédula con el detalle del backend (el RPC
+  // de listado no los trae). Vía /api/manage-staff (action:'detail', service_role).
+  async function openEditStaff(prof){
     if(!prof) return;
-    setSavingEdit(true);
+    const base = {
+      display_name: prof.display_name||'',
+      phone: '',
+      recovery_email: '',
+      cedula: prof.username||'',   // para staff, username = dígitos de la cédula
+      role: prof._isRider ? 'rider' : (editableRoles.includes(prof.role)?prof.role:(editableRoles[0]||prof.role)),
+      is_active: prof.is_active!==false
+    };
+    setEditStaff({ prof, form: base });
+    setEditStaffLoading(true);
+    try {
+      const{data:{session}}=await db.auth.getSession();
+      const token=session?.access_token;
+      if(token){
+        const payload = prof._isRider
+          ? { action:'detail', restaurant_id:RID, rider_id:prof.id }
+          : { action:'detail', restaurant_id:RID, role_row_id:prof.id };
+        const resp=await fetch('/api/manage-staff',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify(payload)});
+        const result=await resp.json();
+        if(resp.ok&&result.detail){
+          const d=result.detail;
+          setEditStaff(es=> (es&&es.prof.id===prof.id) ? {...es, form:{...es.form,
+            display_name: d.display_name||es.form.display_name,
+            phone: d.phone||'',
+            recovery_email: d.recovery_email||'',
+            cedula: d.cedula||es.form.cedula,
+            role: prof._isRider?'rider':(editableRoles.includes(d.role)?d.role:es.form.role),
+            is_active: d.is_active!==false
+          }} : es);
+        }
+      }
+    } catch(_){}
+    setEditStaffLoading(false);
+  }
+
+  // Guardar los cambios del empleado — vía endpoint backend /api/manage-staff (valida
+  // token del caller + tenant + rol de empleado y opera con service_role). Reemplaza el
+  // UPDATE directo a user_roles que RLS bloqueaba (era superadmin-only → ghost write).
+  async function saveEditStaff(){
+    if(!db||!editStaff) return;
+    const {prof,form}=editStaff;
+    const dn=(form.display_name||'').trim();
+    if(dn.length<2){toast('El nombre debe tener al menos 2 caracteres',false);return;}
+    if(form.recovery_email&&form.recovery_email.trim()&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.recovery_email.trim())){toast('El correo no es válido',false);return;}
+    setEditStaffSaving(true);
     try {
       const{data:{session}}=await db.auth.getSession();
       const token=session?.access_token;
       if(!token) throw new Error('Sin sesión activa');
       const payload = prof._isRider
-        ? { action:'update', restaurant_id:RID, rider_id:prof.id, is_active:editActive }
-        : { action:'update', restaurant_id:RID, role_row_id:prof.id, new_role:editRole, is_active:editActive };
+        ? { action:'update', restaurant_id:RID, rider_id:prof.id, display_name:dn, phone:form.phone||'', is_active:form.is_active }
+        : { action:'update', restaurant_id:RID, role_row_id:prof.id, new_role:form.role, is_active:form.is_active, display_name:dn, phone:form.phone||'', recovery_email:form.recovery_email||'' };
       const resp=await fetch('/api/manage-staff',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify(payload)});
       const result=await resp.json();
       if(!resp.ok) throw new Error(result.error||'No se pudo actualizar');
       toast(prof._isRider?'Rider actualizado':'Empleado actualizado');
-      setEditId(null);
+      setEditStaff(null);
       loadProfiles();
     } catch(e){ toast(e.message,false); }
-    setSavingEdit(false);
+    setEditStaffSaving(false);
   }
 
   // Quitar personal del local — libera cédula + cupo del puesto (y borra el acceso si
@@ -3242,26 +3283,17 @@ function PersonalPage({caps}) {
                     <Td>{p.display_name||'—'}</Td>
                     <Td dim style={{fontSize:11}}>{displayEmail(p)}</Td>
                     <Td>
-                      {editId===p.id&&!p._isRider
-                        ?<Sel value={editRole} onChange={e=>setEditRole(e.target.value)} style={{width:140}}>{editableRoles.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}</Sel>
-                        :<span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{roleLabel(p.role)}{p._isRider?' · delivery':''}</span>}
+                      <span style={{background:(roleColor[p.role]||'#6E6E73')+'22',color:roleColor[p.role]||'#6E6E73',border:`1px solid ${(roleColor[p.role]||'#6E6E73')}44`,padding:'3px 9px',fontSize:11,fontWeight:700,borderRadius:5}}>{roleLabel(p.role)}{p._isRider?' · delivery':''}</span>
                     </Td>
                     <Td>
-                      {editId===p.id
-                        ?<Sel value={String(editActive)} onChange={e=>setEditActive(e.target.value==='true')} style={{width:100}}><option value="true">Activo</option><option value="false">Inactivo</option></Sel>
-                        :<span style={{fontSize:11,color:p.is_active!==false?'#34C759':'#FF3B30'}}>{p.is_active!==false?'Activo':'Inactivo'}</span>}
+                      <span style={{fontSize:11,color:p.is_active!==false?'#34C759':'#FF3B30'}}>{p.is_active!==false?'Activo':'Inactivo'}</span>
                     </Td>
                     <Td mono dim>{fmtDate(p.created_at)}</Td>
                     <Td>
-                      {editId===p.id
-                        ?<div style={{display:'flex',gap:6}}>
-                           <Btn small onClick={()=>saveRole(p.id)} disabled={savingEdit}>{savingEdit?'Guardando…':'Guardar'}</Btn>
-                           <Btn small variant="ghost" onClick={()=>setEditId(null)} disabled={savingEdit}>Cancelar</Btn>
-                         </div>
-                        :<div style={{display:'flex',gap:6}}>
-                           <Btn small variant="secondary" onClick={()=>{setEditId(p.id);setEditRole(editableRoles.includes(p.role)?p.role:(editableRoles[0]||p.role));setEditActive(p.is_active!==false);}}>Editar</Btn>
-                           <Btn small variant="danger" onClick={()=>setRemoveModal(p)}>Eliminar</Btn>
-                         </div>}
+                      <div style={{display:'flex',gap:6}}>
+                        <Btn small variant="secondary" onClick={()=>openEditStaff(p)}>Editar</Btn>
+                        <Btn small variant="danger" onClick={()=>setRemoveModal(p)}>Eliminar</Btn>
+                      </div>
                     </Td>
                   </tr>
                 ))}
@@ -3324,6 +3356,49 @@ function PersonalPage({caps}) {
             <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:16}}>
               <Btn variant="ghost" onClick={()=>{setAddModal(false);setAddForm({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});}} disabled={addLoading}>Cancelar</Btn>
               <Btn onClick={addEmployee} disabled={addLoading}>{addLoading?'Creando…':(addForm.role==='rider'?'Crear rider':'Crear empleado')}</Btn>
+            </div>
+          </Modal>
+        )}
+
+        {editStaff&&(
+          <Modal title={editStaff.prof._isRider?'Editar rider':'Editar empleado'} onClose={()=>setEditStaff(null)} width={520}>
+            {editStaffLoading&&<div style={{display:'flex',gap:8,alignItems:'center',color:C.mid,fontSize:12,marginBottom:12}}><span className="spin"/>Cargando datos…</div>}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 16px'}}>
+              <div style={{gridColumn:'1/-1'}}>
+                <Lbl>Nombre completo *</Lbl>
+                <Inp value={editStaff.form.display_name} onChange={e=>setEditStaff(es=>({...es,form:{...es.form,display_name:e.target.value}}))} placeholder="Nombre y apellido"/>
+              </div>
+              <div>
+                <Lbl>Cédula (usuario de acceso)</Lbl>
+                <div style={{padding:'9px 11px',fontSize:13,borderRadius:6,border:`1px solid ${C.border}`,background:C.bg,color:C.mid,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace'}}>{editStaff.form.cedula||editStaff.prof.username||'—'}</div>
+                <div style={{fontSize:11,color:C.dim,marginTop:4}}>Es el usuario de login — no se edita acá. Para cambiarla, quitá y volvé a crear al empleado.</div>
+              </div>
+              <div>
+                <Lbl>Teléfono</Lbl>
+                <Inp value={editStaff.form.phone} onChange={e=>setEditStaff(es=>({...es,form:{...es.form,phone:e.target.value}}))} placeholder="ej: 0981 123456"/>
+              </div>
+              {!editStaff.prof._isRider&&(
+                <div style={{gridColumn:'1/-1'}}>
+                  <Lbl>Correo de contacto</Lbl>
+                  <Inp type="email" value={editStaff.form.recovery_email} onChange={e=>setEditStaff(es=>({...es,form:{...es.form,recovery_email:e.target.value}}))} placeholder="ej: juan@email.com"/>
+                  <div style={{fontSize:11,color:C.dim,marginTop:4}}>Opcional — para contacto y recuperación de contraseña. No es el usuario de login.</div>
+                </div>
+              )}
+              {!editStaff.prof._isRider&&(
+                <div>
+                  <Lbl>Rol</Lbl>
+                  <Sel value={editStaff.form.role} onChange={e=>setEditStaff(es=>({...es,form:{...es.form,role:e.target.value}}))}>{editableRoles.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}</Sel>
+                </div>
+              )}
+              <div>
+                <Lbl>Estado</Lbl>
+                <Sel value={String(editStaff.form.is_active)} onChange={e=>setEditStaff(es=>({...es,form:{...es.form,is_active:e.target.value==='true'}}))}><option value="true">Activo</option><option value="false">Inactivo</option></Sel>
+              </div>
+            </div>
+            {editStaff.prof._isRider&&<div style={{marginTop:10,fontSize:11,color:C.dim}}>El vehículo y la comisión del rider se editan en <strong>Delivery → Riders</strong>.</div>}
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:18}}>
+              <Btn variant="ghost" onClick={()=>setEditStaff(null)} disabled={editStaffSaving}>Cancelar</Btn>
+              <Btn onClick={saveEditStaff} disabled={editStaffSaving||editStaffLoading}>{editStaffSaving?'Guardando…':'Guardar cambios'}</Btn>
             </div>
           </Modal>
         )}
