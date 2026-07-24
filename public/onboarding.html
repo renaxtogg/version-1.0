@@ -665,6 +665,23 @@
     if (hasCol('manager_name'))   patch.manager_name   = v('f_mgr_name') || null;
     if (hasCol('manager_phone'))  patch.manager_phone  = v('f_mgr_phone') || null;
     await saveRest(patch);
+    // El documento/cédula del dueño sirve TAMBIÉN para iniciar sesión: se registra
+    // como cédula de login acá mismo (una sola carga). Best-effort — no bloquea el
+    // onboarding si el endpoint/migración 187 aún no está.
+    try {
+      var docDigits = (v('f_owner_doc') || '').replace(/\D/g, '');
+      if (docDigits.length >= 4 && docDigits.length <= 10) {
+        var sres3 = await db.auth.getSession();
+        var tok3 = sres3 && sres3.data && sres3.data.session ? sres3.data.session.access_token : null;
+        if (tok3) {
+          await fetch('/api/set-admin-cedula', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok3 },
+            body: JSON.stringify({ cedula: docDigits })
+          });
+        }
+      }
+    } catch (_) { /* best-effort */ }
     st.step = 4; render();
   }
 

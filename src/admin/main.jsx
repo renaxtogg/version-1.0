@@ -11728,11 +11728,10 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
   const [phone,setPhone] = useState('');
   const [savingProfile,setSavingProfile] = useState(false);
   const [pwModal,setPwModal] = useState(false);
-  // Cédula de acceso del admin (punto reportado 2026-07-20): permite entrar con
-  // cédula ADEMÁS del acceso actual (mig 187 + /api/set-admin-cedula).
+  // El documento/cédula que el dueño ya cargó (en el registro / abajo en "Datos del
+  // dueño") es la ÚNICA fuente: al guardarlo se registra también como cédula de
+  // login (mig 187 + /api/set-admin-cedula). No se pide dos veces.
   const isAdminSelf = ['admin','owner'].includes((MY_ROLE||'').toLowerCase());
-  const [cedula,setCedula] = useState('');
-  const [savingCedula,setSavingCedula] = useState(false);
 
   // Dueño / encargado del local (desde el row de restaurants)
   const [loc,setLoc] = useState({owner_name:'',owner_email:'',owner_phone:'',owner_document:'',manager_name:'',manager_phone:''});
@@ -11746,7 +11745,7 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
       try {
         if (prof.id) {
           const { data } = await db.from('user_roles').select('*').eq('user_id',prof.id).eq('is_active',true).limit(1).maybeSingle();
-          if (alive && data) { setName(data.display_name || data.username || ''); setPhone(data.phone || ''); setCedula(data.cedula || ''); }
+          if (alive && data) { setName(data.display_name || data.username || ''); setPhone(data.phone || ''); }
         }
       } catch(_){}
     })();
@@ -11790,26 +11789,24 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
     setSavingProfile(false);
   };
 
-  const saveCedula = async () => {
-    const digits = (cedula||'').replace(/\D/g,'');
-    if (digits.length < 4 || digits.length > 10) { toast('Ingresá una cédula válida (solo números).', false); return; }
-    if (!db) return;
-    setSavingCedula(true);
+  // El documento del dueño (cédula) sirve TAMBIÉN para iniciar sesión: al guardarlo,
+  // se registra como cédula de login (una sola carga, sin duplicar). Best-effort:
+  // si falla, los datos del dueño igual quedan guardados. Devuelve true si sincronizó.
+  const syncOwnerCedula = async () => {
+    if (!isAdminSelf) return false;
+    const digits = (loc.owner_document||'').replace(/\D/g,'');
+    if (digits.length < 4 || digits.length > 10) return false; // no es una cédula (o es un RUC con DV)
     try {
       const { data:{ session } } = await db.auth.getSession();
       const token = session?.access_token;
-      if (!token) throw new Error('Sin sesión activa');
+      if (!token) return false;
       const resp = await fetch('/api/set-admin-cedula', {
         method:'POST',
         headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${token}` },
         body: JSON.stringify({ cedula: digits })
       });
-      const result = await resp.json();
-      if (!resp.ok) throw new Error(result.error || 'No se pudo guardar');
-      setCedula(digits);
-      toast('Cédula guardada — ya podés entrar con tu cédula');
-    } catch(e) { toast(e.message, false); }
-    setSavingCedula(false);
+      return resp.ok;
+    } catch(_) { return false; }
   };
 
   const saveLoc = async () => {
@@ -11827,7 +11824,8 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
       const { data, error } = await db.from('restaurants').update(patch).eq('id',RID).select('id');
       if (error) throw error;
       if (!data || data.length===0) { toast('No se pudo guardar — verificá tus permisos (RLS)', false); setSavingLoc(false); return; }
-      toast('Datos del local actualizados');
+      const cedulaSynced = await syncOwnerCedula();
+      toast(cedulaSynced ? 'Datos del dueño guardados — ya podés entrar con tu cédula' : 'Datos del local actualizados');
       if (onRefresh) onRefresh(true);
     } catch(e) { toast('Error: ' + (e.message || 'no se pudo guardar'), false); }
     setSavingLoc(false);
@@ -11863,24 +11861,6 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
         </div>
       </div>
 
-      {/* Cédula de acceso del admin — entrar con cédula además del acceso actual */}
-      {isAdminSelf && (
-        <div style={cardStyle}>
-          <div style={{fontSize:14,fontWeight:700,marginBottom:3}}>Cédula de acceso</div>
-          <div style={{fontSize:12.5,color:C.mid,marginBottom:14,lineHeight:1.55}}>
-            Cargá tu cédula para poder <strong>iniciar sesión con tu número de cédula</strong> (igual que el personal), <strong>además</strong> de tu acceso actual. La contraseña sigue siendo la misma.
-          </div>
-          <div style={{display:'flex',gap:12,alignItems:'flex-end',flexWrap:'wrap'}}>
-            <div style={{flex:'1 1 220px'}}>
-              <AcctField label="Mi cédula (solo números)">
-                <input value={cedula} onChange={e=>setCedula(e.target.value.replace(/\D/g,''))} inputMode="numeric" placeholder="ej: 4123456" style={{...iStyle,fontFamily:"'SF Mono',ui-monospace,monospace"}}/>
-              </AcctField>
-            </div>
-            <Btn onClick={saveCedula} disabled={savingCedula}>{savingCedula?'Guardando…':'Guardar cédula'}</Btn>
-          </div>
-        </div>
-      )}
-
       {/* Dueño y encargado del local */}
       <div style={cardStyle}>
         <div style={{fontSize:14,fontWeight:700,marginBottom:3}}>Dueño y encargado del local</div>
@@ -11890,7 +11870,7 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
           <AcctField label="Nombre"><input value={loc.owner_name} onChange={sf('owner_name')} disabled={!canEditLocal} placeholder="Nombre del dueño" style={canEditLocal?iStyle:iDisabled}/></AcctField>
           <AcctField label="Teléfono"><input value={loc.owner_phone} onChange={sf('owner_phone')} disabled={!canEditLocal} placeholder="+595 9xx xxx xxx" style={canEditLocal?iStyle:iDisabled}/></AcctField>
           <AcctField label="Email"><input value={loc.owner_email} onChange={sf('owner_email')} disabled={!canEditLocal} placeholder="dueno@correo.com" style={canEditLocal?iStyle:iDisabled}/></AcctField>
-          <AcctField label="Documento / RUC"><input value={loc.owner_document} onChange={sf('owner_document')} disabled={!canEditLocal} placeholder="C.I. o RUC" style={canEditLocal?iStyle:iDisabled}/></AcctField>
+          <AcctField label="Documento / Cédula"><input value={loc.owner_document} onChange={sf('owner_document')} disabled={!canEditLocal} placeholder="C.I. o RUC" style={canEditLocal?iStyle:iDisabled}/>{isAdminSelf && <div style={{fontSize:11,color:C.dim,marginTop:5,lineHeight:1.5}}>Con tu cédula también podés <strong>iniciar sesión</strong> (además de tu correo). Se guarda al tocar «Guardar datos del local».</div>}</AcctField>
         </div>
         <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,margin:'6px 0 8px'}}>Encargado <span style={{textTransform:'none',fontWeight:500,color:C.dim}}>(si difiere del dueño)</span></div>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
