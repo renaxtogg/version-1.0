@@ -47,6 +47,17 @@ let STATION_CONFIG = null; // {id,name,type,color,icon,categoryIds:Set,zonas:Set
 let CATEGORY_OF_ITEM = {}; // item_id → category_id (cache para filtrado)
 let ZONA_OF_TABLE    = {}; // table_id → zona      (cache para filtrado)
 
+/* ── COCINA GENERAL (central): estaciones dedicadas del local ─────────
+   La vista SIN token (?station) es la cocina central. Debe conocer las
+   estaciones dedicadas para NO mostrar ítems que ya prepara una estación
+   propia (bar/cocina de una terraza, salón privado, etc.). Un ítem sigue
+   en la cocina central SOLO si ninguna estación dedicada lo reclama —
+   misma regla de categoría+zona que `applyStationScope`. El disparador de
+   la exclusión es que exista una estación para ese lugar/categoría (hay un
+   puesto propio de preparación), no que existan mesas en una zona. */
+let CENTRAL_STATIONS   = null; // [{categoryIds:Set, zonas:Set, isAllZonas:bool}] | null
+let _centralStationsAt = 0;    // timestamp de la última carga (TTL 60s)
+
 async function loadStationConfig() {
   if (!STATION_TOKEN || !db) return null;
   try {
@@ -65,6 +76,35 @@ async function loadStationConfig() {
       zonas, isAllZonas: zonas.has('*') || zonas.size===0,
     };
   } catch(e) { console.error('loadStationConfig', e); return null; }
+}
+
+/* Carga (con caché TTL 60s) las estaciones dedicadas activas del local para la
+   cocina central. Solo en modo SIN token. Una estación sin categorías no reclama
+   nada (se ignora). zonas vacías o '*' = comodín (toma todas las zonas). */
+async function ensureCentralStations(force) {
+  if (STATION_TOKEN) return null;               // en modo estación no aplica
+  if (!db || !RESTAURANT_ID) return CENTRAL_STATIONS;
+  const now = Date.now();
+  if (!force && CENTRAL_STATIONS !== null && now - _centralStationsAt < 60000) return CENTRAL_STATIONS;
+  try {
+    const { data: sts } = await db.from('kitchen_stations')
+      .select('id').eq('restaurant_id', RESTAURANT_ID).eq('is_active', true);
+    if (!sts || !sts.length) { CENTRAL_STATIONS = []; _centralStationsAt = now; return CENTRAL_STATIONS; }
+    const ids = sts.map(s => s.id);
+    const [{ data: cats }, { data: zons }] = await Promise.all([
+      db.from('kitchen_station_categories').select('station_id,category_id').in('station_id', ids),
+      db.from('kitchen_station_zonas').select('station_id,zona').in('station_id', ids),
+    ]);
+    const catBy = {}, zonBy = {};
+    (cats || []).forEach(r => { (catBy[r.station_id] = catBy[r.station_id] || new Set()).add(r.category_id); });
+    (zons || []).forEach(r => { (zonBy[r.station_id] = zonBy[r.station_id] || new Set()).add(r.zona); });
+    CENTRAL_STATIONS = ids.map(id => {
+      const zonas = zonBy[id] || new Set();
+      return { categoryIds: catBy[id] || new Set(), zonas, isAllZonas: zonas.has('*') || zonas.size === 0 };
+    }).filter(s => s.categoryIds.size > 0);      // sin categorías → no reclama nada
+    _centralStationsAt = now;
+    return CENTRAL_STATIONS;
+  } catch (e) { console.warn('ensureCentralStations', e); return CENTRAL_STATIONS; }
 }
 
 async function logStationAction(itemIds, action) {
@@ -352,6 +392,30 @@ function applyStationScope(ticket) {
   return { ...ticket, items: filtered };
 }
 
+/* ¿Alguna estación dedicada YA prepara este ítem? Misma regla de aceptación que
+   applyStationScope (categoría asignada + zona comodín o la zona de la mesa). Un
+   ítem sin categoría, o de una zona no cubierta, NO se reclama → queda en central. */
+function claimedByStation(item, tableZona) {
+  if (!CENTRAL_STATIONS || !CENTRAL_STATIONS.length) return false;
+  if (!item.categoryId) return false;
+  return CENTRAL_STATIONS.some(s => {
+    if (!s.categoryIds.has(item.categoryId)) return false;
+    if (s.isAllZonas) return true;              // comodín: cualquier zona (y pedidos sin mesa)
+    if (!tableZona) return false;               // estación con zona propia no toma pedidos sin mesa
+    return s.zonas.has(tableZona);
+  });
+}
+
+/* Recorta un ticket para la cocina central: quita los ítems que ya prepara una
+   estación dedicada. Devuelve null si TODOS sus ítems los toma otra estación. */
+function applyCentralScope(ticket) {
+  if (!CENTRAL_STATIONS || !CENTRAL_STATIONS.length) return ticket;
+  const kept = ticket.items.filter(it => !claimedByStation(it, ticket.tableZona));
+  if (kept.length === ticket.items.length) return ticket; // nada reclamado por estaciones
+  if (kept.length === 0) return null;                      // todo lo prepara una estación dedicada
+  return { ...ticket, items: kept };
+}
+
 // Política de preparación del local (mig 182/184), cacheada 2 min. 'A' (default) =
 // preparar apenas entra; 'B' = esperar validación del pago; 'C' = inteligente.
 let _prepPolicyCache = { v: null, at: 0 };
@@ -368,6 +432,8 @@ async function getPrepPolicy() {
 
 async function dbLoadTickets() {
   if (!db) return { tickets: null, error: null };
+  // Cocina central: refrescar (TTL) las estaciones dedicadas para saber qué ítems excluir.
+  if (!STATION_CONFIG) await ensureCentralStations();
   const { data: ordersRaw, error } = await db.from('orders')
     .select('id,order_number,order_type,status,created_at,table_id,payment_method,payment_review_status')
     .eq('restaurant_id', RESTAURANT_ID)
@@ -408,8 +474,10 @@ async function dbLoadTickets() {
     .select('id,order_id,item_id,item_name,quantity,observations,production_station,kitchen_status')
     .in('order_id', orderIds);
 
-  // Mapear item_id → category_id para filtrar por estación
-  if (STATION_CONFIG && items?.length) {
+  // Mapear item_id → category_id para filtrar por estación (token) o por la cocina
+  // central (excluir lo que ya prepara una estación dedicada).
+  const _needCats = STATION_CONFIG || (CENTRAL_STATIONS && CENTRAL_STATIONS.length);
+  if (_needCats && items?.length) {
     const itemIds = [...new Set(items.map(i => i.item_id).filter(Boolean))];
     const missing = itemIds.filter(id => CATEGORY_OF_ITEM[id] === undefined);
     if (missing.length) {
@@ -450,6 +518,9 @@ async function dbLoadTickets() {
 
   if (STATION_CONFIG) {
     tickets = tickets.map(applyStationScope).filter(Boolean);
+  } else if (CENTRAL_STATIONS && CENTRAL_STATIONS.length) {
+    // Cocina central: descartar ítems que ya prepara una estación dedicada.
+    tickets = tickets.map(applyCentralScope).filter(Boolean);
   }
   return { tickets, error: null };
 }
@@ -1384,13 +1455,25 @@ function App() {
           .eq('order_id', orderId).maybeSingle();
         ord._deliveryRow = delRow || null;
         if (!['paid','kitchen_received','cooking','ready'].includes(ord.status)) return;
+        // Cocina central: tener las estaciones dedicadas frescas para saber qué excluir.
+        if (!STATION_CONFIG) await ensureCentralStations();
         const tableMap = {};
         if (ord.table_id) {
-          const { data: tbl } = await db.from('tables').select('id,number').eq('id', ord.table_id).maybeSingle();
-          if (tbl) tableMap[tbl.id] = tbl.number;
+          const { data: tbl } = await db.from('tables').select('id,number,zona').eq('id', ord.table_id).maybeSingle();
+          if (tbl) { tableMap[tbl.id] = tbl.number; ZONA_OF_TABLE[tbl.id] = tbl.zona || null; }
         }
         const { data: items } = await db.from('order_items')
-          .select('id,order_id,item_name,quantity,observations,production_station,kitchen_status').eq('order_id', ord.id);
+          .select('id,order_id,item_id,item_name,quantity,observations,production_station,kitchen_status').eq('order_id', ord.id);
+        // Categorías para el filtrado por estación (token) o por la cocina central.
+        const _needCats = STATION_CONFIG || (CENTRAL_STATIONS && CENTRAL_STATIONS.length);
+        if (_needCats && (items || []).length) {
+          const itemIds = [...new Set(items.map(i => i.item_id).filter(Boolean))];
+          const missing = itemIds.filter(id => CATEGORY_OF_ITEM[id] === undefined);
+          if (missing.length) {
+            const { data: mis } = await db.from('menu_items').select('id,category_id').in('id', missing);
+            (mis || []).forEach(m => { CATEGORY_OF_ITEM[m.id] = m.category_id; });
+          }
+        }
         const extrasMap = {};
         if ((items || []).length > 0) {
           const { data: extras } = await db.from('order_item_extras')
@@ -1405,7 +1488,17 @@ function App() {
           tables: ord.table_id ? { number: tableMap[ord.table_id] ?? null } : null,
           order_items: (items || []).map(i => ({ ...i, order_item_extras: extrasMap[i.id] || [] }))
         };
-        const ticket = orderToTicket(fullOrder);
+        let ticket = orderToTicket(fullOrder);
+        // Recortar por estación: en modo token, solo lo de esta estación; en la cocina
+        // central, quitar lo que ya prepara una estación dedicada. Si no queda nada, el
+        // ticket no corresponde a esta pantalla (no se agrega ni suena).
+        if (STATION_CONFIG) {
+          ticket = applyStationScope(ticket);
+          if (!ticket) return;
+        } else if (CENTRAL_STATIONS && CENTRAL_STATIONS.length) {
+          ticket = applyCentralScope(ticket);
+          if (!ticket) return;
+        }
         setTickets(prev => {
           if (prev.some(t => t.id === ticket.id)) return prev;
           return [ticket, ...prev];
