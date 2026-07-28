@@ -334,10 +334,18 @@ const PlanBadge = ({name}) => {
 };
 
 // PR-B3C: Kpi → .my-metric-card (Opción A). Valor a var(--text-primary); sub conservado.
-const Kpi = ({label,value,sub}) => (
-  <div className="my-metric-card" style={{flex:'1 1 180px',minWidth:160}}>
-    <div className="my-metric-card__label">{label}</div>
-    <div style={{fontSize:28,fontWeight:800,color:'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px'}}>{value}</div>
+// PR-SA-UI: las filas de KPI pasaron de flex-wrap a la grilla .sa-kpis (columnas
+// iguales, como admin) → el dimensionado ya lo da la grilla y el flex:'1 1 180px'
+// inline sobra. Se suman `icon` y `onClick` opcionales para igualar el lenguaje de
+// las metric-cards de admin (ícono en el label, card clickeable a su sección).
+const Kpi = ({label,value,sub,icon,onClick,accent}) => (
+  <div className={`my-metric-card${onClick?' my-card--interactive':''}`}
+       onClick={onClick}
+       style={onClick?{cursor:'pointer'}:undefined}>
+    <div className="my-metric-card__label" style={{display:'flex',alignItems:'center',gap:6}}>
+      {icon && <Icon name={icon} size={13}/>}<span>{label}</span>
+    </div>
+    <div style={{fontSize:28,fontWeight:800,color:accent||'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px'}}>{value}</div>
     {sub && <div style={{fontSize:11,color:C.mid,marginTop:6}}>{sub}</div>}
   </div>
 );
@@ -978,9 +986,19 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
 
   const restSummary = [...enriched].sort((a,b)=>b.ordersToday-a.ordersToday);
 
-  // Resumen rápido de restaurantes: colapsable + persistente (arranca CERRADO).
-  const [restOpen,setRestOpen] = useState(()=>{ try { return localStorage.getItem('sa_dash_rest_open')==='1'; } catch { return false; } });
+  // Locales que requieren acción: suscripción caída o por vencer dentro de 7 días.
+  // Ordenados por urgencia (los que menos días les quedan, primero).
+  const needsAttention = enriched
+    .filter(r => ['suspended','past_due','expired'].includes(r.status) || (r.daysLeft!=null && r.daysLeft<=7))
+    .sort((a,b)=>(a.daysLeft==null?9999:a.daysLeft)-(b.daysLeft==null?9999:b.daysLeft));
+
+  // Resumen rápido de restaurantes: colapsable + persistente. Ahora arranca
+  // ABIERTO — arrancaba cerrado y el dashboard renderizaba una card vacía con
+  // solo el título, que era la mitad del "se ve vacío".
+  const [restOpen,setRestOpen] = useState(()=>{ try { return localStorage.getItem('sa_dash_rest_open')!=='0'; } catch { return true; } });
   const toggleRest = ()=> setRestOpen(v=>{ const n=!v; try{ localStorage.setItem('sa_dash_rest_open', n?'1':'0'); }catch{} return n; });
+  const TOP_N = 6;
+  const restTop = restOpen ? restSummary.slice(0,TOP_N) : [];
 
   // PR-SA1: registros web (leads_prospectos, mig 117 permite SELECT a superadmin).
   // Si la tabla/RLS falla, la card degrada a "—" sin romper el dashboard.
@@ -1012,22 +1030,38 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
 
   return (
     <div className="animate-in">
-      {/* 5 KPI cards */}
-      <div style={{display:'flex',gap:12,marginBottom:24,flexWrap:'wrap'}}>
-        <Kpi label="Restaurantes activos" value={activos}                        sub={`de ${enriched.length} totales`}/>
-        <Kpi label="MRR Total"            value={fmtGuarani(mrrTotal)}           sub="Ingreso recurrente mensual · suscripciones activas"/>
-        <Kpi label="Pedidos hoy"          value={pedidosHoy}                     sub="todos los locales"/>
-        <Kpi label="Rating promedio"      value={ratingProm ? String(ratingProm) : '—'} sub="últimas 48hs"/>
-        <Kpi label="Registros web (7 días)" value={webLeads&&webLeads.week!=null ? fmtNum(webLeads.week) : '—'} sub={webLeads&&webLeads.total!=null ? `${fmtNum(webLeads.total)} en total` : undefined}/>
+      {/* Fecha del día — mismo encabezado contextual que el dashboard de admin.
+          El nombre de la página ya lo muestra la barra superior, no se repite. */}
+      <div style={{fontSize:13,color:C.mid,marginBottom:18,textTransform:'capitalize'}}>
+        {now.toLocaleDateString('es-PY',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}
+      </div>
+
+      {/* KPIs de plataforma — grilla de columnas iguales, con ícono y navegación
+          a la sección correspondiente (patrón .my-metric-card de admin). */}
+      <div className="sa-kpis" style={{marginBottom:18}}>
+        <Kpi icon="store"   label="Restaurantes activos"   value={fmtNum(activos)}
+             sub={`de ${fmtNum(enriched.length)} totales`}  onClick={()=>setPage('restaurantes')}/>
+        <Kpi icon="money"   label="MRR total"              value={fmtGuarani(mrrTotal)}
+             sub="ingreso recurrente mensual"               onClick={()=>setPage('facturacion')}/>
+        <Kpi icon="package" label="Pedidos hoy"            value={fmtNum(pedidosHoy)}
+             sub="todos los locales"                        onClick={()=>setPage('reportes')}/>
+        <Kpi icon="star"    label="Rating promedio"        value={ratingProm ? String(ratingProm) : '—'}
+             sub={recRatings.length ? `${fmtNum(recRatings.length)} calificaciones · 48hs` : 'últimas 48hs'}/>
+        <Kpi icon="mail"    label="Registros web (7 días)" value={webLeads&&webLeads.week!=null ? fmtNum(webLeads.week) : '—'}
+             sub={webLeads&&webLeads.total!=null ? `${fmtNum(webLeads.total)} en total` : 'leads del sitio'}
+             onClick={()=>setPage('prospeccion')}/>
       </div>
 
       {/* PARTE C: avisos de vencimiento de costos del sistema (mig 147) */}
       {finAlerts.length>0 && (
-        <div onClick={()=>setPage('finanzas')} style={{marginBottom:22,border:`1px solid ${C.orange}`,borderRadius:12,background:C.surface,padding:'14px 18px',cursor:'pointer'}}
-          title="Ir a Finanzas">
+        <div onClick={()=>setPage('finanzas')} title="Ir a Finanzas"
+          className="my-card my-card--interactive"
+          style={{borderColor:'var(--warning)',marginBottom:18,cursor:'pointer'}}>
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
-            <span style={{fontSize:13,fontWeight:800,color:C.ink}}>⚠ Vencimientos próximos</span>
-            <span style={{fontSize:11,color:C.mid}}>· costos del sistema · ir a Finanzas ↗</span>
+            <span style={{display:'inline-flex',color:C.orange,flexShrink:0}}><Icon name="alert" size={15}/></span>
+            <span style={{fontSize:13,fontWeight:800,color:C.ink}}>Vencimientos próximos</span>
+            <span style={{fontSize:11,color:C.mid}}>· costos del sistema</span>
+            <span style={{marginLeft:'auto',display:'inline-flex',color:C.mid,flexShrink:0}}><Icon name="chevronRight" size={14}/></span>
           </div>
           <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
             {finAlerts.map(a=>{
@@ -1043,34 +1077,71 @@ function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, relo
         </div>
       )}
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:18,alignItems:'start'}}>
-        {/* MRR chart */}
-        <SectionCard title="Crecimiento MRR — últimos 6 meses">
-          <div style={{padding:'20px 20px 12px'}}>
-            <MRRChart subscriptions={subscriptions}/>
-          </div>
-          <div style={{padding:'0 20px 16px',fontSize:11,color:C.mid}}>Nuevas suscripciones activas por mes de alta</div>
-        </SectionCard>
+      <div className="sa-split">
+        {/* Columna principal */}
+        <div style={{display:'flex',flexDirection:'column',gap:18,minWidth:0}}>
+          <SectionCard title="Crecimiento MRR — últimos 6 meses">
+            <div style={{padding:'20px 20px 12px'}}>
+              <MRRChart subscriptions={subscriptions}/>
+            </div>
+            <div style={{padding:'0 20px 16px',fontSize:11,color:C.mid}}>Nuevas suscripciones activas por mes de alta</div>
+          </SectionCard>
 
-        {/* Restaurant quick summary */}
-        <SectionCard title="Restaurantes — resumen rápido"
-          action={<button onClick={toggleRest} style={{border:`1px solid ${C.border}`,background:'transparent',color:C.mid,borderRadius:8,padding:'4px 10px',fontSize:12,fontWeight:600,cursor:'pointer'}}>{restOpen?'Ocultar':`Ver (${restSummary.length})`}</button>}>
-          {restOpen && restSummary.map(r=>(
-            <div key={r.id} onClick={()=>setPage('restaurantes')} style={{padding:'12px 18px',borderBottom:`1px solid ${C.border}`,cursor:'pointer',transition:'background .1s'}}
+          {/* Cola de trabajo del superadmin: qué cuenta hay que atender hoy.
+              Antes el dashboard no mostraba nada accionable — había que entrar
+              a Restaurantes y leer la tabla entera para encontrarlas. */}
+          <SectionCard title="Requieren atención"
+            action={needsAttention.length>0
+              ? <span style={{fontSize:11,fontWeight:700,color:C.red,background:TINT.dangerBg,padding:'2px 9px',borderRadius:20}}>{fmtNum(needsAttention.length)}</span>
+              : null}>
+            {needsAttention.length===0
+              ? <div style={{padding:'28px 18px',textAlign:'center',color:C.dim,fontSize:12}}>Ninguna cuenta vencida ni por vencer esta semana.</div>
+              : needsAttention.slice(0,8).map((r,i)=>{
+                  const d = daysBadge(r.daysLeft);
+                  return (
+                    <div key={r.id} onClick={()=>setPage('restaurantes')}
+                      style={{display:'flex',alignItems:'center',gap:12,padding:'11px 18px',borderTop:i?`1px solid ${C.border}`:'none',cursor:'pointer'}}
+                      onMouseEnter={e=>e.currentTarget.style.background=C.bg}
+                      onMouseLeave={e=>e.currentTarget.style.background=''}>
+                      <span style={{flex:1,minWidth:0,fontSize:13,fontWeight:600,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</span>
+                      <span style={{fontSize:11,color:C.mid,whiteSpace:'nowrap'}}>{r.plan?.name||'sin plan'}</span>
+                      <Badge status={r.status}/>
+                      <span style={{fontSize:11,fontWeight:700,color:d.color,background:d.bg,padding:'2px 9px',borderRadius:20,whiteSpace:'nowrap',minWidth:52,textAlign:'center'}}>{d.label}</span>
+                    </div>
+                  );
+                })}
+            {needsAttention.length>8 && (
+              <div onClick={()=>setPage('restaurantes')} style={{padding:'10px 18px',borderTop:`1px solid ${C.border}`,fontSize:12,fontWeight:600,color:C.mid,cursor:'pointer'}}>
+                Ver las {fmtNum(needsAttention.length)} cuentas en Restaurantes →
+              </div>
+            )}
+          </SectionCard>
+        </div>
+
+        {/* Columna lateral — resumen rápido de locales */}
+        <SectionCard title="Restaurantes"
+          action={<button onClick={toggleRest} style={{border:`1px solid ${C.border}`,background:'transparent',color:C.mid,borderRadius:8,padding:'4px 10px',fontSize:12,fontWeight:600,cursor:'pointer'}}>{restOpen?'Ocultar':`Ver (${fmtNum(restSummary.length)})`}</button>}>
+          {restOpen && restTop.map((r,i)=>(
+            <div key={r.id} onClick={()=>setPage('restaurantes')} style={{padding:'12px 18px',borderTop:i?`1px solid ${C.border}`:'none',cursor:'pointer',transition:'background .1s'}}
               onMouseEnter={e=>e.currentTarget.style.background=C.bg}
               onMouseLeave={e=>e.currentTarget.style.background=''}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-                <span style={{fontWeight:600,fontSize:13,color:C.ink}}>{r.name}</span>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:6}}>
+                <span style={{fontWeight:600,fontSize:13,color:C.ink,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.name}</span>
                 <Badge status={r.status}/>
               </div>
-              <div style={{display:'flex',gap:16,fontSize:11,color:C.mid}}>
-                <span>Pedidos: <strong style={{color:C.ink}}>{r.ordersToday}</strong></span>
+              <div style={{display:'flex',gap:14,fontSize:11,color:C.mid,flexWrap:'wrap'}}>
+                <span>Pedidos: <strong style={{color:C.ink}}>{fmtNum(r.ordersToday)}</strong></span>
                 <span>MRR: <strong style={{color:C.ink}}>{fmtGuarani(r.subscription?.monthly_amount||0)}</strong></span>
                 <span>Rating: <strong style={{color:C.ink}}>{r.avgRating||'—'}</strong></span>
               </div>
             </div>
           ))}
-          {restOpen && restSummary.length===0&&<div style={{padding:32,textAlign:'center',color:C.dim,fontSize:12}}>Sin restaurantes</div>}
+          {restOpen && restSummary.length===0 && <div style={{padding:'28px 18px',textAlign:'center',color:C.dim,fontSize:12}}>Sin restaurantes</div>}
+          {restOpen && restSummary.length>TOP_N && (
+            <div onClick={()=>setPage('restaurantes')} style={{padding:'10px 18px',borderTop:`1px solid ${C.border}`,fontSize:12,fontWeight:600,color:C.mid,cursor:'pointer'}}>
+              Ver los {fmtNum(restSummary.length)} locales →
+            </div>
+          )}
         </SectionCard>
       </div>
     </div>
@@ -1250,7 +1321,7 @@ function PageCapacidad({ enriched }) {
       )}
 
       {/* Uso actual real (lo que ya vive en la BD) */}
-      <div style={{display:'flex',gap:12,marginBottom:18,flexWrap:'wrap'}}>
+      <div className="sa-kpis" style={{marginBottom:18}}>
         <Kpi label="Restaurantes" value={loadingC?'…':fmtNum(restCount)} sub="activos en la plataforma"/>
         <Kpi label="Ítems de menú" value={loadingC?'…':fmtNum(itemsCount)} sub="filas en menu_items"/>
         <Kpi label="Usuarios" value={loadingC?'…':fmtNum(usersCount)} sub="roles registrados"/>
@@ -3916,7 +3987,7 @@ function MkResumen({stats, events, supNameById, restNameById}) {
   const maxSup = Math.max(1, ...topSup.map(c=>c.leads||0));
   return (
     <div className="animate-in">
-      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:18}}>
+      <div className="sa-kpis" style={{marginBottom:18}}>
         <Kpi label="Proveedores activos" value={fmtNum(sup.activo||0)} sub={`${fmtNum(sup.pausado||0)} pausados · ${fmtNum(sup.suspendido||0)} suspendidos`}/>
         <Kpi label="Productos publicados" value={fmtNum(pr.publicado||0)} sub={`${fmtNum(pr.total||0)} en total`}/>
         <Kpi label="Solicitudes abiertas" value={fmtNum(ap.abiertas||0)} sub={`${fmtNum(ap.pendiente||0)} pendientes`}/>
@@ -5555,7 +5626,7 @@ function PageProspeccion({ setFlash, restaurants }) {
         </div>
       )}
 
-      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:16}}>
+      <div className="sa-kpis" style={{marginBottom:16}}>
         <Kpi label="Total" value={counts.total}/>
         <Kpi label="Clientes activos" value={counts.activo}/>
         <Kpi label="En pipeline" value={counts.pipeline} sub="contactado · en charla · negociación"/>
@@ -5590,23 +5661,31 @@ function PageProspeccion({ setFlash, restaurants }) {
 }
 
 // ── Navegación ───────────────────────────────────────────────
+// PR-SA-UI: alineado al patrón de sidebar de admin/gerente — cada ítem lleva
+// ícono de mythos-icons.js y la lista se agrupa por dominio con encabezados +
+// separadores (`null`). Antes era una lista plana de 16 entradas sin íconos:
+// el único panel de Mythos que no seguía la línea de diseño.
 const NAV = [
-  {id:'dashboard',      label:'Dashboard'},
-  {id:'paneles',        label:'Paneles'},
-  {id:'capacidad',      label:'Capacidad'},
-  {id:'restaurantes',   label:'Restaurantes'},
-  {id:'prospeccion',    label:'Prospección'},
-  {id:'facturacion',    label:'Facturación'},
-  {id:'finanzas',       label:'Finanzas'},
-  {id:'fiscal',         label:'Fiscal'},
-  {id:'usuarios',       label:'Usuarios'},
-  {id:'proveedores',    label:'Proveedores'},
-  {id:'soporte',        label:'Soporte'},
-  {id:'reportes',       label:'Reportes'},
-  {id:'actividad',      label:'Actividad'},
-  {id:'sitio_web',      label:'Sitio web'},
-  {id:'horarios',       label:'Horarios'},
-  {id:'configuracion',  label:'Configuración'},
+  {id:'dashboard',      label:'Dashboard',     icon:'dashboard'},
+  {id:'paneles',        label:'Paneles',       icon:'layout'},
+  null,
+  {id:'restaurantes',   label:'Restaurantes',  icon:'store',    group:'CLIENTES'},
+  {id:'prospeccion',    label:'Prospección',   icon:'pin'},
+  {id:'usuarios',       label:'Usuarios',      icon:'users'},
+  {id:'proveedores',    label:'Proveedores',   icon:'building'},
+  null,
+  {id:'facturacion',    label:'Facturación',   icon:'receipt',  group:'NEGOCIO'},
+  {id:'finanzas',       label:'Finanzas',      icon:'money'},
+  {id:'fiscal',         label:'Fiscal',        icon:'fileText'},
+  null,
+  {id:'reportes',       label:'Reportes',      icon:'chart',    group:'ANÁLISIS'},
+  {id:'actividad',      label:'Actividad',     icon:'activity'},
+  {id:'capacidad',      label:'Capacidad',     icon:'boxes'},
+  null,
+  {id:'soporte',        label:'Soporte',       icon:'chat',     group:'SISTEMA'},
+  {id:'sitio_web',      label:'Sitio web',     icon:'home'},
+  {id:'horarios',       label:'Horarios',      icon:'calendar'},
+  {id:'configuracion',  label:'Configuración', icon:'settings'},
 ];
 // "Calendario" ahora vive como pestaña dentro de Horarios; "Mi cuenta" como
 // pestaña dentro de Configuración (consolidación de menú, sin perder nada).
@@ -5784,7 +5863,7 @@ function PageSoporte({setFlash}) {
 
   return (
     <div className="animate-in">
-      <div style={{display:'flex',gap:12,marginBottom:18,flexWrap:'wrap'}}>
+      <div className="sa-kpis" style={{marginBottom:18}}>
         <Kpi label="Abiertos" value={kpis.open} sub={`${kpis.unread} con mensajes sin leer`}/>
         <Kpi label="Sin leer" value={kpis.unread} sub="Esperan tu respuesta"/>
         <Kpi label="Urgentes" value={kpis.urgent} sub="Prioridad alta"/>
@@ -6646,7 +6725,7 @@ function SitioRegistros({registros, restaurants, totalExact, setFlash, reload}) 
       {capped && <div style={{fontSize:11,color:C.mid,marginBottom:10}}>
         Mostrando los últimos {fmtNum(total)} registros de {fmtNum(totalTxt)}; porcentajes y funnel calculados sobre los cargados.
       </div>}
-      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:18}}>
+      <div className="sa-kpis" style={{marginBottom:18}}>
         <Kpi label="Total registros"  value={fmtNum(totalTxt)} sub={`${fmtNum(uniq.length)} email${uniq.length!==1?'s':''} únicos${capped?' (cargados)':''}`}/>
         <Kpi label="Últimos 7 días"   value={fmtNum(last7)}/>
         <Kpi label="Verificados"      value={uniq.length ? `${verifPct}%` : '—'} sub="confirmaron su email"/>
@@ -6723,7 +6802,7 @@ function SitioResumen({leads, events, registros=[], registrosTotal=null}) {
   const pendingNew = leads.filter(l => l.status==='new').length;
   return (
     <div>
-      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:18}}>
+      <div className="sa-kpis" style={{marginBottom:18}}>
         <Kpi label="Leads (7 días)" value={rl.length} sub={`${leads.length} en total`}/>
         <Kpi label="Registros (7 días)" value={inWindow(registros).length} sub={`${fmtNum(registrosTotal!=null?registrosTotal:registros.length)} en total`}/>
         <Kpi label="Solicitudes demo (7 días)" value={kDemos}/>
@@ -7896,7 +7975,7 @@ function PageFiscal({setFlash}) {
   return (
     <div className="animate-in">
       {/* KPIs */}
-      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:18}}>
+      <div className="sa-kpis" style={{marginBottom:18}}>
         <Kpi label="Locales con FE activa" value={fmtNum(activos.length)} sub={`${fmtNum(enProd)} en producción · ${fmtNum(enSandbox)} en sandbox`}/>
         <Kpi label="Docs este mes"         value={fmtNum(docsMes.length)} sub={mesLabelPY(mesA)}/>
         <Kpi label="Aprobados"             value={fmtNum(okAll.length)}   sub={generados?`incl. ${fmtNum(generados)} generados (sandbox)`:'emitidos OK'}/>
@@ -8071,20 +8150,34 @@ function Sidebar({page, setPage, badges={}, themeMode, onToggleTheme}) {
         </button>
       </div>
       <nav style={{padding:'10px',flex:1}}>
-        {NAV.map(n=>{
+        {NAV.map((n,i)=>{
+          if (!n) return <div key={`d${i}`} style={{height:1,background:C.border,margin:'8px 4px'}}/>;
           const active = page===n.id;
           const badge = badges[n.id]||0;
           return (
-            <button key={n.id} onClick={()=>setPage(n.id)} style={{display:'flex',alignItems:'center',padding:'9px 12px',borderRadius:8,width:'100%',border:'none',background:active?C.ink:'transparent',color:active?C.sidebar:C.ink,fontWeight:active?600:400,fontSize:13,cursor:'pointer',transition:'all .15s',marginBottom:2,textAlign:'left'}}>
-              <span style={{flex:1}}>{n.label}</span>
-              {badge > 0 && <span style={{background:active?C.sidebar:C.red,color:active?C.red:C.sidebar,fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,minWidth:16,textAlign:'center'}}>{badge}</span>}
-            </button>
+            <div key={n.id}>
+              {n.group && <div style={{padding:'6px 12px 4px',fontSize:9,color:C.mid,fontWeight:800,letterSpacing:'0.14em',textTransform:'uppercase'}}>{n.group}</div>}
+              <button onClick={()=>setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:8,width:'100%',border:'none',background:active?C.ink:'transparent',color:active?C.sidebar:C.ink,fontWeight:active?600:500,fontSize:13,cursor:'pointer',transition:'background .15s,color .15s',marginBottom:2,textAlign:'left'}}>
+                <span style={{width:16,flexShrink:0,display:'inline-flex',alignItems:'center',justifyContent:'center'}}><Icon name={n.icon} size={15}/></span>
+                <span style={{flex:1}}>{n.label}</span>
+                {badge > 0 && <span style={{background:active?C.sidebar:C.red,color:active?C.red:C.sidebar,fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,minWidth:16,textAlign:'center'}}>{badge}</span>}
+              </button>
+            </div>
           );
         })}
       </nav>
-      <div style={{padding:'14px 16px',borderTop:`1px solid ${C.border}`,flexShrink:0}}>
-        <button onClick={signOut} style={{marginTop:10,width:'100%',background:C.ink,border:'none',borderRadius:6,color:C.sidebar,fontSize:12,padding:'7px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
-          Cerrar sesión
+      {/* Pie: identidad + salida. "Cerrar sesión" deja de ser un botón negro
+          sólido (el negro está reservado a la acción principal, y salir no lo
+          es) → ghost con borde, igual que admin/gerente. */}
+      <div style={{padding:'12px 14px',borderTop:`1px solid ${C.border}`,flexShrink:0}}>
+        {window._userProfile && (
+          <div style={{fontSize:12,fontWeight:700,color:C.ink,marginBottom:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+            {window._userProfile.display_name||window._userProfile.username}
+          </div>
+        )}
+        <div style={{fontSize:11,color:C.mid,marginBottom:10}}>Superadmin</div>
+        <button onClick={signOut} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:7,width:'100%',background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,color:C.mid,fontSize:12,padding:'7px 10px',cursor:'pointer',fontFamily:'inherit',fontWeight:600}}>
+          <Icon name="logout" size={13}/> Cerrar sesión
         </button>
       </div>
     </div>
@@ -8786,7 +8879,8 @@ function App() {
   // Se aplica en el cuerpo del render para que los hijos formateen ya con la moneda correcta.
   setPlatformCurrency(platformConfig.find(c=>c.key==='platform_currency')?.value);
 
-  const pageTitles = {dashboard:'Dashboard',capacidad:'Capacidad',restaurantes:'Restaurantes',prospeccion:'Clientes contactados',facturacion:'Facturación',finanzas:'Finanzas',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',configuracion:'Configuración'};
+  // 'paneles' y 'horarios' faltaban → el header mostraba el id crudo en minúscula.
+  const pageTitles = {dashboard:'Dashboard',paneles:'Paneles',capacidad:'Capacidad',restaurantes:'Restaurantes',prospeccion:'Clientes contactados',facturacion:'Facturación',finanzas:'Finanzas',fiscal:'Fiscal',usuarios:'Usuarios',proveedores:'Proveedores',soporte:'Soporte',reportes:'Reportes',actividad:'Actividad',sitio_web:'Sitio web',horarios:'Horarios',configuracion:'Configuración'};
 
   return (
     <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
@@ -8808,14 +8902,16 @@ function App() {
               <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
               <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>
             </button>
-            <div style={{fontWeight:700,fontSize:15,color:C.ink}}>{pageTitles[page]||page}</div>
+            <div style={{fontWeight:700,fontSize:17,color:C.ink,letterSpacing:'-0.3px'}}>{pageTitles[page]||page}</div>
           </div>
           <div style={{display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
             {offline&&<span style={{fontSize:11,color:C.dim,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Demo offline</span>}
             {!offline&&!loading&&rtLive&&<span style={{fontSize:11,color:C.green,fontWeight:600,background:TINT.okBg,padding:'3px 10px',borderRadius:12}} className="pulse">En vivo</span>}
             {!offline&&!loading&&!rtLive&&<span style={{fontSize:11,color:C.mid,fontWeight:500,background:C.bg,border:`1px solid ${C.border}`,padding:'3px 10px',borderRadius:12}}>Conectado</span>}
-            {window._userProfile&&<span style={{fontSize:12,color:C.mid,fontWeight:600}}>{window._userProfile.display_name||window._userProfile.username}</span>}
-            <button onClick={()=>loadAll({silent:true})} disabled={refreshing} title="Recargar datos" style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer',opacity:refreshing?0.5:1}}><span className={refreshing?'spin':''} style={{display:'inline-block'}}>↺</span></button>
+            {/* La identidad del usuario vive en el pie del sidebar (patrón
+                admin/gerente); mostrarla también acá la duplicaba en pantalla. */}
+            {/* Ícono del set compartido (mythos-icons.js) en vez del glifo Unicode ↺ */}
+            <button onClick={()=>loadAll({silent:true})} disabled={refreshing} title="Recargar datos" style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 10px',color:C.mid,cursor:'pointer',opacity:refreshing?0.5:1,display:'inline-flex',alignItems:'center'}}><span className={refreshing?'spin':''} style={{display:'inline-flex'}}><Icon name="refresh" size={14}/></span></button>
           </div>
         </div>
         {/* Contenido */}

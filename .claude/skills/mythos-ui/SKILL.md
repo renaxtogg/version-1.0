@@ -362,6 +362,71 @@ label {
 
 ---
 
+## Shell de panel — contrato obligatorio
+
+Los tokens y componentes de arriba no alcanzan: lo que hace que un panel "se sienta
+Mythos" es el **shell**. Todo panel de staff (admin, gerente, superadmin, caja, mozo…)
+comparte esta estructura. Referencia canónica: `src/admin/main.jsx` y `src/gerente/main.jsx`.
+
+### Sidebar
+
+- Ancho **200–220px**, `background: var(--surface)`, borde derecho `1px solid var(--border)`.
+- Cabecera: **"Mythos"** (`font-size:18–20px; font-weight:800; letter-spacing:-0.5px`) +
+  una línea de contexto debajo en `--text-secondary` (nombre del restaurante · rol, o
+  "Superadmin") + botón redondo de tema (`sun`/`moon`) alineado a la derecha.
+- **Cada ítem de nav lleva ícono** de `mythos-icons.js`, dentro de un span de 16px:
+  `<span style={{width:16,…}}><Icon name={n.icon} size={15}/></span>`.
+  Una nav de solo texto es un bug de diseño.
+- **Agrupar por dominio** en cuanto haya ~8+ ítems. El array `NAV` usa `null` como
+  separador y `group:'GESTIÓN'` como encabezado del grupo:
+
+```jsx
+const NAV = [
+  {id:'dashboard', label:'Dashboard', icon:'dashboard'},
+  null,                                                    // separador (1px, --border)
+  {id:'menu', label:'Menú', icon:'book', group:'GESTIÓN'}, // encabezado de grupo
+  {id:'mesas', label:'Mesas', icon:'table'},
+];
+// encabezado: font-size:9px; font-weight:800; letter-spacing:.14em; text-transform:uppercase
+```
+
+- Ítem **activo**: `background: C.ink` + `color: C.sidebar`. Inactivo: `font-weight:500`.
+- Badge numérico: invierte los colores del ítem activo (`background: C.sidebar; color: C.red`).
+- **Pie del sidebar**: nombre del usuario + rol, y "Cerrar sesión" como **botón ghost con
+  borde** — nunca negro sólido. El negro está reservado a la acción principal de la pantalla,
+  y salir nunca lo es.
+
+### Filas de KPI
+
+Siempre **grilla de columnas iguales**, nunca `display:flex` + `flexWrap`: al envolver,
+el flex deja las cards de anchos distintos y la fila se ve rota.
+
+```css
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+@media (max-width: 560px) { .kpis { grid-template-columns: 1fr; } }
+```
+
+Cada card usa `.my-metric-card` con el ícono dentro del label, y `onClick` a su sección
+cuando el número tiene un destino natural.
+
+### Dashboard
+
+- **Ninguna card de contenido arranca colapsada.** Un dashboard que abre con sus paneles
+  cerrados se ve vacío y da sensación de producto roto.
+- Listas largas: mostrar **top-N** (6–8) y cerrar con un enlace `Ver los N → ` a la
+  página completa.
+- Incluir siempre algo **accionable** (cola de trabajo / lo que requiere atención), no solo
+  métricas contemplativas.
+- Layout de dos columnas con `minmax(0,1fr)` + ancho fijo, y colapso a una sola columna
+  por media query. Nunca `1fr 320px` rígido (desborda en pantallas angostas).
+
+### Íconos
+
+Del set compartido, siempre. **Nunca glifos Unicode sueltos** como `↺`, `⚠`, `↗`, `▼`
+en UI nueva — desentonan tipográficamente y no heredan bien el color del tema.
+
+---
+
 ## Patrones por panel
 
 ### `login.html` — referencia de diseño aprobada
@@ -483,8 +548,11 @@ Claves visuales de esta referencia:
 - Campana de avisos internos arriba a la derecha — badge con conteo si hay no leídos
 
 ### `superadmin.html` — Superadmin SaaS
-- Sidebar más amplio: "Mythos" + badge "Superadmin"
-- Lista de restaurantes en sidebar
+- Sidebar 220px: "Mythos" + "Superadmin" debajo, nav con íconos agrupada en
+  CLIENTES / NEGOCIO / ANÁLISIS / SISTEMA
+- Barra superior fija con el título de la página + estado de conexión + recargar
+  (es el único panel con header; el título de página NO se repite dentro del contenido)
+- Dashboard: fila de KPIs en grilla + MRR + "Requieren atención" + top de restaurantes
 - Tabla de ecosistemas con badge de plan y estado
 
 ---

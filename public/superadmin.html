@@ -40,6 +40,14 @@
     .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
     .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
     @media(max-width:640px){.cards-grid{grid-template-columns:1fr}}
+    /* Filas de KPI: grilla de columnas iguales (igual que admin), no flex-wrap
+       ragged — las cards dejan de quedar de anchos distintos al envolver. */
+    .sa-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+    /* Split contenido principal + columna lateral del dashboard. Colapsa a 1
+       columna en pantallas angostas (antes era un 1fr/320px rígido). */
+    .sa-split{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}
+    @media(max-width:1080px){.sa-split{grid-template-columns:minmax(0,1fr)}}
+    @media(max-width:560px){.sa-kpis{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
