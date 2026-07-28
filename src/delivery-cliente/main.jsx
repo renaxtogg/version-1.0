@@ -2789,15 +2789,28 @@ function App() {
     let on = true;
     (async () => {
       // El panel cliente es anónimo → no sirve get_restaurant_capabilities (NULL para anon).
-      // Usamos la RPC anon-safe restaurant_panel_enabled (mig 109). Fail-closed: solo
-      // cargamos el menú/zonas si el plan incluye 'delivery-cliente'.
-      let ok = false;
-      try {
-        const { data, error } = await db.rpc('restaurant_panel_enabled', { p_restaurant_id: RESTAURANT_ID, p_panel: 'delivery-cliente' });
-        ok = (!error && data === true);
-      } catch (_) { ok = false; }
+      // Usamos la RPC anon-safe restaurant_panel_enabled (mig 109 + 173/176).
+      //
+      // Criterio (2026-07-26, Renato: "que no se bloquee por una falla de lógica"):
+      // se bloquea SÓLO ante un `false` EXPLÍCITO de la RPC (= el plan/modo del
+      // local realmente no habilita el panel). Un fallo de TRANSPORTE (red caída,
+      // 5xx, schema cache de PostgREST recién recargado tras una migración, RPC
+      // ausente, GRANT faltante) ya NO cierra la página pública de pedidos: se
+      // reintenta 2 veces y, si sigue indeterminado, se deja pasar con warn.
+      // Mismo criterio fail-open que mythos-panel-gate.js (is_panel_enabled) y
+      // mythos-gating.js — el paywall real lo decide la RPC, no un timeout.
+      let verdict = null;                       // true | false | null (indeterminado)
+      for (let attempt = 0; attempt < 3 && verdict === null; attempt++) {
+        if (!on) return;
+        if (attempt) await new Promise(res => setTimeout(res, 400 * attempt));
+        try {
+          const { data, error } = await db.rpc('restaurant_panel_enabled', { p_restaurant_id: RESTAURANT_ID, p_panel: 'delivery-cliente' });
+          if (!error && typeof data === 'boolean') verdict = data;
+        } catch (_) { /* transporte → reintentar */ }
+      }
       if (!on) return;
-      if (!ok) { setPlanStatus('blocked'); return; }   // no carga datos del módulo premium
+      if (verdict === false) { setPlanStatus('blocked'); return; }   // no carga datos del módulo premium
+      if (verdict === null) console.warn('[delivery-cliente] restaurant_panel_enabled indeterminado (red/RPC) → fail-open: se sirve la página de pedidos');
       setPlanStatus('allowed');
       dbLoadRestaurant().then(r => { if (!on) return; if (r) { setRestaurant(r); setRestaurantStatus('ready'); } else { setRestaurantStatus('notfound'); } });
       dbLoadMenu().then(m => { if (!on) return; if (m) { setLiveMenu(m); setMenuStatus('ready'); } else { setMenuStatus('empty'); } });
