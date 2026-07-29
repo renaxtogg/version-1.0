@@ -47,7 +47,14 @@
 <body>
 <div id="root"></div>
 <script>
-/* ── Guardia de seguridad — redirige si no hay sesión activa ── */
+/* ── Guardia de seguridad — redirige si no hay sesión activa ──
+   OJO: el link de estación (?station=<token>) TAMBIÉN cae acá, así que hoy la
+   pantalla de una estación necesita que el dispositivo tenga sesión de staff.
+   No se abre la excepción todavía: desde la mig. 102 el rol `anon` no tiene
+   UPDATE sobre orders/order_items ni SELECT de payment_review_status, así que
+   una tablet sin login vería los pedidos pero no podría moverlos (fallo mudo).
+   Habilitarlo requiere una RPC SECURITY DEFINER validada por token — va con el
+   Sprint 1 de RLS, no antes. */
 (function(){
   var rid  = localStorage.getItem('mythos_restaurant_id');
   var role = localStorage.getItem('mythos_role');

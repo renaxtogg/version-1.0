@@ -35,7 +35,17 @@ const _SUPER_RID = (function(){ try {
   if ((localStorage.getItem('mythos_role')||'').trim() !== 'superadmin') return null;
   return (new URLSearchParams(window.location.search).get('r')||'').trim() || null;
 } catch(_) { return null; } })();
-const RESTAURANT_ID = _SUPER_RID || localStorage.getItem('mythos_restaurant_id');
+// Se limpia BOM/espacios como en mythos-auth-guard.js: un valor "vacío pero truthy"
+// (p.ej. sólo el BOM ﻿) pasaba los guards y llegaba a PostgREST como uuid inválido.
+const _LS_RID = (function(){ try {
+  return (localStorage.getItem('mythos_restaurant_id')||'').replace(/^﻿/, '').trim() || null;
+} catch(_) { return null; } })();
+// `let` y no `const`: la pantalla de estación (?station=<token>) es un link compartido
+// que se abre SIN iniciar sesión, así que no hay `mythos_restaurant_id` en localStorage
+// y el tenant se resuelve del propio registro de la estación en bootstrap(). Antes se
+// quedaba en '' y toda consulta salía con `restaurant_id=eq.` → 22P02
+// "invalid input syntax for type uuid" y la estación no mostraba ni un pedido.
+let RESTAURANT_ID = _SUPER_RID || _LS_RID;
 
 /* ── ESTACIÓN ACTIVA POR TOKEN (?station=<token>) ─────────────
    Si la URL trae station=<token>, la KDS se restringe a las
@@ -47,16 +57,22 @@ let STATION_CONFIG = null; // {id,name,type,color,icon,categoryIds:Set,zonas:Set
 let CATEGORY_OF_ITEM = {}; // item_id → category_id (cache para filtrado)
 let ZONA_OF_TABLE    = {}; // table_id → zona      (cache para filtrado)
 
-/* ── COCINA GENERAL (central): estaciones dedicadas del local ─────────
-   La vista SIN token (?station) es la cocina central. Debe conocer las
-   estaciones dedicadas para NO mostrar ítems que ya prepara una estación
-   propia (bar/cocina de una terraza, salón privado, etc.). Un ítem sigue
-   en la cocina central SOLO si ninguna estación dedicada lo reclama —
-   misma regla de categoría+zona que `applyStationScope`. El disparador de
-   la exclusión es que exista una estación para ese lugar/categoría (hay un
-   puesto propio de preparación), no que existan mesas en una zona. */
-let CENTRAL_STATIONS   = null; // [{categoryIds:Set, zonas:Set, isAllZonas:bool}] | null
+/* ── COCINA GENERAL (central): estaciones de OTRO puesto físico ───────
+   La vista SIN token (?station) es la cocina central. Para no duplicar
+   trabajo, no muestra los ítems que ya prepara un puesto aparte del local
+   (el bar de la terraza, la cocina del salón privado).
+
+   Solo reclaman ítems las estaciones ACOTADAS A ZONAS. Una estación
+   "todas las zonas" no es un puesto aparte sino otra pantalla de la misma
+   cocina, así que la central la sigue mostrando. Sin esta condición, un
+   local que arma una estación por rubro (Cocina, Bebidas, Postres… todas
+   sin zona) se quedaba con la cocina central COMPLETAMENTE VACÍA: los
+   pedidos existían y caja/mozo/dashboard los mostraban "en cocina", pero
+   no aparecían en ninguna pantalla de preparación. */
+let CENTRAL_STATIONS   = null; // [{categoryIds:Set, zonas:Set}] | null — solo estaciones por zona
 let _centralStationsAt = 0;    // timestamp de la última carga (TTL 60s)
+let _hiddenByStations  = 0;    // ítems que la central no muestra por estar en otro puesto
+let _heldForPayment    = 0;    // pedidos frenados por la política de pago (policy B)
 
 async function loadStationConfig() {
   if (!STATION_TOKEN || !db) return null;
@@ -72,15 +88,17 @@ async function loadStationConfig() {
     const zonas = new Set((zons||[]).map(r=>r.zona));
     return {
       id: st.id, name: st.name, type: st.type, color: st.color, icon: st.icon,
+      restaurantId: st.restaurant_id || null,   // tenant de la pantalla (no hay sesión)
       categoryIds: new Set((cats||[]).map(r=>r.category_id)),
       zonas, isAllZonas: zonas.has('*') || zonas.size===0,
     };
   } catch(e) { console.error('loadStationConfig', e); return null; }
 }
 
-/* Carga (con caché TTL 60s) las estaciones dedicadas activas del local para la
-   cocina central. Solo en modo SIN token. Una estación sin categorías no reclama
-   nada (se ignora). zonas vacías o '*' = comodín (toma todas las zonas). */
+/* Carga (con caché TTL 60s) las estaciones que la cocina central no debe duplicar.
+   Solo en modo SIN token. Se queda únicamente con las estaciones que tienen
+   categorías Y zonas propias: sin categorías no reclama nada, y con zonas vacías
+   o '*' es una pantalla más de la misma cocina (no un puesto aparte). */
 async function ensureCentralStations(force) {
   if (STATION_TOKEN) return null;               // en modo estación no aplica
   if (!db || !RESTAURANT_ID) return CENTRAL_STATIONS;
@@ -98,10 +116,12 @@ async function ensureCentralStations(force) {
     const catBy = {}, zonBy = {};
     (cats || []).forEach(r => { (catBy[r.station_id] = catBy[r.station_id] || new Set()).add(r.category_id); });
     (zons || []).forEach(r => { (zonBy[r.station_id] = zonBy[r.station_id] || new Set()).add(r.zona); });
-    CENTRAL_STATIONS = ids.map(id => {
-      const zonas = zonBy[id] || new Set();
-      return { categoryIds: catBy[id] || new Set(), zonas, isAllZonas: zonas.has('*') || zonas.size === 0 };
-    }).filter(s => s.categoryIds.size > 0);      // sin categorías → no reclama nada
+    CENTRAL_STATIONS = ids.map(id => ({
+      categoryIds: catBy[id] || new Set(),
+      zonas:       zonBy[id] || new Set(),
+    })).filter(s => s.categoryIds.size > 0       // sin categorías → no reclama nada
+                 && s.zonas.size > 0             // sin zonas → misma cocina, no es otro puesto
+                 && !s.zonas.has('*'));          // comodín → misma cocina, no es otro puesto
     _centralStationsAt = now;
     return CENTRAL_STATIONS;
   } catch (e) { console.warn('ensureCentralStations', e); return CENTRAL_STATIONS; }
@@ -392,27 +412,24 @@ function applyStationScope(ticket) {
   return { ...ticket, items: filtered };
 }
 
-/* ¿Alguna estación dedicada YA prepara este ítem? Misma regla de aceptación que
-   applyStationScope (categoría asignada + zona comodín o la zona de la mesa). Un
-   ítem sin categoría, o de una zona no cubierta, NO se reclama → queda en central. */
+/* ¿Un puesto aparte YA prepara este ítem? Pide categoría asignada Y que la mesa esté
+   en una zona de esa estación. Un ítem sin categoría, un pedido sin mesa (delivery,
+   mostrador, takeaway) o una zona no cubierta NO se reclaman → quedan en la central. */
 function claimedByStation(item, tableZona) {
   if (!CENTRAL_STATIONS || !CENTRAL_STATIONS.length) return false;
-  if (!item.categoryId) return false;
-  return CENTRAL_STATIONS.some(s => {
-    if (!s.categoryIds.has(item.categoryId)) return false;
-    if (s.isAllZonas) return true;              // comodín: cualquier zona (y pedidos sin mesa)
-    if (!tableZona) return false;               // estación con zona propia no toma pedidos sin mesa
-    return s.zonas.has(tableZona);
-  });
+  if (!item.categoryId || !tableZona) return false;
+  return CENTRAL_STATIONS.some(s => s.categoryIds.has(item.categoryId) && s.zonas.has(tableZona));
 }
 
-/* Recorta un ticket para la cocina central: quita los ítems que ya prepara una
-   estación dedicada. Devuelve null si TODOS sus ítems los toma otra estación. */
+/* Recorta un ticket para la cocina central: quita los ítems que prepara un puesto de
+   otra zona. Devuelve null si TODOS sus ítems son de ese otro puesto. Lo recortado se
+   contabiliza en `_hiddenByStations` para avisarlo en pantalla (nunca ocultar en silencio). */
 function applyCentralScope(ticket) {
   if (!CENTRAL_STATIONS || !CENTRAL_STATIONS.length) return ticket;
   const kept = ticket.items.filter(it => !claimedByStation(it, ticket.tableZona));
   if (kept.length === ticket.items.length) return ticket; // nada reclamado por estaciones
-  if (kept.length === 0) return null;                      // todo lo prepara una estación dedicada
+  _hiddenByStations += ticket.items.length - kept.length;
+  if (kept.length === 0) return null;                      // todo lo prepara el puesto de esa zona
   return { ...ticket, items: kept };
 }
 
@@ -432,7 +449,11 @@ async function getPrepPolicy() {
 
 async function dbLoadTickets() {
   if (!db) return { tickets: null, error: null };
-  // Cocina central: refrescar (TTL) las estaciones dedicadas para saber qué ítems excluir.
+  // Sin tenant no se consulta: PostgREST devolvería 22P02 (uuid "") y la pantalla
+  // quedaba con un "Error DB" críptico en vez de un mensaje accionable.
+  if (!RESTAURANT_ID) return { tickets: null, error: 'Sin restaurante en la sesión. Volvé a iniciar sesión.' };
+  _hiddenByStations = 0; _heldForPayment = 0;
+  // Cocina central: refrescar (TTL) los puestos por zona para saber qué ítems excluir.
   if (!STATION_CONFIG) await ensureCentralStations();
   const { data: ordersRaw, error } = await db.from('orders')
     .select('id,order_number,order_type,status,created_at,table_id,payment_method,payment_review_status')
@@ -458,9 +479,10 @@ async function dbLoadTickets() {
     if (policy === 'B') {
       const needsVal = m => m === 'qr' || m === 'transferencia';
       orders = ordersRaw.filter(o => !needsVal(o.payment_method) || o.payment_review_status === 'approved');
+      _heldForPayment = ordersRaw.length - orders.length;
     }
   } catch (_) {}
-  if (orders.length === 0) return { tickets: [], error: null };
+  if (orders.length === 0) return { tickets: [], error: null, hidden: { stations: 0, payment: _heldForPayment } };
 
   const tableIds = [...new Set(orders.map(o => o.table_id).filter(Boolean))];
   const tableMap = {};
@@ -519,10 +541,10 @@ async function dbLoadTickets() {
   if (STATION_CONFIG) {
     tickets = tickets.map(applyStationScope).filter(Boolean);
   } else if (CENTRAL_STATIONS && CENTRAL_STATIONS.length) {
-    // Cocina central: descartar ítems que ya prepara una estación dedicada.
+    // Cocina central: descartar ítems que prepara el puesto propio de esa zona.
     tickets = tickets.map(applyCentralScope).filter(Boolean);
   }
-  return { tickets, error: null };
+  return { tickets, error: null, hidden: { stations: _hiddenByStations, payment: _heldForPayment } };
 }
 
 async function dbAdvanceTicket(supabaseId, currentKitchenStatus) {
@@ -1358,6 +1380,10 @@ function App() {
   const [orderTypeFilter, setOrderTypeFilter] = useState('todos');
   const [isFullscreen, setIsFullscreen]     = useState(false);
   const [restaurant, setRestaurant]         = useState(null);
+  // Trabajo que el tablero NO está mostrando (ítems de un puesto de otra zona y pedidos
+  // frenados por validación de pago). Se avisa siempre: una pantalla de cocina vacía
+  // mientras caja/mozo dicen "en cocina" es indistinguible de una caída.
+  const [hidden, setHidden]                 = useState({ stations: 0, payment: 0 });
   const [stockAlerts, setStockAlerts]       = useState([]);
   const [,forceRender]                      = useReducer(x => x + 1, 0);
   const [themeMode, setThemeMode]           = useState(window.MythosTheme ? window.MythosTheme.get() : 'dark');
@@ -1578,9 +1604,9 @@ function App() {
       }
     });
 
-    dbLoadTickets().then(({ tickets: data, error }) => {
+    dbLoadTickets().then(({ tickets: data, error, hidden: h }) => {
       if (error) setDbError(error);
-      else { setDbError(null); if (data) { setTickets(data); maybeAutoAssignDeliveries(data); } }
+      else { setDbError(null); setHidden(h || { stations: 0, payment: 0 }); if (data) { setTickets(data); maybeAutoAssignDeliveries(data); } }
       setLoading(false);
     });
 
@@ -1621,9 +1647,10 @@ function App() {
        + order_status_history + delivery_orders ya refrescan al instante. Este poll
        queda solo como red de seguridad ante caída/desconexión del canal. */
     const refreshInterval = setInterval(() => {
-      dbLoadTickets().then(({ tickets: data, error }) => {
+      dbLoadTickets().then(({ tickets: data, error, hidden: h }) => {
         if (error) { setDbError(error); return; }
         setDbError(null);
+        setHidden(h || { stations: 0, payment: 0 });
         if (data) {
           const newDeliveries = data.filter(t =>
             t.deliveryInfo?.isDelivery && t.deliveryInfo?.riderStatus === 'pending'
@@ -1649,7 +1676,7 @@ function App() {
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         subscribeChannels();
-        dbLoadTickets().then(({ tickets: data }) => { if (data) setTickets(data); });
+        dbLoadTickets().then(({ tickets: data, hidden: h }) => { setHidden(h || { stations: 0, payment: 0 }); if (data) setTickets(data); });
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
@@ -1818,6 +1845,24 @@ function App() {
         </div>
       </div>
 
+      {/* Aviso de trabajo NO listado en este tablero. Sin esto, la cocina veía la
+          pantalla vacía mientras caja/mozo mostraban los pedidos "en cocina". */}
+      {!STATION_CONFIG && (hidden.stations > 0 || hidden.payment > 0) && (
+        <div style={{ margin: '10px 20px 0', background: 'rgba(255,149,0,0.08)', border: '1px solid rgba(255,149,0,0.3)', borderRadius: 10, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#FF9500' }}>No listado acá:</span>
+          {hidden.stations > 0 && (
+            <span style={{ fontSize: 13, color: C.mid }}>
+              {hidden.stations} ítem{hidden.stations > 1 ? 's' : ''} los prepara el puesto propio de su zona (mirá la pantalla de esa estación).
+            </span>
+          )}
+          {hidden.payment > 0 && (
+            <span style={{ fontSize: 13, color: C.mid }}>
+              {hidden.payment} pedido{hidden.payment > 1 ? 's' : ''} esperando que caja valide el comprobante de pago.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Error banner */}
       {dbError && (
         <div style={{ margin: '10px 20px 0', background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.3)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1948,6 +1993,22 @@ async function bootstrap() {
         '<div style="display:flex;justify-content:center">'+(window.MythosIcons?window.MythosIcons.html('alert',{size:32}):'')+'</div>'+
         '<div style="font-size:20px;font-weight:700">Estación no encontrada o desactivada</div>'+
         '<div style="font-size:13px;color:#888;max-width:360px">El token de acceso no es válido. Pedile al administrador que regenere el link de esta pantalla.</div>'+
+        '</div>';
+      return;
+    }
+    // El tenant sale de la estación, no del localStorage: esta pantalla no tiene sesión
+    // (es un link que se abre en la tablet del bar/cafetería). Sin esto todas las
+    // consultas salían con restaurant_id vacío y la pantalla quedaba en blanco.
+    // Sin fallback al localStorage a propósito: kitchen_stations.restaurant_id es NOT NULL
+    // y es la única fuente válida acá. Caer a la sesión del navegador podría apuntar la
+    // pantalla al local equivocado (p.ej. una tablet que se usó antes con otra cuenta).
+    RESTAURANT_ID = STATION_CONFIG.restaurantId || null;
+    if (!RESTAURANT_ID) {
+      document.getElementById('root').innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:14px;color:#F5F5F7;font-family:system-ui,sans-serif;padding:20px;text-align:center">'+
+        '<div style="display:flex;justify-content:center">'+(window.MythosIcons?window.MythosIcons.html('alert',{size:32}):'')+'</div>'+
+        '<div style="font-size:20px;font-weight:700">Estación sin restaurante asignado</div>'+
+        '<div style="font-size:13px;color:#888;max-width:360px">Pedile al administrador que vuelva a guardar esta estación desde Admin → Estaciones.</div>'+
         '</div>';
       return;
     }
