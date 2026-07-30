@@ -175,17 +175,30 @@ cosas → guardar.** Hoy es tildar 30 casillas sin lista de referencia.
 
 ## 4. Observaciones de Renato → acciones
 
-| # | Observación | Diagnóstico | Capa | Prioridad |
-|---|---|---|---|---|
-| 1 | Bloquear **Agenda**, y bloquear reserva al abrir el cliente QR | D1 + **D2** (el QR corre anon y no ve el plan) → necesita `get_public_capabilities` + `client:reservations` | 1,2,3 | leve, pero **es la que arrastra la RPC nueva** |
-| 2 | **Personal** no debería estar en planes que no lo incluyen | D1 → capacidad **derivada** (§3.4) + `when_locked:'hidden'` | 2,3 | leve |
-| 3 | **Proveedores** debe entrar en Marketplace › "Mis proveedores" | No es gating: es arquitectura de información. Fusionar `ProveedoresPage` ([admin:10383](../../src/admin/main.jsx#L10383)) en la pestaña `mis` de [restaurant-marketplace.jsx:750](../../src/marketplace/restaurant-marketplace.jsx#L750) y sacar la entrada de NAV | — | leve |
-| 4 | **Realtime de admin no es al momento** | Ver §5 | — | media |
-| 5 | **Marketing** y **Calificaciones** dentro de Clientes (y mejorar ambos) | IA: `admin:clientes` pasa a tener pestañas [CRM · Marketing · Calificaciones] con `parent:'admin:crm'`. La *mejora* de cada uno queda como trabajo aparte | 2,3 | leve |
-| 6 | **Mitad y mitad** va en Menú › configuración, y no es solo pizza | Está en Config ([admin:8106](../../src/admin/main.jsx#L8106), rotulado "PIZZA MITAD Y MITAD"). La DB **ya es genérica** (`allows_half_and_half` por ítem, mig 169/170): es mover el bloque a MenuPage y recopiar a "Productos combinables por mitades" | — | leve |
-| 7 | Botón **"Ver todos los paneles"** redundante | Duplicaba la entrada `paneles` del NAV → **borrado** (pie del sidebar, [admin/main.jsx:451](../../src/admin/main.jsx#L451)) | — | ✅ hecho 2026-07-30 |
+**Todas implementadas el 2026-07-30.** Estado:
+
+| # | Observación | Qué se hizo | Requiere migración |
+|---|---|---|---|
+| 1 | Bloquear **Agenda**, y bloquear reserva al abrir el cliente QR | Nueva feature `admin:agenda` (nav + página). Para el QR anónimo se creó **`get_public_capabilities`** (mig 192), la primera RPC anon-safe de features: el Menú QR por fin puede ver el plan. Oculta también en modo delivery | **191 + 192** |
+| 2 | **Personal** no debería estar en planes que no lo incluyen | Capacidad **derivada** `hasStaffSeats` (§3.4): sin panel de staff ni cupos de rol, el módulo **desaparece** del nav (`lock:'hidden'`) y la página explica por qué. Funciona ya, sin migración | no (la 191 refuerza) |
+| 3 | **Proveedores** debe entrar en Marketplace › "Mis proveedores" | `ProveedoresPage` se inyecta en el marketplace vía `ctx.InternalSuppliers` y se renderiza dentro de "Mis proveedores". Una entrada de nav menos; en el admin el módulo abre directo en esa pestaña | no |
+| 4 | **Realtime de admin no es al momento** | §5: callback de estado + re-subscribe con backoff, poll adaptativo (8s con el canal caído), refresco al volver de background, y 3 canales nuevos (`delivery_orders`, `movimientos_caja`, `turnos_caja`) | no |
+| 5 | **Marketing** y **Calificaciones** dentro de Clientes | Nuevo `ClientesHubPage` con pestañas [Clientes · Marketing · Calificaciones]. Dos entradas de nav menos. **Consecuencia deliberada:** ambos quedan bajo el gate `admin:crm`, que antes no tenían | no |
+| 6 | **Mitad y mitad** va en Menú › configuración, y no es solo pizza | Movido de Config a **Menú › Configuración**, recopiado a "Productos mitad y mitad" con ejemplos no-pizza. La DB ya era genérica (mig 169/170) | no |
+| 7 | Botón **"Ver todos los paneles"** redundante | Borrado del pie del sidebar | no |
 
 > No hubo una observación #8: la línea cortada del mensaje original era la #7 (confirmado por Renato con captura del pie del sidebar).
+
+### La regla de transición que hace seguro este deploy
+
+El frontend enforza una key de 2ª generación (`admin:agenda`, `admin:personal`) **solo si el plan
+ya declara alguna de ellas**. Mientras ningún plan las declare, falla abierto y el deploy es un
+**no-op**. La migración 191 es la que activa el gate, y lo hace plan por plan. Lo mismo del lado
+DB: `get_public_capabilities` devuelve `reservations = true` si el plan es pre-191.
+
+Es decir: **deployar sin aplicar las migraciones no rompe nada**; aplicar la 191 es lo que
+apaga Agenda y Personal en Emprendedor. Eso es exactamente lo que evita repetir el incidente
+de la mig 155 al revés.
 
 ---
 
@@ -211,21 +224,23 @@ canal no esté `SUBSCRIBED`, 30 s cuando sí) · no aplicar `_shouldPause` a lis
 
 ## 6. Orden de implementación sugerido
 
-| PR | Contenido | Riesgo |
+Lo entregado el 2026-07-30 cubre las 7 observaciones (§4). Queda pendiente, en este orden:
+
+| Paso | Contenido | Riesgo |
 |---|---|---|
-| **A** | Catálogo `MODULE_CATALOG` en JS compartido + NAV del admin generado desde el catálogo. Todo `default_tier:'base'` ⇒ **cero cambios de comportamiento**. Solo prepara el terreno | nulo |
-| **B** | Cosméticos/IA sin gating: mitad-y-mitad → Menú (obs. 6) · borrar "Ver todos los paneles" (obs. 7) · Proveedores → Marketplace (obs. 3) · Marketing y Calificaciones → pestañas de Clientes (obs. 5) | bajo |
-| **C** | Realtime admin (§5) | bajo |
-| **D** | Migración: `feature_catalog` + **backfill de `allowed_features` de cada plan vivo con lo que hoy tiene de facto** + ceros explícitos en `max_users_by_role` del tier base, y recién ahí flip a fail-closed | **alto** ⚠️ |
-| **E** | `get_public_capabilities(rid)` anon-safe + `client:reservations` consumido por index.html (obs. 1) | medio |
-| **F** | Editor de planes del superadmin generado desde el catálogo (crear plan = elegir familia) | medio |
+| **1** | **Aplicar mig 191 y 192** en Supabase (backup previo, SQL Editor en inglés, rol postgres). Hasta que no corran, Agenda y Personal siguen visibles en todos los planes | medio |
+| **2** | Llevar el resto del NAV al mismo mecanismo `req`/`lock` (hoy solo lo usan `agenda` y `personal`; `estaciones`, `stock`, `clientes`, `caja` y `delivery` siguen gateados solo a nivel de página) | bajo |
+| **3** | `feature_catalog` como tabla en DB + editor de planes del superadmin generado desde ella (crear plan = elegir familia y ajustar) | medio |
+| **4** | Unificar "Emprendedor" y "Emprendedor Delivery" en un solo plan + `service_mode` (§3.2) | comercial |
+| **5** | Mejorar Marketing y Calificaciones — Renato lo pidió junto con la mudanza, pero es trabajo de producto aparte | — |
 
-### ⚠️ La trampa del PR-D (ya nos pasó una vez)
+### ⚠️ La trampa que ya evitamos, y que sigue vigente para el paso 3
 
-Flipear `allowed_features` a fail-closed **sin backfill** repite exactamente el incidente de la
-mig 155 pero al revés: ahí una lista vacía concedía *todo*; acá una lista incompleta va a
-*quitar* módulos que los comercios hoy usan. El backfill y el flip **van en la misma
-transacción**, y antes hay que listar plan por plan qué tiene de facto.
+Flipear `allowed_features` a fail-closed **sin backfill** repite el incidente de la mig 155 pero
+al revés: ahí una lista vacía concedía *todo*; acá una lista incompleta *quita* módulos que los
+comercios hoy usan. La solución adoptada fue la **regla de transición** (§4): una key nueva no se
+enforza hasta que el plan la declara. Cualquier key de 3ª generación tiene que seguir el mismo
+patrón — nunca enforzar de una.
 
 Reglas de la casa que aplican: migración nueva numerada (nunca editar una existente), backup
 previo, SQL Editor en **inglés**, y `NOTIFY pgrst, 'reload schema'` al final.

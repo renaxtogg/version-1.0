@@ -531,7 +531,7 @@ function restaurantOpenState(restaurant) {
 function openBadgeLabel(st) { return st.open ? 'Abierto ahora' : (st.next ? `Cerrado · Abre ${st.next}` : 'Cerrado'); }
 
 /* ══ SCREEN: PERFIL ══════════════════════ */
-function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCallWaiter, onReserve, assignedWaiterName, openState }) {
+function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCallWaiter, onReserve, canReserve = true, assignedWaiterName, openState }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
   const [showHours, setShowHours] = useState(false);
@@ -668,9 +668,12 @@ function ProfileScreen({ onEnter, orderMode, setOrderMode, lang, setLang, onCall
 
       {/* ── CTAs ── */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', padding: '14px 20px 36px', gap: 10 }}>
+        {/* Reservas: solo si el plan del local incluye Agenda (get_public_capabilities). */}
+        {canReserve && (
         <button onClick={onReserve} style={{ width: '100%', height: 46, background: 'transparent', color: T.ink, border: `1.5px solid ${T.border}`, borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <Icon name="calendar" size={16} color={T.ink} />{tx.reserve}
         </button>
+        )}
         <button onClick={onEnter} style={{ width: '100%', height: 54, background: T.btnPrimary, color: T.btnPrimaryText, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>{tx.menu}</button>
       </div>
     </div>
@@ -2140,6 +2143,25 @@ function App() {
   const [scanData,        setScanData]        = useState({scanCount:0, maxScans:0});
   const [reservationInfo, setReservationInfo] = useState(null); // {firstName, time, guests}
 
+  /* ── Capacidades PÚBLICAS del local (mig 192) ──
+     Esta pantalla corre como `anon`, y get_restaurant_capabilities le devuelve NULL
+     por el guard tenant-safe (mig 108): el Menú QR NO puede ver el plan, y por eso
+     ofrecía "Reservar mesa" aunque el plan no incluyera Agenda.
+     get_public_capabilities expone solo flags de cara al cliente. FAIL-OPEN: si la
+     RPC no está aplicada todavía o falla, se muestra todo como antes. */
+  const [canReserve, setCanReserve] = useState(true);
+  useEffect(() => {
+    if (!db || !RESTAURANT_ID) return;
+    let alive = true;
+    db.rpc('get_public_capabilities', { p_restaurant_id: RESTAURANT_ID })
+      .then(({ data, error }) => {
+        if (!alive || error || !data) return;      // fail-open
+        if (data.reservations === false) setCanReserve(false);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   useEffect(() => {
     if (!TABLE_TOKEN || !db) { setScanStatus('ok'); return; }
     (async () => {
@@ -2183,6 +2205,12 @@ function App() {
       return 'profile';
     } catch { return 'profile'; }
   });
+  // Si las capacidades llegan tarde y el cliente ya estaba en "reservar" (pantalla
+  // persistida o link viejo), lo devolvemos al inicio en cuanto se sabe que no aplica.
+  useEffect(() => {
+    if (!canReserve && screen === 'reserve') setScreen('profile');
+  }, [canReserve, screen]);
+
   const [cartItems, setCartItems] = useState(() => {
     try { return JSON.parse(localStorage.getItem(lsk('app_cart')) || '[]'); } catch { return []; }
   });
@@ -2380,8 +2408,9 @@ function App() {
                 {selItem && <ProductModal item={selItem} onClose={() => setSelItem(null)} onAdd={addToCart} canOrder={canOrder} openState={openState} />}
                 {showSplit && <SplitBillModal items={cartItems} total={cartTotal} onClose={() => setShowSplit(false)} />}
                 {screen === 'qr'      && <QRScreen onScan={() => setScreen('profile')} />}
-                {screen === 'profile' && <ProfileScreen onEnter={() => setScreen('menu')} orderMode={orderMode} setOrderMode={setOrderMode} lang={lang} setLang={setLang} onCallWaiter={handleCallWaiter} onReserve={() => setScreen('reserve')} assignedWaiterName={assignedWaiterName} openState={openState} />}
-                {screen === 'reserve' && <ReservationScreen onBack={() => setScreen('profile')} onDone={() => setScreen('profile')} />}
+                {screen === 'profile' && <ProfileScreen onEnter={() => setScreen('menu')} orderMode={orderMode} setOrderMode={setOrderMode} lang={lang} setLang={setLang} onCallWaiter={handleCallWaiter} onReserve={() => setScreen('reserve')} canReserve={canReserve} assignedWaiterName={assignedWaiterName} openState={openState} />}
+                {/* canReserve=false → el plan no incluye Agenda: ni botón ni pantalla. */}
+                {screen === 'reserve' && canReserve && <ReservationScreen onBack={() => setScreen('profile')} onDone={() => setScreen('profile')} />}
                 {screen === 'menu'    && <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} onCallWaiter={handleCallWaiter} orderMode={orderMode} assignedWaiterName={assignedWaiterName} menuStatus={menuStatus} hasActiveOrder={!!currentOrderNum} onViewOrders={() => setScreen('track')} canOrder={canOrder} openState={openState} />}
                 {screen === 'cart'    && <CartScreen items={cartItems} onBack={() => setScreen('menu')} onPay={(t, sub, disc, code) => { if (!canOrder) { showToast('El local está cerrado. No se puede pedir ahora.'); return; } setPayTotal(t); setPaySubtotal(sub); setPayDiscount(disc); setPayCoupon(code); setScreen('pay'); }} onRemove={removeItem} onQty={updateQty} onCouponApplied={() => {}} onSplit={() => setShowSplit(true)} orderMode={orderMode} canOrder={canOrder} openState={openState} />}
                 {screen === 'pay'     && <PayScreen total={payTotal} subtotal={paySubtotal} discountAmount={payDiscount} couponCode={payCoupon} cartItems={cartItems} orderMode={orderMode} lang={lang} onBack={() => setScreen('cart')} onDone={(ordNum, method) => { registerOrder(ordNum); if (method) setPayMethod(method); setScreen('track'); }} onNewOrder={goNewOrder} canOrder={canOrder} openState={openState} />}

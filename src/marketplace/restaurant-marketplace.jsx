@@ -15,8 +15,13 @@
 // ════════════════════════════════════════════════════════════════════
 import { createMarketplaceChat } from './chat.jsx';
 
+// ctx.InternalSuppliers (OPCIONAL) — componente del panel anfitrión con la agenda
+// de proveedores INTERNOS (public.suppliers / supplier_purchases, mig 072). Si viene,
+// se renderiza arriba de "Mis proveedores" y el panel deja de necesitar un módulo de
+// nav propio (obs. Renato 2026-07-30). Si no viene (panel gerente), la pestaña
+// muestra solo los guardados del marketplace, como antes.
 export function createRestaurantMarketplace(ctx) {
-  const { React, db, rid, C, Icon, toast, Modal, Btn, Inp, Sel, Lbl, Th, Td, Empty, shouldPause } = ctx;
+  const { React, db, rid, C, Icon, toast, Modal, Btn, Inp, Sel, Lbl, Th, Td, Empty, shouldPause, InternalSuppliers } = ctx;
   const { useState, useEffect, useRef, useCallback, useMemo } = React;
   const ChatSection = createMarketplaceChat(ctx);
 
@@ -632,7 +637,16 @@ export function createRestaurantMarketplace(ctx) {
 
     return (
       <div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, letterSpacing: .5, textTransform: 'uppercase', marginBottom: 10 }}>Guardados ({saved.length})</div>
+        {/* Agenda de proveedores propios del local (inyectada por el panel anfitrión).
+            Va PRIMERO: "mis proveedores" son los que ya le compro, no los guardados. */}
+        {InternalSuppliers && (
+          <div style={{ marginBottom: 26, paddingBottom: 26, borderBottom: `1px solid ${C.border}` }}>
+            <InternalSuppliers embedded />
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, letterSpacing: .5, textTransform: 'uppercase', marginBottom: 4 }}>Guardados del marketplace ({saved.length})</div>
+        <div style={{ fontSize: 11.5, color: C.dim, marginBottom: 10 }}>Proveedores que marcaste desde Explorar. Todavía no son proveedores tuyos: son candidatos.</div>
         {loading ? <div style={{ padding: 16, color: C.dim, fontSize: 13 }}>Cargando…</div>
           : saved.length === 0
             ? <div style={{ padding: 16, color: C.dim, fontSize: 13, marginBottom: 16 }}>Todavía no guardaste proveedores. Guardalos desde su perfil para tenerlos a mano.</div>
@@ -693,7 +707,10 @@ export function createRestaurantMarketplace(ctx) {
 
   /* ════════════════ ROOT ════════════════ */
   function Marketplace() {
-    const [tab, setTab] = useState('explorar');   // explorar | mis | mensajes
+    // Si el panel inyectó su agenda de proveedores propios (admin), la entrada de nav
+    // se llama "Proveedores" → abrir en "Mis proveedores", que es lo que el dueño
+    // viene a ver. Sin inyección (gerente) el módulo es puro marketplace → "Explorar".
+    const [tab, setTab] = useState(InternalSuppliers ? 'mis' : 'explorar');   // explorar | mis | mensajes
     const [selSupplier, setSelSupplier] = useState(null);
     const [chatTarget, setChatTarget] = useState(null);
     const [unread, setUnread] = useState(0);

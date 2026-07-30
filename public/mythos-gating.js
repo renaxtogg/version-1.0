@@ -19,8 +19,56 @@
     'admin:crm':            'CRM de Clientes',
     'caja:sifen':           'Facturación Electrónica SIFEN',
     'caja:digital_payments':'Pasarelas Digitales Bancard',
-    'mozo:digital_qr_pay':  'Cobro de Mesa con QR Digital'
+    'mozo:digital_qr_pay':  'Cobro de Mesa con QR Digital',
+    // ── 2ª generación (2026-07-30) ──
+    'admin:agenda':         'Agenda y Reservas',
+    'admin:personal':       'Gestión de Personal'
   };
+
+  /* ── Features de 2ª generación y regla de transición ────────────────
+     Los planes vivos (mig 116) traen un allowed_features con SOLO las 6 keys
+     originales. Si estas keys nuevas se enforzaran de una, todo plan existente
+     perdería Agenda y Personal el día del deploy, ANTES de que la migración que
+     las siembra esté aplicada — el espejo del incidente de la mig 155.
+
+     Regla: una key de 2ª generación se enforza solo si el plan YA conoce la 2ª
+     generación (declara al menos una de estas keys). Mientras no la conozca, falla
+     ABIERTO. Así el deploy es un no-op y el gate se activa solo, plan por plan, a
+     medida que la migración los actualiza. Un override explícito del superadmin
+     manda siempre sobre esta regla. */
+  var GEN2_FEATURES = ['admin:agenda', 'admin:personal'];
+
+  function planKnowsGen2(caps) {
+    var f = caps && caps.allowed_features;
+    if (!Array.isArray(f)) return false;
+    for (var i = 0; i < GEN2_FEATURES.length; i++) {
+      if (f.indexOf(GEN2_FEATURES[i]) >= 0) return true;
+    }
+    return false;
+  }
+
+  /* ── Capacidad DERIVADA: ¿el plan otorga algún puesto de personal? ──
+     No es un checkbox: se deduce de los otros ejes. Un plan sin paneles de staff
+     y sin cupos de rol (p.ej. Emprendedor: allowed_panels=[]) es de dueño solo →
+     el módulo de Personal no le aplica y no debe ni mostrarse.
+     OJO con la convención de max_users_by_role: clave AUSENTE = ilimitado, así que
+     {} NO otorga asientos por sí solo — el que manda es allowed_panels. */
+  var STAFF_PANELS = ['caja', 'mozo', 'cocina', 'gerente', 'delivery-rider'];
+
+  function hasStaffSeatsWith(caps) {
+    var p = caps && caps.allowed_panels;
+    if (!Array.isArray(p)) return true;            // capacidades no cargadas → fail-open
+    for (var i = 0; i < STAFF_PANELS.length; i++) {
+      if (p.indexOf(STAFF_PANELS[i]) >= 0) return true;
+    }
+    var m = caps && caps.max_users_by_role;
+    if (m && typeof m === 'object') {
+      for (var k in m) {
+        if (Object.prototype.hasOwnProperty.call(m, k) && Number(m[k]) > 0) return true;
+      }
+    }
+    return false;
+  }
 
   // Catálogo de PANELES → etiqueta comercial. Un panel no incluido en el plan se
   // bloquea con el mismo paywall (mig 155: caps.allowed_panels es la lista efectiva).
@@ -93,6 +141,9 @@
     if (ov && Object.prototype.hasOwnProperty.call(ov, 'feature:' + key)) {
       return ov['feature:' + key] === true;
     }
+    // Transición de 2ª generación (ver GEN2_FEATURES): key nueva sobre un plan que
+    // todavía no la declara ⇒ permitido, hasta que la migración siembre las keys.
+    if (GEN2_FEATURES.indexOf(key) >= 0 && !planKnowsGen2(caps)) return true;
     var f = caps && caps.allowed_features;
     if (!Array.isArray(f)) {
       // Fail-open: plan legacy (allowed_features NULL) o capacidades aún no
@@ -170,8 +221,34 @@
       caps: caps,
       loaded: !!caps,
       hasFeature: function (k) { return hasFeatureWith(caps, k); },
-      hasPanel: function (k) { return hasPanelWith(caps, k); }
+      hasPanel: function (k) { return hasPanelWith(caps, k); },
+      hasStaffSeats: function () { return hasStaffSeatsWith(caps); }
     };
+  }
+
+  /* ── Capacidades PÚBLICAS (superficies anónimas: Menú QR, delivery-cliente) ──
+     get_restaurant_capabilities tiene guard tenant-safe (mig 108) y a `anon` le
+     devuelve NULL: el Menú QR no puede ver el plan, y por eso mostraba "Reservar
+     mesa" en todos los planes. get_public_capabilities (mig 192) expone SOLO una
+     lista blanca de flags de cara al cliente — sin PII, sin precios, sin topes.
+     Fail-OPEN: si la RPC no está aplicada o falla, no se esconde nada. */
+  function loadPublicCapabilities(db, rid) {
+    if (!db || !rid) return Promise.resolve(null);
+    return db.rpc('get_public_capabilities', { p_restaurant_id: rid })
+      .then(function (res) {
+        if (res && res.error) {
+          console.warn('[MythosGating] get_public_capabilities no disponible → fail-open:', res.error.message);
+          return null;
+        }
+        return (res && res.data) || null;
+      })
+      .catch(function () { return null; });
+  }
+
+  // Flag público con fail-open: sin capacidades públicas cargadas, permitido.
+  function publicFlag(pub, key) {
+    if (!pub || typeof pub !== 'object') return true;
+    return pub[key] !== false;
   }
 
   /* ── Paywall / Upsell B&W (CSS puro, React.createElement) ──
@@ -273,10 +350,14 @@
     panelLabel: panelLabel,
     waUrl: waUrl,
     waUrlPanel: waUrlPanel,
+    GEN2_FEATURES: GEN2_FEATURES,
     hasFeature: hasFeature,
     hasFeatureWith: hasFeatureWith,
     hasPanel: hasPanel,
     hasPanelWith: hasPanelWith,
+    hasStaffSeatsWith: hasStaffSeatsWith,
+    loadPublicCapabilities: loadPublicCapabilities,
+    publicFlag: publicFlag,
     getCapabilities: getCapabilities,
     loadCapabilities: loadCapabilities,
     useCapabilities: useCapabilities,

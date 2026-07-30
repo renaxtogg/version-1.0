@@ -385,9 +385,22 @@ function ImageUploader({ value, onChange, compact = false, bucket = 'menu-images
 const MarketplacePage = createRestaurantMarketplace({
   React, db, rid: RID, C, Icon, toast, Modal, Btn, Inp, Sel, Lbl, Th, Td,
   Empty: EmptyRow, shouldPause: _shouldPause,
+  // La agenda de proveedores propios vive DENTRO de Marketplace › Mis proveedores
+  // (obs. Renato 2026-07-30): un módulo de nav menos. ProveedoresPage está declarada
+  // más abajo en el archivo — hoisting de `function` lo hace válido acá.
+  InternalSuppliers: ProveedoresPage,
 });
 
-/* ── SIDEBAR ── */
+/* ── SIDEBAR ──
+   Cada entrada puede declarar su capacidad requerida. Sin `req` = módulo core
+   (siempre visible). Con `req`:
+     feature  — key de allowed_features del plan
+     derived  — 'staff_seats': el plan otorga algún puesto de personal
+     salon    — true: no aplica a un local en modo delivery
+   `lock` decide qué pasa cuando NO está incluido:
+     'upsell' — se muestra con candado y la página ofrece el plan (venta)
+     'hidden' — desaparece del menú (no aplica al negocio; un candado sería ruido)
+   Ver docs/design/plan-capability-model.md. */
 const NAV = [
   {id:'dashboard', label:'Dashboard',    icon:'dashboard'},
   {id:'pedidos',   label:'Pedidos',      icon:'menu'},
@@ -397,27 +410,54 @@ const NAV = [
   null,
   {id:'menu',       label:'Menú',         icon:'book', group:'GESTIÓN'},
   {id:'mesas',      label:'Mesas',        icon:'table'},
-  {id:'agenda',     label:'Agenda',       icon:'calendar'},
+  {id:'agenda',     label:'Agenda',       icon:'calendar', req:{feature:'admin:agenda', salon:true}, lock:'upsell'},
   {id:'estaciones', label:'Estaciones',   icon:'boxes'},
-  {id:'personal',   label:'Personal',     icon:'users'},
+  {id:'personal',   label:'Personal',     icon:'users',    req:{derived:'staff_seats'},              lock:'hidden'},
   {id:'stock',      label:'Stock',        icon:'package'},
-  {id:'proveedores',label:'Proveedores',  icon:'building'},
-  {id:'marketplace',label:'Marketplace',  icon:'store'},
+  // "Proveedores" dejó de ser un módulo propio: su agenda (suppliers/compras) vive
+  // dentro de Marketplace › Mis proveedores. Una sola entrada de nav para el tema.
+  {id:'marketplace',label:'Proveedores',  icon:'store'},
   null,
   {id:'reportes',  label:'Reportes',        icon:'chart', group:'REPORTES'},
-  {id:'clientes',  label:'Clientes · CRM',  icon:'user'},
+  // Clientes es un hub: CRM + Marketing + Calificaciones (antes 3 entradas de nav).
+  {id:'clientes',  label:'Clientes',        icon:'user'},
   {id:'finanzas',  label:'Finanzas',        icon:'money', group:'FINANZAS'},
   {id:'caja',      label:'Caja',            icon:'creditCard'},
-  null,
-  {id:'marketing', label:'Marketing',    icon:'megaphone', group:'ACCIONES'},
-  {id:'ratings',   label:'Calificaciones',icon:'star'},
   null,
   {id:'avisos',    label:'Avisos personal', icon:'bell', group:'SISTEMA'},
   {id:'soporte',   label:'Soporte',      icon:'chat'},
   {id:'config',    label:'Config',       icon:'settings'},
 ];
 
-function Sidebar({page,setPage,restaurant,onToggleTheme,badges={},themeMode='light'}) {
+/* Cartel neutro para un módulo que NO APLICA a este negocio (modo delivery, plan de
+   un solo usuario…). Distinto del paywall de MythosGating: acá no hay nada que
+   vender — el módulo simplemente no tiene sentido para este local. */
+function ModuloNoAplica({titulo, texto, icon='info'}) {
+  return (
+    <div className="page">
+      <div style={{maxWidth:460,margin:'60px auto',textAlign:'center',border:`1px solid ${C.border}`,borderRadius:16,padding:'34px 28px',background:C.card}}>
+        <div style={{display:'flex',justifyContent:'center',color:C.mid,marginBottom:14}}><Icon name={icon} size={34}/></div>
+        <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:10}}>{titulo}</div>
+        <div style={{fontSize:13,color:C.mid,lineHeight:1.6}}>{texto}</div>
+      </div>
+    </div>
+  );
+}
+
+/* Estado de un módulo según el plan: 'on' | 'locked' | 'hidden'.
+   Fail-open por diseño: sin `req` o sin capacidades cargadas, 'on'. */
+function navState(n, caps, restaurant) {
+  if (!n || !n.req) return 'on';
+  const req  = n.req;
+  const lock = n.lock === 'hidden' ? 'hidden' : 'locked';
+  // Modo delivery (mig 173): los módulos de salón no aplican → se ocultan, no se venden.
+  if (req.salon && restaurant?.service_mode === 'delivery') return 'hidden';
+  if (req.derived === 'staff_seats' && caps && caps.hasStaffSeats && !caps.hasStaffSeats()) return lock;
+  if (req.feature && caps && caps.hasFeature && !caps.hasFeature(req.feature)) return lock;
+  return 'on';
+}
+
+function Sidebar({page,setPage,restaurant,onToggleTheme,badges={},themeMode='light',caps}) {
   return (
     <aside style={{width:200,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
       <div style={{padding:'18px 16px 14px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
@@ -432,16 +472,21 @@ function Sidebar({page,setPage,restaurant,onToggleTheme,badges={},themeMode='lig
       </div>
       <nav style={{padding:'6px 0',flex:1}}>
         {/* Modo delivery (mig 173): el local no atiende en salón → se oculta Mesas. */}
-        {NAV.filter(n => !(n && n.id==='mesas' && restaurant?.service_mode==='delivery')).map((n,i) => {
+        {NAV.filter(n => !(n && n.id==='mesas' && restaurant?.service_mode==='delivery'))
+            .filter(n => !n || navState(n, caps, restaurant) !== 'hidden')
+            .map((n,i) => {
           if (!n) return <Divider key={i}/>;
           const active = page === n.id;
           const badge = badges[n.id]||0;
+          const locked = navState(n, caps, restaurant) === 'locked';
           return (
             <div key={n.id}>
               {n.group && <div style={{padding:'8px 16px 3px',fontSize:9,color:C.mid,fontWeight:800,letterSpacing:'0.14em',textTransform:'uppercase'}}>{n.group}</div>}
-              <button onClick={() => setPage(n.id)} style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 16px',background:active?C.ink:'none',border:'none',color:active?C.sidebar:C.ink,textAlign:'left',fontSize:13,fontWeight:active?600:500,cursor:'pointer',borderLeft:active?`2px solid ${C.ink}`:'2px solid transparent'}}>
+              <button onClick={() => setPage(n.id)} title={locked?'No incluido en tu plan':undefined}
+                style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'9px 16px',background:active?C.ink:'none',border:'none',color:active?C.sidebar:(locked?C.dim:C.ink),textAlign:'left',fontSize:13,fontWeight:active?600:500,cursor:'pointer',borderLeft:active?`2px solid ${C.ink}`:'2px solid transparent'}}>
                 <span style={{width:16,textAlign:'center',flexShrink:0,display:'inline-flex',alignItems:'center',justifyContent:'center'}}><Icon name={n.icon} size={15}/></span>
                 <span style={{flex:1}}>{n.label}</span>
+                {locked && <span style={{display:'inline-flex',opacity:.75}}><Icon name="lock" size={12}/></span>}
                 {badge > 0 && <span style={{background:active?C.sidebar:C.red,color:active?C.red:C.sidebar,fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:8,minWidth:16,textAlign:'center'}}>{badge}</span>}
               </button>
             </div>
@@ -1966,7 +2011,7 @@ function ItemModal({item, categories, onClose, onSaved}) {
               <MoneyInp value={form.half_and_half_fixed_price} onChange={v=>f('half_and_half_fixed_price',v)} placeholder="Precio fijo ₲"/>
             )}
           </div>
-          <div style={{color:C.dim,fontSize:11,marginTop:6}}>En un combo manda la regla del primer sabor que elige el cliente. "Usar la del local" toma la de Configuración.</div>
+          <div style={{color:C.dim,fontSize:11,marginTop:6}}>En un combo manda la regla del primer sabor que elige el cliente. "Usar la del local" toma la de Menú › Configuración.</div>
         </div>
         )}
 
@@ -2030,7 +2075,7 @@ function ItemModal({item, categories, onClose, onSaved}) {
 /* ══════════════════════════════════════════════
    MENU PAGE
 ══════════════════════════════════════════════ */
-function MenuPage({categories,menuItems,onRefresh}) {
+function MenuPage({categories,menuItems,restaurant,onRefresh}) {
   const [menuTab,setMenuTab]     = useState('productos');
   const [catFilter,setCatFilter] = useState('all');
   const [itemModal,setItemModal] = useState(null); // null | {item: null|object}
@@ -2039,6 +2084,35 @@ function MenuPage({categories,menuItems,onRefresh}) {
   const [allExtras,setAllExtras]       = useState([]);
   const [extrasLoading,setExtrasLoading] = useState(false);
   const [selected,setSelected]   = useState(new Set());
+
+  // ── Regla de precio "mitad y mitad" del local (mig 170) ──
+  // Vive acá (Menú › Configuración) y no en Config general: es una regla DE LA CARTA,
+  // no del local. Aplica a cualquier producto combinable por mitades (pizza, tarta,
+  // milanesa, helado…), no solo a pizzas.
+  const [hhRule,setHhRule]     = useState('max');
+  const [hhFixed,setHhFixed]   = useState('');
+  const [savingHH,setSavingHH] = useState(false);
+  // Sembrado UNA vez por restaurante: loadAll(true) del poll/realtime recrea el objeto
+  // `restaurant` cada 30s (nueva referencia) y sin este guard pisaría la edición en curso.
+  const seededHHId = useRef(null);
+  useEffect(()=>{
+    if(!restaurant) return;
+    if(seededHHId.current === restaurant.id) return;
+    seededHHId.current = restaurant.id;
+    setHhRule(restaurant.half_and_half_rule||'max');
+    setHhFixed(restaurant.half_and_half_fixed_price||'');
+  },[restaurant]);
+
+  async function saveHalfRule(){
+    if(!db)return;setSavingHH(true);
+    const fixed = hhRule==='fixed' ? (parseInt(hhFixed)||0) : null;
+    if(hhRule==='fixed'&&!(fixed>0)){toast('Ingresá el precio fijo del producto mitad-y-mitad',false);setSavingHH(false);return;}
+    const{data,error}=await db.from('restaurants').update({half_and_half_rule:hhRule,half_and_half_fixed_price:fixed}).eq('id',RID).select('id');
+    if(error){toast('Error: '+error.message+' — ¿está aplicada la migración 170?',false);}
+    else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS',false);}
+    else{toast('Regla de mitad-y-mitad guardada');onRefresh();}
+    setSavingHH(false);
+  }
 
   const visible = catFilter==='all'?menuItems:menuItems.filter(i=>i.category_id===catFilter);
   const catName = id => categories.find(c=>c.id===id)?.name||'—';
@@ -2162,7 +2236,7 @@ function MenuPage({categories,menuItems,onRefresh}) {
 
       {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
-        {[['productos','Productos'],['extras','Extras / Modificadores']].map(([id,lbl])=>(
+        {[['productos','Productos'],['extras','Extras / Modificadores'],['config','Configuración']].map(([id,lbl])=>(
           <button key={id} onClick={()=>setMenuTab(id)} style={{background:'none',border:'none',color:menuTab===id?C.ink:C.dim,padding:'8px 16px',fontSize:13,fontWeight:menuTab===id?700:400,borderBottom:menuTab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
         ))}
       </div>
@@ -2208,6 +2282,40 @@ function MenuPage({categories,menuItems,onRefresh}) {
           </div>
           <div style={{marginTop:12,fontSize:11,color:C.dim,textAlign:'center'}}>Solo lectura — sin funcionalidad de carrito</div>
         </Modal>
+      )}
+
+      {/* ── TAB CONFIGURACIÓN DEL MENÚ ── */}
+      {menuTab==='config'&&(
+        <div style={{maxWidth:560}}>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>PRODUCTOS MITAD Y MITAD</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:14,lineHeight:1.5}}>
+              Cuando un producto se arma con dos mitades de distinto precio (una pizza de dos sabores, una tarta,
+              una milanesa, un helado…), ¿cuánto se cobra? Esta es la regla por defecto de la carta; cada producto
+              puede usar otra al editarlo. Marcá qué productos admiten mitades con <strong>"Apto para mitad y mitad"</strong> en su ficha.
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:14}}>
+              <div>
+                <Lbl>REGLA POR DEFECTO</Lbl>
+                <Sel value={hhRule} onChange={e=>setHhRule(e.target.value)}>
+                  <option value="max">Mitad más cara (recomendado)</option>
+                  <option value="avg">Promedio de las dos</option>
+                  <option value="fixed">Precio fijo</option>
+                </Sel>
+              </div>
+              {hhRule==='fixed'&&(
+                <div>
+                  <Lbl>PRECIO FIJO (₲)</Lbl>
+                  <MoneyInp value={hhFixed} onChange={v=>setHhFixed(v)} placeholder="45000"/>
+                </div>
+              )}
+            </div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:14}}>
+              {menuItems.filter(i=>i.allows_half_and_half).length} producto(s) marcados como aptos para mitad y mitad.
+            </div>
+            <Btn onClick={saveHalfRule} disabled={savingHH}>{savingHH?'Guardando…':'Guardar regla'}</Btn>
+          </div>
+        </div>
       )}
 
       {/* ── TAB EXTRAS ── */}
@@ -3566,7 +3674,43 @@ function PersonalPage({caps}) {
 /* ══════════════════════════════════════════════
    CLIENTES — CRM Marketing / Meta Ads
 ══════════════════════════════════════════════ */
-function ClientesPage({orders}) {
+/* ══════════════════════════════════════════════
+   HUB DE CLIENTES — CRM · Marketing · Calificaciones
+   ──────────────────────────────────────────────
+   Los tres módulos tratan sobre la MISMA persona (el cliente), así que viven
+   juntos en vez de ocupar tres entradas de nav (obs. Renato 2026-07-30).
+   Consecuencia deliberada: Marketing y Calificaciones quedan bajo el mismo
+   gate de plan que el CRM (`admin:crm`), que antes no tenían.
+══════════════════════════════════════════════ */
+const CLIENTES_TABS = [
+  ['crm',       'Clientes'],
+  ['marketing', 'Marketing'],
+  ['ratings',   'Calificaciones'],
+];
+
+function ClientesHubPage({orders,coupons,ratings,restaurant,onRefresh,initialTab='crm'}) {
+  const [tab,setTab] = useState(CLIENTES_TABS.some(([k])=>k===initialTab)?initialTab:'crm');
+  return (
+    <div className="page">
+      <h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:'0 0 2px'}}>Clientes</h1>
+      <div style={{fontSize:11.5,color:C.dim,marginBottom:14}}>Tu base de clientes, las acciones para traerlos de vuelta y lo que opinan.</div>
+
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
+        {CLIENTES_TABS.map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:C.dim,padding:'10px 16px',fontSize:13,fontWeight:tab===id?700:500,borderBottom:tab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+        ))}
+      </div>
+
+      {tab==='crm'       && <ClientesPage  orders={orders} embedded/>}
+      {tab==='marketing' && <MarketingPage coupons={coupons} orders={orders} restaurant={restaurant} onRefresh={onRefresh} embedded/>}
+      {tab==='ratings'   && <RatingsPage   ratings={ratings} embedded/>}
+    </div>
+  );
+}
+
+// `embedded` — se renderiza como pestaña del hub de Clientes (ver ClientesHubPage):
+// pierde el wrapper .page y el <h1> propio, que los pone el hub.
+function ClientesPage({orders,embedded=false}) {
   const [view,setView]         = useState('todos');
   const [canalF,setCanalF]     = useState('todos');
   const [periodF,setPeriodF]   = useState('todos');
@@ -4134,12 +4278,12 @@ function ClientesPage({orders}) {
   const totalCanalOrds = Object.values(byCanal).reduce((s,v)=>s+v,0)||1;
 
   return (
-    <div className="page">
+    <div className={embedded?'':'page'}>
       {/* ── Header ── */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}}>
         <div>
-          <h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Clientes</h1>
-          <div style={{fontSize:11,color:C.dim,marginTop:2}}>CRM · Marketing · Meta Ads · Exportación de datos</div>
+          {!embedded&&<h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Clientes</h1>}
+          <div style={{fontSize:11,color:C.dim,marginTop:2}}>Base de clientes · segmentación · exportación de datos</div>
         </div>
         <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
           <Btn variant="secondary" small onClick={exportCSV}>↓ CSV rápido</Btn>
@@ -5630,7 +5774,8 @@ function FinanzasPage({orders, restaurant, showDelivery=true, onRefresh}) {
 /* ══════════════════════════════════════════════
    MARKETING
 ══════════════════════════════════════════════ */
-function MarketingPage({coupons,orders,restaurant,onRefresh}) {
+// `embedded` — pestaña del hub de Clientes (ver ClientesHubPage).
+function MarketingPage({coupons,orders,restaurant,onRefresh,embedded=false}) {
   const [tab,setTab] = useState('cupones');
   const [form,setForm] = useState({code:'',discount_type:'percentage',discount_value:'',min_order_amount:'',max_uses:''});
   const [saving,setSaving] = useState(false);
@@ -5677,8 +5822,8 @@ function MarketingPage({coupons,orders,restaurant,onRefresh}) {
   }
 
   return (
-    <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,color:C.ink,marginBottom:16}}>Marketing</h1>
+    <div className={embedded?'':'page'}>
+      {!embedded&&<h1 style={{fontSize:22,fontWeight:800,color:C.ink,marginBottom:16}}>Marketing</h1>}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
         {[['cupones','Cupones'],['whatsapp','WhatsApp'],['inactivos','Clientes inactivos']].map(([id,lbl])=>(
           <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:C.dim,padding:'8px 14px',fontSize:12,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
@@ -5782,7 +5927,8 @@ function MarketingPage({coupons,orders,restaurant,onRefresh}) {
 /* ══════════════════════════════════════════════
    CALIFICACIONES — filtros por canal + mensajes de cocina
 ══════════════════════════════════════════════ */
-function RatingsPage({ratings}) {
+// `embedded` — pestaña del hub de Clientes (ver ClientesHubPage).
+function RatingsPage({ratings,embedded=false}) {
   const [tab,setTab]           = useState('ratings');  // 'ratings' | 'mensajes'
   const [originF,setOriginF]   = useState('all');
   const [messages,setMessages] = useState([]);
@@ -5851,8 +5997,8 @@ function RatingsPage({ratings}) {
   }
 
   return (
-    <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,color:C.ink,marginBottom:14}}>Calificaciones</h1>
+    <div className={embedded?'':'page'}>
+      {!embedded&&<h1 style={{fontSize:22,fontWeight:800,color:C.ink,marginBottom:14}}>Calificaciones</h1>}
 
       {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
@@ -7727,7 +7873,6 @@ function ConfigPage({restaurant,onRefresh}) {
   const [openOverride,setOpenOverride] = useState('auto'); // 'auto' | 'open' | 'closed'
   const [saving,setSaving] = useState(false);
   const [savingH,setSavingH] = useState(false);
-  const [savingHH,setSavingHH] = useState(false);
   const [savingBank,setSavingBank] = useState(false);
   const [savingPm,setSavingPm] = useState(false);
   const [pmForm,setPmForm] = useState(null);   // métodos de pago habilitados (mig 181)
@@ -7778,17 +7923,8 @@ function ConfigPage({restaurant,onRefresh}) {
     else{toast('Horarios guardados');onRefresh();}
     setSavingH(false);
   }
-  async function saveHalfRule(){
-    if(!db)return;setSavingHH(true);
-    const rule=form.half_and_half_rule||'max';
-    const fixed=rule==='fixed'?(parseInt(form.half_and_half_fixed_price)||0):null;
-    if(rule==='fixed'&&!(fixed>0)){toast('Ingresá el precio fijo de la pizza mitad-y-mitad',false);setSavingHH(false);return;}
-    const{data,error}=await db.from('restaurants').update({half_and_half_rule:rule,half_and_half_fixed_price:fixed}).eq('id',RID).select('id');
-    if(error){toast('Error: '+error.message+' — ¿está aplicada la migración 170?',false);}
-    else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS',false);}
-    else{toast('Regla de mitad-y-mitad guardada');onRefresh();}
-    setSavingHH(false);
-  }
+  // La regla de "mitad y mitad" del local se edita en Menú › Configuración
+  // (es una regla de la CARTA, no del local). Ver MenuPage → saveHalfRule.
   // Datos de transferencia del comercio (mig 180): los muestran caja/mozo al cobrar por QR/transferencia.
   async function saveBank(){
     if(!db)return;setSavingBank(true);
@@ -8100,29 +8236,6 @@ function ConfigPage({restaurant,onRefresh}) {
               })}
             </div>
             <Btn onClick={saveHours} disabled={savingH}>{savingH?'Guardando…':'Guardar horarios'}</Btn>
-          </div>
-
-          {/* Regla de precio mitad-y-mitad (default del local) */}
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
-            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>PIZZA MITAD Y MITAD</div>
-            <div style={{fontSize:11,color:C.dim,marginBottom:14,lineHeight:1.5}}>Cuando una pizza combina dos sabores de distinto precio, ¿cuánto se cobra? Esta es la regla por defecto del local; cada producto puede usar otra al editarlo.</div>
-            <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:14}}>
-              <div>
-                <Lbl>REGLA POR DEFECTO</Lbl>
-                <Sel value={form.half_and_half_rule||'max'} onChange={e=>setForm({...form,half_and_half_rule:e.target.value})}>
-                  <option value="max">Mitad más cara (recomendado)</option>
-                  <option value="avg">Promedio de los dos</option>
-                  <option value="fixed">Precio fijo</option>
-                </Sel>
-              </div>
-              {form.half_and_half_rule==='fixed'&&(
-                <div>
-                  <Lbl>PRECIO FIJO (₲)</Lbl>
-                  <MoneyInp value={form.half_and_half_fixed_price||''} onChange={v=>setForm({...form,half_and_half_fixed_price:v})} placeholder="45000"/>
-                </div>
-              )}
-            </div>
-            <Btn onClick={saveHalfRule} disabled={savingHH}>{savingHH?'Guardando…':'Guardar regla'}</Btn>
           </div>
 
           <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
@@ -10379,7 +10492,10 @@ function ReservaFormModal({reserva,tables,onClose,onSaved,defaultDate}){
 ══════════════════════════════════════════════ */
 const SUPPLIER_CATS = ['bebidas','carnes','verdulería','panadería','almacén','lácteos','limpieza','descartables','servicios','otros'];
 
-function ProveedoresPage() {
+// `embedded` — se renderiza DENTRO de Marketplace › Mis proveedores (obs. Renato
+// 2026-07-30: no tener un módulo de nav de más). En ese modo pierde el wrapper
+// .page y el título propio; conserva KPIs, sub-tabs y botones de acción.
+function ProveedoresPage({embedded=false}={}) {
   const [tab, setTab] = useState('lista'); // lista | compras | estadisticas
   const [suppliers, setSuppliers] = useState([]);
   const [purchases, setPurchases] = useState([]);
@@ -10437,11 +10553,13 @@ function ProveedoresPage() {
   };
 
   return (
-    <div className="page">
+    <div className={embedded?'':'page'}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18,flexWrap:'wrap',gap:10}}>
         <div>
-          <h2 style={{fontSize:22,fontWeight:800}}>Proveedores</h2>
-          <div style={{fontSize:12,color:C.dim,marginTop:2}}>Agenda y registro de proveedores · compras y deudas</div>
+          {embedded
+            ? <div style={{fontSize:12,fontWeight:700,color:C.ink,letterSpacing:.5,textTransform:'uppercase'}}>Mis proveedores</div>
+            : <h2 style={{fontSize:22,fontWeight:800}}>Proveedores</h2>}
+          <div style={{fontSize:embedded?11.5:12,color:C.dim,marginTop:embedded?4:2}}>Agenda y registro de proveedores · compras y deudas</div>
         </div>
         <div style={{display:'flex',gap:8}}>
           {tab === 'lista' && <button onClick={() => { setEditing(null); setShowForm(true); }} style={{background:C.ink,color:C.sidebar,border:'none',padding:'9px 16px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>+ Nuevo proveedor</button>}
@@ -12031,7 +12149,7 @@ function AdminApp() {
   const [ratings,setRatings] = useState([]);
   const [restaurant,setRestaurant] = useState(null);
   // Capacidades del plan (Omni-Gating por feature) — re-renderiza al resolver
-  const caps = window.MythosGating ? window.MythosGating.useCapabilities(db, RID) : {hasFeature:()=>true, hasPanel:()=>true};
+  const caps = window.MythosGating ? window.MythosGating.useCapabilities(db, RID) : {hasFeature:()=>true, hasPanel:()=>true, hasStaffSeats:()=>true};
 
   // ── Guard de tenant ──────────────────────────────────────────────
   // Si el restaurante activo (RID en localStorage) NO pertenece a la sesión,
@@ -12081,23 +12199,74 @@ function AdminApp() {
     return () => clearInterval(id);
   },[]);
 
-  // Realtime global + polling 30s
-  // Los handlers usan loadAll(true) para no desmontar modales abiertos
+  // ── Realtime global + poll de respaldo ────────────────────────────
+  // Antes: .subscribe() SIN callback de estado. Si el canal respondía CHANNEL_ERROR /
+  // TIMED_OUT / CLOSED (token vencido, red, límite de conexiones) fallaba EN SILENCIO
+  // y el panel quedaba dependiendo del poll de 30s → la sensación de "el realtime del
+  // admin no es al momento". Ahora: se observa el estado, se reintenta con backoff, y
+  // mientras el canal NO esté vivo el poll baja a 8s (respaldo real, no decorativo).
+  const [rtLive,setRtLive] = useState(true);   // optimista: no mostrar alarma al arrancar
   useEffect(()=>{
     if(!db) return;
-    const ch = db.channel('admin-global-rt')
-      // Pedidos → refresco LIVIANO (solo orders), sin gate: aparecen aun con foco/modal.
-      // El recuento de items se recalcula en refreshOrders, así que el INSERT/UPDATE de
-      // la orden ya cubre los items asociados (order_items no tiene restaurant_id para filtrar).
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ refreshOrders(); })
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ refreshOrders(); })
-      // Mesas/menú → recarga completa (afectan otras vistas), gateada por interacción.
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadAll(true); })
-      .on('postgres_changes',{event:'*',schema:'public',table:'menu_items',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadAll(true); })
-      .subscribe();
-    const poll = setInterval(()=>{ if(!_shouldPause()) loadAll(true); }, 30000);
-    return ()=>{ db.removeChannel(ch); clearInterval(poll); };
+    let ch = null, retry = 0, retryTimer = null, dead = false;
+
+    const connect = () => {
+      if(dead) return;
+      // Nombre único por intento: reusar el mismo nombre tras un error deja el canal
+      // viejo en estado errored dentro del cliente y el re-subscribe no engancha.
+      ch = db.channel(`admin-global-rt-${Date.now()}`)
+        // Pedidos → refresco LIVIANO (solo orders), sin gate: aparecen aun con foco/modal.
+        // El recuento de items se recalcula en refreshOrders, así que el INSERT/UPDATE de
+        // la orden ya cubre los items asociados (order_items no tiene restaurant_id para filtrar).
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ refreshOrders(); })
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},()=>{ refreshOrders(); })
+        // Delivery: los pedidos a domicilio no viven en `orders` → sin esto, Delivery y
+        // Finanzas solo se enteraban por el poll.
+        .on('postgres_changes',{event:'*',schema:'public',table:'delivery_orders',filter:`restaurant_id=eq.${RID}`},()=>{ refreshOrders(); })
+        // Caja: cobros y turnos alimentan Finanzas/Caja/Dashboard.
+        .on('postgres_changes',{event:'*',schema:'public',table:'movimientos_caja',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadAll(true); })
+        .on('postgres_changes',{event:'*',schema:'public',table:'turnos_caja',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadAll(true); })
+        // Mesas/menú → recarga completa (afectan otras vistas), gateada por interacción.
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'tables',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadAll(true); })
+        .on('postgres_changes',{event:'*',schema:'public',table:'menu_items',filter:`restaurant_id=eq.${RID}`},()=>{ if(!_shouldPause()) loadAll(true); })
+        .subscribe((status)=>{
+          if(dead) return;
+          if(status==='SUBSCRIBED'){
+            retry = 0;
+            setRtLive(true);
+            refreshOrders();          // al (re)conectar, cerrar el hueco de datos perdidos
+            return;
+          }
+          if(['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(status)){
+            setRtLive(false);
+            console.warn('[admin] realtime',status,'— reintentando (intento',retry+1,')');
+            try{ db.removeChannel(ch); }catch(_){}
+            const wait = Math.min(30000, 1000*Math.pow(2,retry++));   // 1s,2s,4s… tope 30s
+            clearTimeout(retryTimer);
+            retryTimer = setTimeout(connect, wait);
+          }
+        });
+    };
+    connect();
+
+    // Al volver de background el socket suele estar muerto sin haber emitido estado.
+    const onVisible = ()=>{ if(document.visibilityState==='visible'){ refreshOrders(); if(!_shouldPause()) loadAll(true); } };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return ()=>{
+      dead = true; clearTimeout(retryTimer);
+      document.removeEventListener('visibilitychange', onVisible);
+      if(ch){ try{ db.removeChannel(ch); }catch(_){} }
+    };
   },[]);
+
+  // Poll de respaldo: 30s con el canal vivo, 8s si se cayó.
+  useEffect(()=>{
+    if(!db) return;
+    const every = rtLive ? 30000 : 8000;
+    const poll = setInterval(()=>{ if(!_shouldPause()) loadAll(true); }, every);
+    return ()=> clearInterval(poll);
+  },[rtLive]);
 
   // silent=true → refresca datos sin setLoading(true) (no desmonta modales)
   async function loadAll(silent=false) {
@@ -12172,27 +12341,36 @@ function AdminApp() {
       case 'dashboard': return <DashboardPage orders={orders} ratings={ratings} setPage={setPage}/>;
       case 'paneles':   return <PanelesPage caps={caps}/>;
       case 'pedidos':   return <PedidosPage orders={orders} tables={tables} onRefresh={loadAll} onRefreshOrders={refreshOrders}/>;
-      case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} onRefresh={loadAll}/>;
+      case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'mesas':     return restaurant?.service_mode==='delivery'
-        ? <div className="page"><div style={{maxWidth:460,margin:'60px auto',textAlign:'center',border:`1px solid ${C.border}`,borderRadius:16,padding:'34px 28px',background:C.card}}>
-            <div style={{display:'flex',justifyContent:'center',color:C.mid,marginBottom:14}}><Icon name="bike" size={34}/></div>
-            <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:10}}>Mesas desactivadas</div>
-            <div style={{fontSize:13,color:C.mid,lineHeight:1.6}}>Este local opera en modo <b>Delivery a domicilio</b>, así que no gestiona mesas ni Menú QR. Para reactivar el salón, cambiá el modo de operación desde el Superadmin.</div>
-          </div></div>
+        ? <ModuloNoAplica icon="bike" titulo="Mesas desactivadas" texto="Este local opera en modo Delivery a domicilio, así que no gestiona mesas ni Menú QR. Para reactivar el salón, cambiá el modo de operación desde el Superadmin."/>
         : <MesasPage tables={tables} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
+      // Agenda/Reservas: gate de plan (admin:agenda) + no aplica en modo delivery.
       case 'agenda':
       case 'reservas':
-      case 'calendario':return <AgendaPage tables={tables} initialView={page==='reservas'?'pendientes':(page==='agenda'?'pendientes':'calendario')} restaurant={restaurant} onRefresh={loadAll}/>;
+      case 'calendario':
+        if(restaurant?.service_mode==='delivery') return <ModuloNoAplica titulo="Agenda desactivada" texto="Este local opera en modo Delivery a domicilio, así que no toma reservas de mesa. Para reactivar el salón, cambiá el modo de operación desde el Superadmin."/>;
+        return caps.hasFeature('admin:agenda')
+          ? <AgendaPage tables={tables} initialView={page==='reservas'?'pendientes':(page==='agenda'?'pendientes':'calendario')} restaurant={restaurant} onRefresh={loadAll}/>
+          : <window.MythosGating.FeatureLock featureKey="admin:agenda" variant="inline"/>;
       case 'estaciones':return caps.hasPanel('cocina') ? <EstacionesPage categories={categories} tables={tables}/> : <window.MythosGating.PanelLock panelKey="cocina" variant="inline"/>;
-      case 'personal':  return <PersonalPage caps={caps}/>;
-      case 'clientes':  return caps.hasFeature('admin:crm') ? <ClientesPage orders={orders}/> : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;
+      // Personal: capacidad derivada — un plan sin puestos de staff no tiene a quién gestionar.
+      case 'personal':  return caps.hasStaffSeats && !caps.hasStaffSeats()
+        ? <ModuloNoAplica titulo="Personal no incluido" texto="Tu plan es de un solo usuario: no incluye puestos de mozo, cajero, cocina ni gerente, así que no hay personal que gestionar. Al sumar un panel operativo a tu plan, este módulo aparece solo."/>
+        : <PersonalPage caps={caps}/>;
+      // Hub de Clientes: CRM + Marketing + Calificaciones bajo un solo gate.
+      case 'marketing':
+      case 'ratings':
+      case 'clientes':  return caps.hasFeature('admin:crm')
+        ? <ClientesHubPage orders={orders} coupons={coupons} ratings={ratings} restaurant={restaurant} onRefresh={loadAll}
+            initialTab={page==='marketing'?'marketing':page==='ratings'?'ratings':'crm'}/>
+        : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;
       case 'caja':      return caps.hasPanel('caja') ? <CajaAdminPage/> : <window.MythosGating.PanelLock panelKey="caja" variant="inline"/>;
       case 'reportes':  return <ReportesPage orders={orders}/>;
       case 'finanzas':  return <FinanzasPage orders={orders} restaurant={restaurant} showDelivery={caps.hasFeature('admin:delivery_zones')} onRefresh={loadAll}/>;
-      case 'marketing': return <MarketingPage coupons={coupons} orders={orders} restaurant={restaurant} onRefresh={loadAll}/>;
-      case 'ratings':   return <RatingsPage ratings={ratings}/>;
       case 'stock':     return caps.hasFeature('admin:inventory') ? <StockPage/> : <window.MythosGating.FeatureLock featureKey="admin:inventory" variant="inline"/>;
-      case 'proveedores': return <ProveedoresPage/>;
+      // 'proveedores' se conserva como alias por links/estado viejo → cae en Marketplace.
+      case 'proveedores':
       case 'marketplace': return <MarketplacePage/>;
       case 'delivery':  return caps.hasFeature('admin:delivery_zones') ? <DeliveryModule/> : <window.MythosGating.FeatureLock featureKey="admin:delivery_zones" variant="inline"/>;
       case 'avisos':    return <AvisosAdmin restaurant={restaurant}/>;
@@ -12227,7 +12405,7 @@ function AdminApp() {
 
   return (
     <div style={{display:'flex',minHeight:'100vh'}}>
-      {navOpen && <Sidebar page={page} setPage={setPage} restaurant={restaurant} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}} themeMode={themeMode}/>}
+      {navOpen && <Sidebar page={page} setPage={setPage} restaurant={restaurant} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}} themeMode={themeMode} caps={caps}/>}
       <main style={{flex:1,padding:26,overflowY:'auto',minWidth:0}}>
         <button onClick={toggleNav} title={navOpen?'Ocultar menú':'Mostrar menú'}
           style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'7px 9px',cursor:'pointer',display:'flex',flexDirection:'column',justifyContent:'center',gap:3,marginBottom:16}}>
