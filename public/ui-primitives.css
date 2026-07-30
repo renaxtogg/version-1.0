@@ -707,3 +707,123 @@
   letter-spacing: -0.02em;
   color: var(--text-primary);
 }
+
+/* ── LAYOUT RESPONSIVO ───────────────────────────────────────────────────
+   Rejillas que se adaptan solas al ancho disponible. Existen porque los
+   paneles arman sus layouts con estilos inline (`gridTemplateColumns:'1fr 1fr'`,
+   `repeat(4,1fr)`…), y un estilo inline no puede llevar media queries: en
+   escritorio dejaban huecos y en móvil quedaban 4 columnas de 80px.
+
+   Se usan con className en lugar del `display:grid` inline. Cada una acepta
+   overrides por custom property (`style={{'--my-col':'280px'}}`), así un caso
+   puntual se ajusta sin agregar otra clase.
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* Rejilla de tarjetas: entran tantas columnas como quepan (mínimo --my-col) y
+   el sobrante se reparte. El min() evita el desborde horizontal cuando la
+   pantalla es más angosta que --my-col. */
+.my-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(var(--my-col, 240px), 100%), 1fr));
+  gap: var(--my-gap, 12px);
+}
+.my-grid--sm { --my-col: 160px; }
+.my-grid--lg { --my-col: 320px; }
+
+/* Mampostería: tarjetas de alto MUY distinto sin dejar una columna corta al
+   lado de una larga (el navegador equilibra las columnas por altura). La forma
+   `columns: <ancho> <máximo>` ya es responsive de por sí — en móvil cae sola a
+   una columna — así que no necesita media query. */
+.my-masonry {
+  columns: var(--my-col, 340px) var(--my-cols, 3);
+  column-gap: var(--my-gap, 14px);
+}
+.my-masonry > * {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+  margin-bottom: var(--my-gap, 14px);
+}
+
+/* Filas de campos dentro de una tarjeta/modal. Colapsan por ancho de VENTANA:
+   un modal angosto en escritorio conserva sus 2 columnas, y el móvil pasa a 1.
+   Sin `align-items` a propósito: mantienen el `stretch` por defecto, que es lo
+   que ya hacían los `gridTemplateColumns` inline que reemplazan. */
+.my-row-2,
+.my-row-2-1,
+.my-row-3,
+.my-row-4 { display: grid; gap: var(--my-gap, 10px); }
+.my-row-2   { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.my-row-2-1 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.my-row-3   { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.my-row-4   { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 900px) {
+  .my-row-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .my-row-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .my-row-2,
+  .my-row-2-1,
+  .my-row-3,
+  .my-row-4 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Contenido principal + panel lateral (gráfico + top 5, lista + detalle…).
+   Debajo de 900px el lateral se acomoda abajo en vez de espicharse. */
+.my-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--my-aside, 320px);
+  gap: var(--my-gap, 14px);
+}
+.my-split--2-1 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+@media (max-width: 900px) {
+  .my-split,
+  .my-split--2-1 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Maestro/detalle de alto fijo (lista de tickets + conversación). En móvil no
+   puede colapsar a una columna a secas — el alto es fijo — así que pasa a dos
+   filas: la lista arriba, el detalle abajo. */
+.my-master-detail {
+  display: grid;
+  grid-template-columns: var(--my-master, 340px) minmax(0, 1fr);
+  gap: var(--my-gap, 14px);
+}
+@media (max-width: 860px) {
+  .my-master-detail {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(150px, 34%) minmax(0, 1fr);
+  }
+}
+
+/* Ancho máximo de una página de contenido: frena la línea de lectura en
+   monitores anchos sin dejar media pantalla vacía como un maxWidth de 860. */
+.my-page-wide { max-width: 1500px; }
+
+/* Shell de panel en móvil: el <main> pierde el padding grande de escritorio.
+   Va con !important porque los paneles setean el padding inline. */
+@media (max-width: 720px) {
+  .my-main { padding: 14px !important; }
+}
+/* Sidebar como cajón flotante en móvil: deja de comerse 200px de los ~390
+   disponibles y el contenido pasa a usar el ancho completo. */
+@media (max-width: 860px) {
+  .my-sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    z-index: 120;
+    box-shadow: var(--shadow-lg, 0 12px 40px rgba(0, 0, 0, 0.28));
+  }
+  .my-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 119;
+    background: rgba(0, 0, 0, 0.35);
+  }
+}
+@media (min-width: 861px) {
+  .my-sidebar-backdrop { display: none; }
+}

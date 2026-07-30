@@ -321,7 +321,7 @@ function MesaEditModalM({table,onSave,onClose}){
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={onClose}>
       <div style={{background:'var(--surface)',borderRadius:'16px 16px 0 0',padding:24,width:'100%',maxWidth:480}} onClick={e=>e.stopPropagation()}>
         <div style={{fontSize:16,fontWeight:800,marginBottom:20,color:'var(--text)'}}>Editar Mesa {table.number}</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
+        <div className="my-row-2" style={{gap:12,marginBottom:16}}>
           <div>
             <div style={{fontSize:10,color:'var(--text2)',fontWeight:700,marginBottom:5}}>NÚMERO</div>
             <input type="number" value={form.number} onChange={e=>setForm(f=>({...f,number:e.target.value}))} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--text)'}}/>

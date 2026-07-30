@@ -504,7 +504,7 @@ function MiTienda({supplier, contacts, onReload}) {
           <Card title="Perfil de la tienda">
             <div style={{display:'flex',flexDirection:'column',gap:12}}>
               <div><Lbl>Descripción</Lbl><Txt rows={3} value={form.descripcion} onChange={e=>set('descripcion',e.target.value)} placeholder="Contale a los restaurantes qué vendés, desde cuándo y qué te diferencia"/></div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <div className="my-row-2" style={{gap:12}}>
                 <div><Lbl>Ciudad</Lbl><Inp value={form.ciudad} onChange={e=>set('ciudad',e.target.value)}/></div>
                 <div><Lbl>Departamento</Lbl><Inp value={form.departamento} onChange={e=>set('departamento',e.target.value)}/></div>
               </div>
@@ -540,7 +540,7 @@ function MiTienda({supplier, contacts, onReload}) {
                   </div>
                 )}
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+              <div className="my-row-3" style={{gap:12}}>
                 <div><Lbl>Días de entrega</Lbl><Inp value={form.dias_entrega} onChange={e=>set('dias_entrega',e.target.value)} placeholder="Lun-Vie"/></div>
                 <div><Lbl>Horario</Lbl><Inp value={form.horario_atencion} onChange={e=>set('horario_atencion',e.target.value)} placeholder="07:00-17:00"/></div>
                 <div><Lbl>Pedido mínimo</Lbl><Inp value={form.pedido_minimo} onChange={e=>set('pedido_minimo',e.target.value)} placeholder="₲ 300.000"/></div>
@@ -680,7 +680,7 @@ function ProductModal({supplier, product, cats, onClose, onSaved}) {
     <Modal title={isNew?'Nuevo producto':'Editar producto'} onClose={onClose} width={560}>
       <div style={{display:'flex',flexDirection:'column',gap:12}}>
         <div><Lbl>Nombre *</Lbl><Inp value={f.nombre} onChange={e=>set('nombre',e.target.value)} placeholder="Ej: Costilla vacuna premium"/></div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div className="my-row-2" style={{gap:12}}>
           <div>
             <Lbl>Categoría</Lbl>
             <Sel value={f.categoria_slug} onChange={e=>set('categoria_slug',e.target.value)}>
@@ -690,7 +690,7 @@ function ProductModal({supplier, product, cats, onClose, onSaved}) {
           </div>
           <div><Lbl>Marca</Lbl><Inp value={f.marca} onChange={e=>set('marca',e.target.value)}/></div>
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div className="my-row-2" style={{gap:12}}>
           <div><Lbl>Presentación</Lbl><Inp value={f.presentacion} onChange={e=>set('presentacion',e.target.value)} placeholder="Ej: caja 20 kg"/></div>
           <div>
             <Lbl>Unidad</Lbl>
@@ -700,7 +700,7 @@ function ProductModal({supplier, product, cats, onClose, onSaved}) {
             </Sel>
           </div>
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div className="my-row-2" style={{gap:12}}>
           <div>
             <Lbl>Modo de precio</Lbl>
             <Sel value={f.precio_tipo} onChange={e=>set('precio_tipo',e.target.value)}>
@@ -713,13 +713,13 @@ function ProductModal({supplier, product, cats, onClose, onSaved}) {
                  disabled={f.precio_tipo==='cotizar'} placeholder={f.precio_tipo==='cotizar'?'A cotizar':'Ej: 380000'}/>
           </div>
         </div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+        <div className="my-row-2" style={{gap:12}}>
           <div><Lbl>Pedido mínimo</Lbl><Inp value={f.pedido_minimo} onChange={e=>set('pedido_minimo',e.target.value)} placeholder="Ej: 1 caja"/></div>
           <div><Lbl>Disponibilidad</Lbl><Inp value={f.disponibilidad} onChange={e=>set('disponibilidad',e.target.value)} placeholder="En stock / A pedido"/></div>
         </div>
         <div><Lbl>Etiquetas (separadas por coma)</Lbl><Inp value={f.etiquetas} onChange={e=>set('etiquetas',e.target.value)} placeholder="premium, congelado, sin gluten"/></div>
         <div><Lbl>Descripción</Lbl><Txt rows={2} value={f.descripcion} onChange={e=>set('descripcion',e.target.value)}/></div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'end'}}>
+        <div className="my-row-2" style={{gap:12,alignItems:'end'}}>
           <div>
             <Lbl>Imagen</Lbl>
             <label className="my-btn my-btn--secondary my-btn--sm" style={{cursor:'pointer',display:'inline-flex'}}>
@@ -1023,12 +1023,12 @@ function Solicitudes({onNuevasChange, onResponder}) {
               <div style={{fontSize:14,fontWeight:700,color:C.ink}}>{restInfo[detail.id]?.name||'Restaurante'}</div>
               {restInfo[detail.id]?.address && <div style={{fontSize:12,color:C.mid}}>{restInfo[detail.id].address}</div>}
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <div className="my-row-2" style={{gap:12}}>
               <div><Lbl>Fecha</Lbl><div style={{fontSize:13,color:C.ink}}>{fmtDT(detail.created_at)}</div></div>
               <div><Lbl>Estado</Lbl><Badge color={lc[detail.estado]||C.mid}>{LEAD_ESTADO[detail.estado]||detail.estado}</Badge></div>
             </div>
             {detail.tipo==='cotizacion' && (
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+              <div className="my-row-3" style={{gap:12}}>
                 <div><Lbl>Producto</Lbl><div style={{fontSize:13,color:C.ink}}>{detail.producto_texto||'—'}</div></div>
                 <div><Lbl>Cantidad</Lbl><div style={{fontSize:13,color:C.ink}}>{detail.cantidad||'—'}</div></div>
                 <div><Lbl>Frecuencia</Lbl><div style={{fontSize:13,color:C.ink}}>{FREC_LABEL[detail.frecuencia]||'—'}</div></div>

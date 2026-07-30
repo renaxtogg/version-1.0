@@ -1801,7 +1801,7 @@ function NuevoClienteModal({plans, cityOptions, restHasCol, onOpenModules, onClo
 
       {/* Paso 1 — Restaurante + dueño */}
       {step===1 && (
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+        <div className="my-row-2" style={{gap:'0 16px'}}>
           <FormField label="Nombre del restaurante" col="1 / -1"><input value={f.name} onChange={e=>set('name',e.target.value)} placeholder="Ej. Pizzería Napoli" style={{width:'100%'}}/></FormField>
           <FormField label="Ciudad">
             <select value={f.city} onChange={e=>set('city',e.target.value)} style={{width:'100%'}}>
@@ -2296,7 +2296,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 
       {modal&&(
         <Modal title={modal==='create'?'Nuevo restaurante':'Editar restaurante'} onClose={()=>setModal(null)} width={600}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <div className="my-row-2" style={{gap:'0 16px'}}>
             <FormField label="Nombre *" col="1/-1"><input value={form.name} onChange={sf('name')} placeholder="Nombre del restaurante" autoFocus/></FormField>
             <FormField label="Razón social"><input value={form.legal_name} onChange={sf('legal_name')} placeholder="Razón social S.A."/></FormField>
             <FormField label="RUC"><input value={form.ruc} onChange={sf('ruc')} placeholder="80000000-0"/></FormField>
@@ -2335,7 +2335,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
           </div>
           <div style={{borderTop:`1px solid ${C.border}`,margin:'12px 0',paddingTop:14}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:.5}}>Dueño</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <div className="my-row-2" style={{gap:'0 16px'}}>
               <FormField label="Nombre"><input value={form.owner_name} onChange={sf('owner_name')} placeholder="Nombre del dueño"/></FormField>
               <FormField label="Teléfono"><input value={form.owner_phone} onChange={sf('owner_phone')} placeholder="+595 981 123 456"/></FormField>
               <FormField label="Email"><input type="email" value={form.owner_email} onChange={sf('owner_email')} placeholder="dueno@restaurante.com"/></FormField>
@@ -2344,7 +2344,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
           </div>
           <div style={{borderTop:`1px solid ${C.border}`,margin:'12px 0',paddingTop:14}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:10,textTransform:'uppercase',letterSpacing:.5}}>Encargado <span style={{textTransform:'none',fontWeight:500,color:C.dim}}>(si difiere del dueño)</span></div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+            <div className="my-row-2" style={{gap:'0 16px'}}>
               <FormField label="Nombre"><input value={form.manager_name} onChange={sf('manager_name')} placeholder="Nombre del encargado"/></FormField>
               <FormField label="Teléfono"><input value={form.manager_phone} onChange={sf('manager_phone')} placeholder="+595 981 123 456"/></FormField>
             </div>
@@ -2382,7 +2382,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
               <div style={{fontSize:11,color:C.mid}}>Hereda el plan <strong>{branchModal.parent.plan?.name||'base'}</strong> del local raíz y se factura como add-on “Sucursal Adicional”.</div>
             </div>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <div className="my-row-2" style={{gap:'0 16px'}}>
             <FormField label="Nombre de la sucursal *" col="1/-1"><input value={branchForm.name} onChange={bf('name')} placeholder={`${branchModal.parent.name} — Centro`} autoFocus/></FormField>
             <FormField label="Ciudad">
               <select value={branchForm.city} onChange={bf('city')}>
@@ -2413,7 +2413,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
               {planOpts(subForm.plan_id).map(p=><option key={p.id} value={p.id}>{planOptLabel(p)}</option>)}
             </select>
           </FormField>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <div className="my-row-2" style={{gap:'0 16px'}}>
             <FormField label="Estado">
               <select value={subForm.status} onChange={ssf('status')}>
                 {['active','trial','suspended','expired','cancelled','past_due'].map(s=><option key={s} value={s}>{statusMeta[s]?.label||s}</option>)}
@@ -2799,7 +2799,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
       {/* Modal plan */}
       {planModal&&(
         <Modal title={planModal==='create'?'Nuevo plan':'Editar plan'} onClose={()=>setPlanModal(null)}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <div className="my-row-2" style={{gap:'0 16px'}}>
             <FormField label="Nombre *"><input value={planForm.name} onChange={spf('name')} placeholder="Pro"/></FormField>
             <FormField label="Precio/mes (₲) *"><MoneyCcyInput value={planForm.price_usd} onChange={v=>setPlanForm(f=>({...f,price_usd:v}))} placeholder="400000"/></FormField>
             <FormField label="Ciclo">
@@ -2831,7 +2831,7 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
           <div style={{borderTop:`1px solid ${C.border}`,margin:'8px 0 0',paddingTop:14}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:4,textTransform:'uppercase',letterSpacing:.5}}>Límite estricto de usuarios por rol</div>
             <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Vacío = ilimitado. El admin no podrá crear más usuarios de ese rol que el tope.</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 16px'}}>
+            <div className="my-row-3" style={{gap:'0 16px'}}>
               {LIMIT_ROLES.map(lr=>(
                 <FormField key={lr.key} label={lr.label}>
                   <input type="number" min="0" value={planForm['max_'+lr.key]} onChange={spf('max_'+lr.key)} placeholder="∞"/>
@@ -3162,7 +3162,7 @@ function PageUsuarios({restaurants, setFlash}) {
 
       {newModal&&(
         <Modal title="Nuevo usuario" onClose={()=>setNewModal(false)}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <div className="my-row-2" style={{gap:'0 16px'}}>
             <FormField label="Usuario *">
               <input
                 value={newForm.username}
@@ -3198,7 +3198,7 @@ function PageUsuarios({restaurants, setFlash}) {
             />
             <div style={{fontSize:11,color:C.mid,marginTop:4}}>Si lo cargás, el usuario lo confirma en su primer ingreso y queda como su correo de contacto. Si no, dejalo vacío — no se crea ningún correo.</div>
           </FormField>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <div className="my-row-2" style={{gap:'0 16px'}}>
             <FormField label="Rol">
               <select value={newForm.role} onChange={e=>setNewForm(f=>({...f,role:e.target.value}))}>
                 {NEW_USER_ROLES.map(r=><option key={r} value={r}>{roleLabel(r)}</option>)}
@@ -3228,7 +3228,7 @@ function PageUsuarios({restaurants, setFlash}) {
           <FormField label="Nombre para mostrar">
             <input value={editForm.display_name} onChange={e=>setEditForm(f=>({...f,display_name:e.target.value}))}/>
           </FormField>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <div className="my-row-2" style={{gap:'0 16px'}}>
             <FormField label="Rol">
               {editModal._isRider
                 ? <input value="rider" disabled style={{opacity:.6}}/>
@@ -4451,7 +4451,7 @@ function MkEditSupplierModal({sup, categories, onClose, onDone, setFlash}) {
   );
   return (
     <Modal title={`Editar — ${sup.nombre_comercial}`} onClose={onClose} width={620}>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+      <div className="my-row-2" style={{gap:'0 16px'}}>
         <FormField label="Nombre comercial *"><SInp value={f.nombre_comercial} onChange={v=>set('nombre_comercial',v)}/></FormField>
         <FormField label="Razón social"><SInp value={f.razon_social} onChange={v=>set('razon_social',v)}/></FormField>
         <FormField label="RUC"><SInp value={f.ruc} onChange={v=>set('ruc',v)}/></FormField>
@@ -4761,7 +4761,7 @@ function MkCategoriaModal({cat, categories, onClose, onDone, setFlash}) {
       <FormField label="Slug *" hint={esNueva?'Se genera del nombre si lo dejás vacío. Minúsculas, sin espacios.':'Cambiarlo afecta a productos/proveedores que lo referencian.'}>
         <SInp value={f.slug} onChange={v=>set('slug',v)} placeholder="bebidas"/>
       </FormField>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+      <div className="my-row-2" style={{gap:'0 16px'}}>
         <FormField label="Orden"><SInp type="number" value={f.orden} onChange={v=>set('orden',v)}/></FormField>
         <FormField label="Categoría padre (opcional)">
           <SSel value={f.parent_slug} onChange={v=>set('parent_slug',v)}>
@@ -4912,7 +4912,7 @@ function MkPlanModal({plan, onClose, onDone, setFlash}) {
   const numField = (k,label) => <FormField label={label}><SInp type="number" value={f[k]} onChange={v=>set(k,v)}/></FormField>;
   return (
     <Modal title={esNueva?'Nuevo plan de proveedor':`Editar — ${plan.name}`} onClose={onClose} width={640}>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+      <div className="my-row-2" style={{gap:'0 16px'}}>
         <FormField label="Nombre *"><SInp value={f.name} onChange={v=>set('name',v)} placeholder="Ej. Profesional"/></FormField>
         <FormField label="Slug *" hint={esNueva?'Se genera del nombre si lo dejás vacío.':'Cambiarlo puede romper suscripciones que lo referencian.'}><SInp value={f.slug} onChange={v=>set('slug',v)} placeholder="profesional"/></FormField>
         <FormField label="Precio (₲)"><MilesInput value={f.price_gs} onChange={v=>set('price_gs',v)}/></FormField>
@@ -4931,7 +4931,7 @@ function MkPlanModal({plan, onClose, onDone, setFlash}) {
       </div>
 
       <div style={{fontSize:12,fontWeight:700,color:C.ink,margin:'14px 0 8px'}}>Límites del plan <span style={{fontWeight:400,color:C.dim}}>(−1 = ilimitado)</span></div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0 16px'}}>
+      <div className="my-row-3" style={{gap:'0 16px'}}>
         {numField('max_products','Máx. productos')}
         {numField('max_users','Máx. usuarios')}
         {numField('max_catalog_files','Máx. catálogos')}
@@ -4939,7 +4939,7 @@ function MkPlanModal({plan, onClose, onDone, setFlash}) {
         {numField('max_zonas','Máx. zonas')}
         {numField('featured_slots','Espacios destacados')}
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+      <div className="my-row-2" style={{gap:'0 16px'}}>
         <FormField label="Contacto de lead">
           <SSel value={f.lead_contact} onChange={v=>set('lead_contact',v)}>
             <option value="inmediato">Inmediato</option><option value="demorado">Demorado (24 h)</option><option value="oculto">Oculto</option>
@@ -5498,7 +5498,7 @@ function ProspectModal({ row, restaurants, onClose, onDone, setFlash }) {
 
   return (
     <Modal title={isNew ? `Nuevo ${f.kind === 'restaurant' ? 'restaurante' : 'proveedor'}` : f.name} onClose={onClose} width={600}>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div className="my-row-2" style={{gap:12}}>
         <FormField label="Nombre *" col="1 / -1"><SInp value={f.name} onChange={v=>set('name',v)} placeholder={f.kind === 'restaurant' ? 'Ej: Pizzería Napoli' : 'Ej: Distribuidora XYZ'}/></FormField>
         <FormField label="Tipo"><SSel value={f.kind} onChange={v=>set('kind',v)}><option value="restaurant">Restaurante</option><option value="supplier">Proveedor</option></SSel></FormField>
         <FormField label="Estado"><SSel value={f.status} onChange={v=>set('status',v)}>{PROSPECT_ORDER.map(s=><option key={s} value={s}>{PROSPECT_ESTADO[s].label}</option>)}</SSel></FormField>
@@ -5534,7 +5534,7 @@ function ProspectModal({ row, restaurants, onClose, onDone, setFlash }) {
       </div>
       <ProsCenterMap initial={initialCoordRef.current} onPick={(la,ln)=>setF(o=>({...o,lat:la,lng:ln}))} controlRef={mapCtrl} height={240}/>
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginTop:6}}>
+      <div className="my-row-2" style={{gap:12,marginTop:6}}>
         <FormField label="Últ. contacto"><SInp type="date" value={f.last_contact_at} onChange={v=>set('last_contact_at',v)}/></FormField>
         <FormField label="Próx. seguimiento"><SInp type="date" value={f.next_followup_at} onChange={v=>set('next_followup_at',v)}/></FormField>
         <FormField label="Notas de la conversación" col="1 / -1"><STa value={f.notes} onChange={v=>set('notes',v)} rows={4} placeholder="Qué se habló, próximos pasos, objeciones…"/></FormField>
@@ -7015,7 +7015,7 @@ function SitioIdentidad({config, setFlash, reload}) {
           <p style={{fontSize:12.5,color:C.mid,margin:'0 0 16px',lineHeight:1.55}}>
             Fuente única de los datos del negocio. De acá se alimentan el pie del sitio, el botón de WhatsApp, los íconos de redes y las páginas legales (Términos, Privacidad, Cookies). Un campo vacío se muestra como “—” o se oculta; nunca sale roto.
           </p>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <div className="my-row-2" style={{gap:'0 16px'}}>
             {IDENTITY_FIELDS.map(f => (
               <FormField key={f.key} label={f.label} hint={f.hint} col={f.full?'1 / -1':undefined}>
                 <input type={f.type==='email'?'email':(f.type==='url'?'url':'text')} value={form[f.key]} onChange={e=>set(f.key,e.target.value)} placeholder={f.ph} style={{width:'100%'}}/>
@@ -7302,7 +7302,7 @@ function PlanEditModal({plan, onClose, setFlash, reload}) {
       <FormField label="Descripción">
         <textarea value={description} onChange={e=>setDescription(e.target.value)} rows={2}/>
       </FormField>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div className="my-row-2" style={{gap:12}}>
         <FormField label="Precio mensual (₲)" hint={linked ? 'Sincronizado desde el plan operativo (Superadmin → Planes)' : 'Vacío = a cotizar'}>
           <GsInput value={monthly} onChange={setMonthly} placeholder="229000" disabled={linked} readOnly={linked}/>
         </FormField>
@@ -7310,7 +7310,7 @@ function PlanEditModal({plan, onClose, setFlash, reload}) {
           <GsInput value={annual} onChange={setAnnual} placeholder="2290000" disabled={linked} readOnly={linked}/>
         </FormField>
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div className="my-row-2" style={{gap:12}}>
         <FormField label="Badge"><input value={badge} onChange={e=>setBadge(e.target.value)} placeholder="Recomendado"/></FormField>
         <FormField label="Orden"><input value={order} onChange={e=>setOrder(e.target.value)} placeholder="0"/></FormField>
       </div>
@@ -7500,7 +7500,7 @@ function AddonEditModal({addon, onClose, setFlash, reload}) {
       </FormField>
       <FormField label="Nombre"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Facturación electrónica"/></FormField>
       <FormField label="Descripción"><textarea value={description} onChange={e=>setDescription(e.target.value)} rows={2}/></FormField>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div className="my-row-2" style={{gap:12}}>
         <FormField label="Precio (₲)" hint="Vacío = sin precio">
           <GsInput value={price} onChange={setPrice} placeholder="150000"/>
         </FormField>
@@ -7591,7 +7591,7 @@ function FaqEditModal({faq, onClose, setFlash, reload}) {
     <Modal title={isNew?'Nueva pregunta':'Editar pregunta'} onClose={onClose} width={560}>
       <FormField label="Pregunta"><input value={question} onChange={e=>setQuestion(e.target.value)} placeholder="¿Necesito conocimientos técnicos?"/></FormField>
       <FormField label="Respuesta"><textarea value={answer} onChange={e=>setAnswer(e.target.value)} rows={4}/></FormField>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'center'}}>
+      <div className="my-row-2" style={{gap:12,alignItems:'center'}}>
         <FormField label="Orden"><input value={order} onChange={e=>setOrder(e.target.value)} placeholder="0"/></FormField>
         <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink,marginTop:8}}><Toggle checked={isActive} onChange={setIsActive}/><span>Activa</span></div>
       </div>
@@ -7668,13 +7668,13 @@ function TestimonialEditModal({item, onClose, setFlash, reload}) {
   return (
     <Modal title={isNew?'Nuevo testimonio':'Editar testimonio'} onClose={onClose} width={560}>
       <div style={{padding:'9px 12px',marginBottom:14,fontSize:12,color:C.mid,border:`1px solid ${C.border}`,borderRadius:8,lineHeight:1.5}}>Cargá solo testimonios <strong>reales</strong> y con consentimiento. No inventes prueba social.</div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div className="my-row-2" style={{gap:12}}>
         <FormField label="Nombre"><input value={personName} onChange={e=>setPersonName(e.target.value)}/></FormField>
         <FormField label="Restaurante"><input value={businessName} onChange={e=>setBusinessName(e.target.value)}/></FormField>
       </div>
       <FormField label="Rol / cargo"><input value={role} onChange={e=>setRole(e.target.value)} placeholder="Dueño, Encargada…"/></FormField>
       <FormField label="Testimonio"><textarea value={quote} onChange={e=>setQuote(e.target.value)} rows={4}/></FormField>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,alignItems:'center'}}>
+      <div className="my-row-2" style={{gap:12,alignItems:'center'}}>
         <FormField label="Orden"><input value={order} onChange={e=>setOrder(e.target.value)} placeholder="0"/></FormField>
         <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink,marginTop:8}}><Toggle checked={isActive} onChange={setIsActive}/><span>Activo</span></div>
       </div>
@@ -8281,7 +8281,7 @@ function PageMiCuenta({setFlash}) {
     <div style={{maxWidth:680}}>
       <SectionCard title="Mi perfil" style={{marginBottom:18}}>
         <div style={{padding:'18px 20px'}}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+          <div className="my-row-2" style={{gap:'0 16px'}}>
             <FormField label="Nombre"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Tu nombre"/></FormField>
             <FormField label="Teléfono"><input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+595 9xx xxx xxx"/></FormField>
             <FormField label="Email" hint="Tu correo de acceso (no editable desde acá)."><input value={email} disabled style={{opacity:.65,cursor:'not-allowed'}}/></FormField>
@@ -8355,7 +8355,7 @@ function CostModal({row, onClose, onSaved, setFlash}) {
   };
   return (
     <Modal title={edit?'Editar costo del sistema':'Agregar costo del sistema'} onClose={onClose} width={560}>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+      <div className="my-row-2" style={{gap:14}}>
         <FormField label="Servicio / concepto" col="1 / -1">
           <input style={_finInp} value={f.name} onChange={e=>set('name',e.target.value)} placeholder="Ej. Supabase Pro"/>
         </FormField>
@@ -8429,7 +8429,7 @@ function EntryModal({type, onClose, onSaved, setFlash}) {
   };
   return (
     <Modal title={isIncome?'Registrar ingreso':'Registrar egreso'} onClose={onClose} width={520}>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+      <div className="my-row-2" style={{gap:14}}>
         <FormField label="Concepto" col="1 / -1">
           <input style={_finInp} value={f.concept} onChange={e=>set('concept',e.target.value)} placeholder={isIncome?'Ej. Cobro anual adelantado':'Ej. Publicidad'}/>
         </FormField>

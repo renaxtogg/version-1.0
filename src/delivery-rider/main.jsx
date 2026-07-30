@@ -302,7 +302,7 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
         {/* Stats */}
         <div style={{background:'var(--bg-subtle)',borderRadius:14,padding:'14px 18px',marginBottom:14}}>
           <div style={{fontSize:10,fontWeight:700,color:'var(--text-tertiary)',textTransform:'uppercase',letterSpacing:.8,marginBottom:10}}>Hoy</div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,textAlign:'center'}}>
+          <div className="my-row-3" style={{gap:8,textAlign:'center'}}>
             <div>
               <div style={{fontSize:22,fontWeight:800,color:'var(--text-primary)'}}>{stats.count}</div>
               <div style={{fontSize:10,color:'var(--text-tertiary)',marginTop:2}}>Entregas</div>

@@ -459,7 +459,9 @@ function navState(n, caps, restaurant) {
 
 function Sidebar({page,setPage,restaurant,onToggleTheme,badges={},themeMode='light',caps}) {
   return (
-    <aside style={{width:200,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
+    // .my-sidebar: en ≤860px pasa a position:fixed (cajón flotante) para no
+    // comerse 200px de los ~390 del teléfono. Ver ui-primitives.css.
+    <aside className="my-sidebar" style={{width:200,minHeight:'100vh',background:C.sidebar,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto',flexShrink:0}}>
       <div style={{padding:'18px 16px 14px',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8}}>
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontFamily:'inherit',fontSize:20,fontWeight:800,letterSpacing:'-0.5px',color:C.ink}}>Mythos</div>
@@ -942,7 +944,7 @@ function DashboardPage({orders, ratings, setPage}) {
       {/* PR-B3B-FIX: KPI cards inline tinteadas → .my-metric-card neutro (Opción A).
           Se quitan los tintes/hex hardcodeados (dark-ready). Se conservan icono,
           Delta, sub y onClick. El valor pasa a var(--text-primary) (token). */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:12}}>
+      <div className="my-row-4" style={{gap:12,marginBottom:12}}>
         <div className="my-metric-card" style={{cursor:'pointer'}} onClick={()=>setPage('pedidos')}>
           <div className="my-metric-card__label" style={{display:'flex',alignItems:'center',gap:6}}><Icon name="money" size={13}/> Ventas hoy</div>
           <div style={{fontSize:28,fontWeight:800,color:'var(--text-primary)',lineHeight:1,letterSpacing:'-0.5px'}}>{fmt(ventasHoy)}</div>
@@ -966,7 +968,7 @@ function DashboardPage({orders, ratings, setPage}) {
       </div>
 
       {/* Fila 2 — Estado en tiempo real + Rating + Métodos de pago */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
+      <div className="my-row-4" style={{gap:12,marginBottom:20}}>
         {/* Activos en cocina — PR-B3B-FIX: .my-metric-card; alerta por borde token */}
         <div className="my-metric-card" style={{cursor:'pointer',...(activosCocina>0?{borderColor:'var(--warning)'}:null)}} onClick={()=>setPage('pedidos')}>
           <div className="my-metric-card__label">En cocina ahora</div>
@@ -1001,7 +1003,7 @@ function DashboardPage({orders, ratings, setPage}) {
       </div>
 
       {/* Gráfico barras por hora + Top 5 */}
-      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:14,marginBottom:20}}>
+      <div className="my-split--2-1" style={{gap:14,marginBottom:20}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:16}}>VENTAS POR HORA — HOY ({startH}hs al momento)</div>
           <div style={{display:'flex',alignItems:'flex-end',gap:3,height:100}}>
@@ -1053,7 +1055,7 @@ function DashboardPage({orders, ratings, setPage}) {
       </div>
 
       {/* Analítica — tendencia 14 días + métodos de pago */}
-      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:14,marginBottom:20}}>
+      <div className="my-split--2-1" style={{gap:14,marginBottom:20}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:14,flexWrap:'wrap',gap:8}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>TENDENCIA DE VENTAS — ÚLTIMOS 14 DÍAS</div>
@@ -1214,7 +1216,7 @@ function DashboardPage({orders, ratings, setPage}) {
       })()}
 
       {/* ── PR-C · 3 tarjetas: alerta de stock · suscripción · gastos de proveedores ── */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,marginTop:20}}>
+      <div className="my-row-3" style={{gap:14,marginTop:20}}>
 
         {/* 1 · ALERTA DE STOCK (ítems bajo umbral mínimo) */}
         {(()=>{
@@ -1910,7 +1912,7 @@ function ItemModal({item, categories, onClose, onSaved}) {
 
   return (
     <Modal title={isNew?'Nuevo producto':`Editar: ${item.name}`} onClose={onClose} width={650}>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+      <div className="my-row-2" style={{gap:12}}>
 
         {/* Imagen */}
         <div style={{gridColumn:'1/-1'}}>
@@ -2898,7 +2900,7 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
       {formModal&&(
         <Modal title={formModal.mode==='add'?'Nueva mesa':'Editar mesa'} onClose={()=>setFormModal(null)} width={380}>
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <div className="my-row-2" style={{gap:10}}>
               <div><Lbl>NÚMERO *</Lbl><Inp type="number" mono value={form.number} onChange={e=>setForm({...form,number:e.target.value})} placeholder="1"/></div>
               <div><Lbl>LUGARES</Lbl><Inp type="number" mono value={form.capacity} onChange={e=>setForm({...form,capacity:e.target.value})} placeholder="4"/></div>
             </div>
@@ -3413,7 +3415,7 @@ function PersonalPage({caps}) {
 
         {addModal&&(
           <Modal title={addForm._reqId?'Aprobar solicitud — crear usuario':'Nuevo empleado'} onClose={()=>{setAddModal(false);setAddForm({full_name:'',username:'',password:'',pin:'',role:'mozo',dni:'',phone:'',email:'',notes:'',_reqId:null});}} width={520}>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 16px'}}>
+            <div className="my-row-2" style={{gap:'14px 16px'}}>
               <div style={{gridColumn:'1/-1'}}>
                 <Lbl>Nombre completo *</Lbl>
                 <Inp value={addForm.full_name} onChange={e=>setAddForm(f=>({...f,full_name:e.target.value}))} placeholder="ej: Juan García" autoFocus/>
@@ -3470,7 +3472,7 @@ function PersonalPage({caps}) {
         {editStaff&&(
           <Modal title={editStaff.prof._isRider?'Editar rider':'Editar empleado'} onClose={()=>setEditStaff(null)} width={520}>
             {editStaffLoading&&<div style={{display:'flex',gap:8,alignItems:'center',color:C.mid,fontSize:12,marginBottom:12}}><span className="spin"/>Cargando datos…</div>}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 16px'}}>
+            <div className="my-row-2" style={{gap:'14px 16px'}}>
               <div style={{gridColumn:'1/-1'}}>
                 <Lbl>Nombre completo *</Lbl>
                 <Inp value={editStaff.form.display_name} onChange={e=>setEditStaff(es=>({...es,form:{...es.form,display_name:e.target.value}}))} placeholder="Nombre y apellido"/>
@@ -4327,7 +4329,7 @@ function ClientesPage({orders,embedded=false}) {
       </div>
 
       {/* ── Top consumidores ── */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginBottom:14}}>
+      <div className="my-row-3" style={{gap:10,marginBottom:14}}>
         {[['Top del día',topDia],['Top de la semana',topSemana],['Top del mes',topMes]].map(([lbl,top])=>(
           <div key={lbl} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px'}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:0.8,marginBottom:6}}>{lbl}</div>
@@ -4540,7 +4542,7 @@ function ClientesPage({orders,embedded=false}) {
             {/* Datos de contacto */}
             <div style={{background:C.bg,borderRadius:10,padding:14}}>
               <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>DATOS DE CONTACTO</div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              <div className="my-row-2" style={{gap:8}}>
                 <div>
                   <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Teléfono</div>
                   <div style={{fontSize:13,fontWeight:600,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{detalle.phone||<span style={{color:C.dim}}>—</span>}</div>
@@ -4575,7 +4577,7 @@ function ClientesPage({orders,embedded=false}) {
             </div>
 
             {/* Estadísticas */}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}}>
+            <div className="my-row-4" style={{gap:8}}>
               {[
                 ['Total gastado',fmt(detalle.total),C.orange],
                 ['Pedidos',detalle.orders,'#000'],
@@ -4953,7 +4955,7 @@ function CajaAdminPage() {
                 </div>
               )}
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(2, minmax(0,1fr))',gap:14,marginBottom:14}}>
+            <div className="my-row-2" style={{gap:14,marginBottom:14}}>
               <div>
                 <Lbl>MODO POR DEFECTO</Lbl>
                 <div style={{display:'flex',gap:8,marginTop:4}}>
@@ -5047,7 +5049,7 @@ function CajaAdminPage() {
             </>
           )}
 
-          <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:14}}>
+          <div className="my-split" style={{gap:14}}>
             {/* Movimientos del turno seleccionado */}
             <div>
               <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>MOVIMIENTOS DEL TURNO</div>
@@ -5247,11 +5249,11 @@ function ComprobanteDesign({restaurant,onRefresh}){
   if(!loaded) return <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}><span className="spin"/> Cargando…</div>;
 
   return (
-    <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:18,alignItems:'start'}}>
+    <div className="my-split" style={{gap:18,alignItems:'start'}}>
       <div style={{display:'flex',flexDirection:'column',gap:16,minWidth:0}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>DATOS DEL NEGOCIO</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <div className="my-row-2" style={{gap:12}}>
             <div><Lbl>NOMBRE COMERCIAL</Lbl><Inp value={biz.name} onChange={e=>setBiz({...biz,name:e.target.value})}/></div>
             <div><Lbl>TELÉFONO</Lbl><Inp value={biz.phone} onChange={e=>setBiz({...biz,phone:e.target.value})}/></div>
             <div style={{gridColumn:'1 / -1'}}><Lbl>DIRECCIÓN</Lbl><Inp value={biz.address} onChange={e=>setBiz({...biz,address:e.target.value})}/></div>
@@ -5278,14 +5280,14 @@ function ComprobanteDesign({restaurant,onRefresh}){
 
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>ENCABEZADO — QUÉ MOSTRAR</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 18px'}}>
+          <div className="my-row-2" style={{gap:'0 18px'}}>
             {HEAD.map(([k,l])=><RcToggle key={k} on={cfg.header?.[k]!==false} onChange={v=>setHeader(k,v)} label={l}/>)}
           </div>
         </div>
 
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>CAMPOS DEL COMPROBANTE</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 18px'}}>
+          <div className="my-row-2" style={{gap:'0 18px'}}>
             {FIELDS.map(([k,l])=><RcToggle key={k} on={cfg.fields?.[k]!==false} onChange={v=>setField(k,v)} label={l}/>)}
           </div>
         </div>
@@ -5329,22 +5331,26 @@ function ImpresoraConfig({restaurant}){
   if(!loaded) return <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}><span className="spin"/> Cargando…</div>;
 
   return (
-    <div style={{maxWidth:560,display:'flex',flexDirection:'column',gap:16}}>
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
-        <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>PAPEL</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
-          <div><Lbl>ANCHO DE PAPEL</Lbl>
-            <Sel value={String(cfg.paperWidth||80)} onChange={e=>setCfg({...cfg,paperWidth:Number(e.target.value)})}>
-              <option value="80">80 mm</option><option value="58">58 mm</option>
-            </Sel>
+    // Ajustes cortos a la izquierda, instructivo largo a la derecha: en una sola
+    // columna de 560px el instructivo estiraba la página y sobraba media pantalla.
+    <div className="my-row-2" style={{gap:16,maxWidth:1100,alignItems:'start'}}>
+      <div style={{display:'flex',flexDirection:'column',gap:16}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>PAPEL</div>
+          <div className="my-row-2" style={{gap:14}}>
+            <div><Lbl>ANCHO DE PAPEL</Lbl>
+              <Sel value={String(cfg.paperWidth||80)} onChange={e=>setCfg({...cfg,paperWidth:Number(e.target.value)})}>
+                <option value="80">80 mm</option><option value="58">58 mm</option>
+              </Sel>
+            </div>
+            <div><Lbl>CARACTERES POR LÍNEA</Lbl><Inp type="number" value={cfg.charsPerLine||32} onChange={e=>setCfg({...cfg,charsPerLine:e.target.value})}/></div>
           </div>
-          <div><Lbl>CARACTERES POR LÍNEA</Lbl><Inp type="number" value={cfg.charsPerLine||32} onChange={e=>setCfg({...cfg,charsPerLine:e.target.value})}/></div>
         </div>
-      </div>
 
-      <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
-        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
-        <Btn variant="secondary" onClick={testPrint}><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir prueba</Btn>
+        <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+          <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+          <Btn variant="secondary" onClick={testPrint}><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir prueba</Btn>
+        </div>
       </div>
 
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 18px',fontSize:12.5,color:C.mid,lineHeight:1.65}}>
@@ -5602,7 +5608,7 @@ function FinanzasPage({orders, restaurant, showDelivery=true, onRefresh}) {
         </div>
         )}
 
-        <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:14}}>
+        <div className="my-split" style={{gap:14}}>
           {/* Egresos */}
           <div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
@@ -5611,7 +5617,7 @@ function FinanzasPage({orders, restaurant, showDelivery=true, onRefresh}) {
             </div>
             {showEgForm&&(
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,marginBottom:10}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+                <div className="my-row-2" style={{gap:10,marginBottom:10}}>
                   <div><Lbl>FECHA</Lbl><Inp type="date" value={egForm.date} onChange={e=>setEgForm({...egForm,date:e.target.value})}/></div>
                   <div><Lbl>MONTO (₲) *</Lbl><MoneyInp value={egForm.amount} onChange={v=>setEgForm({...egForm,amount:v})} placeholder="50000"/></div>
                   <div><Lbl>CATEGORIA</Lbl><Sel value={egForm.category} onChange={e=>setEgForm({...egForm,category:e.target.value})}>{EG_CATS.map(c=><option key={c}>{c}</option>)}</Sel></div>
@@ -5870,7 +5876,7 @@ function MarketingPage({coupons,orders,restaurant,onRefresh,embedded=false}) {
       )}
 
       {tab==='whatsapp'&&(
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        <div className="my-row-2" style={{gap:14}}>
           <div>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>PLANTILLA</div>
             <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
@@ -6545,11 +6551,11 @@ function StockPage() {
                     {ingredients.map(i=><option key={i.id} value={i.id}>{i.name} (stock: {fmtStock(i.stock_quantity,i.unit)})</option>)}
                   </Sel>
                 </FF>
-                <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}}>
+                <div className="my-row-2-1" style={{gap:10}}>
                   <FF label="CANTIDAD *"><NumInp decimals={3} value={loadForm.quantity} onChange={v=>setLoadForm({...loadForm,quantity:v})} placeholder="ej: 5"/></FF>
                   <FF label="UNIDAD"><Sel value={loadForm.unit} onChange={e=>setLoadForm({...loadForm,unit:e.target.value})}>{unitOpts(ingredients.find(i=>i.id===loadForm.ingredient_id)?.unit).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div className="my-row-2" style={{gap:10}}>
                   <FF label="VENCIMIENTO" hint="Opcional, recomendado para perecederos"><Inp type="date" value={loadForm.expiry_date} onChange={e=>setLoadForm({...loadForm,expiry_date:e.target.value})}/></FF>
                   <FF label="N° LOTE / REMITO" hint="Para trazabilidad"><Inp value={loadForm.batch_id} onChange={e=>setLoadForm({...loadForm,batch_id:e.target.value})} placeholder="Opcional"/></FF>
                 </div>
@@ -6561,11 +6567,11 @@ function StockPage() {
             <div style={{marginTop:16,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
               <div style={{fontWeight:700,fontSize:15,marginBottom:18}}>Nuevo ingrediente</div>
               <div style={{display:'flex',flexDirection:'column',gap:12}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div className="my-row-2" style={{gap:10}}>
                   <FF label="NOMBRE *"><Inp value={ingForm.name} onChange={e=>setIngForm({...ingForm,name:e.target.value})} placeholder="Ej: Carne vacuna"/></FF>
                   <FF label="CATEGORÍA"><Inp value={ingForm.category} onChange={e=>setIngForm({...ingForm,category:e.target.value})} placeholder="Ej: Carnes, Lácteos…"/></FF>
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+                <div className="my-row-3" style={{gap:10}}>
                   <FF label="UNIDAD BASE"><Sel value={ingForm.unit} onChange={e=>setIngForm({...ingForm,unit:e.target.value})}>{Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
                   <FF label="STOCK INICIAL" hint="Podés dejar en 0 y cargar después"><NumInp decimals={3} value={ingForm.stock_quantity} onChange={v=>setIngForm({...ingForm,stock_quantity:v})} placeholder="0"/></FF>
                   <FF label="UMBRAL MÍN." hint="Alerta cuando baje de este nivel"><NumInp decimals={3} value={ingForm.min_threshold} onChange={v=>setIngForm({...ingForm,min_threshold:v})} placeholder="0"/></FF>
@@ -6652,7 +6658,7 @@ function StockPage() {
             {tomaView==='list'&&(
               <div>
                 {/* Resumen del día */}
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
+                <div className="my-row-2" style={{gap:12,marginBottom:16}}>
                   {['apertura','cierre'].map(tipo=>{
                     const sess = todaySessions.filter(s=>s.session_type===tipo&&s.status==='completado');
                     const ultima = sess[0];
@@ -6873,7 +6879,7 @@ function StockPage() {
                 {ingredients.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
               </Sel>
             </FF>
-            <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10}}>
+            <div className="my-row-2-1" style={{gap:10}}>
               <FF label="CANTIDAD POR PORCIÓN *"><NumInp decimals={3} value={recForm.quantity_required} onChange={v=>setRecForm({...recForm,quantity_required:v})}/></FF>
               <FF label="UNIDAD"><Sel value={recForm.unit} onChange={e=>setRecForm({...recForm,unit:e.target.value})}>{unitOpts(ingredients.find(i=>i.id===recForm.ingredient_id)?.unit).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
             </div>
@@ -7971,7 +7977,8 @@ function ConfigPage({restaurant,onRefresh}) {
     setSavingDc(false);
   }
 
-  const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante'},{key:'address',label:'Dirección'},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@turestaurante'},{key:'website',label:'Sitio web',ph:'turestaurante.com.py'}];
+  // `wide` = ocupa la fila entera dentro de la rejilla de 2 columnas de la tarjeta.
+  const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante',wide:true},{key:'address',label:'Dirección',wide:true},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@turestaurante'},{key:'website',label:'Sitio web',ph:'turestaurante.com.py',wide:true}];
 
   return (
     <div className="page">
@@ -7988,11 +7995,77 @@ function ConfigPage({restaurant,onRefresh}) {
 
       {tab==='cuenta' && <MiCuentaPage restaurant={restaurant} onRefresh={onRefresh} embedded/>}
 
+      {/* Mampostería en vez de dos columnas fijas: las tarjetas acá tienen alturas
+          muy distintas (el horario mide 3× lo que mide el logo), así que un
+          `1fr 1fr` dejaba una columna larguísima al lado de otra media vacía. El
+          navegador equilibra las columnas por altura y en móvil cae sola a una. */}
       {tab==='general' && (
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,maxWidth:860}}>
+      <div className="my-masonry my-page-wide" style={{'--my-col':'330px'}}>
 
-        {/* ── Columna izquierda: info + imágenes ── */}
-        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          {/* Info básica. Va primera: la mampostería llena las columnas en orden,
+              así que el orden del DOM es el orden de lectura. */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>INFO DEL RESTAURANTE</div>
+            {/* Dos campos por fila: cinco inputs apilados hacían una tarjeta
+                innecesariamente larga y dejaban aire al costado. */}
+            <div className="my-row-2" style={{marginBottom:16}}>
+              {INFO_FIELDS.map(f=>(
+                <div key={f.key} style={f.wide?{gridColumn:'1 / -1'}:null}><Lbl>{f.label.toUpperCase()}</Lbl><Inp value={form[f.key]||''} onChange={e=>setForm({...form,[f.key]:e.target.value})} placeholder={f.ph||f.label}/></div>
+              ))}
+            </div>
+            <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
+          </div>
+
+          {/* Estado del local + horario: es lo mas consultado de esta pagina, va segundo. */}
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>ESTADO DEL LOCAL AHORA</div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:12,lineHeight:1.5}}>El modo manual <strong>gana</strong> sobre el horario (feriados, imprevistos). En "Automático" el cliente abre/cierra según el horario de abajo.</div>
+            <div style={{display:'flex',gap:6,marginBottom:6}}>
+              {[{v:'auto',l:'Automático',d:'Según horario'},{v:'open',l:'Abierto ahora',d:'Forzar abierto'},{v:'closed',l:'Cerrado ahora',d:'Forzar cerrado'}].map(o=>{
+                const sel=openOverride===o.v;
+                const clr=o.v==='closed'?'#FF3B30':o.v==='open'?C.green:C.ink;
+                return (
+                  <button key={o.v} onClick={()=>setOpenOverride(o.v)} style={{flex:1,textAlign:'center',padding:'10px 6px',border:`2px solid ${sel?clr:C.border}`,borderRadius:10,background:sel?'var(--bg-subtle)':'transparent',cursor:'pointer',transition:'all 150ms'}}>
+                    <div style={{fontSize:12.5,fontWeight:800,color:sel?clr:C.mid}}>{o.l}</div>
+                    <div style={{fontSize:10,color:C.dim,marginTop:2}}>{o.d}</div>
+                  </button>
+                );
+              })}
+            </div>
+            {openOverride==='auto' && !Object.values(bhDays).some(r=>Array.isArray(r)&&r.some(x=>x.start&&x.end)) && (
+              <div style={{marginTop:2,padding:'8px 12px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,fontSize:11.5,color:C.orange,fontWeight:600,lineHeight:1.5}}>
+                ⚠ En «Automático» sin horarios cargados el local queda <strong>CERRADO</strong> y no recibe pedidos. Cargá los rangos de cada día abajo (y tocá «Guardar horarios»), o forzá «Abierto ahora».
+              </div>
+            )}
+            <div style={{height:1,background:C.border,margin:'16px 0'}}/>
+
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>HORARIO POR DÍA</div>
+            </div>
+            <div style={{fontSize:11,color:C.dim,marginBottom:12,lineHeight:1.5}}>Cargá los rangos de cada día (admite turnos partidos). Si un turno cruza la medianoche, poné el fin menor al inicio (ej. 20:00 → 02:00). Un día sin rangos = cerrado.</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
+              {WEEK_DAYS.map(({i,l})=>{
+                const ranges=bhDays[String(i)]||[];
+                return (
+                  <div key={i} style={{borderBottom:`1px solid ${C.border}`,paddingBottom:10}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:ranges.length?8:0}}>
+                      <span style={{fontSize:13,fontWeight:700,color:C.ink}}>{l}{ranges.length?'':<span style={{fontSize:11,fontWeight:600,color:C.dim,marginLeft:8}}>Cerrado</span>}</span>
+                      <Btn small variant="secondary" onClick={()=>addRange(String(i))}>+ Rango</Btn>
+                    </div>
+                    {ranges.map((r,idx)=>(
+                      <div key={idx} style={{display:'flex',gap:6,alignItems:'center',marginBottom:6}}>
+                        <input type="time" value={r.start} onChange={e=>setRange(String(i),idx,'start',e.target.value)} style={{flex:1,padding:'7px 8px',fontSize:13,borderRadius:6,border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/>
+                        <span style={{fontSize:12,color:C.dim}}>a</span>
+                        <input type="time" value={r.end} onChange={e=>setRange(String(i),idx,'end',e.target.value)} style={{flex:1,padding:'7px 8px',fontSize:13,borderRadius:6,border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/>
+                        <button onClick={()=>removeRange(String(i),idx)} style={{background:'none',border:`1px solid rgba(239,68,68,0.25)`,color:'rgba(239,68,68,0.7)',padding:'0 9px',height:32,borderRadius:6,cursor:'pointer',flexShrink:0}}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+            <Btn onClick={saveHours} disabled={savingH}>{savingH?'Guardando…':'Guardar horarios'}</Btn>
+          </div>
 
           {/* Portada */}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
@@ -8034,17 +8107,6 @@ function ConfigPage({restaurant,onRefresh}) {
             </div>
           </div>
 
-          {/* Info básica */}
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
-            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>INFO DEL RESTAURANTE</div>
-            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
-              {INFO_FIELDS.map(f=>(
-                <div key={f.key}><Lbl>{f.label.toUpperCase()}</Lbl><Inp value={form[f.key]||''} onChange={e=>setForm({...form,[f.key]:e.target.value})} placeholder={f.ph||f.label}/></div>
-              ))}
-            </div>
-            <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
-          </div>
-
           {/* Métodos de pago que ve el cliente en el menú QR — mig 181 (FASE D2 · Módulo 1) */}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>MÉTODOS DE PAGO (CLIENTE QR)</div>
@@ -8072,8 +8134,8 @@ function ConfigPage({restaurant,onRefresh}) {
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>DATOS PARA TRANSFERENCIAS (COBRO)</div>
             <div style={{fontSize:11,color:C.dim,marginBottom:14,lineHeight:1.5}}>Caja y mozo muestran estos datos cuando el cliente paga por transferencia / QR. Si cargás el QR de tu cuenta, el cliente puede escanearlo y transferir el monto directo.</div>
-            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
-              <div><Lbl>TITULAR DE LA CUENTA</Lbl><Inp value={form.bank_holder||''} onChange={e=>setForm({...form,bank_holder:e.target.value})} placeholder="Nombre del titular"/></div>
+            <div className="my-row-2" style={{marginBottom:14}}>
+              <div style={{gridColumn:'1 / -1'}}><Lbl>TITULAR DE LA CUENTA</Lbl><Inp value={form.bank_holder||''} onChange={e=>setForm({...form,bank_holder:e.target.value})} placeholder="Nombre del titular"/></div>
               <div><Lbl>BANCO / ENTIDAD</Lbl><Inp value={form.bank_name||''} onChange={e=>setForm({...form,bank_name:e.target.value})} placeholder="Ueno, Itaú, Familiar…"/></div>
               <div><Lbl>N° DE CUENTA</Lbl><Inp value={form.bank_account||''} onChange={e=>setForm({...form,bank_account:e.target.value})} placeholder="Número de cuenta"/></div>
               <div><Lbl>ALIAS</Lbl><Inp value={form.bank_alias||''} onChange={e=>setForm({...form,bank_alias:e.target.value})} placeholder="Alias de transferencia"/></div>
@@ -8186,63 +8248,11 @@ function ConfigPage({restaurant,onRefresh}) {
 
             <Btn onClick={saveDeliveryConfig} disabled={savingDc}>{savingDc?'Guardando…':'Guardar política de cobro'}</Btn>
           </div>
-        </div>
-        <div style={{display:'flex',flexDirection:'column',gap:14}}>
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
-            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>ESTADO DEL LOCAL AHORA</div>
-            <div style={{fontSize:11,color:C.dim,marginBottom:12,lineHeight:1.5}}>El modo manual <strong>gana</strong> sobre el horario (feriados, imprevistos). En "Automático" el cliente abre/cierra según el horario de abajo.</div>
-            <div style={{display:'flex',gap:6,marginBottom:6}}>
-              {[{v:'auto',l:'Automático',d:'Según horario'},{v:'open',l:'Abierto ahora',d:'Forzar abierto'},{v:'closed',l:'Cerrado ahora',d:'Forzar cerrado'}].map(o=>{
-                const sel=openOverride===o.v;
-                const clr=o.v==='closed'?'#FF3B30':o.v==='open'?C.green:C.ink;
-                return (
-                  <button key={o.v} onClick={()=>setOpenOverride(o.v)} style={{flex:1,textAlign:'center',padding:'10px 6px',border:`2px solid ${sel?clr:C.border}`,borderRadius:10,background:sel?'var(--bg-subtle)':'transparent',cursor:'pointer',transition:'all 150ms'}}>
-                    <div style={{fontSize:12.5,fontWeight:800,color:sel?clr:C.mid}}>{o.l}</div>
-                    <div style={{fontSize:10,color:C.dim,marginTop:2}}>{o.d}</div>
-                  </button>
-                );
-              })}
-            </div>
-            {openOverride==='auto' && !Object.values(bhDays).some(r=>Array.isArray(r)&&r.some(x=>x.start&&x.end)) && (
-              <div style={{marginTop:2,padding:'8px 12px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,fontSize:11.5,color:C.orange,fontWeight:600,lineHeight:1.5}}>
-                ⚠ En «Automático» sin horarios cargados el local queda <strong>CERRADO</strong> y no recibe pedidos. Cargá los rangos de cada día abajo (y tocá «Guardar horarios»), o forzá «Abierto ahora».
-              </div>
-            )}
-            <div style={{height:1,background:C.border,margin:'16px 0'}}/>
-
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>HORARIO POR DÍA</div>
-            </div>
-            <div style={{fontSize:11,color:C.dim,marginBottom:12,lineHeight:1.5}}>Cargá los rangos de cada día (admite turnos partidos). Si un turno cruza la medianoche, poné el fin menor al inicio (ej. 20:00 → 02:00). Un día sin rangos = cerrado.</div>
-            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:14}}>
-              {WEEK_DAYS.map(({i,l})=>{
-                const ranges=bhDays[String(i)]||[];
-                return (
-                  <div key={i} style={{borderBottom:`1px solid ${C.border}`,paddingBottom:10}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:ranges.length?8:0}}>
-                      <span style={{fontSize:13,fontWeight:700,color:C.ink}}>{l}{ranges.length?'':<span style={{fontSize:11,fontWeight:600,color:C.dim,marginLeft:8}}>Cerrado</span>}</span>
-                      <Btn small variant="secondary" onClick={()=>addRange(String(i))}>+ Rango</Btn>
-                    </div>
-                    {ranges.map((r,idx)=>(
-                      <div key={idx} style={{display:'flex',gap:6,alignItems:'center',marginBottom:6}}>
-                        <input type="time" value={r.start} onChange={e=>setRange(String(i),idx,'start',e.target.value)} style={{flex:1,padding:'7px 8px',fontSize:13,borderRadius:6,border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/>
-                        <span style={{fontSize:12,color:C.dim}}>a</span>
-                        <input type="time" value={r.end} onChange={e=>setRange(String(i),idx,'end',e.target.value)} style={{flex:1,padding:'7px 8px',fontSize:13,borderRadius:6,border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/>
-                        <button onClick={()=>removeRange(String(i),idx)} style={{background:'none',border:`1px solid rgba(239,68,68,0.25)`,color:'rgba(239,68,68,0.7)',padding:'0 9px',height:32,borderRadius:6,cursor:'pointer',flexShrink:0}}>✕</button>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-            <Btn onClick={saveHours} disabled={savingH}>{savingH?'Guardando…':'Guardar horarios'}</Btn>
-          </div>
 
           <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
             <div style={{fontSize:9,color:C.dim,fontWeight:700,marginBottom:5,letterSpacing:1}}>RESTAURANT ID</div>
             <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:11,color:C.ink,wordBreak:'break-all'}}>{RID}</div>
           </div>
-        </div>
       </div>
       )}
     </div>
@@ -8306,7 +8316,7 @@ function DelivDashboard({deliveryOrders, channels}) {
         <KpiCard label="Ingresos delivery hoy" value={fmt(revenueToday)} sub="órdenes entregadas"/>
         <KpiCard label="Tiempo promedio" value={avgMin>0?`${avgMin} min`:'—'} sub="entregadas hoy"/>
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+      <div className="my-row-2" style={{gap:14}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:16}}>INGRESOS POR CANAL — ÚLTIMOS 7 DÍAS</div>
           {channelData.length===0
@@ -8530,7 +8540,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
       {showNew && (
         <Modal title="Nuevo pedido delivery" onClose={()=>setShowNew(false)} width={580}>
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <div className="my-row-2" style={{gap:10}}>
               <div>
                 <Lbl>NOMBRE *</Lbl>
                 <Inp value={newForm.customer_name} onChange={e=>updForm('customer_name',e.target.value)} placeholder="Nombre del cliente"/>
@@ -8544,7 +8554,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
               <Lbl>DIRECCIÓN *</Lbl>
               <Inp value={newForm.delivery_address} onChange={e=>updForm('delivery_address',e.target.value)} placeholder="Calle, número, barrio"/>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <div className="my-row-2" style={{gap:10}}>
               <div>
                 <Lbl>DETALLE (apto/piso)</Lbl>
                 <Inp value={newForm.delivery_detail} onChange={e=>updForm('delivery_detail',e.target.value)} placeholder="Ej: Piso 2, Apto B"/>
@@ -8554,7 +8564,7 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
                 <Inp value={newForm.delivery_references} onChange={e=>updForm('delivery_references',e.target.value)} placeholder="Ej: Portón rojo"/>
               </div>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+            <div className="my-row-3" style={{gap:10}}>
               <div>
                 <Lbl>ZONA</Lbl>
                 <Sel value={newForm.zone_id} onChange={e=>updForm('zone_id',e.target.value)}>
@@ -8857,7 +8867,7 @@ function DelivRiders({riders, deliveryOrders=[], settings, onRefresh, onRebalanc
 
       {riders.length===0
         ? <div style={{textAlign:'center',padding:60,color:C.dim,fontSize:14}}>No hay riders — creá el primero</div>
-        : <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14}}>
+        : <div className="my-row-3" style={{gap:14}}>
             {riders.map(r=>{
               // Estado real del rider: current_status manda (offline/en_ruta/disponible);
               // active===false también cuenta como offline. Se ignora la columna `status` legacy (muerta).
@@ -8917,7 +8927,7 @@ function DelivRiders({riders, deliveryOrders=[], settings, onRefresh, onRebalanc
                 <option value="moto">Moto</option><option value="bici">Bici</option><option value="auto">Auto</option><option value="pie">A pie</option>
               </Sel>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            <div className="my-row-2" style={{gap:8}}>
               <div><Lbl>TIPO DE PAGO</Lbl>
                 <Sel value={form.commission_type} onChange={e=>setForm({...form,commission_type:e.target.value})}>
                   <option value="pct">Comisión %</option>
@@ -9454,7 +9464,7 @@ function MapEditor({zones, restaurant, onSave, onClose}) {
               </div>
 
               {/* Precio y tiempo */}
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div className="my-row-2" style={{gap:10}}>
                 <div>
                   <div style={{fontSize:11,fontWeight:700,color:C.dim,textTransform:'uppercase',letterSpacing:1,marginBottom:4}}>Precio delivery (₲)</div>
                   <MoneyInp value={az.price||0}
@@ -9633,7 +9643,7 @@ function DelivConfig({zones, setZones, reloadZones, channels, setChannels, reloa
         </div>
         <div style={{padding:18,display:'flex',flexDirection:'column',gap:16}}>
           {/* Selector de modo */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:8}}>
+          <div className="my-row-2" style={{gap:8}}>
             {PRICING_MODE_OPTS.filter(opt=>!PENDING_PRICING_MODES.includes(opt.v)).map(opt=>{
               const sel = pm.pricing_mode===opt.v;
               return (
@@ -9665,7 +9675,7 @@ function DelivConfig({zones, setZones, reloadZones, channels, setChannels, reloa
                   Requiere activar <strong>Distance Matrix de Google</strong> (pago por cotización). Hasta activarlo, el cliente cotiza con la distancia en línea recta.
                 </div>
               )}
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <div className="my-row-2" style={{gap:12}}>
                 <div><Lbl>CARGO BASE (₲)</Lbl><MoneyInp value={pm.base_fee} onChange={v=>pf('base_fee',v)} placeholder="5000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
                 <div><Lbl>PRECIO POR KM (₲)</Lbl><MoneyInp value={pm.price_per_km} onChange={v=>pf('price_per_km',v)} placeholder="3000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
                 <div><Lbl>COBRO MÍNIMO (₲)</Lbl><MoneyInp value={pm.min_fee} onChange={v=>pf('min_fee',v)} placeholder="10000" style={{border:`1px solid ${C.border}`,color:C.ink,background:C.surface,outline:'none'}}/></div>
@@ -10192,7 +10202,7 @@ function ReservasPage({tables,embedded,mode,restaurant,onRefresh}) {
 
       {/* KPIs del día */}
       {dateFilter&&(
-        <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:10,marginBottom:20}}>
+        <div className="my-grid" style={{'--my-col':'140px',gap:10,marginBottom:20}}>
           {ALL_STATUS.map(([id,cfg])=>{
             const count=reservas.filter(r=>r.status===id).length;
             return(
@@ -10692,7 +10702,7 @@ function ProveedoresPage({embedded=false}={}) {
       )}
 
       {tab === 'estadisticas' && (
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+        <div className="my-row-2" style={{gap:16}}>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
             <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Top proveedores por gasto (mes actual)</div>
             {(() => {
@@ -10813,14 +10823,14 @@ function SupplierFormModal({supplier, onClose, onSaved}) {
           <button onClick={onClose} style={{background:'none',border:'none',color:C.mid,fontSize:22,lineHeight:1,padding:0,cursor:'pointer'}}>×</button>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10,marginBottom:10}}>
+        <div className="my-row-2-1" style={{gap:10,marginBottom:10}}>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Nombre comercial *</div>
             <input value={f.name} onChange={e=>setF({...f, name:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>RUC</div>
             <input value={f.ruc} onChange={e=>setF({...f, ruc:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:10,marginBottom:10}}>
+        <div className="my-row-2-1" style={{gap:10,marginBottom:10}}>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Razón social</div>
             <input value={f.legal_name} onChange={e=>setF({...f, legal_name:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Categoría</div>
@@ -10831,14 +10841,14 @@ function SupplierFormModal({supplier, onClose, onSaved}) {
           </div>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+        <div className="my-row-2" style={{gap:10,marginBottom:10}}>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Contacto principal</div>
             <input value={f.contact_name} onChange={e=>setF({...f, contact_name:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Teléfono</div>
             <input value={f.phone} onChange={e=>setF({...f, phone:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+        <div className="my-row-2" style={{gap:10,marginBottom:10}}>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Email</div>
             <input type="email" value={f.email} onChange={e=>setF({...f, email:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Ciudad</div>
@@ -10850,7 +10860,7 @@ function SupplierFormModal({supplier, onClose, onSaved}) {
           <input value={f.address} onChange={e=>setF({...f, address:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:10}}>
+        <div className="my-row-3" style={{gap:10,marginBottom:10}}>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Términos de pago</div>
             <input value={f.payment_terms} onChange={e=>setF({...f, payment_terms:e.target.value})} placeholder="ej: 30 días" style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Días de entrega</div>
@@ -10937,21 +10947,21 @@ function PurchaseFormModal({purchase, suppliers, onClose, onSaved}) {
           </select>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+        <div className="my-row-2" style={{gap:10,marginBottom:10}}>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Nº factura</div>
             <input value={f.invoice_number} onChange={e=>setF({...f, invoice_number:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Fecha compra</div>
             <input type="date" value={f.purchase_date} onChange={e=>setF({...f, purchase_date:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}/></div>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+        <div className="my-row-2" style={{gap:10,marginBottom:10}}>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Total (₲) *</div>
             <MoneyInp value={f.total} onChange={v=>setF({...f, total:v})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Pagado (₲)</div>
             <MoneyInp value={f.paid_amount} onChange={v=>setF({...f, paid_amount:v})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,fontFamily:"'SF Mono',ui-monospace,monospace"}}/></div>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+        <div className="my-row-2" style={{gap:10,marginBottom:10}}>
           <div><div style={{fontSize:10,color:C.mid,fontWeight:700,marginBottom:5,letterSpacing:1,textTransform:'uppercase'}}>Estado</div>
             <select value={f.status} onChange={e=>setF({...f, status:e.target.value})} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6}}>
               <option value="pendiente">Pendiente</option>
@@ -11236,7 +11246,7 @@ function SoportePage({restaurant}) {
         <Btn onClick={() => setShowNew(true)}>＋ Nueva consulta</Btn>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'340px 1fr',gap:14,minHeight:560,height:'calc(100vh - 160px)'}}>
+      <div className="my-master-detail" style={{gap:14,minHeight:560,height:'calc(100vh - 160px)'}}>
         {/* LISTA */}
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,display:'flex',flexDirection:'column',overflow:'hidden'}}>
           <div style={{padding:'12px 14px',borderBottom:`1px solid ${C.border}`,fontSize:11,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:1}}>
@@ -11423,7 +11433,7 @@ function NewTicketModalAdmin({onClose, onCreate, userName, role, email, restaura
           <Inp value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Resumen breve del problema o consulta" autoFocus/>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+        <div className="my-row-2" style={{gap:10}}>
           <div><Lbl>Categoría</Lbl>
             <Sel value={category} onChange={e=>setCategory(e.target.value)}>
               {Object.entries(SUPPORT_CATS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
@@ -12024,13 +12034,19 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
   };
 
   return (
-    <div className={embedded?'':'page'} style={{maxWidth:720}}>
+    <div className={embedded?'':'page'}>
       {!embedded && <h1 style={{fontSize:20,fontWeight:800,marginBottom:18}}>Mi cuenta</h1>}
+
+      {/* Mampostería: las 3 tarjetas tienen alturas muy distintas ("Seguridad"
+          es un renglón, "Dueño y encargado" son seis campos), así que apiladas
+          en una columna de 720px dejaban vacía media pantalla. El modal queda
+          FUERA del contenedor multicolumna. */}
+      <div className="my-masonry my-page-wide" style={{'--my-col':'380px','--my-cols':'2','--my-gap':'16px'}}>
 
       {/* Perfil personal */}
       <div style={cardStyle}>
         <div style={{fontSize:14,fontWeight:700,marginBottom:14}}>Mi perfil</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+        <div className="my-row-2" style={{gap:'0 16px'}}>
           <AcctField label="Nombre"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Tu nombre" style={iStyle}/></AcctField>
           <AcctField label="Teléfono"><input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+595 9xx xxx xxx" style={iStyle}/></AcctField>
           <AcctField label="Email"><input value={email} disabled style={iDisabled}/></AcctField>
@@ -12058,20 +12074,21 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
         <div style={{fontSize:14,fontWeight:700,marginBottom:3}}>Dueño y encargado del local</div>
         <div style={{fontSize:12.5,color:C.mid,marginBottom:14}}>{canEditLocal ? 'Datos de contacto del dueño y (si difiere) del encargado del local.' : 'Solo el administrador del local puede editar estos datos.'}</div>
         <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,marginBottom:8}}>Dueño</div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+        <div className="my-row-2" style={{gap:'0 16px'}}>
           <AcctField label="Nombre"><input value={loc.owner_name} onChange={sf('owner_name')} disabled={!canEditLocal} placeholder="Nombre del dueño" style={canEditLocal?iStyle:iDisabled}/></AcctField>
           <AcctField label="Teléfono"><input value={loc.owner_phone} onChange={sf('owner_phone')} disabled={!canEditLocal} placeholder="+595 9xx xxx xxx" style={canEditLocal?iStyle:iDisabled}/></AcctField>
           <AcctField label="Email"><input value={loc.owner_email} onChange={sf('owner_email')} disabled={!canEditLocal} placeholder="dueno@correo.com" style={canEditLocal?iStyle:iDisabled}/></AcctField>
           <AcctField label="Documento / Cédula"><input value={loc.owner_document} onChange={sf('owner_document')} disabled={!canEditLocal} placeholder="C.I. o RUC" style={canEditLocal?iStyle:iDisabled}/>{isAdminSelf && <div style={{fontSize:11,color:C.dim,marginTop:5,lineHeight:1.5}}>Con tu cédula también podés <strong>iniciar sesión</strong> (además de tu correo). Se guarda al tocar «Guardar datos del local».</div>}</AcctField>
         </div>
         <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,margin:'6px 0 8px'}}>Encargado <span style={{textTransform:'none',fontWeight:500,color:C.dim}}>(si difiere del dueño)</span></div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 16px'}}>
+        <div className="my-row-2" style={{gap:'0 16px'}}>
           <AcctField label="Nombre"><input value={loc.manager_name} onChange={sf('manager_name')} disabled={!canEditLocal} placeholder="Nombre del encargado" style={canEditLocal?iStyle:iDisabled}/></AcctField>
           <AcctField label="Teléfono"><input value={loc.manager_phone} onChange={sf('manager_phone')} disabled={!canEditLocal} placeholder="+595 9xx xxx xxx" style={canEditLocal?iStyle:iDisabled}/></AcctField>
         </div>
         {canEditLocal && <div style={{display:'flex',justifyContent:'flex-end'}}>
           <Btn onClick={saveLoc} disabled={savingLoc}>{savingLoc?'Guardando…':'Guardar datos del local'}</Btn>
         </div>}
+      </div>
       </div>
 
       {pwModal && <AdminChangePasswordModal email={email} onClose={()=>setPwModal(false)}/>}
@@ -12127,8 +12144,13 @@ function TermsGateModal({ onAccept }) {
 function AdminApp() {
   const [page,setPage] = useState('dashboard');
   // Sidebar colapsable (persistente): main a ancho completo al ocultarlo.
-  const [navOpen,setNavOpen]=useState(()=>{try{return localStorage.getItem('admin_nav_open')!=='0';}catch{return true;}});
+  // En móvil arranca cerrado aunque la preferencia guardada diga abierto: ahí el
+  // sidebar es un cajón que tapa el contenido, no una columna fija.
+  const isNarrow=()=>typeof window!=='undefined' && window.innerWidth<=860;
+  const [navOpen,setNavOpen]=useState(()=>{try{return !isNarrow() && localStorage.getItem('admin_nav_open')!=='0';}catch{return !isNarrow();}});
   const toggleNav=()=>setNavOpen(v=>{const n=!v;try{localStorage.setItem('admin_nav_open',n?'1':'0');}catch{} return n;});
+  // Elegir una sección en móvil cierra el cajón (si no, tapa la página recién abierta).
+  const goPage=(p)=>{setPage(p); if(isNarrow()) setNavOpen(false);};
   const [loading,setLoading] = useState(true);
   const [unreadSupport,setUnreadSupport] = useState(0);
   const [,forceRender] = useReducer(x=>x+1,0);
@@ -12405,8 +12427,10 @@ function AdminApp() {
 
   return (
     <div style={{display:'flex',minHeight:'100vh'}}>
-      {navOpen && <Sidebar page={page} setPage={setPage} restaurant={restaurant} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}} themeMode={themeMode} caps={caps}/>}
-      <main style={{flex:1,padding:26,overflowY:'auto',minWidth:0}}>
+      {navOpen && <Sidebar page={page} setPage={goPage} restaurant={restaurant} onToggleTheme={toggleTheme} badges={{soporte:unreadSupport}} themeMode={themeMode} caps={caps}/>}
+      {/* Fondo que cierra el cajón — solo visible en móvil (ver ui-primitives.css) */}
+      {navOpen && <div className="my-sidebar-backdrop" onClick={()=>setNavOpen(false)}/>}
+      <main className="my-main" style={{flex:1,padding:26,overflowY:'auto',minWidth:0}}>
         <button onClick={toggleNav} title={navOpen?'Ocultar menú':'Mostrar menú'}
           style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:'7px 9px',cursor:'pointer',display:'flex',flexDirection:'column',justifyContent:'center',gap:3,marginBottom:16}}>
           <span style={{width:15,height:2,background:C.mid,display:'block',borderRadius:2}}/>

@@ -402,7 +402,7 @@ function Dashboard({onJump}) {
         <KpiCard label="Personal en turno" value={data.shiftEmps.length} sub="Empleados activos"/>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+      <div className="my-row-2" style={{gap:16}}>
         <Card title="Pedidos en cocina" action={kpis.inKitchen.length>0 && <span style={{fontSize:11,color:C.mid}}>{kpis.inKitchen.length} activos</span>}>
           {kpis.inKitchen.length === 0
             ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>No hay pedidos en cocina</div>
@@ -537,7 +537,7 @@ function SupervisionTurno() {
     <div className="page">
       <h2 style={{fontSize:20,fontWeight:800,marginBottom:18}}>Supervisión de turno</h2>
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:18}}>
+      <div className="my-row-2" style={{gap:16,marginBottom:18}}>
         <Card title={`Empleados activos (${activos.length})`}>
           {activos.length === 0 ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>Sin turnos abiertos</div>
             : <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -755,7 +755,7 @@ function QuejasYRatings({user, userName}) {
     <div className="page">
       <h2 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Quejas, sugerencias y ratings</h2>
 
-      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:16}}>
+      <div className="my-row-2-1" style={{gap:16}}>
         <div>
           <div style={{display:'flex',gap:8,marginBottom:12}}>
             {['abierto','en_revision','resuelto','escalado','todos'].map(f => (
@@ -876,7 +876,7 @@ function Stock86({user, userName}) {
         <Btn onClick={() => setShowAdd(true)}>+ Marcar producto como 86d</Btn>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+      <div className="my-row-2" style={{gap:16,marginBottom:16}}>
         <KpiCard label="Productos 86d" value={activos.length} sub="No disponibles hoy" accent={activos.length>0?C.red:C.green}/>
         <KpiCard label="Alertas de stock" value={stockAlerts.length} sub="Sin resolver" accent={stockAlerts.length>0?C.orange:C.green}/>
       </div>
@@ -1265,7 +1265,7 @@ function NewLogModal({onClose, onSaved, user, userName}) {
     <Modal title="Nueva entrada en bitácora" onClose={onClose}>
       <div style={{display:'flex',flexDirection:'column',gap:12}}>
         <div><Lbl>Título</Lbl><Inp value={title} onChange={e=>setTitle(e.target.value)} placeholder="Resumen breve"/></div>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+        <div className="my-row-2" style={{gap:10}}>
           <div><Lbl>Categoría</Lbl>
             <Sel value={cat} onChange={e=>setCat(e.target.value)}>
               {Object.entries(CAT_LOG).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
@@ -1408,7 +1408,7 @@ function ReportesDelDia() {
         <KpiCard label="Aprobaciones" value={r.approvalsTotal} sub={`${r.approvalsApproved} aprobadas / ${r.approvalsRejected} rechazadas`}/>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+      <div className="my-row-2" style={{gap:16}}>
         <Card title="Ventas por mozo">
           {r.byWaiter.length === 0 ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>Sin actividad</div>
             : <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -1810,7 +1810,7 @@ function NewTicketModal({onClose, onCreate, userName, role, email, restaurantNam
           <Inp value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Resumen breve del problema o consulta" autoFocus/>
         </div>
 
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+        <div className="my-row-2" style={{gap:10}}>
           <div><Lbl>Categoría</Lbl>
             <Sel value={category} onChange={e=>setCategory(e.target.value)}>
               {Object.entries(SUPPORT_CATS).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
@@ -1943,7 +1943,7 @@ function SolicitudPersonal({user, userName}) {
 
       {showForm && (
         <Modal title="Nueva solicitud de incorporación" onClose={()=>setShowForm(false)} width={520}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'14px 16px'}}>
+          <div className="my-row-2" style={{gap:'14px 16px'}}>
             <div style={{gridColumn:'1/-1'}}>
               <Lbl>Nombre completo *</Lbl>
               <Inp value={form.full_name} onChange={e=>setForm(f=>({...f,full_name:e.target.value}))} placeholder="ej: Juan García" autoFocus/>

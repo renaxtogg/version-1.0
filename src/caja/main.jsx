@@ -415,7 +415,7 @@ function DenomGrid({values,onChange,label=''}){
   return(
     <div>
       {label&&<div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,textTransform:'uppercase',marginBottom:10}}>{label}</div>}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+      <div className="my-row-2" style={{gap:8,marginBottom:12}}>
         {DENOMS.map(d=>(
           <div key={d.v} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px',display:'flex',alignItems:'center',gap:8}}>
             <div style={{flex:1}}>
@@ -616,7 +616,7 @@ function AperturaTurnoScreen({profile,cajas=[],openTurnos=[],onTurnoAbierto,onRe
         )}
 
         {showFondo&&modo==='fijo'&&(
-          <div style={{background:matchOk?'rgba(52,199,89,0.06)':'rgba(255,149,0,0.08)',border:`1px solid ${matchOk?'rgba(52,199,89,0.25)':'rgba(255,149,0,0.3)'}`,borderRadius:10,padding:'12px 16px',marginBottom:12,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,fontFamily:"'SF Mono',ui-monospace,monospace"}}>
+          <div className="my-row-3" style={{background:matchOk?'rgba(52,199,89,0.06)':'rgba(255,149,0,0.08)',border:`1px solid ${matchOk?'rgba(52,199,89,0.25)':'rgba(255,149,0,0.3)'}`,borderRadius:10,padding:'12px 16px',marginBottom:12,gap:10,fontFamily:"'SF Mono',ui-monospace,monospace"}}>
             <div><div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:2}}>OBJETIVO</div><div style={{fontSize:16,fontWeight:800,color:C.ink}}>{fmt(objetivo)}</div></div>
             <div><div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:2}}>CONTADO</div><div style={{fontSize:16,fontWeight:800,color:C.ink}}>{fmt(total)}</div></div>
             <div><div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:2}}>DIFERENCIA</div><div style={{fontSize:16,fontWeight:800,color:Math.abs(diffFijo)===0?'#34C759':Math.abs(diffFijo)<=umbral?'#FF9500':'#FF3B30'}}>{diffFijo>=0?'+':''}{fmt(diffFijo)}</div></div>
@@ -1470,7 +1470,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
 
       <div style={{marginBottom:16}}>
         <Lbl required>MÉTODO DE PAGO</Lbl>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+        <div className="my-row-2" style={{gap:8}}>
           {METODOS_PAGO.map(m=>(
             <button key={m.id} onClick={()=>setMetodo(m.id)} style={{
               padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?C.ink:C.border}`,
@@ -1486,7 +1486,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         <div style={{marginBottom:16}}>
           {/* Billetes rápidos */}
           <Lbl>BILLETES RECIBIDOS</Lbl>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:5,marginBottom:8}}>
+          <div className="my-grid" style={{'--my-col':'62px',gap:5,marginBottom:8}}>
             {BILLETES.map(v=>(
               <button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{
                 padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,
@@ -1533,7 +1533,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       {/* Comprobante */}
       <div style={{marginBottom:16}}>
         <Lbl>COMPROBANTE</Lbl>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:invoiceType!=='none'?10:0}}>
+        <div className="my-row-3" style={{gap:6,marginBottom:invoiceType!=='none'?10:0}}>
           {[['none','Sin comprobante'],['ticket','Ticket impreso'],['fiscal','Factura fiscal']].map(([v,lbl])=>(
             <button key={v} onClick={v==='fiscal'?gate('caja:sifen',()=>setInvoiceType('fiscal')):()=>setInvoiceType(v)} style={{
               padding:'9px 4px',borderRadius:7,border:`1px solid ${invoiceType===v?C.ink:C.border}`,
@@ -1735,7 +1735,7 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
 
         <div style={{marginBottom:14}}>
           <Lbl required>MÉTODO DE PAGO</Lbl>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          <div className="my-row-2" style={{gap:8}}>
             {/* 'mixto' excluido: sin desglose efectivo/tarjeta rompería el arqueo ciego. */}
             {METODOS_PAGO.filter(m=>m.id!=='mixto').map(m=>(
               <button key={m.id} onClick={()=>setMetodo(m.id)} style={{padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?C.ink:C.border}`,background:metodo===m.id?C.ink:'transparent',color:metodo===m.id?C.surface:C.mid,fontSize:12,fontWeight:metodo===m.id?700:400,cursor:'pointer'}}>{m.lbl}</button>
@@ -1748,7 +1748,7 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
         {metodo==='efectivo'&&(
           <div style={{marginBottom:14}}>
             <Lbl>BILLETES RECIBIDOS</Lbl>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:5,marginBottom:8}}>
+            <div className="my-grid" style={{'--my-col':'62px',gap:5,marginBottom:8}}>
               {BILLETES.map(v=>(<button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,background:C.card,color:C.white,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer'}}>{v>=1000?`${v/1000}k`:v}</button>))}
               <button onClick={()=>setMontoPagado(String(subtotal))} style={{padding:'9px 4px',borderRadius:6,border:`1px solid ${C.blue}55`,background:`rgba(59,130,246,0.1)`,color:C.blue,fontSize:11,fontWeight:700,cursor:'pointer'}}>Exacto</button>
             </div>
@@ -2322,7 +2322,7 @@ function QuejasPanel({turno,profile}){
 
       {showForm&&(
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,marginBottom:16,animation:'fadeIn .15s ease'}}>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
+          <div className="my-row-2" style={{gap:12,marginBottom:12}}>
             <div>
               <Lbl required>TIPO</Lbl>
               <Sel value={form.tipo} onChange={e=>setForm({...form,tipo:e.target.value})}>
@@ -2362,7 +2362,7 @@ function QuejasPanel({turno,profile}){
                 <label htmlFor="comp" style={{fontSize:12,color:C.mid,cursor:'pointer'}}>Se ofreció compensación</label>
               </div>
               {form.compensacion&&(
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                <div className="my-row-2" style={{gap:8}}>
                   <div>
                     <Lbl>TIPO COMPENSACIÓN</Lbl>
                     <Sel value={form.comp_tipo} onChange={e=>setForm({...form,comp_tipo:e.target.value})}>
@@ -2815,7 +2815,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         ) : (<>
         <div style={{marginBottom:14}}>
           <Lbl required>MÉTODO DE PAGO</Lbl>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          <div className="my-row-2" style={{gap:8}}>
             {METODOS_PAGO.map(m=>(
               <button key={m.id} onClick={()=>setMetodo(m.id)} style={{
                 padding:'10px',borderRadius:7,border:`1px solid ${metodo===m.id?C.ink:C.border}`,
@@ -2830,7 +2830,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         {metodo==='efectivo'&&(
           <div style={{marginBottom:14}}>
             <Lbl>BILLETES RECIBIDOS</Lbl>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:5,marginBottom:8}}>
+            <div className="my-grid" style={{'--my-col':'62px',gap:5,marginBottom:8}}>
               {BILLETES.map(v=>(
                 <button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{
                   padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,
@@ -2866,7 +2866,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
       {/* Comprobante */}
       <div style={{marginBottom:16}}>
         <Lbl>COMPROBANTE</Lbl>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:invoiceType!=='none'?10:0}}>
+        <div className="my-row-3" style={{gap:6,marginBottom:invoiceType!=='none'?10:0}}>
           {[['none','Sin comprobante'],['ticket','Ticket impreso'],['fiscal','Factura fiscal']].map(([v,lbl])=>(
             <button key={v} onClick={v==='fiscal'?gate('caja:sifen',()=>setInvoiceType('fiscal')):()=>setInvoiceType(v)} style={{
               padding:'9px 4px',borderRadius:7,border:`1px solid ${invoiceType===v?C.ink:C.border}`,
@@ -3527,7 +3527,7 @@ function NuevaMesaModalC({onSave,onClose}){
   return(
     <Modal title="Nueva mesa" onClose={onClose} width={380}>
       <div style={{display:'flex',flexDirection:'column',gap:14}}>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+        <div className="my-row-2" style={{gap:10}}>
           <div><Lbl>NÚMERO *</Lbl><Inp type="number" value={form.number} onChange={e=>setForm(f=>({...f,number:e.target.value}))} placeholder="1"/></div>
           <div><Lbl>LUGARES (pax)</Lbl><Inp type="number" value={form.capacity} onChange={e=>setForm(f=>({...f,capacity:e.target.value}))} placeholder="4"/></div>
         </div>
@@ -3587,7 +3587,7 @@ function MesaEditModalC({table,onSave,onClose}){
   return(
     <Modal title={`Editar Mesa ${table.number}`} onClose={onClose} width={400}>
       <div style={{display:'flex',flexDirection:'column',gap:14}}>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+        <div className="my-row-2" style={{gap:10}}>
           <div><Lbl>NÚMERO *</Lbl><Inp type="number" value={form.number} onChange={e=>setForm(f=>({...f,number:e.target.value}))} placeholder="1"/></div>
           <div><Lbl>LUGARES (pax)</Lbl><Inp type="number" value={form.capacity} onChange={e=>setForm(f=>({...f,capacity:e.target.value}))} placeholder="4"/></div>
         </div>
@@ -4144,7 +4144,7 @@ function SalonPanel({turno,profile}){
               const totalPagado=pagados.reduce((s,o)=>s+Number(o.total||0),0);
               const totalSinCobrar=sinCobrar.reduce((s,o)=>s+Number(o.total||0),0);
               return(
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:14}}>
+                <div className="my-row-3" style={{gap:8,marginBottom:14}}>
                   <div style={{background:'rgba(52,199,89,0.1)',border:'1px solid rgba(52,199,89,0.3)',borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
                     <div style={{fontSize:10,color:TINT.greenText,fontWeight:700,marginBottom:4}}>PAGADO</div>
                     <div style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:TINT.greenText}}>{fmt(totalPagado)}</div>
