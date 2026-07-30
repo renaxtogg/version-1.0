@@ -448,10 +448,9 @@ function Sidebar({page,setPage,restaurant,onToggleTheme,badges={},themeMode='lig
           );
         })}
       </nav>
+      {/* Pie: solo salir. El acceso al hub de paneles vive en la entrada "Paneles"
+          del NAV — el botón "Ver todos los paneles" que estaba acá la duplicaba. */}
       <div style={{padding:'10px 12px',borderTop:`1px solid ${C.border}`,display:'flex',flexDirection:'column',gap:8}}>
-        <button onClick={()=>setPage('paneles')} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:7,background:'none',border:`1px solid ${C.border}`,color:C.ink,fontSize:12,fontWeight:600,padding:'7px 10px',borderRadius:6,cursor:'pointer',width:'100%'}}>
-          <Icon name="layout" size={13}/> Ver todos los paneles
-        </button>
 {db && <button onClick={async()=>{try{await window.MythosPresence?.stop('manual');}catch(_){}await db.auth.signOut();window.location.replace('login.html');}} style={{background:'none',border:`1px solid ${C.border}`,color:C.dim,fontSize:11,padding:'5px 10px',borderRadius:5,width:'100%'}}>Salir</button>}
       </div>
     </aside>
