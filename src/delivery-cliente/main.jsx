@@ -2079,7 +2079,12 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
       setStep('form');
       onConfirmed(order);
     } catch(e) {
-      setSubmitError(e.message || 'No se pudo enviar el pedido');
+      // El servicio del local se cortó mientras el cliente armaba el pedido
+      // (trigger de la mig 193): mensaje neutro, sin el prefijo técnico.
+      const msg = /SERVICIO_NO_DISPONIBLE/.test(e.message || '')
+        ? 'Este local no está recibiendo pedidos en este momento. Volvé a intentarlo más tarde.'
+        : (e.message || 'No se pudo enviar el pedido');
+      setSubmitError(msg);
       setStep('form');
       submittingRef.current = false;     // error real → permitir reintento
     }
@@ -2730,6 +2735,13 @@ function GateScreen({ kind, message }) {
         ? String(message).trim()
         : 'Este local no está tomando pedidos en este momento. Volvé a intentarlo más tarde.',
     },
+    // Servicio del local cortado por facturación (mig 193). Copy NEUTRO a
+    // propósito: al cliente no se le cuenta la situación de pago del comercio.
+    'service-off': {
+      icon: <Icon name="store" size={52} color={T.ink} />,
+      title: 'Pedidos no disponibles',
+      body: 'Este local no está recibiendo pedidos por el momento. Volvé a intentarlo más tarde o comunicate con el restaurante.',
+    },
     // WS1-B · El plan del restaurante no incluye el panel delivery-cliente.
     'plan': {
       icon: (
@@ -2799,6 +2811,15 @@ function App() {
       // reintenta 2 veces y, si sigue indeterminado, se deja pasar con warn.
       // Mismo criterio fail-open que mythos-panel-gate.js (is_panel_enabled) y
       // mythos-gating.js — el paywall real lo decide la RPC, no un timeout.
+      // Corte por facturación (mig 193): con el servicio suspendido el local pierde
+      // TODOS los paneles, así que restaurant_panel_enabled también devuelve false —
+      // pero el mensaje correcto no es "este local no tiene delivery", sino uno
+      // neutro de "no recibe pedidos". Se pide en PARALELO con el chequeo de panel
+      // para no sumar latencia al camino feliz. Fail-open: null/error → como hoy.
+      const capsP = db.rpc('get_public_capabilities', { p_restaurant_id: RESTAURANT_ID })
+        .then(({ data, error }) => (error ? null : data))
+        .catch(() => null);
+
       let verdict = null;                       // true | false | null (indeterminado)
       for (let attempt = 0; attempt < 3 && verdict === null; attempt++) {
         if (!on) return;
@@ -2808,7 +2829,9 @@ function App() {
           if (!error && typeof data === 'boolean') verdict = data;
         } catch (_) { /* transporte → reintentar */ }
       }
+      const caps = await capsP;
       if (!on) return;
+      if (caps && caps.ordering === false) { setPlanStatus('service-off'); return; }
       if (verdict === false) { setPlanStatus('blocked'); return; }   // no carga datos del módulo premium
       if (verdict === null) console.warn('[delivery-cliente] restaurant_panel_enabled indeterminado (red/RPC) → fail-open: se sirve la página de pedidos');
       setPlanStatus('allowed');
@@ -2917,6 +2940,8 @@ function App() {
               <div className="screen">
                 {!RESTAURANT_ID
                   ? <GateScreen kind="no-context" />
+                  : planStatus === 'service-off'
+                  ? <GateScreen kind="service-off" />
                   : planStatus === 'blocked'
                   ? <GateScreen kind="plan" />
                   : planStatus === 'checking'

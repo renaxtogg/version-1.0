@@ -76,6 +76,37 @@
     }
   } catch (_) {}
 
+  // ── Distinguir "el plan no incluye este panel" de "el servicio está cortado" ──
+  // Con la mig 193, un local con la suscripción vencida (pasado el período de
+  // gracia) pierde TODOS los paneles. Redirigir en ese caso a
+  // "modulo-no-disponible" sería un mensaje equivocado: no es que el módulo no
+  // esté contratado, es que el servicio está suspendido. Ese caso lo explica
+  // mythos-auth-guard.js (staff) o la propia pantalla del panel (cliente), así que
+  // acá NO se redirige y se les deja el lugar.
+  //   · Panel de staff (hay sesión) → get_my_account_status().locked
+  //   · delivery-cliente (anónimo)  → get_public_capabilities().ordering
+  // Fail-safe: si esta segunda consulta falla, se redirige como siempre.
+  function isServiceCut() {
+    if (panel === 'delivery-cliente') {
+      return fetch(url + '/rest/v1/rpc/get_public_capabilities', {
+        method: 'POST',
+        headers: { 'apikey': key, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_restaurant_id: rid })
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (caps) { return !!(caps && caps.ordering === false); })
+        .catch(function () { return false; });
+    }
+    return fetch(url + '/rest/v1/rpc/get_my_account_status', {
+      method: 'POST',
+      headers: { 'apikey': key, 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_restaurant_id: rid })
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (st) { return !!(st && st.locked === true); })
+      .catch(function () { return false; });
+  }
+
   try {
     fetch(url + '/rest/v1/rpc/is_panel_enabled', {
       method: 'POST',
@@ -85,9 +116,11 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (val) {
         // Solo bloqueamos ante un false explícito. true/null/undefined → permitir.
-        if (val === false) {
+        if (val !== false) return;
+        return isServiceCut().then(function (cut) {
+          if (cut) return;   // corte por facturación → lo explica la pantalla del panel
           location.replace('modulo-no-disponible.html?panel=' + encodeURIComponent(panel));
-        }
+        });
       })
       .catch(function () { /* fail-open */ });
   } catch (_) { /* fail-open */ }

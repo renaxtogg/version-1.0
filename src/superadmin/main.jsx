@@ -2094,7 +2094,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   // ── Suscripciones (movido desde Facturación) ──────────────────
   const openEditSub = r => {
     const s = r.subscription||{};
-    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||'',addonKeys:(r.addons||[]).map(a=>a.addon_key)});
+    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||'',grace_days:s.grace_days??'',addonKeys:(r.addons||[]).map(a=>a.addon_key)});
     setSubModal(r);
   };
 
@@ -2104,13 +2104,19 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
     try {
       const sub = subModal.subscription;
       const payload = {plan_id:subForm.plan_id,status:subForm.status,start_date:subForm.start_date,end_date:subForm.end_date||null,auto_renew:subForm.auto_renew,payment_method:subForm.payment_method,monthly_amount:parseFloat(subForm.monthly_amount)||null};
-      if (sub?.id) {
-        const {error} = await db.from('subscriptions').update(payload).eq('id',sub.id);
-        if (error) throw error;
-      } else {
-        const {error} = await db.from('subscriptions').insert({restaurant_id:subModal.id,...payload});
-        if (error) throw error;
+      // Días de gracia (mig 193): override por cliente. Vacío = usar el del plan.
+      // Deploy-safe: si la migración todavía no está aplicada la columna no existe,
+      // así que se reintenta sin ella en vez de perder el resto de la edición.
+      const graceVal = String(subForm.grace_days??'').trim()==='' ? null : Math.max(0, parseInt(subForm.grace_days,10)||0);
+      const write = async body => sub?.id
+        ? db.from('subscriptions').update(body).eq('id',sub.id)
+        : db.from('subscriptions').insert({restaurant_id:subModal.id,...body});
+      let {error} = await write({...payload, grace_days:graceVal});
+      if (error && /grace_days/i.test(error.message||'')) {
+        setFlash({type:'warn',text:'Días de gracia no guardados — ¿está aplicada la migración 193?'});
+        ({error} = await write(payload));
       }
+      if (error) throw error;
       // Reconciliar add-ons contratados por el restaurante
       const want = subForm.addonKeys||[];
       await db.from('restaurant_addons').delete().eq('restaurant_id',subModal.id);
@@ -2435,7 +2441,25 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
             </FormField>
             <FormField label="Fecha inicio"><input type="date" value={subForm.start_date} onChange={ssf('start_date')}/></FormField>
             <FormField label="Fecha vencimiento"><input type="date" value={subForm.end_date} onChange={ssf('end_date')}/></FormField>
+            {/* Gracia (mig 193): días que sigue operando después del vencimiento
+                antes de cortarse el servicio. Vacío = el default del plan (5). */}
+            <FormField label="Días de gracia">
+              <input type="number" min="0" max="365" value={subForm.grace_days} onChange={ssf('grace_days')} placeholder="5 (del plan)"/>
+            </FormField>
           </div>
+          {/* Corte efectivo: lo que el dueño va a ver como fecha límite. */}
+          {subForm.end_date && (() => {
+            const g = String(subForm.grace_days??'').trim()==='' ? 5 : (parseInt(subForm.grace_days,10)||0);
+            const corte = new Date(subForm.end_date+'T00:00:00'); corte.setDate(corte.getDate()+g);
+            const cortado = corte < new Date(new Date().toISOString().slice(0,10)+'T00:00:00');
+            return (
+              <div style={{fontSize:11,color:cortado?C.red:C.mid,background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 10px',marginTop:-2}}>
+                {cortado
+                  ? `Servicio CORTADO desde el ${fmtDate(corte.toISOString().slice(0,10))} — el local no puede operar ni recibir pedidos.`
+                  : `Con ${g} días de gracia, el servicio se corta el ${fmtDate(corte.toISOString().slice(0,10))} si no se renueva.`}
+              </div>
+            );
+          })()}
 
           {/* Add-ons del restaurante (cargos extra sobre el plan base) */}
           <div style={{borderTop:`1px solid ${C.border}`,marginTop:8,paddingTop:12}}>

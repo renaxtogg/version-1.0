@@ -1339,7 +1339,12 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
       setOrdNum(order.order_number);
       setStep('ok');
     } catch(e) {
-      setSubmitError(e.message || 'Error al enviar el pedido');
+      // El servicio del local se cortó mientras el comensal armaba el pedido
+      // (trigger de la mig 193): mensaje neutro, sin el prefijo técnico.
+      const msg = /SERVICIO_NO_DISPONIBLE/.test(e.message || '')
+        ? 'Este local no está recibiendo pedidos en este momento. Consultá con el personal del restaurante.'
+        : (e.message || 'Error al enviar el pedido');
+      setSubmitError(msg);
       setStep('form');
       submittingRef.current = false;     // error real → permitir reintento
     }
@@ -2109,6 +2114,13 @@ function GateScreen({ kind, message }) {
         ? String(message).trim()
         : 'Este local no está tomando pedidos en este momento. Volvé a intentarlo más tarde.',
     },
+    // Servicio del local cortado por facturación (mig 193). Copy NEUTRO a
+    // propósito: al comensal no se le cuenta la situación de pago del comercio.
+    'service-off': {
+      icon: <Icon name="store" size={52} color={T.qrText} />,
+      title: 'Pedidos no disponibles',
+      body: 'Este local no está recibiendo pedidos por el momento. Consultá con el personal del restaurante.',
+    },
     // Modo delivery (mig 173): el local no atiende en salón → el Menú QR se
     // reemplaza por un acceso directo al pedido a domicilio.
     'delivery-only': {
@@ -2150,6 +2162,10 @@ function App() {
      get_public_capabilities expone solo flags de cara al cliente. FAIL-OPEN: si la
      RPC no está aplicada todavía o falla, se muestra todo como antes. */
   const [canReserve, setCanReserve] = useState(true);
+  // `ordering === false` (mig 193) = el local no tiene el servicio activo (suscripción
+  // vencida + gracia agotada). Se corta ACÁ, antes de que el comensal arme un carrito
+  // que la base va a rechazar igual. El motivo real NO se le muestra al cliente.
+  const [serviceOff, setServiceOff] = useState(false);
   useEffect(() => {
     if (!db || !RESTAURANT_ID) return;
     let alive = true;
@@ -2157,6 +2173,7 @@ function App() {
       .then(({ data, error }) => {
         if (!alive || error || !data) return;      // fail-open
         if (data.reservations === false) setCanReserve(false);
+        if (data.ordering === false) setServiceOff(true);
       })
       .catch(() => {});
     return () => { alive = false; };
@@ -2394,6 +2411,8 @@ function App() {
                   ? <GateScreen kind="no-context" />
                   : restaurantStatus === 'notfound'
                   ? <GateScreen kind="not-found" />
+                  : serviceOff
+                  ? <GateScreen kind="service-off" />
                   : restUnavailable
                   ? <GateScreen kind="unavailable" message={restaurant?.maintenance_mode ? restaurant?.maintenance_message : ''} />
                   : restaurant?.service_mode === 'delivery'

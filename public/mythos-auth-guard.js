@@ -11,16 +11,23 @@
  *      user_security_flags.must_change_password = true, redirige a
  *      /cambiar-password ANTES de dejar usar el panel. Tiene prioridad sobre
  *      todo lo demás (el usuario primero regulariza su clave).
- *   2) Estado de la cuenta (mig 150): tras confirmar que NO hay que cambiar la
- *      clave, llama get_my_account_status() y aplica, para el restaurante del
+ *   2) Estado de la cuenta (mig 150 + 193): tras confirmar que NO hay que cambiar
+ *      la clave, llama get_my_account_status() y aplica, para el restaurante del
  *      usuario:
  *        • SUSPENDIDA / INACTIVA → pantalla de bloqueo a pantalla completa
  *          ("Tu cuenta está suspendida"), con el WhatsApp de contacto
  *          (marketing_config). No deja operar. El superadmin NUNCA se bloquea.
+ *        • CORTADA POR FACTURACIÓN (locked, mig 193: venció y se acabó el período
+ *          de gracia) → pantalla de bloqueo a pantalla completa. El texto DEPENDE
+ *          DEL ROL: al dueño (admin) se le dice que la suscripción venció y que
+ *          contacte a soporte; al resto del personal se le muestra un mensaje
+ *          NEUTRO ("servicio no disponible, hablá con la administración del
+ *          local") — el personal no se entera del tema de pago.
  *        • MANTENIMIENTO → banner prominente arriba ("Modo mantenimiento
  *          activo" + mensaje). Se ve, pero deja operar.
- *        • VENCIDA (end_date < hoy o status expired) → banner de advertencia +
- *          modal una-sola-vez-por-día. No bloquea (período de gracia).
+ *        • VENCIDA PERO EN GRACIA (in_grace) → banner de advertencia + modal
+ *          una-sola-vez-por-día, SOLO para el dueño. No bloquea todavía; avisa
+ *          hasta qué día opera. El resto del personal no ve nada.
  *
  * Diseño (defensa en profundidad, FAIL-OPEN — nunca dejar a nadie afuera por un
  * error):
@@ -133,8 +140,14 @@
           if (!st || typeof st !== 'object') return;        // NULL / error → fail-open
           if (st.role === 'superadmin') return;             // doble red
           if (st.suspended === true) { showSuspendedBlock(); return; }  // bloqueo total
+          // Corte por facturación (mig 193): venció y se acabó la gracia. Bloquea
+          // igual que la suspensión, con copy distinto según el rol. Se evalúa
+          // ANTES de los banners: si no hay servicio, no hay nada que avisar.
+          if (st.locked === true) { showServiceLockedBlock(st); return; }
           if (st.maintenance_mode === true) showMaintenanceBanner(st.maintenance_message);
-          if (st.expired === true) { showExpiredBanner(st); showExpiredModalOnce(st); }
+          // El aviso de vencimiento es asunto del DUEÑO: el personal no tiene por
+          // qué enterarse de la situación de pago del local (instrucción de Renato).
+          if (st.expired === true && isOwner(st)) { showExpiredBanner(st); showExpiredModalOnce(st); }
           // Los paneles con header propio position:fixed (p. ej. mozo) ignoran el
           // padding-top del body → correrlos hacia abajo para que el banner no los tape.
           if (_bannerH > 0) nudgeFixedHeaders(_bannerH);
@@ -203,12 +216,62 @@
     } catch (_) { return String(d || ''); }
   }
 
+  // ¿El usuario es el DUEÑO del local? Solo a él se le habla de plan y de pagos;
+  // para el resto del personal el motivo del corte es información privada del
+  // dueño. Se confía en el rol que devuelve la RPC (server-side), con el de
+  // localStorage como respaldo si la RPC no lo trajera.
+  function isOwner(st) {
+    var r = ((st && st.role) || lsGet('mythos_role') || '').trim().toLowerCase();
+    return r === 'admin' || r === 'owner';
+  }
+
+  // WhatsApp de contacto de MYTHOS: lectura anon-safe de marketing_config
+  // (mismo origen que el sitio público). Muestra el botón recién cuando hay número
+  // — nunca deja un enlace roto. `msg` es el texto pre-cargado del chat.
+  function attachSupportWhatsapp(btn, msg) {
+    try {
+      fetch(url + '/rest/v1/marketing_config?key=eq.whatsapp&select=value&limit=1', {
+        headers: { 'apikey': key, 'Authorization': 'Bearer ' + key }
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (rows) {
+          var num = rows && rows[0] ? String(rows[0].value || '') : '';
+          var digits = num.replace(/[^0-9]/g, '');
+          if (digits.length >= 6) {
+            btn.href = 'https://wa.me/' + digits + (msg ? '?text=' + encodeURIComponent(msg) : '');
+            btn.target = '_blank';
+            btn.rel = 'noreferrer';
+            btn.style.display = 'block';
+          }
+        })
+        .catch(function () { /* sin número → el bloque queda sin botón de WhatsApp */ });
+    } catch (_) {}
+  }
+
+  // Cierra sesión de verdad: limpia el token ANTES de ir al login (si no,
+  // login.html ve la sesión viva y rebota de vuelta al panel → loop).
+  function hardLogout() {
+    try {
+      var kill = [];
+      for (var i = 0; i < localStorage.length; i++) {
+        var kk = localStorage.key(i);
+        if (kk && (/^sb-.*-auth-token/.test(kk) || kk.indexOf('mythos_') === 0)) kill.push(kk);
+      }
+      kill.forEach(function (kk) { try { localStorage.removeItem(kk); } catch (_) {} });
+    } catch (_) {}
+    location.replace('login.html');
+  }
+
   function showExpiredBanner(st) {
     if (document.getElementById('mythos-expired-banner')) return;
     var bar = el('div', 'position:fixed;top:0;left:0;right:0;z-index:2147483001;background:#D70015;color:#fff;padding:9px 16px;font:600 13px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.18)');
     bar.id = 'mythos-expired-banner';
     var fecha = fmtDate(st && st.subscription_end_date);
-    bar.textContent = 'Tu suscripción venció' + (fecha ? ' el ' + fecha : '') + '. Regularizá para no perder el servicio.';
+    var corte = fmtDate(st && st.grace_ends_on);
+    // Con la mig 193 el aviso ya no es vago: dice hasta qué día opera el local.
+    bar.textContent = 'Tu suscripción venció' + (fecha ? ' el ' + fecha : '') + '. '
+      + (corte ? 'Regularizá antes del ' + corte + ' o el servicio se suspende.'
+               : 'Regularizá para no perder el servicio.');
     // Va DEBAJO del de mantenimiento si ambos existen.
     document.body.appendChild(bar);
     var maint = document.getElementById('mythos-maint-banner');
@@ -227,8 +290,11 @@
     card.appendChild(el('div', 'font-size:40px;line-height:1;margin-bottom:12px', '⚠️'));
     card.appendChild(el('div', 'font-size:19px;font-weight:800;color:#1c1c1e;margin-bottom:8px', 'Tu suscripción venció'));
     var fecha = fmtDate(st && st.subscription_end_date);
+    var corte = fmtDate(st && st.grace_ends_on);
     card.appendChild(el('div', 'font-size:14px;color:#555;line-height:1.6;margin-bottom:20px',
-      (fecha ? 'Venció el ' + fecha + '. ' : '') + 'Regularizá el pago para no perder el servicio. Por ahora podés seguir operando.'));
+      (fecha ? 'Venció el ' + fecha + '. ' : '')
+      + (corte ? 'Podés seguir operando hasta el ' + corte + '. Después de esa fecha el servicio se suspende para todos los paneles del local.'
+               : 'Regularizá el pago para no perder el servicio. Por ahora podés seguir operando.')));
     var btn = el('button', 'width:100%;border:none;border-radius:10px;background:#1c1c1e;color:#fff;font-size:14px;font-weight:700;padding:12px;cursor:pointer', 'Entendido');
     btn.onclick = function () {
       try { localStorage.setItem(flagKey, '1'); } catch (_) {}
@@ -240,63 +306,92 @@
     document.body.appendChild(overlay);
   }
 
-  function showSuspendedBlock() {
-    if (document.getElementById('mythos-suspended-block')) return;
+  /* ── Pantalla de bloqueo total (constructor común) ──────────────────────────
+     Overlay opaco a pantalla completa, sin forma de cerrarlo: el panel de atrás
+     queda inaccesible. Lo usan la suspensión manual (superadmin) y el corte por
+     facturación. Parámetros:
+       id      : id del nodo (evita duplicados si el guard corre dos veces)
+       title   : título grande
+       body    : texto explicativo
+       note    : línea secundaria opcional (fecha de vencimiento, etc.)
+       waLabel : etiqueta del botón de WhatsApp (null = sin botón)
+       waMsg   : mensaje pre-cargado del chat                                  */
+  function showBlockScreen(opts) {
+    if (document.getElementById(opts.id)) return;
     try { document.body.style.overflow = 'hidden'; } catch (_) {}
 
-    var overlay = el('div', 'position:fixed;inset:0;z-index:2147483647;background:#0b0b0c;display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,-apple-system,Segoe UI,sans-serif');
-    overlay.id = 'mythos-suspended-block';
+    var overlay = el('div', 'position:fixed;inset:0;z-index:2147483647;background:#0b0b0c;display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,-apple-system,Segoe UI,sans-serif;overflow:auto');
+    overlay.id = opts.id;
     var card = el('div', 'max-width:440px;width:100%;text-align:center;color:#fff');
     card.appendChild(el('div', 'font-size:52px;line-height:1;margin-bottom:16px', '🔒'));
-    card.appendChild(el('div', 'font-size:23px;font-weight:800;margin-bottom:10px', 'Tu cuenta está suspendida'));
-    card.appendChild(el('div', 'font-size:15px;color:#c7c7cc;line-height:1.65;margin-bottom:24px',
-      'El acceso a los paneles está pausado. Contactá a MYTHOS para reactivar tu cuenta y volver a operar.'));
+    card.appendChild(el('div', 'font-size:23px;font-weight:800;margin-bottom:10px', opts.title));
+    card.appendChild(el('div', 'font-size:15px;color:#c7c7cc;line-height:1.65;margin-bottom:' + (opts.note ? '12px' : '24px'), opts.body));
+    if (opts.note) {
+      card.appendChild(el('div', 'font-size:13px;color:#8e8e93;line-height:1.6;margin-bottom:24px', opts.note));
+    }
 
     var btnRow = el('div', 'display:flex;flex-direction:column;gap:10px;align-items:stretch');
     card.appendChild(btnRow);
 
-    // Botón WhatsApp (si hay número configurado en marketing_config).
-    var waBtn = el('a', 'display:none;text-decoration:none;background:#25D366;color:#fff;border-radius:10px;font-size:15px;font-weight:700;padding:13px;text-align:center', 'Contactar a MYTHOS por WhatsApp');
-    waBtn.id = 'mythos-suspended-wa';
-    btnRow.appendChild(waBtn);
+    // Botón WhatsApp (aparece solo si hay número en marketing_config).
+    var waBtn = null;
+    if (opts.waLabel) {
+      waBtn = el('a', 'display:none;text-decoration:none;background:#25D366;color:#fff;border-radius:10px;font-size:15px;font-weight:700;padding:13px;text-align:center', opts.waLabel);
+      btnRow.appendChild(waBtn);
+    }
 
-    // "Cerrar sesión": limpia el token ANTES de ir a login (si no, login.html ve
-    // la sesión viva y redirige de vuelta al panel → loop). Borra los sb-*-auth-token
-    // y las claves mythos_*.
     var out = el('button', 'background:none;border:none;text-decoration:underline;color:#8e8e93;font-size:13px;font-weight:600;padding:8px;cursor:pointer', 'Cerrar sesión');
-    out.onclick = function () {
-      try {
-        var kill = [];
-        for (var i = 0; i < localStorage.length; i++) {
-          var kk = localStorage.key(i);
-          if (kk && (/^sb-.*-auth-token/.test(kk) || kk.indexOf('mythos_') === 0)) kill.push(kk);
-        }
-        kill.forEach(function (kk) { try { localStorage.removeItem(kk); } catch (_) {} });
-      } catch (_) {}
-      location.replace('login.html');
-    };
+    out.onclick = hardLogout;
     btnRow.appendChild(out);
 
     overlay.appendChild(card);
     document.body.appendChild(overlay);
 
-    // WhatsApp de contacto: lectura anon-safe de marketing_config (is_public).
-    try {
-      fetch(url + '/rest/v1/marketing_config?key=eq.whatsapp&select=value&limit=1', {
-        headers: { 'apikey': key, 'Authorization': 'Bearer ' + key }
-      })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (rows) {
-          var num = rows && rows[0] ? String(rows[0].value || '') : '';
-          var digits = num.replace(/[^0-9]/g, '');
-          if (digits.length >= 6) {
-            waBtn.href = 'https://wa.me/' + digits;
-            waBtn.target = '_blank';
-            waBtn.rel = 'noreferrer';
-            waBtn.style.display = 'block';
-          }
-        })
-        .catch(function () { /* sin número → queda solo el "Cerrar sesión" */ });
-    } catch (_) {}
+    if (waBtn) attachSupportWhatsapp(waBtn, opts.waMsg);
+  }
+
+  function showSuspendedBlock() {
+    showBlockScreen({
+      id: 'mythos-suspended-block',
+      title: 'Tu cuenta está suspendida',
+      body: 'El acceso a los paneles está pausado. Contactá a MYTHOS para reactivar tu cuenta y volver a operar.',
+      waLabel: 'Contactar a MYTHOS por WhatsApp',
+      waMsg: 'Hola MYTHOS, mi cuenta figura suspendida y necesito reactivarla.'
+    });
+  }
+
+  /* ── Corte por facturación (mig 193) ────────────────────────────────────────
+     DOS textos distintos, a propósito (instrucción de Renato):
+       · DUEÑO (admin): se le dice la verdad —venció la suscripción, se terminó el
+         período de gracia— y se lo manda a soporte por WhatsApp.
+       · RESTO DEL PERSONAL (mozo, caja, cocina, gerente, rider): mensaje NEUTRO.
+         Nunca se menciona plan, pago ni vencimiento: para el empleado es un
+         servicio no disponible y lo tiene que hablar con la administración del
+         local. La situación de pago del comercio no es asunto de sus empleados. */
+  function showServiceLockedBlock(st) {
+    var fecha = fmtDate(st && st.subscription_end_date);
+
+    if (isOwner(st)) {
+      showBlockScreen({
+        id: 'mythos-service-locked',
+        title: 'Servicio suspendido',
+        body: 'Tu suscripción a MYTHOS venció y ya pasó el período de gracia, así que el servicio quedó suspendido: los paneles del local y la toma de pedidos están detenidos. Regularizá el pago para reactivarlo — se restablece apenas se acredita.',
+        note: (fecha ? 'Venció el ' + fecha + '.' : '')
+              + (st && st.grace_days ? ' Período de gracia: ' + st.grace_days + ' días.' : ''),
+        waLabel: 'Contactar a soporte por WhatsApp',
+        waMsg: 'Hola MYTHOS, soy de ' + ((st && st.restaurant_name) || 'mi restaurante')
+             + ' y quiero regularizar mi suscripción para reactivar el servicio.'
+      });
+      return;
+    }
+
+    showBlockScreen({
+      id: 'mythos-service-locked',
+      title: 'Servicio no disponible',
+      body: 'En este momento el sistema no está disponible para este local. No es un problema de tu usuario ni de tu equipo.',
+      note: 'Comunicate con la administración del local para más información.',
+      waLabel: 'Contactar a soporte',
+      waMsg: 'Hola MYTHOS, trabajo en un local y el sistema me aparece como no disponible.'
+    });
   }
 })();
