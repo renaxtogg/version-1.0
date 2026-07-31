@@ -2629,6 +2629,219 @@ function PagosPorValidar({ restNameById, setFlash, reload }) {
   );
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+   HISTORIAL DE PAGOS — "dónde me llegan todos los pagos" (pedido de Renato).
+   ──────────────────────────────────────────────────────────────────────
+   PagosPorValidar es la BANDEJA DE ENTRADA: solo lo pendiente, y desaparece
+   cuando no hay nada que hacer. Esto es el LIBRO: todo lo que entró alguna vez,
+   aprobado o rechazado, con su comprobante, su período y quién lo validó.
+   Los pagos con review_status NULL son cargas manuales del superadmin (el flujo
+   viejo), y también se listan: es el mismo dinero.
+══════════════════════════════════════════════════════════════════════ */
+function HistorialPagos({ restNameById }) {
+  const [rows, setRows]   = useState(null);
+  const [filter, setFlt]  = useState('all');
+  const [q, setQ]         = useState('');
+  const [missing, setMiss]= useState(false);
+
+  const load = useCallback(async () => {
+    if (!db) { setRows([]); return; }
+    const { data, error } = await db.from('payments')
+      .select('id,restaurant_id,amount,method,status,review_status,reference,proof_url,months,period_start,period_end,paid_at,created_at,reviewed_at,review_notes,provisional_until')
+      .order('created_at',{ascending:false})
+      .limit(300);
+    // Sin la mig 194 la columna review_status no existe → la sección no se muestra.
+    if (error) { setMiss(/review_status|column|does not exist/i.test(error.message||'')); setRows([]); return; }
+    setRows(data||[]);
+  }, []);
+  useEffect(()=>{ load(); },[load]);
+
+  const META = {
+    pending:  {label:'Pendiente', color:C.orange},
+    approved: {label:'Aprobado',  color:C.green},
+    rejected: {label:'Rechazado', color:C.red},
+    manual:   {label:'Registrado',color:C.dim},
+  };
+  const stOf = p => p.review_status || 'manual';
+
+  const all = rows || [];
+  const shown = all.filter(p => {
+    if (filter !== 'all' && stOf(p) !== filter) return false;
+    if (!q.trim()) return true;
+    const name = (restNameById[p.restaurant_id] || '').toLowerCase();
+    return name.includes(q.trim().toLowerCase()) || String(p.reference||'').includes(q.trim());
+  });
+
+  // Cobrado = solo lo aprobado (o la carga manual del superadmin, que ya es plata
+  // confirmada). Lo pendiente NO se cuenta como ingreso: todavía no se validó.
+  const isIn   = p => stOf(p) === 'approved' || stOf(p) === 'manual';
+  const when   = p => p.paid_at || p.reviewed_at || p.created_at;
+  const mesIso = new Date().toISOString().slice(0,7);
+  const cobradoMes   = all.filter(p => isIn(p) && String(when(p)||'').slice(0,7) === mesIso)
+                          .reduce((s,p)=>s+Number(p.amount||0),0);
+  const cobradoTotal = all.filter(isIn).reduce((s,p)=>s+Number(p.amount||0),0);
+  const pendientes   = all.filter(p => stOf(p)==='pending');
+
+  if (missing) return null;
+  if (rows === null) return null;
+
+  const KPI = ({label, value, color}) => (
+    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:'12px 18px',flex:'1 1 150px'}}>
+      <div style={{fontSize:11,color:C.mid,marginBottom:4}}>{label}</div>
+      <div style={{fontSize:20,fontWeight:800,color:color||C.ink}}>{value}</div>
+    </div>
+  );
+
+  const TABS = [
+    {id:'all',      label:`Todos (${all.length})`},
+    {id:'pending',  label:`Pendientes (${pendientes.length})`},
+    {id:'approved', label:'Aprobados'},
+    {id:'rejected', label:'Rechazados'},
+  ];
+
+  return (
+    <SectionCard title="Historial de pagos de suscripciones">
+      <div style={{padding:'12px 16px 16px'}}>
+        <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:14}}>
+          <KPI label="Cobrado este mes" value={fmtGuarani(cobradoMes)}/>
+          <KPI label="Cobrado histórico" value={fmtGuarani(cobradoTotal)}/>
+          <KPI label="Esperando validación" value={fmtGuarani(pendientes.reduce((s,p)=>s+Number(p.amount||0),0))}
+               color={pendientes.length ? C.orange : C.ink}/>
+        </div>
+
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
+          {TABS.map(t=>(
+            <button key={t.id} onClick={()=>setFlt(t.id)}
+              style={{padding:'5px 12px',borderRadius:20,fontSize:12,fontWeight:700,cursor:'pointer',
+                      border:`1px solid ${filter===t.id?C.ink:C.border}`,
+                      background:filter===t.id?C.ink:'transparent',
+                      color:filter===t.id?C.sidebar:C.mid}}>{t.label}</button>
+          ))}
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar local o Nº…"
+                 style={{flex:'1 1 160px',minWidth:120,fontSize:12}}/>
+          <Btn size="sm" variant="ghost" onClick={load}>Actualizar</Btn>
+        </div>
+
+        {shown.length === 0 ? (
+          <div style={{fontSize:12.5,color:C.dim,padding:'18px 2px'}}>
+            {all.length === 0
+              ? 'Todavía no entró ningún pago. Cuando un dueño declare una transferencia desde su panel, aparece acá.'
+              : 'Ningún pago coincide con el filtro.'}
+          </div>
+        ) : (
+          <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+            {shown.map((p,i)=>{
+              const m = META[stOf(p)];
+              return (
+                <div key={p.id} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 14px',flexWrap:'wrap',
+                                        borderTop:i?`1px solid ${C.border}`:'none'}}>
+                  <ProofThumb value={p.proof_url}/>
+                  <div style={{flex:'1 1 200px',minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:C.ink}}>{restNameById[p.restaurant_id] || '—'}</div>
+                    <div style={{fontSize:11.5,color:C.mid}}>
+                      {p.method || 'transferencia'}
+                      {p.reference ? ` · Nº ${p.reference}` : ''}
+                      {p.months ? ` · ${p.months} ${p.months===1?'mes':'meses'}` : ''}
+                      {' · '}{fmtDateTime(p.created_at)}
+                    </div>
+                    {p.period_end && (
+                      <div style={{fontSize:11,color:C.dim,marginTop:1}}>Cubre hasta el {fmtDate(p.period_end)}</div>
+                    )}
+                    {p.review_notes && (
+                      <div style={{fontSize:11,color:C.mid,marginTop:2,fontStyle:'italic'}}>“{p.review_notes}”</div>
+                    )}
+                  </div>
+                  <div style={{textAlign:'right',flexShrink:0}}>
+                    <div style={{fontSize:14,fontWeight:800,color:C.ink}}>{fmtGuarani(p.amount)}</div>
+                    <span style={{fontSize:10.5,fontWeight:800,color:m.color,letterSpacing:.3}}>{m.label.toUpperCase()}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+/* Subida de la FOTO del QR de cobro (pedido de Renato: "foto de mi qr", no una URL
+   que hay que conseguir en otro lado). Va al bucket público `restaurant-images`
+   bajo `platform/` — la policy de la mig 165 deja escribir ahí al superadmin
+   (`get_my_role()='superadmin' OR carpeta = restaurant_id`) y la lectura del bucket
+   es pública, que es justo lo que hace falta: el dueño tiene que poder verlo desde
+   su panel. Se comprime a webp ≤800px (el QR tiene que quedar legible) para no
+   subir una foto de 4 MB. Se mantiene el campo de URL como alternativa manual. */
+function QrUploader({ value, onChange, setFlash }) {
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef(null);
+
+  const pick = async e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';                       // permite re-elegir el mismo archivo
+    if (!file || !db) return;
+    if (!/^image\//.test(file.type)) { setFlash({type:'error',text:'Ese archivo no es una imagen'}); return; }
+    setBusy(true);
+    try {
+      const blob = await new Promise((res, rej) => {
+        const img = new Image();
+        img.onload = () => {
+          const max = 800;
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const cv = document.createElement('canvas');
+          cv.width  = Math.round(img.width  * scale);
+          cv.height = Math.round(img.height * scale);
+          const cx = cv.getContext('2d');
+          cx.fillStyle = '#FFFFFF';            // QR sobre fondo blanco: no confiar en el alfa
+          cx.fillRect(0, 0, cv.width, cv.height);
+          cx.drawImage(img, 0, 0, cv.width, cv.height);
+          cv.toBlob(b => b ? res(b) : rej(new Error('No se pudo procesar la imagen')), 'image/webp', 0.92);
+        };
+        img.onerror = () => rej(new Error('No se pudo leer la imagen'));
+        img.src = URL.createObjectURL(file);
+      });
+
+      const path = `platform/qr-${Date.now()}.webp`;
+      const { error: upErr } = await db.storage.from('restaurant-images')
+        .upload(path, blob, { contentType: 'image/webp', upsert: true });
+      if (upErr) throw upErr;
+      const { data } = db.storage.from('restaurant-images').getPublicUrl(path);
+      if (!data || !data.publicUrl) throw new Error('No se pudo obtener el enlace de la imagen');
+      onChange(data.publicUrl);
+      setFlash({type:'ok',text:'QR cargado — acordate de Guardar para que lo vean tus clientes'});
+    } catch (err) {
+      setFlash({type:'error',text:'No se pudo subir el QR: ' + (err.message||'error desconocido')});
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{display:'flex',gap:14,alignItems:'flex-start',flexWrap:'wrap'}}>
+      <div style={{width:104,height:104,borderRadius:10,border:`1px solid ${C.border}`,background:C.bg,
+                   display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0}}>
+        {value
+          ? <img src={value} alt="QR de cobro" style={{width:'100%',height:'100%',objectFit:'contain'}}
+                 onError={e=>{e.target.style.display='none';}}/>
+          : <span style={{fontSize:11,color:C.dim,textAlign:'center',padding:8}}>Sin QR<br/>cargado</span>}
+      </div>
+      <div style={{flex:'1 1 220px',minWidth:0}}>
+        <input ref={inputRef} type="file" accept="image/*" onChange={pick} style={{display:'none'}}/>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <Btn size="sm" variant="ghost" onClick={()=>inputRef.current && inputRef.current.click()} disabled={busy}>
+            {busy ? 'Subiendo…' : (value ? 'Cambiar foto' : 'Subir foto del QR')}
+          </Btn>
+          {value && <Btn size="sm" variant="ghost" onClick={()=>onChange('')} disabled={busy}>Quitar</Btn>}
+        </div>
+        <div style={{fontSize:11,color:C.dim,margin:'8px 0 5px',lineHeight:1.5}}>
+          Sacale una captura al QR de tu billetera o banco. Se comprime solo.
+        </div>
+        <input value={value||''} onChange={e=>onChange(e.target.value)} placeholder="…o pegá una URL"
+               style={{width:'100%',fontSize:11.5}}/>
+      </div>
+    </div>
+  );
+}
+
 /* Datos bancarios de MYTHOS: lo que ve el dueño en su checkout. Sin esto cargado,
    el modal de pago del dueño muestra "todavía no cargamos los datos de cobro". */
 function DatosDeCobro({ setFlash }) {
@@ -2688,7 +2901,9 @@ function DatosDeCobro({ setFlash }) {
           <FormField label="Nº de cuenta"><input value={form.bank_account||''} onChange={sf('bank_account')} placeholder="000-000000-0"/></FormField>
           <FormField label="RUC / CI"><input value={form.bank_doc||''} onChange={sf('bank_doc')} placeholder="0000000-0"/></FormField>
           <FormField label="Alias / billetera"><input value={form.bank_alias||''} onChange={sf('bank_alias')} placeholder="09xx xxx xxx"/></FormField>
-          <FormField label="URL del QR de pago"><input value={form.qr_url||''} onChange={sf('qr_url')} placeholder="https://…"/></FormField>
+          <FormField label="QR de pago" col="1/-1">
+            <QrUploader value={form.qr_url} onChange={v=>setForm(f=>({...f,qr_url:v}))} setFlash={setFlash}/>
+          </FormField>
           <FormField label="Instrucciones para el cliente" col="1/-1">
             <input value={form.instructions||''} onChange={sf('instructions')} placeholder="Transferí y subí la foto del comprobante. Validamos en el día."/>
           </FormField>
@@ -3029,6 +3244,9 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
 
       {/* Datos de cobro de la plataforma (mig 194) — alimenta el checkout del dueño */}
       <DatosDeCobro setFlash={setFlash}/>
+
+      {/* El libro completo: todo pago que entró, no solo lo que espera acción */}
+      <HistorialPagos restNameById={restNameById}/>
 
       {/* MRR total */}
       <div style={{display:'flex',gap:12,margin:'20px 0',flexWrap:'wrap'}}>
