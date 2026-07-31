@@ -8,8 +8,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput, NumInput } from "../shared/gs.jsx";
-// FASE D2 — validación de comprobantes (etiquetas de estado en reportes).
-import { reviewMeta, ProofImage } from "../shared/comprobante.jsx";
+// FASE D2 — validación de comprobantes (etiquetas de estado en reportes) y, con
+// la mig 194, el mismo uploader para el pago de la propia suscripción.
+import { reviewMeta, ProofImage, ComprobanteUploader } from "../shared/comprobante.jsx";
 // CAPTCHA Turnstile (nativo de Supabase Auth) para los flujos in-app que
 // re-autentican (modal "Cambiar contraseña" → signInWithPassword).
 import { useTurnstile } from "../shared/turnstile.js";
@@ -425,6 +426,10 @@ const NAV = [
   {id:'caja',      label:'Caja',            icon:'creditCard'},
   null,
   {id:'avisos',    label:'Avisos personal', icon:'bell', group:'SISTEMA'},
+  // Plan y facturación: el dueño renueva/contrata sin salir del panel (mig 194).
+  // Sin `req`: nunca se bloquea por plan — es justamente la salida cuando el
+  // servicio está cortado.
+  {id:'plan',      label:'Plan y pagos', icon:'creditCard'},
   {id:'soporte',   label:'Soporte',      icon:'chat'},
   {id:'config',    label:'Config',       icon:'settings'},
 ];
@@ -613,10 +618,11 @@ function PanelShareModal({panel, url, onClose}) {
 }
 
 /* Modal de mejora de plan: lista los planes activos, marca cuál incluye el
-   panel bloqueado y ofrece el contacto de WhatsApp pre-cargado. */
+   panel bloqueado y lleva al checkout real (mig 194). El botón de WhatsApp queda
+   como salida secundaria, ya no como única opción. */
 const PANEL_LABEL_SHORT = {'menu-cliente':'Menú Cliente',caja:'Caja',mozo:'Mozo',cocina:'Cocina',gerente:'Gerente','delivery-cliente':'Delivery Cliente','delivery-rider':'Rider'};
 
-function UpgradeModal({panel, onClose}) {
+function UpgradeModal({panel, onClose, onGoBilling}) {
   const [plans, setPlans] = useState(null);
   useEffect(()=>{
     let on = true;
@@ -636,7 +642,7 @@ function UpgradeModal({panel, onClose}) {
   return (
     <Modal title="Mejorá tu plan" onClose={onClose} width={520}>
       <div style={{fontSize:13,color:C.mid,lineHeight:1.55,marginBottom:18}}>
-        El panel <strong>{panel.l}</strong> no está incluido en tu plan actual. Elegí el plan que lo incluye y escribinos para activarlo al instante.
+        El panel <strong>{panel.l}</strong> no está incluido en tu plan actual. Elegí el plan que lo incluye y contratalo desde acá — se activa apenas se acredita el pago.
       </div>
       {plans===null
         ? <div style={{textAlign:'center',padding:'28px 0',color:C.dim,fontSize:13}}>Cargando planes…</div>
@@ -659,10 +665,16 @@ function UpgradeModal({panel, onClose}) {
                         <span key={k} style={{fontSize:11,fontWeight:600,color:k===panel.key?C.ink:C.mid,border:`1px solid ${k===panel.key?C.ink:C.border}`,borderRadius:20,padding:'2px 9px'}}>{PANEL_LABEL_SHORT[k]||k}</span>
                       ))}
                     </div>
-                    <a href={waPlan(pl)} target="_blank" rel="noopener noreferrer"
-                       style={{display:'inline-flex',alignItems:'center',gap:6,background:inc?C.ink:'transparent',color:inc?C.surface:C.ink,border:`1px solid ${C.ink}`,fontSize:12.5,fontWeight:700,padding:'8px 14px',borderRadius:9,textDecoration:'none'}}>
-                      <Icon name="phone" size={13}/> Consultar {pl.name}
-                    </a>
+                    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                      <button onClick={()=>{ onClose(); onGoBilling && onGoBilling(pl.id); }}
+                         style={{display:'inline-flex',alignItems:'center',gap:6,background:inc?C.ink:'transparent',color:inc?C.surface:C.ink,border:`1px solid ${C.ink}`,fontSize:12.5,fontWeight:700,padding:'8px 14px',borderRadius:9,cursor:'pointer'}}>
+                        <Icon name="creditCard" size={13}/> Contratar {pl.name}
+                      </button>
+                      <a href={waPlan(pl)} target="_blank" rel="noopener noreferrer"
+                         style={{display:'inline-flex',alignItems:'center',gap:6,background:'transparent',color:C.mid,border:`1px solid ${C.border}`,fontSize:12.5,fontWeight:700,padding:'8px 14px',borderRadius:9,textDecoration:'none'}}>
+                        <Icon name="phone" size={13}/> Consultar
+                      </a>
+                    </div>
                   </div>
                 );
               })}
@@ -671,9 +683,13 @@ function UpgradeModal({panel, onClose}) {
   );
 }
 
-function PanelesPage({caps}) {
+function PanelesPage({caps, setPage}) {
   const [qr, setQr] = useState(null);
   const [upgrade, setUpgrade] = useState(null);
+  const goBilling = planId => {
+    try { if (planId) sessionStorage.setItem('mythos_billing_preselect', planId); } catch(_){}
+    setPage && setPage('plan');
+  };
   const allowed = caps && caps.caps && Array.isArray(caps.caps.allowed_panels) ? caps.caps.allowed_panels : null;
   // El menú QR del cliente es la función base (en TODOS los planes, incluso el más
   // bajo) → nunca se bloquea, aunque allowed_panels no lo liste.
@@ -727,7 +743,440 @@ function PanelesPage({caps}) {
       </div>
 
       {qr && <PanelShareModal panel={qr} url={urlFor(qr)} onClose={()=>setQr(null)}/>}
-      {upgrade && <UpgradeModal panel={upgrade} onClose={()=>setUpgrade(null)}/>}
+      {upgrade && <UpgradeModal panel={upgrade} onClose={()=>setUpgrade(null)} onGoBilling={goBilling}/>}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   PLAN Y FACTURACIÓN — el dueño contrata, renueva y paga SIN salir del panel
+   ──────────────────────────────────────────────
+   Antes de esto, todo camino de venta dentro del panel terminaba en un `wa.me/…`
+   (UpgradeModal) y la tarjeta de suscripción del dashboard informaba el
+   vencimiento sin ofrecer ninguna acción. Con la mig 193 metiendo corte real de
+   servicio, esa era una trampa: panel bloqueado y cero salida autoservicio.
+
+   Requiere la migración 194 (RPCs get_billing_overview / submit_subscription_
+   payment / request_plan_change). FAIL-SOFT: si la RPC no existe todavía, la
+   página muestra el fallback de contacto en vez de romperse.
+
+   El carril de cobro es TRANSFERENCIA + COMPROBANTE, el mismo patrón que ya usa
+   el comensal para pagarle al restaurante (migs 180-183), un nivel más arriba.
+   Bancard entra después, cuando esté integrado.
+══════════════════════════════════════════════ */
+
+// price_usd guarda el precio del CICLO del plan (nombre legacy: en realidad son
+// guaraníes). Normalizamos a precio mensual para poder comparar y multiplicar.
+const planMonthly = pl => {
+  const p = Number((pl && pl.price_usd) || 0);
+  const cyc = (pl && pl.billing_cycle) || 'monthly';
+  return (cyc === 'annual' || cyc === 'yearly') ? Math.round(p / 12) : p;
+};
+const SUB_STATUS_LABEL = {active:'Activa',trial:'Prueba gratuita',past_due:'En mora',expired:'Vencida',cancelled:'Cancelada',suspended:'Suspendida'};
+
+/* Modal de checkout: elegir plan + meses, ver los datos de transferencia de
+   MYTHOS, y declarar el pago con Nº de comprobante y foto. */
+function CheckoutModal({ over, initialPlanId, onClose, onDone }) {
+  const plans   = Array.isArray(over.plans) ? over.plans : [];
+  const bill    = over.billing || {};
+  const current = over.plan || null;
+  const [planId, setPlanId] = useState(initialPlanId || (current && current.id) || (plans[0] && plans[0].id) || '');
+  const [months, setMonths] = useState(1);
+  const [amount, setAmount] = useState('');
+  const [touchedAmount, setTouched] = useState(false);
+  const [method, setMethod]   = useState('transferencia');
+  const [ref, setRef]         = useState('');
+  const [proof, setProof]     = useState('');
+  const [sending, setSending] = useState(false);
+
+  const plan     = plans.find(p => p.id === planId) || current;
+  const monthly  = planMonthly(plan);
+  const expected = monthly * months;
+
+  // El monto se recalcula solo mientras el dueño no lo haya editado a mano
+  // (puede haber una promo o un saldo acordado con Renato).
+  useEffect(() => { if (!touchedAmount) setAmount(String(expected || '')); }, [expected, touchedAmount]);
+
+  const isChange = !!(plan && current && plan.id !== current.id);
+
+  const send = async () => {
+    if (!db) return;
+    const amt = Number(parseGs(amount) || 0);
+    if (!plan)      { toast('Elegí un plan', false); return; }
+    if (amt <= 0)   { toast('Ingresá el monto transferido', false); return; }
+    if (!ref.trim() && !proof) { toast('Cargá el Nº de comprobante o la foto', false); return; }
+    setSending(true);
+    try {
+      const { data, error } = await db.rpc('submit_subscription_payment', {
+        p_restaurant_id: RID,
+        p_plan_id:       plan.id,
+        p_months:        months,
+        p_amount:        amt,
+        p_method:        method,
+        p_reference:     ref.trim() || null,
+        p_proof_url:     proof || null,
+      });
+      if (error) throw error;
+      const r = data || {};
+      toast(r.reactivated
+        ? `¡Listo! Tu servicio se reactivó — verificamos el pago y te confirmamos.`
+        : 'Pago enviado. Lo validamos y te confirmamos.');
+      onDone && onDone();
+      onClose();
+    } catch (e) {
+      const m = e.message || '';
+      toast(/does not exist|schema cache|function/i.test(m)
+        ? 'Falta aplicar la migración 194 para cobrar desde el panel'
+        : (m || 'No se pudo enviar el pago'), false);
+    }
+    setSending(false);
+  };
+
+  const copy = async (txt, what) => {
+    try { await navigator.clipboard.writeText(String(txt)); toast(`${what} copiado`); }
+    catch(_) { toast('No se pudo copiar', false); }
+  };
+
+  const dataRow = (label, value) => value ? (
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,padding:'7px 0',borderBottom:`1px solid ${C.border}`}}>
+      <span style={{fontSize:12,color:C.mid,flexShrink:0}}>{label}</span>
+      <span style={{display:'flex',alignItems:'center',gap:8,minWidth:0}}>
+        <span style={{fontSize:13,fontWeight:700,color:C.ink,fontFamily:"'SF Mono',ui-monospace,monospace",overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{value}</span>
+        <button onClick={()=>copy(value,label)} style={{background:'none',border:`1px solid ${C.border}`,borderRadius:6,padding:'3px 7px',fontSize:10.5,fontWeight:700,color:C.mid,cursor:'pointer',flexShrink:0}}>Copiar</button>
+      </span>
+    </div>
+  ) : null;
+
+  const hasBankData = !!(bill.bank_holder || bill.bank_account || bill.bank_alias || bill.qr_url);
+
+  return (
+    <Modal title={isChange ? `Contratar ${plan.name}` : 'Renovar suscripción'} onClose={onClose} width={520}>
+      {/* 1 · Qué se paga */}
+      <div style={{fontSize:10,fontWeight:800,letterSpacing:.5,color:C.mid,textTransform:'uppercase',marginBottom:8}}>1 · Qué contratás</div>
+      <div className="my-row-2" style={{gap:'0 14px'}}>
+        <AcctField label="Plan">
+          <select value={planId} onChange={e=>setPlanId(e.target.value)}
+            style={{width:'100%',padding:'9px 12px',fontSize:13.5,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,boxSizing:'border-box'}}>
+            {plans.map(p => <option key={p.id} value={p.id}>{p.name} — {fmt(planMonthly(p))}/mes</option>)}
+          </select>
+        </AcctField>
+        <AcctField label="Período">
+          <select value={months} onChange={e=>{ setMonths(Number(e.target.value)); setTouched(false); }}
+            style={{width:'100%',padding:'9px 12px',fontSize:13.5,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,boxSizing:'border-box'}}>
+            {[1,3,6,12].map(m => <option key={m} value={m}>{m} {m===1?'mes':'meses'}</option>)}
+          </select>
+        </AcctField>
+      </div>
+
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:'12px 14px',marginBottom:16}}>
+        <span style={{fontSize:12.5,color:C.mid}}>Total a transferir</span>
+        <span style={{fontSize:22,fontWeight:800,color:C.ink}}>{fmt(expected)}</span>
+      </div>
+
+      {/* 2 · A dónde transferir */}
+      <div style={{fontSize:10,fontWeight:800,letterSpacing:.5,color:C.mid,textTransform:'uppercase',marginBottom:8}}>2 · Transferí a MYTHOS</div>
+      {hasBankData ? (
+        <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:'4px 14px 12px',marginBottom:16}}>
+          {dataRow('Titular',  bill.bank_holder)}
+          {dataRow('Banco',    bill.bank_name)}
+          {dataRow('Cuenta',   bill.bank_account)}
+          {dataRow('RUC / CI', bill.bank_doc)}
+          {dataRow('Alias',    bill.bank_alias)}
+          {bill.qr_url && (
+            <div style={{textAlign:'center',paddingTop:12}}>
+              <img src={bill.qr_url} alt="QR de pago" style={{width:150,height:150,objectFit:'contain',borderRadius:10,border:`1px solid ${C.border}`,background:'#FFF',padding:6}}/>
+              <div style={{fontSize:11,color:C.dim,marginTop:6}}>Escaneá para pagar con billetera</div>
+            </div>
+          )}
+          {bill.instructions && <div style={{fontSize:12,color:C.mid,lineHeight:1.55,paddingTop:12}}>{bill.instructions}</div>}
+        </div>
+      ) : (
+        <div style={{border:`1px solid ${TINT.amberBorder}`,background:TINT.amberBg,color:TINT.amberText,borderRadius:10,padding:'12px 14px',fontSize:12.5,lineHeight:1.55,marginBottom:16}}>
+          Todavía no cargamos los datos de cobro. Escribinos por WhatsApp y te los pasamos al instante.
+        </div>
+      )}
+
+      {/* 3 · Declarar el pago */}
+      <div style={{fontSize:10,fontWeight:800,letterSpacing:.5,color:C.mid,textTransform:'uppercase',marginBottom:8}}>3 · Confirmá tu pago</div>
+      <div className="my-row-2" style={{gap:'0 14px'}}>
+        <AcctField label="Monto transferido">
+          <GsInput value={amount} onChange={v=>{ setTouched(true); setAmount(v); }} placeholder="0"
+            style={{width:'100%',padding:'9px 12px',fontSize:13.5,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,boxSizing:'border-box'}}/>
+        </AcctField>
+        <AcctField label="Nº de comprobante">
+          <input value={ref} onChange={e=>setRef(e.target.value)} placeholder="Ej. 123456789"
+            style={{width:'100%',padding:'9px 12px',fontSize:13.5,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,boxSizing:'border-box'}}/>
+        </AcctField>
+      </div>
+      {bill.accepts_cash && (
+        <AcctField label="Método">
+          <select value={method} onChange={e=>setMethod(e.target.value)}
+            style={{width:'100%',padding:'9px 12px',fontSize:13.5,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,boxSizing:'border-box',marginBottom:14}}>
+            <option value="transferencia">Transferencia</option>
+            <option value="efectivo">Efectivo</option>
+          </select>
+        </AcctField>
+      )}
+      <ComprobanteUploader db={db} restaurantId={RID} subfolder="subs" value={proof}
+        onChange={setProof} onMsg={(m,ok)=>toast(m,ok)} label="FOTO DEL COMPROBANTE"/>
+
+      {Number(bill.provisional_days) > 0 && (
+        <div style={{border:`1px solid ${TINT.greenBorder}`,background:TINT.greenBg,color:TINT.greenText,borderRadius:10,padding:'11px 13px',fontSize:12,lineHeight:1.55,marginBottom:14}}>
+          Si tu servicio está cortado, se reactiva <strong>en el acto</strong> por {bill.provisional_days} días
+          mientras verificamos el comprobante.
+        </div>
+      )}
+
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={send} disabled={sending}>{sending ? 'Enviando…' : 'Ya transferí — enviar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function PlanFacturacionPage() {
+  const [over, setOver]       = useState(undefined);  // undefined=cargando · null=RPC ausente · obj=ok
+  const [checkout, setCk]     = useState(null);       // null | {planId}
+  const [changing, setChang]  = useState(null);       // plan al que se pide cambiar
+
+  const load = useCallback(async () => {
+    if (!db) { setOver(null); return; }
+    try {
+      const { data, error } = await db.rpc('get_billing_overview', { p_restaurant_id: RID || null });
+      if (error) throw error;
+      setOver(data || null);
+    } catch (_) { setOver(null); }   // mig 194 sin aplicar → fallback de contacto
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // El UpgradeModal de "Paneles" puede dejar un plan preseleccionado.
+  useEffect(() => {
+    if (!over || !over.can_manage) return;
+    let pre = null;
+    try { pre = sessionStorage.getItem('mythos_billing_preselect'); sessionStorage.removeItem('mythos_billing_preselect'); } catch(_){}
+    if (pre) setCk({ planId: pre });
+  }, [over]);
+
+  const waSupport = (msg) => {
+    const num = (window.SUPABASE_CONFIG && window.SUPABASE_CONFIG.salesWhatsapp) || '';
+    const digits = String(num).replace(/\D/g,'');
+    if (!digits) return null;
+    return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
+  };
+
+  const pedirCambio = async (pl) => {
+    if (!db) return;
+    setChang(pl.id);
+    try {
+      const { error } = await db.rpc('request_plan_change', { p_restaurant_id: RID, p_plan_id: pl.id, p_note: null });
+      if (error) throw error;
+      toast(`Pedido registrado — te contactamos para pasarte a ${pl.name}`);
+    } catch (e) {
+      toast(e.message || 'No se pudo registrar el pedido', false);
+    }
+    setChang(null);
+  };
+
+  const H = ({children}) => <h1 style={{fontSize:24,fontWeight:800,letterSpacing:'-0.5px',margin:'0 0 4px'}}>{children}</h1>;
+
+  if (over === undefined) {
+    return <div className="page"><H>Plan y facturación</H>
+      <div style={{color:C.dim,fontSize:13,padding:'40px 0',textAlign:'center'}}>Cargando tu plan…</div></div>;
+  }
+
+  // Fallback: la migración 194 todavía no está aplicada (o falló la RPC).
+  if (!over) {
+    const wa = waSupport('Hola MYTHOS, quiero renovar/contratar mi suscripción.');
+    return (
+      <div className="page">
+        <H>Plan y facturación</H>
+        <div style={{maxWidth:460,margin:'40px auto',textAlign:'center',border:`1px solid ${C.border}`,borderRadius:16,padding:'34px 28px',background:C.card}}>
+          <div style={{display:'flex',justifyContent:'center',color:C.mid,marginBottom:14}}><Icon name="receipt" size={34}/></div>
+          <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:10}}>Pago desde el panel — próximamente</div>
+          <div style={{fontSize:13,color:C.mid,lineHeight:1.6,marginBottom:20}}>
+            Todavía estamos habilitando el cobro autoservicio para tu cuenta. Mientras tanto, escribinos y lo resolvemos al momento.
+          </div>
+          {wa && <a href={wa} target="_blank" rel="noopener noreferrer"
+            style={{display:'inline-flex',alignItems:'center',gap:7,background:C.ink,color:C.surface,fontSize:13,fontWeight:700,padding:'11px 18px',borderRadius:10,textDecoration:'none'}}>
+            <Icon name="phone" size={14}/> Contactar a MYTHOS</a>}
+        </div>
+      </div>
+    );
+  }
+
+  // Solo el dueño maneja plata. Un cajero o un mozo no ven ni la cuenta bancaria
+  // ni el historial de pagos del local.
+  if (!over.can_manage) {
+    return (
+      <div className="page">
+        <H>Plan y facturación</H>
+        <ModuloNoAplica icon="lock" titulo="Solo el dueño"
+          texto="La suscripción y los pagos del local los administra el dueño o el encargado con acceso de administrador."/>
+      </div>
+    );
+  }
+
+  const sub     = over.subscription;
+  const plan    = over.plan;
+  const plans   = Array.isArray(over.plans) ? over.plans : [];
+  const pays    = Array.isArray(over.payments) ? over.payments : [];
+  const pending = pays.find(p => p.review_status === 'pending');
+  const days    = sub && sub.days_left != null ? Number(sub.days_left) : null;
+  const locked  = over.locked === true;
+  const soon    = days != null && days >= 0 && days <= 7;
+  const expired = days != null && days < 0;
+  const fg = locked ? C.red : expired ? C.red : soon ? C.orange : C.green;
+  const bgT = locked || expired ? TINT.redBg : soon ? TINT.amberBg : TINT.greenBg;
+  const bdT = locked || expired ? TINT.redBorder : soon ? TINT.amberBorder : TINT.greenBorder;
+
+  const card = {background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:C.shadow,padding:20};
+
+  return (
+    <div className="page">
+      <H>Plan y facturación</H>
+      <p style={{fontSize:13,color:C.mid,margin:'0 0 22px',maxWidth:640,lineHeight:1.55}}>
+        Tu plan, tu vencimiento y tus pagos. Renová o cambiá de plan desde acá — sin llamadas ni esperas.
+      </p>
+
+      {/* Pago en revisión */}
+      {pending && (
+        <div style={{border:`1px solid ${TINT.amberBorder}`,background:TINT.amberBg,color:TINT.amberText,borderRadius:14,padding:'14px 18px',marginBottom:16,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <Icon name="clock" size={18}/>
+          <div style={{flex:1,minWidth:200}}>
+            <div style={{fontSize:13.5,fontWeight:800}}>Tu pago de {fmt(Number(pending.amount||0))} está en revisión</div>
+            <div style={{fontSize:12,marginTop:2}}>
+              Lo enviaste el {fmtDate(pending.created_at)}.
+              {pending.provisional_until ? ` Tu servicio quedó activo hasta el ${fmtDate(pending.provisional_until)} mientras lo verificamos.` : ' Te confirmamos apenas lo validemos.'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="my-masonry my-page-wide" style={{'--my-col':'400px','--my-cols':'2','--my-gap':'16px'}}>
+
+        {/* ── Tu plan hoy ── */}
+        <div style={{...card,border:`1px solid ${(locked||expired||soon)?bdT:C.border}`}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>TU PLAN</div>
+            <Icon name="receipt" size={16} style={{color:C.dim}}/>
+          </div>
+
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,flexWrap:'wrap'}}>
+            <span style={{fontSize:22,fontWeight:800,color:C.ink}}>{(plan && plan.name) || 'Sin plan'}</span>
+            {sub && <span style={{fontSize:11,fontWeight:700,color:fg,background:bgT,padding:'2px 9px',borderRadius:999,border:`1px solid ${bdT}`,textTransform:'uppercase',letterSpacing:.5}}>
+              {SUB_STATUS_LABEL[sub.status] || sub.status}
+            </span>}
+          </div>
+
+          {plan && <div style={{fontSize:13,color:C.mid,marginBottom:14}}>{fmt(planMonthly(plan))} por mes</div>}
+
+          {locked ? (
+            <div style={{fontSize:15,fontWeight:800,color:C.red,lineHeight:1.4,marginBottom:6}}>Servicio suspendido por falta de pago</div>
+          ) : sub ? (
+            <>
+              <div style={{fontSize:28,fontWeight:800,color:fg,lineHeight:1}}>
+                {days == null ? '—' : days < 0 ? `Vencida hace ${Math.abs(days)}d` : days === 0 ? 'Vence hoy' : `${days} ${days===1?'día':'días'}`}
+              </div>
+              <div style={{fontSize:12,color:C.mid,marginTop:6}}>
+                {days != null && days >= 0 ? `hasta el ${fmtDate(sub.end_date)}` : `venció el ${fmtDate(sub.end_date)}`}
+                {sub.grace_ends_on && days != null && days < 0 ? ` · el servicio se corta el ${fmtDate(sub.grace_ends_on)}` : ''}
+              </div>
+            </>
+          ) : (
+            <div style={{fontSize:13,color:C.mid,lineHeight:1.55}}>No encontramos una suscripción activa para este local.</div>
+          )}
+
+          <div style={{display:'flex',gap:9,marginTop:18,flexWrap:'wrap'}}>
+            <Btn onClick={()=>setCk({planId: plan && plan.id})} disabled={!!pending}>
+              {locked || expired ? 'Regularizar ahora' : 'Renovar'}
+            </Btn>
+            {pending && <span style={{fontSize:11.5,color:C.dim,alignSelf:'center'}}>Ya tenés un pago en revisión</span>}
+          </div>
+        </div>
+
+        {/* ── Historial de pagos ── */}
+        <div style={card}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>TUS PAGOS</div>
+            <Icon name="money" size={16} style={{color:C.dim}}/>
+          </div>
+          {pays.length === 0
+            ? <div style={{color:C.dim,fontSize:13,padding:'8px 0'}}>Todavía no registraste ningún pago.</div>
+            : <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                {pays.slice(0,8).map(p => {
+                  const meta = reviewMeta(p.review_status);
+                  return (
+                    <div key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 0',borderBottom:`1px solid ${C.border}`}}>
+                      {p.proof_url && <ProofImage db={db} value={p.proof_url} size={34}/>}
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13.5,fontWeight:700,color:C.ink}}>{fmt(Number(p.amount||0))}</div>
+                        <div style={{fontSize:11.5,color:C.dim}}>
+                          {fmtDate(p.created_at)}
+                          {p.months ? ` · ${p.months} ${p.months===1?'mes':'meses'}` : ''}
+                          {p.reference ? ` · Nº ${p.reference}` : ''}
+                        </div>
+                      </div>
+                      {meta && <span style={{fontSize:10.5,fontWeight:800,color:meta.color,border:`1px solid ${meta.color}`,borderRadius:20,padding:'2px 8px',whiteSpace:'nowrap',flexShrink:0}}>{meta.short}</span>}
+                    </div>
+                  );
+                })}
+              </div>}
+        </div>
+      </div>
+
+      {/* ── Comparador de planes ── */}
+      {plans.length > 0 && (
+        <div style={{marginTop:26}}>
+          <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:4}}>Planes disponibles</div>
+          <div style={{fontSize:12.5,color:C.mid,marginBottom:16}}>Cambiá cuando quieras. Te cobramos solo la diferencia del período que queda.</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:14}}>
+            {plans.map(pl => {
+              const isCurrent = !!(plan && pl.id === plan.id);
+              const diff      = planMonthly(pl) - planMonthly(plan);
+              const panelsOf  = Array.isArray(pl.allowed_panels) ? pl.allowed_panels : [];
+              const currPan   = new Set(Array.isArray(plan && plan.allowed_panels) ? plan.allowed_panels : []);
+              const gains     = panelsOf.filter(k => !currPan.has(k));
+              return (
+                <div key={pl.id} style={{background:C.surface,border:`1px solid ${isCurrent?C.ink:C.border}`,borderRadius:14,padding:'18px 16px',display:'flex',flexDirection:'column'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,gap:8}}>
+                    <div style={{fontSize:16,fontWeight:800,color:C.ink}}>{pl.name}</div>
+                    {isCurrent && <span style={{fontSize:10,fontWeight:800,color:C.ink,border:`1px solid ${C.ink}`,borderRadius:20,padding:'2px 8px',textTransform:'uppercase',letterSpacing:.4,whiteSpace:'nowrap'}}>Tu plan</span>}
+                  </div>
+                  <div style={{fontSize:20,fontWeight:800,color:C.ink,marginBottom:2}}>{fmt(planMonthly(pl))}<span style={{fontSize:11,color:C.dim,fontWeight:600}}>/mes</span></div>
+                  {!isCurrent && plan && (
+                    <div style={{fontSize:11.5,color:diff>0?C.orange:C.green,fontWeight:700,marginBottom:10}}>
+                      {diff > 0 ? `+${fmt(diff)} por mes` : diff < 0 ? `${fmt(Math.abs(diff))} menos por mes` : 'Mismo precio'}
+                    </div>
+                  )}
+                  {!isCurrent && gains.length > 0 && (
+                    <div style={{fontSize:12,color:C.mid,lineHeight:1.5,marginBottom:12,flex:1}}>
+                      Sumás: <strong style={{color:C.ink}}>{gains.map(k => PANEL_LABEL_SHORT[k] || k).join(', ')}</strong>
+                    </div>
+                  )}
+                  {(isCurrent || gains.length === 0) && <div style={{flex:1,marginBottom:12}}/>}
+                  <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:14}}>
+                    {panelsOf.map(k => (
+                      <span key={k} style={{fontSize:10.5,fontWeight:600,color:C.mid,border:`1px solid ${C.border}`,borderRadius:20,padding:'2px 8px'}}>{PANEL_LABEL_SHORT[k]||k}</span>
+                    ))}
+                  </div>
+                  {isCurrent
+                    ? <Btn variant="ghost" onClick={()=>setCk({planId: pl.id})} disabled={!!pending}>Renovar</Btn>
+                    : <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>
+                        <Btn small onClick={()=>setCk({planId: pl.id})} disabled={!!pending}>Contratar</Btn>
+                        <Btn small variant="ghost" onClick={()=>pedirCambio(pl)} disabled={changing===pl.id}>
+                          {changing===pl.id ? 'Enviando…' : 'Que me contacten'}
+                        </Btn>
+                      </div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {checkout && <CheckoutModal over={over} initialPlanId={checkout.planId} onClose={()=>setCk(null)} onDone={load}/>}
     </div>
   );
 }
@@ -1289,6 +1738,12 @@ function DashboardPage({orders, ratings, setPage}) {
               <div style={{fontSize:12,color:C.mid,marginTop:6}}>
                 {expired ? 'Renová para reactivar el servicio' : `hasta el vencimiento · ${s.auto_renew?'renovación automática':'sin renovación auto'}`}
               </div>
+              {/* CTA real (mig 194): antes esta tarjeta avisaba del vencimiento y
+                  no ofrecía ninguna acción — el dueño tenía que buscar el WhatsApp. */}
+              <button onClick={()=>setPage('plan')}
+                style={{marginTop:14,background:(expired||soon)?fg:'none',color:(expired||soon)?C.white:C.mid,border:`1px solid ${(expired||soon)?fg:C.bs}`,fontSize:12,fontWeight:700,padding:'7px 13px',borderRadius:7,cursor:'pointer'}}>
+                {expired ? 'Regularizar ahora →' : soon ? 'Renovar →' : 'Ver plan y pagos →'}
+              </button>
             </div>
           );
         })()}
@@ -12142,7 +12597,17 @@ function TermsGateModal({ onAccept }) {
 }
 
 function AdminApp() {
-  const [page,setPage] = useState('dashboard');
+  // `?page=` permite entrar directo a una sección desde afuera del panel. Lo usa
+  // la pantalla de corte por facturación (mythos-auth-guard.js → ?page=plan) para
+  // dejar al dueño en el checkout en vez de en un WhatsApp. Lista blanca: solo
+  // ids del NAV, así un link externo no puede empujar estado arbitrario.
+  const [page,setPage] = useState(()=>{
+    try {
+      const p = (new URLSearchParams(window.location.search).get('page')||'').trim();
+      const ok = NAV.filter(Boolean).map(n=>n.id).concat(['facturacion']);
+      return ok.includes(p) ? p : 'dashboard';
+    } catch(_) { return 'dashboard'; }
+  });
   // Sidebar colapsable (persistente): main a ancho completo al ocultarlo.
   // En móvil arranca cerrado aunque la preferencia guardada diga abierto: ahí el
   // sidebar es un cajón que tapa el contenido, no una columna fija.
@@ -12361,7 +12826,10 @@ function AdminApp() {
     );
     switch(page){
       case 'dashboard': return <DashboardPage orders={orders} ratings={ratings} setPage={setPage}/>;
-      case 'paneles':   return <PanelesPage caps={caps}/>;
+      case 'paneles':   return <PanelesPage caps={caps} setPage={setPage}/>;
+      // Plan y pagos: sin gate de plan a propósito (es la salida del corte).
+      case 'plan':
+      case 'facturacion': return <PlanFacturacionPage/>;
       case 'pedidos':   return <PedidosPage orders={orders} tables={tables} onRefresh={loadAll} onRefreshOrders={refreshOrders}/>;
       case 'menu':      return <MenuPage categories={categories} menuItems={menuItems} restaurant={restaurant} onRefresh={loadAll}/>;
       case 'mesas':     return restaurant?.service_mode==='delivery'

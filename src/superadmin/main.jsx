@@ -2503,6 +2503,214 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 // ══════════════════════════════════════════════════════════════
 // MÓDULO 3 — FACTURACIÓN (planes + suscripciones)
 // ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════════════
+   COBRO AUTOSERVICIO (mig 194) — la contraparte del checkout del dueño.
+   ──────────────────────────────────────────────────────────────────────
+   Los dueños ahora declaran su pago desde Admin › Plan y pagos (transferencia +
+   comprobante). Acá se validan: aprobar extiende el período de verdad y aplica
+   el cambio de plan; rechazar revierte la activación provisional y el local
+   vuelve a quedar cortado. Toda la lógica vive en la RPC — este panel solo
+   muestra y dispara.
+══════════════════════════════════════════════════════════════════════ */
+
+// Miniatura del comprobante: el bucket es privado, hay que firmar la URL.
+function ProofThumb({ value, size = 44 }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    if (!value || !db) return;
+    if (/^https?:\/\//i.test(value)) { setUrl(value); return; }
+    db.storage.from('comprobantes').createSignedUrl(value, 3600)
+      .then(({data}) => { if (alive && data) setUrl(data.signedUrl); })
+      .catch(()=>{});
+    return () => { alive = false; };
+  }, [value]);
+  const base = {width:size,height:size,borderRadius:8,border:`1px solid ${C.border}`,flexShrink:0,objectFit:'cover'};
+  if (!value) return <div style={{...base,background:C.bg,display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:11,color:C.dim}}>—</div>;
+  if (!url)   return <div style={{...base,background:C.bg,display:'inline-flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🧾</div>;
+  return <a href={url} target="_blank" rel="noreferrer" style={{lineHeight:0,flexShrink:0}}>
+    <img src={url} alt="comprobante" style={base} onError={e=>{e.target.style.display='none';}}/>
+  </a>;
+}
+
+function PagosPorValidar({ restNameById, setFlash, reload }) {
+  const [rows, setRows]     = useState(null);   // null=cargando · []=nada · [..]=pendientes
+  const [busy, setBusy]     = useState('');
+  const [reject, setReject] = useState(null);   // pago que se está rechazando
+  const [note, setNote]     = useState('');
+  const [unavailable, setUnavail] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!db) { setRows([]); return; }
+    const { data, error } = await db.from('payments')
+      .select('id,restaurant_id,amount,method,reference,proof_url,months,created_at,provisional_until,plan_id,review_status')
+      .eq('review_status','pending')
+      .order('created_at',{ascending:true});
+    // La mig 194 puede no estar aplicada → la columna review_status no existe.
+    if (error) { setUnavail(/review_status|column|does not exist/i.test(error.message||'')); setRows([]); return; }
+    setRows(data||[]);
+  }, []);
+  useEffect(()=>{ load(); },[load]);
+
+  const review = async (pay, approve, notes) => {
+    setBusy(pay.id);
+    try {
+      const { error } = await db.rpc('review_subscription_payment', {
+        p_payment_id: pay.id, p_approve: approve, p_notes: notes || null,
+      });
+      if (error) throw error;
+      setFlash({type:'ok', text: approve
+        ? `Pago aprobado — ${restNameById[pay.restaurant_id]||'el local'} queda al día`
+        : 'Pago rechazado — se revirtió la activación provisional'});
+      setReject(null); setNote('');
+      load(); reload && reload();
+    } catch(e) {
+      setFlash({type:'error', text:'Error: ' + (e.message||'no se pudo revisar el pago')});
+    }
+    setBusy('');
+  };
+
+  if (unavailable) return null;                       // sin mig 194: la sección no existe
+  if (rows === null) return null;                     // cargando: sin parpadeo
+  if (rows.length === 0) return null;                 // nada por validar: no ocupar espacio
+
+  return (
+    <div style={{border:`1px solid ${C.orange}`,borderRadius:12,background:C.card,marginBottom:24,overflow:'hidden'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,padding:'13px 18px',borderBottom:`1px solid ${C.border}`,background:C.bg}}>
+        <span style={{fontSize:16}}>🧾</span>
+        <div style={{flex:1}}>
+          <div style={{fontSize:13.5,fontWeight:800,color:C.ink}}>Pagos esperando tu validación</div>
+          <div style={{fontSize:11.5,color:C.mid}}>Los dueños declararon estas transferencias desde su panel. Aprobar extiende el servicio.</div>
+        </div>
+        <span style={{fontSize:12,fontWeight:800,background:C.orange,color:'#FFF',padding:'2px 10px',borderRadius:12}}>{rows.length}</span>
+      </div>
+      {rows.map(p => (
+        <div key={p.id} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 18px',borderTop:`1px solid ${C.border}`,flexWrap:'wrap'}}>
+          <ProofThumb value={p.proof_url}/>
+          <div style={{flex:'1 1 220px',minWidth:0}}>
+            <div style={{fontSize:13.5,fontWeight:700,color:C.ink}}>{restNameById[p.restaurant_id] || '—'}</div>
+            <div style={{fontSize:11.5,color:C.mid}}>
+              {fmtGuarani(p.amount)} · {p.months||1} {(p.months||1)===1?'mes':'meses'} · {p.method}
+              {p.reference ? ` · Nº ${p.reference}` : ''} · {fmtDateTime(p.created_at)}
+            </div>
+            {p.provisional_until && (
+              <div style={{fontSize:11,color:C.orange,fontWeight:700,marginTop:2}}>
+                Activado provisionalmente hasta el {fmtDate(p.provisional_until)}
+              </div>
+            )}
+          </div>
+          <div style={{display:'flex',gap:7,flexShrink:0}}>
+            <Btn size="sm" variant="success" onClick={()=>review(p,true)} disabled={busy===p.id}>
+              {busy===p.id ? '…' : 'Aprobar'}
+            </Btn>
+            <Btn size="sm" variant="danger" onClick={()=>{setReject(p); setNote('');}} disabled={busy===p.id}>Rechazar</Btn>
+          </div>
+        </div>
+      ))}
+
+      {reject && (
+        <Modal title="Rechazar el pago" onClose={()=>setReject(null)} width={440}>
+          <div style={{fontSize:13,color:C.mid,lineHeight:1.6,marginBottom:16}}>
+            Vas a rechazar el pago de <strong style={{color:C.ink}}>{restNameById[reject.restaurant_id]||'este local'}</strong> por {fmtGuarani(reject.amount)}.
+            {reject.provisional_until && ' Se revierte la activación provisional: el local vuelve a quedar sin servicio.'}
+          </div>
+          <FormField label="Motivo (lo registra la bitácora)">
+            <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Ej. el comprobante no coincide con el monto" autoFocus/>
+          </FormField>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:16}}>
+            <Btn variant="ghost" onClick={()=>setReject(null)}>Cancelar</Btn>
+            <Btn variant="danger" onClick={()=>review(reject,false,note)} disabled={busy===reject.id}>
+              {busy===reject.id ? 'Rechazando…' : 'Rechazar pago'}
+            </Btn>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+/* Datos bancarios de MYTHOS: lo que ve el dueño en su checkout. Sin esto cargado,
+   el modal de pago del dueño muestra "todavía no cargamos los datos de cobro". */
+function DatosDeCobro({ setFlash }) {
+  const EMPTY = {bank_holder:'',bank_name:'',bank_account:'',bank_doc:'',bank_alias:'',qr_url:'',instructions:'',provisional_days:3,accepts_cash:false};
+  const [form, setForm]   = useState(null);   // null = cargando
+  const [saving, setSav]  = useState(false);
+  const [missing, setMiss]= useState(false);
+
+  useEffect(()=>{
+    let alive = true;
+    if (!db) { setForm(EMPTY); return; }
+    db.from('platform_billing_config').select('*').eq('id',true).maybeSingle()
+      .then(({data,error})=>{
+        if (!alive) return;
+        if (error) { setMiss(true); setForm(EMPTY); return; }
+        setForm({...EMPTY, ...(data||{})});
+      })
+      .catch(()=>{ if(alive){ setMiss(true); setForm(EMPTY); } });
+    return ()=>{ alive = false; };
+  },[]);
+
+  const sf = k => e => setForm(f=>({...f,[k]:e.target.value}));
+
+  const save = async () => {
+    if (!db) return;
+    setSav(true);
+    try {
+      const payload = {
+        id: true,
+        bank_holder: form.bank_holder||null, bank_name: form.bank_name||null,
+        bank_account: form.bank_account||null, bank_doc: form.bank_doc||null,
+        bank_alias: form.bank_alias||null, qr_url: form.qr_url||null,
+        instructions: form.instructions||null,
+        provisional_days: Math.max(0, Math.min(30, parseInt(form.provisional_days,10)||0)),
+        accepts_cash: !!form.accepts_cash,
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await db.from('platform_billing_config').upsert(payload,{onConflict:'id'});
+      if (error) throw error;
+      setFlash({type:'ok',text:'Datos de cobro actualizados — ya los ven tus clientes al pagar'});
+    } catch(e) { setFlash({type:'error',text:'Error: '+e.message}); }
+    setSav(false);
+  };
+
+  if (missing) return null;        // sin mig 194 aplicada
+  if (!form)   return null;
+
+  return (
+    <SectionCard title="Datos de cobro de MYTHOS (los ve el dueño al pagar)">
+      <div style={{padding:'12px 16px 16px'}}>
+        <div style={{fontSize:11.5,color:C.dim,marginBottom:14,lineHeight:1.55}}>
+          Es la cuenta a la que transfieren tus clientes desde Admin › Plan y pagos. Si está vacío, el checkout les dice que te contacten.
+        </div>
+        <div className="my-row-2" style={{gap:'0 16px'}}>
+          <FormField label="Titular"><input value={form.bank_holder||''} onChange={sf('bank_holder')} placeholder="Nombre del titular"/></FormField>
+          <FormField label="Banco / financiera"><input value={form.bank_name||''} onChange={sf('bank_name')} placeholder="Banco…"/></FormField>
+          <FormField label="Nº de cuenta"><input value={form.bank_account||''} onChange={sf('bank_account')} placeholder="000-000000-0"/></FormField>
+          <FormField label="RUC / CI"><input value={form.bank_doc||''} onChange={sf('bank_doc')} placeholder="0000000-0"/></FormField>
+          <FormField label="Alias / billetera"><input value={form.bank_alias||''} onChange={sf('bank_alias')} placeholder="09xx xxx xxx"/></FormField>
+          <FormField label="URL del QR de pago"><input value={form.qr_url||''} onChange={sf('qr_url')} placeholder="https://…"/></FormField>
+          <FormField label="Instrucciones para el cliente" col="1/-1">
+            <input value={form.instructions||''} onChange={sf('instructions')} placeholder="Transferí y subí la foto del comprobante. Validamos en el día."/>
+          </FormField>
+          <FormField label="Días de activación provisional"
+                     hint="Servicio que se otorga al instante al enviar un comprobante, antes de que vos lo valides. 0 = desactivado.">
+            <input type="number" min="0" max="30" value={form.provisional_days??3} onChange={sf('provisional_days')}/>
+          </FormField>
+          <FormField label="Aceptar efectivo">
+            <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
+              <input type="checkbox" checked={!!form.accepts_cash} onChange={e=>setForm(f=>({...f,accepts_cash:e.target.checked}))} style={{width:16,height:16}}/>
+              <span style={{fontSize:13,color:C.mid}}>Mostrar "efectivo" como método</span>
+            </div>
+          </FormField>
+        </div>
+        <div style={{display:'flex',justifyContent:'flex-end',marginTop:10}}>
+          <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar datos de cobro'}</Btn>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
 function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], setFlash, reload}) {
   const EMPTY_PLAN = {name:'',price_usd:'',billing_cycle:'monthly',max_tables:'',max_menu_items:'',features:'',is_active:true,...Object.fromEntries(LIMIT_ROLES.map(lr=>['max_'+lr.key,''])),panels:[],allowed_features:[]};
   const currentCcy = CURRENCIES[platformConfig.find(c=>c.key==='platform_currency')?.value] ? platformConfig.find(c=>c.key==='platform_currency').value : 'PYG';
@@ -2755,8 +2963,15 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
     );
   };
 
+  // Nombre del local por id, para la cola de validación de pagos.
+  const restNameById = {};
+  enriched.forEach(r => { restNameById[r.id] = r.name; });
+
   return (
     <div className="animate-in">
+      {/* Cobro autoservicio (mig 194): primero lo que requiere acción tuya. */}
+      <PagosPorValidar restNameById={restNameById} setFlash={setFlash} reload={reload}/>
+
       {/* Planes cards */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
         <span style={{fontSize:13,color:C.mid}}>Planes disponibles</span>
@@ -2811,6 +3026,9 @@ function PageFacturacion({enriched, plans, addonCatalog=[], platformConfig=[], s
           })}
         </div>
       </SectionCard>
+
+      {/* Datos de cobro de la plataforma (mig 194) — alimenta el checkout del dueño */}
+      <DatosDeCobro setFlash={setFlash}/>
 
       {/* MRR total */}
       <div style={{display:'flex',gap:12,margin:'20px 0',flexWrap:'wrap'}}>

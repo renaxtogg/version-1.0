@@ -35,14 +35,19 @@ function _compress(file) {
 // del restaurante (path `<rid>/<ts>.webp`) — mig 183 (anon INSERT / staff SELECT
 // tenant-scoped). Devuelve el PATH (no URL): el bucket es privado, se ve con URL
 // firmada temporal (ver resolveProofUrl). Lanza el error si falla.
+// `subfolder` (opcional) agrupa dentro de la carpeta del restaurante sin cambiar
+// las policies: éstas miran SOLO foldername[1] (= restaurantId). Lo usa el cobro
+// de la suscripción (mig 194) con 'subs' para no mezclar los comprobantes que el
+// restaurante le paga a MYTHOS con los que sus clientes le pagan a él.
 const PROOF_BUCKET = 'comprobantes';
-export async function uploadComprobante(db, restaurantId, file) {
+export async function uploadComprobante(db, restaurantId, file, subfolder) {
   if (!db) throw new Error('Sin conexión a la base de datos');
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('Usá una foto JPG, PNG o WebP');
   if (file.size > 5 * 1024 * 1024) throw new Error('La imagen supera los 5 MB');
   const blob = await _compress(file);
   if (!blob) throw new Error('No se pudo procesar la imagen');
-  const path = `${restaurantId}/${Date.now()}_${Math.random().toString(36).slice(2)}.webp`;
+  const dir = subfolder ? `${restaurantId}/${String(subfolder).replace(/[^a-z0-9_-]/gi, '')}` : String(restaurantId);
+  const path = `${dir}/${Date.now()}_${Math.random().toString(36).slice(2)}.webp`;
   const { error } = await db.storage.from(PROOF_BUCKET).upload(path, blob, { contentType: 'image/webp', upsert: false });
   if (error) throw error;
   return path; // el path se guarda en orders.payment_proof_url
@@ -76,7 +81,7 @@ export function ProofImage({ db, value, size = 54, style, alt = 'comprobante' })
 
 // Uploader compacto y neutral (styling con tokens del design-system, presentes
 // en todos los paneles). value = URL actual, onChange(url|''), onMsg(text,ok).
-export function ComprobanteUploader({ db, restaurantId, value, onChange, onMsg, label = 'FOTO DEL COMPROBANTE (OPCIONAL)' }) {
+export function ComprobanteUploader({ db, restaurantId, value, onChange, onMsg, label = 'FOTO DEL COMPROBANTE (OPCIONAL)', subfolder }) {
   const ref = useRef();
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState('');   // objectURL local (el bucket es privado, no hay URL directa)
@@ -84,7 +89,7 @@ export function ComprobanteUploader({ db, restaurantId, value, onChange, onMsg, 
     if (!file) return;
     setBusy(true);
     try {
-      const path = await uploadComprobante(db, restaurantId, file);
+      const path = await uploadComprobante(db, restaurantId, file, subfolder);
       try { setPreview(URL.createObjectURL(file)); } catch (_) {}
       onChange(path);
       onMsg && onMsg('Comprobante adjuntado', true);

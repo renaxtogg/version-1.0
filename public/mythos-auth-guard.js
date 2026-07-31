@@ -262,6 +262,19 @@
     location.replace('login.html');
   }
 
+  // Banner de corte para la pantalla de pago: informa sin encerrar. Reemplaza al
+  // overlay a pantalla completa SOLO ahí (ver isBillingPage).
+  function showLockedBillingBanner(st) {
+    if (document.getElementById('mythos-locked-banner')) return;
+    var bar = el('div', 'position:fixed;top:0;left:0;right:0;z-index:2147483002;background:#D70015;color:#fff;padding:10px 16px;font:700 13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.18)');
+    bar.id = 'mythos-locked-banner';
+    var fecha = fmtDate(st && st.subscription_end_date);
+    bar.textContent = 'Servicio suspendido' + (fecha ? ' — tu suscripción venció el ' + fecha : '')
+      + '. Registrá tu pago acá abajo y se reactiva al instante.';
+    document.body.appendChild(bar);
+    bumpBody(bar.offsetHeight || 40);
+  }
+
   function showExpiredBanner(st) {
     if (document.getElementById('mythos-expired-banner')) return;
     var bar = el('div', 'position:fixed;top:0;left:0;right:0;z-index:2147483001;background:#D70015;color:#fff;padding:9px 16px;font:600 13px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.18)');
@@ -295,7 +308,14 @@
       (fecha ? 'Venció el ' + fecha + '. ' : '')
       + (corte ? 'Podés seguir operando hasta el ' + corte + '. Después de esa fecha el servicio se suspende para todos los paneles del local.'
                : 'Regularizá el pago para no perder el servicio. Por ahora podés seguir operando.')));
-    var btn = el('button', 'width:100%;border:none;border-radius:10px;background:#1c1c1e;color:#fff;font-size:14px;font-weight:700;padding:12px;cursor:pointer', 'Entendido');
+    // CTA primario: pagar (mig 194). "Entendido" queda como salida secundaria —
+    // avisar del vencimiento sin ofrecer la acción era mandar al dueño a buscar
+    // el WhatsApp por su cuenta.
+    var pay = el('a', 'display:block;text-decoration:none;width:100%;border-radius:10px;background:#1c1c1e;color:#fff;font-size:14px;font-weight:800;padding:12px;text-align:center;box-sizing:border-box;margin-bottom:8px', 'Renovar ahora');
+    pay.href = 'admin.html?page=plan';
+    card.appendChild(pay);
+
+    var btn = el('button', 'width:100%;border:none;border-radius:10px;background:transparent;color:#8e8e93;font-size:13px;font-weight:700;padding:9px;cursor:pointer', 'Ahora no');
     btn.onclick = function () {
       try { localStorage.setItem(flagKey, '1'); } catch (_) {}
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
@@ -333,10 +353,23 @@
     var btnRow = el('div', 'display:flex;flex-direction:column;gap:10px;align-items:stretch');
     card.appendChild(btnRow);
 
+    // CTA de pago (mig 194): la salida autoservicio. Va PRIMERO y en primario —
+    // este es el momento de máxima urgencia del dueño; mandarlo a WhatsApp acá
+    // era desperdiciar la única conversión garantizada del flujo.
+    if (opts.payLabel) {
+      var payBtn = el('a', 'text-decoration:none;background:#fff;color:#0b0b0c;border-radius:10px;font-size:15px;font-weight:800;padding:13px;text-align:center', opts.payLabel);
+      payBtn.href = 'admin.html?page=plan';
+      btnRow.appendChild(payBtn);
+    }
+
     // Botón WhatsApp (aparece solo si hay número en marketing_config).
     var waBtn = null;
     if (opts.waLabel) {
-      waBtn = el('a', 'display:none;text-decoration:none;background:#25D366;color:#fff;border-radius:10px;font-size:15px;font-weight:700;padding:13px;text-align:center', opts.waLabel);
+      // Con CTA de pago presente, WhatsApp pasa a ser la salida secundaria.
+      var waStyle = opts.payLabel
+        ? 'display:none;text-decoration:none;background:transparent;color:#25D366;border:1px solid #25D366;border-radius:10px;font-size:14px;font-weight:700;padding:12px;text-align:center'
+        : 'display:none;text-decoration:none;background:#25D366;color:#fff;border-radius:10px;font-size:15px;font-weight:700;padding:13px;text-align:center';
+      waBtn = el('a', waStyle, opts.waLabel);
       btnRow.appendChild(waBtn);
     }
 
@@ -368,16 +401,36 @@
          Nunca se menciona plan, pago ni vencimiento: para el empleado es un
          servicio no disponible y lo tiene que hablar con la administración del
          local. La situación de pago del comercio no es asunto de sus empleados. */
+  // ¿Estamos parados en la pantalla de pago del panel admin (admin.html?page=plan)?
+  // Es la ÚNICA salida autoservicio del corte: taparla con el overlay de bloqueo
+  // dejaría al dueño encerrado — clic en "Regularizar ahora" y otra vez el muro.
+  function isBillingPage() {
+    try {
+      var p = (new URLSearchParams(location.search).get('page') || '').trim();
+      return /admin(\.html)?$/i.test(location.pathname.replace(/\/$/, ''))
+             && (p === 'plan' || p === 'facturacion');
+    } catch (_) { return false; }
+  }
+
   function showServiceLockedBlock(st) {
     var fecha = fmtDate(st && st.subscription_end_date);
+
+    // Dueño + pantalla de pago → banner en vez de bloqueo, para que pueda pagar.
+    // El corte REAL lo sigue aplicando la base (trigger de la mig 193 sobre
+    // `orders` + resolve_entitled_plan_id): esto es solo presentación.
+    if (isOwner(st) && isBillingPage()) {
+      showLockedBillingBanner(st);
+      return;
+    }
 
     if (isOwner(st)) {
       showBlockScreen({
         id: 'mythos-service-locked',
         title: 'Servicio suspendido',
-        body: 'Tu suscripción a MYTHOS venció y ya pasó el período de gracia, así que el servicio quedó suspendido: los paneles del local y la toma de pedidos están detenidos. Regularizá el pago para reactivarlo — se restablece apenas se acredita.',
+        body: 'Tu suscripción a MYTHOS venció y ya pasó el período de gracia, así que el servicio quedó suspendido: los paneles del local y la toma de pedidos están detenidos. Podés regularizarlo vos mismo — el servicio se reactiva apenas registrás el pago.',
         note: (fecha ? 'Venció el ' + fecha + '.' : '')
               + (st && st.grace_days ? ' Período de gracia: ' + st.grace_days + ' días.' : ''),
+        payLabel: 'Regularizar ahora',
         waLabel: 'Contactar a soporte por WhatsApp',
         waMsg: 'Hola MYTHOS, soy de ' + ((st && st.restaurant_name) || 'mi restaurante')
              + ' y quiero regularizar mi suscripción para reactivar el servicio.'
