@@ -1,4 +1,4 @@
-// ════════════════════════════════════════════════════════════════════
+﻿// ════════════════════════════════════════════════════════════════════
 // PR-5 — Panel mozo precompilado con Vite (batch de migración legacy).
 // Migrado 1:1 desde el <script type="text/babel"> inline de public/mozo.html.
 // Sin cambios de comportamiento ni de UI. React/createRoot vienen de npm
@@ -9,6 +9,9 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 // FASE D2 — foto del comprobante en el cobro + validación del pago (mig 182).
 import { ComprobanteUploader, ProofImage, reviewMeta, recordPaymentReview } from "../shared/comprobante.jsx";
+// Día comercial del local (huso de restaurants.timezone, default America/Asuncion).
+// NUNCA usar toISOString().slice(0,10) para "hoy": ver el encabezado de fecha.js.
+import { initBusinessTZ, todayLocal, startOfDayISO } from "../shared/fecha.js";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -42,15 +45,10 @@ const _SUPER_RID = (function(){ try {
   return (new URLSearchParams(window.location.search).get('r')||'').trim() || null;
 } catch(_) { return null; } })();
 const RESTAURANT_ID = _SUPER_RID || localStorage.getItem('mythos_restaurant_id');
+initBusinessTZ(db, RESTAURANT_ID);
 const RID = RESTAURANT_ID; // alias retro-compatible con consultas/suscripciones existentes
 
 /* ── UTILS ── */
-// Día comercial del local (Paraguay = UTC-3), NO UTC. `toISOString().slice(0,10)`
-// da la fecha UTC: desde las 21:00 de Paraguay ya es el día siguiente, así que
-// filtrar "hoy" con eso rompe en plena cena.
-const todayPY = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Asuncion' });
-// Instante de inicio del día LOCAL, para comparar contra columnas timestamptz.
-const startOfDayISO = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); };
 const fGs = n => '₲ ' + Math.round(n || 0).toLocaleString('es-PY');
 // El selector de cobro usa el dominio de movimientos_caja.metodo_pago
 // (efectivo/tarjeta_credito/tarjeta_debito/qr) para entrar al arqueo vía la RPC.
@@ -654,7 +652,7 @@ function App() {
   async function loadData() {
     if (!db) { setLoading(false); return; }
     try {
-      const todayStr = todayPY();
+      const todayStr = todayLocal();
       const [tablesRes, ordersRes, callsRes, menuRes, extrasRes, resvRes, restRes] = await Promise.all([
         db.from('tables').select('*').eq('restaurant_id', RID).eq('is_active', true).order('number'),
         db.from('orders').select('*, order_items(*)').eq('restaurant_id', RID)

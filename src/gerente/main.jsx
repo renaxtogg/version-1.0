@@ -1,4 +1,4 @@
-// ════════════════════════════════════════════════════════════════════
+﻿// ════════════════════════════════════════════════════════════════════
 // PR-5 — Panel gerente precompilado con Vite (batch de migración legacy).
 // Migrado 1:1 desde el <script type="text/babel"> inline de public/gerente.html.
 // Sin cambios de comportamiento ni de UI. React/createRoot vienen de npm
@@ -8,6 +8,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
+// Día comercial del local (huso de restaurants.timezone, default America/Asuncion).
+// NUNCA usar toISOString().slice(0,10) para "hoy": ver el encabezado de fecha.js.
+import { initBusinessTZ, todayLocal } from "../shared/fecha.js";
 // PR-MKT-2: módulo Marketplace B2B (tablas marketplace_*, migs 142/143) —
 // compartido con el panel admin. NO confundir con proveedores internos (mig 072).
 import { createRestaurantMarketplace } from "../marketplace/restaurant-marketplace.jsx";
@@ -31,14 +34,11 @@ const _SUPER_RID = (function(){ try {
   return (new URLSearchParams(window.location.search).get('r')||'').trim() || null;
 } catch(_) { return null; } })();
 const RID = (_SUPER_RID || localStorage.getItem('mythos_restaurant_id') || (window.SUPABASE_CONFIG?.restaurantId) || '').replace(/^﻿/,'').trim();
+initBusinessTZ(db, RID);
 
 /* ───────────────────────── UTILS ───────────────────────── */
 const fmt    = n => '₲ ' + (Math.round(n)||0).toLocaleString('es-PY');
 const fmtK   = n => n>=1000000 ? `${(n/1000000).toFixed(1)}M` : n>=1000 ? `${Math.round(n/1000)}k` : String(n||0);
-// Día comercial del local (Paraguay = UTC-3), NO UTC — mismo criterio que el `p_date`
-// del reporte del día. `toISOString().slice(0,10)` da la fecha UTC: desde las 21:00 de
-// Paraguay ya es el día siguiente y "hoy" se corre en plena cena.
-const todayPY = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Asuncion' });
 const fmtDate= d => d ? new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '—';
 const fmtTime= d => d ? new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'}) : '—';
 const fmtDT  = d => d ? `${fmtDate(d)} ${fmtTime(d)}` : '—';
@@ -1091,7 +1091,7 @@ function ReservasHoy() {
     if (!db) return;
     // Fechas del local: en UTC, después de las 21:00 la ventana pasaba a ser
     // mañana+pasado y se perdían las reservas de esta noche.
-    const today = todayPY();
+    const today = todayLocal();
     const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate()+1);
     const { data } = await db.from('reservations').select('*').eq('restaurant_id',RID).gte('reservation_date', today).lte('reservation_date', tomorrow.toLocaleDateString('en-CA',{timeZone:'America/Asuncion'})).order('reservation_date').order('reservation_time');
     setList(data||[]); setLoading(false);
@@ -1105,7 +1105,7 @@ function ReservasHoy() {
 
   if (loading) return <div style={{padding:40,textAlign:'center'}}><div className="spin"/></div>;
 
-  const today = todayPY();
+  const today = todayLocal();
   const hoy = list.filter(r => r.reservation_date === today);
   const manana = list.filter(r => r.reservation_date !== today);
 
@@ -1174,7 +1174,7 @@ function BitacoraTurno({user, userName}) {
     if (!db) return;
     let q = db.from('shift_logs').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(limit);
     if (filter === 'hoy') {
-      const today = todayPY();
+      const today = todayLocal();
       q = q.eq('log_date', today);
     } else if (filter === 'abiertos') {
       q = q.eq('is_resolved', false);

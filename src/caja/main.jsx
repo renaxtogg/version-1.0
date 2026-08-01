@@ -1,4 +1,4 @@
-// ════════════════════════════════════════════════════════════════════
+﻿// ════════════════════════════════════════════════════════════════════
 // PR-5 — Panel caja precompilado con Vite (batch de migración legacy).
 // Migrado 1:1 desde el <script type="text/babel"> inline de public/caja.html.
 // Sin cambios de comportamiento ni de UI. React/createRoot vienen de npm
@@ -8,6 +8,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
+// Día comercial del local (huso de restaurants.timezone, default America/Asuncion).
+// NUNCA usar toISOString().slice(0,10) para "hoy": ver el encabezado de fecha.js.
+import { initBusinessTZ, todayLocal } from "../shared/fecha.js";
 // FASE D2 — comprobante (foto) + validación del pago (mig 182).
 import { ComprobanteUploader, recordPaymentReview, reviewMeta, ProofImage } from "../shared/comprobante.jsx";
 
@@ -65,6 +68,7 @@ const _SUPER_RID = (function(){ try {
   return (new URLSearchParams(window.location.search).get('r')||'').trim() || null;
 } catch(_) { return null; } })();
 const RESTAURANT_ID = _SUPER_RID || localStorage.getItem('mythos_restaurant_id');
+initBusinessTZ(db, RESTAURANT_ID);
 let RID = RESTAURANT_ID; // alias retro-compatible; initApp lo reafirma con profile.restaurant_id
 // Carrito/checkout de caja aislado por restaurante: el superadmin puede impersonar
 // varios locales vía ?r= en el mismo navegador → cada uno con su propio carrito.
@@ -174,10 +178,6 @@ const offlineQ={
 /* ── UTILS ── */
 const fmt    = n => '₲ ' + (n||0).toLocaleString('es-PY');
 const fmtK   = n => n>=1000000?`${(n/1000000).toFixed(1)}M`:n>=1000?`${Math.round(n/1000)}k`:String(n||0);
-// Día comercial del local (Paraguay = UTC-3), NO UTC. `toISOString().slice(0,10)`
-// devuelve la fecha UTC: a partir de las 21:00 de Paraguay ya es el día siguiente,
-// así que filtrar "hoy" con eso rompe en plena cena. Mismo criterio que gerente.
-const todayPY = () => new Date().toLocaleDateString('en-CA',{timeZone:'America/Asuncion'});
 const fmtDate= d => new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'2-digit'});
 const fmtTime= d => new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'});
 const fmtDT  = d => `${fmtDate(d)} ${fmtTime(d)}`;
@@ -3702,7 +3702,7 @@ function SalonPanel({turno,profile}){
   async function load(){
     // Fecha del local: con la UTC, después de las 21:00 caja pedía las reservas de
     // MAÑANA y no veía ninguna de esta noche.
-    const todayStr=todayPY();
+    const todayStr=todayLocal();
     // Pickup pagado entregado hace <10 min: lo mostramos en caja unos minutos
     // luego cae al historial. (Filtro real visible es 6 min — la query trae
     // 10 para evitar parpadeos por desfase de reloj.)
@@ -4502,7 +4502,7 @@ function ReservaFormModalCaja({reserva,tables,onClose,onSaved}){
   const TIME_SLOTS=[];
   for(let h=10;h<=23;h++){TIME_SLOTS.push(`${String(h).padStart(2,'0')}:00`);TIME_SLOTS.push(`${String(h).padStart(2,'0')}:30`);}
 
-  const todayStr=todayPY();
+  const todayStr=todayLocal();
   const initDate=reserva?.reservation_date||todayStr;
   const [iY,iM,iD]=initDate.split('-').map(Number);
 
@@ -4665,7 +4665,7 @@ function ReservaFormModalCaja({reserva,tables,onClose,onSaved}){
 function ReservasPanel(){
   const [reservas,setReservas]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [dateFilter,setDateFilter]=useState(todayPY());
+  const [dateFilter,setDateFilter]=useState(todayLocal());
   const [newModal,setNewModal]=useState(false);
   const [editModal,setEditModal]=useState(null);
   const [tables,setTables]=useState([]);

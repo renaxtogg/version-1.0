@@ -8,6 +8,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput, NumInput } from "../shared/gs.jsx";
+// Día comercial del local (huso de restaurants.timezone, default America/Asuncion).
+// NUNCA usar toISOString().slice(0,10) para "hoy": ver el encabezado de fecha.js.
+import { initBusinessTZ, todayLocal, dayLocal, isoLocal } from "../shared/fecha.js";
 // FASE D2 — validación de comprobantes (etiquetas de estado en reportes) y, con
 // la mig 194, el mismo uploader para el pago de la propia suscripción.
 import { reviewMeta, ProofImage, ComprobanteUploader } from "../shared/comprobante.jsx";
@@ -46,6 +49,9 @@ const _SUPER_RID = (function(){ try {
   return (new URLSearchParams(window.location.search).get('r')||'').trim() || null;
 } catch(_) { return null; } })();
 const RID = (_SUPER_RID || localStorage.getItem('mythos_restaurant_id') || (window.SUPABASE_CONFIG?.restaurantId) || '').replace(/^﻿/,'').trim();
+// Huso del local (restaurants.timezone). Best-effort al arrancar: hasta que responde
+// se usa el default America/Asuncion, que ya es el correcto para todos los locales.
+initBusinessTZ(db, RID);
 const MY_ROLE = (localStorage.getItem('mythos_role')||'').trim();
 
 /* contador global — pausa el polling cuando hay modal abierto o input con foco */
@@ -73,20 +79,6 @@ const DELIV_KEY   = `deliv_pct_${RID}`;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt   = n => '₲ ' + (n||0).toLocaleString('es-PY');
 const fmtK  = n => n >= 1000000 ? `${(n/1000000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n/1000)}k` : String(n||0);
-// Día comercial en la zona horaria del local (Paraguay = UTC-3), NO en UTC.
-// `new Date().toISOString().slice(0,10)` devuelve la fecha UTC: desde las 21:00 de
-// Paraguay ya es el día SIGUIENTE en UTC. Usado para filtrar "hoy", eso rompía
-// justo en plena cena — la franja que más factura un restaurante. Mismo patrón que
-// gerente/main.jsx (`p_date`) y superadmin/main.jsx (`mesPY`).
-const TZ_PY = 'America/Asuncion';
-// 'en-CA' da formato ISO (YYYY-MM-DD), que es lo que espera Postgres para DATE.
-const todayPY = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ_PY });
-const dayPY   = d => d ? new Date(d).toLocaleDateString('en-CA', { timeZone: TZ_PY }) : '';
-// YYYY-MM-DD de un Date construido LOCALMENTE (p.ej. `new Date(a,m,d)` de un
-// dd/mm/aaaa que tipeó el usuario): se leen sus propios componentes, sin pasar por
-// UTC. `to.setHours(23,59,59,999).toISOString()` devolvía el día SIGUIENTE en
-// UTC-3 y los rangos de reporte se iban un día de más.
-const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const fmtDate = d => new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'2-digit'});
 const fmtTime = d => new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'});
 const fmtDT   = d => `${fmtDate(d)} ${fmtTime(d)}`;
@@ -2027,7 +2019,7 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Pedidos');
-    XLSX.writeFile(wb, `pedidos_${todayPY()}.xlsx`);
+    XLSX.writeFile(wb, `pedidos_${todayLocal()}.xlsx`);
   }
 
   async function selectOrder(o) {
@@ -3178,7 +3170,7 @@ function MesasPage({tables: tablesProp, orders, restaurant, onRefresh}) {
     if(!db) return;
     // Fecha del local: con la fecha UTC, a partir de las 21:00 se pedían las reservas
     // de MAÑANA y el mapa de mesas se quedaba sin las de esta noche (y sin sus alertas).
-    const todayStr = todayPY();
+    const todayStr = todayLocal();
     db.from('reservations').select('*').eq('restaurant_id',RID).eq('reservation_date',todayStr).eq('status','confirmed')
       .then(({data})=>setReservationsToday(data||[]));
     const ch = db.channel('mesas-resv-rt')
@@ -3552,7 +3544,7 @@ function PersonalPage({caps}) {
   // Turnos / Conexiones — se alimenta de staff_sessions (login real de cada panel), no de carga manual.
   const [shifts,setShifts]         = useState([]);
   const [loadingShifts,setLS]      = useState(false);
-  const [shiftDate,setShiftDate]   = useState(todayPY());
+  const [shiftDate,setShiftDate]   = useState(todayLocal());
   const [forcingId,setForcingId]   = useState(null);
 
   // Solicitudes de personal (desde gerente)
@@ -3823,7 +3815,7 @@ function PersonalPage({caps}) {
   // Estado de una conexión (sin heartbeat): cerrada / en línea hoy / abierta de día anterior.
   function sessionEstado(s) {
     if(s.logout_at) return {label:'CERRADO',color:C.dim,bg:C.card};
-    const esHoy = dayPY(s.login_at)===todayPY();
+    const esHoy = dayLocal(s.login_at)===todayLocal();
     return esHoy
       ? {label:'EN LÍNEA',color:C.green,bg:'rgba(52,199,89,0.15)'}
       : {label:'SIN CIERRE',color:C.orange,bg:'rgba(249,115,22,0.12)'};
@@ -3838,7 +3830,7 @@ function PersonalPage({caps}) {
   const ROLES_OPERATIVOS = ['mozo','waiter','cajero','caja','cocina','cocinero','rider','repartidor','gerente','supervisor_local'];
   const rosterEsperado = profiles.filter(p=>p.is_active!==false && ROLES_OPERATIVOS.includes((p.role||'').toLowerCase()));
   const sinConexion = rosterEsperado.filter(p=>!matchSesion(p));
-  const esHoySel = shiftDate===todayPY();
+  const esHoySel = shiftDate===todayLocal();
 
   const roleColor={cocina:C.orange,admin:C.blue,superadmin:C.purple,waiter:C.green,mozo:C.green,cajero:C.yellow,delivery:'#06b6d4',rider:'#06b6d4',supervisor_local:C.purple};
 
@@ -4692,7 +4684,7 @@ function ClientesPage({orders,embedded=false}) {
     ws['!cols']=colW;
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Clientes');
-    XLSX.writeFile(wb,`clientes_${todayPY()}.xlsx`);
+    XLSX.writeFile(wb,`clientes_${todayLocal()}.xlsx`);
     toast('Excel descargado');
   }
 
@@ -4703,7 +4695,7 @@ function ClientesPage({orders,embedded=false}) {
     const csv = [headers,...rows.map(r=>headers.map(h=>`"${(r[h]??'').toString().replace(/"/g,'""')}"`))].map(r=>Array.isArray(r)?r.join(','):r.join(',')).join('\n');
     const a=document.createElement('a');
     a.href='data:text/csv;charset=utf-8,﻿'+encodeURIComponent(csv);
-    a.download=`clientes_${todayPY()}.csv`;
+    a.download=`clientes_${todayLocal()}.csv`;
     a.click();
     toast('CSV descargado');
   }
@@ -5317,8 +5309,8 @@ function CajaAdminPage() {
   const turnoActivo = turnos.find(t=>t.estado==='abierto');
   // Día del local: con la fecha UTC, después de las 21:00 la lista de "turnos de hoy"
   // quedaba vacía porque se comparaba contra la fecha de mañana.
-  const hoy = todayPY();
-  const turnosHoy = turnos.filter(t=>dayPY(t.fecha_apertura)===hoy);
+  const hoy = todayLocal();
+  const turnosHoy = turnos.filter(t=>dayLocal(t.fecha_apertura)===hoy);
   const cobradosHoy = turnosHoy.reduce((s,t)=>{
     /* sólo es una estimación rápida basada en movimientos del turno activo */
     return s;
@@ -5863,12 +5855,12 @@ function FinanzasPage({orders, restaurant, showDelivery=true, onRefresh}) {
   const [delivPct,setDelivPct] = useState(()=>LS.get(DELIV_KEY,0));
   const [showEgForm,setShowEgForm] = useState(false);
   const [savingEg,setSavingEg] = useState(false);
-  const [egForm,setEgForm] = useState({date:todayPY(),desc:'',amount:'',category:'Insumos'});
+  const [egForm,setEgForm] = useState({date:todayLocal(),desc:'',amount:'',category:'Insumos'});
   const [movFilter,setMovFilter] = useState('todos');
   const [movSearch,setMovSearch] = useState('');
   const [alertas,setAlertas] = useState({ordesSinMonto:[],turnosSinCierre:[],diferencias:[]});
   const [loadingAlertas,setLoadingAlertas] = useState(false);
-  const [exportMes,setExportMes] = useState(todayPY().slice(0,7));
+  const [exportMes,setExportMes] = useState(todayLocal().slice(0,7));
   const [delivRows,setDelivRows] = useState([]);   // delivery por canal del período (Parte 4)
 
   // Delivery por canal: bruto/comisión/neto CONGELADOS por pedido (delivery_orders),
@@ -5967,7 +5959,7 @@ function FinanzasPage({orders, restaurant, showDelivery=true, onRefresh}) {
     }
     setSavingEg(false);
     setShowEgForm(false);
-    setEgForm({date:todayPY(),desc:'',amount:'',category:'Insumos'});
+    setEgForm({date:todayLocal(),desc:'',amount:'',category:'Insumos'});
   }
 
   async function delEgreso(eg) {
@@ -10794,7 +10786,7 @@ function ReservaFormModal({reserva,tables,onClose,onSaved,defaultDate}){
   const now=new Date();
   // Día del local: en UTC, después de las 21:00 el mínimo del selector pasaba a ser
   // MAÑANA y no se podía cargar una reserva para esta misma noche.
-  const todayStr=todayPY();
+  const todayStr=todayLocal();
   const MONTHS_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   const OCCASION_OPTS=[{id:'',label:'Sin motivo especial'},{id:'birthday',label:'Cumpleaños'},{id:'anniversary',label:'Aniversario'},{id:'business',label:'Reunión'},{id:'celebration',label:'Celebración'},{id:'other',label:'Otro'}];
   const STATUS_OPTS=[{id:'pending',label:'Pendiente'},{id:'confirmed',label:'Confirmada'},{id:'seated',label:'En mesa'},{id:'no_show',label:'No llegó'},{id:'cancelled',label:'Cancelada'}];
@@ -11389,7 +11381,7 @@ function PurchaseFormModal({purchase, suppliers, onClose, onSaved}) {
   const [f, setF] = useState({
     supplier_id: purchase?.supplier_id || '',
     invoice_number: purchase?.invoice_number || '',
-    purchase_date: purchase?.purchase_date || todayPY(),
+    purchase_date: purchase?.purchase_date || todayLocal(),
     total: purchase?.total || '',
     paid_amount: purchase?.paid_amount || 0,
     status: purchase?.status || 'pendiente',

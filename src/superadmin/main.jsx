@@ -7,6 +7,9 @@
 // ════════════════════════════════════════════════════════════════════
 import React from "react";
 import { createRoot } from "react-dom/client";
+// Helpers de día comercial compartidos. NUNCA usar toISOString().slice(0,10) para
+// "hoy": ver el encabezado de fecha.js.
+import { todayLocal, isoLocal } from "../shared/fecha.js";
 import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
 // CAPTCHA Turnstile (nativo de Supabase Auth) para el modal "Cambiar contraseña"
 // (re-autentica con signInWithPassword).
@@ -110,14 +113,14 @@ const fmtAlta = d => {
   const x = new Date(d);
   return `${x.toLocaleDateString('es-PY',{timeZone:'America/Asuncion',day:'2-digit',month:'2-digit',year:'numeric'})} · ${x.toLocaleTimeString('es-PY',{timeZone:'America/Asuncion',hour:'2-digit',minute:'2-digit',hour12:false})}`;
 };
-// Día comercial en Paraguay (UTC-3), NO en UTC. `toISOString().slice(0,10)` da la
-// fecha UTC: desde las 21:00 de Paraguay ya es el día siguiente, así que los KPIs de
-// "hoy" se corrían y las fechas guardadas (alta, inicio/fin de suscripción) nacían
-// con un día de más. Mismo criterio que `fmtAlta` y `mesActualPY`.
-const todayPY = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Asuncion' });
-// YYYY-MM-DD de un Date construido LOCALMENTE (rangos que tipea el usuario, o fechas
-// calculadas con setMonth): se leen sus propios componentes, sin pasar por UTC.
-const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+// Día comercial: acá NO se llama initBusinessTZ a propósito. El superadmin es
+// transversal a todos los locales, así que su "hoy" no puede ser el huso de uno en
+// particular — es el de la PLATAFORMA, o sea el default del módulo
+// (TZ_DEFAULT = America/Asuncion). Si algún día la plataforma opera desde otro huso,
+// se cambia ahí y no acá. Lo que sí importa es no volver a UTC:
+// `toISOString().slice(0,10)` desde las 21:00 de Paraguay ya devuelve mañana, y eso
+// corría los KPIs de "hoy" y las fechas guardadas (alta, inicio/fin de suscripción).
+const todayPY = todayLocal;
 // ── Moneda de plataforma (configurable) ─────────────────────────
 // Los importes se guardan como número "puro" (la columna price_usd es un nombre
 // heredado) y se interpretan en la moneda elegida por el superadmin. No hay
