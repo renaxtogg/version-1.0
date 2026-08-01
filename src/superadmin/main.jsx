@@ -1,4 +1,4 @@
-// ════════════════════════════════════════════════════════════════════
+﻿// ════════════════════════════════════════════════════════════════════
 // PR-5 — Panel superadmin precompilado con Vite (batch de migración legacy).
 // Migrado 1:1 desde el <script type="text/babel"> inline de public/superadmin.html.
 // Sin cambios de comportamiento ni de UI. React/createRoot vienen de npm
@@ -110,6 +110,14 @@ const fmtAlta = d => {
   const x = new Date(d);
   return `${x.toLocaleDateString('es-PY',{timeZone:'America/Asuncion',day:'2-digit',month:'2-digit',year:'numeric'})} · ${x.toLocaleTimeString('es-PY',{timeZone:'America/Asuncion',hour:'2-digit',minute:'2-digit',hour12:false})}`;
 };
+// Día comercial en Paraguay (UTC-3), NO en UTC. `toISOString().slice(0,10)` da la
+// fecha UTC: desde las 21:00 de Paraguay ya es el día siguiente, así que los KPIs de
+// "hoy" se corrían y las fechas guardadas (alta, inicio/fin de suscripción) nacían
+// con un día de más. Mismo criterio que `fmtAlta` y `mesActualPY`.
+const todayPY = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Asuncion' });
+// YYYY-MM-DD de un Date construido LOCALMENTE (rangos que tipea el usuario, o fechas
+// calculadas con setMonth): se leen sus propios componentes, sin pasar por UTC.
+const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 // ── Moneda de plataforma (configurable) ─────────────────────────
 // Los importes se guardan como número "puro" (la columna price_usd es un nombre
 // heredado) y se interpretan en la moneda elegida por el superadmin. No hay
@@ -796,7 +804,7 @@ function restBaseBytes() {     // bytes fijos de estructura por restaurante
 function buildAnalytics(restaurants, orders, ratings, subscriptions, plans, addons=[]) {
   const now = new Date();
   const ago30 = new Date(now - 30*86400000).toISOString();
-  const todayStr = now.toISOString().slice(0,10);
+  const todayStr = todayPY();
   return restaurants.map(r => {
     const rOrders     = orders.filter(o=>o.restaurant_id===r.id);
     const recent      = rOrders.filter(o=>(o.created_at||'')>=ago30);
@@ -975,7 +983,7 @@ function SystemHealth({ health, latency, cronOk }) {
 // ══════════════════════════════════════════════════════════════
 function PageDashboard({enriched, orders, ratings, subscriptions, setFlash, reload, setPage}) {
   const now = new Date();
-  const todayStr = now.toISOString().slice(0,10);
+  const todayStr = todayPY();
   const ago48h = new Date(now-48*3600000).toISOString();
 
   const activos    = enriched.filter(r=>r.status==='active').length;
@@ -1737,7 +1745,7 @@ function NuevoClienteModal({plans, cityOptions, restHasCol, onOpenModules, onClo
       const payload = {
         name: f.name.trim(), city: f.city || null, country:'Paraguay',
         owner_name: f.owner_name.trim(), owner_email: f.owner_email.trim()||null, owner_phone: f.owner_phone.trim()||null,
-        status: f.status, onboarding_date: today.toISOString().slice(0,10), timezone:'America/Asuncion', auto_provisioned:false,
+        status: f.status, onboarding_date: isoLocal(today), timezone:'America/Asuncion', auto_provisioned:false,
       };
       if (restHasCol('owner_document') && f.owner_document.trim()) payload.owner_document = f.owner_document.trim();
       const { data:r1, error:e1 } = await db.from('restaurants').insert(payload).select().single();
@@ -1747,7 +1755,7 @@ function NuevoClienteModal({plans, cityOptions, restHasCol, onOpenModules, onClo
       const { error:e2 } = await db.from('subscriptions').insert({
         restaurant_id: rest.id, plan_id: f.plan_id,
         status: f.status==='trial' ? 'trial' : 'active',
-        start_date: today.toISOString().slice(0,10), end_date: end.toISOString().slice(0,10),
+        start_date: isoLocal(today), end_date: isoLocal(end),
         monthly_amount: plan?.price_usd || 0,
       });
       if (e2) throw new Error('Restaurante creado, pero falló la suscripción: ' + e2.message);
@@ -1931,7 +1939,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   const [fCity,    setFCity]    = useState('all');
   const [sort,     setSort]     = useState('name');
   const [saving,   setSaving]   = useState(false);
-  const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',owner_document:'',manager_name:'',manager_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:new Date().toISOString().slice(0,10),maintenance_mode:false,maintenance_message:''};
+  const emptyForm = {name:'',legal_name:'',ruc:'',city:'',country:'Paraguay',address:'',phone:'',email:'',owner_name:'',owner_email:'',owner_phone:'',owner_document:'',manager_name:'',manager_phone:'',status:'active',notes:'',plan_id:'',onboarding_date:todayPY(),maintenance_mode:false,maintenance_message:''};
   const [form, setForm] = useState(emptyForm);
   // Feature-detect de columnas nuevas (mig 145): true si CUALQUIER restaurante ya
   // trae la columna → así no mandamos owner_document/manager_* en el UPDATE/INSERT
@@ -1986,7 +1994,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
 
   const openCreate = () => { setForm({...emptyForm,plan_id:plans[1]?.id||''}); setModal('create'); };
   const openEdit   = r  => {
-    setForm({name:r.name||'',legal_name:r.legal_name||'',ruc:r.ruc||'',city:r.city||'',country:r.country||'Paraguay',address:r.address||'',phone:r.phone||'',email:r.email||'',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',owner_document:r.owner_document||'',manager_name:r.manager_name||'',manager_phone:r.manager_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||new Date().toISOString().slice(0,10),maintenance_mode:r.maintenance_mode||false,maintenance_message:r.maintenance_message||''});
+    setForm({name:r.name||'',legal_name:r.legal_name||'',ruc:r.ruc||'',city:r.city||'',country:r.country||'Paraguay',address:r.address||'',phone:r.phone||'',email:r.email||'',owner_name:r.owner_name||'',owner_email:r.owner_email||'',owner_phone:r.owner_phone||'',owner_document:r.owner_document||'',manager_name:r.manager_name||'',manager_phone:r.manager_phone||'',status:r.status,notes:r.notes||'',plan_id:r.subscription?.plan_id||'',onboarding_date:r.onboarding_date||todayPY(),maintenance_mode:r.maintenance_mode||false,maintenance_message:r.maintenance_message||''});
     setModal({edit:r});
   };
 
@@ -2023,7 +2031,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
         if (form.plan_id) {
           const today=new Date(),end=new Date(today);end.setMonth(end.getMonth()+1);
           const plan=plans.find(p=>p.id===form.plan_id);
-          await db.from('subscriptions').insert({restaurant_id:rest.id,plan_id:form.plan_id,status:form.status==='trial'?'trial':'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10),monthly_amount:plan?.price_usd||0}).then(()=>{},()=>{});
+          await db.from('subscriptions').insert({restaurant_id:rest.id,plan_id:form.plan_id,status:form.status==='trial'?'trial':'active',start_date:isoLocal(today),end_date:isoLocal(end),monthly_amount:plan?.price_usd||0}).then(()=>{},()=>{});
         }
         await db.from('platform_events').insert({restaurant_id:rest.id,event_type:'onboarding',description:`Alta — ${form.status}`}).then(()=>{},()=>{});
         setFlash({type:'ok',text:`${form.name} dado de alta`});
@@ -2070,7 +2078,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
         city:branchForm.city||parent.city||null, country:parent.country||'Paraguay',
         phone:branchForm.phone||null, status:'active', timezone:'America/Asuncion',
         owner_name:parent.owner_name||null, owner_email:parent.owner_email||null, owner_phone:parent.owner_phone||null,
-        onboarding_date:new Date().toISOString().slice(0,10),
+        onboarding_date:todayPY(),
       };
       const {data:branch,error} = await db.from('restaurants').insert(payload).select().single();
       if (error) throw error;
@@ -2079,7 +2087,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
       if (planId) {
         const today=new Date(),end=new Date(today);end.setMonth(end.getMonth()+1);
         const plan=plans.find(p=>p.id===planId);
-        await db.from('subscriptions').insert({restaurant_id:branch.id,plan_id:planId,status:'active',start_date:today.toISOString().slice(0,10),end_date:end.toISOString().slice(0,10),monthly_amount:plan?.price_usd||0}).then(()=>{},()=>{});
+        await db.from('subscriptions').insert({restaurant_id:branch.id,plan_id:planId,status:'active',start_date:isoLocal(today),end_date:isoLocal(end),monthly_amount:plan?.price_usd||0}).then(()=>{},()=>{});
       }
       await db.from('platform_events').insert({restaurant_id:branch.id,event_type:'onboarding',description:`Alta de sucursal — cuenta de ${parent.name}`}).then(()=>{},()=>{});
       setFlash({type:'ok',text:`Sucursal "${branchForm.name}" creada bajo ${parent.name}`});
@@ -2094,7 +2102,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
   // ── Suscripciones (movido desde Facturación) ──────────────────
   const openEditSub = r => {
     const s = r.subscription||{};
-    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||new Date().toISOString().slice(0,10),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||'',grace_days:s.grace_days??'',addonKeys:(r.addons||[]).map(a=>a.addon_key)});
+    setSubForm({plan_id:s.plan_id||plans[0]?.id||'',status:s.status||'active',start_date:s.start_date||todayPY(),end_date:s.end_date||'',auto_renew:s.auto_renew!==false,payment_method:s.payment_method||'manual',monthly_amount:s.monthly_amount||'',grace_days:s.grace_days??'',addonKeys:(r.addons||[]).map(a=>a.addon_key)});
     setSubModal(r);
   };
 
@@ -2138,7 +2146,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
     if (!r.subscription?.id) { openEditSub(r); return; }
     const base = r.subscription.end_date && new Date(r.subscription.end_date)>new Date() ? new Date(r.subscription.end_date) : new Date();
     const end = new Date(base); end.setMonth(end.getMonth()+1);
-    const {error} = await db.from('subscriptions').update({status:'active',end_date:end.toISOString().slice(0,10)}).eq('id',r.subscription.id);
+    const {error} = await db.from('subscriptions').update({status:'active',end_date:isoLocal(end)}).eq('id',r.subscription.id);
     if (error) { setFlash({type:'error',text:error.message}); return; }
     await db.from('platform_events').insert({restaurant_id:r.id,event_type:'subscription_renewed',description:`Renovación manual — ${r.plan?.name}`}).then(()=>{},()=>{});
     setFlash({type:'ok',text:`${r.name} renovado hasta ${fmtDate(end.toISOString())}`}); reload();
@@ -2451,12 +2459,12 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
           {subForm.end_date && (() => {
             const g = String(subForm.grace_days??'').trim()==='' ? 5 : (parseInt(subForm.grace_days,10)||0);
             const corte = new Date(subForm.end_date+'T00:00:00'); corte.setDate(corte.getDate()+g);
-            const cortado = corte < new Date(new Date().toISOString().slice(0,10)+'T00:00:00');
+            const cortado = corte < new Date(todayPY()+'T00:00:00');
             return (
               <div style={{fontSize:11,color:cortado?C.red:C.mid,background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 10px',marginTop:-2}}>
                 {cortado
-                  ? `Servicio CORTADO desde el ${fmtDate(corte.toISOString().slice(0,10))} — el local no puede operar ni recibir pedidos.`
-                  : `Con ${g} días de gracia, el servicio se corta el ${fmtDate(corte.toISOString().slice(0,10))} si no se renueva.`}
+                  ? `Servicio CORTADO desde el ${fmtDate(isoLocal(corte))} — el local no puede operar ni recibir pedidos.`
+                  : `Con ${g} días de gracia, el servicio se corta el ${fmtDate(isoLocal(corte))} si no se renueva.`}
               </div>
             );
           })()}
@@ -3857,8 +3865,8 @@ function PageReportes({enriched, orders, ratings, subscriptions, plans, events})
   }
 
   async function _run(type, from, to) {
-    const fromISO = from.toISOString().slice(0,10);
-    const toISO   = to.toISOString().slice(0,10);
+    const fromISO = isoLocal(from);
+    const toISO   = isoLocal(to);
 
     if(type==='ventas_periodo') {
       let data = orders.filter(o=>['delivered','paid','ready','cooking','kitchen_received'].includes(o.status));
@@ -5100,7 +5108,7 @@ function MkLeads({leads, supNameById, restNameById}) {
       fmtAlta(l.created_at), MKP_LEAD_TIPO_LBL[l.tipo]||l.tipo, MKP_LEAD_ESTADO_LBL[l.estado]||l.estado, l.canal||'',
       supNameById[l.supplier_id]||'', restNameById[l.restaurant_id]||'', l.producto_texto||'', l.cantidad||'', l.frecuencia||'', l.mensaje||''
     ]);
-    mkDownloadCSV(`mythos_leads_${new Date().toISOString().slice(0,10)}.csv`, [header,...rows]);
+    mkDownloadCSV(`mythos_leads_${todayPY()}.csv`, [header,...rows]);
   };
 
   return (
@@ -8870,7 +8878,7 @@ function EntryModal({type, onClose, onSaved, setFlash}) {
   const isIncome = type==='income';
   const [f, setF] = useState({
     concept:'', amount:'', currency:'PYG',
-    entry_date: new Date().toISOString().slice(0,10), category:'', notes:'',
+    entry_date: todayPY(), category:'', notes:'',
   });
   const [busy, setBusy] = useState(false);
   const set = (k,v)=>setF(s=>({...s,[k]:v}));

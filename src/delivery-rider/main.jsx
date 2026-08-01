@@ -709,6 +709,10 @@ function App() {
   }
 
   const pollRef = useRef(null);
+  // Canal realtime activo. Se guarda para poder cerrarlo: startRiderSession puede
+  // correr más de una vez en la misma carga (reconexión / cambio de rider) y sin esto
+  // quedaban canales colgados suscritos a la misma tabla.
+  const chanRef = useRef(null);
 
   function startRiderSession(riderData) {
     // Registrar conexión del rider para el módulo Personal del admin (presencia).
@@ -725,10 +729,15 @@ function App() {
 
     if (db) {
       // Realtime: delivery_orders debe estar en supabase_realtime publication (migración 078).
-      // Sin filtro de columna para capturar el UPDATE rider_id NULL→UUID.
-      db.channel('rider-orders-' + riderData.id)
+      // NO se filtra por rider_id: hay que capturar el UPDATE rider_id NULL→UUID, que
+      // con ese filtro no llegaría. Sí se filtra por restaurant_id — sin él, cada rider
+      // recibía un evento por CADA pedido de CADA restaurante de la plataforma y
+      // recargaba su cola en cada uno.
+      if (chanRef.current) { try { db.removeChannel(chanRef.current); } catch(_) {} }
+      chanRef.current = db.channel('rider-orders-' + riderData.id)
         .on('postgres_changes', {
-          event: '*', schema: 'public', table: 'delivery_orders'
+          event: '*', schema: 'public', table: 'delivery_orders',
+          filter: 'restaurant_id=eq.' + (riderData.restaurant_id || RID)
         }, () => loadActiveOrders(riderData))
         .subscribe();
     }
@@ -740,6 +749,7 @@ function App() {
 
   async function handleLogout() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (chanRef.current && db) { try { db.removeChannel(chanRef.current); } catch(_) {} chanRef.current = null; }
     try { await window.MythosPresence?.stop('manual'); } catch(_) {}
     if (rider?.id && db) {
       // M9-b: al cerrar sesión el rider queda OFFLINE (no 'disponible'). Si

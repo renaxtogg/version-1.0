@@ -174,6 +174,10 @@ const offlineQ={
 /* ── UTILS ── */
 const fmt    = n => '₲ ' + (n||0).toLocaleString('es-PY');
 const fmtK   = n => n>=1000000?`${(n/1000000).toFixed(1)}M`:n>=1000?`${Math.round(n/1000)}k`:String(n||0);
+// Día comercial del local (Paraguay = UTC-3), NO UTC. `toISOString().slice(0,10)`
+// devuelve la fecha UTC: a partir de las 21:00 de Paraguay ya es el día siguiente,
+// así que filtrar "hoy" con eso rompe en plena cena. Mismo criterio que gerente.
+const todayPY = () => new Date().toLocaleDateString('en-CA',{timeZone:'America/Asuncion'});
 const fmtDate= d => new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'2-digit'});
 const fmtTime= d => new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'});
 const fmtDT  = d => `${fmtDate(d)} ${fmtTime(d)}`;
@@ -331,7 +335,15 @@ function _faltaComprobante(requireProof, metodo, comprobante, proofUrl){
 }
 const _MSG_FALTA_COMP='Este local exige comprobante para cobrar por transferencia/QR — cargá el N° de operación o la foto.';
 // Métodos que admiten Nº de comprobante (tarjeta POS / transferencia / QR / mixto).
+// FUENTE ÚNICA: la usan tanto la UI (mostrar el campo) como el guardado de
+// orders.payment_reference. No duplicar la lista — se desincronizan.
 const _needsRef = m => m==='tarjeta_credito'||m==='tarjeta_debito'||m==='qr'||m==='mixto';
+// ¿El error es "esa columna no existe todavía" (migración pendiente) y no un fallo real?
+// Sirve para decidir si tiene sentido reintentar un INSERT recortado. Cualquier otro
+// error (RLS, red, constraint) NO debe degradar el pedido: debe propagarse.
+const _esColumnaFaltante = e =>
+  /PGRST204|42703|schema cache|column .* does not exist/i.test(
+    `${(e&&e.message)||''} ${(e&&e.code)||''} ${(e&&e.details)||''}`);
 /* UI compartida por los modales de cobro: campo "N° de comprobante" (opcional) y,
    para transferencia/QR, los datos de la cuenta del comercio + su QR. */
 function PagoRefTransfer({metodo, comprobante, setComprobante, bankInfo, proofUrl, setProofUrl}){
@@ -1299,7 +1311,11 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       };
       const cerrarOrden = order.status==='pending_payment' && yaEnMesa;
       const pmOrder = mapOrderPM(metodo);
-      const payRef = (['tarjeta_credito','tarjeta_debito','qr'].includes(metodo) && comprobante.trim()) ? comprobante.trim() : null;
+      // Se persiste con el MISMO criterio con el que `_needsRef` decide mostrar el
+      // campo. Antes esta lista estaba escrita a mano y se había quedado sin 'mixto':
+      // al cobrar mixto el cajero veía el campo, cargaba el N° de comprobante y se
+      // descartaba en silencio — el pago quedaba sin referencia para conciliar.
+      const payRef = (_needsRef(metodo) && comprobante.trim()) ? comprobante.trim() : null;
       const orderUpdate = order.status==='confirmed'
         ? {payment_status:'paid', status:'paid', total:totalReal, payment_method:pmOrder, payment_reference:payRef, ...invoiceFields}
         : cerrarOrden
@@ -2639,10 +2655,18 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
         payment_method:mapOrderPM(metodo),
         ...(isDeliv?{channel:deliv?.channel||'propio', external_order_id:(deliv?.channel!=='propio'?(deliv?.externalId||'').trim():'')||null}:{}),
       };
-      const payRef = (['tarjeta_credito','tarjeta_debito','qr'].includes(metodo) && comprobante.trim()) ? comprobante.trim() : null;
+      // Se persiste con el MISMO criterio con el que `_needsRef` decide mostrar el
+      // campo. Antes esta lista estaba escrita a mano y se había quedado sin 'mixto':
+      // al cobrar mixto el cajero veía el campo, cargaba el N° de comprobante y se
+      // descartaba en silencio — el pago quedaba sin referencia para conciliar.
+      const payRef = (_needsRef(metodo) && comprobante.trim()) ? comprobante.trim() : null;
       let{data:order,error:e1}=await db.from('orders').insert({...baseInsert,...invoiceFields,...(payRef?{payment_reference:payRef}:{})}).select().single();
-      if(e1){
-        // Fallback si la migración de invoice no está aplicada
+      // Reintento recortado SÓLO si la base todavía no tiene las columnas de factura.
+      // Antes reintentaba ante CUALQUIER error: un fallo transitorio (RLS, red) hacía
+      // que el pedido se creara sin requires_invoice ni payment_reference — el cliente
+      // pedía factura, pagaba, y el pedido quedaba registrado como si no la hubiera
+      // pedido. Cualquier otro error ahora se propaga y el cobro no se da por hecho.
+      if(e1 && _esColumnaFaltante(e1)){
         const r=await db.from('orders').insert(baseInsert).select().single();
         order=r.data;e1=r.error;
       }
@@ -3676,7 +3700,9 @@ function SalonPanel({turno,profile}){
   },[]);
 
   async function load(){
-    const todayStr=new Date().toISOString().slice(0,10);
+    // Fecha del local: con la UTC, después de las 21:00 caja pedía las reservas de
+    // MAÑANA y no veía ninguna de esta noche.
+    const todayStr=todayPY();
     // Pickup pagado entregado hace <10 min: lo mostramos en caja unos minutos
     // luego cae al historial. (Filtro real visible es 6 min — la query trae
     // 10 para evitar parpadeos por desfase de reloj.)
@@ -4476,7 +4502,7 @@ function ReservaFormModalCaja({reserva,tables,onClose,onSaved}){
   const TIME_SLOTS=[];
   for(let h=10;h<=23;h++){TIME_SLOTS.push(`${String(h).padStart(2,'0')}:00`);TIME_SLOTS.push(`${String(h).padStart(2,'0')}:30`);}
 
-  const todayStr=now.toISOString().slice(0,10);
+  const todayStr=todayPY();
   const initDate=reserva?.reservation_date||todayStr;
   const [iY,iM,iD]=initDate.split('-').map(Number);
 
@@ -4639,7 +4665,7 @@ function ReservaFormModalCaja({reserva,tables,onClose,onSaved}){
 function ReservasPanel(){
   const [reservas,setReservas]=useState([]);
   const [loading,setLoading]=useState(true);
-  const [dateFilter,setDateFilter]=useState(new Date().toISOString().slice(0,10));
+  const [dateFilter,setDateFilter]=useState(todayPY());
   const [newModal,setNewModal]=useState(false);
   const [editModal,setEditModal]=useState(null);
   const [tables,setTables]=useState([]);

@@ -45,6 +45,12 @@ const RESTAURANT_ID = _SUPER_RID || localStorage.getItem('mythos_restaurant_id')
 const RID = RESTAURANT_ID; // alias retro-compatible con consultas/suscripciones existentes
 
 /* ── UTILS ── */
+// Día comercial del local (Paraguay = UTC-3), NO UTC. `toISOString().slice(0,10)`
+// da la fecha UTC: desde las 21:00 de Paraguay ya es el día siguiente, así que
+// filtrar "hoy" con eso rompe en plena cena.
+const todayPY = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Asuncion' });
+// Instante de inicio del día LOCAL, para comparar contra columnas timestamptz.
+const startOfDayISO = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.toISOString(); };
 const fGs = n => '₲ ' + Math.round(n || 0).toLocaleString('es-PY');
 // El selector de cobro usa el dominio de movimientos_caja.metodo_pago
 // (efectivo/tarjeta_credito/tarjeta_debito/qr) para entrar al arqueo vía la RPC.
@@ -648,7 +654,7 @@ function App() {
   async function loadData() {
     if (!db) { setLoading(false); return; }
     try {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = todayPY();
       const [tablesRes, ordersRes, callsRes, menuRes, extrasRes, resvRes, restRes] = await Promise.all([
         db.from('tables').select('*').eq('restaurant_id', RID).eq('is_active', true).order('number'),
         db.from('orders').select('*, order_items(*)').eq('restaurant_id', RID)
@@ -909,11 +915,14 @@ function App() {
 
   async function loadOtrosMozos() {
     if (!db) return;
-    const today = new Date().toISOString().slice(0, 10);
+    // `created_at` es timestamptz: comparar contra 'YYYY-MM-DD' lo lee como medianoche
+    // UTC = 21:00 del día anterior en Paraguay. Antes de las 21:00 arrastraba mozos de
+    // ayer; después de las 21:00 la fecha UTC ya era la de mañana y la lista se
+    // recortaba a las últimas horas. Se usa el instante real de inicio del día local.
     const { data: ordersData } = await db.from('orders')
       .select('waiter_id, waiter_name')
       .eq('restaurant_id', RID)
-      .gte('created_at', today)
+      .gte('created_at', startOfDayISO())
       .not('waiter_name', 'is', null);
 
     const mozosMap = {};

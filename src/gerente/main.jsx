@@ -35,6 +35,10 @@ const RID = (_SUPER_RID || localStorage.getItem('mythos_restaurant_id') || (wind
 /* ───────────────────────── UTILS ───────────────────────── */
 const fmt    = n => '₲ ' + (Math.round(n)||0).toLocaleString('es-PY');
 const fmtK   = n => n>=1000000 ? `${(n/1000000).toFixed(1)}M` : n>=1000 ? `${Math.round(n/1000)}k` : String(n||0);
+// Día comercial del local (Paraguay = UTC-3), NO UTC — mismo criterio que el `p_date`
+// del reporte del día. `toISOString().slice(0,10)` da la fecha UTC: desde las 21:00 de
+// Paraguay ya es el día siguiente y "hoy" se corre en plena cena.
+const todayPY = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Asuncion' });
 const fmtDate= d => d ? new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'2-digit'}) : '—';
 const fmtTime= d => d ? new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'}) : '—';
 const fmtDT  = d => d ? `${fmtDate(d)} ${fmtTime(d)}` : '—';
@@ -1085,9 +1089,11 @@ function ReservasHoy() {
 
   const load = useCallback(async () => {
     if (!db) return;
-    const today = new Date().toISOString().slice(0,10);
+    // Fechas del local: en UTC, después de las 21:00 la ventana pasaba a ser
+    // mañana+pasado y se perdían las reservas de esta noche.
+    const today = todayPY();
     const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate()+1);
-    const { data } = await db.from('reservations').select('*').eq('restaurant_id',RID).gte('reservation_date', today).lte('reservation_date', tomorrow.toISOString().slice(0,10)).order('reservation_date').order('reservation_time');
+    const { data } = await db.from('reservations').select('*').eq('restaurant_id',RID).gte('reservation_date', today).lte('reservation_date', tomorrow.toLocaleDateString('en-CA',{timeZone:'America/Asuncion'})).order('reservation_date').order('reservation_time');
     setList(data||[]); setLoading(false);
   }, []);
   useEffect(() => { load(); const id = setInterval(() => { if (!_shouldPause()) load(); }, 60000); return () => clearInterval(id); }, [load]);
@@ -1099,7 +1105,7 @@ function ReservasHoy() {
 
   if (loading) return <div style={{padding:40,textAlign:'center'}}><div className="spin"/></div>;
 
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayPY();
   const hoy = list.filter(r => r.reservation_date === today);
   const manana = list.filter(r => r.reservation_date !== today);
 
@@ -1168,7 +1174,7 @@ function BitacoraTurno({user, userName}) {
     if (!db) return;
     let q = db.from('shift_logs').select('*').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(limit);
     if (filter === 'hoy') {
-      const today = new Date().toISOString().slice(0,10);
+      const today = todayPY();
       q = q.eq('log_date', today);
     } else if (filter === 'abiertos') {
       q = q.eq('is_resolved', false);

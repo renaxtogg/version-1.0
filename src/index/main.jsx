@@ -160,8 +160,12 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
     invoice_status: 'pending',
   } : {};
   let { data: order, error: orderErr } = await db.from('orders').insert({ ...baseInsert, ...invoiceExtras }).select('id,order_number,status').single();
-  if (orderErr) {
-    // Fallback si la migración 085 no está aplicada todavía
+  // El reintento recortado es SÓLO para bases donde la mig 085 todavía no está
+  // aplicada (columna inexistente). Antes se reintentaba ante CUALQUIER error, y un
+  // fallo transitorio de red podía crear un pedido DUPLICADO (si el primer INSERT sí
+  // había entrado del lado del servidor) o uno sin los datos de facturación.
+  if (orderErr && /PGRST204|42703|schema cache|column .* does not exist/i
+        .test(`${orderErr.message || ''} ${orderErr.code || ''} ${orderErr.details || ''}`)) {
     const r = await db.from('orders').insert(baseInsert).select('id,order_number,status').single();
     order = r.data; orderErr = r.error;
   }
@@ -219,33 +223,34 @@ async function dbLoadRestaurant() {
   } catch(e) { return null; }
 }
 
+// La reserva vive en la tabla `reservations` (migración 040) — es lo único que ve
+// el restaurante. Si el INSERT falla, esto devuelve ok:false y el que llama DEBE
+// mostrar el error: antes se caía a un "fallback" de localStorage y se devolvía
+// ok:true igual, así que el comensal recibía un número de confirmación por una
+// reserva que NADIE recibió (ese localStorage no lo lee ningún panel). Se prefiere
+// avisar "no pudimos tomar la reserva" antes que confirmar una reserva fantasma.
 async function dbSaveReservation(res) {
-  if (db) {
-    try {
-      const { error } = await db.from('reservations').insert({
-        restaurant_id:    res.restaurant_id,
-        confirm_num:      res.confirm_num,
-        customer_name:    res.name,
-        customer_phone:   res.phone,
-        reservation_date: res.date,
-        reservation_time: res.time,
-        guests:           res.guests,
-        table_id:         res.table_id || null,
-        preferred_zone:   res.preferred_zone || null,
-        occasion:         res.occasion || null,
-        notes:            res.notes || null,
-        status:           'pending',
-      });
-      if (!error) return { ok: true };
-    } catch(e) {}
-  }
-  // Fallback localStorage si no hay DB
+  if (!db) return { ok: false, error: 'Sin conexión con el servidor.' };
   try {
-    const reservas = JSON.parse(localStorage.getItem('reservations') || '[]');
-    reservas.push({ ...res, id: Date.now(), created_at: new Date().toISOString() });
-    localStorage.setItem('reservations', JSON.stringify(reservas));
-  } catch(e) {}
-  return { ok: true };
+    const { error } = await db.from('reservations').insert({
+      restaurant_id:    res.restaurant_id,
+      confirm_num:      res.confirm_num,
+      customer_name:    res.name,
+      customer_phone:   res.phone,
+      reservation_date: res.date,
+      reservation_time: res.time,
+      guests:           res.guests,
+      table_id:         res.table_id || null,
+      preferred_zone:   res.preferred_zone || null,
+      occasion:         res.occasion || null,
+      notes:            res.notes || null,
+      status:           'pending',
+    });
+    if (error) return { ok: false, error: error.message || 'No se pudo guardar la reserva.' };
+    return { ok: true };
+  } catch(e) {
+    return { ok: false, error: (e && e.message) || 'No se pudo guardar la reserva.' };
+  }
 }
 
 async function dbLoadTables() {
@@ -1747,10 +1752,14 @@ function ReservationScreen({ onBack, onDone }) {
   const restName = restaurant?.name || 'Restaurante';
   const [form, setForm] = useState({ name: '', phone: '', date: '', time: '', guests: 2, preferred_zone: '', table_id: '', occasion: '', notes: '' });
   const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState('');
   const [done, setDone] = useState(null);
   const [tables, setTables] = useState([]);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  // Fecha del local (Paraguay = UTC-3), no UTC: con `toISOString()` el mínimo del
+  // selector pasaba a ser MAÑANA desde las 21:00 y el comensal no podía reservar
+  // para esa misma noche.
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: (restaurant && restaurant.timezone) || 'America/Asuncion' });
 
   React.useEffect(() => {
     dbLoadTables().then(setTables);
@@ -1773,9 +1782,14 @@ function ReservationScreen({ onBack, onDone }) {
   const handleSubmit = async () => {
     if (!form.name || !form.phone || !form.date || !form.time || !form.preferred_zone) return;
     setSaving(true);
+    setSaveErr('');
     const confirmNum = 'R-' + String(Math.floor(Date.now() % 90000) + 10000);
-    await dbSaveReservation({ ...form, restaurant_id: RESTAURANT_ID, confirm_num: confirmNum });
+    const r = await dbSaveReservation({ ...form, restaurant_id: RESTAURANT_ID, confirm_num: confirmNum });
     setSaving(false);
+    // Sólo se muestra el número de confirmación si la reserva REALMENTE quedó
+    // guardada. Confirmar sin haber guardado deja al comensal viajando a un local
+    // que no lo espera.
+    if (!r || !r.ok) { setSaveErr('No pudimos tomar tu reserva. Revisá tu conexión y probá de nuevo.'); return; }
     setDone({ confirmNum, phone: form.phone });
   };
 
@@ -1933,6 +1947,11 @@ function ReservationScreen({ onBack, onDone }) {
           </div>
         </div>
 
+        {saveErr && (
+          <div role="alert" style={{ background: '#2a1215', border: '1px solid #5c1f26', borderRadius: 10, padding: '12px 16px', marginBottom: 12, fontSize: 12, color: '#fca5a5', lineHeight: 1.6 }}>
+            {saveErr}
+          </div>
+        )}
         <button onClick={handleSubmit} disabled={!canSubmit || saving} style={{ width: '100%', height: 54, background: canSubmit ? T.btnPrimary : T.light, color: canSubmit ? T.btnPrimaryText : T.silver, border: 'none', borderRadius: 14, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", fontSize: 16, fontWeight: 800, cursor: canSubmit ? 'pointer' : 'default', marginBottom: 32, transition: 'all 200ms', opacity: saving ? 0.7 : 1 }}>
           {saving ? 'Enviando…' : 'Confirmar reserva'}
         </button>
