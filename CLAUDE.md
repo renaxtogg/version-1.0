@@ -3,14 +3,14 @@
 > Ecosistema SaaS gastronómico multi-restaurante. Moneda: guaraní (₲).
 > **Estado:** reset a fábrica el 2026-06-05 (migración 096). Hoy en prod conviven: el superadmin **Renato** (`Renaxto`, `restaurant_id = NULL`), **Terrapizza** (demo/QA cargada a mano por Renato — **NO es cliente real**) y datos de simulacro (3 restaurantes `a1a1…/b2b2…/c3c3…` + 15 usuarios `@mythos.test`) pendientes de teardown guardado.
 > **⚠️ Criterio de cuentas (FINAL 2026-06-16, instrucción de Renato):** actualmente **ninguna cuenta/restaurante en prod corresponde a un cliente real** (Terrapizza incluida). La **única cuenta oficial protegida** es `mancuellorenato@gmail.com`. Todo lo demás es demo/QA — candidato a futura rotación/desactivación/edición/eliminación — pero **NO se toca automáticamente**: cualquier acción sobre Auth o datos requiere **spec explícita + aprobación de Renato** (reversible primero; borrado definitivo solo en fase separada aprobada). Teardown sigue exigiendo **backup nuevo + dry-run revisado + aprobación explícita**. Ver `docs/audits/pr21c-demo-criterion-reconciliation.md`.
-> **⚠️ SEGURIDAD (auditoría 2026-06-11):** la plataforma **NO es apta para clientes reales** hasta aplicar el Sprint 1 de RLS (lockdown de escritura del rol `anon` — confirmado en prod que `anon` puede UPDATE/DELETE `restaurants` y leer/escribir `payments` y `staff_payroll_adjustments`). Detalle y roadmap: `MYTHOS_PRESPRINT_REPORT.md`.
+> **⚠️ SEGURIDAD — estado al 2026-08-01 (auditoría general):** el **Sprint 1 de RLS ya está aplicado** (migs **103** lockdown de escritura de `anon` + **104** tenant-scoping de `authenticated`), así que el aviso viejo de "no apta para clientes reales" **quedó saldado en lo que listaba**: `anon` ya no escribe `restaurants`, ni lee/escribe `payments` (cerrada además por la mig 194) ni `staff_payroll_adjustments`. Se sumó la mig **195**: `search_path` fijo en TODA función `SECURITY DEFINER` + `REVOKE CREATE ON SCHEMA public` a `anon`/`authenticated` (cerraba una escalada a superusuario vía shadowing — ver regla abajo). **Lo que sigue abierto** es el `USING(true)` a nivel de fila para `authenticated` en ~25 tablas (cross-tenant *interno*, entre locales; no expuesto a `anon`). Roadmap: `MYTHOS_PRESPRINT_REPORT.md` (su encabezado describe el estado de junio, leerlo con esta nota al lado).
 > Referencia extendida: `.claude/skills/mythos-context/SKILL.md` y `.claude/skills/mythos-ui/SKILL.md`.
 
 ---
 
 ## Stack
 
-- **Frontend:** HTML + React 18 + CSS-in-JS inline + `design-system.css`. **En migración (PR-11):** paneles legacy con React/Babel CDN en navegador; paneles migrados precompilados con **Vite** (`src/<panel>/*.jsx` → `public/build/<panel>.js`). Migrado: `delivery-rider`. Ver regla "Build moderno" abajo.
+- **Frontend:** HTML + React 18 + CSS-in-JS inline + `design-system.css`. **Migración a Vite COMPLETA:** los 10 paneles se editan en `src/<panel>/main.jsx` y Vite los precompila a `public/build/<panel>.js`. **`public/build/` está gitignored — lo reconstruye Vercel en cada deploy.** Ver regla "Build moderno" abajo.
 - **Backend:** Supabase (PostgreSQL + Auth + Realtime + Storage + RLS).
 - **Deploy:** Vercel estático (`outputDirectory: public/`).
 - **Config:** `config.js` gitignored — credenciales via `window.SUPABASE_CONFIG`.
@@ -56,7 +56,7 @@ restaurants, tables (con `assigned_waiter`, `pos_x/y` virtuales, `zone`), menu_c
 
 ## Bugs críticos conocidos
 
-1. **RLS con `USING(true)`** — *parcialmente mitigado*: el lado **autenticado** está aislado por restaurante (mig. 086) y el rol **anon** ya no filtra PII ni permite alterar pedidos ajenos (mig. 102). **Pendiente (CONFIRMADO en prod 2026-06-11):** `anon` aún puede **UPDATE/INSERT/DELETE `restaurants`** (`sa_restaurants_all`/`admin_update_restaurant` siguen vivas y los privilegios de escritura nunca se revocaron), tiene **lectura/escritura total en `payments` y `staff_payroll_adjustments`**, `GRANT ALL TO anon` en las tablas de estaciones, `dord_anon_update USING(true)` en `delivery_orders`, y ~25 tablas siguen `USING(true)` para `authenticated` (cross-tenant interno). Plan de cierre: Sprint 1 (migraciones 103/104) en `MYTHOS_PRESPRINT_REPORT.md` — **no construir features encima hasta aplicarlo**.
+1. **RLS con `USING(true)` a nivel de fila para `authenticated`** — ~25 tablas siguen sin filtro de tenant por fila: es cross-tenant **interno** (un usuario autenticado de un local podría alcanzar filas de otro), **no** superficie de `anon`. Es lo único que queda del bug crítico original. Lo demás **ya se cerró**: `anon` sin PII ni manipulación de pedidos (mig. 102), sin escritura de `restaurants` ni acceso a `payments`/`staff_payroll_adjustments` (mig. 103), `authenticated` aislado por restaurante (migs. 086 y 104), `payments` con RLS propia (mig. 194). Roadmap: `MYTHOS_PRESPRINT_REPORT.md`.
 2. **Tracking cliente en `index.html`** — Realtime parcial; delivery sí tiene Realtime + polling fallback, mesa aún no.
 3. **`customers` sin tabla** — UI de CRM existe pero datos no persisten.
 
@@ -74,6 +74,11 @@ restaurants, tables (con `assigned_waiter`, `pos_x/y` virtuales, `zone`), menu_c
 - ~~Fuga de PII por la anon key + manipulación de pedidos ajenos~~ — migración **102** (`anon` pierde SELECT de columnas PII en orders/delivery_orders/restaurants y UPDATE/DELETE de pedidos; commit `dce8119`, 2026-06-08).
 - ~~`subscriptions` legibles/escribibles por anon (`sa_subs_all USING(true)`)~~ — restringido a superadmin (`get_my_role()`).
 - ~~`delivery_riders.rider_pin` expuesto a anon~~ — vaciado a NULL (login de rider = correo+contraseña).
+- ~~Escalada a superusuario por `search_path` mutable en funciones `SECURITY DEFINER`~~ — migración **195** (2026-08-01).
+- ~~Desactivar a un admin no le quitaba poderes~~ — faltaba `is_active=eq.true` en `create-user` / `manage-staff` / `set-admin-cedula`.
+- ~~"Hoy" se calculaba en UTC~~ — a partir de las 21:00 de Paraguay el sistema cambiaba de día en plena cena (ver regla "Día comercial" abajo).
+- ~~Reservas fantasma~~ — `dbSaveReservation` devolvía `{ok:true}` aunque el INSERT fallara y confirmaba al comensal una reserva que el local nunca recibía.
+- ~~Reintento de INSERT de `orders` ante cualquier error~~ — degradaba el pedido (perdía `requires_invoice`/`payment_reference`) o lo duplicaba; ahora sólo reintenta si la columna no existe.
 
 ---
 
@@ -85,11 +90,13 @@ restaurants, tables (con `assigned_waiter`, `pos_x/y` virtuales, `zone`), menu_c
 - **Terrapizza es demo/QA de Renato, NO cliente real** (criterio FINAL 2026-06-16). Ninguna cuenta/restaurante en prod es cliente real. La **única cuenta oficial protegida** es `mancuellorenato@gmail.com` — esa **nunca se toca**. Todo lo demás (Terrapizza incluida) es demo/QA: **NO se borra ni modifica automáticamente**; cualquier limpieza de Auth/datos exige **spec explícita + aprobación de Renato** (preferir acciones reversibles —rotar/desactivar/bloquear— antes que borrar; eliminación definitiva solo en fase separada aprobada). Esto **NO** es autorización destructiva automática. Ver `docs/audits/pr21c-demo-criterion-reconciliation.md`.
 - **Datos de simulacro** (restaurantes `a1a1…/b2b2…/c3c3…`, usuarios `@mythos.test`): solo se eliminan vía el teardown guardado, después de un backup, siguiendo `docs/security/SIMULATION_TEARDOWN_CHECKLIST.md`. Nunca con DELETEs ad-hoc.
 - **Simulaciones futuras:** nombres de restaurantes con prefijo `[SIM]`, emails `@mythos.test`, runner con `SUPABASE_PAT`/`SUPABASE_PROJECT_REF` por env vars y guardas `ALLOW_PROD_SIMULATION=true` (para tocar prod) y `CONFIRM_SIMULATION_TEARDOWN=true` (para scripts destructivos). `_simulacion/run.ps1` ya implementa ambas guardas — no debilitarlas.
-- **Build moderno (PR-11, en migración incremental):** la decisión histórica de "sin bundler / sin `import`-`export`" queda **reemplazada SOLO para la migración a Vite**. Hoy conviven dos mundos: (a) **paneles ya migrados** — código en `src/<panel>/*.jsx` con `import`/`export`, precompilados por Vite a `public/build/<panel>.js` (bundle IIFE), referenciados desde el HTML; (b) **paneles aún NO migrados** — siguen con React/ReactDOM UMD + `@babel/standalone` + `<script type="text/babel">` inline y `window.*`. **Migrado hasta ahora:** `delivery-rider`. **NO** migrar más paneles sin aprobación del arquitecto (estrategia incremental, 1 panel por PR, empezando por los de menor riesgo; admin/caja/cocina al final). Seguimos **app estática** (sin Next/Remix); `outputDirectory` sigue `public/`. En los paneles **no migrados**, mantener el patrón viejo (`window.*`, sin `import`/`export`) hasta que les toque su PR.
+- **Build moderno (Vite) — migración COMPLETA.** La decisión histórica de "sin bundler / sin `import`-`export`" quedó reemplazada: **los 10 paneles** viven en `src/<panel>/main.jsx` con `import`/`export` y Vite los compila a `public/build/<panel>.js` (bundle IIFE) que el HTML referencia. **Editar SIEMPRE `src/<panel>/main.jsx`, nunca `public/build/*`** (está gitignored y lo regenera Vercel; un cambio ahí se pierde en el próximo deploy). Correr `npm run build` antes de commitear para verificar que compila. Seguimos **app estática** (sin Next/Remix); `outputDirectory` sigue `public/`. Las páginas sueltas de `public/` que NO son paneles (`web.html`, `registro.html`, `login.html`, `proveedores.html`, legales…) siguen siendo HTML+JS plano sin bundle — ahí sí mantener el patrón viejo (`window.*`, sin `import`/`export`).
 - NO borrar comentarios `/*EDITMODE-BEGIN*/` / `/*EDITMODE-END*/` (delimitan zonas de tweaks en vivo).
 - **No hay restaurante por defecto.** El `RESTAURANT_ID` se resuelve siempre del contexto: `?r=` en la URL (QR/link), `localStorage.mythos_restaurant_id` (seteado al login), o `SUPABASE_CONFIG.restaurantId` (deploy de un solo local). El UUID `…0001` quedó **eliminado** como fallback (migración 096) — no volver a cablearlo.
-- Cambios de DB siempre con **migración nueva numerada** (último número: ver `supabase/migrations/`).
+- **Día comercial = Paraguay (`America/Asuncion`, UTC-3), NUNCA UTC.** `new Date().toISOString().slice(0,10)` devuelve la fecha **UTC**: desde las **21:00 hora local ya es el día siguiente**, así que usarlo para "hoy" rompe en plena cena. Cada panel tiene el helper al lado de `fmt`/`fmtDate` — usar el que corresponde al tipo de dato: **`todayPY()`** para columnas `DATE`, defaults y `min` de `<input type="date">`; **`dayPY(ts)`** para comparar un timestamp de la DB contra "hoy"; **`isoLocal(d)`** para los extremos de un rango tipeado por el usuario (`to.setHours(23,59,59,999)` + `toISOString()` se iba **un día de más**); **`startOfDayISO()`** para `.gte()` sobre columnas `timestamptz` (pasarles `'YYYY-MM-DD'` las lee como medianoche UTC = 21:00 del día anterior en PY). `d.setHours(0,0,0,0)` + `toISOString()` sí es correcto en UTC-3 y no hace falta tocarlo.
+- Cambios de DB siempre con **migración nueva numerada** (última: **195**, ver `supabase/migrations/`).
 - NO editar una migración existente — siempre crear una nueva.
+- **Toda función `SECURITY DEFINER` nueva DEBE declarar `SET search_path = public, extensions, pg_temp`** (`pg_temp` siempre último). Sin eso hereda el `search_path` del llamador y quien pueda crear objetos en `public` shadowea una tabla sin calificar y ejecuta código como `postgres` — es el `function_search_path_mutable` del linter de Supabase. `extensions` va en la lista porque pgcrypto vive ahí. Si se olvida, re-correr la migración 195 (es idempotente y barre `pg_proc` entero).
 - NO modificar RLS sin analizar impacto multi-restaurante.
 - Modales de registro/edición: **cierre solo con ESC o botón X**, nunca click en overlay (pérdida de datos al seleccionar texto).
 - Probar flujo cliente→cocina→mozo→caja cuando el cambio toca órdenes.
@@ -101,7 +108,7 @@ restaurants, tables (con `assigned_waiter`, `pos_x/y` virtuales, `zone`), menu_c
 
 ## Prioridades
 
-1. **RLS multi-restaurante segura** (reemplazar el `USING(true)` restante a nivel de fila; anon-PII y escritura ya cerrados en mig. 102)
+1. **RLS multi-restaurante segura** — queda sólo el `USING(true)` a nivel de fila para `authenticated` (~25 tablas, cross-tenant interno). La superficie de `anon` ya está cerrada (migs. 102/103) y `authenticated` scopeado por tenant (migs. 086/104).
 2. ~~**Gestión segura de usuarios** — mover Admin API a Edge Function~~ ✅ hecho (`/api/create-user`)
 3. **Customers / CRM** — crear tabla y conectar UI existente
 4. **Realtime tracking cliente** en `index.html` (mesa) — replicar patrón delivery
