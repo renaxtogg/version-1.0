@@ -148,6 +148,11 @@
         </button>
 
         <div class="field">
+          <label for="r-nombre">Tu nombre</label>
+          <input id="r-nombre" name="nombre" type="text" placeholder="Nombre y apellido" autocomplete="name" maxlength="80" aria-required="true">
+          <span class="field-hint">Quién sos vos, no el nombre del local (ese te lo pedimos después).</span>
+        </div>
+        <div class="field">
           <label for="r-email">Email</label>
           <input id="r-email" name="email" type="email" placeholder="vos@turestaurante.com" autocomplete="email" inputmode="email" aria-required="true">
         </div>
@@ -238,7 +243,7 @@
         else { statusEl.setAttribute('role', 'status'); statusEl.setAttribute('aria-live', 'polite'); }
       }
 
-      var INVALID_IDS = ['r-tipo-1', 'r-email', 'r-pass', 'r-pass2', 'r-terms'];
+      var INVALID_IDS = ['r-tipo-1', 'r-nombre', 'r-email', 'r-pass', 'r-pass2', 'r-terms'];
       function clearInvalid() {
         INVALID_IDS.forEach(function (id) { var el = document.getElementById(id); if (el) el.removeAttribute('aria-invalid'); });
       }
@@ -320,11 +325,13 @@
 
         var checked = form.querySelector('input[name="tipo_negocio"]:checked');
         var tipo = checked ? checked.value : '';
+        var nombre = val('r-nombre');
         var email = val('r-email'), pass = val('r-pass'), pass2 = val('r-pass2');
         var terms = document.getElementById('r-terms');
 
         // Validación (mensajes claros; mueve el foco al primer campo inválido).
         if (!tipo) return fail('Elegí qué tipo de negocio tenés.', 'r-tipo-1');
+        if (nombre.length < 2) return fail('Decinos tu nombre.', 'r-nombre');
         if (!email || !emailValid(email)) return fail('Ingresá un email válido.', 'r-email');
         if (pass.length < 8) return fail('La contraseña debe tener al menos 8 caracteres.', 'r-pass');
         if (pass !== pass2) return fail('Las contraseñas no coinciden.', 'r-pass2');
@@ -348,10 +355,16 @@
         try { await saveLead(email, tipo, 'web_registro'); } catch (x) {}
 
         try {
+          // `data.full_name` viaja a auth.users.raw_user_meta_data (sin columna nueva
+          // ni migración). /api/onboarding lo lee del token validado y lo copia a
+          // user_roles.display_name al crear el rol admin → el dueño aparece con su
+          // nombre en Personal, y no como "—". El login sigue siendo por EMAIL: acá
+          // NO se pide un `username` (el username de user_roles es el handle de
+          // login del personal —la cédula—, no aplica al dueño).
           var res = await db.auth.signUp({
             email: email,
             password: pass,
-            options: { emailRedirectTo: EMAIL_REDIRECT, captchaToken: captchaToken }
+            options: { emailRedirectTo: EMAIL_REDIRECT, captchaToken: captchaToken, data: { full_name: nombre } }
           });
           // Token de un solo uso: refrescar el widget tras cada intento.
           if (window.MythosCaptcha) window.MythosCaptcha.reset();

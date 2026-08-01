@@ -59,7 +59,10 @@ function httpsDelete(url, headers) {
 }
 
 module.exports = async function handler(req, res) {
-  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos-pos.vercel.app';
+  // Dominio de producción REAL. 'mythos-pos.vercel.app' es un alias viejo: dejarlo
+  // como default hacía que, sin la env var, el header apuntara a un origen que ya no
+  // es el del producto. Configurable por ALLOWED_ORIGIN.
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos.com.py';
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -96,16 +99,34 @@ module.exports = async function handler(req, res) {
 
     const callerId = authedResp.data.id;
 
-    // Verificar rol del caller en user_roles
+    // Verificar rol del caller en user_roles.
+    // Se piden TODAS sus filas ACTIVAS y se resuelve la de mayor privilegio:
+    //   • `limit=1` sin ORDER BY devolvía una fila ARBITRARIA. Una persona puede
+    //     tener rol en varios locales (reuse multi-sucursal), así que un admin que
+    //     además es mozo en otro local podía recibir la fila de mozo (403 espurio)
+    //     o —peor— la fila de OTRO restaurante, y `finalRestaurantId` terminaba
+    //     apuntando al local equivocado.
+    //   • `is_active=eq.true` es lo que hace que desactivar a un admin le saque de
+    //     verdad el poder de crear usuarios (mismo criterio que _staffauth.js y
+    //     delete-restaurant.js, que ya filtraban).
     const roleResp = await httpsGet(
-      `${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${callerId}&select=role,restaurant_id&limit=1`,
+      `${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${callerId}&is_active=eq.true&select=role,restaurant_id`,
       { 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`, 'apikey': SERVICE_ROLE_KEY }
     );
     if (!roleResp.ok || !Array.isArray(roleResp.data) || roleResp.data.length === 0) {
       res.status(403).json({ error: 'Sin permisos para crear usuarios' });
       return;
     }
-    const callerRole = roleResp.data[0];
+    const callerRoles = roleResp.data;
+    // Si el caller es admin de VARIOS locales, se prefiere su fila del restaurante
+    // pedido (si mandó uno): sin esto, un admin multi-local sólo podía dar de alta
+    // en el local que la fila arbitraria hubiera elegido. El tenant guard de abajo
+    // sigue siendo el que decide — acá sólo se elige entre filas propias del caller.
+    const reqRest = (req.body && typeof req.body.restaurant_id === 'string' && req.body.restaurant_id) || null;
+    const callerRole = callerRoles.find(r => r.role === 'superadmin')
+      || callerRoles.find(r => r.role === 'admin' && reqRest && r.restaurant_id === reqRest)
+      || callerRoles.find(r => r.role === 'admin')
+      || callerRoles[0];
 
     const body = req.body || {};
     const { password, display_name, role, restaurant_id } = body;
@@ -138,6 +159,14 @@ module.exports = async function handler(req, res) {
       }
     } else if (callerRole.role === 'superadmin') {
       if (!ALL_ROLES.includes(role)) { res.status(400).json({ error: 'Rol inválido' }); return; }
+      // El superadmin es el único que elige el restaurante destino desde el body, y ese
+      // valor se interpola en URLs de PostgREST más abajo (subscriptions/user_roles).
+      // Sin esta guarda, un `restaurant_id` con `&`/`?` inyectaría parámetros en esas
+      // consultas (p.ej. anular el filtro de cupo del plan). Mismo criterio que
+      // delete-restaurant.js, que ya validaba el UUID.
+      if (restaurant_id != null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(restaurant_id))) {
+        res.status(400).json({ error: 'restaurant_id inválido' }); return;
+      }
     } else {
       res.status(403).json({ error: 'Sin permisos para crear usuarios' }); return;
     }

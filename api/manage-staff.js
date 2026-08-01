@@ -39,7 +39,7 @@ const EMPLOYEE_ROLES = ['cajero', 'mozo', 'cocina', 'rider', 'supervisor_local']
 const ROLE_WORD = { mozo:'mozos', cajero:'cajeros', cocina:'cocineros', rider:'riders', supervisor_local:'gerentes' };
 
 module.exports = async function handler(req, res) {
-  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos-pos.vercel.app';
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos.com.py';
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -67,8 +67,10 @@ module.exports = async function handler(req, res) {
     }
     const callerId = authedResp.data.id;
 
+    // Sólo roles ACTIVOS: desactivar a un admin debe quitarle de verdad la gestión de
+    // personal. Sin el filtro, su fila seguía habilitándolo a editar/quitar empleados.
     const roleResp = await httpsGet(
-      `${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${callerId}&select=role,restaurant_id`, svc);
+      `${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${callerId}&is_active=eq.true&select=role,restaurant_id`, svc);
     if (!roleResp.ok || !Array.isArray(roleResp.data) || roleResp.data.length === 0) {
       res.status(403).json({ error: 'Sin permisos' }); return;
     }

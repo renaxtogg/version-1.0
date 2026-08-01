@@ -65,7 +65,7 @@ function isTrivial(pw) {
 }
 
 module.exports = async function handler(req, res) {
-  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos-pos.vercel.app';
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos.com.py';
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');

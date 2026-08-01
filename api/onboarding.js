@@ -53,7 +53,7 @@ async function rollbackDelete(url, headers, label) {
 }
 
 module.exports = async function handler(req, res) {
-  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos-pos.vercel.app';
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos.com.py';
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -87,6 +87,12 @@ module.exports = async function handler(req, res) {
     // token no trae email (OAuth sin scope / signup por teléfono) no creamos un tenant
     // sin contacto de dueño: el funnel asume email verificado.
     if (!email) { res.status(400).json({ error: 'Tu cuenta no tiene un email verificado.' }); return; }
+    // Nombre del dueño: sale del METADATA del token (lo cargó registro.html en el
+    // signUp), no del body → no es falsificable ni depende del front del wizard.
+    // Sin él, user_roles queda sin display_name y el dueño se lista como "—" en
+    // Personal. Se recorta a 80 (misma cota que el input del registro).
+    const meta = (authed.data && authed.data.user_metadata) || {};
+    const ownerName = (typeof meta.full_name === 'string' ? meta.full_name : '').trim().slice(0, 80) || null;
 
     // 2. ANTI-DUPLICADO: si el usuario YA tiene rol/restaurante, no crear nada.
     const existing = await httpsGet(
@@ -127,7 +133,8 @@ module.exports = async function handler(req, res) {
     // (la columna tiene DEFAULT false, mig 090 — sin esto quedan indistinguibles).
     const restResp = await httpsPost(`${SUPABASE_URL}/rest/v1/restaurants`,
       { ...svcJson, 'Prefer': 'return=representation' },
-      JSON.stringify({ name: restaurantName, owner_email: email, status: 'trial', auto_provisioned: true }));
+      JSON.stringify({ name: restaurantName, owner_email: email, status: 'trial', auto_provisioned: true,
+                       ...(ownerName ? { owner_name: ownerName } : {}) }));
     const restRow = (restResp.ok && Array.isArray(restResp.data)) ? restResp.data[0] : null;
     if (!restRow || !restRow.id) {
       res.status(400).json({ error: errMsg(restResp, 'No se pudo crear el local. Probá de nuevo.') }); return;
@@ -137,7 +144,8 @@ module.exports = async function handler(req, res) {
     // 6b. Asignar rol 'admin' al dueño. Si falla → ROLLBACK del restaurante.
     const roleResp = await httpsPost(`${SUPABASE_URL}/rest/v1/user_roles`,
       { ...svcJson, 'Prefer': 'return=minimal' },
-      JSON.stringify({ user_id: userId, restaurant_id: restaurantId, role: 'admin', email, is_active: true }));
+      JSON.stringify({ user_id: userId, restaurant_id: restaurantId, role: 'admin', email, is_active: true,
+                       ...(ownerName ? { display_name: ownerName } : {}) }));
     if (!roleResp.ok) {
       await rollbackDelete(`${SUPABASE_URL}/rest/v1/restaurants?id=eq.${restaurantId}`, svc, 'restaurants');
       // UNIQUE(user_id, role) (mig 006) es el backstop real del anti-duplicado: si dos

@@ -32,7 +32,7 @@ const httpsGet   = (url, h)    => httpsReq('GET', url, h);
 const httpsPatch = (url, h, b) => httpsReq('PATCH', url, h, b);
 
 module.exports = async function handler(req, res) {
-  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos-pos.vercel.app';
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos.com.py';
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -59,7 +59,9 @@ module.exports = async function handler(req, res) {
     }
     const callerId = authedResp.data.id;
 
-    const roleResp = await httpsGet(`${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${callerId}&select=id,role`, svc);
+    // Sólo roles ACTIVOS: un admin desactivado no debe poder darse de alta una cédula
+    // de acceso (sería recuperar una vía de login tras haber sido dado de baja).
+    const roleResp = await httpsGet(`${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${callerId}&is_active=eq.true&select=id,role`, svc);
     if (!roleResp.ok || !Array.isArray(roleResp.data) || roleResp.data.length === 0) {
       res.status(403).json({ error: 'Sin permisos' }); return;
     }

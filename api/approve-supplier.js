@@ -48,7 +48,7 @@ function slugify(s) {
 }
 
 module.exports = async function handler(req, res) {
-  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos-pos.vercel.app';
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos.com.py';
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -81,12 +81,15 @@ module.exports = async function handler(req, res) {
     const callerId = authedResp.data.id;
 
     // SOLO superadmin puede aprobar proveedores.
+    // Sin `limit=1`: PostgREST devolvía una fila ARBITRARIA de las del caller, así que
+    // un superadmin que además tuviera rol en algún local podía recibir esa otra fila
+    // y comerse un 403. Se piden todas y se busca el rol superadmin entre ellas.
     const roleResp = await httpsGet(
-      `${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${callerId}&select=role&is_active=eq.true&limit=1`,
+      `${SUPABASE_URL}/rest/v1/user_roles?user_id=eq.${callerId}&select=role&is_active=eq.true`,
       SR_HEADERS
     );
-    const callerRole = Array.isArray(roleResp.data) && roleResp.data[0] ? roleResp.data[0].role : null;
-    if (callerRole !== 'superadmin') {
+    const callerIsSuper = Array.isArray(roleResp.data) && roleResp.data.some(r => r.role === 'superadmin');
+    if (!callerIsSuper) {
       res.status(403).json({ error: 'Solo el superadmin puede aprobar proveedores' }); return;
     }
 
