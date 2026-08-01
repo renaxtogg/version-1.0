@@ -1267,16 +1267,26 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const gate=(k,fn)=>()=>hasFeat(k)?fn():setLockFeat(k);
 
   useEffect(()=>{
-    db.from('order_items').select('id,item_name,quantity,unit_price').eq('order_id',order.id)
-      .then(({data})=>setItems(data||[]));
+    // total_price ya incluye extras/variantes; los nombres de los extras van al
+    // ticket como sub-líneas. Sin total_price las líneas impresas no sumaban el
+    // TOTAL cuando el pedido traía agregados.
+    db.from('order_items').select('id,item_name,quantity,unit_price,total_price,observations,order_item_extras(extra_name)').eq('order_id',order.id)
+      .then(({data,error})=>{
+        if(!error){setItems(data||[]);return;}
+        // Fallback si order_item_extras no está accesible: al menos el precio real.
+        db.from('order_items').select('id,item_name,quantity,unit_price,total_price').eq('order_id',order.id)
+          .then(({data:d2})=>setItems(d2||[]));
+      });
   },[order.id]);
 
   const montoNum=parseInt(montoPagado)||0;
+  // Precio efectivo de la línea: total_price (con extras) o unit_price × cantidad.
+  const lineOf=i=>Number(i.total_price)>0?Number(i.total_price):Number(i.quantity||1)*Number(i.unit_price||0);
   // Usar total de items si order.total es 0 (total se graba en DB recién al cobrar)
   const totalReal=React.useMemo(()=>{
     const fromOrder=Number(order.total)||0;
     if(fromOrder>0)return fromOrder;
-    return items.reduce((s,i)=>s+Number(i.quantity||1)*Number(i.unit_price||0),0);
+    return items.reduce((s,i)=>s+lineOf(i),0);
   },[order.total,items]);
   const cambio=metodo==='efectivo'?montoNum-totalReal:0;
   const mesa=order.tables?.number?`Mesa ${order.tables.number}`:order.customer_name||'Sin mesa';
@@ -1403,7 +1413,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           {successTicket.items.map((it,i)=>(
             <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:3}}>
               <span>{it.quantity}× {it.item_name}</span>
-              <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt((it.unit_price||0)*it.quantity)}</span>
+              <span style={{fontFamily:"'SF Mono',monospace",fontWeight:700}}>{fmt(lineOf(it))}</span>
             </div>
           ))}
           <div style={{display:'flex',justifyContent:'space-between',fontSize:15,fontWeight:800,borderTop:`1px solid ${C.border}`,paddingTop:8,marginTop:6}}>
@@ -1467,7 +1477,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
             {items.map(it=>(
               <div key={it.id} style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}}>
                 <span>{it.quantity}× {it.item_name}</span>
-                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink,fontWeight:700}}>{fmt(it.unit_price*it.quantity)}</span>
+                <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink,fontWeight:700}}>{fmt(lineOf(it))}</span>
               </div>
             ))}
           </div>
@@ -4813,7 +4823,9 @@ function FacturasCajaPanel({turno}){
     if(c.pedido_id){
       // Backfill desde el pedido: cliente/mesa/fecha (el mov sólo guarda un string de mesa).
       const[{data:oi},{data:o}]=await Promise.all([
-        db.from('order_items').select('item_name,quantity,unit_price').eq('order_id',c.pedido_id),
+        // total_price + extras: si no, la reimpresión lista precios sin agregados
+        // y las líneas no cierran contra el TOTAL cobrado.
+        db.from('order_items').select('item_name,quantity,unit_price,total_price,observations,order_item_extras(extra_name)').eq('order_id',c.pedido_id),
         db.from('orders').select('customer_name,customer_ruc,created_at,tables(number)').eq('id',c.pedido_id).maybeSingle(),
       ]);
       items=oi||[]; ord=o||null;

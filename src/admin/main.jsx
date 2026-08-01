@@ -5675,6 +5675,11 @@ async function _loadReceiptCfg(){
     social:{...(base.social||{}),...(rc.social||{})},
   };
 }
+// legalNote viaja como un solo string de 2 renglones ("título\naclaración"),
+// que es lo que consume el renderer. Acá se edita partido en dos inputs.
+const _legalPart=(s,i)=>String(s==null?'':s).split('\n')[i]||'';
+const _legalJoin=(a,b)=>[String(a||'').trim(),String(b||'').trim()].filter(Boolean).join('\n');
+
 // Guarda un parche en settings_json.receipt sin pisar otras keys (read-merge-write).
 async function _saveReceiptCfg(patch){
   const{data:cur}=await db.from('restaurant_settings').select('settings_json').eq('restaurant_id',RID).maybeSingle();
@@ -5710,7 +5715,7 @@ function ComprobanteDesign({restaurant,onRefresh}){
     setSaving(true);
     try{
       await db.from('restaurants').update({name:biz.name||null,address:biz.address||null,phone:biz.phone||null,instagram:biz.instagram||null,logo_url:biz.logo_url||null}).eq('id',RID);
-      await _saveReceiptCfg({showLogo:cfg.showLogo,fields:cfg.fields,header:cfg.header,footer:cfg.footer,social:cfg.social});
+      await _saveReceiptCfg({showLogo:cfg.showLogo,fields:cfg.fields,header:cfg.header,footer:cfg.footer,legalNote:cfg.legalNote,social:cfg.social});
       toast('Diseño del comprobante guardado');
       if(onRefresh) onRefresh(true);
     }catch(e){ toast('No se pudo guardar: '+(e.message||e),false); }
@@ -5720,7 +5725,7 @@ function ComprobanteDesign({restaurant,onRefresh}){
   const previewBiz={name:biz.name,address:biz.address,phone:biz.phone,instagram:biz.instagram,logoUrl:biz.logo_url,ruc:(restaurant||{}).ruc,legalName:(restaurant||{}).legal_name,facebook:(cfg.social&&cfg.social.facebook)||''};
   const previewHtml=(loaded&&MR)? MR.buildHTML(MR.sampleData,{...cfg,business:previewBiz}) : '';
 
-  const FIELDS=[['orderNumber','N° de pedido'],['customerName','Nombre del cliente (o "Anónimo")'],['table','N° de mesa'],['cashier','Cajero'],['dateTime','Fecha y hora'],['paymentMethod','Método de pago'],['change','Vuelto'],['ruc','RUC del cliente (si lo dio)']];
+  const FIELDS=[['orderNumber','N° de pedido'],['customerName','Nombre del cliente (o "Anónimo")'],['table','N° de mesa'],['cashier','Cajero'],['dateTime','Fecha y hora'],['paymentMethod','Método de pago'],['change','Vuelto'],['ruc','RUC del cliente (si lo dio)'],['unitPrice','Precio unitario ("@ 35.000 c/u")']];
   const HEAD=[['showName','Nombre comercial'],['showRuc','RUC / Razón social'],['showAddress','Dirección'],['showPhone','Teléfono'],['showInstagram','Instagram'],['showFacebook','Facebook']];
 
   if(!loaded) return <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}><span className="spin"/> Cargando…</div>;
@@ -5737,6 +5742,9 @@ function ComprobanteDesign({restaurant,onRefresh}){
             <div><Lbl>INSTAGRAM</Lbl><Inp value={biz.instagram} onChange={e=>setBiz({...biz,instagram:e.target.value})} placeholder="kamuipoolbar"/></div>
             <div><Lbl>FACEBOOK</Lbl><Inp value={(cfg.social&&cfg.social.facebook)||''} onChange={e=>setCfg({...cfg,social:{...cfg.social,facebook:e.target.value}})}/></div>
             <div style={{gridColumn:'1 / -1'}}><Lbl>TEXTO AL PIE</Lbl><Inp value={cfg.footer||''} onChange={e=>setCfg({...cfg,footer:e.target.value})} placeholder="¡Gracias por su visita!"/></div>
+            {/* legalNote = 2 renglones: el primero sale en negrita como título. */}
+            <div><Lbl>TÍTULO DEL COMPROBANTE</Lbl><Inp value={_legalPart(cfg.legalNote,0)} onChange={e=>setCfg({...cfg,legalNote:_legalJoin(e.target.value,_legalPart(cfg.legalNote,1))})} placeholder="COMPROBANTE DE CONSUMO"/></div>
+            <div><Lbl>ACLARACIÓN LEGAL</Lbl><Inp value={_legalPart(cfg.legalNote,1)} onChange={e=>setCfg({...cfg,legalNote:_legalJoin(_legalPart(cfg.legalNote,0),e.target.value)})} placeholder="No válido como factura legal"/></div>
           </div>
           <div style={{marginTop:14,display:'flex',gap:14,alignItems:'flex-start'}}>
             <div style={{flexShrink:0}}>
@@ -5793,34 +5801,81 @@ function ImpresoraConfig({restaurant}){
 
   async function save(){
     setSaving(true);
-    try{ await _saveReceiptCfg({paperWidth:Number(cfg.paperWidth)||80,charsPerLine:Number(cfg.charsPerLine)||32}); toast('Configuración de impresora guardada'); }
+    try{
+      await _saveReceiptCfg({
+        paperWidth:Number(cfg.paperWidth)||80,
+        charsPerLine:Number(cfg.charsPerLine)||32,
+        currency:cfg.currency!=null?cfg.currency:'Gs.',
+        asciiOnly:!!cfg.asciiOnly,
+        feedLines:Number(cfg.feedLines)||0,
+      });
+      toast('Configuración de impresora guardada');
+    }
     catch(e){ toast('No se pudo guardar: '+(e.message||e),false); }
     setSaving(false);
   }
+  const bizOf=()=>{ const r=restaurant||{}; return {name:r.name||'Mythos',address:r.address||'',phone:r.phone||'',instagram:r.instagram||'',logoUrl:r.logo_url||'',ruc:r.ruc||'',legalName:r.legal_name||'',facebook:(cfg.social&&cfg.social.facebook)||''}; };
   function testPrint(){
     if(!MR){toast('Módulo de impresión no disponible',false);return;}
-    const r=restaurant||{};
-    const biz={name:r.name||'Mythos',address:r.address||'',phone:r.phone||'',instagram:r.instagram||'',logoUrl:r.logo_url||'',ruc:r.ruc||'',legalName:r.legal_name||'',facebook:(cfg.social&&cfg.social.facebook)||''};
-    const ok=MR.print(MR.sampleData,{...cfg,business:biz});
+    const ok=MR.print(MR.sampleData,{...cfg,business:bizOf()});
     if(ok===false) toast('Permití ventanas emergentes para imprimir',false);
   }
 
   if(!loaded) return <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}><span className="spin"/> Cargando…</div>;
 
+  const w=Number(cfg.paperWidth)||80;
+  // El ancho de grilla define el tamaño de letra: menos caracteres = letra más
+  // grande. Las opciones son las columnas típicas de cada rollo.
+  const cplNow = Number(cfg.charsPerLine)||(w===58?24:32);
+  const CPL = (w===58 ? [[24,'24 · letra grande'],[32,'32 · estándar 58 mm']]
+                      : [[32,'32 · letra grande'],[40,'40 · intermedia'],[48,'48 · estándar 80 mm (más ítems por línea)']]);
+  // Config vieja con un valor a mano (antes era un input libre): que no quede el select en blanco.
+  if(!CPL.some(([v])=>v===cplNow)) CPL.push([cplNow,`${cplNow} · personalizado`]);
+  const previewHtml = MR ? MR.buildHTML(MR.sampleData,{...cfg,business:bizOf()}) : '';
+
   return (
     // Ajustes cortos a la izquierda, instructivo largo a la derecha: en una sola
     // columna de 560px el instructivo estiraba la página y sobraba media pantalla.
-    <div className="my-row-2" style={{gap:16,maxWidth:1100,alignItems:'start'}}>
+    <div className="my-row-2" style={{gap:16,maxWidth:1180,alignItems:'start'}}>
       <div style={{display:'flex',flexDirection:'column',gap:16}}>
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>PAPEL</div>
           <div className="my-row-2" style={{gap:14}}>
             <div><Lbl>ANCHO DE PAPEL</Lbl>
-              <Sel value={String(cfg.paperWidth||80)} onChange={e=>setCfg({...cfg,paperWidth:Number(e.target.value)})}>
+              <Sel value={String(w)} onChange={e=>{const nw=Number(e.target.value);setCfg({...cfg,paperWidth:nw,charsPerLine:nw===58?24:32});}}>
                 <option value="80">80 mm</option><option value="58">58 mm</option>
               </Sel>
             </div>
-            <div><Lbl>CARACTERES POR LÍNEA</Lbl><Inp type="number" value={cfg.charsPerLine||32} onChange={e=>setCfg({...cfg,charsPerLine:e.target.value})}/></div>
+            <div><Lbl>CARACTERES POR LÍNEA</Lbl>
+              <Sel value={String(cplNow)} onChange={e=>setCfg({...cfg,charsPerLine:Number(e.target.value)})}>
+                {CPL.map(([v,l])=><option key={v} value={String(v)}>{l}</option>)}
+              </Sel>
+            </div>
+            <div><Lbl>LÍNEAS DE AVANCE AL FINAL</Lbl><Inp type="number" min="0" max="12" value={cfg.feedLines!=null?cfg.feedLines:3} onChange={e=>setCfg({...cfg,feedLines:e.target.value})}/>
+              <div style={{fontSize:11,color:C.dim,marginTop:4}}>Papel en blanco para cortar sin comerse el pie del ticket.</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>COMPATIBILIDAD DE CARACTERES</div>
+          <div style={{fontSize:12,color:C.dim,lineHeight:1.6,marginBottom:12}}>
+            Si el driver de la térmica imprime en <strong>modo texto</strong>, la impresora sólo sabe dibujar los caracteres de su tabla interna: cualquier otro sale como <code>?</code>. El símbolo <strong>₲</strong> no existe en ninguna de esas tablas.
+          </div>
+          <div className="my-row-2" style={{gap:14}}>
+            <div><Lbl>SÍMBOLO DE MONEDA</Lbl>
+              <Sel value={cfg.currency!=null?cfg.currency:'Gs.'} onChange={e=>setCfg({...cfg,currency:e.target.value})}>
+                <option value="Gs.">Gs. — compatible con toda impresora</option>
+                <option value="G$">G$ — compatible</option>
+                <option value="₲">₲ — sólo si tu impresora lo soporta</option>
+                <option value="">Sin símbolo (sólo el número)</option>
+              </Sel>
+            </div>
+          </div>
+          <div style={{marginTop:10}}>
+            <RcToggle on={!!cfg.asciiOnly} onChange={v=>setCfg({...cfg,asciiOnly:v})}
+              label="Modo compatible: quitar acentos y ¡ ¿"
+              hint="Activalo sólo si la prueba sale con símbolos raros en María, ñ o Método."/>
           </div>
         </div>
 
@@ -5828,14 +5883,29 @@ function ImpresoraConfig({restaurant}){
           <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
           <Btn variant="secondary" onClick={testPrint}><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir prueba</Btn>
         </div>
+
+        <div>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>VISTA PREVIA · {w}MM</div>
+          <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:10,padding:14,display:'flex',justifyContent:'center'}}>
+            <iframe title="preview-impresora" srcDoc={previewHtml} style={{width:`${w}mm`,minHeight:400,border:'none',background:'#fff'}}/>
+          </div>
+        </div>
       </div>
 
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 18px',fontSize:12.5,color:C.mid,lineHeight:1.65}}>
-        <div style={{fontSize:13,fontWeight:800,color:C.ink,marginBottom:8}}>Imprimir sin clicks (recomendado para caja)</div>
+        <div style={{fontSize:13,fontWeight:800,color:C.ink,marginBottom:8}}>Si el ticket sale mal: modo gráfico vs modo texto</div>
+        <div style={{marginBottom:6}}>Mythos arma el comprobante para que se lea bien de las dos formas, pero el <strong>modo gráfico</strong> es el que sale lindo (logo, negritas, títulos grandes). Si tu ticket sale con letra chata, sin líneas separadoras y con <code>?</code> en los precios, el driver está en <strong>modo texto</strong>:</div>
+        <ol style={{margin:'0 0 10px 18px',padding:0,display:'flex',flexDirection:'column',gap:4}}>
+          <li>Panel de control → <strong>Dispositivos e impresoras</strong> → clic derecho en la térmica → <strong>Preferencias de impresión</strong>.</li>
+          <li>Buscá una opción tipo <em>“Print mode / Modo de impresión”</em> o <em>“Print as graphic / Imprimir como imagen”</em> y ponela en <strong>gráfico (bitmap/raster)</strong>, no en <em>texto / device font</em>.</li>
+          <li>Si la impresora está instalada como <strong>“Generic / Text Only”</strong>, reinstalá con el driver del fabricante (POS-80 / XPrinter). Ese driver genérico siempre imprime en texto.</li>
+          <li>Volvé acá y tocá <strong>Imprimir prueba</strong>. Si sigue saliendo en texto, dejá <strong>Gs.</strong> como símbolo y activá <strong>Modo compatible</strong>: el ticket queda legible igual.</li>
+        </ol>
+        <div style={{fontSize:13,fontWeight:800,color:C.ink,margin:'14px 0 8px'}}>Imprimir sin clicks (recomendado para caja)</div>
         <div style={{marginBottom:6}}>Para que el ticket salga <strong>al instante, sin el diálogo del navegador</strong>, configurá la PC de caja una sola vez:</div>
         <ol style={{margin:'0 0 10px 18px',padding:0,display:'flex',flexDirection:'column',gap:4}}>
           <li>Poné la <strong>POS-80C como impresora predeterminada</strong> de Windows (Configuración → Bluetooth y dispositivos → Impresoras → POS-80C → “Predeterminar”). Así no arranca en “Microsoft Print to PDF”.</li>
-          <li>En sus <strong>propiedades</strong>, fijá el tamaño de papel en 80 mm (o el rollo) y márgenes en 0. Subí la <strong>densidad / oscuridad de impresión al máximo</strong> (el navegador imprime como gráfico, así que la densidad alta = texto más negro). Ahí mismo activá el <strong>corte automático</strong> y, si tenés, el <strong>pulso de cajón</strong>.</li>
+          <li>En sus <strong>propiedades</strong>, fijá el tamaño de papel en 80 mm (o el rollo) y márgenes en 0. Subí la <strong>densidad / oscuridad de impresión al máximo</strong> (en modo gráfico la densidad alta = texto más negro). Ahí mismo activá el <strong>corte automático</strong> y, si tenés, el <strong>pulso de cajón</strong>.</li>
           <li>Abrí Mythos con un acceso directo de Chrome en <strong>modo kiosco de impresión</strong>: clic derecho en el ícono de Chrome → Propiedades → en “Destino” agregá <code style={{fontFamily:"'SF Mono',monospace",background:C.bg,padding:'1px 5px',borderRadius:4}}>--kiosk-printing</code> al final (después de las comillas, con un espacio). Abrí caja con ESE acceso directo.</li>
         </ol>
         <div style={{marginBottom:10}}>Con eso, al cobrar el comprobante se imprime directo en la térmica, <strong>sin diálogo ni clicks</strong>.</div>
