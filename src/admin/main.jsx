@@ -5675,6 +5675,13 @@ async function _loadReceiptCfg(){
     social:{...(base.social||{}),...(rc.social||{})},
   };
 }
+// Chip "dónde se hace esto". La confusión recurrente del panel de impresora es
+// que cada ajuste vive en un lado distinto —Mythos, el diálogo de Chrome, el
+// driver de Windows— y el instructivo no lo decía.
+function Donde({children}){
+  return <span style={{fontSize:10.5,fontWeight:700,letterSpacing:.3,color:C.mid,background:C.bg,border:`1px solid ${C.border}`,borderRadius:20,padding:'2px 9px',whiteSpace:'nowrap'}}>{children}</span>;
+}
+
 // legalNote viaja como un solo string de 2 renglones ("título\naclaración"),
 // que es lo que consume el renderer. Acá se edita partido en dos inputs.
 const _legalPart=(s,i)=>String(s==null?'':s).split('\n')[i]||'';
@@ -5886,15 +5893,22 @@ function ImpresoraConfig({restaurant}){
             ticket y parecen parte del comprobante. Va acá, pegado al botón de
             prueba, no enterrado en el instructivo de la derecha. */}
         <div style={{background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.28)',borderRadius:10,padding:'14px 16px'}}>
-          <div style={{fontSize:13,fontWeight:800,color:C.ink,marginBottom:8}}>Si arriba del ticket sale un link y la fecha</div>
-          <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6,marginBottom:8}}>
-            Algo así <code style={{fontFamily:"'SF Mono',monospace",background:C.bg,padding:'1px 5px',borderRadius:4}}>2/8/26, 17:42 — Comprobante #1042 — https://mythos.com.py/admin.html — 1/1</code> <strong>no es parte del comprobante</strong>: son los encabezados que agrega Chrome. Se apagan una sola vez en el diálogo de impresión:
+          <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:8}}>
+            <div style={{fontSize:13,fontWeight:800,color:C.ink}}>Si arriba del ticket sale un link y la fecha</div>
+            <Donde>En Chrome, al imprimir</Donde>
           </div>
-          <ul style={{margin:'0 0 0 18px',padding:0,fontSize:12.5,color:C.mid,lineHeight:1.7}}>
+          <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6,marginBottom:8}}>
+            Algo así <code style={{fontFamily:"'SF Mono',monospace",background:C.bg,padding:'1px 5px',borderRadius:4}}>2/8/26, 17:42 — Comprobante #1042 — https://mythos.com.py/admin.html — 1/1</code> <strong>no es parte del comprobante</strong>: son los encabezados que agrega Chrome.
+          </div>
+          <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6,marginBottom:6}}>
+            <strong style={{color:C.ink}}>No se cambia acá en Mythos ni en el driver.</strong> Es en la ventana que aparece al imprimir (o con <code style={{fontFamily:"'SF Mono',monospace",background:C.bg,padding:'1px 5px',borderRadius:4}}>Ctrl + P</code>): abajo de todo hay un enlace <strong>“Más configuraciones”</strong> — tocalo y ahí están las tres opciones:
+          </div>
+          <ul style={{margin:'0 0 8px 18px',padding:0,fontSize:12.5,color:C.mid,lineHeight:1.7}}>
             <li><strong>Márgenes → Ninguno</strong></li>
             <li>Destildar <strong>Encabezados y pies de página</strong></li>
             <li><strong>Escala → Predeterminada</strong> (100%)</li>
           </ul>
+          <div style={{fontSize:12,color:C.dim,lineHeight:1.6}}>Se hace <strong>una sola vez por computadora</strong>: Chrome se acuerda para las próximas impresiones.</div>
         </div>
 
         <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
@@ -5920,14 +5934,20 @@ function ImpresoraConfig({restaurant}){
       </div>
 
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'16px 18px',fontSize:12.5,color:C.mid,lineHeight:1.65}}>
-        <div style={{fontSize:13,fontWeight:800,color:C.ink,marginBottom:8}}>Si el ticket se corta o sale con papel en blanco de más</div>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:8}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.ink}}>Si el ticket se corta o sale con papel en blanco de más</div>
+          <Donde>Chrome + Windows</Donde>
+        </div>
         <div style={{marginBottom:6}}>Mythos le dice al navegador el <strong>alto exacto</strong> que mide cada comprobante, así que no hace falta elegir “tamaño de hoja”. Si igual se corta, es que el diálogo o el driver están imponiendo otra hoja:</div>
         <ol style={{margin:'0 0 10px 18px',padding:0,display:'flex',flexDirection:'column',gap:4}}>
           <li>En el diálogo de impresión de Chrome: <strong>Márgenes → Ninguno</strong> y <strong>Escala → Predeterminada (100%)</strong>. Destildá <em>Encabezados y pies de página</em>.</li>
           <li>En <strong>Más opciones → Tamaño de papel</strong>, elegí el rollo de la térmica (algo tipo “80mm x 297mm” o “Roll 80”). <strong>Nunca A4 ni Carta</strong>: ahí es donde aparecen los 20 cm de papel en blanco entre ticket y ticket.</li>
           <li>Si en la lista no hay ninguna opción de 80 mm, hay que crearla en Windows: Panel de control → Dispositivos e impresoras → clic en la térmica → <strong>Propiedades del servidor de impresión</strong> → <strong>Crear un nuevo formulario</strong>, ancho 80 mm y alto 297 mm, y después elegirlo en las preferencias de la impresora.</li>
         </ol>
-        <div style={{fontSize:13,fontWeight:800,color:C.ink,margin:'14px 0 8px'}}>Si el ticket sale mal: modo gráfico vs modo texto</div>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',margin:'14px 0 8px'}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.ink}}>Si el ticket sale mal: modo gráfico vs modo texto</div>
+          <Donde>En el driver de Windows</Donde>
+        </div>
         <div style={{marginBottom:6}}>Mythos arma el comprobante para que se lea bien de las dos formas, pero el <strong>modo gráfico</strong> es el que sale lindo (logo, negritas, títulos grandes). Si tu ticket sale con letra chata, sin líneas separadoras y con <code>?</code> en los precios, el driver está en <strong>modo texto</strong>:</div>
         <ol style={{margin:'0 0 10px 18px',padding:0,display:'flex',flexDirection:'column',gap:4}}>
           <li>Panel de control → <strong>Dispositivos e impresoras</strong> → clic derecho en la térmica → <strong>Preferencias de impresión</strong>.</li>
@@ -5935,7 +5955,10 @@ function ImpresoraConfig({restaurant}){
           <li>Si la impresora está instalada como <strong>“Generic / Text Only”</strong>, reinstalá con el driver del fabricante (POS-80 / XPrinter). Ese driver genérico siempre imprime en texto.</li>
           <li>Volvé acá y tocá <strong>Imprimir prueba</strong>. Si sigue saliendo en texto, dejá <strong>Gs.</strong> como símbolo y activá <strong>Modo compatible</strong>: el ticket queda legible igual.</li>
         </ol>
-        <div style={{fontSize:13,fontWeight:800,color:C.ink,margin:'14px 0 8px'}}>Imprimir sin clicks (recomendado para caja)</div>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',margin:'14px 0 8px'}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.ink}}>Imprimir sin clicks (recomendado para caja)</div>
+          <Donde>En la PC de caja</Donde>
+        </div>
         <div style={{marginBottom:6}}>Para que el ticket salga <strong>al instante, sin el diálogo del navegador</strong>, configurá la PC de caja una sola vez:</div>
         <ol style={{margin:'0 0 10px 18px',padding:0,display:'flex',flexDirection:'column',gap:4}}>
           <li>Poné la <strong>POS-80C como impresora predeterminada</strong> de Windows (Configuración → Bluetooth y dispositivos → Impresoras → POS-80C → “Predeterminar”). Así no arranca en “Microsoft Print to PDF”.</li>
