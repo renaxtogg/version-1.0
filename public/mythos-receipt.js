@@ -34,10 +34,13 @@
         NINGUNA code page ESC/POS — se emite "Gs." (configurable en
         settings_json.receipt.currency).
 
-   FIX previo que sigue vigente:
-     @page { size: <ancho>mm auto; margin: 0 }
-     Sin esto el navegador asume hoja A4 y la impresora alimenta papel en
-     blanco / recorta. Con esto la página es una tira del ancho del rollo.
+     3. El @page declara SIEMPRE las dos medidas: `size: <ancho>mm <alto>mm`.
+        `size: <ancho>mm auto` —que es lo que había acá antes— NO es CSS
+        válido: la gramática es <length>{1,2} | auto | <page-size>, y `auto`
+        no se combina con una medida. Chrome descartaba la regla entera y
+        usaba el papel del diálogo (A4): el ticket se partía en páginas y
+        entre uno y otro salían ~20cm de papel en blanco. El alto se calcula
+        desde la grilla en buildHTML().
    ════════════════════════════════════════════════════════════ */
 (function () {
   'use strict';
