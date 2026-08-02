@@ -151,7 +151,11 @@
   //    completo y bien dimensionado en 80mm (todos los campos ON). ──
   var defaultConfig = {
     paperWidth: 80,            // 58 | 80 (mm)
-    charsPerLine: 32,          // grilla real del ticket: define el tamaño de fuente
+    // Grilla real del ticket: define el tamaño de fuente Y cuánto del rollo se
+    // aprovecha. 48 en 80mm y 32 en 58mm son las columnas de la Font A de
+    // cualquier térmica ESC/POS: con menos, el driver en modo texto imprime la
+    // misma cantidad de columnas y sobra papel a la derecha.
+    charsPerLine: 48,
     currency: 'Gs.',           // ← ASCII. Con '₲' la térmica en modo texto imprime "?"
     asciiOnly: false,          // true = sin acentos ni ¡¿ (code pages viejas)
     feedLines: 3,              // líneas en blanco al final para poder cortar el papel
@@ -199,7 +203,7 @@
     var pw = (Number(config.paperWidth) === 58 ? 58 : 80);
     return {
       paperWidth: pw,
-      charsPerLine: clamp(config.charsPerLine || (pw === 58 ? 24 : 32), 20, 64),
+      charsPerLine: clamp(config.charsPerLine || (pw === 58 ? 32 : 48), 20, 64),
       // OJO: la moneda NO pasa por sane() — es justamente la perilla para que un
       // local con impresora en modo gráfico pueda elegir '₲' a sabiendas.
       currency: (config.currency != null ? String(config.currency).trim().slice(0, 6) : defaultConfig.currency),
@@ -347,10 +351,10 @@
     return buildLines(data || {}, mergeConfig(config)).map(function (l) { return l.s; }).join('\n');
   }
 
-  // Devuelve un documento HTML completo (markup + <style>). SIN auto-print.
-  function buildHTML(data, config) {
-    data = data || {};
-    var c = mergeConfig(config);
+  // Geometría del ticket: tamaño de fuente, líneas y alto de página en mm.
+  // La usan buildHTML (para el @page) y measure() (para mostrarle al local
+  // cuánto papel gasta cada configuración).
+  function _metrics(data, c) {
     var b = c.business || {};
     var w = c.paperWidth;
     var padMM = (w >= 80 ? 3 : 2);
@@ -382,11 +386,28 @@
     var hMM = Math.ceil(hPx / MM) + 2 * padTB + 3;   // +3mm de holgura: sobrar papel es gratis, faltar corta el ticket
     hMM = Math.max(30, Math.min(3000, hMM));
 
+    return { fs: fs, lines: lines, logoOn: logoOn, padMM: padMM, padTB: padTB, widthMM: w, heightMM: hMM };
+  }
+
+  // Medidas del ticket sin construir el HTML (panel de impresora en admin).
+  function measure(data, config) {
+    var m = _metrics(data || {}, mergeConfig(config));
+    return { widthMM: m.widthMM, heightMM: m.heightMM, lines: m.lines.length, fontPx: m.fs };
+  }
+
+  // Devuelve un documento HTML completo (markup + <style>). SIN auto-print.
+  function buildHTML(data, config) {
+    data = data || {};
+    var c = mergeConfig(config);
+    var b = c.business || {};
+    var m = _metrics(data, c);
+    var w = m.widthMM, fs = m.fs, lines = m.lines, padMM = m.padMM, padTB = m.padTB, hMM = m.heightMM;
+
     var body = lines.map(function (l) {
       return '<div class="l' + (l.k ? ' ' + l.k : '') + '">' + (l.s ? esc(l.s) : '&#160;') + '</div>';
     }).join('');
 
-    var logo = logoOn
+    var logo = m.logoOn
       ? '<div class="lg-wrap"><img class="logo" src="' + esc(b.logoUrl) + '" alt=""/></div>' : '';
 
     return '<!DOCTYPE html><html><head><meta charset="utf-8">'
@@ -475,6 +496,7 @@
     mergeConfig: mergeConfig,
     buildLines: buildLines,
     buildText: buildText,
+    measure: measure,
     buildHTML: buildHTML,
     print: print
   };

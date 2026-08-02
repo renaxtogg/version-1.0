@@ -5826,12 +5826,15 @@ function ImpresoraConfig({restaurant}){
   const w=Number(cfg.paperWidth)||80;
   // El ancho de grilla define el tamaño de letra: menos caracteres = letra más
   // grande. Las opciones son las columnas típicas de cada rollo.
-  const cplNow = Number(cfg.charsPerLine)||(w===58?24:32);
-  const CPL = (w===58 ? [[24,'24 · letra grande'],[32,'32 · estándar 58 mm']]
-                      : [[32,'32 · letra grande'],[40,'40 · intermedia'],[48,'48 · estándar 80 mm (más ítems por línea)']]);
+  const cplNow = Number(cfg.charsPerLine)||(w===58?32:48);
+  const CPL = (w===58 ? [[24,'24 · letra grande (sobra papel a la derecha)'],[32,'32 · ancho completo 58 mm']]
+                      : [[32,'32 · letra grande (sobra papel a la derecha)'],[40,'40 · intermedia'],[48,'48 · ancho completo 80 mm']]);
   // Config vieja con un valor a mano (antes era un input libre): que no quede el select en blanco.
   if(!CPL.some(([v])=>v===cplNow)) CPL.push([cplNow,`${cplNow} · personalizado`]);
-  const previewHtml = MR ? MR.buildHTML(MR.sampleData,{...cfg,business:bizOf()}) : '';
+  const previewCfg = {...cfg,business:bizOf()};
+  const previewHtml = MR ? MR.buildHTML(MR.sampleData,previewCfg) : '';
+  // Cuánto papel gasta ESTA configuración: es lo que hace tangible el 32 vs 48.
+  const med = (MR&&MR.measure) ? MR.measure(MR.sampleData,previewCfg) : null;
 
   return (
     // Ajustes cortos a la izquierda, instructivo largo a la derecha: en una sola
@@ -5879,15 +5882,39 @@ function ImpresoraConfig({restaurant}){
           </div>
         </div>
 
+        {/* Los encabezados del navegador son la confusión nº1: salen ARRIBA del
+            ticket y parecen parte del comprobante. Va acá, pegado al botón de
+            prueba, no enterrado en el instructivo de la derecha. */}
+        <div style={{background:'rgba(251,191,36,0.08)',border:'1px solid rgba(251,191,36,0.28)',borderRadius:10,padding:'14px 16px'}}>
+          <div style={{fontSize:13,fontWeight:800,color:C.ink,marginBottom:8}}>Si arriba del ticket sale un link y la fecha</div>
+          <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6,marginBottom:8}}>
+            Algo así <code style={{fontFamily:"'SF Mono',monospace",background:C.bg,padding:'1px 5px',borderRadius:4}}>2/8/26, 17:42 — Comprobante #1042 — https://mythos.com.py/admin.html — 1/1</code> <strong>no es parte del comprobante</strong>: son los encabezados que agrega Chrome. Se apagan una sola vez en el diálogo de impresión:
+          </div>
+          <ul style={{margin:'0 0 0 18px',padding:0,fontSize:12.5,color:C.mid,lineHeight:1.7}}>
+            <li><strong>Márgenes → Ninguno</strong></li>
+            <li>Destildar <strong>Encabezados y pies de página</strong></li>
+            <li><strong>Escala → Predeterminada</strong> (100%)</li>
+          </ul>
+        </div>
+
         <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
           <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
           <Btn variant="secondary" onClick={testPrint}><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir prueba</Btn>
         </div>
+        <div style={{fontSize:11.5,color:C.dim,marginTop:-8,lineHeight:1.6}}>
+          La prueba usa datos de ejemplo —<strong>María González</strong>, <strong>Cajero Demo</strong>, Pedido #1042—. No es una venta real y no queda registrada en caja.
+        </div>
 
         <div>
-          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>VISTA PREVIA · {w}MM</div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:10,marginBottom:8,flexWrap:'wrap'}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1}}>VISTA PREVIA · {w}MM</div>
+            {med&&<div style={{fontSize:11.5,color:C.dim}}>Este ticket sale de <strong style={{color:C.ink}}>{med.heightMM} mm</strong> de largo · {med.lines} líneas</div>}
+          </div>
           <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:10,padding:14,display:'flex',justifyContent:'center'}}>
             <iframe title="preview-impresora" srcDoc={previewHtml} style={{width:`${w}mm`,minHeight:400,border:'none',background:'#fff'}}/>
+          </div>
+          <div style={{fontSize:11.5,color:C.dim,marginTop:8,lineHeight:1.6}}>
+            Con <strong>menos caracteres por línea</strong> la letra sale más grande, pero el ticket se alarga y queda papel sin usar a la derecha: la térmica imprime sus columnas de siempre aunque el texto ocupe menos.
           </div>
         </div>
       </div>
