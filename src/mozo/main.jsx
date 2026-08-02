@@ -12,6 +12,9 @@ import { ComprobanteUploader, ProofImage, reviewMeta, recordPaymentReview } from
 // Día comercial del local (huso de restaurants.timezone, default America/Asuncion).
 // NUNCA usar toISOString().slice(0,10) para "hoy": ver el encabezado de fecha.js.
 import { initBusinessTZ, todayLocal, startOfDayISO } from "../shared/fecha.js";
+// CRM (mig 196) — identificar al comensal de la mesa y dejarlo atado al pedido.
+import { ClientePicker, useCustomerTypes } from "../shared/ClienteUI.jsx";
+import { fullName as custFullName } from "../shared/clientes.js";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -421,6 +424,9 @@ function App() {
 
   const [currentView, setCurrentView] = useState(() => localStorage.getItem('mozo_view') || 'mesas');
   const [activeTableId, setActiveTableId] = useState(() => localStorage.getItem('mozo_tableId') || null);
+  // Cambiar de mesa limpia el cliente elegido (ver clienteMesa, CRM mig 196):
+  // arrastrarlo le cargaría el consumo de una mesa al comensal de otra.
+  useEffect(() => { setClienteMesa(null); }, [activeTableId]);
 
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
@@ -463,6 +469,12 @@ function App() {
   const [invName, setInvName] = useState('');
   const [invRuc, setInvRuc] = useState('');
   const [invEmail, setInvEmail] = useState('');
+  // CRM (mig 196): ficha del comensal de la mesa. Opcional — el mozo la busca o
+  // la registra al vuelo desde el cobro, y los pedidos de esa mesa quedan con
+  // customer_id. Sin esto, un habitué que viene tres veces por semana quedaba
+  // como tres "clientes" distintos según cómo se hubiese tipeado su nombre.
+  const [clienteMesa, setClienteMesa] = useState(null);
+  const { types: custTypes } = useCustomerTypes(db, RID);
   const [mesaDialog, setMesaDialog] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(null);
   // Nº de comprobante/operación (opcional) al cobrar con tarjeta o transferencia (mig 180)
@@ -1558,10 +1570,24 @@ function App() {
   }
   const _MSG_FALTA_COMP = 'Este local exige comprobante para cobrar por transferencia/QR — cargá el N° de operación o la foto.';
 
+  // CRM (mig 196): deja los pedidos vivos de la mesa apuntando a la ficha elegida.
+  // Best-effort a propósito — si la migración no está aplicada o falla el update,
+  // el cobro sigue igual: identificar al cliente nunca puede frenar una mesa.
+  async function stampClienteEnMesa(tableId) {
+    if (!db || !clienteMesa || !clienteMesa.id || !tableId) return;
+    try {
+      await db.from('orders')
+        .update({ customer_id: clienteMesa.id })
+        .eq('restaurant_id', RID).eq('table_id', tableId)
+        .not('status', 'in', '("cancelled")');
+    } catch (_) { /* mig 196 sin aplicar → sin CRM, el cobro no cambia */ }
+  }
+
   async function processPay(cobrarTodo) {
     if (!db) { showToast('Sin conexión'); return; }
     if (cobroBusy) return;
     if (_faltaComprobanteMozo()) { showToast(_MSG_FALTA_COMP); return; }
+    await stampClienteEnMesa(activeTableId);
 
     // Sin mig 128: cobro clásico de toda la mesa (no entra a caja, no requiere caja abierta).
     if (!partialOn) { return processPayLegacy(); }
@@ -1651,6 +1677,7 @@ function App() {
         setCobroModal(false);
         setTableOrders([]);
         setActiveTableId(null);
+        setClienteMesa(null);   // la próxima mesa arranca sin cliente heredado
         setCurrentView('mesas');
         showToast('✓ Mesa saldada — ' + fGs(subReal));
       } else {
@@ -1676,6 +1703,7 @@ function App() {
   async function processPayLegacy() {
     if (!db) { showToast('Sin conexión'); return; }
     if (_faltaComprobanteMozo()) { showToast(_MSG_FALTA_COMP); return; }
+    await stampClienteEnMesa(activeTableId);
     const base = cobroBase;
     if (base === 0) { showToast('Total en ₲0 — verificá los productos'); return; }
     const total = Math.round(base * (1 + tipPct / 100));
@@ -3276,6 +3304,25 @@ function App() {
                   </div>
                 );
               })()}
+
+              {/* Cliente (CRM · mig 196) — opcional, arriba del comprobante porque
+                  elegirlo completa solo los datos de la factura fiscal. */}
+              <div className="tip-section">
+                <div className="section-label">Cliente</div>
+                <ClientePicker db={db} restaurantId={RID} types={custTypes} source="mozo"
+                  value={clienteMesa}
+                  onChange={c => {
+                    setClienteMesa(c);
+                    if (!c) return;
+                    if (!invName.trim())  setInvName(custFullName(c));
+                    if (!invRuc.trim()  && c.doc_number) setInvRuc(c.doc_number);
+                    if (!invEmail.trim()&& c.email)      setInvEmail(c.email);
+                  }}
+                  label="" placeholder="Buscar o registrar cliente…"/>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>
+                  Opcional. Si lo identificás, el consumo de esta mesa queda en su historial.
+                </div>
+              </div>
 
               {/* Comprobante */}
               <div className="tip-section">

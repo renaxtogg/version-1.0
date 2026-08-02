@@ -21,6 +21,11 @@ import { useTurnstile } from "../shared/turnstile.js";
 // compartido con el panel gerente. NO confundir con ProveedoresPage (los
 // proveedores internos de compras: public.suppliers, mig 072).
 import { createRestaurantMarketplace } from "../marketplace/restaurant-marketplace.jsx";
+// CRM (mig 196): la ficha de cliente ya no se deriva de los pedidos — existe la
+// tabla `customers` y estos módulos son el único acceso a ella.
+import { loadCustomers, deleteCustomer, reactivateCustomer, phoneKey, fullName as custFullName,
+         isMissingCrm, CRM_MISSING_MSG } from "../shared/clientes.js";
+import { ClienteModal, TiposManager, TipoBadges, useCustomerTypes } from "../shared/ClienteUI.jsx";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -4191,9 +4196,44 @@ function ClientesPage({orders,embedded=false}) {
   const [view,setView]         = useState('todos');
   const [canalF,setCanalF]     = useState('todos');
   const [periodF,setPeriodF]   = useState('todos');
+  const [tipoF,setTipoF]       = useState('todos');
   const [search,setSearch]     = useState('');
   const [detalle,setDetalle]   = useState(null);
   const [detalleOrders,setDetalleOrders] = useState([]);
+
+  // ── FICHAS DE CLIENTE (mig 196) ────────────────────────────────────
+  // Hasta la mig 196 esta página era SOLO una vista derivada de `orders`
+  // agrupada por nombre: no se podía crear, editar ni clasificar a nadie.
+  // Ahora las fichas reales se cargan acá y se FUSIONAN con lo derivado
+  // (ver el useMemo de abajo), así el histórico de pedidos no se pierde y
+  // además aparecen los clientes cargados a mano que todavía no compraron.
+  const [fichas,setFichas]       = useState([]);
+  const [crmMissing,setCrmMissing]= useState(false);
+  const [showInactive,setShowInactive]= useState(false);
+  const [nuevoOpen,setNuevoOpen] = useState(false);
+  const [editando,setEditando]   = useState(null);   // ficha en edición
+  const [tiposOpen,setTiposOpen] = useState(false);
+  const {types,setTypes} = useCustomerTypes(db,RID);
+
+  const reloadFichas = useCallback(async()=>{
+    if(!db) return;
+    const {customers,error} = await loadCustomers(db,RID,{includeInactive:showInactive});
+    if(error){ setCrmMissing(isMissingCrm(error)); setFichas([]); return; }
+    setCrmMissing(false); setFichas(customers);
+  },[showInactive]);
+  useEffect(()=>{ reloadFichas(); },[reloadFichas]);
+
+  async function bajaFicha(f){
+    if(!window.confirm(`¿Desactivar la ficha de ${custFullName(f)}? No se borra nada: sus pedidos y su historial quedan intactos y podés reactivarla cuando quieras.`)) return;
+    const {error}=await deleteCustomer(db,f.id);
+    if(error){ toast(error.message||'No se pudo desactivar',false); return; }
+    toast('Ficha desactivada'); setDetalle(null); reloadFichas();
+  }
+  async function altaFicha(f){
+    const {error}=await reactivateCustomer(db,f.id);
+    if(error){ toast(error.message||'No se pudo reactivar',false); return; }
+    toast('Ficha reactivada'); reloadFichas();
+  }
   // Clientes frecuentes marcados a mano (mig 184) — set de teléfonos normalizados (dígitos).
   const [freqPhones,setFreqPhones] = useState(()=>new Set());
   useEffect(()=>{
@@ -4306,6 +4346,44 @@ function ClientesPage({orders,embedded=false}) {
       return {...c, preferred, isVip:c.total>=VIP_THRESHOLD, ticket, diasActivo};
     }).sort((a,b)=>b.total-a.total);
 
+    // ── FUSIÓN con las fichas reales (mig 196) ───────────────────────
+    // El match es por TELÉFONO primero (identidad estable) y por nombre solo
+    // como respaldo: es exactamente el problema que la tabla vino a resolver
+    // —el mismo cliente tipeado de dos formas eran dos clientes—, así que el
+    // nombre nunca decide si hay un teléfono para comparar.
+    const porTel = new Map(), porNombre = new Map();
+    all.forEach(c=>{
+      const k = phoneKey(c.phone);
+      if(k && !porTel.has(k)) porTel.set(k,c);
+      const n = (c.name||'').trim().toLowerCase();
+      if(n && !porNombre.has(n)) porNombre.set(n,c);
+    });
+    fichas.forEach(f=>{
+      const k = phoneKey(f.phone);
+      let hit = (k && porTel.get(k)) || porNombre.get(custFullName(f).trim().toLowerCase()) || null;
+      if(hit){
+        // La ficha manda sobre lo tipeado en el pedido: es el dato curado.
+        hit.ficha = f; hit.type_ids = f.type_ids||[];
+        hit.name = custFullName(f) || hit.name;
+        hit.phone = f.phone || hit.phone;
+        hit.email = f.email || hit.email;
+        hit.registered = true; hit.anonymous = false;
+        if(f.address && !hit.addresses.includes(f.address)) hit.addresses.push(f.address);
+      }else{
+        // Ficha sin pedidos en el período (alta manual, o compró fuera del rango).
+        all.push({
+          name:custFullName(f), phone:f.phone||null, email:f.email||null,
+          registered:true, anonymous:false, ficha:f, type_ids:f.type_ids||[],
+          orders:0, total:0, ticket:0, diasActivo:0,
+          firstDate:f.created_at, lastDate:f.created_at, neverOrdered:true,
+          canales:[], canalCount:{}, preferred:null, isVip:false,
+          pideFactura:false, facturaCount:0,
+          addresses:f.address?[f.address]:[], tables:[], paymentMethods:{}, orderHistory:[],
+        });
+      }
+    });
+    all.sort((a,b)=>b.total-a.total);
+
     const cutoff = new Date(Date.now()-30*864e5).toISOString();
     const cByCanal={};
     all.forEach(c=>{ if(c.preferred) cByCanal[c.preferred]=(cByCanal[c.preferred]||0)+1; });
@@ -4319,7 +4397,7 @@ function ClientesPage({orders,embedded=false}) {
       byCanal: cByCanal,
       totalConsumed: all.reduce((s,c)=>s+c.total,0),
     };
-  },[orders,periodF]);
+  },[orders,periodF,fichas]);
 
   // Ranking top consumidores
   const hoy = new Date().toDateString();
@@ -4344,17 +4422,24 @@ function ClientesPage({orders,embedded=false}) {
       :view==='vip'?vip
       :view==='factura'?conFactura
       :view==='anonimos'?anonimos
+      :view==='fichas'?clientMap.filter(c=>c.ficha)
+      :view==='sin_ficha'?clientMap.filter(c=>!c.ficha&&!c.anonymous)
       :view==='delivery'?clientMap.filter(c=>(c.canalCount['delivery']||0)>0)
       :view==='mesa'?clientMap.filter(c=>(c.canalCount['mesa']||0)>0)
       :view==='llevar'?clientMap.filter(c=>(c.canalCount['llevar']||0)>0)
       :clientMap;
     if(canalF!=='todos') res=res.filter(c=>c.preferred===canalF);
+    if(tipoF!=='todos')  res=res.filter(c=>(c.type_ids||[]).includes(tipoF));
     if(search.trim()){
       const q=search.toLowerCase();
-      res=res.filter(c=>c.name.toLowerCase().includes(q)||(c.phone||'').includes(q)||(c.email||'').toLowerCase().includes(q)||(c.addresses||[]).some(a=>a.toLowerCase().includes(q)));
+      const qd=q.replace(/\D/g,'');
+      res=res.filter(c=>c.name.toLowerCase().includes(q)||(c.phone||'').includes(q)||(c.email||'').toLowerCase().includes(q)
+        ||(c.addresses||[]).some(a=>a.toLowerCase().includes(q))
+        ||(qd.length>=3&&(c.ficha?.phone_digits||'').includes(qd))
+        ||(c.ficha?.doc_number||'').toLowerCase().includes(q));
     }
     return res;
-  },[clientMap,frecuentes,inactivos,vip,conFactura,anonimos,view,canalF,search]);
+  },[clientMap,frecuentes,inactivos,vip,conFactura,anonimos,view,canalF,tipoF,search]);
 
   // ── REPORT DEFS ──────────────────────────────
   const REPORT_DEFS = [
@@ -4654,10 +4739,15 @@ function ClientesPage({orders,embedded=false}) {
 
   // ── Quick export (lista visible) ──────────────
   function buildExportRows(list) {
+    const tipoName = new Map(types.map(t=>[t.id,t.name]));
     return list.map(c=>({
       'Nombre':              c.name,
       'Teléfono':            c.phone||'',
       'Email':               c.email||'',
+      'CI / RUC':            c.ficha&&c.ficha.doc_number?`${(c.ficha.doc_type||'ci').toUpperCase()} ${c.ficha.doc_number}`:'',
+      'Dirección':           c.ficha?.address||'',
+      'Tipos asignados':     (c.type_ids||[]).map(id=>tipoName.get(id)).filter(Boolean).join(', '),
+      'Tiene ficha':         c.ficha?'Sí':'No',
       'Tipo':                c.isVip?'VIP':c.registered?'Registrado':'Anónimo',
       'Pedidos totales':     c.orders,
       'Total gastado (₲)':  c.total,
@@ -4762,16 +4852,40 @@ function ClientesPage({orders,embedded=false}) {
           {!embedded&&<h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Clientes</h1>}
           <div style={{fontSize:11,color:C.dim,marginTop:2}}>Base de clientes · segmentación · exportación de datos</div>
         </div>
-        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+          <Btn variant="secondary" small onClick={()=>setTiposOpen(v=>!v)}>Tipos de cliente</Btn>
           <Btn variant="secondary" small onClick={exportCSV}>↓ CSV rápido</Btn>
           <Btn variant="secondary" small onClick={exportExcel}>↓ Excel rápido</Btn>
           <Btn variant="secondary" small onClick={exportPDF}>↓ PDF rápido</Btn>
+          <Btn small onClick={()=>setNuevoOpen(true)}>+ Nuevo cliente</Btn>
         </div>
       </div>
+
+      {/* ── Aviso: la mig 196 todavía no está aplicada ── */}
+      {crmMissing&&(
+        <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,
+                     borderRadius:8,padding:'10px 14px',fontSize:12.5,marginBottom:12}}>
+          {CRM_MISSING_MSG} Mientras tanto seguís viendo la base derivada de los pedidos, pero no vas a poder
+          crear ni clasificar clientes.
+        </div>
+      )}
+
+      {/* ── Catálogo de tipos (VIP, Recurrente, los que el local quiera) ── */}
+      {tiposOpen&&(
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18,marginBottom:14}}>
+          <div style={{fontSize:14,fontWeight:700,color:C.ink,marginBottom:2}}>Tipos de cliente</div>
+          <div style={{fontSize:11.5,color:C.dim,marginBottom:14}}>
+            Son tuyos: creá, renombrá o borrá los que quieras. Un cliente puede tener más de uno.
+            Borrar un tipo no borra ninguna ficha.
+          </div>
+          <TiposManager db={db} restaurantId={RID} types={types} onChange={setTypes} onToast={toast}/>
+        </div>
+      )}
 
       {/* ── KPIs ── */}
       <div style={{display:'flex',gap:10,marginBottom:10,flexWrap:'wrap'}}>
         <KpiCard label="Clientes únicos"  value={clientMap.length}                           sub="en el período"/>
+        <KpiCard label="Con ficha"        value={clientMap.filter(c=>c.ficha).length}        sub="alta registrada" accent={C.green}/>
         <KpiCard label="Registrados"      value={clientMap.filter(c=>c.registered).length}   sub="con nombre" accent={C.green}/>
         <KpiCard label="Anónimos"         value={anonimos.length}                            sub="sin identificar" accent={C.mid}/>
         <KpiCard label="Frecuentes"       value={frecuentes.length}                          sub="3+ pedidos" accent={C.green}/>
@@ -4907,10 +5021,14 @@ function ClientesPage({orders,embedded=false}) {
       {/* ── Filtros lista visual ── */}
       <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
         <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,overflowX:'auto'}}>
-          {[['todos','Todos'],['frecuentes','Frecuentes'],['vip','VIP'],['inactivos','Inactivos'],['factura','Factura'],['anonimos','Anónimos'],['delivery','Delivery'],['mesa','QR Mesa'],['llevar','Para llevar']].map(([id,lbl])=>(
+          {[['todos','Todos'],['fichas','Con ficha'],['sin_ficha','Sin ficha'],['frecuentes','Frecuentes'],['vip','VIP'],['inactivos','Inactivos'],['factura','Factura'],['anonimos','Anónimos'],['delivery','Delivery'],['mesa','QR Mesa'],['llevar','Para llevar']].map(([id,lbl])=>(
             <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?C.ink:C.dim,padding:'7px 12px',fontSize:12,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1,whiteSpace:'nowrap'}}>{lbl}</button>
           ))}
         </div>
+        <select value={tipoF} onChange={e=>setTipoF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
+          <option value="todos">Todos los tipos</option>
+          {types.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
         <select value={canalF} onChange={e=>setCanalF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
           <option value="todos">Todos los canales</option>
           {Object.entries(ORDER_TYPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}
@@ -4922,7 +5040,11 @@ function ClientesPage({orders,embedded=false}) {
           <option value="mes">Este mes</option>
           <option value="anio">Este año</option>
         </select>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar nombre, tel, email, dirección…" style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:230}}/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar nombre, tel, CI/RUC, email…" style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:230}}/>
+        <label style={{display:'flex',alignItems:'center',gap:5,fontSize:11.5,color:C.mid,cursor:'pointer'}}>
+          <input type="checkbox" checked={showInactive} onChange={e=>setShowInactive(e.target.checked)}/>
+          Ver desactivadas
+        </label>
         <span style={{fontSize:11,color:C.dim,marginLeft:'auto'}}>{displayed.length} cliente{displayed.length!==1?'s':''}</span>
       </div>
 
@@ -4944,15 +5066,17 @@ function ClientesPage({orders,embedded=false}) {
           </thead>
           <tbody>
             {displayed.map((c,i)=>{
-              const diasInactivo=Math.floor((now-new Date(c.lastDate).getTime())/864e5);
+              const diasInactivo=c.neverOrdered?null:Math.floor((now-new Date(c.lastDate).getTime())/864e5);
               return (
-                <tr key={i} onClick={()=>{setDetalle(c);setDetalleOrders(c.orderHistory.slice(0,10));}} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.background='var(--surface-hover)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <tr key={i} onClick={()=>{setDetalle(c);setDetalleOrders(c.orderHistory.slice(0,10));}} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer',opacity:c.ficha&&c.ficha.is_active===false?.5:1}} onMouseEnter={e=>e.currentTarget.style.background='var(--surface-hover)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                   <Td>
                     <div style={{fontWeight:700,fontSize:13,color:C.ink}}>{c.name}</div>
-                    <div style={{display:'flex',gap:3,marginTop:3,flexWrap:'wrap'}}>
+                    <div style={{display:'flex',gap:3,marginTop:3,flexWrap:'wrap',alignItems:'center'}}>
+                      <TipoBadges typeIds={c.type_ids} types={types}/>
                       {c.pideFactura&&<span style={{fontSize:9,fontWeight:700,color:TINT.blueText,background:TINT.blueBg,padding:'1px 4px',borderRadius:3}}>FACTURA</span>}
                       {c.orders>=3&&!c.isVip&&<span style={{fontSize:9,fontWeight:700,color:C.green,background:TINT.greenBg,padding:'1px 4px',borderRadius:3}}>FRECUENTE</span>}
                       {c.addresses.length>0&&<span style={{fontWeight:700,color:'#FF9500',background:TINT.amberBg,padding:'2px 4px',borderRadius:3,display:'inline-flex'}}><Icon name="bike" size={10}/></span>}
+                      {c.ficha&&c.ficha.is_active===false&&<span style={{fontSize:9,fontWeight:700,color:C.dim,border:`1px solid ${C.border}`,padding:'1px 4px',borderRadius:3}}>DESACTIVADA</span>}
                     </div>
                   </Td>
                   <Td>
@@ -4971,8 +5095,12 @@ function ClientesPage({orders,embedded=false}) {
                     }
                   </Td>
                   <Td>
-                    <span style={{color:diasInactivo>30?C.orange:C.mid,fontSize:12}}>{fmtDate(c.lastDate)}</span>
-                    {diasInactivo>0&&<div style={{color:C.dim,fontSize:10}}>{diasInactivo}d atrás</div>}
+                    {c.neverOrdered
+                      ?<span style={{color:C.dim,fontSize:12}}>Sin pedidos aún</span>
+                      :<>
+                        <span style={{color:diasInactivo>30?C.orange:C.mid,fontSize:12}}>{fmtDate(c.lastDate)}</span>
+                        {diasInactivo>0&&<div style={{color:C.dim,fontSize:10}}>{diasInactivo}d atrás</div>}
+                      </>}
                   </Td>
                 </tr>
               );
@@ -4992,7 +5120,8 @@ function ClientesPage({orders,embedded=false}) {
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
               <div>
                 <div style={{fontSize:20,fontWeight:800,color:C.ink}}>{detalle.name}</div>
-                <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
+                <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap',alignItems:'center'}}>
+                  <TipoBadges typeIds={detalle.type_ids} types={types} size="md"/>
                   <TypeBadge c={detalle}/>
                   {detalle.orders>=3&&<span style={{background:TINT.greenBg,color:C.green,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>FRECUENTE</span>}
                   {isFreqReg(detalle.phone)&&<span style={{background:'rgba(255,149,0,0.14)',color:'#FF9500',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>★ REGISTRADO</span>}
@@ -5001,6 +5130,29 @@ function ClientesPage({orders,embedded=false}) {
                 </div>
               </div>
               <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',flexShrink:0}}>
+                {/* La ficha (mig 196) es lo editable; si el cliente sólo existe
+                    como nombre en pedidos viejos, se le crea una con esos datos. */}
+                <button onClick={()=>{
+                  if(detalle.ficha){ setEditando(detalle.ficha); return; }
+                  const partes=(detalle.name||'').trim().split(/\s+/);
+                  setEditando({__nuevo:true, prefill:{
+                    first_name:partes[0]||'', last_name:partes.slice(1).join(' '),
+                    phone:detalle.phone||'', email:detalle.email||'',
+                    address:(detalle.addresses||[])[0]||'',
+                  }});
+                }} style={{background:C.ink,color:C.sidebar,border:'none',padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+                  {detalle.ficha?'Editar ficha':'Crear ficha'}
+                </button>
+                {detalle.ficha&&detalle.ficha.is_active!==false&&(
+                  <button onClick={()=>bajaFicha(detalle.ficha)} style={{background:'transparent',color:C.red,border:`1px solid ${C.border}`,padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+                    Desactivar
+                  </button>
+                )}
+                {detalle.ficha&&detalle.ficha.is_active===false&&(
+                  <button onClick={()=>altaFicha(detalle.ficha)} style={{background:'transparent',color:C.green,border:`1px solid ${C.border}`,padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+                    Reactivar
+                  </button>
+                )}
                 {detalle.phone&&(
                   <button onClick={()=>toggleFrequent(detalle)} title="Los clientes frecuentes pueden pagar en efectivo en delivery" style={{display:'flex',alignItems:'center',gap:6,background:isFreqReg(detalle.phone)?'#FF9500':'transparent',color:isFreqReg(detalle.phone)?'#fff':C.mid,border:`1px solid ${isFreqReg(detalle.phone)?'#FF9500':C.border}`,padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
                     {isFreqReg(detalle.phone)?'★ Frecuente':'☆ Marcar frecuente'}
@@ -5026,6 +5178,29 @@ function ClientesPage({orders,embedded=false}) {
                   <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Email</div>
                   <div style={{fontSize:13,fontWeight:600,wordBreak:'break-all'}}>{detalle.email||<span style={{color:C.dim}}>—</span>}</div>
                 </div>
+                {/* Datos que sólo existen si hay ficha (mig 196) */}
+                {detalle.ficha&&(
+                  <div>
+                    <div style={{fontSize:10,color:C.dim,marginBottom:2}}>CI / RUC</div>
+                    <div style={{fontSize:13,fontWeight:600,fontFamily:"'SF Mono',ui-monospace,monospace"}}>
+                      {detalle.ficha.doc_number?`${(detalle.ficha.doc_type||'ci').toUpperCase()} ${detalle.ficha.doc_number}`:<span style={{color:C.dim}}>—</span>}
+                    </div>
+                  </div>
+                )}
+                {detalle.ficha&&detalle.ficha.address&&(
+                  <div style={{gridColumn:'1/-1'}}>
+                    <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Dirección de la ficha</div>
+                    <div style={{fontSize:13}}>{detalle.ficha.address}
+                      {detalle.ficha.address_reference&&<span style={{color:C.dim}}> · {detalle.ficha.address_reference}</span>}
+                    </div>
+                  </div>
+                )}
+                {detalle.ficha&&detalle.ficha.notes&&(
+                  <div style={{gridColumn:'1/-1'}}>
+                    <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Notas</div>
+                    <div style={{fontSize:13,whiteSpace:'pre-wrap'}}>{detalle.ficha.notes}</div>
+                  </div>
+                )}
                 {detalle.addresses.length>0&&(
                   <div style={{gridColumn:'1/-1'}}>
                     <div style={{fontSize:10,color:C.dim,marginBottom:4}}>Direcciones de delivery ({detalle.addresses.length})</div>
@@ -5121,6 +5296,27 @@ function ClientesPage({orders,embedded=false}) {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* ── Alta de cliente (mig 196) ── */}
+      {nuevoOpen&&(
+        <ClienteModal db={db} restaurantId={RID} types={types} source="admin"
+          onClose={()=>setNuevoOpen(false)}
+          onSaved={(c,{existed})=>{
+            setNuevoOpen(false); reloadFichas();
+            toast(existed?'Ese teléfono ya tenía ficha — se abrió la existente':'Cliente creado');
+            if(existed) setEditando(c);
+          }}/>
+      )}
+
+      {/* ── Edición de ficha, o alta a partir de un cliente derivado de pedidos ── */}
+      {editando&&(
+        <ClienteModal db={db} restaurantId={RID} types={types}
+          source={editando.__nuevo?'admin':undefined}
+          customer={editando.__nuevo?null:editando}
+          prefill={editando.__nuevo?editando.prefill:null}
+          onClose={()=>setEditando(null)}
+          onSaved={()=>{ setEditando(null); setDetalle(null); reloadFichas(); toast('Ficha guardada'); }}/>
       )}
     </div>
   );

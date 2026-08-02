@@ -11,6 +11,9 @@ import { createRoot } from 'react-dom/client';
 import { formatGs, parseGs, GsInput } from '../shared/gs.jsx';
 // FASE D2 — el cliente delivery sube el comprobante de transferencia (mig 183).
 import { uploadComprobante } from '../shared/comprobante.jsx';
+// CRM (mig 196) — el pedido a domicilio deja ficha del cliente en el local.
+// La escritura pasa por RPC (`upsert_customer_self`): anon NO toca la tabla.
+import { customerPayload, upsertSelf } from '../shared/clientes.js';
 const { useState, useEffect, useRef, createContext, useContext, useCallback } = React;
 
 /* ── SUPABASE CLIENT ─────────────────────── */
@@ -333,6 +336,23 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
   // order_type='delivery' para domicilio real; 'llevar' para retiro en local
   const dbOrderType = orderType === 'delivery' ? 'delivery' : 'llevar';
 
+  // CRM (mig 196): ficha del cliente armada con lo que ya cargó para el envío.
+  // El documento sale del campo CI/RUC del formulario y, si lo dejó vacío pero
+  // pidió factura, del RUC de la factura — que entonces es un RUC, no una cédula.
+  const _docForm = (customerData.doc_number || '').trim();
+  const _docNum  = _docForm || (custRuc || '').trim();
+  const _docTyp  = _docForm ? (customerData.doc_type || 'ci') : (_docNum ? 'ruc' : null);
+  const customerCrm = customerPayload({
+    name: customerData.name || '',
+    last_name: customerData.last_name || '',
+    phone: customerData.phone || '',
+    doc_type: _docTyp,
+    doc_number: _docNum,
+    email: custEmail || '',
+    address: orderType === 'delivery' ? (customerData.address || '') : '',
+    address_reference: orderType === 'delivery' ? (customerData.references || '') : '',
+  }, 'delivery');
+
   // ETAPA 2 (seguridad): crear el pedido (orders + items + extras + delivery_orders +
   // auto-asignación de rider) por la RPC SECURITY DEFINER 'create_order'. Único camino
   // tras el lockdown (ETAPA 3); si la RPC no existe aún (ETAPA 1 sin aplicar), caemos al
@@ -345,6 +365,11 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
     customer_name: customerData.name || null, customer_ruc: custRuc || null, customer_email: custEmail || null,
     requires_invoice: requiresInvoice || false,
     invoice_delivery_method: requiresInvoice ? (invoiceDeliveryMethod || (custEmail ? 'email' : 'print')) : null,
+    // CRM (mig 196): la RPC crea/completa la ficha y vincula orders + delivery_orders
+    // en la misma transacción. Los datos son los que el cliente ya escribió para el
+    // envío, así que no le pedimos nada extra: el delivery es el canal donde el
+    // local YA sabe quién es su cliente y aun así ese dato se perdía en el pedido.
+    ...(customerCrm ? { customer: customerCrm } : {}),
     items: cartItems.map(ci => ({
       item_id: ci.item.id || null, item_name: ci.item.name, quantity: ci.qty,
       unit_price: ci.item.price, total_price: ci.total, observations: ci.notes || null,
@@ -392,7 +417,15 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
     invoice_requested_at: new Date().toISOString(),
     invoice_status: 'pending',
   } : {};
-  let { data: order, error: orderErr } = await db.from('orders').insert({ ...baseInsert, ...invoiceExtras }).select('id,order_number,status').single();
+  // CRM en el camino de compatibilidad (bases sin la RPC create_order): la ficha
+  // se crea igual por RPC y el id viaja como columna opcional, para que el
+  // reintento recortado la descarte solo si la mig 196 no está aplicada.
+  let crmExtras = {};
+  if (customerCrm) {
+    const cid = await upsertSelf(db, RESTAURANT_ID, customerCrm, 'delivery');
+    if (cid) crmExtras = { customer_id: cid };
+  }
+  let { data: order, error: orderErr } = await db.from('orders').insert({ ...baseInsert, ...invoiceExtras, ...crmExtras }).select('id,order_number,status').single();
   // Reintento recortado SÓLO ante columna inexistente (migración pendiente). Ver la
   // nota gemela en src/index/main.jsx: reintentar ante cualquier error podía duplicar
   // el pedido o crearlo sin los datos de facturación.
@@ -447,13 +480,15 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
       delivery_corner: customerData.corner || null,
       delivery_lat:    Number.isFinite(customerData.lat) ? customerData.lat : null,
       delivery_lng:    Number.isFinite(customerData.lng) ? customerData.lng : null,
-    } : {};
+      ...(crmExtras.customer_id ? { customer_id: crmExtras.customer_id } : {}),   // CRM (mig 196)
+    } : (crmExtras.customer_id ? { customer_id: crmExtras.customer_id } : {});
     let { data: delRow, error: delErr } = await db.from('delivery_orders').insert({ ...baseDelivery, ...geoExtras }).select('id').single();
-    // Reintentar SÓLO si el fallo es por columnas geo inexistentes (migración 121 sin aplicar).
-    // Acotar a ese caso evita un 2º insert ante errores no relacionados (RLS/red) — que además
-    // podría duplicar la fila si el 1º se grabó pero se perdió la respuesta. Esos se loguean tal cual.
+    // Reintentar SÓLO si el fallo es por columnas opcionales inexistentes (mig 121
+    // geo / mig 196 customer_id sin aplicar). Acotar a ese caso evita un 2º insert
+    // ante errores no relacionados (RLS/red) — que además podría duplicar la fila si
+    // el 1º se grabó pero se perdió la respuesta. Esos se loguean tal cual.
     const geoColMissing = !!delErr && Object.keys(geoExtras).length > 0 &&
-      /delivery_(lat|lng|corner)|column|schema cache|PGRST204|42703/i.test(`${delErr.message || ''} ${delErr.code || ''}`);
+      /delivery_(lat|lng|corner)|customer_id|column|schema cache|PGRST204|42703/i.test(`${delErr.message || ''} ${delErr.code || ''}`);
     if (geoColMissing) {
       const r = await db.from('delivery_orders').insert(baseDelivery).select('id').single();
       delRow = r.data; delErr = r.error;
@@ -1287,6 +1322,9 @@ function CustomerDataScreen({ orderType, zones, settings, deliveryResult, onNext
 
   const [form, setForm] = useState({
     name: '', phone: '',
+    // CRM (mig 196): apellido y CI/RUC son OPCIONALES y viajan a la ficha del
+    // cliente en el local. Sin ellos el delivery funciona exactamente igual.
+    last_name: '', doc_type: 'ci', doc_number: '',
     address: deliveryResult?.manualAddr || '',
     detail: '',
     corner: '',
@@ -1522,16 +1560,35 @@ function CustomerDataScreen({ orderType, zones, settings, deliveryResult, onNext
         })()}
 
         <div style={{ background: T.white, borderRadius: 14, padding: '20px', border: `1px solid ${T.border}`, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Nombre */}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Tu nombre *</label>
-            <input value={form.name} onChange={e => f('name', e.target.value)} placeholder="¿Cómo te llamamos?" style={inputStyle(T)} />
+          {/* Nombre y apellido */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Tu nombre *</label>
+              <input value={form.name} onChange={e => f('name', e.target.value)} placeholder="¿Cómo te llamamos?" autoComplete="given-name" style={inputStyle(T)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Apellido</label>
+              <input value={form.last_name} onChange={e => f('last_name', e.target.value)} placeholder="Opcional" autoComplete="family-name" style={inputStyle(T)} />
+            </div>
           </div>
 
           {/* Teléfono */}
           <div>
             <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Teléfono de contacto *</label>
-            <input value={form.phone} onChange={e => f('phone', e.target.value)} placeholder="+595 9XX XXX XXX" type="tel" style={inputStyle(T)} />
+            <input value={form.phone} onChange={e => f('phone', e.target.value)} placeholder="+595 9XX XXX XXX" type="tel" autoComplete="tel" style={inputStyle(T)} />
+          </div>
+
+          {/* CI / RUC — opcional. Sirve para la factura y para que el local
+              reconozca al cliente aunque cambie de número. */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: T.gray, display: 'block', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase' }}>CI / RUC</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '86px 1fr', gap: 10 }}>
+              <select value={form.doc_type} onChange={e => f('doc_type', e.target.value)} style={inputStyle(T)}>
+                <option value="ci">CI</option>
+                <option value="ruc">RUC</option>
+              </select>
+              <input value={form.doc_number} onChange={e => f('doc_number', e.target.value)} placeholder="Opcional" inputMode="numeric" style={inputStyle(T)} />
+            </div>
           </div>
 
           {/* Solo delivery: ubicación + dirección estructurada */}

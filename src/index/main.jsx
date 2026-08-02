@@ -10,6 +10,9 @@ import { createRoot } from "react-dom/client";
 import { useTweaks, TweaksPanel, TweakSection, TweakRow, TweakSlider, TweakToggle, TweakRadio, TweakSelect, TweakText, TweakNumber, TweakColor, TweakButton } from "./tweaks-panel.jsx";
 // FASE D2 — el cliente sube la foto del comprobante al transferir (mig 183).
 import { uploadComprobante } from "../shared/comprobante.jsx";
+// CRM (mig 196) — el comensal deja sus datos y queda con ficha en el local.
+// La escritura pasa por RPC (`upsert_customer_self`): anon NO toca la tabla.
+import { customerPayload, upsertSelf } from "../shared/clientes.js";
 
 const { useState, useEffect, useRef, createContext, useContext, useCallback } = React;
 
@@ -96,7 +99,7 @@ function lineItemName(ci) {
   return ci.variant ? `${base} (${ci.variant.name})` : base;
 }
 
-async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmount, couponCode, total, payMethod, custName, custRuc, custEmail, requiresInvoice, invoiceDeliveryMethod, language, facturaSolicitada, facturaRazonSocial, facturaRucCi, facturaEmail, facturaFormato, paymentProofPath, paymentReference }) {
+async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmount, couponCode, total, payMethod, custName, custRuc, custEmail, requiresInvoice, invoiceDeliveryMethod, language, facturaSolicitada, facturaRazonSocial, facturaRucCi, facturaEmail, facturaFormato, paymentProofPath, paymentReference, customer }) {
   if (!items || items.length === 0) throw new Error('El carrito está vacío');
   if (!RESTAURANT_ID) throw new Error('No se identificó el restaurante. Escaneá el QR de tu mesa o abrí el link con ?r=<restaurante>.');
   const safeTotal = total > 0 ? total : items.reduce((s, ci) => s + (ci.total || 0), 0);
@@ -130,6 +133,9 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
     factura_email: facturaEmail || null,
     factura_formato: facturaFormato || null,
     language,
+    // CRM (mig 196): la RPC hace el upsert de la ficha y deja el pedido vinculado
+    // en la MISMA transacción. Si el bloque no viene, se comporta como siempre.
+    ...(customer ? { customer } : {}),
     items: items.map(ci => ({
       item_id: ci.item.id || null,
       item_name: lineItemName(ci),
@@ -159,7 +165,16 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
     invoice_requested_at: new Date().toISOString(),
     invoice_status: 'pending',
   } : {};
-  let { data: order, error: orderErr } = await db.from('orders').insert({ ...baseInsert, ...invoiceExtras }).select('id,order_number,status').single();
+  // CRM en el camino de compatibilidad (bases sin la RPC create_order): la ficha
+  // se crea igual por RPC —anon nunca escribe la tabla— y el id viaja como una
+  // columna opcional más, para que el reintento recortado de abajo la descarte
+  // sola si la mig 196 todavía no está aplicada.
+  let crmExtras = {};
+  if (customer) {
+    const cid = await upsertSelf(db, RESTAURANT_ID, customer, customer.source || 'qr');
+    if (cid) crmExtras = { customer_id: cid };
+  }
+  let { data: order, error: orderErr } = await db.from('orders').insert({ ...baseInsert, ...invoiceExtras, ...crmExtras }).select('id,order_number,status').single();
   // El reintento recortado es SÓLO para bases donde la mig 085 todavía no está
   // aplicada (columna inexistente). Antes se reintentaba ante CUALQUIER error, y un
   // fallo transitorio de red podía crear un pedido DUPLICADO (si el primer INSERT sí
@@ -1247,6 +1262,21 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   const [email, setEmail] = useState('');
   const [ordNum, setOrdNum] = useState('');
   const [submitError, setSubmitError] = useState(null);
+  // ── CRM (mig 196): "Mis datos" ─────────────────────────────────────
+  // Hasta ahora el pedido por QR sólo guardaba el nombre si el comensal pedía
+  // factura fiscal — por eso el CRM del local estaba lleno de "pedidos sin
+  // identificar". Este bloque es OPCIONAL y se persiste en el dispositivo, así
+  // que el habitué lo completa UNA vez y sus siguientes pedidos ya lo traen.
+  const CRM_LS = 'mythos_mis_datos';
+  const [crmOpen, setCrmOpen] = useState(false);
+  const [crm, setCrm] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(CRM_LS) || '{}') || {}; } catch (_) { return {}; }
+  });
+  const setCrmField = (k, v) => setCrm(p => {
+    const n = { ...p, [k]: v };
+    try { localStorage.setItem(CRM_LS, JSON.stringify(n)); } catch (_) {}
+    return n;
+  });
   // FASE D2 (mig 183): comprobante de transferencia que sube el cliente.
   const [proofPath, setProofPath] = useState('');       // path en el bucket privado
   const [proofPreview, setProofPreview] = useState(''); // objectURL local (preview)
@@ -1340,6 +1370,24 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
         // Comprobante de transferencia subido por el cliente (mig 183) — solo método QR/transferencia.
         paymentProofPath: method === 'qr' ? (proofPath || null) : null,
         paymentReference: method === 'qr' ? (proofRef.trim() || null) : null,
+        // CRM (mig 196): ficha del comensal. Se arma con lo de "Mis datos" y, si no
+        // lo completó pero sí pidió factura fiscal, con el receptor de la factura —
+        // que es el mismo dato y de otro modo se perdería igual que antes.
+        customer: (() => {
+          const esFiscal = invoiceType === 'fiscal';
+          const docForm = (crm.doc_number || '').trim();
+          const docNum  = docForm || (esFiscal ? ruc.trim() : '');
+          return customerPayload({
+            first_name: (crm.first_name || '').trim() || (esFiscal ? name.trim().split(/\s+/)[0] : ''),
+            last_name:  (crm.last_name  || '').trim() || (esFiscal ? name.trim().split(/\s+/).slice(1).join(' ') : ''),
+            phone: (crm.phone || '').trim(),
+            // El del formulario conserva su tipo; el que viene de la factura es un RUC.
+            doc_type: docForm ? (crm.doc_type || 'ci') : (docNum ? 'ruc' : null),
+            doc_number: docNum,
+            email: (crm.email || '').trim() || (esFiscal ? email.trim() : ''),
+            address: (crm.address || '').trim(),
+          }, 'qr');
+        })(),
       });
       setOrdNum(order.order_number);
       setStep('ok');
@@ -1469,6 +1517,50 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
             <input value={proofRef} onChange={e => setProofRef(e.target.value)} placeholder="N° de operación (opcional)" style={{ marginTop: 10, width: '100%', height: 40, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, color: T.ink, outline: 'none', background: T.offwhite, boxSizing: 'border-box', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }} />
           </div>
         )}
+        {/* Mis datos (CRM · mig 196) — opcional, colapsado por defecto para no
+            agregar fricción a quien sólo quiere pedir y comer. */}
+        <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
+          <button onClick={() => setCrmOpen(o => !o)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}>
+            <span>
+              <span style={{ display: 'block', fontSize: 12, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Mis datos · opcional</span>
+              <span style={{ display: 'block', fontSize: 12, color: T.silver, marginTop: 3, fontWeight: 500 }}>
+                {(crm.first_name || '').trim()
+                  ? `${crm.first_name} ${crm.last_name || ''}`.trim() + (crm.phone ? ` · ${crm.phone}` : '')
+                  : 'Dejá tu nombre para que el local te reconozca la próxima vez'}
+              </span>
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: T.ink, flexShrink: 0 }}>{crmOpen ? '−' : '+'}</span>
+          </button>
+          {crmOpen && (
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <input value={crm.first_name || ''} onChange={e => setCrmField('first_name', e.target.value)} placeholder="Nombre" autoComplete="given-name"
+                  style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, outline: 'none', background: T.offwhite, boxSizing: 'border-box' }} />
+                <input value={crm.last_name || ''} onChange={e => setCrmField('last_name', e.target.value)} placeholder="Apellido" autoComplete="family-name"
+                  style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, outline: 'none', background: T.offwhite, boxSizing: 'border-box' }} />
+              </div>
+              <input value={crm.phone || ''} onChange={e => setCrmField('phone', e.target.value)} placeholder="Teléfono (0981 123 456)" type="tel" autoComplete="tel"
+                style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, outline: 'none', background: T.offwhite, boxSizing: 'border-box' }} />
+              <div style={{ display: 'grid', gridTemplateColumns: '86px 1fr', gap: 8 }}>
+                <select value={crm.doc_type || 'ci'} onChange={e => setCrmField('doc_type', e.target.value)}
+                  style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 8px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, outline: 'none', background: T.offwhite, boxSizing: 'border-box' }}>
+                  <option value="ci">CI</option>
+                  <option value="ruc">RUC</option>
+                </select>
+                <input value={crm.doc_number || ''} onChange={e => setCrmField('doc_number', e.target.value)} placeholder="CI / RUC (opcional)" inputMode="numeric"
+                  style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, outline: 'none', background: T.offwhite, boxSizing: 'border-box' }} />
+              </div>
+              <input value={crm.email || ''} onChange={e => setCrmField('email', e.target.value)} placeholder="Correo (opcional)" type="email" autoComplete="email"
+                style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, outline: 'none', background: T.offwhite, boxSizing: 'border-box' }} />
+              <input value={crm.address || ''} onChange={e => setCrmField('address', e.target.value)} placeholder="Dirección (opcional)" autoComplete="street-address"
+                style={{ height: 42, border: `1px solid ${T.border}`, borderRadius: 8, padding: '0 12px', fontSize: 13, fontFamily: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif", color: T.ink, outline: 'none', background: T.offwhite, boxSizing: 'border-box' }} />
+              <div style={{ fontSize: 11, color: T.silver, lineHeight: 1.5 }}>
+                Sólo los ve este restaurante, para reconocerte y mejorar tu atención. Podés pedir igual sin completar nada.
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Comprobante */}
         <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '14px 16px', marginBottom: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: T.gray, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Comprobante</div>

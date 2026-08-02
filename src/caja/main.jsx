@@ -13,6 +13,9 @@ import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
 import { initBusinessTZ, todayLocal } from "../shared/fecha.js";
 // FASE D2 — comprobante (foto) + validación del pago (mig 182).
 import { ComprobanteUploader, recordPaymentReview, reviewMeta, ProofImage } from "../shared/comprobante.jsx";
+// CRM (mig 196) — dar de alta / elegir un cliente al tomar el pedido.
+import { ClientePicker, useCustomerTypes } from "../shared/ClienteUI.jsx";
+import { fullName as custFullName } from "../shared/clientes.js";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -2596,7 +2599,7 @@ function ExtrasModal({item,extras,onClose,onConfirm}){
 /* ═══════════════════════════════════════════
    MODAL: COBRO INMEDIATO (antes de enviar a cocina)
 ═══════════════════════════════════════════ */
-function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,turno,profile,deliv,zones,channels,onClose,onConfirmed}){
+function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,cliente,tables,turno,profile,deliv,zones,channels,onClose,onConfirmed}){
   const [metodo,setMetodo]=useState('efectivo');
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
@@ -2670,7 +2673,11 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
       // al cobrar mixto el cajero veía el campo, cargaba el N° de comprobante y se
       // descartaba en silencio — el pago quedaba sin referencia para conciliar.
       const payRef = (_needsRef(metodo) && comprobante.trim()) ? comprobante.trim() : null;
-      let{data:order,error:e1}=await db.from('orders').insert({...baseInsert,...invoiceFields,...(payRef?{payment_reference:payRef}:{})}).select().single();
+      // CRM (mig 196): va FUERA de baseInsert a propósito. Si la migración todavía
+      // no está aplicada la columna no existe, el insert falla por columna faltante
+      // y el reintento de abajo —que usa baseInsert pelado— cobra igual sin CRM.
+      const crmFields = (cliente&&cliente.id) ? {customer_id:cliente.id} : {};
+      let{data:order,error:e1}=await db.from('orders').insert({...baseInsert,...invoiceFields,...crmFields,...(payRef?{payment_reference:payRef}:{})}).select().single();
       // Reintento recortado SÓLO si la base todavía no tiene las columnas de factura.
       // Antes reintentaba ante CUALQUIER error: un fallo transitorio (RLS, red) hacía
       // que el pedido se creara sin requires_invoice ni payment_reference — el cliente
@@ -2719,11 +2726,13 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,tables,tur
           external_order_id:(deliv?.channel!=='propio'?(deliv?.externalId||'').trim():'')||null,
           order_total:subtotal, rider_status:'pending',
           cash_amount:contraEntrega?total:null,
+          ...((cliente&&cliente.id)?{customer_id:cliente.id}:{}),   // CRM (mig 196)
         };
         let{data:delRow,error:dErr}=await db.from('delivery_orders').insert(delivPayload).select('id').single();
-        // Defensivo: si la mig 161 (external_order_id) aún no está aplicada, reintentar sin esa columna.
-        if(dErr && /external_order_id|PGRST204|42703|schema cache/i.test(`${dErr.message||''} ${dErr.code||''}`)){
-          const {external_order_id, ...noExt}=delivPayload;
+        // Defensivo: si la mig 161 (external_order_id) o la 196 (customer_id) aún no
+        // están aplicadas, reintentar sin esas columnas antes de dar el envío por perdido.
+        if(dErr && /external_order_id|customer_id|PGRST204|42703|schema cache/i.test(`${dErr.message||''} ${dErr.code||''}`)){
+          const {external_order_id, customer_id, ...noExt}=delivPayload;
           const retry=await db.from('delivery_orders').insert(noExt).select('id').single();
           delRow=retry.data; dErr=retry.error;
         }
@@ -2962,6 +2971,27 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
   const [delivPaid,setDelivPaid]=useState(false);   // false = contra-entrega (cobra el rider) · true = ya pagó en caja
   const [zones,setZones]=useState([]);
   const [channels,setChannels]=useState([]);
+  // ── CRM (mig 196): ficha de cliente asociada al pedido ──
+  // Es OPCIONAL en los tres tipos de pedido. Elegirla (o crearla al vuelo desde
+  // el picker) deja el pedido con customer_id, que es lo que convierte el
+  // historial del cliente en algo real y no en "todos los pedidos que tenían
+  // este nombre tipeado". El campo NOMBRE de siempre sigue existiendo para el
+  // mostrador rápido, donde nadie quiere registrar a nadie.
+  const [cliente,setCliente]=useState(null);
+  const {types:custTypes}=useCustomerTypes(db,RID);
+
+  // Al elegir una ficha, se autocompletan los campos del pedido que estén vacíos.
+  // No pisa lo ya tipeado: si el cajero escribió otra dirección para ESTE envío,
+  // esa gana sobre la de la ficha.
+  function elegirCliente(c){
+    setCliente(c);
+    if(!c) return;
+    const nom=custFullName(c);
+    if(nom) setCustomerName(nom);
+    if(c.phone   && !delivPhone.trim())   setDelivPhone(c.phone);
+    if(c.address && !delivAddress.trim()) setDelivAddress(c.address);
+    if(c.address_reference && !delivRef.trim()) setDelivRef(c.address_reference);
+  }
 
   useEffect(()=>{load();},[]);
   // Zonas desde delivery_zones (DB — misma fuente que la cotización del cliente).
@@ -3039,7 +3069,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
     setPagoModal(false);
     if(movData&&onMovimiento)onMovimiento(movData);
     toast(`Pedido #${order?.order_number||''} ${order?.order_type==='delivery'?'enviado a despacho':'cobrado y enviado a cocina'} ✓`);
-    setCart([]);setCustomerName('');setTableId('');
+    setCart([]);setCustomerName('');setTableId('');setCliente(null);
     setDelivPhone('');setDelivAddress('');setDelivRef('');setDelivZoneId('');setDelivChannel('propio');setDelivExtId('');setDelivPaid(false);
     localStorage.removeItem(lsk('caja_cart'));localStorage.removeItem(lsk('caja_customer_name'));localStorage.removeItem(lsk('caja_table_id'));
   }
@@ -3116,6 +3146,15 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
             {/* Config del pedido */}
             <div style={{padding:'14px 16px',borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
               <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>PEDIDO ACTUAL</div>
+
+              {/* CRM (mig 196): buscar la ficha o registrarla sin salir del cobro.
+                  Va arriba de todo porque elegirla completa el resto de los campos. */}
+              <div style={{marginBottom:10}}>
+                <ClientePicker db={db} restaurantId={RID} types={custTypes} source="caja"
+                  value={cliente} onChange={elegirCliente}
+                  label="CLIENTE" placeholder="Buscar o registrar cliente…"/>
+              </div>
+
               {orderType==='dine_in'?(
                 <>
                   <Lbl required>MESA</Lbl>
@@ -3218,6 +3257,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
           orderType={orderType}
           tableId={tableId}
           customerName={customerName}
+          cliente={cliente}
           tables={tables}
           turno={turno}
           profile={profile}
