@@ -48,6 +48,13 @@
   // costados (invisible), pasarse empuja el último carácter fuera del papel.
   var MONO_RATIO = 0.62;
 
+  // Métricas verticales. Son a la vez CSS y la fórmula del alto de página, así
+  // que viven acá una sola vez: si se tocan en el <style> y no acá, el alto
+  // calculado deja de coincidir con lo que se dibuja y el ticket se parte.
+  var LINE_H = 1.28;                        // line-height sin unidad
+  var SCALE = { md: 1.15, lg: 1.35 };       // font-size de las líneas destacadas, en em
+  var LOGO_MAX_MM = 22;
+
   // ── helpers autocontenidos (no dependen de ningún panel) ──────────
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -149,7 +156,10 @@
     fields: {
       orderNumber: true, customerName: true, table: true, cashier: true,
       dateTime: true, paymentMethod: true, change: true, ruc: true,
-      unitPrice: true          // "@ 35.000 c/u" cuando la cantidad es > 1
+      // Off por defecto: agrega un renglón por ítem y el "@" se lee como un
+      // error de impresión (lo pidió sacar Nativa Gastronomía). Quien lo quiera
+      // lo prende en Admin → Comprobante.
+      unitPrice: false
     },
     header: {
       showName: true, showAddress: true, showPhone: true,
@@ -291,8 +301,8 @@
       var ls = wrap(name, nameW);
       push(two(ls[0], miles(amounts[i]), W));
       for (var j = 1; j < ls.length; j++) push('   ' + ls[j]);
-      // Precio unitario cuando hay más de uno: el comensal controla la cuenta.
-      if (c.fields.unitPrice && qty > 1) push('   @ ' + miles(Math.round(amounts[i] / qty)) + ' c/u');
+      // Precio unitario cuando hay más de uno (opt-in): el comensal controla la cuenta.
+      if (c.fields.unitPrice && qty > 1) push('   ' + miles(Math.round(amounts[i] / qty)) + ' c/u');
       // Extras / variantes: ya vienen sumados en total_price, se listan sin precio.
       var ex = it.order_item_extras || it.extras || [];
       (Array.isArray(ex) ? ex : []).forEach(function (x) {
@@ -341,6 +351,7 @@
     var b = c.business || {};
     var w = c.paperWidth;
     var padMM = (w >= 80 ? 3 : 2);
+    var padTB = 2;                       // padding vertical del body, en mm
 
     // Tamaño de fuente derivado de la grilla: charsPerLine caracteres tienen
     // que entrar EXACTO en el ancho imprimible. Si no, el navegador parte
@@ -348,25 +359,45 @@
     var fs = ((w - 2 * padMM) * MM) / c.charsPerLine / MONO_RATIO;
     fs = Math.min(24, Math.max(7, Math.round(fs * 10) / 10));
 
-    var body = buildLines(data, c).map(function (l) {
+    var lines = buildLines(data, c);
+    var logoOn = !!(c.showLogo && b.logoUrl);
+
+    // ── ALTO EXACTO DE LA PÁGINA ──────────────────────────────────
+    // `@page{size:80mm auto}` NO es CSS válido: la gramática de `size` es
+    // <length>{1,2} | auto | <page-size>, y `auto` no se combina con una
+    // medida. Chrome descartaba la declaración entera y caía al tamaño de
+    // papel del diálogo (A4 por defecto) → el ticket se partía en páginas
+    // y entre ticket y ticket salían ~20cm de papel en blanco. Reportado
+    // por Nativa Gastronomía: "se corta y no muestra el todo, tengo que
+    // poner en otro tamaño de hoja".
+    // Como el layout es una grilla propia, el alto se calcula exacto: cada
+    // línea mide line-height × font-size (el line-height sin unidad hereda
+    // como número, así que las líneas grandes escalan con su em).
+    var hPx = 0;
+    lines.forEach(function (l) { hPx += LINE_H * fs * (SCALE[l.k] || 1); });
+    if (logoOn) hPx += (LOGO_MAX_MM + 2) * MM;
+    var hMM = Math.ceil(hPx / MM) + 2 * padTB + 3;   // +3mm de holgura: sobrar papel es gratis, faltar corta el ticket
+    hMM = Math.max(30, Math.min(3000, hMM));
+
+    var body = lines.map(function (l) {
       return '<div class="l' + (l.k ? ' ' + l.k : '') + '">' + (l.s ? esc(l.s) : '&#160;') + '</div>';
     }).join('');
 
-    var logo = (c.showLogo && b.logoUrl)
+    var logo = logoOn
       ? '<div class="lg-wrap"><img class="logo" src="' + esc(b.logoUrl) + '" alt=""/></div>' : '';
 
     return '<!DOCTYPE html><html><head><meta charset="utf-8">'
       + '<meta name="viewport" content="width=device-width,initial-scale=1">'
       + '<title>Comprobante' + (data.orderNumber != null ? ' #' + esc(data.orderNumber) : '') + '</title>'
       + '<style>'
-      + '@page{size:' + w + 'mm auto;margin:0}'                     /* ← FIX CLAVE térmica */
+      + '@page{size:' + w + 'mm ' + hMM + 'mm;margin:0}'            /* ← ambas medidas, si no la regla no vale */
       + '*{margin:0;padding:0;box-sizing:border-box}'
       /* Contraste térmico: TODO en negrita + sin anti-aliasing. El navegador
          rasteriza el texto (no es ESC/POS), así que cuanto más sólido el
          glifo, más negro sale. */
       + 'html,body{width:' + w + 'mm;background:#fff;color:#000}'
       + 'body{font-family:Consolas,\'Courier New\',Courier,monospace;font-weight:700;'
-      +   'font-size:' + fs + 'px;line-height:1.28;padding:2mm ' + padMM + 'mm;'
+      +   'font-size:' + fs + 'px;line-height:' + LINE_H + ';padding:' + padTB + 'mm ' + padMM + 'mm;'
       +   '-webkit-font-smoothing:none;text-rendering:geometricPrecision;'
       +   '-webkit-print-color-adjust:exact;print-color-adjust:exact}'
       /* white-space:pre → los espacios de relleno SON el layout. Sin esto el
@@ -375,9 +406,11 @@
          caracteres puede desbordar por redondeo sub-pixel. */
       + '.g{width:calc(' + c.charsPerLine + 'ch + 2px);max-width:100%;margin:0 auto}'
       + '.l{white-space:pre}'
-      + '.b{font-weight:900}.md{font-size:1.15em;font-weight:900}.lg{font-size:1.35em;font-weight:900;letter-spacing:.02em}'
+      + '.b{font-weight:900}'
+      + '.md{font-size:' + SCALE.md + 'em;font-weight:900}'
+      + '.lg{font-size:' + SCALE.lg + 'em;font-weight:900;letter-spacing:.02em}'
       + '.lg-wrap{text-align:center;margin-bottom:2mm}'
-      + 'img.logo{max-width:36mm;max-height:22mm;object-fit:contain;display:inline-block;filter:grayscale(1) contrast(1.6)}'
+      + 'img.logo{max-width:36mm;max-height:' + LOGO_MAX_MM + 'mm;object-fit:contain;display:inline-block;filter:grayscale(1) contrast(1.6)}'
       + '</style></head><body><div class="g">'
       + logo + body
       + '</div></body></html>';
