@@ -328,6 +328,18 @@
     }
     push(two('TOTAL', money(data.total, cur), W), 'b');
 
+    // ── gift card (mig 197) ──
+    // El saldo restante va impreso porque es lo único que el comensal se lleva:
+    // si no, tiene que volver a preguntar en el mostrador cuánto le queda.
+    var gc = data.giftCard;
+    if (gc && Number(gc.applied) > 0) {
+      rule();
+      push(two('Gift card ' + sane(gc.code), '-' + money(gc.applied, cur), W));
+      if (Number(gc.balance) > 0) left('Saldo restante: ' + money(gc.balance, cur));
+      var resto = (Number(data.total) || 0) - Number(gc.applied);
+      if (resto > 0) push(two('A pagar', money(resto, cur), W), 'b');
+    }
+
     // ── pago ──
     var pay0 = out.length;
     if (c.fields.paymentMethod && data.metodo) { rule('='); left('Método: ' + (METODOS[data.metodo] || data.metodo)); }

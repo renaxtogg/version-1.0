@@ -15,7 +15,10 @@ import { initBusinessTZ, todayLocal } from "../shared/fecha.js";
 import { ComprobanteUploader, recordPaymentReview, reviewMeta, ProofImage } from "../shared/comprobante.jsx";
 // CRM (mig 196) — dar de alta / elegir un cliente al tomar el pedido.
 import { ClientePicker, useCustomerTypes } from "../shared/ClienteUI.jsx";
-import { fullName as custFullName } from "../shared/clientes.js";
+import { fullName as custFullName, formatPhone as custPhone } from "../shared/clientes.js";
+// Gift cards (mig 197). Apagadas por defecto: sin el flag prendido en Admin,
+// Caja no muestra nada de esto y la RPC rechaza cualquier intento igual.
+import * as MKT from "../shared/marketing.js";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -132,6 +135,7 @@ function printTicket(t){
     total:       t.total,
     metodo:      t.metodo,
     cambio:      t.cambio,
+    giftCard:    t.giftCard,          // {code, applied, balance} — mig 197
     isOffline:   t.isOffline,
     partial:     t.partial,            // cobro por mesa: badge "PAGO PARCIAL"
   }, cfg);
@@ -308,6 +312,28 @@ function useBankInfo(){
   const [bi,setBi]=useState(_bankInfoCache||null);
   useEffect(()=>{ let m=true; loadBankInfo().then(v=>{ if(m)setBi(v); }); return ()=>{m=false;}; },[]);
   return bi;
+}
+
+/* ── Config de Marketing (mig 197): ¿este local tiene gift cards prendidas? ──
+   Mismo loader cacheado. Sin fila en restaurant_marketing_config el default es
+   TODO APAGADO, así que un local que nunca tocó nada no ve el bloque de gift
+   card al cobrar ni el panel de emisión. La RPC repite el chequeo: esconder el
+   botón no es la única defensa. */
+let _mktCfgCache;                // undefined = sin cargar · obj = config
+let _mktCfgPromise = null;
+function loadMktCfg(){
+  if(_mktCfgCache!==undefined) return Promise.resolve(_mktCfgCache);
+  if(_mktCfgPromise) return _mktCfgPromise;
+  if(!db||!RID){ _mktCfgCache={...MKT.DEFAULT_CONFIG}; return Promise.resolve(_mktCfgCache); }
+  _mktCfgPromise = MKT.loadConfig(db,RID)
+    .then(({config})=>{ _mktCfgCache=config; return _mktCfgCache; })
+    .catch(()=>{ _mktCfgCache={...MKT.DEFAULT_CONFIG}; return _mktCfgCache; });
+  return _mktCfgPromise;
+}
+function useMarketingCfg(){
+  const [c,setC]=useState(_mktCfgCache||MKT.DEFAULT_CONFIG);
+  useEffect(()=>{ let m=true; loadMktCfg().then(v=>{ if(m)setC(v); }); return ()=>{m=false;}; },[]);
+  return c;
 }
 
 /* ── Config de cobro (mig 182): require_proof = exigir comprobante (N° o foto)
@@ -676,6 +702,7 @@ async function cerrarSesion(){
 }
 
 function SidebarTurno({turno,cajaNombre,movimientos,panel,setPanel,onCierre,profile,onToggleTheme,paymentCalls=0,onClickCalls,isOnline=true,pendingOffline=0,broadcastCount=0}){
+  const mktCfg=useMarketingCfg();
   const [hora,setHora]=useState(new Date());
   useEffect(()=>{const t=setInterval(()=>setHora(new Date()),30000);return()=>clearInterval(t);},[]);
 
@@ -692,6 +719,8 @@ function SidebarTurno({turno,cajaNombre,movimientos,panel,setPanel,onCierre,prof
     {id:'salon',   icon:'',  lbl:'Vista del salón'},
     {id:'pedido',  icon:'',  lbl:'Tomar pedido'},
     {id:'cobros',  icon:'',  lbl:'Cobrar pedidos'},
+    // Sólo si el dueño prendió las gift cards en Admin → Clientes → Marketing.
+    ...(mktCfg.gift_cards_enabled ? [{id:'giftcards', icon:'', lbl:'Gift cards'}] : []),
     {id:'avisos',  icon:'', lbl:'Avisos', badge: broadcastCount},
     {id:'facturas', icon:'', lbl:'Facturas del turno'},
     {id:'historial',icon:'≡', lbl:'Historial'},
@@ -1250,6 +1279,13 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [proofUrl,setProofUrl]=useState('');         // foto del comprobante (mig 182)
   const bankInfo=useBankInfo();
   const requireProof=useRequireProof();              // exigir comprobante en QR (mig 182 · require_proof)
+  const mktCfg=useMarketingCfg();                    // gift cards prendidas? (mig 197)
+  // Gift card verificada pero TODAVÍA NO canjeada: el saldo se descuenta recién
+  // al confirmar el cobro. Si se descontara al verificar, cerrar el modal a mitad
+  // de camino le comería el saldo al cliente sin haberle cobrado nada.
+  const [gcCode,setGcCode]=useState('');
+  const [gcCard,setGcCard]=useState(null);
+  const [gcBusy,setGcBusy]=useState(false);
   const [busy,setBusy]=useState(false);
   const [items,setItems]=useState([]);
   const [successTicket,setSuccessTicket]=useState(null);
@@ -1291,17 +1327,53 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
     if(fromOrder>0)return fromOrder;
     return items.reduce((s,i)=>s+lineOf(i),0);
   },[order.total,items]);
-  const cambio=metodo==='efectivo'?montoNum-totalReal:0;
+  // Lo que la gift card puede cubrir de ESTE pedido, y lo que queda por cobrar
+  // con el método elegido. Una gift card no es un descuento: no baja el total del
+  // pedido (el cliente consumió lo que consumió), baja lo que hay que cobrar ahora.
+  const gcCubre = gcCard ? Math.min(Number(gcCard.balance)||0, totalReal) : 0;
+  const aCobrar = Math.max(0, totalReal - gcCubre);
+  const cambio=metodo==='efectivo'?montoNum-aCobrar:0;
   const mesa=order.tables?.number?`Mesa ${order.tables.number}`:order.customer_name||'Sin mesa';
   const BILLETES=[1000,2000,5000,10000,20000,50000,100000];
 
+  async function verificarGiftCard(){
+    setGcBusy(true);
+    const {card,error}=await MKT.lookupGiftCard(db,RID,gcCode);
+    setGcBusy(false);
+    if(error){ setGcCard(null); toast(error.message||'Gift card inválida',false); return; }
+    if(card.expired){ setGcCard(null); toast('Esa gift card está vencida',false); return; }
+    if(card.status==='cancelled'){ setGcCard(null); toast('Esa gift card fue anulada',false); return; }
+    if(Number(card.balance)<=0){ setGcCard(null); toast('Esa gift card no tiene saldo',false); return; }
+    setGcCard(card);
+    toast(`Gift card válida — saldo ${fmt(card.balance)}`);
+  }
+
   async function confirmar(){
-    if(metodo==='efectivo'&&montoNum<totalReal){
+    if(metodo==='efectivo'&&aCobrar>0&&montoNum<aCobrar){
       toast('El monto recibido es menor al total',false);return;
     }
-    if(_faltaComprobante(requireProof,metodo,comprobante,proofUrl)){ toast(_MSG_FALTA_COMP,false);return; }
+    // Si la gift card cubre todo, no hay transferencia que conciliar.
+    if(aCobrar>0&&_faltaComprobante(requireProof,metodo,comprobante,proofUrl)){ toast(_MSG_FALTA_COMP,false);return; }
     setBusy(true);
     try{
+      // ── Canje de la gift card ANTES de marcar el pedido como pago ─────
+      // Va primero a propósito: al revés —cobrar y después descubrir que no
+      // había saldo— el pedido queda pago sin haber cobrado. `allowPartial:false`
+      // hace que ante una carrera con otra caja no se debite NADA y el cajero
+      // pueda volver a verificar el código con el saldo real.
+      let gcRedeem = null;
+      if(gcCard && gcCubre>0){
+        const {result,error:gcErr}=await MKT.redeemGiftCard(db,RID,gcCard.code,gcCubre,{
+          orderId:order.id, note:`Pedido #${order.order_number} — ${mesa}`, allowPartial:false,
+        });
+        if(gcErr){
+          setBusy(false);
+          if(gcErr.balance!=null) setGcCard({...gcCard,balance:gcErr.balance});
+          toast(gcErr.message||'No se pudo canjear la gift card',false);
+          return;
+        }
+        gcRedeem = result;
+      }
       // Solo cambiar status si el pedido aún no llegó a cocina — así kitchen puede continuar independiente.
       // Si está en pending_payment pero el mozo aún no entregó físicamente (delivered_to_table_at null),
       // dejamos status='pending_payment' para que la mesa siga marcada como "retirar" hasta que el mozo
@@ -1323,7 +1395,9 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         }),
       };
       const cerrarOrden = order.status==='pending_payment' && yaEnMesa;
-      const pmOrder = mapOrderPM(metodo);
+      // Si la gift card cubrió todo, el método del pedido es la gift card y no
+      // el que quedó seleccionado en el desplegable (que ya no cobra nada).
+      const pmOrder = mapOrderPM(aCobrar>0 ? metodo : 'gift_card');
       // Se persiste con el MISMO criterio con el que `_needsRef` decide mostrar el
       // campo. Antes esta lista estaba escrita a mano y se había quedado sin 'mixto':
       // al cobrar mixto el cajero veía el campo, cargaba el N° de comprobante y se
@@ -1349,15 +1423,37 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
       if(order.status==='confirmed'){
         await db.from('order_status_history').insert({order_id:order.id,status:'paid',changed_by:'caja'});
       }
-      const mov={
-        turno_id:turno.id,restaurant_id:RID,tipo:'cobro',
-        monto:totalReal,metodo_pago:metodo,pedido_id:order.id,
-        descripcion:`Cobro pedido #${order.order_number} — ${mesa}`,
-        usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
-        metadata:{orden_numero:order.order_number,mesa,monto_pagado:montoNum||totalReal,cambio:Math.max(0,cambio),transaction_id:null,auth_code:null,raw_response:null},
-      };
-      const{data:movData,error:e2}=await db.from('movimientos_caja').insert(mov).select().single();
-      if(e2)throw e2;
+      // La parte pagada con gift card va en su PROPIO movimiento, con
+      // metodo_pago='gift_card'. Si se metiera dentro del movimiento de efectivo,
+      // el arqueo del turno esperaría plata en el cajón que nadie puso: esa plata
+      // entró el día que se vendió la tarjeta, no hoy.
+      let gcMov = null;
+      if(gcRedeem && Number(gcRedeem.applied)>0){
+        const {data:gd}=await db.from('movimientos_caja').insert({
+          turno_id:turno.id,restaurant_id:RID,tipo:'cobro',
+          monto:Number(gcRedeem.applied),metodo_pago:'gift_card',pedido_id:order.id,
+          descripcion:`Gift card ${gcRedeem.code} — pedido #${order.order_number}`,
+          usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
+          metadata:{orden_numero:order.order_number,mesa,gift_card:gcRedeem.code,saldo_restante:gcRedeem.balance},
+        }).select().single();
+        gcMov = gd||null;
+      }
+
+      let movData = gcMov;
+      if(aCobrar>0){
+        const mov={
+          turno_id:turno.id,restaurant_id:RID,tipo:'cobro',
+          monto:aCobrar,metodo_pago:metodo,pedido_id:order.id,
+          descripcion:`Cobro pedido #${order.order_number} — ${mesa}`,
+          usuario_id:profile.id,usuario_nombre:profile.display_name||profile.username,
+          metadata:{orden_numero:order.order_number,mesa,monto_pagado:montoNum||aCobrar,cambio:Math.max(0,cambio),
+                    gift_card:gcRedeem?gcRedeem.code:null,gift_card_monto:gcRedeem?Number(gcRedeem.applied):0,
+                    transaction_id:null,auth_code:null,raw_response:null},
+        };
+        const{data:md,error:e2}=await db.from('movimientos_caja').insert(mov).select().single();
+        if(e2)throw e2;
+        movData = md;
+      }
       if(payRef&&movData){ try{ await db.from('movimientos_caja').update({comprobante_nro:payRef}).eq('id',movData.id); }catch(_){} }
       // Foto del comprobante (mig 182): best-effort, no rompe el cobro si la mig no está.
       if(proofUrl){
@@ -1380,8 +1476,9 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         mesa,
         items,
         total:totalReal,
-        metodo,
+        metodo:aCobrar>0?metodo:'gift_card',
         cambio:Math.max(0,cambio),
+        giftCard:gcRedeem?{code:gcRedeem.code,applied:Number(gcRedeem.applied),balance:Number(gcRedeem.balance)}:null,
         customerName:order.customer_name||null,
         customerRuc:order.customer_ruc||null,
         cashier:profile.display_name||profile.username,
@@ -1495,10 +1592,49 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           <span style={{fontSize:14,fontWeight:700}}>TOTAL</span>
           <span style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(totalReal)}</span>
         </div>
+        {gcCubre>0&&(
+          <div style={{borderTop:`1px dashed ${C.border}`,paddingTop:10}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:'#AF52DE',fontWeight:700}}>
+              <span>Gift card {gcCard.code}</span>
+              <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>−{fmt(gcCubre)}</span>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8}}>
+              <span style={{fontSize:13,fontWeight:800}}>QUEDA POR COBRAR</span>
+              <span style={{fontSize:20,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:aCobrar>0?C.ink:C.green}}>{fmt(aCobrar)}</span>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div style={{marginBottom:16}}>
+      {/* ── Gift card (mig 197). Sólo si el local las tiene prendidas. ── */}
+      {mktCfg.gift_cards_enabled&&(
+        <div style={{marginBottom:16}}>
+          <Lbl>GIFT CARD</Lbl>
+          {gcCard?(
+            <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',border:`1px solid #AF52DE`,borderRadius:8,background:'rgba(175,82,222,0.06)'}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>{gcCard.code}</div>
+                <div style={{fontSize:11,color:C.mid}}>
+                  Saldo {fmt(gcCard.balance)} · se aplican {fmt(gcCubre)}
+                  {Number(gcCard.balance)>gcCubre?` · le quedan ${fmt(Number(gcCard.balance)-gcCubre)}`:''}
+                </div>
+              </div>
+              <button onClick={()=>{setGcCard(null);setGcCode('');}} style={{background:'transparent',border:`1px solid ${C.border}`,borderRadius:6,padding:'5px 10px',fontSize:11.5,fontWeight:700,color:C.mid,cursor:'pointer'}}>Quitar</button>
+            </div>
+          ):(
+            <div style={{display:'flex',gap:6}}>
+              <Inp mono value={gcCode} onChange={v=>setGcCode(String(v).toUpperCase())} placeholder="GC-XXXXXXXX"/>
+              <Btn variant="secondary" onClick={verificarGiftCard} disabled={gcBusy||!gcCode.trim()}>
+                {gcBusy?'…':'Verificar'}
+              </Btn>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{marginBottom:16,opacity:aCobrar>0?1:.45,pointerEvents:aCobrar>0?'auto':'none'}}>
         <Lbl required>MÉTODO DE PAGO</Lbl>
+        {aCobrar===0&&<div style={{fontSize:11.5,color:C.mid,marginBottom:6}}>La gift card cubre el total — no hay nada más que cobrar.</div>}
         <div className="my-row-2" style={{gap:8}}>
           {METODOS_PAGO.map(m=>(
             <button key={m.id} onClick={()=>setMetodo(m.id)} style={{
@@ -1511,7 +1647,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         <PagoRefTransfer metodo={metodo} comprobante={comprobante} setComprobante={setComprobante} bankInfo={bankInfo} proofUrl={proofUrl} setProofUrl={setProofUrl}/>
       </div>
 
-      {metodo==='efectivo'&&(
+      {metodo==='efectivo'&&aCobrar>0&&(
         <div style={{marginBottom:16}}>
           {/* Billetes rápidos */}
           <Lbl>BILLETES RECIBIDOS</Lbl>
@@ -1526,7 +1662,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
                 onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}
               >{v>=1000?`${v/1000}k`:v}</button>
             ))}
-            <button onClick={()=>setMontoPagado(String(totalReal))} style={{
+            <button onClick={()=>setMontoPagado(String(aCobrar))} style={{
               padding:'9px 4px',borderRadius:6,border:`1px solid ${C.blue}55`,
               background:`rgba(59,130,246,0.1)`,color:C.blue,fontSize:11,fontWeight:700,cursor:'pointer',
             }}>Exacto</button>
@@ -1534,7 +1670,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
           <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:8}}>
             <div style={{flex:1}}>
               <Lbl required>MONTO RECIBIDO (₲)</Lbl>
-              <Inp gs mono value={montoPagado} onChange={setMontoPagado} placeholder={formatGs(totalReal)}/>
+              <Inp gs mono value={montoPagado} onChange={setMontoPagado} placeholder={formatGs(aCobrar)}/>
             </div>
             <button onClick={()=>setMontoPagado('0')} title="Limpiar" style={{marginTop:18,padding:'9px 10px',borderRadius:6,border:`1px solid ${C.border}`,background:'transparent',color:C.dim,fontSize:13,cursor:'pointer'}}>✕</button>
           </div>
@@ -1546,11 +1682,11 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
                   <span style={{fontSize:13,color:TINT.greenText,fontWeight:700}}>Vuelto a devolver</span>
                   <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:26,fontWeight:800,color:cambio>0?C.green:'#6E6E73'}}>{cambio>0?fmt(cambio):'Sin vuelto'}</span>
                 </div>
-                {cambio>0&&<div style={{fontSize:11,color:C.mid,marginTop:4}}>Recibido {fmt(montoNum)} − Total {fmt(totalReal)}</div>}
+                {cambio>0&&<div style={{fontSize:11,color:C.mid,marginTop:4}}>Recibido {fmt(montoNum)} − A cobrar {fmt(aCobrar)}</div>}
               </div>
             ):(
               <div style={{padding:'10px 14px',background:'rgba(239,68,68,0.08)',border:`1px solid rgba(239,68,68,0.3)`,borderRadius:7}}>
-                <span style={{fontSize:13,color:C.red,fontWeight:700}}>Insuficiente — faltan {fmt(totalReal-montoNum)}</span>
+                <span style={{fontSize:13,color:C.red,fontWeight:700}}>Insuficiente — faltan {fmt(aCobrar-montoNum)}</span>
               </div>
             )
           )}
@@ -5159,6 +5295,195 @@ function HistorialPanel({onGoCobros}){
   );
 }
 
+/* ══════════════════════════════════════════════
+   GIFT CARDS (mig 197) — venta en el mostrador y consulta de saldo
+   ──────────────────────────────────────────────
+   El canje vive en el modal de cobro, no acá: una gift card se descuenta contra
+   un pedido concreto, nunca "suelta". Acá se vende una nueva y se consulta un
+   saldo, que es lo que se pide desde el otro lado del mostrador.
+
+   Este panel sólo existe si el dueño prendió las gift cards en Admin. La RPC
+   repite el chequeo igual — el menú oculto no es la defensa.
+══════════════════════════════════════════════ */
+// Caja no tiene primitivas de tabla (a diferencia del Admin), así que van acá
+// las dos que hacen falta. Locales a propósito: si algún día caja necesita
+// tablas en más lugares, se suben a las primitivas generales de arriba.
+function GcTh({children,right}){
+  return <th style={{padding:'9px 14px',textAlign:right?'right':'left',fontSize:10,color:C.ink,fontWeight:700,letterSpacing:1,whiteSpace:'nowrap',textTransform:'uppercase'}}>{children}</th>;
+}
+function GcTd({children,mono,dim,right}){
+  return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?C.mid:C.ink,textAlign:right?'right':'left'}}>{children}</td>;
+}
+
+function GiftCardsCajaPanel({profile}){
+  const cfg=useMarketingCfg();
+  const [tab,setTab]=useState('vender');
+  const [cards,setCards]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [emitida,setEmitida]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState('');
+  const [f,setF]=useState({amount:'',recipient_name:'',recipient_phone:'',message:'',
+                           purchaser_name:'',purchaser_phone:'',paid_method:'efectivo',paid_reference:''});
+  const [consulta,setConsulta]=useState('');
+  const [consultada,setConsultada]=useState(null);
+
+  const reload=useCallback(async()=>{
+    setLoading(true);
+    const {cards:rows}=await MKT.loadGiftCards(db,RID,{limit:100});
+    setCards(rows); setLoading(false);
+  },[]);
+  useEffect(()=>{ reload(); },[reload]);
+
+  async function vender(){
+    setErr('');
+    const monto=Number(f.amount)||0;
+    if(monto<Number(cfg.gift_card_min_amount)||monto>Number(cfg.gift_card_max_amount)){
+      setErr(`El monto debe estar entre ${fmt(cfg.gift_card_min_amount)} y ${fmt(cfg.gift_card_max_amount)}`); return;
+    }
+    setBusy(true);
+    const {card,error}=await MKT.issueGiftCard(db,RID,{...f,amount:monto},{channel:'caja'});
+    setBusy(false);
+    if(error){ setErr(error.message||'No se pudo emitir'); return; }
+    // La plata de la gift card NO se registra como cobro de un pedido: entra al
+    // turno como ingreso manual, porque todavía no hubo consumo. El día que se
+    // canjee saldrá como cobro con metodo_pago='gift_card' y sin efectivo detrás.
+    setEmitida({...card,message:f.message,recipient_phone:f.recipient_phone});
+    setF({amount:'',recipient_name:'',recipient_phone:'',message:'',
+          purchaser_name:'',purchaser_phone:'',paid_method:'efectivo',paid_reference:''});
+    toast('Gift card emitida');
+    reload();
+  }
+
+  async function consultar(){
+    const {card,error}=await MKT.lookupGiftCard(db,RID,consulta);
+    if(error){ setConsultada(null); toast(error.message||'No encontrada',false); return; }
+    setConsultada(card);
+  }
+
+  if(!cfg.gift_cards_enabled){
+    return <div style={{fontSize:13,color:C.mid,padding:'24px 0'}}>Las gift cards están desactivadas para este local.</div>;
+  }
+
+  const wa=(emitida?.recipient_phone||'').replace(/\D/g,'').replace(/^0/,'').replace(/^595/,'');
+  const msgEmitida=emitida?MKT.giftCardMessage(emitida,window.SUPABASE_CONFIG?.restaurantName,cfg.gift_card_terms):'';
+
+  return(
+    <div>
+      <h1 style={{fontSize:20,fontWeight:800,color:C.ink,marginBottom:4}}>Gift cards</h1>
+      <div style={{fontSize:12,color:C.mid,marginBottom:16}}>Vendé una tarjeta de regalo o consultá el saldo de una existente. El canje se hace al cobrar el pedido.</div>
+
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
+        {[['vender','Vender'],['consultar','Consultar saldo'],['emitidas',`Emitidas (${cards.length})`]].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:C.mid,padding:'9px 15px',fontSize:13,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+        ))}
+      </div>
+
+      {tab==='vender'&&(
+        emitida?(
+          <div style={{maxWidth:420,background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:24,textAlign:'center'}}>
+            <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>CÓDIGO</div>
+            <div style={{fontSize:26,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",letterSpacing:'.06em',color:C.ink}}>{emitida.code}</div>
+            <div style={{fontSize:16,fontWeight:700,color:C.green,marginTop:6}}>{fmt(emitida.balance)}</div>
+            {emitida.expires_at&&<div style={{fontSize:11,color:C.mid,marginTop:4}}>Válida hasta el {emitida.expires_at.split('-').reverse().join('/')}</div>}
+            <div style={{display:'flex',gap:8,justifyContent:'center',marginTop:18,flexWrap:'wrap'}}>
+              <Btn variant="secondary" onClick={()=>{navigator.clipboard?.writeText(msgEmitida);toast('Mensaje copiado');}}>Copiar</Btn>
+              {wa&&<a href={`https://wa.me/595${wa}?text=${encodeURIComponent(msgEmitida)}`} target="_blank" rel="noopener"
+                      style={{background:'#25D366',color:'#fff',padding:'10px 18px',borderRadius:8,fontSize:13,fontWeight:700,textDecoration:'none'}}>WhatsApp</a>}
+              <Btn onClick={()=>setEmitida(null)}>Vender otra</Btn>
+            </div>
+          </div>
+        ):(
+          <div style={{maxWidth:520,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20}}>
+            <div style={{marginBottom:12}}>
+              <Lbl required>MONTO</Lbl>
+              <Inp gs mono value={f.amount} onChange={v=>setF({...f,amount:v})} placeholder={formatGs(cfg.gift_card_min_amount)}/>
+              <div style={{fontSize:11,color:C.mid,marginTop:4}}>Entre {fmt(cfg.gift_card_min_amount)} y {fmt(cfg.gift_card_max_amount)}</div>
+            </div>
+            <div className="my-row-2" style={{gap:10,marginBottom:12}}>
+              <div><Lbl>PARA (NOMBRE)</Lbl><Inp value={f.recipient_name} onChange={v=>setF({...f,recipient_name:v})} placeholder="María"/></div>
+              <div><Lbl>TELÉFONO</Lbl><Inp value={f.recipient_phone} onChange={v=>setF({...f,recipient_phone:v})} placeholder="0981 123 456"/></div>
+            </div>
+            <div className="my-row-2" style={{gap:10,marginBottom:12}}>
+              <div><Lbl>LA COMPRA</Lbl><Inp value={f.purchaser_name} onChange={v=>setF({...f,purchaser_name:v})} placeholder="Juan"/></div>
+              <div><Lbl>TELÉFONO</Lbl><Inp value={f.purchaser_phone} onChange={v=>setF({...f,purchaser_phone:v})} placeholder="0981 987 654"/></div>
+            </div>
+            <div style={{marginBottom:12}}>
+              <Lbl>DEDICATORIA</Lbl>
+              <Inp value={f.message} onChange={v=>setF({...f,message:v})} placeholder="¡Feliz cumple!"/>
+            </div>
+            <div className="my-row-2" style={{gap:10,marginBottom:14}}>
+              <div><Lbl>CÓMO PAGÓ</Lbl>
+                <select value={f.paid_method} onChange={e=>setF({...f,paid_method:e.target.value})}
+                  style={{width:'100%',padding:'9px 11px',borderRadius:7,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,fontSize:13,fontFamily:'inherit'}}>
+                  <option value="efectivo">Efectivo</option>
+                  <option value="qr">QR / Transferencia</option>
+                  <option value="tarjeta_credito">Tarjeta</option>
+                </select>
+              </div>
+              <div><Lbl>N° COMPROBANTE</Lbl><Inp value={f.paid_reference} onChange={v=>setF({...f,paid_reference:v})} placeholder="opcional"/></div>
+            </div>
+            {err&&<div style={{border:`1px solid ${C.red}`,color:C.red,borderRadius:8,padding:'9px 12px',fontSize:12.5,marginBottom:12}}>{err}</div>}
+            <Btn full variant="success" onClick={vender} disabled={busy||!f.amount}>{busy?<><span className="spin"/> Emitiendo…</>:'✓ Emitir gift card'}</Btn>
+            <div style={{fontSize:11,color:C.mid,marginTop:10,lineHeight:1.5}}>
+              Cobrá el monto por caja como ingreso manual: la venta de una gift card no es el cobro de
+              un pedido, el consumo llega después.
+            </div>
+          </div>
+        )
+      )}
+
+      {tab==='consultar'&&(
+        <div style={{maxWidth:460}}>
+          <div style={{display:'flex',gap:8,marginBottom:16}}>
+            <Inp mono value={consulta} onChange={v=>setConsulta(String(v).toUpperCase())} placeholder="GC-XXXXXXXX"/>
+            <Btn onClick={consultar} disabled={!consulta.trim()}>Consultar</Btn>
+          </div>
+          {consultada&&(
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,textAlign:'center'}}>
+              <div style={{fontSize:20,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>{consultada.code}</div>
+              <div style={{fontSize:26,fontWeight:800,color:consultada.expired||consultada.status!=='active'?C.mid:C.green,marginTop:8,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(consultada.balance)}</div>
+              <div style={{fontSize:12,color:C.mid,marginTop:6}}>
+                {consultada.expired?'Vencida'
+                  :consultada.status==='cancelled'?'Anulada'
+                  :consultada.status==='used'?'Sin saldo'
+                  :`Activa${consultada.expires_at?` · vence ${consultada.expires_at.split('-').reverse().join('/')}`:''}`}
+              </div>
+              {consultada.recipient_name&&<div style={{fontSize:12,color:C.mid,marginTop:4}}>A nombre de {consultada.recipient_name}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab==='emitidas'&&(
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:600}}>
+            <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
+              <GcTh>Código</GcTh><GcTh>Para</GcTh><GcTh right>Monto</GcTh><GcTh right>Saldo</GcTh><GcTh>Estado</GcTh><GcTh>Emitida</GcTh>
+            </tr></thead>
+            <tbody>
+              {cards.map(g=>{
+                const st=MKT.effectiveStatus(g), meta=MKT.GIFT_CARD_STATUS[st]||{};
+                return (
+                  <tr key={g.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                    <GcTd><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{g.code}</span></GcTd>
+                    <GcTd>{g.recipient_name||'—'}{g.recipient_phone?<div style={{fontSize:10.5,color:C.mid}}>{custPhone(g.recipient_phone)}</div>:null}</GcTd>
+                    <GcTd mono right>{fmt(g.initial_amount)}</GcTd>
+                    <GcTd mono right><span style={{fontWeight:700,color:Number(g.balance)>0?C.green:C.mid}}>{fmt(g.balance)}</span></GcTd>
+                    <GcTd><span style={{fontSize:10,fontWeight:700,color:meta.color,border:`1px solid ${meta.color}`,padding:'1px 6px',borderRadius:4}}>{meta.label}</span></GcTd>
+                    <GcTd dim>{fmtDate(g.created_at)}</GcTd>
+                  </tr>
+                );
+              })}
+              {!cards.length&&<tr><td colSpan={6} style={{padding:30,textAlign:'center',color:C.mid,fontSize:13}}>{loading?'Cargando…':'Todavía no se emitió ninguna'}</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AvisosCajaPanel({broadcasts=[]}){
   if(broadcasts.length===0) return(
     <div style={{padding:40,textAlign:'center',color:C.mid}}>
@@ -5409,6 +5734,7 @@ function DashboardCaja({turno,profile,onCierre}){
       case 'salon':            return <SalonPanel         turno={turno} profile={profile}/>;
       case 'pedido':           return <TomarPedidoPanel   turno={turno} profile={profile} onMovimiento={addMovimiento}/>;
       case 'cobros':           return <CobrosPanel       turno={turno} profile={profile} movimientos={movimientos} onMovimiento={addMovimiento}/>;
+      case 'giftcards':        return <GiftCardsCajaPanel profile={profile}/>;
       case 'avisos':           return <AvisosCajaPanel   broadcasts={broadcasts}/>;
       case 'facturas':         return <FacturasCajaPanel  turno={turno}/>;
       case 'historial':        return <HistorialPanel onGoCobros={()=>changePanel('cobros')}/>;

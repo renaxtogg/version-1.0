@@ -10,7 +10,7 @@ import { createRoot } from "react-dom/client";
 import { formatGs, parseGs, GsInput, NumInput } from "../shared/gs.jsx";
 // Día comercial del local (huso de restaurants.timezone, default America/Asuncion).
 // NUNCA usar toISOString().slice(0,10) para "hoy": ver el encabezado de fecha.js.
-import { initBusinessTZ, todayLocal, dayLocal, isoLocal } from "../shared/fecha.js";
+import { initBusinessTZ, todayLocal, dayLocal, isoLocal, startOfDayISO } from "../shared/fecha.js";
 // FASE D2 — validación de comprobantes (etiquetas de estado en reportes) y, con
 // la mig 194, el mismo uploader para el pago de la propia suscripción.
 import { reviewMeta, ProofImage, ComprobanteUploader } from "../shared/comprobante.jsx";
@@ -23,9 +23,15 @@ import { useTurnstile } from "../shared/turnstile.js";
 import { createRestaurantMarketplace } from "../marketplace/restaurant-marketplace.jsx";
 // CRM (mig 196): la ficha de cliente ya no se deriva de los pedidos — existe la
 // tabla `customers` y estos módulos son el único acceso a ella.
-import { loadCustomers, deleteCustomer, reactivateCustomer, phoneKey, fullName as custFullName,
-         isMissingCrm, CRM_MISSING_MSG } from "../shared/clientes.js";
+import { loadCustomers, loadCustomerStats, loadCustomerOrders, loadTypes as loadCustomerTypesRows,
+         deleteCustomer, reactivateCustomer,
+         phoneKey, fullName as custFullName, formatPhone as custPhone,
+         isMissingCrm, CRM_MISSING_MSG, VIP_THRESHOLD, FREQUENT_MIN_ORDERS, INACTIVE_DAYS
+       } from "../shared/clientes.js";
 import { ClienteModal, TiposManager, TipoBadges, useCustomerTypes } from "../shared/ClienteUI.jsx";
+// Marketing (mig 197): gift cards y promos automáticas. Apagadas por defecto —
+// sin fila en restaurant_marketing_config no existe nada de esto para el local.
+import * as MKT from "../shared/marketing.js";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -4170,7 +4176,7 @@ const CLIENTES_TABS = [
   ['ratings',   'Calificaciones'],
 ];
 
-function ClientesHubPage({orders,coupons,ratings,restaurant,onRefresh,initialTab='crm'}) {
+function ClientesHubPage({orders,coupons,ratings,restaurant,onRefresh,setPage,initialTab='crm'}) {
   const [tab,setTab] = useState(CLIENTES_TABS.some(([k])=>k===initialTab)?initialTab:'crm');
   return (
     <div className="page">
@@ -4183,37 +4189,187 @@ function ClientesHubPage({orders,coupons,ratings,restaurant,onRefresh,initialTab
         ))}
       </div>
 
-      {tab==='crm'       && <ClientesPage  orders={orders} embedded/>}
+      {tab==='crm'       && <ClientesPage  orders={orders} restaurant={restaurant} setPage={setPage} embedded/>}
       {tab==='marketing' && <MarketingPage coupons={coupons} orders={orders} restaurant={restaurant} onRefresh={onRefresh} embedded/>}
       {tab==='ratings'   && <RatingsPage   ratings={ratings} embedded/>}
     </div>
   );
 }
 
+/* ══════════════════════════════════════════════
+   CRM — vocabulario compartido con Reportes
+   ──────────────────────────────────────────────
+   Estos mapas los usan el módulo de Clientes Y los reportes de clientes (que
+   desde ahora viven en Reportes). Están a nivel de módulo justamente para que
+   los dos digan "QR Mesa" y pinten el delivery del mismo naranja: cuando eran
+   locales a ClientesPage, el reporte tenía su propia copia y se desincronizaban.
+══════════════════════════════════════════════ */
+const CRM_ORDER_TYPES = {
+  mesa:'QR Mesa', local:'Salón', llevar:'Para Llevar', delivery:'Delivery',
+  counter:'Mostrador', pickup:'Retira en local', external:'Plataforma',
+};
+const CRM_CANAL_ICON  = {mesa:'utensils',local:'utensils',llevar:'package',delivery:'bike',counter:'store',pickup:'package',external:'phone'};
+const CRM_CANAL_COLOR = {mesa:'#007AFF',local:'#007AFF',llevar:'#34C759',delivery:'#FF9500',counter:'#8E8E93',pickup:'#34C759',external:'#AF52DE'};
+
+/* Segmentos CALCULADOS a partir del consumo. Conviven con los TIPOS del local
+   (customer_types) y no son lo mismo: el tipo lo asigna el dueño a mano, el
+   segmento lo dicta la plata. Los umbrales viven en shared/clientes.js. */
+const CRM_SEGMENTS = [
+  ['todos',      'Todos los segmentos'],
+  ['frecuentes', `Frecuentes (${FREQUENT_MIN_ORDERS}+ visitas)`],
+  ['vip',        `Alto consumo (+₲${(VIP_THRESHOLD/1000).toFixed(0)}k)`],
+  ['inactivos',  `Inactivos (+${INACTIVE_DAYS} días)`],
+  ['factura',    'Piden factura'],
+];
+
+/* Inicio del período elegido, en el huso del LOCAL. No sirve `new Date(); d.setDate(1)`
+   + toISOString(): desde las 21:00 de Paraguay eso ya apunta al día siguiente en UTC
+   y el filtro "hoy" se corría en plena cena (ver la regla "Día comercial"). */
+function crmPeriodStartISO(p) {
+  if (!p || p === 'todos') return null;
+  if (p === 'hoy')    return startOfDayISO();
+  if (p === 'semana') return startOfDayISO(new Date(Date.now() - 6*864e5));
+  const [y, m] = todayLocal().split('-').map(Number);
+  // Mediodía como hora de referencia: evita que un cambio de horario mueva el día.
+  if (p === 'mes')  return startOfDayISO(new Date(y, m - 1, 1, 12));
+  if (p === 'anio') return startOfDayISO(new Date(y, 0, 1, 12));
+  return null;
+}
+
+/* Normaliza un renglón de `crm_customer_stats` (mig 197) a la forma que usa la
+   tabla del CRM. La forma la manda la UI, no la RPC: así el día que cambie el
+   origen de los datos no hay que tocar cada celda. */
+function crmRowFromStat(s) {
+  return {
+    key:s.key, name:s.name || `Anónimo #${(s.key||'').slice(-6)}`,
+    phone:s.phone || null, email:s.email || null,
+    registered:!s.anonymous, anonymous:s.anonymous,
+    orders:s.visits, total:s.total, ticket:s.ticket,
+    firstDate:s.firstDate, lastDate:s.lastDate,
+    canalCount:s.canalCount || {}, paymentMethods:s.paymentMethods || {},
+    pideFactura:(s.facturaCount || 0) > 0, facturaCount:s.facturaCount || 0,
+    addresses:s.addresses || [], tables:s.tables || [],
+    customerId:s.customerId || null,
+    diasActivo: (s.firstDate && s.lastDate)
+      ? Math.max(0, Math.round((new Date(s.lastDate) - new Date(s.firstDate)) / 864e5)) : 0,
+  };
+}
+
+/* Respaldo para cuando la mig 197 todavía no está aplicada: el mismo agrupado
+   que hacía el panel antes, en el navegador y sobre los últimos 500 pedidos.
+   Se conserva a propósito para que el módulo no quede inservible mientras la
+   migración espera, PERO el panel avisa que los números están recortados. */
+function crmRowsFromOrders(orders, sinceISO) {
+  const m = {};
+  orders.filter(o => !['draft','cancelled'].includes(o.status) && (!sinceISO || o.created_at >= sinceISO))
+    .forEach(o => {
+      const anon = !o.customer_name;
+      const k = o.customer_name ? `n:${o.customer_name.trim().toLowerCase()}` : `a:${o.id}`;
+      if (!m[k]) m[k] = {
+        key:k, name:o.customer_name || `Anónimo #${o.id.slice(0,6)}`,
+        phone:o.customer_phone || null, email:o.customer_email || null,
+        registered:!anon, anonymous:anon, orders:0, total:0, ticket:0,
+        firstDate:o.created_at, lastDate:o.created_at,
+        canalCount:{}, paymentMethods:{}, pideFactura:false, facturaCount:0,
+        addresses:[], tables:[], customerId:o.customer_id || null, diasActivo:0,
+      };
+      const c = m[k];
+      c.orders++; c.total += (o.total || 0);
+      if (o.created_at < c.firstDate) c.firstDate = o.created_at;
+      if (o.created_at > c.lastDate)  c.lastDate  = o.created_at;
+      if (o.order_type)     c.canalCount[o.order_type] = (c.canalCount[o.order_type] || 0) + 1;
+      if (o.payment_method) c.paymentMethods[o.payment_method] = (c.paymentMethods[o.payment_method] || 0) + 1;
+      if (o.requires_invoice) { c.pideFactura = true; c.facturaCount++; }
+      if (o.table_number && !c.tables.includes(String(o.table_number))) c.tables.push(String(o.table_number));
+      if (!c.customerId && o.customer_id) c.customerId = o.customer_id;
+    });
+  return Object.values(m).map(c => ({
+    ...c,
+    ticket: c.orders ? Math.round(c.total / c.orders) : 0,
+    diasActivo: Math.max(0, Math.round((new Date(c.lastDate) - new Date(c.firstDate)) / 864e5)),
+  }));
+}
+
+/* Fusiona el consumo con las fichas de `customers`. Lo usan el módulo de
+   Clientes Y los reportes de clientes; tenerlo una sola vez es lo que evita que
+   el reporte y la pantalla contesten distinto sobre el mismo cliente.
+
+   El match respeta la jerarquía de identidad del CRM: ficha, después teléfono,
+   y el nombre SÓLO si no hay nada mejor — que es justo el problema que la tabla
+   `customers` vino a resolver (mig 196). MUTA los objetos de `base`, que siempre
+   son recién construidos por crmRowFromStat / crmRowsFromOrders. */
+function crmMerge(base, fichas) {
+  const porFicha = new Map(), porTel = new Map(), porNombre = new Map();
+  base.forEach(c => {
+    if (c.customerId && !porFicha.has(c.customerId)) porFicha.set(c.customerId, c);
+    const k = phoneKey(c.phone);
+    if (k && !porTel.has(k)) porTel.set(k, c);
+    const n = (c.name || '').trim().toLowerCase();
+    if (n && !porNombre.has(n)) porNombre.set(n, c);
+  });
+
+  const all = base.slice();
+  (fichas || []).forEach(f => {
+    const k = phoneKey(f.phone);
+    const hit = porFicha.get(f.id) || (k && porTel.get(k))
+             || porNombre.get(custFullName(f).trim().toLowerCase()) || null;
+    if (hit) {
+      // La ficha manda sobre lo tipeado en el pedido: es el dato curado.
+      hit.ficha = f; hit.type_ids = f.type_ids || []; hit.customerId = f.id;
+      hit.name  = custFullName(f) || hit.name;
+      hit.phone = f.phone || hit.phone;
+      hit.email = f.email || hit.email;
+      hit.registered = true; hit.anonymous = false;
+      if (f.address && !hit.addresses.includes(f.address)) hit.addresses = [...hit.addresses, f.address];
+    } else {
+      // Ficha sin consumo en el período: cargada a mano, o compró fuera del rango.
+      all.push({
+        key:`f:${f.id}`, name:custFullName(f), phone:f.phone||null, email:f.email||null,
+        registered:true, anonymous:false, ficha:f, type_ids:f.type_ids||[], customerId:f.id,
+        orders:0, total:0, ticket:0, diasActivo:0,
+        firstDate:f.created_at, lastDate:f.created_at, neverOrdered:true,
+        canalCount:{}, paymentMethods:{}, pideFactura:false, facturaCount:0,
+        addresses:f.address?[f.address]:[], tables:[],
+      });
+    }
+  });
+
+  all.forEach(c => {
+    c.preferred = Object.entries(c.canalCount).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    c.isVip     = c.total >= VIP_THRESHOLD;
+  });
+  return all.sort((a, b) => b.total - a.total);
+}
+
 // `embedded` — se renderiza como pestaña del hub de Clientes (ver ClientesHubPage):
 // pierde el wrapper .page y el <h1> propio, que los pone el hub.
-function ClientesPage({orders,embedded=false}) {
-  const [view,setView]         = useState('todos');
+function ClientesPage({orders, restaurant, setPage, embedded=false}) {
+  const [view,setView]         = useState('todos');   // todos | contactos | sin_ficha | anonimos
+  const [segF,setSegF]         = useState('todos');   // segmento CALCULADO
+  const [tipoF,setTipoF]       = useState('todos');   // tipo ASIGNADO (customer_types) | sin_tipo
   const [canalF,setCanalF]     = useState('todos');
   const [periodF,setPeriodF]   = useState('todos');
-  const [tipoF,setTipoF]       = useState('todos');
   const [search,setSearch]     = useState('');
   const [detalle,setDetalle]   = useState(null);
-  const [detalleOrders,setDetalleOrders] = useState([]);
 
-  // ── FICHAS DE CLIENTE (mig 196) ────────────────────────────────────
-  // Hasta la mig 196 esta página era SOLO una vista derivada de `orders`
-  // agrupada por nombre: no se podía crear, editar ni clasificar a nadie.
-  // Ahora las fichas reales se cargan acá y se FUSIONAN con lo derivado
-  // (ver el useMemo de abajo), así el histórico de pedidos no se pierde y
-  // además aparecen los clientes cargados a mano que todavía no compraron.
-  const [fichas,setFichas]       = useState([]);
+  // ── FICHAS (mig 196) ───────────────────────────────────────────────
+  const [fichas,setFichas]        = useState([]);
   const [crmMissing,setCrmMissing]= useState(false);
   const [showInactive,setShowInactive]= useState(false);
   const [nuevoOpen,setNuevoOpen] = useState(false);
-  const [editando,setEditando]   = useState(null);   // ficha en edición
+  const [editando,setEditando]   = useState(null);
   const [tiposOpen,setTiposOpen] = useState(false);
   const {types,setTypes} = useCustomerTypes(db,RID);
+
+  // ── ESTADÍSTICAS REALES (mig 197) ──────────────────────────────────
+  // Antes esto se calculaba acá mismo agrupando el array `orders`, que llega
+  // con .limit(500). Es decir: el CRM mostraba MENOS visitas y MENOS gasto de
+  // los reales, y el error crecía a medida que el local vendía más. Ahora lo
+  // agrega la base sobre todo el historial; `orders` sólo queda como respaldo
+  // si la mig 197 no está aplicada.
+  const [stats,setStats]             = useState(null);
+  const [statsMissing,setStatsMissing]= useState(false);
+  const [statsLoading,setStatsLoading]= useState(true);
 
   const reloadFichas = useCallback(async()=>{
     if(!db) return;
@@ -4223,18 +4379,36 @@ function ClientesPage({orders,embedded=false}) {
   },[showInactive]);
   useEffect(()=>{ reloadFichas(); },[reloadFichas]);
 
+  const reloadStats = useCallback(async()=>{
+    if(!db) return;
+    setStatsLoading(true);
+    const {stats:rows,missing} = await loadCustomerStats(db,RID,{from:crmPeriodStartISO(periodF)});
+    setStatsMissing(missing); setStats(missing?null:rows); setStatsLoading(false);
+  },[periodF]);
+  useEffect(()=>{ reloadStats(); },[reloadStats]);
+  // Un pedido nuevo cambia visitas y gasto: se reevalúa cuando cambia el feed.
+  useEffect(()=>{ if(!statsMissing) reloadStats(); },[orders.length]);   // eslint-disable-line
+
   async function bajaFicha(f){
     if(!window.confirm(`¿Desactivar la ficha de ${custFullName(f)}? No se borra nada: sus pedidos y su historial quedan intactos y podés reactivarla cuando quieras.`)) return;
     const {error}=await deleteCustomer(db,f.id);
-    if(error){ toast(error.message||'No se pudo desactivar',false); return; }
+    if(error){ toast(_errFicha(error),false); return; }
     toast('Ficha desactivada'); setDetalle(null); reloadFichas();
   }
   async function altaFicha(f){
     const {error}=await reactivateCustomer(db,f.id);
-    if(error){ toast(error.message||'No se pudo reactivar',false); return; }
+    if(error){ toast(_errFicha(error),false); return; }
     toast('Ficha reactivada'); reloadFichas();
   }
-  // Clientes frecuentes marcados a mano (mig 184) — set de teléfonos normalizados (dígitos).
+  // La mig 197 dejó UPDATE/DELETE de `customers` sólo para admin/superadmin. Si
+  // un gerente entra al panel, la RLS no tira error: simplemente no actualiza
+  // ninguna fila. Traducirlo a un mensaje entendible evita el "guardé y no pasó nada".
+  function _errFicha(error){
+    if(isMissingCrm(error)) return CRM_MISSING_MSG;
+    return (error&&error.message) || 'No se pudo guardar. Los datos de un cliente sólo los edita el administrador desde este módulo.';
+  }
+
+  // Clientes frecuentes marcados a mano (mig 184) — habilita efectivo en delivery.
   const [freqPhones,setFreqPhones] = useState(()=>new Set());
   useEffect(()=>{
     if(!db) return;
@@ -4258,178 +4432,64 @@ function ClientesPage({orders,embedded=false}) {
     }
   }
 
-  // Reporte CRM
-  const [rType,setRType]               = useState('');
-  const [fromStr,setFromStr]           = useState('');
-  const [toStr,setToStr]               = useState('');
-  const [reportRows,setReportRows]     = useState(null);
-  const [reportSummary,setReportSummary] = useState(null);
-  const [reportLoading,setReportLoading] = useState(false);
-  const [reportTitle,setReportTitle]   = useState('');
   const now = Date.now();
-  const VIP_THRESHOLD = 500000;
 
-  const ORDER_TYPES = {
-    'mesa':'QR Mesa','llevar':'Para Llevar','delivery':'Delivery','counter':'Mostrador','external':'Plataforma'
-  };
-  const CANAL_ICON  = {'mesa':'utensils','llevar':'package','delivery':'bike','counter':'store','external':'phone'}; // WS5: nombres MythosIcons (no emoji)
-  const CANAL_COLOR = {'mesa':'#007AFF','llevar':'#34C759','delivery':'#FF9500','counter':'#8E8E93','external':'#AF52DE'};
+  // ── FUSIÓN estadísticas + fichas ───────────────────────────────────
+  const { clientMap, frecuentes, inactivos, vip, anonimos, conFactura, byCanal,
+          totalConsumed, totalVisitas } = useMemo(()=>{
+    const all = crmMerge(
+      stats ? stats.map(crmRowFromStat) : crmRowsFromOrders(orders, crmPeriodStartISO(periodF)),
+      fichas,
+    );
 
-  useEffect(()=>{
-    const n=new Date();
-    const first=new Date(n.getFullYear(),n.getMonth(),1);
-    const pad=x=>String(x).padStart(2,'0');
-    setFromStr(`${pad(first.getDate())}/${pad(first.getMonth()+1)}/${first.getFullYear()}`);
-    setToStr(`${pad(n.getDate())}/${pad(n.getMonth()+1)}/${n.getFullYear()}`);
-  },[]);
-
-  function parseDMY(str){
-    if(!str)return null;
-    const p=str.split('/');if(p.length!==3)return null;
-    const d=new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0]));
-    return isNaN(d.getTime())?null:d;
-  }
-  function dmyToISO(str){
-    if(!str)return '';const p=str.split('/');
-    if(p.length!==3)return '';
-    return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
-  }
-
-  const periodStart = p => {
-    if(p==='hoy'){const d=new Date();d.setHours(0,0,0,0);return d.toISOString();}
-    if(p==='semana'){const d=new Date();d.setDate(d.getDate()-6);d.setHours(0,0,0,0);return d.toISOString();}
-    if(p==='mes'){const d=new Date();d.setDate(1);d.setHours(0,0,0,0);return d.toISOString();}
-    if(p==='anio'){const d=new Date();d.setMonth(0,1);d.setHours(0,0,0,0);return d.toISOString();}
-    return '';
-  };
-
-  const { clientMap, frecuentes, inactivos, vip, anonimos, conFactura, byCanal, totalConsumed } = useMemo(()=>{
-    const m={};
-    const validOrders = orders.filter(o=>!['draft','cancelled'].includes(o.status));
-    const ps = periodStart(periodF);
-    const periodOrds = ps ? validOrders.filter(o=>o.created_at>=ps) : validOrders;
-
-    periodOrds.forEach(o=>{
-      const isAnon = !o.customer_name;
-      const k = o.customer_name || `Anónimo #${o.id.slice(0,6)}`;
-      if(!m[k]) m[k]={
-        name:k, phone:o.customer_phone||null, email:o.customer_email||null,
-        registered:!isAnon, anonymous:isAnon,
-        orders:0, total:0,
-        firstDate:o.created_at, lastDate:o.created_at,
-        canales:[], canalCount:{},
-        pideFactura:false, facturaCount:0,
-        addresses:[], tables:[],
-        paymentMethods:{},
-        orderHistory:[],
-      };
-      m[k].orders++;
-      m[k].total += (o.total||0);
-      if(o.created_at < m[k].firstDate) m[k].firstDate = o.created_at;
-      if(o.created_at > m[k].lastDate)  m[k].lastDate  = o.created_at;
-      if(o.order_type){
-        m[k].canales.push(o.order_type);
-        m[k].canalCount[o.order_type] = (m[k].canalCount[o.order_type]||0)+1;
-      }
-      if(o.requires_invoice){ m[k].pideFactura=true; m[k].facturaCount++; }
-      if(o.delivery_address && !m[k].addresses.includes(o.delivery_address)) m[k].addresses.push(o.delivery_address);
-      if(o.table_number && !m[k].tables.includes(o.table_number)) m[k].tables.push(o.table_number);
-      if(o.payment_method) m[k].paymentMethods[o.payment_method]=(m[k].paymentMethods[o.payment_method]||0)+1;
-      m[k].orderHistory.push({id:o.id,num:o.order_number,date:o.created_at,total:o.total||0,type:o.order_type,status:o.status});
-    });
-
-    const all = Object.values(m).map(c=>{
-      const preferred = Object.entries(c.canalCount).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
-      const ticket = c.orders>0 ? Math.round(c.total/c.orders) : 0;
-      const diasActivo = Math.round((new Date(c.lastDate)-new Date(c.firstDate))/(864e5))||0;
-      c.orderHistory.sort((a,b)=>b.date.localeCompare(a.date));
-      return {...c, preferred, isVip:c.total>=VIP_THRESHOLD, ticket, diasActivo};
-    }).sort((a,b)=>b.total-a.total);
-
-    // ── FUSIÓN con las fichas reales (mig 196) ───────────────────────
-    // El match es por TELÉFONO primero (identidad estable) y por nombre solo
-    // como respaldo: es exactamente el problema que la tabla vino a resolver
-    // —el mismo cliente tipeado de dos formas eran dos clientes—, así que el
-    // nombre nunca decide si hay un teléfono para comparar.
-    const porTel = new Map(), porNombre = new Map();
-    all.forEach(c=>{
-      const k = phoneKey(c.phone);
-      if(k && !porTel.has(k)) porTel.set(k,c);
-      const n = (c.name||'').trim().toLowerCase();
-      if(n && !porNombre.has(n)) porNombre.set(n,c);
-    });
-    fichas.forEach(f=>{
-      const k = phoneKey(f.phone);
-      let hit = (k && porTel.get(k)) || porNombre.get(custFullName(f).trim().toLowerCase()) || null;
-      if(hit){
-        // La ficha manda sobre lo tipeado en el pedido: es el dato curado.
-        hit.ficha = f; hit.type_ids = f.type_ids||[];
-        hit.name = custFullName(f) || hit.name;
-        hit.phone = f.phone || hit.phone;
-        hit.email = f.email || hit.email;
-        hit.registered = true; hit.anonymous = false;
-        if(f.address && !hit.addresses.includes(f.address)) hit.addresses.push(f.address);
-      }else{
-        // Ficha sin pedidos en el período (alta manual, o compró fuera del rango).
-        all.push({
-          name:custFullName(f), phone:f.phone||null, email:f.email||null,
-          registered:true, anonymous:false, ficha:f, type_ids:f.type_ids||[],
-          orders:0, total:0, ticket:0, diasActivo:0,
-          firstDate:f.created_at, lastDate:f.created_at, neverOrdered:true,
-          canales:[], canalCount:{}, preferred:null, isVip:false,
-          pideFactura:false, facturaCount:0,
-          addresses:f.address?[f.address]:[], tables:[], paymentMethods:{}, orderHistory:[],
-        });
-      }
-    });
-    all.sort((a,b)=>b.total-a.total);
-
-    const cutoff = new Date(Date.now()-30*864e5).toISOString();
-    const cByCanal={};
+    const cutoff = new Date(Date.now()-INACTIVE_DAYS*864e5).toISOString();
+    const cByCanal = {};
     all.forEach(c=>{ if(c.preferred) cByCanal[c.preferred]=(cByCanal[c.preferred]||0)+1; });
     return {
       clientMap: all,
-      frecuentes: all.filter(c=>c.orders>=3),
-      inactivos: all.filter(c=>c.lastDate<cutoff&&c.registered),
-      vip: all.filter(c=>c.isVip),
-      anonimos: all.filter(c=>c.anonymous),
+      frecuentes: all.filter(c=>c.orders>=FREQUENT_MIN_ORDERS),
+      inactivos:  all.filter(c=>c.registered && !c.neverOrdered && c.lastDate<cutoff),
+      vip:        all.filter(c=>c.isVip),
+      anonimos:   all.filter(c=>c.anonymous),
       conFactura: all.filter(c=>c.pideFactura),
-      byCanal: cByCanal,
+      byCanal:    cByCanal,
       totalConsumed: all.reduce((s,c)=>s+c.total,0),
+      totalVisitas:  all.reduce((s,c)=>s+c.orders,0),
     };
-  },[orders,periodF,fichas]);
+  },[stats,orders,periodF,fichas]);
 
-  // Ranking top consumidores
-  const hoy = new Date().toDateString();
-  const semanaStart = new Date(Date.now()-6*864e5).toISOString();
-  const mesStart    = (() => { const d=new Date(); d.setDate(1); d.setHours(0,0,0,0); return d.toISOString(); })();
-  function topConsumidor(filterFn) {
+  // Top consumidores del día / semana / mes. Se calculan sobre `orders` (feed en
+  // vivo) porque son un pulso del momento, no un histórico: acá el recorte de
+  // 500 pedidos no molesta — ningún local hace 500 pedidos en un día.
+  function topConsumidor(sinceISO) {
     const m={};
-    orders.filter(o=>!['draft','cancelled'].includes(o.status)&&o.customer_name&&filterFn(o)).forEach(o=>{
+    orders.filter(o=>!['draft','cancelled'].includes(o.status)&&o.customer_name&&o.created_at>=sinceISO).forEach(o=>{
       const k=o.customer_name;
       if(!m[k]) m[k]={name:k,phone:o.customer_phone||null,email:o.customer_email||null,total:0,orders:0,canal:o.order_type};
       m[k].total+=(o.total||0); m[k].orders++;
     });
     return Object.values(m).sort((a,b)=>b.total-a.total)[0]||null;
   }
-  const topDia    = topConsumidor(o=>new Date(o.created_at).toDateString()===hoy);
-  const topSemana = topConsumidor(o=>o.created_at>=semanaStart);
-  const topMes    = topConsumidor(o=>o.created_at>=mesStart);
+  const topDia    = topConsumidor(crmPeriodStartISO('hoy'));
+  const topSemana = topConsumidor(crmPeriodStartISO('semana'));
+  const topMes    = topConsumidor(crmPeriodStartISO('mes'));
 
   const displayed = useMemo(()=>{
-    let res = view==='frecuentes'?frecuentes
-      :view==='inactivos'?inactivos
-      :view==='vip'?vip
-      :view==='factura'?conFactura
-      :view==='anonimos'?anonimos
-      :view==='fichas'?clientMap.filter(c=>c.ficha)
-      :view==='sin_ficha'?clientMap.filter(c=>!c.ficha&&!c.anonymous)
-      :view==='delivery'?clientMap.filter(c=>(c.canalCount['delivery']||0)>0)
-      :view==='mesa'?clientMap.filter(c=>(c.canalCount['mesa']||0)>0)
-      :view==='llevar'?clientMap.filter(c=>(c.canalCount['llevar']||0)>0)
-      :clientMap;
-    if(canalF!=='todos') res=res.filter(c=>c.preferred===canalF);
-    if(tipoF!=='todos')  res=res.filter(c=>(c.type_ids||[]).includes(tipoF));
+    let res = view==='contactos' ? clientMap.filter(c=>c.ficha)
+      : view==='sin_ficha'       ? clientMap.filter(c=>!c.ficha&&!c.anonymous)
+      : view==='anonimos'        ? anonimos
+      : clientMap;
+
+    if(segF==='frecuentes') res=res.filter(c=>c.orders>=FREQUENT_MIN_ORDERS);
+    if(segF==='vip')        res=res.filter(c=>c.isVip);
+    if(segF==='inactivos')  res=res.filter(c=>inactivos.includes(c));
+    if(segF==='factura')    res=res.filter(c=>c.pideFactura);
+
+    if(tipoF==='sin_tipo')      res=res.filter(c=>!(c.type_ids||[]).length);
+    else if(tipoF!=='todos')    res=res.filter(c=>(c.type_ids||[]).includes(tipoF));
+
+    if(canalF!=='todos') res=res.filter(c=>(c.canalCount[canalF]||0)>0);
+
     if(search.trim()){
       const q=search.toLowerCase();
       const qd=q.replace(/\D/g,'');
@@ -4439,305 +4499,9 @@ function ClientesPage({orders,embedded=false}) {
         ||(c.ficha?.doc_number||'').toLowerCase().includes(q));
     }
     return res;
-  },[clientMap,frecuentes,inactivos,vip,conFactura,anonimos,view,canalF,tipoF,search]);
+  },[clientMap,anonimos,inactivos,view,segF,tipoF,canalF,search]);
 
-  // ── REPORT DEFS ──────────────────────────────
-  const REPORT_DEFS = [
-    {id:'clientes_general',   label:'Listado general de clientes',   desc:'Nombre, teléfono, email, tipo, pedidos, total consumido y canal preferido'},
-    {id:'clientes_ranking',   label:'Ranking de consumidores',        desc:'Top clientes ordenados por total consumido en el período'},
-    {id:'clientes_delivery',  label:'Clientes Delivery',              desc:'Clientes con pedidos delivery — incluye todas las direcciones de entrega'},
-    {id:'clientes_mesa',      label:'Clientes QR Mesa',               desc:'Clientes que ordenaron escaneando el QR de su mesa'},
-    {id:'clientes_llevar',    label:'Clientes Para Llevar / Mostrador', desc:'Clientes con pedidos para llevar o mostrador'},
-    {id:'clientes_vip',       label:'Clientes VIP',                   desc:`Clientes que gastaron más de ₲${(VIP_THRESHOLD/1000).toFixed(0)}k en el período`},
-    {id:'clientes_frecuentes',label:'Clientes Frecuentes',            desc:'Clientes con 3 o más pedidos en el período'},
-    {id:'clientes_factura',   label:'Clientes que piden factura',     desc:'Datos de clientes que solicitaron RUC / comprobante fiscal'},
-    {id:'clientes_inactivos', label:'Clientes Inactivos (histórico)', desc:'Clientes registrados sin pedidos en los últimos 30 días'},
-    {id:'clientes_anonimos',  label:'Pedidos sin identificar',        desc:'Pedidos realizados sin nombre de cliente registrado'},
-  ];
-  const selDef = REPORT_DEFS.find(r=>r.id===rType);
-
-  function buildClientsInRange(){
-    const from=parseDMY(fromStr); const to=parseDMY(toStr);
-    if(!from||!to)return null;
-    to.setHours(23,59,59,999);
-    const validOrds=orders.filter(o=>!['draft','cancelled'].includes(o.status)&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
-    const m={};
-    validOrds.forEach(o=>{
-      const isAnon=!o.customer_name;
-      const k=o.customer_name||`__ANON__${o.id}`;
-      if(!m[k])m[k]={
-        name:o.customer_name||'—',phone:o.customer_phone||'',email:o.customer_email||'',
-        anonymous:isAnon,registered:!isAnon,
-        orders:0,total:0,firstDate:o.created_at,lastDate:o.created_at,
-        canalCount:{},pideFactura:false,facturaCount:0,
-        addresses:[],tables:[],ordersRaw:[],
-      };
-      m[k].orders++;m[k].total+=(o.total||0);
-      if(o.created_at<m[k].firstDate)m[k].firstDate=o.created_at;
-      if(o.created_at>m[k].lastDate) m[k].lastDate=o.created_at;
-      if(o.order_type)m[k].canalCount[o.order_type]=(m[k].canalCount[o.order_type]||0)+1;
-      if(o.requires_invoice){m[k].pideFactura=true;m[k].facturaCount++;}
-      if(o.delivery_address&&!m[k].addresses.includes(o.delivery_address))m[k].addresses.push(o.delivery_address);
-      if(o.table_number&&!m[k].tables.includes(o.table_number))m[k].tables.push(o.table_number);
-      m[k].ordersRaw.push(o);
-    });
-    return Object.values(m).map(c=>{
-      const preferred=Object.entries(c.canalCount).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
-      const ticket=c.orders>0?Math.round(c.total/c.orders):0;
-      return {...c,preferred,isVip:c.total>=VIP_THRESHOLD,ticket};
-    }).sort((a,b)=>b.total-a.total);
-  }
-
-  function generateReport(){
-    const from=parseDMY(fromStr); const to=parseDMY(toStr);
-    if(!rType){toast('Seleccioná un tipo de reporte',false);return;}
-    if(!from||!to){toast('Fechas inválidas — usá formato dd/mm/aaaa',false);return;}
-    setReportLoading(true);setReportRows(null);setReportSummary(null);
-    setReportTitle(REPORT_DEFS.find(r=>r.id===rType)?.label||'Reporte');
-    setTimeout(()=>{
-      try{
-        const clients=buildClientsInRange();
-        if(!clients){toast('Fechas inválidas',false);setReportLoading(false);return;}
-        _runReport(rType,clients);
-      }catch(e){toast('Error: '+e.message,false);}
-      setReportLoading(false);
-    },80);
-  }
-
-  function _runReport(type,clients){
-    if(type==='clientes_general'){
-      setReportSummary([
-        {label:'Clientes únicos',  value:clients.length,                                                  color:'#007AFF'},
-        {label:'Total consumido',  value:fmt(clients.reduce((s,c)=>s+c.total,0)),                         color:'#34C759'},
-        {label:'Ticket promedio',  value:clients.length?fmt(Math.round(clients.reduce((s,c)=>s+c.total,0)/clients.length)):0, color:'#FF9500'},
-        {label:'Registrados',      value:clients.filter(c=>c.registered).length,                          color:C.ink},
-      ]);
-      setReportRows({
-        cols:['Nombre','Teléfono','Email','Tipo','Pedidos','Total (₲)','Ticket prom (₲)','Canal pref.','Factura','1er pedido','Último pedido'],
-        data:clients.map(c=>[
-          c.name, c.phone||'—', c.email||'—',
-          c.isVip?'VIP':c.registered?'Registrado':'Anónimo',
-          c.orders, fmt(c.total), fmt(c.ticket),
-          ORDER_TYPES[c.preferred]||c.preferred||'—',
-          c.pideFactura?'Sí':'No',
-          c.firstDate?fmtDate(c.firstDate):'—',
-          c.lastDate?fmtDate(c.lastDate):'—',
-        ]),
-      });
-    }
-    else if(type==='clientes_ranking'){
-      const top=clients.filter(c=>c.registered).slice(0,100);
-      setReportSummary([
-        {label:'Clientes rankeados',value:top.length,                                color:'#007AFF'},
-        {label:'Total consumido',   value:fmt(top.reduce((s,c)=>s+c.total,0)),       color:'#34C759'},
-        {label:'Top consumidor',    value:top[0]?.name||'—',                          color:'#FF9500'},
-        {label:'Mayor gasto',       value:top[0]?fmt(top[0].total):'—',              color:'#AF52DE'},
-      ]);
-      setReportRows({
-        cols:['Pos.','Nombre','Teléfono','Email','Pedidos','Total (₲)','Ticket prom (₲)','Canal pref.','Último pedido'],
-        data:top.map((c,i)=>[
-          `#${i+1}`, c.name, c.phone||'—', c.email||'—',
-          c.orders, fmt(c.total), fmt(c.ticket),
-          ORDER_TYPES[c.preferred]||c.preferred||'—',
-          c.lastDate?fmtDate(c.lastDate):'—',
-        ]),
-      });
-    }
-    else if(type==='clientes_delivery'){
-      const del=clients.filter(c=>(c.canalCount['delivery']||0)>0);
-      setReportSummary([
-        {label:'Clientes delivery', value:del.length,                                                         color:'#FF9500'},
-        {label:'Total delivery',    value:fmt(del.reduce((s,c)=>s+c.total,0)),                                color:'#34C759'},
-        {label:'Con dirección',     value:del.filter(c=>c.addresses.length>0).length,                         color:'#007AFF'},
-        {label:'Pedidos delivery',  value:del.reduce((s,c)=>s+(c.canalCount['delivery']||0),0),              color:'#AF52DE'},
-      ]);
-      setReportRows({
-        cols:['Nombre','Teléfono','Email','Pedidos delivery','Total (₲)','Ticket (₲)','Dirección(es)','Último pedido'],
-        data:del.map(c=>[
-          c.name, c.phone||'—', c.email||'—',
-          c.canalCount['delivery']||0, fmt(c.total), fmt(c.ticket),
-          c.addresses.join(' | ')||'—',
-          c.lastDate?fmtDate(c.lastDate):'—',
-        ]),
-      });
-    }
-    else if(type==='clientes_mesa'){
-      const mesa=clients.filter(c=>(c.canalCount['mesa']||0)>0);
-      setReportSummary([
-        {label:'Clientes QR Mesa',  value:mesa.length,                                                        color:'#007AFF'},
-        {label:'Total consumido',   value:fmt(mesa.reduce((s,c)=>s+c.total,0)),                               color:'#34C759'},
-        {label:'Pedidos en mesa',   value:mesa.reduce((s,c)=>s+(c.canalCount['mesa']||0),0),                  color:'#FF9500'},
-        {label:'Ticket promedio',   value:mesa.length?fmt(Math.round(mesa.reduce((s,c)=>s+c.total,0)/mesa.length)):0, color:C.ink},
-      ]);
-      setReportRows({
-        cols:['Nombre','Teléfono','Email','Pedidos en mesa','Total (₲)','Ticket (₲)','Mesas usadas','Último pedido'],
-        data:mesa.map(c=>[
-          c.name, c.phone||'—', c.email||'—',
-          c.canalCount['mesa']||0, fmt(c.total), fmt(c.ticket),
-          c.tables.map(t=>`Mesa ${t}`).join(', ')||'—',
-          c.lastDate?fmtDate(c.lastDate):'—',
-        ]),
-      });
-    }
-    else if(type==='clientes_llevar'){
-      const llevar=clients.filter(c=>(c.canalCount['llevar']||0)+(c.canalCount['counter']||0)>0);
-      setReportSummary([
-        {label:'Clientes para llevar',value:llevar.length,                                                    color:'#34C759'},
-        {label:'Total consumido',     value:fmt(llevar.reduce((s,c)=>s+c.total,0)),                          color:'#007AFF'},
-        {label:'Pedidos para llevar', value:llevar.reduce((s,c)=>s+(c.canalCount['llevar']||0)+(c.canalCount['counter']||0),0), color:'#FF9500'},
-      ]);
-      setReportRows({
-        cols:['Nombre','Teléfono','Email','Para llevar','Mostrador','Total (₲)','Ticket (₲)','Último pedido'],
-        data:llevar.map(c=>[
-          c.name, c.phone||'—', c.email||'—',
-          c.canalCount['llevar']||0, c.canalCount['counter']||0,
-          fmt(c.total), fmt(c.ticket),
-          c.lastDate?fmtDate(c.lastDate):'—',
-        ]),
-      });
-    }
-    else if(type==='clientes_vip'){
-      const vipL=clients.filter(c=>c.isVip);
-      setReportSummary([
-        {label:'Clientes VIP',    value:vipL.length,                               color:'#FF9500'},
-        {label:'Total consumido', value:fmt(vipL.reduce((s,c)=>s+c.total,0)),     color:'#34C759'},
-        {label:'Mayor gasto',     value:vipL[0]?fmt(vipL[0].total):'—',           color:'#AF52DE'},
-      ]);
-      setReportRows({
-        cols:['Nombre','Teléfono','Email','Pedidos','Total (₲)','Ticket (₲)','Canal pref.','Factura','1er pedido','Último pedido'],
-        data:vipL.map(c=>[
-          c.name, c.phone||'—', c.email||'—',
-          c.orders, fmt(c.total), fmt(c.ticket),
-          ORDER_TYPES[c.preferred]||c.preferred||'—',
-          c.pideFactura?'Sí':'No',
-          c.firstDate?fmtDate(c.firstDate):'—',
-          c.lastDate?fmtDate(c.lastDate):'—',
-        ]),
-      });
-    }
-    else if(type==='clientes_frecuentes'){
-      const freq=clients.filter(c=>c.orders>=3&&c.registered);
-      setReportSummary([
-        {label:'Clientes frecuentes',value:freq.length,                              color:'#34C759'},
-        {label:'Total consumido',    value:fmt(freq.reduce((s,c)=>s+c.total,0)),    color:'#007AFF'},
-        {label:'Más fiel',           value:freq[0]?`${freq[0].orders} pedidos`:'—', color:'#FF9500'},
-      ]);
-      setReportRows({
-        cols:['Nombre','Teléfono','Email','Pedidos','Total (₲)','Ticket (₲)','Canal pref.','1er pedido','Último pedido'],
-        data:freq.map(c=>[
-          c.name, c.phone||'—', c.email||'—',
-          c.orders, fmt(c.total), fmt(c.ticket),
-          ORDER_TYPES[c.preferred]||c.preferred||'—',
-          c.firstDate?fmtDate(c.firstDate):'—',
-          c.lastDate?fmtDate(c.lastDate):'—',
-        ]),
-      });
-    }
-    else if(type==='clientes_factura'){
-      const facL=clients.filter(c=>c.pideFactura);
-      setReportSummary([
-        {label:'Piden factura',   value:facL.length,                               color:'#007AFF'},
-        {label:'Total facturado', value:fmt(facL.reduce((s,c)=>s+c.total,0)),     color:'#34C759'},
-        {label:'Solicitudes',     value:facL.reduce((s,c)=>s+c.facturaCount,0),  color:'#AF52DE'},
-      ]);
-      setReportRows({
-        cols:['Nombre','Teléfono','Email','Pedidos','Solicitudes factura','Total (₲)','Canal pref.','Último pedido'],
-        data:facL.map(c=>[
-          c.name, c.phone||'—', c.email||'—',
-          c.orders, c.facturaCount, fmt(c.total),
-          ORDER_TYPES[c.preferred]||c.preferred||'—',
-          c.lastDate?fmtDate(c.lastDate):'—',
-        ]),
-      });
-    }
-    else if(type==='clientes_inactivos'){
-      const cutoff=new Date(Date.now()-30*864e5).toISOString();
-      const allValid=orders.filter(o=>!['draft','cancelled'].includes(o.status)&&o.customer_name);
-      const m2={};
-      allValid.forEach(o=>{
-        const k=o.customer_name;
-        if(!m2[k])m2[k]={name:k,phone:o.customer_phone||'',email:o.customer_email||'',total:0,orders:0,lastDate:o.created_at};
-        m2[k].total+=(o.total||0);m2[k].orders++;
-        if(o.created_at>m2[k].lastDate)m2[k].lastDate=o.created_at;
-      });
-      const inac=Object.values(m2).filter(c=>c.lastDate<cutoff).sort((a,b)=>a.lastDate.localeCompare(b.lastDate));
-      setReportSummary([
-        {label:'Clientes inactivos', value:inac.length,                           color:'#FF9500'},
-        {label:'Días máx inactivo',  value:inac.length?Math.floor((now-new Date(inac[0].lastDate).getTime())/864e5)+'d':'—', color:'#FF3B30'},
-        {label:'Valor en riesgo',    value:fmt(inac.reduce((s,c)=>s+c.total,0)), color:'#34C759'},
-      ]);
-      setReportRows({
-        cols:['Nombre','Teléfono','Email','Días inactivo','Último pedido','Total pedidos','Total (₲)'],
-        data:inac.map(c=>[
-          c.name, c.phone||'—', c.email||'—',
-          Math.floor((now-new Date(c.lastDate).getTime())/864e5),
-          fmtDate(c.lastDate), c.orders, fmt(c.total),
-        ]),
-      });
-    }
-    else if(type==='clientes_anonimos'){
-      const from=parseDMY(fromStr); const to=parseDMY(toStr);
-      if(!from||!to)return;
-      to.setHours(23,59,59,999);
-      const anonOrds=orders.filter(o=>!['draft','cancelled'].includes(o.status)&&!o.customer_name&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
-      const totAnon=anonOrds.reduce((s,o)=>s+(o.total||0),0);
-      setReportSummary([
-        {label:'Pedidos anónimos',   value:anonOrds.length,                                                    color:'#8E8E93'},
-        {label:'Total sin registrar',value:fmt(totAnon),                                                       color:'#FF9500'},
-        {label:'Ticket promedio',    value:anonOrds.length?fmt(Math.round(totAnon/anonOrds.length)):'—',       color:'#007AFF'},
-      ]);
-      setReportRows({
-        cols:['Pedido #','Fecha','Canal','Total (₲)','Mesa / Dirección','Método pago'],
-        data:anonOrds.slice(0,300).map(o=>[
-          o.order_number||o.id?.slice(-6)||'—',
-          fmtDate(o.created_at),
-          (ORDER_TYPES[o.order_type]||o.order_type||'—'),
-          fmt(o.total||0),
-          o.table_number?`Mesa ${o.table_number}`:o.delivery_address||'—',
-          o.payment_method||'—',
-        ]),
-      });
-    }
-  }
-
-  function exportReportCSV(){
-    if(!reportRows)return;
-    const lines=[reportRows.cols.join(','),...reportRows.data.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(','))];
-    const blob=new Blob(['﻿'+lines.join('\n')],{type:'text/csv;charset=utf-8;'});
-    const url=URL.createObjectURL(blob);const a=document.createElement('a');
-    a.href=url;a.download=`crm_${rType}_${dmyToISO(fromStr)}.csv`;a.click();URL.revokeObjectURL(url);
-    toast('CSV descargado');
-  }
-  function exportReportXLS(){
-    if(!reportRows||!window.XLSX){toast('Sin datos o XLSX no cargado',false);return;}
-    const ws=XLSX.utils.aoa_to_sheet([reportRows.cols,...reportRows.data]);
-    const wb=XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb,ws,(selDef?.label||'CRM').slice(0,31));
-    XLSX.writeFile(wb,`crm_${rType}_${dmyToISO(fromStr)}.xlsx`);
-    toast('Excel descargado');
-  }
-  function exportReportPDF(){
-    if(!reportRows)return;
-    const restaurantName=window.SUPABASE_CONFIG?.restaurantName||'Restaurante';
-    const w=window.open('','_blank');
-    const sumHtml=reportSummary?reportSummary.map(s=>`<div style="display:inline-block;margin:0 24px 12px 0"><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px">${esc(s.label)}</div><div style="font-size:20px;font-weight:800;color:${esc(s.color)}">${esc(s.value)}</div></div>`).join(''):'';
-    const tHead=`<tr>${reportRows.cols.map(c=>`<th style="background:#1D1D1F;color:#fff;padding:8px 12px;text-align:left;font-size:11px;white-space:nowrap">${esc(c)}</th>`).join('')}</tr>`;
-    const tBody=reportRows.data.map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#f9f9f9'}">${r.map(v=>`<td style="padding:7px 12px;font-size:11px;border-bottom:1px solid #eee">${esc(v)}</td>`).join('')}</tr>`).join('');
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${selDef?.label||'CRM'} — ${restaurantName}</title>
-    <style>body{font-family:system-ui,sans-serif;margin:32px;color:#222}@media print{button{display:none!important}@page{margin:1cm;size:A4 landscape}}</style></head><body>
-      <div style="font-size:24px;font-weight:800;color:#1D1D1F;margin-bottom:4px">${restaurantName}</div>
-      <div style="font-size:16px;font-weight:700;color:#000;margin-bottom:4px">CRM — ${selDef?.label||'Clientes'}</div>
-      <div style="font-size:11px;color:#888;margin-bottom:18px">Generado: ${new Date().toLocaleDateString('es-PY')} · Período: ${fromStr} al ${toStr}</div>
-      <div style="margin-bottom:20px;padding:14px 0;border-top:2px solid #000;border-bottom:1px solid #eee">${sumHtml}</div>
-      <table style="width:100%;border-collapse:collapse"><thead>${tHead}</thead><tbody>${tBody}</tbody></table>
-      <div style="margin-top:24px;font-size:9px;color:#bbb;text-align:right">Mythos CRM · ${new Date().toLocaleDateString('es-PY')}</div>
-      <script>window.onload=function(){window.print();}<\/script>
-    </body></html>`);
-    w.document.close();
-    toast('PDF abierto para imprimir');
-  }
-
-  // ── Quick export (lista visible) ──────────────
+  // ── Export de la lista visible ────────────────
   function buildExportRows(list) {
     const tipoName = new Map(types.map(t=>[t.id,t.name]));
     return list.map(c=>({
@@ -4746,22 +4510,23 @@ function ClientesPage({orders,embedded=false}) {
       'Email':               c.email||'',
       'CI / RUC':            c.ficha&&c.ficha.doc_number?`${(c.ficha.doc_type||'ci').toUpperCase()} ${c.ficha.doc_number}`:'',
       'Dirección':           c.ficha?.address||'',
-      'Tipos asignados':     (c.type_ids||[]).map(id=>tipoName.get(id)).filter(Boolean).join(', '),
+      'Clasificación':       (c.type_ids||[]).map(id=>tipoName.get(id)).filter(Boolean).join(', '),
       'Tiene ficha':         c.ficha?'Sí':'No',
-      'Tipo':                c.isVip?'VIP':c.registered?'Registrado':'Anónimo',
-      'Pedidos totales':     c.orders,
+      'Segmento':            c.isVip?'Alto consumo':c.orders>=FREQUENT_MIN_ORDERS?'Frecuente':c.registered?'Registrado':'Anónimo',
+      'Visitas':             c.orders,
       'Total gastado (₲)':  c.total,
       'Ticket promedio (₲)':c.ticket,
       'Pide factura':        c.pideFactura?'Sí':'No',
-      'Canal preferido':     ORDER_TYPES[c.preferred]||c.preferred||'—',
+      'Canal preferido':     CRM_ORDER_TYPES[c.preferred]||c.preferred||'—',
       'Mesa QR':             c.canalCount['mesa']||0,
+      'Salón':               c.canalCount['local']||0,
       'Para llevar':         c.canalCount['llevar']||0,
       'Delivery':            c.canalCount['delivery']||0,
       'Mostrador':           c.canalCount['counter']||0,
-      'Direcciones delivery':c.addresses.join(' | '),
-      'Mesas usadas':        c.tables.join(', '),
+      'Direcciones delivery':(c.addresses||[]).join(' | '),
+      'Mesas usadas':        (c.tables||[]).map(t=>`Mesa ${t}`).join(', '),
       'Primer pedido':       c.firstDate?fmtDate(c.firstDate):'',
-      'Último pedido':       c.lastDate?fmtDate(c.lastDate):'',
+      'Última visita':       c.neverOrdered?'':(c.lastDate?fmtDate(c.lastDate):''),
       'Días activo':         c.diasActivo,
     }));
   }
@@ -4769,9 +4534,9 @@ function ClientesPage({orders,embedded=false}) {
   function exportExcel() {
     if(!window.XLSX){toast('SheetJS no cargado',false);return;}
     const rows = buildExportRows(displayed);
+    if(!rows.length){toast('Sin datos',false);return;}
     const ws = XLSX.utils.json_to_sheet(rows);
-    const colW = Object.keys(rows[0]||{}).map(k=>({wch:Math.max(k.length,12)}));
-    ws['!cols']=colW;
+    ws['!cols']=Object.keys(rows[0]||{}).map(k=>({wch:Math.max(k.length,12)}));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Clientes');
     XLSX.writeFile(wb,`clientes_${todayLocal()}.xlsx`);
@@ -4782,7 +4547,7 @@ function ClientesPage({orders,embedded=false}) {
     const rows = buildExportRows(displayed);
     if(!rows.length){toast('Sin datos',false);return;}
     const headers = Object.keys(rows[0]);
-    const csv = [headers,...rows.map(r=>headers.map(h=>`"${(r[h]??'').toString().replace(/"/g,'""')}"`))].map(r=>Array.isArray(r)?r.join(','):r.join(',')).join('\n');
+    const csv = [headers.join(','),...rows.map(r=>headers.map(h=>`"${(r[h]??'').toString().replace(/"/g,'""')}"`).join(','))].join('\n');
     const a=document.createElement('a');
     a.href='data:text/csv;charset=utf-8,﻿'+encodeURIComponent(csv);
     a.download=`clientes_${todayLocal()}.csv`;
@@ -4791,11 +4556,12 @@ function ClientesPage({orders,embedded=false}) {
   }
 
   function exportPDF() {
-    const printWin = window.open('','_blank','width=900,height=700');
-    const restaurantName = window.SUPABASE_CONFIG?.restaurantName || '';
     const rows = buildExportRows(displayed);
+    if(!rows.length){toast('Sin datos',false);return;}
+    const printWin = window.open('','_blank','width=900,height=700');
+    const restaurantName = restaurant?.name || window.SUPABASE_CONFIG?.restaurantName || '';
     const fecha = new Date().toLocaleDateString('es-PY',{day:'2-digit',month:'2-digit',year:'numeric'});
-    const cols = ['Nombre','Teléfono','Email','Tipo','Pedidos totales','Total gastado (₲)','Ticket promedio (₲)','Pide factura','Canal preferido','Direcciones delivery'];
+    const cols = ['Nombre','Teléfono','Email','Clasificación','Segmento','Visitas','Total gastado (₲)','Ticket promedio (₲)','Canal preferido','Direcciones delivery'];
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Clientes — ${fecha}</title>
     <style>body{font-family:-apple-system,Arial,sans-serif;font-size:11px;color:#1D1D1F;margin:24px}
     h1{font-size:18px;font-weight:800;margin:0 0 4px}p{color:#6E6E73;margin:0 0 16px;font-size:11px}
@@ -4803,19 +4569,12 @@ function ClientesPage({orders,embedded=false}) {
     th{background:#1D1D1F;color:#fff;padding:6px 8px;text-align:left;font-weight:700;white-space:nowrap}
     td{padding:5px 8px;border-bottom:1px solid #E5E5EA;vertical-align:top}
     tr:nth-child(even)td{background:#F5F5F7}
-    .vip{background:#FFF4E0;color:#8A4B00;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}
-    .reg{background:#000;color:#fff;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}
-    .anon{background:#F5F5F7;color:#86868B;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700}
     @media print{@page{margin:1cm;size:A4 landscape}}</style></head>
-    <body><h1>Clientes${restaurantName?' — '+restaurantName:''}</h1><p>Exportado el ${fecha} · ${rows.length} cliente${rows.length!==1?'s':''} · Filtro: ${view}</p>
-    <table><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead>
+    <body><h1>Clientes${restaurantName?' — '+restaurantName:''}</h1><p>Exportado el ${fecha} · ${rows.length} cliente${rows.length!==1?'s':''}</p>
+    <table><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(r=>`<tr>${cols.map(c=>{
-      if(c==='Tipo'){
-        const cls=r[c]==='VIP'?'vip':r[c]==='Registrado'?'reg':'anon';
-        return `<td><span class="${cls}">${esc(r[c])}</span></td>`;
-      }
-      if(c==='Total gastado (₲)'||c==='Ticket promedio (₲)') return `<td style="text-align:right;font-family:monospace">₲ ${Number(r[c]).toLocaleString()}</td>`;
-      if(c==='Pedidos totales') return `<td style="text-align:right">${r[c]}</td>`;
+      if(c==='Total gastado (₲)'||c==='Ticket promedio (₲)') return `<td style="text-align:right;font-family:monospace">₲ ${Number(r[c]).toLocaleString('es-PY')}</td>`;
+      if(c==='Visitas') return `<td style="text-align:right">${esc(r[c])}</td>`;
       return `<td>${esc(r[c]||'—')}</td>`;
     }).join('')}</tr>`).join('')}</tbody></table>
     <script>window.onload=()=>{window.print();}<\/script></body></html>`;
@@ -4823,26 +4582,33 @@ function ClientesPage({orders,embedded=false}) {
     printWin.document.close();
   }
 
-  // ── Badge / UI helpers ────────────────────────
-  const TypeBadge = ({c}) => {
-    if(c.isVip) return <span style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>VIP</span>;
-    if(c.registered) return <span style={{background:C.ink,color:C.sidebar,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>REG</span>;
-    return <span style={{background:C.bg,border:`1px solid ${C.border}`,color:C.dim,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>ANÓN</span>;
-  };
+  // ── Helpers de presentación ───────────────────
+  // Los indicadores CALCULADOS quedan visualmente distintos de los tipos del
+  // local: son dos cosas distintas y confundirlas era el reclamo de origen.
+  const SegBadges = ({c}) => (
+    <>
+      {c.isVip&&<span style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,padding:'1px 5px',fontSize:9,fontWeight:700,borderRadius:3}}>ALTO CONSUMO</span>}
+      {c.orders>=FREQUENT_MIN_ORDERS&&<span style={{background:TINT.greenBg,color:C.green,padding:'1px 5px',fontSize:9,fontWeight:700,borderRadius:3}}>FRECUENTE</span>}
+      {c.pideFactura&&<span style={{background:TINT.blueBg,color:TINT.blueText,padding:'1px 5px',fontSize:9,fontWeight:700,borderRadius:3}}>FACTURA</span>}
+      {c.anonymous&&<span style={{background:C.bg,border:`1px solid ${C.border}`,color:C.dim,padding:'1px 5px',fontSize:9,fontWeight:700,borderRadius:3}}>ANÓNIMO</span>}
+      {c.ficha&&c.ficha.is_active===false&&<span style={{fontSize:9,fontWeight:700,color:C.dim,border:`1px solid ${C.border}`,padding:'1px 5px',borderRadius:3}}>DESACTIVADA</span>}
+    </>
+  );
 
   const CanalBar = ({canalCount}) => {
     const canales = Object.entries(canalCount).sort((a,b)=>b[1]-a[1]);
     if(!canales.length) return <span style={{color:C.dim,fontSize:11}}>—</span>;
     return <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
       {canales.map(([k,v])=>(
-        <span key={k} style={{background:CANAL_COLOR[k]||'#8E8E93',color:'#fff',padding:'1px 6px',borderRadius:10,fontSize:9,fontWeight:700,whiteSpace:'nowrap'}}>
-<Icon name={CANAL_ICON[k]} size={12} style={{verticalAlign:'-2px',marginRight:3}}/> {ORDER_TYPES[k]||k}{v>1?` ×${v}`:''}
+        <span key={k} style={{background:CRM_CANAL_COLOR[k]||'#8E8E93',color:'#fff',padding:'1px 6px',borderRadius:10,fontSize:9,fontWeight:700,whiteSpace:'nowrap'}}>
+          <Icon name={CRM_CANAL_ICON[k]} size={12} style={{verticalAlign:'-2px',marginRight:3}}/> {CRM_ORDER_TYPES[k]||k}{v>1?` ×${v}`:''}
         </span>
       ))}
     </div>;
   };
 
   const totalCanalOrds = Object.values(byCanal).reduce((s,v)=>s+v,0)||1;
+  const conFicha = clientMap.filter(c=>c.ficha).length;
 
   return (
     <div className={embedded?'':'page'}>
@@ -4850,18 +4616,23 @@ function ClientesPage({orders,embedded=false}) {
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}}>
         <div>
           {!embedded&&<h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Clientes</h1>}
-          <div style={{fontSize:11,color:C.dim,marginTop:2}}>Base de clientes · segmentación · exportación de datos</div>
+          <div style={{fontSize:11,color:C.dim,marginTop:2}}>
+            Contactos, visitas y consumo real · la ficha se edita sólo desde acá
+          </div>
         </div>
         <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+          {setPage&&(
+            <Btn variant="secondary" small onClick={()=>setPage('reportes')}>Reportes de clientes →</Btn>
+          )}
           <Btn variant="secondary" small onClick={()=>setTiposOpen(v=>!v)}>Tipos de cliente</Btn>
-          <Btn variant="secondary" small onClick={exportCSV}>↓ CSV rápido</Btn>
-          <Btn variant="secondary" small onClick={exportExcel}>↓ Excel rápido</Btn>
-          <Btn variant="secondary" small onClick={exportPDF}>↓ PDF rápido</Btn>
+          <Btn variant="secondary" small onClick={exportCSV}>↓ CSV</Btn>
+          <Btn variant="secondary" small onClick={exportExcel}>↓ Excel</Btn>
+          <Btn variant="secondary" small onClick={exportPDF}>↓ PDF</Btn>
           <Btn small onClick={()=>setNuevoOpen(true)}>+ Nuevo cliente</Btn>
         </div>
       </div>
 
-      {/* ── Aviso: la mig 196 todavía no está aplicada ── */}
+      {/* ── Avisos de migraciones pendientes ── */}
       {crmMissing&&(
         <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,
                      borderRadius:8,padding:'10px 14px',fontSize:12.5,marginBottom:12}}>
@@ -4869,14 +4640,22 @@ function ClientesPage({orders,embedded=false}) {
           crear ni clasificar clientes.
         </div>
       )}
+      {statsMissing&&!crmMissing&&(
+        <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,
+                     borderRadius:8,padding:'10px 14px',fontSize:12.5,marginBottom:12}}>
+          Falta aplicar la migración <b>197</b>: las visitas y el consumo se están calculando sobre los
+          últimos 500 pedidos, así que a los clientes con mucha historia les faltan visitas y gasto.
+          Al aplicarla, los números pasan a salir de la base sobre el historial completo.
+        </div>
+      )}
 
-      {/* ── Catálogo de tipos (VIP, Recurrente, los que el local quiera) ── */}
+      {/* ── Catálogo de tipos: LA clasificación del local ── */}
       {tiposOpen&&(
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18,marginBottom:14}}>
           <div style={{fontSize:14,fontWeight:700,color:C.ink,marginBottom:2}}>Tipos de cliente</div>
           <div style={{fontSize:11.5,color:C.dim,marginBottom:14}}>
-            Son tuyos: creá, renombrá o borrá los que quieras. Un cliente puede tener más de uno.
-            Borrar un tipo no borra ninguna ficha.
+            Son tuyos: creá, renombrá o borrá los que quieras. Un cliente puede tener más de uno y con
+            estos mismos tipos se filtra la lista de abajo. Borrar un tipo no borra ninguna ficha.
           </div>
           <TiposManager db={db} restaurantId={RID} types={types} onChange={setTypes} onToast={toast}/>
         </div>
@@ -4884,31 +4663,31 @@ function ClientesPage({orders,embedded=false}) {
 
       {/* ── KPIs ── */}
       <div style={{display:'flex',gap:10,marginBottom:10,flexWrap:'wrap'}}>
-        <KpiCard label="Clientes únicos"  value={clientMap.length}                           sub="en el período"/>
-        <KpiCard label="Con ficha"        value={clientMap.filter(c=>c.ficha).length}        sub="alta registrada" accent={C.green}/>
-        <KpiCard label="Registrados"      value={clientMap.filter(c=>c.registered).length}   sub="con nombre" accent={C.green}/>
-        <KpiCard label="Anónimos"         value={anonimos.length}                            sub="sin identificar" accent={C.mid}/>
-        <KpiCard label="Frecuentes"       value={frecuentes.length}                          sub="3+ pedidos" accent={C.green}/>
-        <KpiCard label="VIP"              value={vip.length}                                 sub={`+₲${(VIP_THRESHOLD/1000).toFixed(0)}k`} accent={C.orange}/>
-        <KpiCard label="Piden factura"    value={conFactura.length}                          sub="RUC / factura" accent={'#007AFF'}/>
-        <KpiCard label="Inactivos"        value={inactivos.length}                           sub="+30 días" accent={inactivos.length>5?C.red:C.mid}/>
-        <KpiCard label="Total consumido"  value={fmt(totalConsumed)}                         sub="en el período" accent={C.green}/>
+        <KpiCard label="Clientes"        value={clientMap.length}   sub={periodF==='todos'?'histórico':'en el período'}/>
+        <KpiCard label="Contactos"       value={conFicha}           sub="con ficha registrada" accent={C.green}/>
+        <KpiCard label="Visitas"         value={totalVisitas}       sub="pedidos identificados" accent={'#007AFF'}/>
+        <KpiCard label="Total consumido" value={fmt(totalConsumed)} sub="en el período" accent={C.green}/>
+        <KpiCard label="Ticket promedio" value={fmt(totalVisitas?Math.round(totalConsumed/totalVisitas):0)} sub="por visita"/>
+        <KpiCard label="Frecuentes"      value={frecuentes.length}  sub={`${FREQUENT_MIN_ORDERS}+ visitas`} accent={C.green}/>
+        <KpiCard label="Alto consumo"    value={vip.length}         sub={`+₲${(VIP_THRESHOLD/1000).toFixed(0)}k`} accent={C.orange}/>
+        <KpiCard label="Inactivos"       value={inactivos.length}   sub={`+${INACTIVE_DAYS} días`} accent={inactivos.length>5?C.red:C.mid}/>
+        <KpiCard label="Anónimos"        value={anonimos.length}    sub="sin identificar" accent={C.mid}/>
       </div>
 
       {/* ── Distribución por canal ── */}
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px',marginBottom:10}}>
-        <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>DISTRIBUCIÓN POR CANAL (clientes con preferencia)</div>
+        <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>DISTRIBUCIÓN POR CANAL (clientes según su canal preferido)</div>
         <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center'}}>
-          {Object.entries(ORDER_TYPES).map(([k,v])=>{
+          {Object.entries(CRM_ORDER_TYPES).filter(([k])=>byCanal[k]||['mesa','llevar','delivery','counter'].includes(k)).map(([k,v])=>{
             const count=byCanal[k]||0;
             const pct=Math.round(count/totalCanalOrds*100);
             return (
               <div key={k} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,minWidth:70}}>
-                <div style={{display:'flex'}}><Icon name={CANAL_ICON[k]} size={18}/></div>
-                <div style={{fontSize:11,fontWeight:700,color:CANAL_COLOR[k]}}>{count}</div>
+                <div style={{display:'flex'}}><Icon name={CRM_CANAL_ICON[k]} size={18}/></div>
+                <div style={{fontSize:11,fontWeight:700,color:CRM_CANAL_COLOR[k]}}>{count}</div>
                 <div style={{fontSize:10,color:C.mid,textAlign:'center',lineHeight:1.2}}>{v}</div>
                 <div style={{width:60,height:4,background:C.card,borderRadius:2}}>
-                  <div style={{width:`${pct}%`,height:'100%',background:CANAL_COLOR[k],borderRadius:2}}/>
+                  <div style={{width:`${pct}%`,height:'100%',background:CRM_CANAL_COLOR[k],borderRadius:2}}/>
                 </div>
                 <div style={{fontSize:9,color:C.dim}}>{pct}%</div>
               </div>
@@ -4924,117 +4703,52 @@ function ClientesPage({orders,embedded=false}) {
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:0.8,marginBottom:6}}>{lbl}</div>
             {top?<>
               <div style={{fontSize:14,fontWeight:700,color:C.ink,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{top.name}</div>
-              {top.phone&&<div style={{fontSize:11,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace",marginTop:1}}>{top.phone}</div>}
-              {top.email&&<div style={{fontSize:10,color:C.dim,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{top.email}</div>}
+              {top.phone&&<div style={{fontSize:11,color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace",marginTop:1}}>{custPhone(top.phone)}</div>}
               <div style={{fontSize:12,color:C.orange,marginTop:4,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{fmt(top.total)}</div>
-              <div style={{fontSize:10,color:C.dim}}>{top.orders} pedido{top.orders!==1?'s':''} · {ORDER_TYPES[top.canal]||top.canal||'—'}</div>
+              <div style={{fontSize:10,color:C.dim}}>{top.orders} visita{top.orders!==1?'s':''} · {CRM_ORDER_TYPES[top.canal]||top.canal||'—'}</div>
             </>:<div style={{fontSize:12,color:C.dim}}>Sin datos</div>}
           </div>
         ))}
       </div>
 
-      {/* ══ PANEL REPORTES CRM ══ */}
-      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:20,marginBottom:20}}>
-        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
-          <div style={{width:32,height:32,borderRadius:8,background:'rgba(0,0,0,0.06)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>♦</div>
-          <div>
-            <div style={{fontSize:15,fontWeight:700}}>Reportes CRM</div>
-            <div style={{fontSize:11,color:C.dim}}>Generá reportes por tipo y período — exportable en PDF, Excel y CSV</div>
-          </div>
-        </div>
-
-        <div style={{marginBottom:14}}>
-          <div style={{fontSize:11,fontWeight:600,color:C.mid,marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Tipo de reporte</div>
-          <select value={rType} onChange={e=>{setRType(e.target.value);setReportRows(null);setReportSummary(null);}} style={{width:'100%',maxWidth:480,padding:'9px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,background:C.surface,color:C.ink}}>
-            <option value="">— Seleccioná un tipo de reporte CRM —</option>
-            {REPORT_DEFS.map(r=><option key={r.id} value={r.id}>{r.label}</option>)}
-          </select>
-          {selDef&&<div style={{fontSize:11,color:C.dim,marginTop:4}}>{selDef.desc}</div>}
-        </div>
-
-        <div style={{display:'flex',gap:14,alignItems:'flex-end',flexWrap:'wrap',marginBottom:16}}>
-          <div>
-            <div style={{fontSize:11,fontWeight:600,color:C.mid,marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Fecha desde</div>
-            <input type="text" value={fromStr} onChange={e=>setFromStr(e.target.value)} placeholder="dd/mm/aaaa" style={{padding:'8px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,width:145,background:C.surface,color:C.ink}}/>
-          </div>
-          <div>
-            <div style={{fontSize:11,fontWeight:600,color:C.mid,marginBottom:5,letterSpacing:.5,textTransform:'uppercase'}}>Fecha hasta</div>
-            <input type="text" value={toStr} onChange={e=>setToStr(e.target.value)} placeholder="dd/mm/aaaa" style={{padding:'8px 12px',borderRadius:8,fontSize:13,border:`1px solid ${C.border}`,width:145,background:C.surface,color:C.ink}}/>
-          </div>
-          <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-            <button onClick={generateReport} disabled={reportLoading} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 18px',background:C.ink,color:C.sidebar,border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',opacity:reportLoading?0.7:1}}>
-              {reportLoading&&<span className="spin"/>}{reportLoading?'Generando…':'♦ Generar reporte'}
-            </button>
-            {reportRows&&<>
-              <button onClick={exportReportPDF} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#FF3B30',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ PDF</button>
-              <button onClick={exportReportXLS} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:'#34C759',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ Excel</button>
-              <button onClick={exportReportCSV} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'9px 16px',background:C.ink,color:C.surface,border:'none',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}}>↓ CSV</button>
-              <button onClick={()=>{setReportRows(null);setReportSummary(null);setReportTitle('');}} style={{padding:'9px 14px',background:'transparent',color:C.mid,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:'pointer'}}>✕</button>
-            </>}
-          </div>
-        </div>
-
-        {reportSummary&&(
-          <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:16}}>
-            {reportSummary.map((s,i)=>(
-              <div key={i} style={{flex:'1 1 160px',background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',borderLeft:`3px solid ${s.color}`}}>
-                <div style={{fontSize:11,color:C.mid,marginBottom:4,textTransform:'uppercase',letterSpacing:.5,fontWeight:600}}>{s.label}</div>
-                <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.value}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {reportRows&&(
-          <div style={{overflowX:'auto',borderRadius:8,border:`1px solid ${C.border}`}}>
-            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-              <thead>
-                <tr>{reportRows.cols.map((col,i)=><th key={i} style={{background:C.ink,color:C.surface,padding:'8px 12px',textAlign:'left',fontWeight:700,fontSize:11,whiteSpace:'nowrap'}}>{col}</th>)}</tr>
-              </thead>
-              <tbody>
-                {reportRows.data.map((r,ri)=>(
-                  <tr key={ri} style={{background:ri%2===0?C.surface:'var(--bg-subtle)',borderBottom:`1px solid ${C.border}`}}>
-                    {r.map((v,vi)=><td key={vi} style={{padding:'7px 12px',color:C.ink}}>{v}</td>)}
-                  </tr>
-                ))}
-                {reportRows.data.length===0&&<tr><td colSpan={reportRows.cols.length} style={{textAlign:'center',padding:28,color:C.dim,fontSize:13}}>Sin datos en el período seleccionado</td></tr>}
-              </tbody>
-            </table>
-            <div style={{padding:'8px 14px',fontSize:11,color:C.dim,borderTop:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
-              {reportRows.data.length} registro{reportRows.data.length!==1?'s':''} · {selDef?.label} · {fromStr} al {toStr}
-            </div>
-          </div>
-        )}
-
-        {!reportRows&&(
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:10,marginTop:4}}>
-            {REPORT_DEFS.map(r=>(
-              <button key={r.id} onClick={()=>{setRType(r.id);setReportRows(null);setReportSummary(null);}} style={{textAlign:'left',padding:'12px 14px',background:rType===r.id?C.ink:C.white,border:`1px solid ${rType===r.id?C.ink:C.border}`,borderRadius:8,cursor:'pointer'}}>
-                <div style={{fontSize:13,fontWeight:600,color:rType===r.id?C.sidebar:C.ink,marginBottom:3}}>{r.label}</div>
-                <div style={{fontSize:11,color:rType===r.id?'rgba(255,255,255,0.55)':C.dim,lineHeight:1.3}}>{r.desc}</div>
-              </button>
-            ))}
-          </div>
-        )}
+      {/* ── Filtros ── */}
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:10,overflowX:'auto'}}>
+        {[['todos','Todos'],['contactos',`Contactos (${conFicha})`],['sin_ficha','Sin ficha'],['anonimos',`Anónimos (${anonimos.length})`]].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?C.ink:C.dim,padding:'8px 14px',fontSize:12.5,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1,whiteSpace:'nowrap'}}>{lbl}</button>
+        ))}
       </div>
 
-      {/* ── Filtros lista visual ── */}
-      <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
-        <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,overflowX:'auto'}}>
-          {[['todos','Todos'],['fichas','Con ficha'],['sin_ficha','Sin ficha'],['frecuentes','Frecuentes'],['vip','VIP'],['inactivos','Inactivos'],['factura','Factura'],['anonimos','Anónimos'],['delivery','Delivery'],['mesa','QR Mesa'],['llevar','Para llevar']].map(([id,lbl])=>(
-            <button key={id} onClick={()=>setView(id)} style={{background:'none',border:'none',color:view===id?C.ink:C.dim,padding:'7px 12px',fontSize:12,fontWeight:view===id?700:400,borderBottom:view===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1,whiteSpace:'nowrap'}}>{lbl}</button>
-          ))}
+      {/* Clasificación: los tipos REALES del local, no una lista fija.
+          Si el dueño renombra "VIP" a "Socio Oro", acá dice "Socio Oro". */}
+      {types.length>0&&(
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:10}}>
+          <span style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginRight:2}}>CLASIFICACIÓN</span>
+          {[{id:'todos',name:'Todas',color:C.mid},...types,{id:'sin_tipo',name:'Sin clasificar',color:C.dim}].map(t=>{
+            const on = tipoF===t.id;
+            const col = t.color||'#8E8E93';
+            const n = t.id==='todos' ? clientMap.length
+                    : t.id==='sin_tipo' ? clientMap.filter(c=>!(c.type_ids||[]).length).length
+                    : clientMap.filter(c=>(c.type_ids||[]).includes(t.id)).length;
+            return (
+              <button key={t.id} onClick={()=>setTipoF(t.id)} style={{
+                padding:'5px 11px',borderRadius:999,cursor:'pointer',fontSize:11.5,fontWeight:700,fontFamily:'inherit',
+                border:`1px solid ${on?col:C.border}`,background:on?col:'transparent',color:on?'#fff':C.mid,
+              }}>{t.name} <span style={{opacity:.7,fontWeight:500}}>{n}</span></button>
+            );
+          })}
         </div>
-        <select value={tipoF} onChange={e=>setTipoF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
-          <option value="todos">Todos los tipos</option>
-          {types.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+      )}
+
+      <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+        <select value={segF} onChange={e=>setSegF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
+          {CRM_SEGMENTS.map(([id,lbl])=><option key={id} value={id}>{lbl}</option>)}
         </select>
         <select value={canalF} onChange={e=>setCanalF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
           <option value="todos">Todos los canales</option>
-          {Object.entries(ORDER_TYPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}
+          {Object.entries(CRM_ORDER_TYPES).map(([k,v])=><option key={k} value={k}>{v}</option>)}
         </select>
         <select value={periodF} onChange={e=>setPeriodF(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
-          <option value="todos">Todo el tiempo</option>
+          <option value="todos">Todo el historial</option>
           <option value="hoy">Hoy</option>
           <option value="semana">Esta semana</option>
           <option value="mes">Este mes</option>
@@ -5045,257 +4759,98 @@ function ClientesPage({orders,embedded=false}) {
           <input type="checkbox" checked={showInactive} onChange={e=>setShowInactive(e.target.checked)}/>
           Ver desactivadas
         </label>
-        <span style={{fontSize:11,color:C.dim,marginLeft:'auto'}}>{displayed.length} cliente{displayed.length!==1?'s':''}</span>
+        <span style={{fontSize:11,color:C.dim,marginLeft:'auto',display:'flex',alignItems:'center',gap:6}}>
+          {statsLoading&&<span className="spin"/>}
+          {displayed.length} cliente{displayed.length!==1?'s':''}
+        </span>
       </div>
 
       {/* ── Tabla de clientes ── */}
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',minWidth:860}}>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
           <thead>
             <tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
               <Th>Cliente</Th>
               <Th>Contacto</Th>
-              <Th>Tipo</Th>
-              <Th right>Pedidos</Th>
+              <Th>Clasificación</Th>
+              <Th right>Visitas</Th>
               <Th right>Total gastado</Th>
               <Th right>Ticket prom.</Th>
               <Th>Canales usados</Th>
               <Th>Dirección delivery</Th>
-              <Th>Último pedido</Th>
+              <Th>Última visita</Th>
             </tr>
           </thead>
           <tbody>
-            {displayed.map((c,i)=>{
+            {displayed.map((c)=>{
               const diasInactivo=c.neverOrdered?null:Math.floor((now-new Date(c.lastDate).getTime())/864e5);
               return (
-                <tr key={i} onClick={()=>{setDetalle(c);setDetalleOrders(c.orderHistory.slice(0,10));}} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer',opacity:c.ficha&&c.ficha.is_active===false?.5:1}} onMouseEnter={e=>e.currentTarget.style.background='var(--surface-hover)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                <tr key={c.key} onClick={()=>setDetalle(c)} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer',opacity:c.ficha&&c.ficha.is_active===false?.5:1}} onMouseEnter={e=>e.currentTarget.style.background='var(--surface-hover)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                   <Td>
                     <div style={{fontWeight:700,fontSize:13,color:C.ink}}>{c.name}</div>
                     <div style={{display:'flex',gap:3,marginTop:3,flexWrap:'wrap',alignItems:'center'}}>
-                      <TipoBadges typeIds={c.type_ids} types={types}/>
-                      {c.pideFactura&&<span style={{fontSize:9,fontWeight:700,color:TINT.blueText,background:TINT.blueBg,padding:'1px 4px',borderRadius:3}}>FACTURA</span>}
-                      {c.orders>=3&&!c.isVip&&<span style={{fontSize:9,fontWeight:700,color:C.green,background:TINT.greenBg,padding:'1px 4px',borderRadius:3}}>FRECUENTE</span>}
-                      {c.addresses.length>0&&<span style={{fontWeight:700,color:'#FF9500',background:TINT.amberBg,padding:'2px 4px',borderRadius:3,display:'inline-flex'}}><Icon name="bike" size={10}/></span>}
-                      {c.ficha&&c.ficha.is_active===false&&<span style={{fontSize:9,fontWeight:700,color:C.dim,border:`1px solid ${C.border}`,padding:'1px 4px',borderRadius:3}}>DESACTIVADA</span>}
+                      <SegBadges c={c}/>
                     </div>
                   </Td>
                   <Td>
-                    <div style={{fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",color:c.phone?'#1D1D1F':'#D2D2D7'}}>{c.phone||'—'}</div>
-                    {c.email&&<div style={{fontSize:11,color:C.dim,marginTop:1,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.email}</div>}
+                    <div style={{fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",color:c.phone?C.ink:C.dim}}>{c.phone?custPhone(c.phone):'—'}</div>
+                    {c.email&&<div style={{fontSize:11,color:C.dim,marginTop:1,maxWidth:170,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.email}</div>}
+                    {c.ficha?.doc_number&&<div style={{fontSize:10.5,color:C.dim,marginTop:1,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{(c.ficha.doc_type||'ci').toUpperCase()} {c.ficha.doc_number}</div>}
                   </Td>
-                  <Td><TypeBadge c={c}/></Td>
-                  <Td right><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color:c.orders>=3?C.green:C.ink,fontSize:14}}>{c.orders}</span></Td>
+                  <Td>
+                    {(c.type_ids||[]).length
+                      ? <TipoBadges typeIds={c.type_ids} types={types}/>
+                      : <span style={{fontSize:11,color:C.dim}}>{c.ficha?'Sin clasificar':'—'}</span>}
+                  </Td>
+                  <Td right><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,color:c.orders>=FREQUENT_MIN_ORDERS?C.green:C.ink,fontSize:14}}>{c.orders}</span></Td>
                   <Td mono right><span style={{fontWeight:700,color:c.isVip?C.orange:C.ink}}>{fmt(c.total)}</span></Td>
                   <Td mono right><span style={{color:C.mid}}>{fmt(c.ticket)}</span></Td>
                   <Td><CanalBar canalCount={c.canalCount}/></Td>
                   <Td>
-                    {c.addresses.length>0
-                      ?<div style={{fontSize:11,color:'#FF9500',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={c.addresses.join(' | ')}><Icon name="bike" size={11} style={{verticalAlign:'-2px',marginRight:2}}/> {c.addresses[0]}{c.addresses.length>1?` +${c.addresses.length-1}`:''}</div>
+                    {(c.addresses||[]).length>0
+                      ?<div style={{fontSize:11,color:'#FF9500',maxWidth:170,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={c.addresses.join(' | ')}><Icon name="bike" size={11} style={{verticalAlign:'-2px',marginRight:2}}/> {c.addresses[0]}{c.addresses.length>1?` +${c.addresses.length-1}`:''}</div>
                       :<span style={{color:C.dim,fontSize:11}}>—</span>
                     }
                   </Td>
                   <Td>
                     {c.neverOrdered
-                      ?<span style={{color:C.dim,fontSize:12}}>Sin pedidos aún</span>
+                      ?<span style={{color:C.dim,fontSize:12}}>Sin visitas aún</span>
                       :<>
-                        <span style={{color:diasInactivo>30?C.orange:C.mid,fontSize:12}}>{fmtDate(c.lastDate)}</span>
+                        <span style={{color:diasInactivo>INACTIVE_DAYS?C.orange:C.mid,fontSize:12}}>{fmtDate(c.lastDate)}</span>
                         {diasInactivo>0&&<div style={{color:C.dim,fontSize:10}}>{diasInactivo}d atrás</div>}
                       </>}
                   </Td>
                 </tr>
               );
             })}
-            {displayed.length===0&&<EmptyRow cols={9} label="Sin clientes en este filtro"/>}
+            {displayed.length===0&&<EmptyRow cols={9} label={statsLoading?'Cargando…':'Sin clientes en este filtro'}/>}
           </tbody>
         </table>
       </div>
-      {clientMap.length===0&&<div style={{marginTop:12,fontSize:12,color:C.dim,padding:'10px 14px',background:C.bg,borderRadius:8}}>Los pedidos deben incluir nombre del cliente para aparecer aquí.</div>}
+      {clientMap.length===0&&!statsLoading&&(
+        <div style={{marginTop:12,fontSize:12,color:C.dim,padding:'10px 14px',background:C.bg,borderRadius:8}}>
+          Todavía no hay clientes. Los pedidos con nombre aparecen solos, y con <b>+ Nuevo cliente</b> podés
+          cargar contactos a mano aunque nunca hayan comprado.
+        </div>
+      )}
 
-      {/* ── Modal detalle cliente ── */}
+      {/* ── Detalle ── */}
       {detalle&&(
-        <Modal title="" onClose={()=>setDetalle(null)} width={580}>
-          <div style={{display:'flex',flexDirection:'column',gap:16}}>
-
-            {/* Header */}
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
-              <div>
-                <div style={{fontSize:20,fontWeight:800,color:C.ink}}>{detalle.name}</div>
-                <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap',alignItems:'center'}}>
-                  <TipoBadges typeIds={detalle.type_ids} types={types} size="md"/>
-                  <TypeBadge c={detalle}/>
-                  {detalle.orders>=3&&<span style={{background:TINT.greenBg,color:C.green,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>FRECUENTE</span>}
-                  {isFreqReg(detalle.phone)&&<span style={{background:'rgba(255,149,0,0.14)',color:'#FF9500',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>★ REGISTRADO</span>}
-                  {detalle.pideFactura&&<span style={{background:TINT.blueBg,color:TINT.blueText,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>PIDE FACTURA</span>}
-                  {(detalle.canalCount['delivery']||0)>0&&<span style={{background:TINT.amberBg,color:'#FF9500',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="bike" size={10}/> DELIVERY</span>}
-                </div>
-              </div>
-              <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',flexShrink:0}}>
-                {/* La ficha (mig 196) es lo editable; si el cliente sólo existe
-                    como nombre en pedidos viejos, se le crea una con esos datos. */}
-                <button onClick={()=>{
-                  if(detalle.ficha){ setEditando(detalle.ficha); return; }
-                  const partes=(detalle.name||'').trim().split(/\s+/);
-                  setEditando({__nuevo:true, prefill:{
-                    first_name:partes[0]||'', last_name:partes.slice(1).join(' '),
-                    phone:detalle.phone||'', email:detalle.email||'',
-                    address:(detalle.addresses||[])[0]||'',
-                  }});
-                }} style={{background:C.ink,color:C.sidebar,border:'none',padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
-                  {detalle.ficha?'Editar ficha':'Crear ficha'}
-                </button>
-                {detalle.ficha&&detalle.ficha.is_active!==false&&(
-                  <button onClick={()=>bajaFicha(detalle.ficha)} style={{background:'transparent',color:C.red,border:`1px solid ${C.border}`,padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
-                    Desactivar
-                  </button>
-                )}
-                {detalle.ficha&&detalle.ficha.is_active===false&&(
-                  <button onClick={()=>altaFicha(detalle.ficha)} style={{background:'transparent',color:C.green,border:`1px solid ${C.border}`,padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
-                    Reactivar
-                  </button>
-                )}
-                {detalle.phone&&(
-                  <button onClick={()=>toggleFrequent(detalle)} title="Los clientes frecuentes pueden pagar en efectivo en delivery" style={{display:'flex',alignItems:'center',gap:6,background:isFreqReg(detalle.phone)?'#FF9500':'transparent',color:isFreqReg(detalle.phone)?'#fff':C.mid,border:`1px solid ${isFreqReg(detalle.phone)?'#FF9500':C.border}`,padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
-                    {isFreqReg(detalle.phone)?'★ Frecuente':'☆ Marcar frecuente'}
-                  </button>
-                )}
-                {detalle.phone&&(
-                  <a href={`https://wa.me/595${detalle.phone.replace(/\D/g,'').replace(/^0/,'').replace(/^595/,'')}`} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',gap:6,background:'#25D366',color:'#fff',padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:700,textDecoration:'none',whiteSpace:'nowrap'}}>
-                    <Icon name="chat" size={14}/> WhatsApp
-                  </a>
-                )}
-              </div>
-            </div>
-
-            {/* Datos de contacto */}
-            <div style={{background:C.bg,borderRadius:10,padding:14}}>
-              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>DATOS DE CONTACTO</div>
-              <div className="my-row-2" style={{gap:8}}>
-                <div>
-                  <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Teléfono</div>
-                  <div style={{fontSize:13,fontWeight:600,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{detalle.phone||<span style={{color:C.dim}}>—</span>}</div>
-                </div>
-                <div>
-                  <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Email</div>
-                  <div style={{fontSize:13,fontWeight:600,wordBreak:'break-all'}}>{detalle.email||<span style={{color:C.dim}}>—</span>}</div>
-                </div>
-                {/* Datos que sólo existen si hay ficha (mig 196) */}
-                {detalle.ficha&&(
-                  <div>
-                    <div style={{fontSize:10,color:C.dim,marginBottom:2}}>CI / RUC</div>
-                    <div style={{fontSize:13,fontWeight:600,fontFamily:"'SF Mono',ui-monospace,monospace"}}>
-                      {detalle.ficha.doc_number?`${(detalle.ficha.doc_type||'ci').toUpperCase()} ${detalle.ficha.doc_number}`:<span style={{color:C.dim}}>—</span>}
-                    </div>
-                  </div>
-                )}
-                {detalle.ficha&&detalle.ficha.address&&(
-                  <div style={{gridColumn:'1/-1'}}>
-                    <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Dirección de la ficha</div>
-                    <div style={{fontSize:13}}>{detalle.ficha.address}
-                      {detalle.ficha.address_reference&&<span style={{color:C.dim}}> · {detalle.ficha.address_reference}</span>}
-                    </div>
-                  </div>
-                )}
-                {detalle.ficha&&detalle.ficha.notes&&(
-                  <div style={{gridColumn:'1/-1'}}>
-                    <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Notas</div>
-                    <div style={{fontSize:13,whiteSpace:'pre-wrap'}}>{detalle.ficha.notes}</div>
-                  </div>
-                )}
-                {detalle.addresses.length>0&&(
-                  <div style={{gridColumn:'1/-1'}}>
-                    <div style={{fontSize:10,color:C.dim,marginBottom:4}}>Direcciones de delivery ({detalle.addresses.length})</div>
-                    {detalle.addresses.map((a,i)=>(
-                      <div key={i} style={{fontSize:12,padding:'5px 10px',background:TINT.amberBg,borderRadius:6,marginBottom:4,display:'flex',alignItems:'center',gap:6}}>
-                        <span style={{display:'inline-flex'}}><Icon name="bike" size={13}/></span><span style={{flex:1}}>{a}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {detalle.tables.length>0&&(
-                  <div>
-                    <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Mesas usadas</div>
-                    <div style={{fontSize:13}}>{detalle.tables.map(n=>`Mesa ${n}`).join(', ')}</div>
-                  </div>
-                )}
-                {Object.keys(detalle.paymentMethods).length>0&&(
-                  <div>
-                    <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Formas de pago</div>
-                    <div style={{fontSize:12}}>{Object.entries(detalle.paymentMethods).map(([k,v])=>`${k} (${v}×)`).join(', ')}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Estadísticas */}
-            <div className="my-row-4" style={{gap:8}}>
-              {[
-                ['Total gastado',fmt(detalle.total),C.orange],
-                ['Pedidos',detalle.orders,'#000'],
-                ['Ticket prom.',fmt(detalle.ticket),'#000'],
-                ['Días activo',detalle.diasActivo+' d','#6E6E73'],
-              ].map(([lbl,val,clr])=>(
-                <div key={lbl} style={{background:C.bg,borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
-                  <div style={{fontSize:15,fontWeight:800,color:clr,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{val}</div>
-                  <div style={{fontSize:10,color:C.dim,marginTop:3}}>{lbl}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Canales */}
-            <div>
-              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>CANALES UTILIZADOS</div>
-              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-                {Object.entries(detalle.canalCount).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
-                  const pct = Math.round(v/detalle.orders*100);
-                  return (
-                    <div key={k} style={{background:C.bg,borderRadius:8,padding:'8px 12px',minWidth:90,textAlign:'center'}}>
-                      <div style={{marginBottom:2,display:'flex',justifyContent:'center'}}><Icon name={CANAL_ICON[k]||'package'} size={20}/></div>
-                      <div style={{fontSize:12,fontWeight:700,color:CANAL_COLOR[k]||'#000'}}>{v} pedido{v!==1?'s':''}</div>
-                      <div style={{fontSize:10,color:C.dim}}>{ORDER_TYPES[k]||k}</div>
-                      <div style={{fontSize:10,color:C.dim}}>{pct}%</div>
-                    </div>
-                  );
-                })}
-                {!Object.keys(detalle.canalCount).length&&<span style={{color:C.dim,fontSize:12}}>Sin datos</span>}
-              </div>
-            </div>
-
-            {/* Actividad */}
-            <div style={{background:C.bg,borderRadius:10,padding:14}}>
-              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>ACTIVIDAD</div>
-              <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
-                <div><div style={{fontSize:10,color:C.dim}}>Primer pedido</div><div style={{fontSize:13,fontWeight:600}}>{fmtDate(detalle.firstDate)}</div></div>
-                <div><div style={{fontSize:10,color:C.dim}}>Último pedido</div><div style={{fontSize:13,fontWeight:600}}>{fmtDate(detalle.lastDate)} <span style={{fontSize:11,color:C.dim}}>({Math.floor((now-new Date(detalle.lastDate).getTime())/864e5)}d)</span></div></div>
-                {detalle.pideFactura&&<div><div style={{fontSize:10,color:C.dim}}>Facturas solicitadas</div><div style={{fontSize:13,fontWeight:600,color:'#007AFF'}}>{detalle.facturaCount}×</div></div>}
-              </div>
-            </div>
-
-            {/* Historial pedidos */}
-            {detalleOrders.length>0&&(
-              <div>
-                <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>ÚLTIMOS PEDIDOS</div>
-                <div style={{background:C.bg,borderRadius:10,overflow:'hidden'}}>
-                  {detalleOrders.map((o,i)=>(
-                    <div key={o.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderBottom:i<detalleOrders.length-1?`1px solid ${C.border}`:'none'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:8}}>
-                        <span style={{display:'inline-flex'}}><Icon name={CANAL_ICON[o.type]||'package'} size={14}/></span>
-                        <div>
-                          <div style={{fontSize:12,fontWeight:600,color:C.ink}}>{o.num?`#${o.num}`:o.id.slice(0,8)}</div>
-                          <div style={{fontSize:10,color:C.dim}}>{fmtDate(o.date)} · {ORDER_TYPES[o.type]||o.type||'—'}</div>
-                        </div>
-                      </div>
-                      <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:13,fontWeight:700,color:C.ink}}>{fmt(o.total)}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div style={{display:'flex',justifyContent:'flex-end',gap:8}}>
-              <Btn variant="secondary" onClick={()=>setDetalle(null)}>Cerrar</Btn>
-            </div>
-          </div>
-        </Modal>
+        <ClienteDetalleModal
+          cliente={detalle} types={types} orders={orders} restaurant={restaurant}
+          isFreq={isFreqReg(detalle.phone)} onToggleFreq={()=>toggleFrequent(detalle)}
+          onClose={()=>setDetalle(null)}
+          onEdit={()=>{
+            if(detalle.ficha){ setEditando(detalle.ficha); return; }
+            const partes=(detalle.name||'').trim().split(/\s+/);
+            setEditando({__nuevo:true, prefill:{
+              first_name:partes[0]||'', last_name:partes.slice(1).join(' '),
+              phone:detalle.phone||'', email:detalle.email||'',
+              address:(detalle.addresses||[])[0]||'',
+            }});
+          }}
+          onBaja={()=>bajaFicha(detalle.ficha)}
+          onAlta={()=>altaFicha(detalle.ficha)}/>
       )}
 
       {/* ── Alta de cliente (mig 196) ── */}
@@ -5319,6 +4874,250 @@ function ClientesPage({orders,embedded=false}) {
           onSaved={()=>{ setEditando(null); setDetalle(null); reloadFichas(); toast('Ficha guardada'); }}/>
       )}
     </div>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   DETALLE DE CLIENTE
+   ──────────────────────────────────────────────
+   Componente aparte (antes era JSX inline dentro de ClientesPage) porque ahora
+   CARGA datos propios: el historial real de pedidos y los premios de promo. Ahí
+   dentro, un useEffect suelto en medio de la página se dispara en cada tecla
+   del buscador; acá se monta y se desmonta con el modal, que es lo que uno espera.
+══════════════════════════════════════════════ */
+function ClienteDetalleModal({cliente, types, orders, restaurant, isFreq, onToggleFreq, onClose, onEdit, onBaja, onAlta}) {
+  const [hist,setHist]     = useState([]);
+  const [awards,setAwards] = useState([]);
+  const now = Date.now();
+
+  useEffect(()=>{
+    let alive = true;
+    (async()=>{
+      // Con ficha: el historial sale de la base (completo). Sin ficha: se deriva
+      // del feed en memoria, que es todo lo que hay para un cliente sin registrar.
+      if(cliente.customerId){
+        const {orders:rows} = await loadCustomerOrders(db,cliente.customerId,{limit:20});
+        if(alive) setHist((rows||[]).map(o=>({id:o.id,num:o.order_number,date:o.created_at,total:o.total||0,type:o.order_type})));
+        const {awards:aw} = await MKT.loadCustomerAwards(db,cliente.customerId);
+        if(alive) setAwards(aw||[]);
+      }else{
+        const nm=(cliente.name||'').trim().toLowerCase();
+        const rows=orders.filter(o=>!['draft','cancelled'].includes(o.status)&&(o.customer_name||'').trim().toLowerCase()===nm)
+          .sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(0,10);
+        if(alive) setHist(rows.map(o=>({id:o.id,num:o.order_number,date:o.created_at,total:o.total||0,type:o.order_type})));
+      }
+    })();
+    return ()=>{ alive=false; };
+  },[cliente]);
+
+  const waPhone = (cliente.phone||'').replace(/\D/g,'').replace(/^0/,'').replace(/^595/,'');
+
+  return (
+    <Modal title="" onClose={onClose} width={600}>
+      <div style={{display:'flex',flexDirection:'column',gap:16}}>
+
+        {/* Header */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,flexWrap:'wrap'}}>
+          <div>
+            <div style={{fontSize:20,fontWeight:800,color:C.ink}}>{cliente.name}</div>
+            <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap',alignItems:'center'}}>
+              <TipoBadges typeIds={cliente.type_ids} types={types} size="md"/>
+              {cliente.isVip&&<span style={{background:TINT.amberBg,color:TINT.amberText,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>ALTO CONSUMO</span>}
+              {cliente.orders>=FREQUENT_MIN_ORDERS&&<span style={{background:TINT.greenBg,color:C.green,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>FRECUENTE</span>}
+              {isFreq&&<span style={{background:'rgba(255,149,0,0.14)',color:'#FF9500',padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>★ EFECTIVO EN DELIVERY</span>}
+              {cliente.pideFactura&&<span style={{background:TINT.blueBg,color:TINT.blueText,padding:'2px 7px',fontSize:10,fontWeight:700,borderRadius:4}}>PIDE FACTURA</span>}
+            </div>
+          </div>
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',flexShrink:0}}>
+            <button onClick={onEdit} style={{background:C.ink,color:C.sidebar,border:'none',padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+              {cliente.ficha?'Editar ficha':'Crear ficha'}
+            </button>
+            {cliente.ficha&&cliente.ficha.is_active!==false&&(
+              <button onClick={onBaja} style={{background:'transparent',color:C.red,border:`1px solid ${C.border}`,padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>Desactivar</button>
+            )}
+            {cliente.ficha&&cliente.ficha.is_active===false&&(
+              <button onClick={onAlta} style={{background:'transparent',color:C.green,border:`1px solid ${C.border}`,padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>Reactivar</button>
+            )}
+            {cliente.phone&&(
+              <button onClick={onToggleFreq} title="Los clientes frecuentes pueden pagar en efectivo en delivery" style={{display:'flex',alignItems:'center',gap:6,background:isFreq?'#FF9500':'transparent',color:isFreq?'#fff':C.mid,border:`1px solid ${isFreq?'#FF9500':C.border}`,padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+                {isFreq?'★ Frecuente':'☆ Marcar frecuente'}
+              </button>
+            )}
+            {cliente.phone&&(
+              <a href={`https://wa.me/595${waPhone}`} target="_blank" rel="noopener" style={{display:'flex',alignItems:'center',gap:6,background:'#25D366',color:'#fff',padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:700,textDecoration:'none',whiteSpace:'nowrap'}}>
+                <Icon name="chat" size={14}/> WhatsApp
+              </a>
+            )}
+          </div>
+        </div>
+
+        {/* Estadísticas */}
+        <div className="my-row-4" style={{gap:8}}>
+          {[
+            ['Visitas',cliente.orders,C.ink],
+            ['Total gastado',fmt(cliente.total),C.orange],
+            ['Ticket prom.',fmt(cliente.ticket),C.ink],
+            ['Días como cliente',cliente.diasActivo+' d',C.mid],
+          ].map(([lbl,val,clr])=>(
+            <div key={lbl} style={{background:C.bg,borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
+              <div style={{fontSize:15,fontWeight:800,color:clr,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{val}</div>
+              <div style={{fontSize:10,color:C.dim,marginTop:3}}>{lbl}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Datos de contacto */}
+        <div style={{background:C.bg,borderRadius:10,padding:14}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>DATOS DE CONTACTO</div>
+          <div className="my-row-2" style={{gap:8}}>
+            <div>
+              <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Teléfono</div>
+              <div style={{fontSize:13,fontWeight:600,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{cliente.phone?custPhone(cliente.phone):<span style={{color:C.dim}}>—</span>}</div>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Email</div>
+              <div style={{fontSize:13,fontWeight:600,wordBreak:'break-all'}}>{cliente.email||<span style={{color:C.dim}}>—</span>}</div>
+            </div>
+            {cliente.ficha&&(
+              <div>
+                <div style={{fontSize:10,color:C.dim,marginBottom:2}}>CI / RUC</div>
+                <div style={{fontSize:13,fontWeight:600,fontFamily:"'SF Mono',ui-monospace,monospace"}}>
+                  {cliente.ficha.doc_number?`${(cliente.ficha.doc_type||'ci').toUpperCase()} ${cliente.ficha.doc_number}`:<span style={{color:C.dim}}>—</span>}
+                </div>
+              </div>
+            )}
+            {cliente.ficha?.birth_date&&(
+              <div>
+                <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Cumpleaños</div>
+                <div style={{fontSize:13,fontWeight:600}}>{cliente.ficha.birth_date.split('-').reverse().join('/')}</div>
+              </div>
+            )}
+            {cliente.ficha?.address&&(
+              <div style={{gridColumn:'1/-1'}}>
+                <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Dirección de la ficha</div>
+                <div style={{fontSize:13}}>{cliente.ficha.address}
+                  {cliente.ficha.address_reference&&<span style={{color:C.dim}}> · {cliente.ficha.address_reference}</span>}
+                </div>
+              </div>
+            )}
+            {cliente.ficha?.notes&&(
+              <div style={{gridColumn:'1/-1'}}>
+                <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Notas</div>
+                <div style={{fontSize:13,whiteSpace:'pre-wrap'}}>{cliente.ficha.notes}</div>
+              </div>
+            )}
+            {(cliente.addresses||[]).length>0&&(
+              <div style={{gridColumn:'1/-1'}}>
+                <div style={{fontSize:10,color:C.dim,marginBottom:4}}>Direcciones de delivery ({cliente.addresses.length})</div>
+                {cliente.addresses.map((a,i)=>(
+                  <div key={i} style={{fontSize:12,padding:'5px 10px',background:TINT.amberBg,borderRadius:6,marginBottom:4,display:'flex',alignItems:'center',gap:6}}>
+                    <span style={{display:'inline-flex'}}><Icon name="bike" size={13}/></span><span style={{flex:1}}>{a}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {(cliente.tables||[]).length>0&&(
+              <div>
+                <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Mesas usadas</div>
+                <div style={{fontSize:13}}>{cliente.tables.map(n=>`Mesa ${n}`).join(', ')}</div>
+              </div>
+            )}
+            {Object.keys(cliente.paymentMethods||{}).length>0&&(
+              <div>
+                <div style={{fontSize:10,color:C.dim,marginBottom:2}}>Formas de pago</div>
+                <div style={{fontSize:12}}>{Object.entries(cliente.paymentMethods).map(([k,v])=>`${PL[k]||k} (${v}×)`).join(', ')}</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Promos ganadas (mig 197) */}
+        {awards.length>0&&(
+          <div>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>PROMOS Y CUPONES DE ESTE CLIENTE</div>
+            <div style={{background:C.bg,borderRadius:10,overflow:'hidden'}}>
+              {awards.map((a,i)=>{
+                const vig = a.status==='issued' && (!a.expires_at || a.expires_at>=todayLocal());
+                return (
+                  <div key={a.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,padding:'8px 12px',borderBottom:i<awards.length-1?`1px solid ${C.border}`:'none'}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:12.5,fontWeight:700,fontFamily:"'SF Mono',ui-monospace,monospace",color:vig?C.ink:C.dim}}>{a.code}</div>
+                      <div style={{fontSize:10.5,color:C.dim}}>
+                        {a.reward_type==='percent'?`${Number(a.reward_value)}% OFF`:a.reward_type==='gift_card'?`Gift card ${fmt(a.reward_value)}`:`${fmt(a.reward_value)} OFF`}
+                        {a.expires_at?` · vence ${a.expires_at.split('-').reverse().join('/')}`:''}
+                        {a.status==='redeemed'?' · canjeado':a.status==='expired'?' · vencido':''}
+                      </div>
+                    </div>
+                    {vig&&cliente.phone&&(
+                      <a href={`https://wa.me/595${waPhone}?text=${encodeURIComponent(MKT.awardMessage(a,restaurant?.name))}`}
+                         target="_blank" rel="noopener"
+                         style={{background:'#25D366',color:'#fff',padding:'5px 10px',borderRadius:6,fontSize:11,fontWeight:700,textDecoration:'none',whiteSpace:'nowrap'}}>Enviar</a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Canales */}
+        {Object.keys(cliente.canalCount||{}).length>0&&(
+          <div>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>CANALES UTILIZADOS</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              {Object.entries(cliente.canalCount).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+                const pct = Math.round(v/Math.max(cliente.orders,1)*100);
+                return (
+                  <div key={k} style={{background:C.bg,borderRadius:8,padding:'8px 12px',minWidth:90,textAlign:'center'}}>
+                    <div style={{marginBottom:2,display:'flex',justifyContent:'center'}}><Icon name={CRM_CANAL_ICON[k]||'package'} size={20}/></div>
+                    <div style={{fontSize:12,fontWeight:700,color:CRM_CANAL_COLOR[k]||C.ink}}>{v} visita{v!==1?'s':''}</div>
+                    <div style={{fontSize:10,color:C.dim}}>{CRM_ORDER_TYPES[k]||k}</div>
+                    <div style={{fontSize:10,color:C.dim}}>{pct}%</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Actividad */}
+        <div style={{background:C.bg,borderRadius:10,padding:14}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>ACTIVIDAD</div>
+          <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+            <div><div style={{fontSize:10,color:C.dim}}>{cliente.neverOrdered?'Ficha creada':'Primera visita'}</div><div style={{fontSize:13,fontWeight:600}}>{fmtDate(cliente.firstDate)}</div></div>
+            {!cliente.neverOrdered&&(
+              <div><div style={{fontSize:10,color:C.dim}}>Última visita</div><div style={{fontSize:13,fontWeight:600}}>{fmtDate(cliente.lastDate)} <span style={{fontSize:11,color:C.dim}}>({Math.floor((now-new Date(cliente.lastDate).getTime())/864e5)}d)</span></div></div>
+            )}
+            {cliente.pideFactura&&<div><div style={{fontSize:10,color:C.dim}}>Facturas solicitadas</div><div style={{fontSize:13,fontWeight:600,color:'#007AFF'}}>{cliente.facturaCount}×</div></div>}
+          </div>
+        </div>
+
+        {/* Historial de pedidos */}
+        {hist.length>0&&(
+          <div>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>ÚLTIMAS VISITAS</div>
+            <div style={{background:C.bg,borderRadius:10,overflow:'hidden'}}>
+              {hist.map((o,i)=>(
+                <div key={o.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',borderBottom:i<hist.length-1?`1px solid ${C.border}`:'none'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{display:'inline-flex'}}><Icon name={CRM_CANAL_ICON[o.type]||'package'} size={14}/></span>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:600,color:C.ink}}>{o.num?`#${o.num}`:o.id.slice(0,8)}</div>
+                      <div style={{fontSize:10,color:C.dim}}>{fmtDate(o.date)} · {CRM_ORDER_TYPES[o.type]||o.type||'—'}</div>
+                    </div>
+                  </div>
+                  <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:13,fontWeight:700,color:C.ink}}>{fmt(o.total)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8}}>
+          <Btn variant="secondary" onClick={onClose}>Cerrar</Btn>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -6578,16 +6377,90 @@ function FinanzasPage({orders, restaurant, showDelivery=true, onRefresh}) {
 }
 
 /* ══════════════════════════════════════════════
-   MARKETING
+   MARKETING — cupones · gift cards · promos automáticas
+   ──────────────────────────────────────────────
+   Gift cards y promos (mig 197) nacen APAGADAS y sólo las prende el
+   administrador. No es una preferencia estética: una promo automática le
+   reparte plata del local a su base de clientes, y una gift card es un pasivo
+   (plata cobrada hoy, producto que se debe mañana). Nada de eso puede
+   encenderse solo por instalar una actualización.
+
+   El interruptor se repite en la base (`issue_gift_card` y `run_promo_engine`
+   abortan si el flag está en false): esconder el botón nunca es la única defensa.
 ══════════════════════════════════════════════ */
+
+/* Pantalla de módulo apagado. Explica QUÉ hace antes de ofrecer el interruptor:
+   nadie prende algo que no entiende, y el que lo prende sin entender después se
+   sorprende con los resultados. */
+function MarketingModuloApagado({titulo, bullets, cta, onEnable, busy, nota}) {
+  return (
+    <div style={{background:C.surface,border:`1px dashed ${C.border}`,borderRadius:12,padding:'28px 24px',textAlign:'center'}}>
+      <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:6}}>{titulo}</div>
+      <div style={{fontSize:12.5,color:C.mid,maxWidth:560,margin:'0 auto 16px',lineHeight:1.6,textAlign:'left'}}>
+        <ul style={{margin:0,paddingLeft:18}}>
+          {bullets.map((b,i)=><li key={i} style={{marginBottom:4}}>{b}</li>)}
+        </ul>
+      </div>
+      <div style={{display:'inline-flex',alignItems:'center',gap:10,flexWrap:'wrap',justifyContent:'center'}}>
+        <button onClick={onEnable} disabled={busy} style={{background:C.ink,color:C.sidebar,border:'none',padding:'11px 22px',borderRadius:10,fontSize:13.5,fontWeight:700,cursor:busy?'not-allowed':'pointer',opacity:busy?.6:1}}>
+          {busy?'Activando…':cta}
+        </button>
+      </div>
+      <div style={{fontSize:11,color:C.dim,marginTop:12}}>{nota||'Podés apagarlo cuando quieras. Lo que ya emitiste sigue siendo válido.'}</div>
+    </div>
+  );
+}
+
+/* Interruptor de encendido/apagado del módulo, ya activado. */
+function MarketingSwitch({on,label,hint,onChange,busy}) {
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:12,background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'12px 16px',marginBottom:14}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:700,color:on?C.ink:C.mid}}>{label}</div>
+        <div style={{fontSize:11,color:C.dim,marginTop:1,lineHeight:1.4}}>{hint}</div>
+      </div>
+      <button onClick={()=>onChange(!on)} disabled={busy} role="switch" aria-checked={on} aria-label={label}
+        style={{width:46,height:26,borderRadius:13,border:'none',flexShrink:0,cursor:busy?'not-allowed':'pointer',
+                background:on?C.green:C.border,position:'relative',transition:'background 160ms ease'}}>
+        <span style={{position:'absolute',top:3,left:on?23:3,width:20,height:20,borderRadius:10,background:'#fff',
+                      transition:'left 160ms ease',boxShadow:'0 1px 3px rgba(0,0,0,.25)'}}/>
+      </button>
+    </div>
+  );
+}
+
 // `embedded` — pestaña del hub de Clientes (ver ClientesHubPage).
 function MarketingPage({coupons,orders,restaurant,onRefresh,embedded=false}) {
-  const [tab,setTab] = useState('cupones');
+  const [tab,setTab] = useState('giftcards');
   const [form,setForm] = useState({code:'',discount_type:'percentage',discount_value:'',min_order_amount:'',max_uses:''});
   const [saving,setSaving] = useState(false);
   const [tplId,setTplId] = useState('promo');
   const [tplVars,setTplVars] = useState({nombre:'',descuento:'10',codigo:'',fecha:'',mesa:''});
   const [copied,setCopied] = useState(false);
+
+  // ── Configuración del módulo (mig 197) ─────────────────────────────
+  const [cfg,setCfg]           = useState(MKT.DEFAULT_CONFIG);
+  const [cfgMissing,setCfgMissing]= useState(false);
+  const [cfgBusy,setCfgBusy]   = useState(false);
+
+  const reloadCfg = useCallback(async()=>{
+    const {config,missing} = await MKT.loadConfig(db,RID);
+    setCfg(config); setCfgMissing(missing);
+  },[]);
+  useEffect(()=>{ reloadCfg(); },[reloadCfg]);
+
+  async function setFlag(patch){
+    setCfgBusy(true);
+    const {config,error} = await MKT.saveConfig(db,RID,patch);
+    setCfgBusy(false);
+    if(error){
+      toast(MKT.isMissingMarketing(error)?MKT.MARKETING_MISSING_MSG
+        :(error.message||'No se pudo guardar. Sólo el administrador puede cambiar esta configuración.'),false);
+      return false;
+    }
+    setCfg(config);
+    return true;
+  }
 
   const rname = restaurant?.name || window.SUPABASE_CONFIG?.restaurantName || 'nuestro local';
   const TPLS = [
@@ -6607,7 +6480,7 @@ function MarketingPage({coupons,orders,restaurant,onRefresh,embedded=false}) {
       const k=o.customer_name;
       if(!m[k]||o.created_at>m[k].last)m[k]={name:k,phone:o.customer_phone||null,last:o.created_at};
     });
-    const cutoff=new Date(Date.now()-30*864e5).toISOString();
+    const cutoff=new Date(Date.now()-INACTIVE_DAYS*864e5).toISOString();
     return Object.values(m).filter(c=>c.last<cutoff).sort((a,b)=>a.last<b.last?-1:1);
   },[orders]);
 
@@ -6627,17 +6500,49 @@ function MarketingPage({coupons,orders,restaurant,onRefresh,embedded=false}) {
     else{toast(current?'Cupón desactivado':'Cupón activado');onRefresh();}
   }
 
+  const TABS = [
+    ['giftcards','Gift cards'],
+    ['promos','Promos automáticas'],
+    ['cupones','Cupones'],
+    ['whatsapp','WhatsApp'],
+    ['inactivos','Clientes inactivos'],
+  ];
+
   return (
     <div className={embedded?'':'page'}>
       {!embedded&&<h1 style={{fontSize:22,fontWeight:800,color:C.ink,marginBottom:16}}>Marketing</h1>}
-      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16}}>
-        {[['cupones','Cupones'],['whatsapp','WhatsApp'],['inactivos','Clientes inactivos']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:C.dim,padding:'8px 14px',fontSize:12,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1}}>{lbl}</button>
+
+      {cfgMissing&&(
+        <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,
+                     borderRadius:8,padding:'10px 14px',fontSize:12.5,marginBottom:12}}>
+          {MKT.MARKETING_MISSING_MSG} Los cupones manuales siguen funcionando.
+        </div>
+      )}
+
+      <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:16,overflowX:'auto'}}>
+        {TABS.map(([id,lbl])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{background:'none',border:'none',color:tab===id?C.ink:C.dim,padding:'8px 14px',fontSize:12,fontWeight:tab===id?700:400,borderBottom:tab===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1,whiteSpace:'nowrap'}}>
+            {lbl}
+            {id==='giftcards'&&!cfg.gift_cards_enabled&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,color:C.dim,border:`1px solid ${C.border}`,borderRadius:3,padding:'1px 4px'}}>OFF</span>}
+            {id==='promos'&&!cfg.promos_enabled&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,color:C.dim,border:`1px solid ${C.border}`,borderRadius:3,padding:'1px 4px'}}>OFF</span>}
+          </button>
         ))}
       </div>
 
+      {tab==='giftcards'&&(
+        <GiftCardsTab cfg={cfg} cfgMissing={cfgMissing} cfgBusy={cfgBusy} setFlag={setFlag} restaurant={restaurant}/>
+      )}
+
+      {tab==='promos'&&(
+        <PromosTab cfg={cfg} cfgMissing={cfgMissing} cfgBusy={cfgBusy} setFlag={setFlag} restaurant={restaurant}/>
+      )}
+
       {tab==='cupones'&&(
         <div>
+          <div style={{fontSize:11.5,color:C.dim,marginBottom:12,lineHeight:1.5,maxWidth:640}}>
+            Cupones públicos, cargados a mano. Los cupones <b>personales</b> que genera una promo automática
+            aparecen acá también, con el nombre del cliente al que se le entregó.
+          </div>
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:18,marginBottom:14}}>
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:12}}>NUEVO CUPÓN / DESCUENTO</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10,marginBottom:12}}>
@@ -6654,18 +6559,21 @@ function MarketingPage({coupons,orders,restaurant,onRefresh,embedded=false}) {
             </div>
             <Btn onClick={addCoupon} disabled={saving||!form.code||!form.discount_value}>{saving?'Creando…':'Crear cupón'}</Btn>
           </div>
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Código</Th><Th>Descuento</Th><Th>Tipo</Th><Th>Mín.</Th><Th>Usos</Th><Th>Estado</Th></tr></thead>
               <tbody>
                 {coupons.map(c=>(
-                  <tr key={c.id} style={{borderBottom:`1px solid #0d0d0d`}}>
-                    <Td><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{c.code}</span></Td>
+                  <tr key={c.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                    <Td>
+                      <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{c.code}</span>
+                      {c.customer_id&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,color:TINT.blueText,background:TINT.blueBg,padding:'1px 4px',borderRadius:3}}>PERSONAL</span>}
+                    </Td>
                     <Td><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green,fontWeight:700}}>{c.discount_type==='percentage'?`${c.discount_value}%`:fmt(c.discount_value)}</span></Td>
                     <Td dim>{c.discount_type==='percentage'?'Porcentaje':'Fijo'}</Td>
                     <Td mono dim>{c.min_order_amount>0?fmt(c.min_order_amount):'—'}</Td>
                     <Td mono>{c.used_count||0}/{c.max_uses||'∞'}</Td>
-                    <Td><button onClick={()=>toggleCoupon(c.id,c.is_active)} style={{background:c.is_active?'rgba(34,197,94,0.1)':'rgba(255,255,255,0.04)',border:`1px solid ${c.is_active?'rgba(34,197,94,0.3)':C.border}`,color:c.is_active?C.green:'#86868B',padding:'3px 9px',fontSize:11,fontWeight:600,borderRadius:5}}>{c.is_active?'Activo':'Inactivo'}</button></Td>
+                    <Td><button onClick={()=>toggleCoupon(c.id,c.is_active)} style={{background:c.is_active?TINT.greenBg:'transparent',border:`1px solid ${c.is_active?C.green:C.border}`,color:c.is_active?C.green:C.dim,padding:'3px 9px',fontSize:11,fontWeight:600,borderRadius:5,cursor:'pointer'}}>{c.is_active?'Activo':'Inactivo'}</button></Td>
                   </tr>
                 ))}
                 {coupons.length===0&&<EmptyRow cols={6} label="Sin cupones"/>}
@@ -6681,7 +6589,7 @@ function MarketingPage({coupons,orders,restaurant,onRefresh,embedded=false}) {
             <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>PLANTILLA</div>
             <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
               {TPLS.map(t=>(
-                <button key={t.id} onClick={()=>setTplId(t.id)} style={{textAlign:'left',padding:'10px 14px',background:tplId===t.id?'rgba(255,255,255,0.08)':'var(--bg-subtle)',border:`1px solid ${tplId===t.id?C.bs:C.border}`,borderRadius:8,cursor:'pointer',color:tplId===t.id?C.white:C.mid,fontSize:13,fontWeight:tplId===t.id?600:400}}>
+                <button key={t.id} onClick={()=>setTplId(t.id)} style={{textAlign:'left',padding:'10px 14px',background:tplId===t.id?'var(--surface-hover)':'var(--bg-subtle)',border:`1px solid ${tplId===t.id?C.ink:C.border}`,borderRadius:8,cursor:'pointer',color:tplId===t.id?C.ink:C.mid,fontSize:13,fontWeight:tplId===t.id?600:400}}>
                   {t.label}
                 </button>
               ))}
@@ -6704,23 +6612,25 @@ function MarketingPage({coupons,orders,restaurant,onRefresh,embedded=false}) {
 
       {tab==='inactivos'&&(
         <div>
-          <div style={{fontSize:12,color:C.mid,marginBottom:12}}>{inactivos.length} clientes sin pedidos en los últimos 30 días</div>
-          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+          <div style={{fontSize:12,color:C.mid,marginBottom:12}}>{inactivos.length} clientes sin pedidos en los últimos {INACTIVE_DAYS} días</div>
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Cliente</Th><Th>Teléfono</Th><Th>Último pedido</Th><Th>Días inactivo</Th></tr></thead>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}><Th>Cliente</Th><Th>Teléfono</Th><Th>Último pedido</Th><Th>Días inactivo</Th><Th/></tr></thead>
               <tbody>
                 {inactivos.map((c,i)=>{
                   const dias=Math.floor((now-new Date(c.last).getTime())/864e5);
+                  const wa=(c.phone||'').replace(/\D/g,'').replace(/^0/,'').replace(/^595/,'');
                   return (
-                    <tr key={i} style={{borderBottom:`1px solid #0d0d0d`}}>
+                    <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
                       <Td>{c.name}</Td>
-                      <Td dim>{c.phone||'—'}</Td>
+                      <Td dim>{c.phone?custPhone(c.phone):'—'}</Td>
                       <Td dim>{fmtDate(c.last)}</Td>
                       <Td><span style={{color:dias>60?C.red:C.orange,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{dias}d</span></Td>
+                      <Td>{c.phone&&<a href={`https://wa.me/595${wa}?text=${encodeURIComponent(TPLS[1].msg.replace('{nombre}',c.name))}`} target="_blank" rel="noopener" style={{background:'#25D366',color:'#fff',padding:'4px 10px',borderRadius:6,fontSize:11,fontWeight:700,textDecoration:'none'}}>WhatsApp</a>}</Td>
                     </tr>
                   );
                 })}
-                {inactivos.length===0&&<EmptyRow cols={4} label="Todos los clientes estuvieron activos recientemente"/>}
+                {inactivos.length===0&&<EmptyRow cols={5} label="Todos los clientes estuvieron activos recientemente"/>}
               </tbody>
             </table>
           </div>
@@ -6730,6 +6640,683 @@ function MarketingPage({coupons,orders,restaurant,onRefresh,embedded=false}) {
   );
 }
 
+/* ══════════════════════════════════════════════
+   GIFT CARDS
+══════════════════════════════════════════════ */
+function GiftCardsTab({cfg, cfgMissing, cfgBusy, setFlag, restaurant}) {
+  const [cards,setCards]   = useState([]);
+  const [loading,setLoading]= useState(true);
+  const [emitir,setEmitir] = useState(false);
+  const [detalle,setDetalle]= useState(null);
+  const [ajustes,setAjustes]= useState(false);
+  const [filtro,setFiltro] = useState('todas');
+  const [busca,setBusca]   = useState('');
+  const on = !!cfg.gift_cards_enabled;
+
+  const reload = useCallback(async()=>{
+    if(!on){ setLoading(false); return; }
+    setLoading(true);
+    const {cards:rows} = await MKT.loadGiftCards(db,RID);
+    setCards(rows); setLoading(false);
+  },[on]);
+  useEffect(()=>{ reload(); },[reload]);
+
+  if(cfgMissing){
+    return <div style={{fontSize:12.5,color:C.dim,padding:'20px 0'}}>Aplicá la migración 197 para habilitar las gift cards.</div>;
+  }
+
+  if(!on){
+    return (
+      <MarketingModuloApagado
+        titulo="Gift cards digitales — desactivadas"
+        bullets={[
+          'Vendés una tarjeta de regalo por el monto que quieras: el que la compra se la pasa a otra persona y esa persona la usa en el local.',
+          'Cada tarjeta tiene un código único, saldo propio y vencimiento configurable. Se puede usar en varias visitas hasta agotar el saldo.',
+          'Se emiten desde acá y desde Caja; se canjean en Caja al cobrar, solas o combinadas con otro medio de pago.',
+          'Ojo con la contabilidad: el saldo sin usar es plata ya cobrada que todavía debés en producto. El reporte de gift cards te lo muestra aparte.',
+        ]}
+        cta="Activar gift cards"
+        busy={cfgBusy}
+        onEnable={async()=>{ if(await setFlag({gift_cards_enabled:true})) toast('Gift cards activadas'); }}/>
+    );
+  }
+
+  const visibles = cards.filter(g=>{
+    const st = MKT.effectiveStatus(g);
+    if(filtro==='activas'   && st!=='active')  return false;
+    if(filtro==='sin_saldo' && st!=='used')    return false;
+    if(filtro==='vencidas'  && st!=='expired') return false;
+    if(filtro==='anuladas'  && st!=='cancelled') return false;
+    if(busca.trim()){
+      const q=busca.trim().toLowerCase();
+      return (g.code||'').toLowerCase().includes(q)
+          || (g.recipient_name||'').toLowerCase().includes(q)
+          || (g.purchaser_name||'').toLowerCase().includes(q)
+          || (g.recipient_phone||'').includes(q)
+          || (g.purchaser_phone||'').includes(q);
+    }
+    return true;
+  });
+
+  const activas  = cards.filter(g=>MKT.effectiveStatus(g)==='active');
+  const emitido  = cards.filter(g=>MKT.effectiveStatus(g)!=='cancelled').reduce((s,g)=>s+Number(g.initial_amount||0),0);
+  const pendiente= activas.reduce((s,g)=>s+Number(g.balance||0),0);
+
+  return (
+    <div>
+      <MarketingSwitch on={on} busy={cfgBusy}
+        label="Gift cards activadas"
+        hint="Al apagarlas dejan de emitirse y de canjearse. Las ya emitidas conservan su saldo y vuelven a servir si las reactivás."
+        onChange={async v=>{ if(await setFlag({gift_cards_enabled:v})) toast(v?'Gift cards activadas':'Gift cards desactivadas'); }}/>
+
+      <div style={{display:'flex',gap:10,marginBottom:12,flexWrap:'wrap'}}>
+        <KpiCard label="Emitidas"        value={cards.length}     sub="históricas"/>
+        <KpiCard label="Activas"         value={activas.length}   sub="con saldo" accent={C.green}/>
+        <KpiCard label="Valor emitido"   value={fmt(emitido)}     sub="total vendido"/>
+        <KpiCard label="Saldo pendiente" value={fmt(pendiente)}   sub="a entregar en producto" accent={C.orange}/>
+      </div>
+
+      <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+        <select value={filtro} onChange={e=>setFiltro(e.target.value)} style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}>
+          <option value="todas">Todas</option>
+          <option value="activas">Activas</option>
+          <option value="sin_saldo">Sin saldo</option>
+          <option value="vencidas">Vencidas</option>
+          <option value="anuladas">Anuladas</option>
+        </select>
+        <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar código, nombre o teléfono…" style={{padding:'5px 9px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`,width:250}}/>
+        <Btn variant="secondary" small onClick={()=>setAjustes(v=>!v)}>Ajustes</Btn>
+        <div style={{marginLeft:'auto'}}><Btn small onClick={()=>setEmitir(true)}>+ Emitir gift card</Btn></div>
+      </div>
+
+      {ajustes&&<GiftCardAjustes cfg={cfg} setFlag={setFlag} busy={cfgBusy} onClose={()=>setAjustes(false)}/>}
+
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+          <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
+            <Th>Código</Th><Th>Para</Th><Th>De</Th><Th right>Monto</Th><Th right>Saldo</Th><Th>Estado</Th><Th>Vence</Th><Th>Emitida</Th>
+          </tr></thead>
+          <tbody>
+            {visibles.map(g=>{
+              const st = MKT.effectiveStatus(g);
+              const meta = MKT.GIFT_CARD_STATUS[st]||{};
+              return (
+                <tr key={g.id} onClick={()=>setDetalle(g)} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='var(--surface-hover)'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                  <Td><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,letterSpacing:'.04em'}}>{g.code}</span>
+                    {g.issued_channel==='promo'&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,color:TINT.blueText,background:TINT.blueBg,padding:'1px 4px',borderRadius:3}}>PROMO</span>}
+                  </Td>
+                  <Td>
+                    <div style={{fontSize:12.5}}>{g.recipient_name||<span style={{color:C.dim}}>—</span>}</div>
+                    {g.recipient_phone&&<div style={{fontSize:10.5,color:C.dim,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{custPhone(g.recipient_phone)}</div>}
+                  </Td>
+                  <Td dim>{g.purchaser_name||'—'}</Td>
+                  <Td mono right>{fmt(g.initial_amount)}</Td>
+                  <Td mono right><span style={{fontWeight:700,color:Number(g.balance)>0?C.green:C.dim}}>{fmt(g.balance)}</span></Td>
+                  <Td><span style={{fontSize:10,fontWeight:700,color:meta.color,border:`1px solid ${meta.color}`,padding:'1px 6px',borderRadius:4}}>{meta.label}</span></Td>
+                  <Td dim>{g.expires_at?g.expires_at.split('-').reverse().join('/'):'—'}</Td>
+                  <Td dim>{fmtDate(g.created_at)}</Td>
+                </tr>
+              );
+            })}
+            {!visibles.length&&<EmptyRow cols={8} label={loading?'Cargando…':'Sin gift cards en este filtro'}/>}
+          </tbody>
+        </table>
+      </div>
+
+      {emitir&&(
+        <GiftCardModal cfg={cfg} restaurant={restaurant} onClose={()=>setEmitir(false)}
+          onSaved={()=>{ setEmitir(false); reload(); }}/>
+      )}
+      {detalle&&(
+        <GiftCardDetalle card={detalle} restaurant={restaurant} cfg={cfg}
+          onClose={()=>setDetalle(null)} onChanged={()=>{ setDetalle(null); reload(); }}/>
+      )}
+    </div>
+  );
+}
+
+/* Ajustes del módulo: los límites que después valida la RPC al emitir. */
+function GiftCardAjustes({cfg, setFlag, busy, onClose}) {
+  const [f,setF] = useState({
+    gift_card_min_amount:cfg.gift_card_min_amount,
+    gift_card_max_amount:cfg.gift_card_max_amount,
+    gift_card_valid_days:cfg.gift_card_valid_days,
+    gift_card_prefix:cfg.gift_card_prefix,
+    gift_card_terms:cfg.gift_card_terms||'',
+  });
+  return (
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18,marginBottom:14}}>
+      <div style={{fontSize:13.5,fontWeight:700,color:C.ink,marginBottom:12}}>Ajustes de gift cards</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:12,marginBottom:12}}>
+        <div><Lbl>MONTO MÍNIMO</Lbl><MoneyInp value={f.gift_card_min_amount} onChange={v=>setF({...f,gift_card_min_amount:v})}/></div>
+        <div><Lbl>MONTO MÁXIMO</Lbl><MoneyInp value={f.gift_card_max_amount} onChange={v=>setF({...f,gift_card_max_amount:v})}/></div>
+        <div><Lbl>VIGENCIA (DÍAS)</Lbl><NumInp value={f.gift_card_valid_days} onChange={v=>setF({...f,gift_card_valid_days:v})} placeholder="365"/>
+          <div style={{fontSize:10,color:C.dim,marginTop:3}}>0 = sin vencimiento</div></div>
+        <div><Lbl>PREFIJO DEL CÓDIGO</Lbl><Inp value={f.gift_card_prefix} onChange={e=>setF({...f,gift_card_prefix:e.target.value.toUpperCase().slice(0,6)})} placeholder="GC"/></div>
+      </div>
+      <div style={{marginBottom:12}}>
+        <Lbl>CONDICIONES (se agregan al mensaje de WhatsApp)</Lbl>
+        <textarea value={f.gift_card_terms} onChange={e=>setF({...f,gift_card_terms:e.target.value})}
+          placeholder="No acumulable con otras promociones. No se cambia por dinero."
+          style={{width:'100%',minHeight:64,padding:'9px 12px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,fontFamily:'inherit',background:C.surface,color:C.ink,resize:'vertical'}}/>
+      </div>
+      <div style={{display:'flex',gap:8}}>
+        <Btn disabled={busy} onClick={async()=>{
+          const patch={...f,
+            gift_card_min_amount:Number(f.gift_card_min_amount)||0,
+            gift_card_max_amount:Number(f.gift_card_max_amount)||0,
+            gift_card_valid_days:Number(f.gift_card_valid_days)||0,
+            gift_card_prefix:(f.gift_card_prefix||'GC').trim()||'GC',
+            gift_card_terms:f.gift_card_terms.trim()||null};
+          if(patch.gift_card_max_amount<patch.gift_card_min_amount){ toast('El máximo no puede ser menor al mínimo',false); return; }
+          if(await setFlag(patch)){ toast('Ajustes guardados'); onClose(); }
+        }}>Guardar ajustes</Btn>
+        <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
+      </div>
+    </div>
+  );
+}
+
+/* Emisión. El código lo genera la base — acá no se pide ni se inventa. */
+function GiftCardModal({cfg, restaurant, onClose, onSaved}) {
+  const [f,setF] = useState({
+    amount:'', recipient_name:'', recipient_phone:'', message:'',
+    purchaser_name:'', purchaser_phone:'', paid_method:'efectivo', paid_reference:'',
+  });
+  const [busy,setBusy] = useState(false);
+  const [err,setErr]   = useState('');
+  const [hecha,setHecha] = useState(null);
+
+  useEffect(()=>{
+    const h=e=>{ if(e.key==='Escape') onClose(); };
+    document.addEventListener('keydown',h);
+    return ()=>document.removeEventListener('keydown',h);
+  },[onClose]);
+
+  async function guardar(){
+    setErr('');
+    const monto = Number(f.amount)||0;
+    if(monto<Number(cfg.gift_card_min_amount)||monto>Number(cfg.gift_card_max_amount)){
+      setErr(`El monto debe estar entre ${fmt(cfg.gift_card_min_amount)} y ${fmt(cfg.gift_card_max_amount)}`); return;
+    }
+    setBusy(true);
+    const {card,error} = await MKT.issueGiftCard(db,RID,{...f,amount:monto},{channel:'admin'});
+    setBusy(false);
+    if(error){ setErr(MKT.isMissingMarketing(error)?MKT.MARKETING_MISSING_MSG:(error.message||'No se pudo emitir')); return; }
+    setHecha(card);
+    toast('Gift card emitida');
+  }
+
+  // Emitida: se muestra el código y el atajo de WhatsApp. Cerrar sin copiarlo no
+  // pierde nada (queda en la lista), pero mandarla en el momento es el 90% del uso.
+  if(hecha){
+    const wa=(f.recipient_phone||'').replace(/\D/g,'').replace(/^0/,'').replace(/^595/,'');
+    const msg=MKT.giftCardMessage({...hecha,message:f.message,balance:hecha.balance},restaurant?.name,cfg.gift_card_terms);
+    return (
+      <Modal title="Gift card emitida" onClose={onClose} width={440}>
+        <div style={{textAlign:'center',padding:'8px 0 4px'}}>
+          <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>CÓDIGO</div>
+          <div style={{fontSize:26,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",letterSpacing:'.06em',color:C.ink}}>{hecha.code}</div>
+          <div style={{fontSize:15,fontWeight:700,color:C.green,marginTop:6}}>{fmt(hecha.balance)}</div>
+          {hecha.expires_at&&<div style={{fontSize:11,color:C.dim,marginTop:4}}>Válida hasta el {hecha.expires_at.split('-').reverse().join('/')}</div>}
+        </div>
+        <div style={{display:'flex',gap:8,justifyContent:'center',marginTop:18,flexWrap:'wrap'}}>
+          <Btn variant="secondary" onClick={()=>{navigator.clipboard?.writeText(msg);toast('Mensaje copiado');}}>Copiar mensaje</Btn>
+          {wa&&<a href={`https://wa.me/595${wa}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener"
+                  style={{background:'#25D366',color:'#fff',padding:'10px 18px',borderRadius:8,fontSize:13,fontWeight:700,textDecoration:'none'}}>Enviar por WhatsApp</a>}
+          <Btn onClick={onSaved}>Listo</Btn>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal title="Emitir gift card" onClose={onClose} width={480}>
+      <div style={{fontSize:11.5,color:C.dim,marginBottom:14,lineHeight:1.5}}>
+        El código lo genera el sistema. Sólo el monto es obligatorio: los datos del destinatario
+        sirven para mandársela y para que el cajero sepa de quién es.
+      </div>
+      <div style={{marginBottom:12}}>
+        <Lbl>MONTO *</Lbl>
+        <MoneyInp value={f.amount} onChange={v=>setF({...f,amount:v})} placeholder="200.000"/>
+        <div style={{fontSize:10.5,color:C.dim,marginTop:4}}>Entre {fmt(cfg.gift_card_min_amount)} y {fmt(cfg.gift_card_max_amount)}</div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+        <div><Lbl>PARA (NOMBRE)</Lbl><Inp value={f.recipient_name} onChange={e=>setF({...f,recipient_name:e.target.value})} placeholder="María"/></div>
+        <div><Lbl>TELÉFONO</Lbl><Inp value={f.recipient_phone} onChange={e=>setF({...f,recipient_phone:e.target.value})} placeholder="0981 123 456"/></div>
+      </div>
+      <div style={{marginBottom:12}}>
+        <Lbl>DEDICATORIA</Lbl>
+        <textarea value={f.message} onChange={e=>setF({...f,message:e.target.value})} placeholder="¡Feliz cumple! Disfrutalo."
+          style={{width:'100%',minHeight:58,padding:'9px 12px',borderRadius:8,border:`1px solid ${C.border}`,fontSize:13,fontFamily:'inherit',background:C.surface,color:C.ink,resize:'vertical'}}/>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+        <div><Lbl>LA COMPRA (NOMBRE)</Lbl><Inp value={f.purchaser_name} onChange={e=>setF({...f,purchaser_name:e.target.value})} placeholder="Juan"/></div>
+        <div><Lbl>TELÉFONO</Lbl><Inp value={f.purchaser_phone} onChange={e=>setF({...f,purchaser_phone:e.target.value})} placeholder="0981 987 654"/></div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+        <div><Lbl>CÓMO SE PAGÓ</Lbl>
+          <Sel value={f.paid_method} onChange={e=>setF({...f,paid_method:e.target.value})}>
+            <option value="efectivo">Efectivo</option>
+            <option value="transferencia">Transferencia / QR</option>
+            <option value="tarjeta">Tarjeta / POS</option>
+            <option value="cortesia">Cortesía del local</option>
+          </Sel>
+        </div>
+        <div><Lbl>N° DE COMPROBANTE</Lbl><Inp value={f.paid_reference} onChange={e=>setF({...f,paid_reference:e.target.value})} placeholder="opcional"/></div>
+      </div>
+
+      {err&&<div style={{background:TINT.redBg||'rgba(255,59,48,.08)',border:`1px solid ${C.red}`,color:C.red,borderRadius:8,padding:'9px 12px',fontSize:12.5,marginBottom:12}}>{err}</div>}
+
+      <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+        <Btn variant="secondary" onClick={onClose} disabled={busy}>Cancelar</Btn>
+        <Btn onClick={guardar} disabled={busy||!f.amount}>{busy?'Emitiendo…':'Emitir gift card'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* Detalle + libro mayor. Anular no borra: es plata cobrada, tiene que quedar rastro. */
+function GiftCardDetalle({card, restaurant, cfg, onClose, onChanged}) {
+  const [movs,setMovs] = useState([]);
+  const st   = MKT.effectiveStatus(card);
+  const meta = MKT.GIFT_CARD_STATUS[st]||{};
+  const wa   = (card.recipient_phone||card.purchaser_phone||'').replace(/\D/g,'').replace(/^0/,'').replace(/^595/,'');
+  const msg  = MKT.giftCardMessage(card,restaurant?.name,cfg.gift_card_terms);
+
+  useEffect(()=>{
+    let alive=true;
+    MKT.loadGiftCardMovements(db,card.id).then(({movements})=>{ if(alive) setMovs(movements||[]); });
+    return ()=>{ alive=false; };
+  },[card.id]);
+
+  const KIND = {issue:'Emisión',redeem:'Canje',refund:'Devolución',cancel:'Anulación',adjust:'Ajuste'};
+
+  return (
+    <Modal title="" onClose={onClose} width={520}>
+      <div style={{display:'flex',flexDirection:'column',gap:16}}>
+        <div style={{textAlign:'center'}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:4}}>GIFT CARD</div>
+          <div style={{fontSize:24,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",letterSpacing:'.06em',color:C.ink}}>{card.code}</div>
+          <div style={{display:'flex',gap:8,justifyContent:'center',alignItems:'center',marginTop:8}}>
+            <span style={{fontSize:11,fontWeight:700,color:meta.color,border:`1px solid ${meta.color}`,padding:'2px 8px',borderRadius:4}}>{meta.label}</span>
+            {card.expires_at&&<span style={{fontSize:11,color:C.dim}}>Vence {card.expires_at.split('-').reverse().join('/')}</span>}
+          </div>
+        </div>
+
+        <div className="my-row-3" style={{gap:8}}>
+          {[['Monto emitido',fmt(card.initial_amount),C.ink],
+            ['Saldo disponible',fmt(card.balance),Number(card.balance)>0?C.green:C.dim],
+            ['Consumido',fmt(Number(card.initial_amount)-Number(card.balance)),C.mid]].map(([l,v,c])=>(
+            <div key={l} style={{background:C.bg,borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
+              <div style={{fontSize:15,fontWeight:800,color:c,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{v}</div>
+              <div style={{fontSize:10,color:C.dim,marginTop:3}}>{l}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{background:C.bg,borderRadius:10,padding:14}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>DATOS</div>
+          <div className="my-row-2" style={{gap:8}}>
+            <div><div style={{fontSize:10,color:C.dim}}>Para</div><div style={{fontSize:13,fontWeight:600}}>{card.recipient_name||'—'}</div></div>
+            <div><div style={{fontSize:10,color:C.dim}}>Teléfono</div><div style={{fontSize:13,fontWeight:600,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{card.recipient_phone?custPhone(card.recipient_phone):'—'}</div></div>
+            <div><div style={{fontSize:10,color:C.dim}}>La compró</div><div style={{fontSize:13,fontWeight:600}}>{card.purchaser_name||'—'}</div></div>
+            <div><div style={{fontSize:10,color:C.dim}}>Pago</div><div style={{fontSize:13,fontWeight:600}}>{PL[card.paid_method]||card.paid_method||'—'}{card.paid_reference?` · ${card.paid_reference}`:''}</div></div>
+            {card.message&&<div style={{gridColumn:'1/-1'}}><div style={{fontSize:10,color:C.dim}}>Dedicatoria</div><div style={{fontSize:13,fontStyle:'italic'}}>"{card.message}"</div></div>}
+          </div>
+        </div>
+
+        <div>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>MOVIMIENTOS</div>
+          <div style={{background:C.bg,borderRadius:10,overflow:'hidden'}}>
+            {movs.map((m,i)=>(
+              <div key={m.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',borderBottom:i<movs.length-1?`1px solid ${C.border}`:'none'}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:C.ink}}>{KIND[m.kind]||m.kind}</div>
+                  <div style={{fontSize:10,color:C.dim}}>{fmtDT(m.created_at)}{m.note?` · ${m.note}`:''}</div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:13,fontWeight:700,color:Number(m.amount)<0?C.red:C.green}}>
+                    {Number(m.amount)<0?'':'+'}{fmt(m.amount)}
+                  </div>
+                  <div style={{fontSize:10,color:C.dim}}>saldo {fmt(m.balance_after)}</div>
+                </div>
+              </div>
+            ))}
+            {!movs.length&&<div style={{padding:16,textAlign:'center',fontSize:12,color:C.dim}}>Sin movimientos</div>}
+          </div>
+        </div>
+
+        <div style={{display:'flex',gap:8,justifyContent:'space-between',flexWrap:'wrap'}}>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            {st!=='cancelled'&&(
+              <button onClick={async()=>{
+                if(!window.confirm(`¿Anular la gift card ${card.code}? Pierde el saldo de ${fmt(card.balance)} y no se puede volver atrás. El movimiento queda registrado.`)) return;
+                const {error}=await MKT.cancelGiftCard(db,card);
+                if(error){ toast(error.message||'No se pudo anular',false); return; }
+                toast('Gift card anulada'); onChanged();
+              }} style={{background:'transparent',color:C.red,border:`1px solid ${C.border}`,padding:'9px 14px',borderRadius:8,fontSize:12.5,fontWeight:700,cursor:'pointer'}}>Anular</button>
+            )}
+          </div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <Btn variant="secondary" onClick={()=>{navigator.clipboard?.writeText(msg);toast('Mensaje copiado');}}>Copiar</Btn>
+            {wa&&st==='active'&&<a href={`https://wa.me/595${wa}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener"
+              style={{background:'#25D366',color:'#fff',padding:'10px 16px',borderRadius:8,fontSize:12.5,fontWeight:700,textDecoration:'none'}}>WhatsApp</a>}
+            <Btn variant="secondary" onClick={onClose}>Cerrar</Btn>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════════
+   PROMOS AUTOMÁTICAS
+══════════════════════════════════════════════ */
+function PromosTab({cfg, cfgMissing, cfgBusy, setFlag, restaurant}) {
+  const [rules,setRules]   = useState([]);
+  const [awards,setAwards] = useState([]);
+  const [loading,setLoading]= useState(true);
+  const [modal,setModal]   = useState(null);      // null | {rule} | {nueva:true}
+  const [corriendo,setCorriendo] = useState(false);
+  const [vista,setVista]   = useState('reglas');  // reglas | entregados
+  const on = !!cfg.promos_enabled;
+
+  const reload = useCallback(async()=>{
+    if(!on){ setLoading(false); return; }
+    setLoading(true);
+    const [r,a] = await Promise.all([MKT.loadRules(db,RID), MKT.loadAwards(db,RID)]);
+    setRules(r.rules); setAwards(a.awards); setLoading(false);
+  },[on]);
+  useEffect(()=>{ reload(); },[reload]);
+
+  if(cfgMissing){
+    return <div style={{fontSize:12.5,color:C.dim,padding:'20px 0'}}>Aplicá la migración 197 para habilitar las promos automáticas.</div>;
+  }
+
+  if(!on){
+    return (
+      <MarketingModuloApagado
+        titulo="Promos automáticas — desactivadas"
+        bullets={[
+          'Definís una condición (llegó a 5 visitas, gastó ₲500.000, cumple años esta semana, no vuelve hace 60 días…) y el sistema premia solo a quien la cumple.',
+          'El premio es un cupón PERSONAL con código único y un solo uso, o una gift card a nombre del cliente.',
+          'Vos decidís cuándo se reparte: nada se manda solo, el cupón queda en la ficha del cliente y se lo pasás por WhatsApp desde ahí.',
+          'Cada regla nace apagada aunque el módulo esté prendido: crearla no es soltarla sobre toda tu base de clientes.',
+        ]}
+        cta="Activar promos automáticas"
+        busy={cfgBusy}
+        onEnable={async()=>{ if(await setFlag({promos_enabled:true})) toast('Promos automáticas activadas'); }}/>
+    );
+  }
+
+  const activas = rules.filter(r=>r.is_active);
+  const vigentes = awards.filter(a=>a.status==='issued');
+  const canjeados= awards.filter(a=>a.status==='redeemed');
+
+  async function evaluar(){
+    setCorriendo(true);
+    const {result,error} = await MKT.runPromoEngine(db,RID);
+    setCorriendo(false);
+    if(error){ toast(error.message||'No se pudo evaluar',false); return; }
+    toast(result.awarded>0
+      ? `${result.awarded} premio${result.awarded!==1?'s':''} entregado${result.awarded!==1?'s':''}`
+      : 'Nadie nuevo cumple las condiciones por ahora');
+    reload();
+  }
+
+  return (
+    <div>
+      <MarketingSwitch on={on} busy={cfgBusy}
+        label="Promos automáticas activadas"
+        hint="Al apagarlas dejan de evaluarse. Los cupones ya entregados siguen siendo válidos hasta su vencimiento."
+        onChange={async v=>{ if(await setFlag({promos_enabled:v})) toast(v?'Promos activadas':'Promos desactivadas'); }}/>
+
+      <div style={{display:'flex',gap:10,marginBottom:12,flexWrap:'wrap'}}>
+        <KpiCard label="Reglas"      value={rules.length}    sub={`${activas.length} activa${activas.length!==1?'s':''}`}/>
+        <KpiCard label="Entregados"  value={awards.length}   sub="premios históricos" accent={'#007AFF'}/>
+        <KpiCard label="Vigentes"    value={vigentes.length} sub="sin canjear" accent={C.orange}/>
+        <KpiCard label="Canjeados"   value={canjeados.length} sub={awards.length?`${Math.round(canjeados.length/awards.length*100)}% de canje`:'—'} accent={C.green}/>
+      </div>
+
+      <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+        <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`}}>
+          {[['reglas','Reglas'],['entregados',`Premios entregados (${awards.length})`]].map(([id,lbl])=>(
+            <button key={id} onClick={()=>setVista(id)} style={{background:'none',border:'none',color:vista===id?C.ink:C.dim,padding:'7px 12px',fontSize:12,fontWeight:vista===id?700:400,borderBottom:vista===id?'2px solid '+C.ink:'2px solid transparent',cursor:'pointer',marginBottom:-1,whiteSpace:'nowrap'}}>{lbl}</button>
+          ))}
+        </div>
+        <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap'}}>
+          <Btn variant="secondary" small onClick={evaluar} disabled={corriendo||!activas.length}>
+            {corriendo?'Evaluando…':'Evaluar ahora'}
+          </Btn>
+          <Btn small onClick={()=>setModal({nueva:true})}>+ Nueva promo</Btn>
+        </div>
+      </div>
+
+      {vista==='reglas'&&(
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12}}>
+          {rules.map(r=>{
+            const t = MKT.triggerDef(r.trigger_type);
+            const entregados = awards.filter(a=>a.rule_id===r.id).length;
+            return (
+              <div key={r.id} style={{background:C.surface,border:`1px solid ${r.is_active?C.green:C.border}`,borderRadius:10,padding:16}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:8}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:700,color:C.ink}}>{r.name}</div>
+                    <div style={{fontSize:11,color:C.dim,marginTop:2}}>{t.label}</div>
+                  </div>
+                  <button onClick={async()=>{
+                    const {error}=await MKT.toggleRule(db,r.id,!r.is_active);
+                    if(error){ toast(error.message||'No se pudo cambiar',false); return; }
+                    toast(r.is_active?'Promo pausada':'Promo activada'); reload();
+                  }} style={{background:r.is_active?TINT.greenBg:'transparent',border:`1px solid ${r.is_active?C.green:C.border}`,color:r.is_active?C.green:C.dim,padding:'3px 9px',fontSize:10.5,fontWeight:700,borderRadius:5,cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>
+                    {r.is_active?'Activa':'Pausada'}
+                  </button>
+                </div>
+
+                <div style={{fontSize:12,color:C.mid,lineHeight:1.5,marginBottom:10}}>
+                  {promoResumen(r)}
+                </div>
+
+                <div style={{display:'flex',gap:12,fontSize:11,color:C.dim,marginBottom:12,flexWrap:'wrap'}}>
+                  <span>{entregados} entregado{entregados!==1?'s':''}</span>
+                  {r.max_awards&&<span>tope {r.max_awards}</span>}
+                  <span>{r.per_customer_limit>0?`${r.per_customer_limit} por cliente`:'sin límite por cliente'}</span>
+                </div>
+
+                <div style={{display:'flex',gap:8}}>
+                  <Btn variant="secondary" small onClick={()=>setModal({rule:r})}>Editar</Btn>
+                  <Btn variant="secondary" small onClick={async()=>{
+                    if(!window.confirm(`¿Eliminar la promo "${r.name}"? Los cupones ya entregados siguen siendo válidos.`)) return;
+                    const {error}=await MKT.deleteRule(db,r.id);
+                    if(error){ toast(error.message||'No se pudo eliminar',false); return; }
+                    toast('Promo eliminada'); reload();
+                  }}>Eliminar</Btn>
+                </div>
+              </div>
+            );
+          })}
+          {!rules.length&&(
+            <div style={{gridColumn:'1/-1',background:C.surface,border:`1px dashed ${C.border}`,borderRadius:10,padding:'28px 20px',textAlign:'center'}}>
+              <div style={{fontSize:13.5,fontWeight:700,color:C.ink,marginBottom:4}}>{loading?'Cargando…':'Todavía no creaste ninguna promo'}</div>
+              {!loading&&<div style={{fontSize:12,color:C.dim}}>Empezá con algo simple: "5 visitas → 15% OFF" o "cumpleaños → gift card de ₲50.000".</div>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {vista==='entregados'&&(
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:700}}>
+            <thead><tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
+              <Th>Código</Th><Th>Promo</Th><Th>Recompensa</Th><Th>Entregado</Th><Th>Vence</Th><Th>Estado</Th>
+            </tr></thead>
+            <tbody>
+              {awards.map(a=>{
+                const rn = rules.find(r=>r.id===a.rule_id)?.name||'—';
+                const est = a.status==='redeemed'?['Canjeado',C.green]
+                          : a.status==='cancelled'?['Anulado',C.dim]
+                          : (a.expires_at&&a.expires_at<todayLocal())?['Vencido',C.orange]
+                          : ['Vigente','#007AFF'];
+                return (
+                  <tr key={a.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                    <Td><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700}}>{a.code}</span></Td>
+                    <Td dim>{rn}</Td>
+                    <Td mono>{a.reward_type==='percent'?`${Number(a.reward_value)}%`:a.reward_type==='gift_card'?`Gift card ${fmt(a.reward_value)}`:fmt(a.reward_value)}</Td>
+                    <Td dim>{fmtDate(a.awarded_at)}</Td>
+                    <Td dim>{a.expires_at?a.expires_at.split('-').reverse().join('/'):'—'}</Td>
+                    <Td><span style={{fontSize:10,fontWeight:700,color:est[1],border:`1px solid ${est[1]}`,padding:'1px 6px',borderRadius:4}}>{est[0]}</span></Td>
+                  </tr>
+                );
+              })}
+              {!awards.length&&<EmptyRow cols={6} label={loading?'Cargando…':'Todavía no se entregó ningún premio'}/>}
+            </tbody>
+          </table>
+          <div style={{padding:'8px 14px',fontSize:11,color:C.dim,borderTop:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
+            Los códigos se le entregan al cliente desde su ficha en Clientes → botón "Enviar".
+          </div>
+        </div>
+      )}
+
+      {modal&&(
+        <PromoRuleModal rule={modal.rule||null} cfg={cfg}
+          onClose={()=>setModal(null)}
+          onSaved={()=>{ setModal(null); reload(); }}/>
+      )}
+    </div>
+  );
+}
+
+/* Frase en castellano de lo que hace una regla. El dueño no piensa en
+   "trigger_type=spend_period, threshold=300000, period_days=30". */
+function promoResumen(r) {
+  const premio = r.reward_type==='percent' ? `${Number(r.reward_value)}% de descuento`
+               : r.reward_type==='gift_card' ? `una gift card de ${fmt(r.reward_value)}`
+               : `${fmt(r.reward_value)} de descuento`;
+  const cond = r.trigger_type==='visits'       ? `llega a ${Number(r.threshold)} visitas`
+             : r.trigger_type==='spend_total'  ? `acumula ${fmt(r.threshold)} gastados`
+             : r.trigger_type==='spend_period' ? `gasta ${fmt(r.threshold)} en ${r.period_days} días`
+             : r.trigger_type==='first_order'  ? 'hace su primera compra'
+             : r.trigger_type==='inactive'     ? `no vuelve hace ${r.period_days} días`
+             : `cumple años dentro de ${r.period_days} días`;
+  const min = Number(r.min_order_amount)>0 ? ` Válido en pedidos desde ${fmt(r.min_order_amount)}.` : '';
+  return `Cuando un cliente ${cond}, recibe ${premio}.${min}`;
+}
+
+function PromoRuleModal({rule, cfg, onClose, onSaved}) {
+  const [f,setF] = useState(()=>rule
+    ? {...rule, valid_from:rule.valid_from||'', valid_to:rule.valid_to||'', max_awards:rule.max_awards??''}
+    : {...MKT.emptyRule(), coupon_valid_days:cfg.promo_coupon_valid_days||30});
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]  =useState('');
+  const t = MKT.triggerDef(f.trigger_type);
+  const rw= MKT.rewardDef(f.reward_type);
+
+  useEffect(()=>{
+    const h=e=>{ if(e.key==='Escape') onClose(); };
+    document.addEventListener('keydown',h);
+    return ()=>document.removeEventListener('keydown',h);
+  },[onClose]);
+
+  async function guardar(){
+    setErr(''); setBusy(true);
+    const {error} = rule ? await MKT.updateRule(db,rule.id,f) : await MKT.createRule(db,RID,f);
+    setBusy(false);
+    if(error){ setErr(MKT.isMissingMarketing(error)?MKT.MARKETING_MISSING_MSG:(error.message||'No se pudo guardar')); return; }
+    toast(rule?'Promo guardada':'Promo creada — activala cuando quieras que empiece');
+    onSaved();
+  }
+
+  return (
+    <Modal title={rule?'Editar promo':'Nueva promo automática'} onClose={onClose} width={520}>
+      <div style={{marginBottom:12}}>
+        <Lbl>NOMBRE *</Lbl>
+        <Inp value={f.name} onChange={e=>setF({...f,name:e.target.value})} placeholder="Cliente fiel — 5 visitas"/>
+      </div>
+
+      <div style={{marginBottom:12}}>
+        <Lbl>¿CUÁNDO SE PREMIA?</Lbl>
+        <Sel value={f.trigger_type} onChange={e=>setF({...f,trigger_type:e.target.value})}>
+          {MKT.PROMO_TRIGGERS.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}
+        </Sel>
+        <div style={{fontSize:10.5,color:C.dim,marginTop:4,lineHeight:1.4}}>{t.help}</div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+        {t.thresholdLabel&&(
+          <div>
+            <Lbl>{t.thresholdLabel}</Lbl>
+            {t.unit==='money'
+              ? <MoneyInp value={f.threshold} onChange={v=>setF({...f,threshold:v})}/>
+              : <NumInp value={f.threshold} onChange={v=>setF({...f,threshold:v})} placeholder="5"/>}
+          </div>
+        )}
+        {t.usesPeriod&&(
+          <div>
+            <Lbl>{f.trigger_type==='birthday'?'DÍAS DE ANTICIPACIÓN':f.trigger_type==='inactive'?'DÍAS SIN VOLVER':'VENTANA (DÍAS)'}</Lbl>
+            <NumInp value={f.period_days} onChange={v=>setF({...f,period_days:v})} placeholder="30"/>
+          </div>
+        )}
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+        <div>
+          <Lbl>RECOMPENSA</Lbl>
+          <Sel value={f.reward_type} onChange={e=>setF({...f,reward_type:e.target.value})}>
+            {MKT.PROMO_REWARDS.map(x=><option key={x.id} value={x.id}>{x.label}</option>)}
+          </Sel>
+        </div>
+        <div>
+          <Lbl>{rw.unit==='percent'?'PORCENTAJE':'MONTO'}</Lbl>
+          {rw.unit==='money'
+            ? <MoneyInp value={f.reward_value} onChange={v=>setF({...f,reward_value:v})}/>
+            : <NumInp value={f.reward_value} onChange={v=>setF({...f,reward_value:v})} placeholder="10"/>}
+        </div>
+      </div>
+
+      {f.reward_type==='gift_card'&&!cfg.gift_cards_enabled&&(
+        <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,borderRadius:8,padding:'9px 12px',fontSize:12,marginBottom:12}}>
+          Las gift cards están apagadas: mientras sigan así, esta promo no va a poder entregar el premio.
+        </div>
+      )}
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+        <div><Lbl>PEDIDO MÍNIMO</Lbl><MoneyInp value={f.min_order_amount} onChange={v=>setF({...f,min_order_amount:v})} placeholder="0"/></div>
+        <div><Lbl>VIGENCIA DEL CUPÓN (DÍAS)</Lbl><NumInp value={f.coupon_valid_days} onChange={v=>setF({...f,coupon_valid_days:v})} placeholder="30"/></div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+        <div><Lbl>VECES POR CLIENTE</Lbl><NumInp value={f.per_customer_limit} onChange={v=>setF({...f,per_customer_limit:v})} placeholder="1"/>
+          <div style={{fontSize:10,color:C.dim,marginTop:3}}>0 = sin límite</div></div>
+        <div><Lbl>TOPE TOTAL DE PREMIOS</Lbl><NumInp value={f.max_awards} onChange={v=>setF({...f,max_awards:v})} placeholder="sin tope"/></div>
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+        <div><Lbl>DESDE</Lbl><Inp type="date" value={f.valid_from||''} onChange={e=>setF({...f,valid_from:e.target.value})}/></div>
+        <div><Lbl>HASTA</Lbl><Inp type="date" value={f.valid_to||''} onChange={e=>setF({...f,valid_to:e.target.value})}/></div>
+      </div>
+
+      <div style={{marginBottom:14}}>
+        <Lbl>PREFIJO DEL CÓDIGO</Lbl>
+        <Inp value={f.coupon_prefix} onChange={e=>setF({...f,coupon_prefix:e.target.value.toUpperCase().slice(0,8)})} placeholder="PROMO"/>
+      </div>
+
+      <div style={{background:C.bg,borderRadius:8,padding:'10px 12px',fontSize:12,color:C.mid,marginBottom:14,lineHeight:1.5}}>
+        <b style={{color:C.ink}}>Resumen:</b> {promoResumen({...f,
+          threshold:Number(f.threshold)||0, reward_value:Number(f.reward_value)||0,
+          min_order_amount:Number(f.min_order_amount)||0, period_days:Number(f.period_days)||0})}
+      </div>
+
+      {err&&<div style={{border:`1px solid ${C.red}`,color:C.red,borderRadius:8,padding:'9px 12px',fontSize:12.5,marginBottom:12}}>{err}</div>}
+
+      <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+        <Btn variant="secondary" onClick={onClose} disabled={busy}>Cancelar</Btn>
+        <Btn onClick={guardar} disabled={busy}>{busy?'Guardando…':(rule?'Guardar cambios':'Crear promo')}</Btn>
+      </div>
+    </Modal>
+  );
+}
 /* ══════════════════════════════════════════════
    CALIFICACIONES — filtros por canal + mensajes de cocina
 ══════════════════════════════════════════════ */
@@ -7698,7 +8285,7 @@ function StockPage() {
 /* ══════════════════════════════════════════════
    REPORTES
 ══════════════════════════════════════════════ */
-function ReportesPage({orders}) {
+function ReportesPage({orders, tables=[]}) {
   const [rType, setRType]     = useState('');
   const [fromStr, setFromStr] = useState('');
   const [toStr, setToStr]     = useState('');
@@ -7744,7 +8331,24 @@ function ReportesPage({orders}) {
     {id:'stock_actual',     label:'Stock actual',              cat:'stock',     desc:'Inventario actual de ingredientes y alertas'},
     {id:'movimientos_stock',label:'Movimientos de stock',      cat:'stock',     desc:'Entradas, consumos y ajustes de inventario'},
     {id:'ratings',          label:'Calificaciones',            cat:'clientes',  desc:'Puntajes y comentarios de clientes'},
+    // ── CRM: vivían dentro del módulo Clientes en un panel propio. Un reporte
+    //    es un reporte: se generan, se filtran por período y se exportan igual
+    //    que los demás, así que su lugar es acá y no en la pantalla de gestión.
+    {id:'clientes_contactos', label:'Contactos registrados',        cat:'clientes', desc:'Fichas con teléfono, email, CI/RUC, clasificación, visitas y consumo'},
+    {id:'clientes_general',   label:'Listado general de clientes',  cat:'clientes', desc:'Todo el que compró en el período, con ficha o sin ella'},
+    {id:'clientes_ranking',   label:'Ranking de consumidores',      cat:'clientes', desc:'Top clientes ordenados por total consumido en el período'},
+    {id:'clientes_tipos',     label:'Resumen por clasificación',    cat:'clientes', desc:'Cuántos clientes y cuánto consumo aporta cada tipo del local'},
+    {id:'clientes_delivery',  label:'Clientes Delivery',            cat:'clientes', desc:'Clientes con pedidos delivery — incluye todas las direcciones de entrega'},
+    {id:'clientes_mesa',      label:'Clientes QR Mesa / Salón',     cat:'clientes', desc:'Clientes que ordenaron desde una mesa'},
+    {id:'clientes_llevar',    label:'Clientes Para Llevar / Mostrador', cat:'clientes', desc:'Clientes con pedidos para llevar o de mostrador'},
+    {id:'clientes_vip',       label:'Clientes de alto consumo',     cat:'clientes', desc:`Clientes que gastaron más de ₲${(VIP_THRESHOLD/1000).toFixed(0)}k en el período`},
+    {id:'clientes_frecuentes',label:'Clientes frecuentes',          cat:'clientes', desc:`Clientes con ${FREQUENT_MIN_ORDERS} o más visitas en el período`},
+    {id:'clientes_factura',   label:'Clientes que piden factura',   cat:'clientes', desc:'Datos de clientes que solicitaron RUC / comprobante fiscal'},
+    {id:'clientes_inactivos', label:'Clientes inactivos',           cat:'clientes', desc:`Clientes sin visitas en los últimos ${INACTIVE_DAYS} días (sobre todo el historial)`},
+    {id:'clientes_anonimos',  label:'Pedidos sin identificar',      cat:'clientes', desc:'Pedidos realizados sin nombre de cliente registrado'},
     {id:'cupones',          label:'Cupones y descuentos',      cat:'marketing', desc:'Uso y efectividad de cupones aplicados'},
+    {id:'gift_cards',       label:'Gift cards',                cat:'marketing', desc:'Emitidas, canjeadas y saldo pendiente de cada tarjeta'},
+    {id:'promos',           label:'Promos automáticas',        cat:'marketing', desc:'Premios entregados por cada regla y cuántos se canjearon'},
   ];
 
   const CATS = [
@@ -8051,6 +8655,332 @@ function ReportesPage({orders}) {
         {label:'Total descuentos',  value:fmt(totDesc),color:'#FF3B30'},
       ]);
       setRows({ cols:['Cupón','Usos','Descuento total'], data:rows2.map(c=>[c.code, c.usos, fmt(c.desc)]) });
+    }
+
+    // ══ CRM — antes vivían dentro del módulo Clientes ══════════════════
+    // Los datos salen de `crm_customer_stats` (mig 197): TODO el historial del
+    // local, no los últimos 500 pedidos que tiene el panel en memoria. Por eso
+    // estos reportes pueden dar números mayores que la pantalla de Clientes
+    // cuando la migración 197 todavía no está aplicada — y el aviso lo dice.
+    else if(type==='clientes_anonimos') {
+      // Único reporte de clientes que NO pasa por crm_customer_stats: necesita el
+      // detalle pedido por pedido, no el agregado. Va directo a la base y no al
+      // array `orders` del panel, que está recortado a los últimos 500.
+      const {data:anonOrds}=await db.from('orders')
+        .select('id,order_number,created_at,order_type,total,payment_method,table_id,customer_name,status')
+        .eq('restaurant_id',RID)
+        .is('customer_name',null)
+        .not('status','in','(draft,cancelled)')
+        .gte('created_at',from.toISOString()).lte('created_at',to.toISOString())
+        .order('created_at',{ascending:false}).limit(1000);
+      const rows2=anonOrds||[];
+      const totAnon=rows2.reduce((s,o)=>s+(o.total||0),0);
+      const mesaNum=new Map(tables.map(t=>[t.id,t.number]));
+      setSummary([
+        {label:'Pedidos sin identificar',value:rows2.length,                                          color:'#8E8E93'},
+        {label:'Total sin registrar',    value:fmt(totAnon),                                          color:'#FF9500'},
+        {label:'Ticket promedio',        value:rows2.length?fmt(Math.round(totAnon/rows2.length)):'—',color:'#007AFF'},
+      ]);
+      setRows({
+        cols:['Pedido #','Fecha','Canal','Total','Mesa','Método de pago'],
+        data:rows2.map(o=>[
+          o.order_number||o.id?.slice(-6)||'—',
+          fmtDate(o.created_at),
+          CRM_ORDER_TYPES[o.order_type]||o.order_type||'—',
+          fmt(o.total||0),
+          o.table_id&&mesaNum.get(o.table_id)?`Mesa ${mesaNum.get(o.table_id)}`:'—',
+          PL[o.payment_method]||o.payment_method||'—',
+        ]),
+      });
+    }
+
+    else if(type.startsWith('clientes_')) {
+      const { clients, types: crmTypes, missing } = await crmClients(from, to);
+      if(missing) toast('Falta aplicar la migración 197 — el reporte sale de los últimos 500 pedidos',false);
+      _runCrm(type, clients, crmTypes);
+    }
+
+    else if(type==='gift_cards') {
+      const { cards } = await MKT.loadGiftCards(db, RID, { limit:1000 });
+      const f = cards.filter(g=>{ const d=new Date(g.created_at); return d>=from&&d<=to; });
+      const emit = f.reduce((s,g)=>s+Number(g.initial_amount||0),0);
+      const pend = f.reduce((s,g)=>s+Number(g.balance||0),0);
+      setSummary([
+        {label:'Gift cards emitidas', value:f.length,          color:'#007AFF'},
+        {label:'Valor emitido',       value:fmt(emit),         color:'#34C759'},
+        {label:'Consumido',           value:fmt(emit-pend),    color:'#FF9500'},
+        // Saldo sin usar = plata ya cobrada que el local todavía debe en
+        // producto. Es un pasivo, no una ganancia: por eso va en rojo.
+        {label:'Saldo pendiente',     value:fmt(pend),         color:'#FF3B30'},
+      ]);
+      setRows({
+        cols:['Código','Emitida','Estado','Monto','Saldo','Para','Teléfono','Vence','Canal'],
+        data:f.map(g=>[
+          g.code, fmtDate(g.created_at),
+          (MKT.GIFT_CARD_STATUS[MKT.effectiveStatus(g)]||{}).label||g.status,
+          fmt(g.initial_amount), fmt(g.balance),
+          g.recipient_name||g.purchaser_name||'—',
+          g.recipient_phone||g.purchaser_phone||'—',
+          g.expires_at?g.expires_at.split('-').reverse().join('/'):'Sin vencimiento',
+          g.issued_channel||'—',
+        ]),
+      });
+    }
+
+    else if(type==='promos') {
+      const [{ awards }, { rules }] = await Promise.all([
+        MKT.loadAwards(db, RID, { limit:1000 }),
+        MKT.loadRules(db, RID),
+      ]);
+      const ruleName = new Map((rules||[]).map(r=>[r.id,r.name]));
+      const f = (awards||[]).filter(a=>{ const d=new Date(a.awarded_at); return d>=from&&d<=to; });
+      const canj = f.filter(a=>a.status==='redeemed').length;
+      setSummary([
+        {label:'Premios entregados', value:f.length,                                         color:'#007AFF'},
+        {label:'Canjeados',          value:canj,                                             color:'#34C759'},
+        {label:'Tasa de canje',      value:f.length?`${Math.round(canj/f.length*100)}%`:'—', color:'#FF9500'},
+        {label:'Reglas activas',     value:(rules||[]).filter(r=>r.is_active).length,        color:C.ink},
+      ]);
+      setRows({
+        cols:['Promo','Código','Recompensa','Entregado','Estado','Vence','Canjeado'],
+        data:f.map(a=>[
+          ruleName.get(a.rule_id)||'—', a.code,
+          a.reward_type==='percent'?`${Number(a.reward_value)}%`
+            :a.reward_type==='gift_card'?`Gift card ${fmt(a.reward_value)}`:fmt(a.reward_value),
+          fmtDate(a.awarded_at),
+          a.status==='redeemed'?'Canjeado':a.status==='expired'?'Vencido':a.status==='cancelled'?'Anulado':'Vigente',
+          a.expires_at?a.expires_at.split('-').reverse().join('/'):'—',
+          a.redeemed_at?fmtDate(a.redeemed_at):'—',
+        ]),
+      });
+    }
+  }
+
+  /* Base común de los reportes de clientes: consumo real (RPC) fusionado con
+     las fichas. `includeInactive` en true a propósito — un reporte tiene que
+     poder mostrar al cliente que se dio de baja, si compró en el período. */
+  async function crmClients(from, to) {
+    const [statsR, fichasR, typesR] = await Promise.all([
+      loadCustomerStats(db, RID, {from:from.toISOString(), to:to.toISOString()}),
+      loadCustomers(db, RID, {includeInactive:true}),
+      loadCustomerTypesRows(db, RID),
+    ]);
+    const base = statsR.missing
+      ? crmRowsFromOrders(orders.filter(o=>new Date(o.created_at)>=from&&new Date(o.created_at)<=to), null)
+      : statsR.stats.map(crmRowFromStat);
+    return { clients: crmMerge(base, fichasR.customers||[]), types: typesR.types||[], missing: statsR.missing };
+  }
+
+  function _runCrm(type, clients, crmTypes) {
+    const tipoName = new Map((crmTypes||[]).map(t=>[t.id,t.name]));
+    const clasif   = c => (c.type_ids||[]).map(id=>tipoName.get(id)).filter(Boolean).join(', ') || '—';
+    const canal    = c => CRM_ORDER_TYPES[c.preferred]||c.preferred||'—';
+    const total    = list => list.reduce((s,c)=>s+c.total,0);
+    const visitas  = list => list.reduce((s,c)=>s+c.orders,0);
+
+    if(type==='clientes_contactos'){
+      // La lista que pidió el módulo: contactos registrados, sus visitas y su gasto.
+      const cont = clients.filter(c=>c.ficha).sort((a,b)=>b.total-a.total);
+      setSummary([
+        {label:'Contactos',      value:cont.length,                                     color:'#007AFF'},
+        {label:'Visitas',        value:visitas(cont),                                   color:'#34C759'},
+        {label:'Total consumido',value:fmt(total(cont)),                                color:'#FF9500'},
+        {label:'Ticket promedio',value:visitas(cont)?fmt(Math.round(total(cont)/visitas(cont))):'—', color:C.ink},
+      ]);
+      setRows({
+        cols:['Nombre','Teléfono','Email','CI / RUC','Clasificación','Visitas','Total gastado','Ticket prom.','Canal preferido','Última visita','Estado'],
+        data:cont.map(c=>[
+          c.name, c.phone?custPhone(c.phone):'—', c.email||'—',
+          c.ficha.doc_number?`${(c.ficha.doc_type||'ci').toUpperCase()} ${c.ficha.doc_number}`:'—',
+          clasif(c), c.orders, fmt(c.total), fmt(c.ticket), canal(c),
+          c.neverOrdered?'Sin visitas':fmtDate(c.lastDate),
+          c.ficha.is_active===false?'Desactivada':'Activa',
+        ]),
+      });
+    }
+    else if(type==='clientes_general'){
+      setSummary([
+        {label:'Clientes',       value:clients.length,                                                        color:'#007AFF'},
+        {label:'Total consumido',value:fmt(total(clients)),                                                   color:'#34C759'},
+        {label:'Ticket promedio',value:visitas(clients)?fmt(Math.round(total(clients)/visitas(clients))):'—', color:'#FF9500'},
+        {label:'Con ficha',      value:clients.filter(c=>c.ficha).length,                                     color:C.ink},
+      ]);
+      setRows({
+        cols:['Nombre','Teléfono','Email','Clasificación','Ficha','Visitas','Total gastado','Ticket prom.','Canal preferido','Factura','Primera visita','Última visita'],
+        data:clients.map(c=>[
+          c.name, c.phone?custPhone(c.phone):'—', c.email||'—', clasif(c), c.ficha?'Sí':'No',
+          c.orders, fmt(c.total), fmt(c.ticket), canal(c), c.pideFactura?'Sí':'No',
+          c.firstDate?fmtDate(c.firstDate):'—',
+          c.neverOrdered?'—':(c.lastDate?fmtDate(c.lastDate):'—'),
+        ]),
+      });
+    }
+    else if(type==='clientes_ranking'){
+      const top = clients.filter(c=>!c.anonymous&&c.orders>0).slice(0,100);
+      setSummary([
+        {label:'Clientes rankeados',value:top.length,                          color:'#007AFF'},
+        {label:'Total consumido',   value:fmt(total(top)),                     color:'#34C759'},
+        {label:'Top consumidor',    value:top[0]?.name||'—',                   color:'#FF9500'},
+        {label:'Mayor gasto',       value:top[0]?fmt(top[0].total):'—',        color:'#AF52DE'},
+      ]);
+      setRows({
+        cols:['Pos.','Nombre','Teléfono','Clasificación','Visitas','Total gastado','Ticket prom.','Canal preferido','Última visita'],
+        data:top.map((c,i)=>[
+          `#${i+1}`, c.name, c.phone?custPhone(c.phone):'—', clasif(c),
+          c.orders, fmt(c.total), fmt(c.ticket), canal(c),
+          c.lastDate?fmtDate(c.lastDate):'—',
+        ]),
+      });
+    }
+    else if(type==='clientes_tipos'){
+      // Un cliente con dos tipos suma en los dos: la pregunta que responde este
+      // reporte es "cuánto me aporta cada clasificación", no un reparto exacto.
+      const filas = (crmTypes||[]).map(t=>{
+        const l = clients.filter(c=>(c.type_ids||[]).includes(t.id));
+        return {name:t.name, n:l.length, visitas:visitas(l), total:total(l)};
+      });
+      const sinTipo = clients.filter(c=>c.ficha&&!(c.type_ids||[]).length);
+      const sinFicha= clients.filter(c=>!c.ficha);
+      filas.push({name:'Sin clasificar (con ficha)', n:sinTipo.length,  visitas:visitas(sinTipo),  total:total(sinTipo)});
+      filas.push({name:'Sin ficha',                  n:sinFicha.length, visitas:visitas(sinFicha), total:total(sinFicha)});
+      const tot = total(clients)||1;
+      setSummary([
+        {label:'Tipos configurados', value:(crmTypes||[]).length,      color:'#007AFF'},
+        {label:'Clientes con ficha', value:clients.filter(c=>c.ficha).length, color:'#34C759'},
+        {label:'Sin clasificar',     value:sinTipo.length,             color:'#FF9500'},
+      ]);
+      setRows({
+        cols:['Clasificación','Clientes','Visitas','Total consumido','Ticket prom.','% del consumo'],
+        data:filas.map(r=>[
+          r.name, r.n, r.visitas, fmt(r.total),
+          fmt(r.visitas?Math.round(r.total/r.visitas):0),
+          `${Math.round(r.total/tot*100)}%`,
+        ]),
+      });
+    }
+    else if(type==='clientes_delivery'){
+      const del = clients.filter(c=>(c.canalCount['delivery']||0)>0);
+      setSummary([
+        {label:'Clientes delivery',value:del.length,                                        color:'#FF9500'},
+        {label:'Total delivery',   value:fmt(total(del)),                                   color:'#34C759'},
+        {label:'Con dirección',    value:del.filter(c=>(c.addresses||[]).length>0).length,  color:'#007AFF'},
+        {label:'Pedidos delivery', value:del.reduce((s,c)=>s+(c.canalCount['delivery']||0),0), color:'#AF52DE'},
+      ]);
+      setRows({
+        cols:['Nombre','Teléfono','Email','Clasificación','Pedidos delivery','Total gastado','Ticket prom.','Dirección(es)','Última visita'],
+        data:del.map(c=>[
+          c.name, c.phone?custPhone(c.phone):'—', c.email||'—', clasif(c),
+          c.canalCount['delivery']||0, fmt(c.total), fmt(c.ticket),
+          (c.addresses||[]).join(' | ')||'—',
+          c.lastDate?fmtDate(c.lastDate):'—',
+        ]),
+      });
+    }
+    else if(type==='clientes_mesa'){
+      const mesa = clients.filter(c=>(c.canalCount['mesa']||0)+(c.canalCount['local']||0)>0);
+      setSummary([
+        {label:'Clientes en mesa',value:mesa.length,       color:'#007AFF'},
+        {label:'Total consumido', value:fmt(total(mesa)),  color:'#34C759'},
+        {label:'Pedidos en mesa', value:mesa.reduce((s,c)=>s+(c.canalCount['mesa']||0)+(c.canalCount['local']||0),0), color:'#FF9500'},
+      ]);
+      setRows({
+        cols:['Nombre','Teléfono','Clasificación','QR Mesa','Salón','Total gastado','Ticket prom.','Mesas usadas','Última visita'],
+        data:mesa.map(c=>[
+          c.name, c.phone?custPhone(c.phone):'—', clasif(c),
+          c.canalCount['mesa']||0, c.canalCount['local']||0,
+          fmt(c.total), fmt(c.ticket),
+          (c.tables||[]).map(t=>`Mesa ${t}`).join(', ')||'—',
+          c.lastDate?fmtDate(c.lastDate):'—',
+        ]),
+      });
+    }
+    else if(type==='clientes_llevar'){
+      const llevar = clients.filter(c=>(c.canalCount['llevar']||0)+(c.canalCount['counter']||0)+(c.canalCount['pickup']||0)>0);
+      setSummary([
+        {label:'Clientes para llevar',value:llevar.length,      color:'#34C759'},
+        {label:'Total consumido',     value:fmt(total(llevar)), color:'#007AFF'},
+        {label:'Pedidos',             value:llevar.reduce((s,c)=>s+(c.canalCount['llevar']||0)+(c.canalCount['counter']||0)+(c.canalCount['pickup']||0),0), color:'#FF9500'},
+      ]);
+      setRows({
+        cols:['Nombre','Teléfono','Clasificación','Para llevar','Mostrador','Retira','Total gastado','Ticket prom.','Última visita'],
+        data:llevar.map(c=>[
+          c.name, c.phone?custPhone(c.phone):'—', clasif(c),
+          c.canalCount['llevar']||0, c.canalCount['counter']||0, c.canalCount['pickup']||0,
+          fmt(c.total), fmt(c.ticket),
+          c.lastDate?fmtDate(c.lastDate):'—',
+        ]),
+      });
+    }
+    else if(type==='clientes_vip'){
+      const vipL = clients.filter(c=>c.isVip);
+      setSummary([
+        {label:'Alto consumo',    value:vipL.length,                      color:'#FF9500'},
+        {label:'Total consumido', value:fmt(total(vipL)),                 color:'#34C759'},
+        {label:'Mayor gasto',     value:vipL[0]?fmt(vipL[0].total):'—',   color:'#AF52DE'},
+      ]);
+      setRows({
+        cols:['Nombre','Teléfono','Email','Clasificación','Visitas','Total gastado','Ticket prom.','Canal preferido','Factura','Última visita'],
+        data:vipL.map(c=>[
+          c.name, c.phone?custPhone(c.phone):'—', c.email||'—', clasif(c),
+          c.orders, fmt(c.total), fmt(c.ticket), canal(c), c.pideFactura?'Sí':'No',
+          c.lastDate?fmtDate(c.lastDate):'—',
+        ]),
+      });
+    }
+    else if(type==='clientes_frecuentes'){
+      const freq = clients.filter(c=>c.orders>=FREQUENT_MIN_ORDERS&&!c.anonymous);
+      setSummary([
+        {label:'Clientes frecuentes',value:freq.length,                             color:'#34C759'},
+        {label:'Total consumido',    value:fmt(total(freq)),                        color:'#007AFF'},
+        {label:'Más fiel',           value:freq.length?`${Math.max(...freq.map(c=>c.orders))} visitas`:'—', color:'#FF9500'},
+      ]);
+      setRows({
+        cols:['Nombre','Teléfono','Email','Clasificación','Visitas','Total gastado','Ticket prom.','Canal preferido','Primera visita','Última visita'],
+        data:freq.sort((a,b)=>b.orders-a.orders).map(c=>[
+          c.name, c.phone?custPhone(c.phone):'—', c.email||'—', clasif(c),
+          c.orders, fmt(c.total), fmt(c.ticket), canal(c),
+          c.firstDate?fmtDate(c.firstDate):'—',
+          c.lastDate?fmtDate(c.lastDate):'—',
+        ]),
+      });
+    }
+    else if(type==='clientes_factura'){
+      const facL = clients.filter(c=>c.pideFactura);
+      setSummary([
+        {label:'Piden factura',   value:facL.length,                              color:'#007AFF'},
+        {label:'Total facturado', value:fmt(total(facL)),                         color:'#34C759'},
+        {label:'Solicitudes',     value:facL.reduce((s,c)=>s+c.facturaCount,0),  color:'#AF52DE'},
+      ]);
+      setRows({
+        cols:['Nombre','Teléfono','Email','CI / RUC','Visitas','Solicitudes de factura','Total gastado','Canal preferido','Última visita'],
+        data:facL.map(c=>[
+          c.name, c.phone?custPhone(c.phone):'—', c.email||'—',
+          c.ficha?.doc_number?`${(c.ficha.doc_type||'ci').toUpperCase()} ${c.ficha.doc_number}`:'—',
+          c.orders, c.facturaCount, fmt(c.total), canal(c),
+          c.lastDate?fmtDate(c.lastDate):'—',
+        ]),
+      });
+    }
+    else if(type==='clientes_inactivos'){
+      // Deliberadamente IGNORA el rango tipeado: preguntar "quién no vino en los
+      // últimos 30 días" dentro de una ventana de una semana no tiene sentido.
+      // Se evalúa siempre contra hoy y sobre el historial completo.
+      const cutoff = new Date(Date.now()-INACTIVE_DAYS*864e5).toISOString();
+      const inac = clients.filter(c=>!c.anonymous&&!c.neverOrdered&&c.lastDate<cutoff)
+                          .sort((a,b)=>a.lastDate.localeCompare(b.lastDate));
+      setSummary([
+        {label:'Clientes inactivos',value:inac.length,                                                                    color:'#FF9500'},
+        {label:'Máx. sin volver',   value:inac.length?Math.floor((Date.now()-new Date(inac[0].lastDate).getTime())/864e5)+'d':'—', color:'#FF3B30'},
+        {label:'Valor en riesgo',   value:fmt(total(inac)),                                                               color:'#34C759'},
+      ]);
+      setRows({
+        cols:['Nombre','Teléfono','Email','Clasificación','Días sin volver','Última visita','Visitas','Total gastado'],
+        data:inac.map(c=>[
+          c.name, c.phone?custPhone(c.phone):'—', c.email||'—', clasif(c),
+          Math.floor((Date.now()-new Date(c.lastDate).getTime())/864e5),
+          fmtDate(c.lastDate), c.orders, fmt(c.total),
+        ]),
+      });
     }
   }
 
@@ -13203,11 +14133,11 @@ function AdminApp() {
       case 'marketing':
       case 'ratings':
       case 'clientes':  return caps.hasFeature('admin:crm')
-        ? <ClientesHubPage orders={orders} coupons={coupons} ratings={ratings} restaurant={restaurant} onRefresh={loadAll}
+        ? <ClientesHubPage orders={orders} coupons={coupons} ratings={ratings} restaurant={restaurant} onRefresh={loadAll} setPage={setPage}
             initialTab={page==='marketing'?'marketing':page==='ratings'?'ratings':'crm'}/>
         : <window.MythosGating.FeatureLock featureKey="admin:crm" variant="inline"/>;
       case 'caja':      return caps.hasPanel('caja') ? <CajaAdminPage/> : <window.MythosGating.PanelLock panelKey="caja" variant="inline"/>;
-      case 'reportes':  return <ReportesPage orders={orders}/>;
+      case 'reportes':  return <ReportesPage orders={orders} tables={tables}/>;
       case 'finanzas':  return <FinanzasPage orders={orders} restaurant={restaurant} showDelivery={caps.hasFeature('admin:delivery_zones')} onRefresh={loadAll}/>;
       case 'stock':     return caps.hasFeature('admin:inventory') ? <StockPage/> : <window.MythosGating.FeatureLock featureKey="admin:inventory" variant="inline"/>;
       // 'proveedores' se conserva como alias por links/estado viejo → cae en Marketplace.

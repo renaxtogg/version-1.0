@@ -88,6 +88,15 @@ async function dbValidateCoupon(code) {
   if (!db) return null;
   try {
     const { data } = await db.from('coupons').select('*').eq('restaurant_id', RESTAURANT_ID).eq('code', code.toUpperCase()).eq('is_active', true).maybeSingle();
+    if (!data) return null;
+    // `valid_until` y `max_uses` estaban en la tabla desde la mig 001 y NADIE los
+    // miraba: un cupón vencido o agotado se seguía aceptando. Con los cupones
+    // personales de las promos automáticas (mig 197) eso deja de ser un descuido
+    // y pasa a ser plata: un código de un solo uso que circula por WhatsApp.
+    // El conteo lo lleva la base (trigger consume_coupon_on_order); acá se
+    // rechaza antes de que el comensal vea un descuento que no le corresponde.
+    if (data.valid_until && new Date(data.valid_until) < new Date()) return null;
+    if (data.max_uses != null && (data.used_count || 0) >= data.max_uses) return null;
     return data;
   } catch(e) { return null; }
 }

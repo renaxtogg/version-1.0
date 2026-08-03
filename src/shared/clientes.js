@@ -406,6 +406,53 @@ export function customerPayload(form, source) {
   };
 }
 
+// ── Estadísticas REALES (mig 197) ────────────────────────────────────
+// Hasta acá el Admin calculaba "pedidos" y "total gastado" agrupando en el
+// navegador el array `orders`, que llega con `.limit(500)`. O sea que el CRM
+// mentía —y mentía CADA VEZ MÁS cuanto más vendía el local—: un cliente con 12
+// visitas aparecía con 3 porque las otras 9 quedaron fuera de la ventana. La
+// RPC agrega del lado de la base sobre TODO el historial.
+//
+// Devuelve `missing:true` (en vez de reventar) si la mig 197 no está aplicada,
+// para que el panel pueda caer al cálculo viejo y avisarlo en pantalla.
+
+/** Fecha → ISO para los extremos de un rango. `null` = sin límite. */
+function rangeISO(v) {
+  if (!v) return null;
+  return v instanceof Date ? v.toISOString() : String(v);
+}
+
+export async function loadCustomerStats(db, restaurantId, { from = null, to = null } = {}) {
+  if (!db || !restaurantId) return { stats: [], missing: false, error: null };
+  const { data, error } = await db.rpc('crm_customer_stats', {
+    p_restaurant_id: restaurantId,
+    p_from: rangeISO(from),
+    p_to: rangeISO(to),
+  });
+  if (error) return { stats: [], missing: isMissingCrm(error), error };
+  return {
+    stats: (data || []).map(r => ({
+      key: r.group_key,
+      customerId: r.customer_id || null,
+      name: r.name || null,
+      phone: r.phone || null,
+      email: r.email || null,
+      anonymous: !!r.anonymous,
+      visits: Number(r.visits || 0),
+      total: Number(r.total_spent || 0),
+      ticket: Number(r.ticket_avg || 0),
+      firstDate: r.first_order || null,
+      lastDate: r.last_order || null,
+      facturaCount: Number(r.invoice_count || 0),
+      canalCount: r.canales || {},
+      paymentMethods: r.pagos || {},
+      addresses: r.addresses || [],
+      tables: r.tables_used || [],
+    })),
+    missing: false, error: null,
+  };
+}
+
 // ── Segmentación calculada (lo que el CRM ya mostraba) ───────────────
 // Los tipos ASIGNADOS son del local; estos son los indicadores CALCULADOS que
 // el Admin ya venía mostrando. Conviven: un cliente puede ser "VIP" porque el
