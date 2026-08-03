@@ -39,8 +39,26 @@ const FREC_LABEL  = { unica:'Única', semanal:'Semanal', mensual:'Mensual', a_de
 const PROD_ESTADO = { borrador:'Borrador', publicado:'Publicado', pausado:'Pausado', oculto_admin:'Oculto por Mythos' };
 const PRECIO_TIPO = { visible:'Precio visible', desde:'Precio desde', cotizar:'A cotizar' };
 const UNIDADES    = ['kg','unidad','caja','pack','bolsa','litro','bidon','docena','otro'];
-const PLAN_LABEL  = { fundador:'Fundador', basico:'Básico', pro:'Pro' };
 const TIENDA_ESTADO = { activo:'Activa', pausado:'Pausada', suspendido:'Suspendida' };
+const SUB_ESTADO  = { trial:'Prueba', active:'Al día', past_due:'Pago pendiente', cancelled:'Cancelada', suspended:'Suspendida' };
+const LEAD_CONTACT_LBL = { inmediato:'Inmediato', demorado:'Con demora de 24 h', oculto:'No disponible' };
+
+/* ── Capacidades del plan (RPC get_supplier_capabilities, migs 177/178/199) ──
+   Hasta la 199 el panel NUNCA preguntaba por su plan: el proveedor no sabía
+   cuánto cupo le quedaba, cuándo vencía su prueba, ni por qué le aparecía en
+   blanco el nombre de un restaurante (era el gating del plan Básico, pero sin
+   cartel parecía un bug). Todo eso sale de acá.
+   caps === null significa "no pude preguntar" (RPC vieja o sin aplicar): en ese
+   caso la UI NO topea nada — la DB es la autoridad y ya rebota lo que no toca. */
+const capNum = (caps, key, fallback = -1) => {
+  if (!caps) return fallback;
+  const v = caps[key];
+  return (v === null || v === undefined) ? fallback : Number(v);
+};
+const capOn      = (caps, key) => caps ? !!caps[key] : true;
+const unlimited  = n => n === -1;
+const atLimit    = (n, used) => !unlimited(n) && used >= n;
+const capText    = n => unlimited(n) ? 'Ilimitado' : String(n);
 
 const PALETTES = {
   light: {
@@ -261,10 +279,151 @@ function useSupplier() {
   return { ...state, reload };
 }
 
+/* Límites efectivos del plan + estado del ciclo de cobro. */
+function useCapabilities() {
+  const [state, setState] = useState({loading:true, caps:null});
+  const reload = useCallback(async () => {
+    if (!db) { setState({loading:false, caps:null}); return; }
+    const { data, error } = await db.rpc('get_supplier_capabilities');
+    if (error || !data) { setState({loading:false, caps:null}); return; }
+    // El nombre comercial del plan no viaja en la RPC (que devuelve límites, no
+    // catálogo). Se resuelve acá para no volver a hardcodear una tabla de labels
+    // que se desactualice cuando cambien los planes.
+    let caps = data;
+    if (data.plan_slug) {
+      const { data: pl } = await db.from('marketplace_supplier_plans')
+        .select('name').eq('slug', data.plan_slug).maybeSingle();
+      if (pl?.name) caps = {...data, plan_name: pl.name};
+    }
+    setState({loading:false, caps});
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+  return { ...state, reload };
+}
+
+/* ── Aviso de estado de la suscripción ──
+   Es el único lugar donde el proveedor se entera de que su prueba termina o de
+   que le van a pausar la tienda. Antes no existía: el trial no vencía nunca. */
+function PlanAlert({caps, onJump}) {
+  if (!caps) return null;
+  const d = caps.days_left;
+  let tone = null, titulo = '', texto = '';
+
+  if (caps.locked) {
+    tone = 'red'; titulo = 'Tu suscripción venció';
+    texto = caps.auto_paused
+      ? 'Tu tienda quedó pausada y no aparece en el marketplace. Escribinos para regularizarla y se reactiva enseguida.'
+      : 'No podés publicar productos nuevos hasta regularizar el pago. Escribinos y lo resolvemos.';
+  } else if (caps.in_grace) {
+    tone = 'orange'; titulo = 'Tenés un pago pendiente';
+    texto = `Tu período venció${typeof d === 'number' ? ` hace ${Math.abs(d)} día(s)` : ''}. Seguís operando durante los ${caps.grace_days || 5} días de gracia; después la tienda se pausa.`;
+  } else if (caps.status === 'trial' && typeof d === 'number' && d <= 7) {
+    tone = 'orange'; titulo = d <= 0 ? 'Tu prueba termina hoy' : `Tu prueba termina en ${d} día(s)`;
+    texto = 'Escribinos para activar tu plan y que tu tienda siga recibiendo consultas.';
+  }
+  if (!tone) return null;
+
+  const bg = tone === 'red' ? C.redSoft : C.orangeSoft;
+  const bd = tone === 'red' ? C.redSoftBorder : C.orangeSoftBorder;
+  const tx = tone === 'red' ? C.redSoftText : C.orangeSoftText;
+  return (
+    <div style={{background:bg,border:`1px solid ${bd}`,color:tx,padding:'12px 14px',borderRadius:10,marginBottom:14,
+                 display:'flex',gap:12,alignItems:'flex-start',flexWrap:'wrap'}}>
+      <Icon name="alert" size={16} style={{marginTop:2,flexShrink:0}}/>
+      <div style={{flex:1,minWidth:220}}>
+        <div style={{fontSize:13,fontWeight:800,marginBottom:2}}>{titulo}</div>
+        <div style={{fontSize:12.5,lineHeight:1.5}}>{texto}</div>
+      </div>
+      {onJump && <Btn variant="secondary" small onClick={()=>onJump('plan')}>Ver mi plan</Btn>}
+    </div>
+  );
+}
+
+/* Nota de upsell reutilizable: aparece donde el plan corta algo. */
+function Upsell({children, onJump}) {
+  return (
+    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',background:C.blueSoft,
+                 border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 11px',fontSize:12,color:C.mid,lineHeight:1.5}}>
+      <Icon name="alert" size={13} style={{color:C.blue,flexShrink:0}}/>
+      <span style={{flex:1,minWidth:180}}>{children}</span>
+      {onJump && <button onClick={()=>onJump('plan')} style={{background:'none',border:'none',padding:0,cursor:'pointer',
+                   color:C.ink,fontWeight:700,fontSize:12,textDecoration:'underline'}}>Ver planes</button>}
+    </div>
+  );
+}
+
+/* Barra de uso de un cupo del plan (ej: 8 de 10 productos). */
+function CupoBar({label, used, max}) {
+  const inf = unlimited(max);
+  const pct = inf ? 0 : Math.min(100, Math.round((used / Math.max(1, max)) * 100));
+  const full = !inf && used >= max;
+  return (
+    <div style={{marginBottom:12}}>
+      <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:5}}>
+        <span style={{color:C.mid}}>{label}</span>
+        <span style={{color:full?C.orange:C.ink,fontWeight:700}}>{used}{inf ? ' · sin límite' : ` / ${max}`}</span>
+      </div>
+      {!inf && (
+        <div style={{height:6,borderRadius:4,background:C.bg,overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${pct}%`,background:full?C.orange:C.ink,transition:'width .2s'}}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Checklist de perfil ──
+   El alta pública quedó corta a propósito (nombre, RUC, WhatsApp, email y rubro):
+   pedir 30 campos antes de dejar entrar espantaba proveedores. El resto del
+   perfil se completa acá, con la tienda ya creada y viendo para qué sirve cada
+   dato. Desaparece solo cuando está todo listo. */
+function PerfilChecklist({supplier, contacts, prodTotal, onJump}) {
+  const items = [
+    {ok: !!(supplier.descripcion||'').trim(),        label:'Escribí una descripción de tu empresa', to:'tienda'},
+    {ok: !!supplier.logo_url,                        label:'Subí tu logo',                          to:'tienda'},
+    {ok: (supplier.categorias||[]).length > 0,       label:'Elegí tus categorías',                  to:'tienda'},
+    {ok: (supplier.zonas_entrega||[]).length > 0,    label:'Cargá tus zonas de entrega',            to:'tienda'},
+    {ok: !!(contacts?.whatsapp || contacts?.telefono),label:'Completá tu WhatsApp o teléfono',      to:'tienda'},
+    {ok: (prodTotal||0) > 0,                         label:'Cargá tu primer producto',              to:'catalogo'},
+  ];
+  const hechos = items.filter(i=>i.ok).length;
+  if (hechos === items.length) return null;
+  const pct = Math.round((hechos/items.length)*100);
+
+  return (
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'14px 16px',marginBottom:14}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}}>
+        <div>
+          <div style={{fontSize:13.5,fontWeight:800,color:C.ink}}>Completá tu tienda</div>
+          <div style={{fontSize:12,color:C.mid,marginTop:2}}>Un perfil completo recibe muchas más consultas de restaurantes.</div>
+        </div>
+        <div style={{fontSize:13,fontWeight:800,color:C.ink}}>{hechos} de {items.length}</div>
+      </div>
+      <div style={{height:6,borderRadius:4,background:C.bg,overflow:'hidden',marginBottom:12}}>
+        <div style={{height:'100%',width:`${pct}%`,background:C.green,transition:'width .2s'}}/>
+      </div>
+      <div style={{display:'flex',flexWrap:'wrap',gap:'6px 18px'}}>
+        {items.map((it,i)=>(
+          <button key={i} onClick={()=>!it.ok && onJump(it.to)} disabled={it.ok}
+            style={{display:'inline-flex',alignItems:'center',gap:7,background:'none',border:'none',padding:'3px 0',
+                    cursor:it.ok?'default':'pointer',fontSize:12.5,textAlign:'left',
+                    color:it.ok?C.dim:C.ink,textDecoration:it.ok?'line-through':'none'}}>
+            <span style={{width:16,height:16,borderRadius:'50%',flexShrink:0,display:'inline-flex',alignItems:'center',
+                          justifyContent:'center',fontSize:10,fontWeight:800,
+                          background:it.ok?C.green:'transparent',color:C.surface,
+                          border:it.ok?'none':`1.5px solid ${C.border}`}}>{it.ok?'✓':''}</span>
+            {it.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════════════
    INICIO (dashboard del proveedor)
    ════════════════════════════════════════════════════════════════════ */
-function Inicio({supplier, onJump, unreadMsgs}) {
+function Inicio({supplier, contacts, caps, onJump, unreadMsgs}) {
   const [stats, setStats] = useState({prodPub:0, prodTotal:0, leadsNuevos:0, cotAbiertas:0, contactosMes:0});
   const [lastLeads, setLastLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -300,6 +459,9 @@ function Inicio({supplier, onJump, unreadMsgs}) {
       <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:4}}>Inicio</div>
       <div style={{fontSize:12,color:C.mid,marginBottom:18}}>Resumen de tu tienda en el marketplace Mythos</div>
 
+      <PlanAlert caps={caps} onJump={onJump}/>
+      <PerfilChecklist supplier={supplier} contacts={contacts} prodTotal={stats.prodTotal} onJump={onJump}/>
+
       <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:16}}>
         <KpiCard label="Productos publicados" value={loading?'…':stats.prodPub} sub={`${stats.prodTotal} en total`} onClick={()=>onJump('catalogo')}/>
         <KpiCard label="Solicitudes nuevas" value={loading?'…':stats.leadsNuevos} accent={stats.leadsNuevos>0?C.orange:undefined} onClick={()=>onJump('solicitudes')}/>
@@ -317,7 +479,11 @@ function Inicio({supplier, onJump, unreadMsgs}) {
             </div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <span style={{fontSize:12,color:C.mid}}>Plan</span>
-              <span style={{fontSize:13,fontWeight:700,color:C.ink}}>{PLAN_LABEL[supplier.plan]||supplier.plan}</span>
+              <button onClick={()=>onJump('plan')} style={{background:'none',border:'none',padding:0,cursor:'pointer',
+                       fontSize:13,fontWeight:700,color:C.ink,textDecoration:'underline'}}>
+                {caps?.plan_name || caps?.plan_slug || supplier.plan || '—'}
+                {caps?.status && <span style={{fontWeight:400,color:C.mid}}> · {SUB_ESTADO[caps.status]||caps.status}</span>}
+              </button>
             </div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <span style={{fontSize:12,color:C.mid}}>Verificación</span>
@@ -372,7 +538,10 @@ function Inicio({supplier, onJump, unreadMsgs}) {
 /* ════════════════════════════════════════════════════════════════════
    MI TIENDA (perfil + contacto + pausar/reactivar)
    ════════════════════════════════════════════════════════════════════ */
-function MiTienda({supplier, contacts, onReload}) {
+function MiTienda({supplier, contacts, caps, onReload, onJump}) {
+  const maxCats   = capNum(caps,'max_categorias');
+  const maxZonas  = capNum(caps,'max_zonas');
+  const puedeBanner = capOn(caps,'branding_banner');
   const [form, setForm] = useState({});
   const [cont, setCont] = useState({});
   const [cats, setCats] = useState([]);
@@ -406,11 +575,21 @@ function MiTienda({supplier, contacts, onReload}) {
   }, []);
 
   const set = (k,v) => setForm(f => ({...f, [k]:v}));
-  const toggleCat = slug => set('categorias',
-    form.categorias.includes(slug) ? form.categorias.filter(c=>c!==slug) : [...form.categorias, slug]);
+  // Los topes de categorías/zonas los aplica la DB (trigger de la mig 199); acá se
+  // frenan antes para que el proveedor no descubra el límite recién al guardar.
+  const toggleCat = slug => {
+    const on = form.categorias.includes(slug);
+    if (!on && !unlimited(maxCats) && form.categorias.length >= maxCats) {
+      toast(`Tu plan permite ${maxCats} categoría(s). Mejorá tu plan para elegir más.`, false); return;
+    }
+    set('categorias', on ? form.categorias.filter(c=>c!==slug) : [...form.categorias, slug]);
+  };
   const addZona = () => {
     const z = zonaInput.trim();
     if (!z || form.zonas_entrega.includes(z)) { setZonaInput(''); return; }
+    if (!unlimited(maxZonas) && form.zonas_entrega.length >= maxZonas) {
+      toast(`Tu plan permite ${maxZonas} zona(s) de entrega. Mejorá tu plan para sumar más.`, false); return;
+    }
     set('zonas_entrega', [...form.zonas_entrega, z]); setZonaInput('');
   };
 
@@ -509,7 +688,14 @@ function MiTienda({supplier, contacts, onReload}) {
                 <div><Lbl>Departamento</Lbl><Inp value={form.departamento} onChange={e=>set('departamento',e.target.value)}/></div>
               </div>
               <div>
-                <Lbl>Categorías</Lbl>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                  <Lbl>Categorías</Lbl>
+                  {!unlimited(maxCats) && (
+                    <span style={{fontSize:11,color:(form.categorias||[]).length>=maxCats?C.orange:C.dim,fontWeight:600}}>
+                      {(form.categorias||[]).length} / {maxCats}
+                    </span>
+                  )}
+                </div>
                 <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
                   {cats.map(c => {
                     const on = form.categorias?.includes(c.slug);
@@ -521,9 +707,21 @@ function MiTienda({supplier, contacts, onReload}) {
                     );
                   })}
                 </div>
+                {!unlimited(maxCats) && (form.categorias||[]).length>=maxCats && (
+                  <div style={{marginTop:8}}>
+                    <Upsell onJump={onJump}>Llegaste al máximo de categorías de tu plan. Con un plan superior aparecés en más búsquedas de restaurantes.</Upsell>
+                  </div>
+                )}
               </div>
               <div>
-                <Lbl>Zonas de entrega</Lbl>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                  <Lbl>Zonas de entrega</Lbl>
+                  {!unlimited(maxZonas) && (
+                    <span style={{fontSize:11,color:(form.zonas_entrega||[]).length>=maxZonas?C.orange:C.dim,fontWeight:600}}>
+                      {(form.zonas_entrega||[]).length} / {maxZonas}
+                    </span>
+                  )}
+                </div>
                 <div style={{display:'flex',gap:8}}>
                   <Inp value={zonaInput} onChange={e=>setZonaInput(e.target.value)} placeholder="Ej: Asunción, Luque…"
                        onKeyDown={e=>{ if(e.key==='Enter'){ e.preventDefault(); addZona(); } }}/>
@@ -577,17 +775,21 @@ function MiTienda({supplier, contacts, onReload}) {
                 </div>
               </div>
               <div>
-                <Lbl>Banner</Lbl>
+                <Lbl>Banner de marca</Lbl>
                 <div style={{borderRadius:10,border:`1px solid ${C.border}`,overflow:'hidden',background:C.bg,height:80,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8}}>
                   {supplier.banner_url
                     ? <img src={supplier.banner_url} alt="banner" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
                     : <span style={{fontSize:12,color:C.dim}}>Sin banner</span>}
                 </div>
-                <label className="my-btn my-btn--secondary my-btn--sm" style={{cursor:'pointer'}}>
-                  {uploading==='banner'?'Subiendo…':'Cambiar banner'}
-                  <input type="file" accept="image/jpeg,image/png,image/webp" style={{display:'none'}}
-                         onChange={e=>{ uploadImage('banner', e.target.files?.[0]); e.target.value=''; }}/>
-                </label>
+                {puedeBanner ? (
+                  <label className="my-btn my-btn--secondary my-btn--sm" style={{cursor:'pointer'}}>
+                    {uploading==='banner'?'Subiendo…':'Cambiar banner'}
+                    <input type="file" accept="image/jpeg,image/png,image/webp" style={{display:'none'}}
+                           onChange={e=>{ uploadImage('banner', e.target.files?.[0]); e.target.value=''; }}/>
+                  </label>
+                ) : (
+                  <Upsell onJump={onJump}>El banner de marca es parte de un plan superior.</Upsell>
+                )}
               </div>
             </div>
           </Card>
@@ -746,7 +948,10 @@ function ProductModal({supplier, product, cats, onClose, onSaved}) {
   );
 }
 
-function Catalogo({supplier}) {
+function Catalogo({supplier, caps, onJump}) {
+  const maxProd = capNum(caps,'max_products');
+  const maxFeat = capNum(caps,'featured_slots');
+  const maxFiles= capNum(caps,'max_catalog_files');
   const [prods, setProds] = useState([]);
   const [files, setFiles] = useState([]);
   const [cats, setCats] = useState([]);
@@ -777,6 +982,21 @@ function Catalogo({supplier}) {
     const { error } = await db.from('marketplace_products').update({estado}).eq('id', p.id);
     if (error) { toast(error.message||'No se pudo cambiar el estado', false); return; }
     toast(estado==='publicado'?'Producto publicado':'Producto pausado'); load();
+  }
+
+  // Destacar = el "espacio destacado" que vende el plan (mig 199). El tope lo
+  // aplica un trigger; acá se avisa antes para no gastarle un clic al proveedor.
+  async function toggleDestacado(p) {
+    const next = !p.destacado;
+    if (next && !unlimited(maxFeat) && destacados >= maxFeat) {
+      toast(maxFeat === 0
+        ? 'Tu plan no incluye espacios destacados.'
+        : `Tu plan permite ${maxFeat} producto(s) destacado(s). Quitá otro primero.`, false);
+      return;
+    }
+    const { error } = await db.from('marketplace_products').update({destacado: next}).eq('id', p.id);
+    if (error) { toast(error.message||'No se pudo destacar', false); return; }
+    toast(next?'Producto destacado en el marketplace':'Producto sin destacar'); load();
   }
 
   async function doDelete() {
@@ -818,6 +1038,9 @@ function Catalogo({supplier}) {
   }
 
   const pc = PROD_COLOR();
+  const publicados = prods.filter(p=>p.estado==='publicado').length;
+  const destacados = prods.filter(p=>p.destacado).length;
+  const sinCupo    = atLimit(maxProd, publicados);
   return (
     <div className="page">
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:18,flexWrap:'wrap',gap:10}}>
@@ -825,8 +1048,22 @@ function Catalogo({supplier}) {
           <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:4}}>Catálogo</div>
           <div style={{fontSize:12,color:C.mid}}>Los productos publicados aparecen en el marketplace para todos los restaurantes</div>
         </div>
-        <Btn small onClick={()=>setEditing({})}>Nuevo producto</Btn>
+        <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <span style={{fontSize:12,color:sinCupo?C.orange:C.mid,fontWeight:sinCupo?700:500}}>
+            {publicados} publicado{publicados===1?'':'s'}{!unlimited(maxProd) && ` de ${maxProd}`}
+          </span>
+          <Btn small onClick={()=>setEditing({})}>Nuevo producto</Btn>
+        </div>
       </div>
+
+      {sinCupo && (
+        <div style={{marginBottom:14}}>
+          <Upsell onJump={onJump}>
+            Llegaste al máximo de productos publicados de tu plan ({maxProd}). Podés seguir cargando
+            borradores, pero para publicarlos necesitás un plan superior o pausar otro producto.
+          </Upsell>
+        </div>
+      )}
 
       <Card style={{marginBottom:14,padding:0,overflow:'hidden'}}>
         <div style={{overflowX:'auto'}}>
@@ -849,7 +1086,10 @@ function Catalogo({supplier}) {
                             : <Icon name="package" size={14} style={{color:C.dim}}/>}
                         </div>
                         <div>
-                          <div style={{fontWeight:700}}>{p.nombre}</div>
+                          <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:6}}>
+                            {p.nombre}
+                            {p.destacado && <span title="Destacado en el marketplace" style={{fontSize:11,color:C.orange}}>★</span>}
+                          </div>
                           {p.marca && <div style={{fontSize:11,color:C.dim}}>{p.marca}</div>}
                         </div>
                       </div>
@@ -867,6 +1107,11 @@ function Catalogo({supplier}) {
                             {p.estado==='publicado'
                               ? <Btn variant="ghost" small onClick={()=>quickEstado(p,'pausado')}>Pausar</Btn>
                               : <Btn variant="success" small onClick={()=>quickEstado(p,'publicado')}>Publicar</Btn>}
+                            {p.estado==='publicado' && maxFeat !== 0 && (
+                              <Btn variant="ghost" small onClick={()=>toggleDestacado(p)}>
+                                {p.destacado ? 'Quitar ★' : 'Destacar'}
+                              </Btn>
+                            )}
                             <Btn variant="danger" small onClick={()=>setDeleting(p)}>Eliminar</Btn>
                           </div>
                         )}
@@ -881,12 +1126,25 @@ function Catalogo({supplier}) {
 
       <Card title="Archivos de catálogo (PDF / Excel)"
             action={
-              <label className="my-btn my-btn--secondary my-btn--sm" style={{cursor:'pointer'}}>
-                {uploadingFile?'Subiendo…':'Subir archivo'}
-                <input type="file" accept=".pdf,.xls,.xlsx,image/jpeg,image/png,image/webp" style={{display:'none'}}
-                       onChange={e=>{ uploadCatalogFile(e.target.files?.[0]); e.target.value=''; }}/>
-              </label>
+              (maxFiles === 0 || atLimit(maxFiles, files.length))
+                ? <span style={{fontSize:11.5,color:C.dim}}>
+                    {maxFiles === 0 ? 'No incluido en tu plan' : `${files.length} / ${maxFiles} usados`}
+                  </span>
+                : <label className="my-btn my-btn--secondary my-btn--sm" style={{cursor:'pointer'}}>
+                    {uploadingFile?'Subiendo…':'Subir archivo'}
+                    <input type="file" accept=".pdf,.xls,.xlsx,image/jpeg,image/png,image/webp" style={{display:'none'}}
+                           onChange={e=>{ uploadCatalogFile(e.target.files?.[0]); e.target.value=''; }}/>
+                  </label>
             }>
+        {(maxFiles === 0 || atLimit(maxFiles, files.length)) && (
+          <div style={{marginBottom:files.length?12:0}}>
+            <Upsell onJump={onJump}>
+              {maxFiles === 0
+                ? 'Tu plan no incluye catálogos PDF/Excel. Con un plan superior podés subir tu lista de precios completa.'
+                : `Usaste los ${maxFiles} catálogo(s) de tu plan.`}
+            </Upsell>
+          </div>
+        )}
         {files.length===0
           ? <div style={{padding:16,textAlign:'center',color:C.dim,fontSize:13}}>Podés subir tu catálogo completo en PDF o Excel para que los restaurantes lo descarguen.</div>
           : (
@@ -929,7 +1187,11 @@ function Catalogo({supplier}) {
 /* ════════════════════════════════════════════════════════════════════
    SOLICITUDES (leads: contactos y cotizaciones)
    ════════════════════════════════════════════════════════════════════ */
-function Solicitudes({onNuevasChange, onResponder}) {
+function Solicitudes({caps, onNuevasChange, onResponder, onJump}) {
+  // El nombre del restaurante viene NULL cuando el plan lo tapa (lead_contact
+  // 'demorado' antes de las 24 h, u 'oculto'). Sin este cartel el proveedor veía
+  // un campo en blanco y parecía un bug del panel, no un beneficio del plan.
+  const leadMode = caps?.lead_contact || 'inmediato';
   const [leads, setLeads] = useState([]);
   const [restInfo, setRestInfo] = useState({});
   const [loading, setLoading] = useState(true);
@@ -998,7 +1260,13 @@ function Solicitudes({onNuevasChange, onResponder}) {
                : filtered.map(l => (
                 <tr key={l.id} style={{borderBottom:`1px solid ${C.border}`,background:l.estado==='nueva'?C.orangeSoft:'transparent'}}>
                   <Td dim>{fmtDT(l.created_at)}</Td>
-                  <Td><span style={{fontWeight:700}}>{restInfo[l.id]?.name||'Restaurante'}</span></Td>
+                  <Td>
+                    {restInfo[l.id]?.name
+                      ? <span style={{fontWeight:700}}>{restInfo[l.id].name}</span>
+                      : <span style={{fontSize:11.5,color:C.orange,fontWeight:600}}>
+                          {leadMode==='demorado' ? 'Se revela a las 24 h' : 'Requiere plan superior'}
+                        </span>}
+                  </Td>
                   <Td>{LEAD_TIPO[l.tipo]||l.tipo}</Td>
                   <Td>{l.producto_texto||'—'}</Td>
                   <Td dim>{l.cantidad||'—'}</Td>
@@ -1020,8 +1288,18 @@ function Solicitudes({onNuevasChange, onResponder}) {
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
             <div>
               <Lbl>Restaurante</Lbl>
-              <div style={{fontSize:14,fontWeight:700,color:C.ink}}>{restInfo[detail.id]?.name||'Restaurante'}</div>
-              {restInfo[detail.id]?.address && <div style={{fontSize:12,color:C.mid}}>{restInfo[detail.id].address}</div>}
+              {restInfo[detail.id]?.name ? (
+                <>
+                  <div style={{fontSize:14,fontWeight:700,color:C.ink}}>{restInfo[detail.id].name}</div>
+                  {restInfo[detail.id]?.address && <div style={{fontSize:12,color:C.mid}}>{restInfo[detail.id].address}</div>}
+                </>
+              ) : (
+                <Upsell onJump={onJump}>
+                  {leadMode==='demorado'
+                    ? 'Con tu plan actual el nombre y la dirección del restaurante se revelan 24 h después de la consulta. Con un plan superior los ves al instante.'
+                    : 'Tu plan no muestra los datos del restaurante. Mejorá tu plan para verlos.'}
+                </Upsell>
+              )}
             </div>
             <div className="my-row-2" style={{gap:12}}>
               <div><Lbl>Fecha</Lbl><div style={{fontSize:13,color:C.ink}}>{fmtDT(detail.created_at)}</div></div>
@@ -1069,6 +1347,291 @@ function Mensajes({openConversationId, onOpened, onUnread}) {
 }
 
 /* ════════════════════════════════════════════════════════════════════
+   ANALÍTICA — mig 199
+   Los planes vendían "Analítica básica/completa" desde la mig 177 y el panel no
+   tenía ninguna pantalla de analítica. Los números salen agregados de la RPC
+   supplier_analytics (server-side): agrupar en el navegador un array cargado con
+   `.limit()` daría un número que empeora cuanto más vende el proveedor.
+   ════════════════════════════════════════════════════════════════════ */
+function Analitica({caps, onJump}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [falta, setFalta] = useState(false);
+
+  useEffect(() => {
+    if (!db) { setLoading(false); return; }
+    (async () => {
+      const { data: d, error } = await db.rpc('supplier_analytics', { p_months: 6 });
+      if (error) { setFalta(true); setLoading(false); return; }
+      setData(d || null); setLoading(false);
+    })();
+  }, []);
+
+  const modo = caps?.analytics || (data?.mode);
+  const head = (
+    <>
+      <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:4}}>Analítica</div>
+      <div style={{fontSize:12,color:C.mid,marginBottom:18}}>Cómo vienen las consultas de los restaurantes</div>
+    </>
+  );
+
+  if (loading) return <div className="page">{head}<div style={{color:C.dim,fontSize:13}}>Cargando…</div></div>;
+
+  if (falta) return (
+    <div className="page">{head}
+      <Card><div style={{padding:18,textAlign:'center',color:C.dim,fontSize:13}}>
+        La analítica todavía no está disponible en este servidor.
+      </div></Card>
+    </div>
+  );
+
+  if (!data || data.enabled === false || modo === 'none') return (
+    <div className="page">{head}
+      <Card>
+        <div style={{padding:'22px 18px',textAlign:'center'}}>
+          <div style={{fontSize:15,fontWeight:800,color:C.ink,marginBottom:8}}>La analítica es parte de un plan superior</div>
+          <div style={{fontSize:13,color:C.mid,lineHeight:1.6,maxWidth:460,margin:'0 auto 16px'}}>
+            Vas a poder ver cuántas consultas recibís por mes, cuántas respondés y qué productos
+            te piden más. Con eso sabés qué conviene tener siempre en stock.
+          </div>
+          <Btn small onClick={()=>onJump('plan')}>Ver planes</Btn>
+        </div>
+      </Card>
+    </div>
+  );
+
+  const t = data.totals || {};
+  const meses = Array.isArray(data.by_month) ? data.by_month : [];
+  const maxMes = Math.max(1, ...meses.map(m=>Number(m.leads)||0));
+  const respTasa = (t.leads||0) > 0 ? Math.round(((t.respondidas||0)/(t.leads||1))*100) : 0;
+  const tops = Array.isArray(data.top_products) ? data.top_products : [];
+  const topc = Array.isArray(data.top_categories) ? data.top_categories : [];
+  const maxTop = Math.max(1, ...tops.map(x=>Number(x.n)||0));
+  const maxTopc = Math.max(1, ...topc.map(x=>Number(x.n)||0));
+  const mesLabel = m => { const [y,mm] = String(m).split('-'); return `${mm}/${String(y).slice(2)}`; };
+
+  return (
+    <div className="page">{head}
+      <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:16}}>
+        <KpiCard label="Consultas recibidas" value={t.leads||0} sub={`${t.contactos||0} contactos · ${t.cotizaciones||0} cotizaciones`}/>
+        <KpiCard label="Sin responder" value={t.nuevas||0} accent={(t.nuevas||0)>0?C.orange:undefined}/>
+        <KpiCard label="Tasa de respuesta" value={`${respTasa}%`} sub={`${t.respondidas||0} atendidas`}/>
+        <KpiCard label="Cerradas" value={t.cerradas||0} sub={`${t.perdidas||0} perdidas`} accent={(t.cerradas||0)>0?C.green:undefined}/>
+      </div>
+
+      <Card title="Consultas por mes" style={{marginBottom:14}}>
+        {meses.length===0
+          ? <div style={{padding:18,textAlign:'center',color:C.dim,fontSize:13}}>Todavía no hay consultas.</div>
+          : (
+            <div style={{display:'flex',alignItems:'flex-end',gap:10,height:150,padding:'8px 4px'}}>
+              {meses.map(m => {
+                const n = Number(m.leads)||0;
+                return (
+                  <div key={m.mes} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+                    <div style={{fontSize:11,fontWeight:700,color:n?C.ink:C.dim}}>{n}</div>
+                    <div title={`${m.contactos_revelados||0} contactos revelados`}
+                         style={{width:'100%',maxWidth:46,height:`${Math.round((n/maxMes)*100)}%`,minHeight:n?6:2,
+                                 background:n?C.ink:C.border,borderRadius:'5px 5px 0 0',transition:'height .2s'}}/>
+                    <div style={{fontSize:10.5,color:C.dim}}>{mesLabel(m.mes)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+      </Card>
+
+      {modo === 'completo' ? (
+        <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'flex-start'}}>
+          <Card title="Productos más consultados" style={{flex:'1 1 320px'}}>
+            {tops.length===0 ? <div style={{padding:14,color:C.dim,fontSize:13}}>Sin datos todavía.</div> :
+              tops.map((x,i)=>(
+                <div key={i} style={{marginBottom:10}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:4}}>
+                    <span style={{color:C.ink,fontWeight:600}}>{x.nombre}</span><span style={{color:C.mid}}>{x.n}</span>
+                  </div>
+                  <div style={{height:6,borderRadius:4,background:C.bg,overflow:'hidden'}}>
+                    <div style={{height:'100%',width:`${Math.round((x.n/maxTop)*100)}%`,background:C.ink}}/>
+                  </div>
+                </div>
+              ))}
+          </Card>
+          <Card title="Categorías más consultadas" style={{flex:'1 1 320px'}}>
+            {topc.length===0 ? <div style={{padding:14,color:C.dim,fontSize:13}}>Sin datos todavía.</div> :
+              topc.map((x,i)=>(
+                <div key={i} style={{marginBottom:10}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:4}}>
+                    <span style={{color:C.ink,fontWeight:600}}>{x.nombre}</span><span style={{color:C.mid}}>{x.n}</span>
+                  </div>
+                  <div style={{height:6,borderRadius:4,background:C.bg,overflow:'hidden'}}>
+                    <div style={{height:'100%',width:`${Math.round((x.n/maxTopc)*100)}%`,background:C.ink}}/>
+                  </div>
+                </div>
+              ))}
+          </Card>
+        </div>
+      ) : (
+        <Upsell onJump={onJump}>
+          Con la analítica completa también ves qué productos y categorías te consultan más.
+        </Upsell>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   MI PLAN (cupos, vencimiento, pagos y comparativa) — mig 199
+   ════════════════════════════════════════════════════════════════════ */
+function MiPlan({supplier, caps, onJump}) {
+  const [plans, setPlans] = useState([]);
+  const [pagos, setPagos] = useState([]);
+  const [uso, setUso]     = useState({prodPub:0, destacados:0, archivos:0, usuarios:0});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!db) return;
+    (async () => {
+      const [pl, pg, prods, files, users] = await Promise.all([
+        db.from('marketplace_supplier_plans').select('*').order('sort_order').then(r=>r.error?{data:[]}:r),
+        db.from('marketplace_supplier_payments').select('*').order('paid_at',{ascending:false}).limit(24).then(r=>r.error?{data:[]}:r),
+        db.from('marketplace_products').select('estado,destacado').then(r=>r.error?{data:[]}:r),
+        db.from('marketplace_catalog_files').select('id').then(r=>r.error?{data:[]}:r),
+        db.from('marketplace_supplier_users').select('id,is_active').then(r=>r.error?{data:[]}:r),
+      ]);
+      const P = prods.data||[];
+      setPlans((pl.data||[]).filter(p=>p.status==='active'));
+      setPagos(pg.data||[]);
+      setUso({
+        prodPub:    P.filter(p=>p.estado==='publicado').length,
+        destacados: P.filter(p=>p.destacado).length,
+        archivos:   (files.data||[]).length,
+        usuarios:   (users.data||[]).filter(u=>u.is_active!==false).length || 1,
+      });
+      setLoading(false);
+    })();
+  }, []);
+
+  const slug     = caps?.plan_slug || supplier.plan;
+  const actual   = plans.find(p=>p.slug===slug);
+  const estadoSub= caps?.status;
+  const dias     = caps?.days_left;
+  const vence    = caps?.expires_on;
+  const estadoCol= caps?.locked ? C.red : caps?.in_grace ? C.orange : estadoSub==='active' ? C.green : C.blue;
+
+  return (
+    <div className="page">
+      <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:4}}>Mi plan</div>
+      <div style={{fontSize:12,color:C.mid,marginBottom:18}}>Qué incluye tu plan, cuánto usaste y cuándo vence</div>
+
+      <PlanAlert caps={caps}/>
+
+      <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'flex-start',marginBottom:14}}>
+        <Card title="Tu plan" style={{flex:'1 1 320px'}}>
+          <div style={{display:'flex',alignItems:'baseline',gap:10,marginBottom:12}}>
+            <div style={{fontSize:24,fontWeight:800,color:C.ink}}>{actual?.name || slug || '—'}</div>
+            {actual?.price_gs>0 && <div style={{fontSize:13,color:C.mid}}>{fmt(actual.price_gs)} / mes</div>}
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <span style={{fontSize:12,color:C.mid}}>Estado</span>
+              {estadoSub
+                ? <Badge color={estadoCol}>{SUB_ESTADO[estadoSub]||estadoSub}</Badge>
+                : <Badge color={C.dim}>Sin suscripción</Badge>}
+            </div>
+            {vence && (
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <span style={{fontSize:12,color:C.mid}}>{estadoSub==='trial'?'La prueba termina':'Próximo vencimiento'}</span>
+                <span style={{fontSize:13,fontWeight:700,color:C.ink}}>
+                  {fmtDate(vence)}{typeof dias==='number' && <span style={{fontWeight:400,color:C.mid}}> · {dias>=0?`en ${dias} d`:`hace ${Math.abs(dias)} d`}</span>}
+                </span>
+              </div>
+            )}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <span style={{fontSize:12,color:C.mid}}>Contacto de los leads</span>
+              <span style={{fontSize:13,fontWeight:700,color:C.ink}}>{LEAD_CONTACT_LBL[caps?.lead_contact]||'—'}</span>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <span style={{fontSize:12,color:C.mid}}>Tienda</span>
+              <Badge color={supplier.estado==='activo'?C.green:supplier.estado==='pausado'?C.orange:C.red}>
+                {TIENDA_ESTADO[supplier.estado]||supplier.estado}
+              </Badge>
+            </div>
+          </div>
+          <div style={{fontSize:11,color:C.dim,marginTop:14,lineHeight:1.5,borderTop:`1px solid ${C.border}`,paddingTop:10}}>
+            Para cambiar de plan o regularizar un pago, escribile al equipo de Mythos.
+          </div>
+        </Card>
+
+        <Card title="Cuánto usaste" style={{flex:'1 1 320px'}}>
+          {loading ? <div style={{color:C.dim,fontSize:13,padding:8}}>Cargando…</div> : (
+            <>
+              <CupoBar label="Productos publicados" used={uso.prodPub}    max={capNum(caps,'max_products')}/>
+              <CupoBar label="Productos destacados" used={uso.destacados} max={capNum(caps,'featured_slots')}/>
+              <CupoBar label="Catálogos PDF/Excel"  used={uso.archivos}   max={capNum(caps,'max_catalog_files')}/>
+              <CupoBar label="Categorías"           used={(supplier.categorias||[]).length}    max={capNum(caps,'max_categorias')}/>
+              <CupoBar label="Zonas de entrega"     used={(supplier.zonas_entrega||[]).length} max={capNum(caps,'max_zonas')}/>
+              <CupoBar label="Usuarios"             used={uso.usuarios}   max={capNum(caps,'max_users')}/>
+            </>
+          )}
+        </Card>
+      </div>
+
+      {plans.length>0 && (
+        <Card title="Planes disponibles" style={{marginBottom:14}}>
+          <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+            {plans.map(p => {
+              const on = p.slug===slug;
+              return (
+                <div key={p.slug} style={{flex:'1 1 240px',minWidth:220,border:`1px solid ${on?C.ink:C.border}`,
+                     borderRadius:12,padding:'16px 14px',background:on?C.blueSoft:'transparent'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                    <span style={{fontSize:15,fontWeight:800,color:C.ink}}>{p.name}</span>
+                    {on && <Badge color={C.blue} dot={false}>Tu plan</Badge>}
+                  </div>
+                  <div style={{fontSize:18,fontWeight:800,color:C.ink,marginBottom:10}}>
+                    {p.price_gs>0 ? fmt(p.price_gs) : 'Gratis'}
+                    {p.price_gs>0 && <span style={{fontSize:11,fontWeight:600,color:C.mid}}> / mes</span>}
+                  </div>
+                  <ul style={{listStyle:'none',padding:0,margin:0,display:'flex',flexDirection:'column',gap:6}}>
+                    {(Array.isArray(p.features)?p.features:[]).map((f,i)=>(
+                      <li key={i} style={{fontSize:12,color:C.mid,display:'flex',gap:7,lineHeight:1.45}}>
+                        <span style={{color:C.green,fontWeight:800,flexShrink:0}}>✓</span>{String(f)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      <Card title="Historial de pagos">
+        {pagos.length===0
+          ? <div style={{padding:16,textAlign:'center',color:C.dim,fontSize:13}}>Todavía no hay pagos registrados.</div>
+          : (
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr style={{borderBottom:`1px solid ${C.border}`}}>
+                <Th>Fecha</Th><Th>Plan</Th><Th>Período</Th><Th>Método</Th><Th right>Monto</Th>
+              </tr></thead>
+              <tbody>
+                {pagos.map(p=>(
+                  <tr key={p.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                    <Td dim>{fmtDate(p.paid_at)}</Td>
+                    <Td>{p.plan_slug||'—'}</Td>
+                    <Td dim>{p.period_end?`hasta ${fmtDate(p.period_end)}`:'—'}</Td>
+                    <Td dim style={{textTransform:'capitalize'}}>{p.method||'—'}</Td>
+                    <Td right mono>{fmt(p.amount_gs)}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+      </Card>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════
    PANTALLAS DE BORDE
    ════════════════════════════════════════════════════════════════════ */
 function CenterNotice({title, children, showLogout}) {
@@ -1089,6 +1652,7 @@ function CenterNotice({title, children, showLogout}) {
 function App() {
   const auth = useAuth();
   const { loading: supLoading, supplierId, supplier, contacts, reload } = useSupplier();
+  const { caps, reload: reloadCaps } = useCapabilities();
   const [section, setSection] = useState('inicio');
   const [nuevas, setNuevas] = useState(0);
   const [unreadMsgs, setUnreadMsgs] = useState(0);
@@ -1154,6 +1718,8 @@ function App() {
     {key:'catalogo',    label:'Catálogo',    icon:'package'},
     {key:'solicitudes', label:'Solicitudes', icon:'fileText', badge:nuevas},
     {key:'mensajes',    label:'Mensajes',    icon:'chat', badge:unreadMsgs},
+    {key:'analitica',   label:'Analítica',   icon:'chart'},
+    {key:'plan',        label:'Mi plan',     icon:'creditCard'},
   ];
 
   return (
@@ -1189,11 +1755,13 @@ function App() {
       </aside>
 
       <main style={{flex:1,padding:'28px 32px',overflowX:'auto',background:C.bg}}>
-        {section==='inicio'      && <Inicio supplier={supplier} onJump={setSection} unreadMsgs={unreadMsgs}/>}
-        {section==='tienda'      && <MiTienda supplier={supplier} contacts={contacts} onReload={reload}/>}
-        {section==='catalogo'    && <Catalogo supplier={supplier}/>}
-        {section==='solicitudes' && <Solicitudes onNuevasChange={setNuevas} onResponder={responderLead}/>}
+        {section==='inicio'      && <Inicio supplier={supplier} contacts={contacts} caps={caps} onJump={setSection} unreadMsgs={unreadMsgs}/>}
+        {section==='tienda'      && <MiTienda supplier={supplier} contacts={contacts} caps={caps} onReload={()=>{reload();reloadCaps();}} onJump={setSection}/>}
+        {section==='catalogo'    && <Catalogo supplier={supplier} caps={caps} onJump={setSection}/>}
+        {section==='solicitudes' && <Solicitudes caps={caps} onNuevasChange={setNuevas} onResponder={responderLead} onJump={setSection}/>}
         {section==='mensajes'    && <Mensajes openConversationId={chatTarget} onOpened={()=>setChatTarget(null)} onUnread={setUnreadMsgs}/>}
+        {section==='analitica'   && <Analitica caps={caps} onJump={setSection}/>}
+        {section==='plan'        && <MiPlan supplier={supplier} caps={caps} onJump={setSection}/>}
       </main>
 
       <ToastContainer/>

@@ -157,7 +157,7 @@
       <h2 class="center">Cómo funciona</h2>
       <p class="lead center">En 3 pasos estás recibiendo consultas.</p>
       <div class="prov-steps3">
-        <div class="prov-step3"><span class="n">1</span><h3>Registrate</h3><p>Completá el formulario con los datos de tu empresa y lo que vendés. Toma unos minutos.</p></div>
+        <div class="prov-step3"><span class="n">1</span><h3>Registrate en 2 minutos</h3><p>Nombre, RUC, WhatsApp y qué vendés. Nada más: el resto lo completás después.</p></div>
         <div class="prov-step3"><span class="n">2</span><h3>Te verificamos</h3><p>Revisamos tu solicitud y activamos tu tienda. Te enviamos el acceso a tu panel.</p></div>
         <div class="prov-step3"><span class="n">3</span><h3>Publicá y recibí consultas</h3><p>Cargás tu catálogo y empezás a recibir contactos y cotizaciones de restaurantes.</p></div>
       </div>
@@ -187,24 +187,27 @@
 
           <!-- Progreso -->
           <div class="prov-progress" id="provProgress">
-            <div class="prov-pnode active" data-node="1"><div class="prov-pbar"><i></i></div><div class="prov-plabel">Empresa</div></div>
-            <div class="prov-pnode" data-node="2"><div class="prov-pbar"><i></i></div><div class="prov-plabel">Contacto</div></div>
-            <div class="prov-pnode" data-node="3"><div class="prov-pbar"><i></i></div><div class="prov-plabel">Qué vendés</div></div>
-            <div class="prov-pnode" data-node="4"><div class="prov-pbar"><i></i></div><div class="prov-plabel">Confirmación</div></div>
+            <div class="prov-pnode active" data-node="1"><div class="prov-pbar"><i></i></div><div class="prov-plabel">Tu empresa</div></div>
+            <div class="prov-pnode" data-node="2"><div class="prov-pbar"><i></i></div><div class="prov-plabel">Contacto y rubro</div></div>
+            <div class="prov-pnode" data-node="3"><div class="prov-pbar"><i></i></div><div class="prov-plabel">Confirmación</div></div>
           </div>
 
           <div class="prov-error" id="provError"></div>
 
           <form id="provForm" novalidate>
-            <!-- Paso 1: Empresa -->
+            <!-- Paso 1: Empresa —
+                 Alta MÍNIMA a propósito: pedir 30 campos antes de dejar entrar
+                 espantaba proveedores. El resto del perfil (zonas, días, marcas,
+                 condiciones, logo) se completa después desde el panel, con la
+                 tienda ya creada y viendo para qué sirve cada dato. -->
             <fieldset class="prov-fstep active" data-step="1">
-              <h2>Datos de tu empresa</h2>
-              <p class="stephint">Contanos quién sos. Los campos con <span class="req">*</span> son obligatorios.</p>
+              <h2>Tu empresa</h2>
+              <p class="stephint">Solo lo indispensable. Los campos con <span class="req">*</span> son obligatorios.</p>
               <div class="prov-grid">
                 <div class="prov-field full"><label>Nombre comercial <span class="req">*</span></label><input name="nombre_comercial" maxlength="120" placeholder="Ej. Distribuidora del Sur"></div>
-                <div class="prov-field"><label>Razón social</label><input name="razon_social" maxlength="160" placeholder="Razón social S.A."></div>
                 <div class="prov-field"><label>RUC <span class="req">*</span></label><input name="ruc" maxlength="30" placeholder="80012345-6"></div>
-                <div class="prov-field"><label>Tipo de proveedor</label>
+                <div class="prov-field"><label>Ciudad</label><input name="ciudad" maxlength="80" placeholder="Asunción"></div>
+                <div class="prov-field full"><label>Tipo de proveedor</label>
                   <select name="tipo_proveedor">
                     <option value="">Elegí una opción</option>
                     <option value="productor">Productor</option>
@@ -216,63 +219,28 @@
                     <option value="servicio">Servicio</option>
                   </select>
                 </div>
-                <div class="prov-field"><label>Años en el mercado</label><input name="anhos_mercado" type="number" min="0" max="200" placeholder="Ej. 8"></div>
-                <div class="prov-field"><label>Ciudad</label><input name="ciudad" maxlength="80" placeholder="Asunción"></div>
-                <div class="prov-field"><label>Departamento</label><input name="departamento" maxlength="80" placeholder="Central"></div>
-                <div class="prov-field full"><label>Dirección</label><input name="direccion" maxlength="200" placeholder="Calle y número (opcional)"></div>
-                <div class="prov-field full"><label>Web o redes</label><input name="web_redes" maxlength="200" placeholder="Sitio, Instagram, Facebook…"></div>
               </div>
             </fieldset>
 
-            <!-- Paso 2: Contacto -->
+            <!-- Paso 2: Contacto + rubro -->
             <fieldset class="prov-fstep" data-step="2">
-              <h2>¿Cómo te contactamos?</h2>
-              <p class="stephint">Necesitamos un email y al menos un teléfono o WhatsApp.</p>
+              <h2>Contacto y rubro</h2>
+              <p class="stephint">Te escribimos por WhatsApp para activarte la tienda.</p>
               <div class="prov-grid">
                 <div class="prov-field"><label>Nombre del contacto</label><input name="contacto_nombre" maxlength="120" placeholder="Nombre y apellido"></div>
-                <div class="prov-field"><label>Cargo</label><input name="contacto_cargo" maxlength="80" placeholder="Ej. Ventas"></div>
-                <div class="prov-field"><label>Teléfono</label><input name="telefono" maxlength="40" placeholder="+595 21 000 000"></div>
                 <div class="prov-field"><label>WhatsApp <span class="req">*</span></label><input name="whatsapp" type="tel" inputmode="tel" maxlength="40" placeholder="+595 981 000 000"></div>
                 <div class="prov-field full"><label>Email <span class="req">*</span></label><input name="email" type="email" maxlength="160" placeholder="ventas@empresa.com"></div>
-                <div class="prov-field full"><label>Horario de atención</label><input name="horario_atencion" maxlength="120" placeholder="Ej. Lun a Vie 08:00-17:00"></div>
               </div>
-            </fieldset>
-
-            <!-- Paso 3: Qué vendés -->
-            <fieldset class="prov-fstep" data-step="3">
-              <h2>¿Qué vendés?</h2>
-              <p class="stephint">Elegí al menos una categoría <span class="req">*</span>. El resto ayuda a que los restaurantes te encuentren.</p>
               <div class="prov-field full">
-                <label>Categorías <span class="req">*</span></label>
+                <label>¿Qué vendés? <span class="req">*</span></label>
                 <div class="prov-chips" id="provCats"><span style="font-size:13px;color:var(--text-secondary)">Cargando categorías…</span></div>
               </div>
-              <div class="prov-grid">
-                <div class="prov-field full"><label>Productos principales</label><textarea name="productos_principales" maxlength="1000" placeholder="Ej. Aceites, harinas, bebidas, descartables…"></textarea></div>
-                <div class="prov-field full"><label>Marcas que manejás</label><input name="marcas" maxlength="400" placeholder="Marcas propias o de terceros"></div>
-              </div>
-              <div class="prov-field full">
-                <label>Zonas de entrega</label>
-                <div class="prov-chips" id="provZonas"></div>
-              </div>
-              <div class="prov-grid">
-                <div class="prov-field"><label>Días de entrega</label><input name="dias_entrega" maxlength="120" placeholder="Ej. Lun, Mié, Vie"></div>
-                <div class="prov-field"><label>Pedido mínimo</label><input name="pedido_minimo" maxlength="120" placeholder="Ej. ₲ 500.000"></div>
-              </div>
-              <div class="prov-flags">
-                <label class="prov-check"><input type="checkbox" name="vende_mayor"> Vendo al por mayor</label>
-                <label class="prov-check"><input type="checkbox" name="vende_menor"> Vendo al por menor</label>
-                <label class="prov-check"><input type="checkbox" name="delivery_propio"> Tengo delivery propio</label>
-                <label class="prov-check"><input type="checkbox" name="retiro_local"> Retiro en local</label>
-                <label class="prov-check"><input type="checkbox" name="entrega_urgente"> Hago entregas urgentes</label>
-                <label class="prov-check"><input type="checkbox" name="emite_factura"> Emito factura</label>
-                <label class="prov-check"><input type="checkbox" name="acepta_credito"> Acepto pago a crédito</label>
-              </div>
             </fieldset>
 
-            <!-- Paso 4: Confirmación -->
-            <fieldset class="prov-fstep" data-step="4">
-              <h2>Últimos detalles</h2>
-              <p class="stephint">Revisá y enviá. Te contactamos en 24-48 horas.</p>
+            <!-- Paso 3: Confirmación -->
+            <fieldset class="prov-fstep" data-step="3">
+              <h2>Listo para enviar</h2>
+              <p class="stephint">Te contactamos en 24-48 horas con el acceso a tu panel. Ahí completás tu catálogo, tus zonas de entrega y tus condiciones.</p>
               <div class="prov-field full"><label>Mensaje (opcional)</label><textarea name="mensaje" maxlength="3000" placeholder="Contanos algo más sobre tu empresa o lo que ofrecés…"></textarea></div>
               <div class="notice" style="max-width:none;margin:6px 0 10px">
                 <span data-icon="alert"></span>
@@ -335,8 +303,6 @@
       {slug:'equipamiento',nombre:'Equipamiento'},{slug:'packaging',nombre:'Packaging'},{slug:'uniformes',nombre:'Uniformes'},
       {slug:'servicios',nombre:'Servicios'}
     ];
-    var ZONAS = ['Asunción','Gran Asunción','Central','Ciudad del Este','Encarnación','Interior','Todo el país'];
-
     var form = document.getElementById('provForm');
     var errorBox = document.getElementById('provError');
     var successBox = document.getElementById('provSuccess');
@@ -348,7 +314,6 @@
     var TOTAL = steps.length;
     var current = 1;
     var selectedCats = {};
-    var selectedZonas = {};
     var selectedPlan = '';   // slug del plan elegido en la vidriera (SP3); '' = ninguno
     var _lastPlans = null;   // último set de planes renderizado (para re-render de promo)
 
@@ -390,20 +355,6 @@
       db.from('marketplace_categories').select('slug,nombre').eq('activa', true).order('orden', { ascending: true })
         .then(function (r) { paint(r && r.data && r.data.length ? r.data : FALLBACK_CATS); })
         .catch(function () { paint(FALLBACK_CATS); });
-    }
-
-    function loadZonas() {
-      var host = document.getElementById('provZonas');
-      host.innerHTML = '';
-      ZONAS.forEach(function (z) {
-        var b = document.createElement('button');
-        b.type = 'button'; b.className = 'prov-chip'; b.textContent = z;
-        b.addEventListener('click', function () {
-          if (selectedZonas[z]) { delete selectedZonas[z]; b.classList.remove('on'); }
-          else { selectedZonas[z] = true; b.classList.add('on'); }
-        });
-        host.appendChild(b);
-      });
     }
 
     // ── Vidriera de planes (SP3: el proveedor elige y arranca con ese) ──────
@@ -551,11 +502,9 @@
         // (submit_supplier_application, mig 198) — si acá fuera más flojo, el envío
         // rebotaría recién al final con un error genérico.
         if (waDigits(val('whatsapp')) < 8) return 'Ingresá un WhatsApp válido para contactarte.';
-      }
-      if (n === 3) {
         if (Object.keys(selectedCats).length === 0) return 'Elegí al menos una categoría de lo que vendés.';
       }
-      if (n === 4) {
+      if (n === 3) {
         if (!checked('acepta_terminos')) return 'Necesitás aceptar los términos para proveedores.';
       }
       return null;
@@ -568,43 +517,21 @@
     });
     btnBack.addEventListener('click', function () { showStep(current - 1); });
 
+    // Solo lo que el alta liviana recolecta. El resto del perfil (razón social,
+    // zonas, días, marcas, condiciones, flags) lo completa el proveedor en
+    // Mi Tienda: la RPC los acepta como opcionales y quedan NULL hasta entonces.
     function buildPayload() {
-      var horario = val('horario_atencion');
-      var mensaje = val('mensaje');
-      if (horario) mensaje = (mensaje ? mensaje + '\n' : '') + 'Horario de atención: ' + horario;
-      // El server castea anhos_mercado a int: mandamos solo dígitos (un decimal
-      // como "8.5" rompería el ::int con un error críptico).
-      var anhosN = parseInt(val('anhos_mercado'), 10);
       return {
         nombre_comercial: val('nombre_comercial'),
-        razon_social: val('razon_social'),
         ruc: val('ruc'),
         tipo_proveedor: val('tipo_proveedor'),
-        anhos_mercado: isNaN(anhosN) ? '' : String(anhosN),
         ciudad: val('ciudad'),
-        departamento: val('departamento'),
-        direccion: val('direccion'),
-        web_redes: val('web_redes'),
         contacto_nombre: val('contacto_nombre'),
-        contacto_cargo: val('contacto_cargo'),
-        telefono: val('telefono'),
         whatsapp: val('whatsapp'),
         email: val('email'),
         categorias: Object.keys(selectedCats),
-        zonas_entrega: Object.keys(selectedZonas),
         plan_slug: selectedPlan || '',
-        productos_principales: val('productos_principales'),
-        marcas: val('marcas'),
-        vende_mayor: checked('vende_mayor'),
-        vende_menor: checked('vende_menor'),
-        delivery_propio: checked('delivery_propio'),
-        retiro_local: checked('retiro_local'),
-        entrega_urgente: checked('entrega_urgente'),
-        emite_factura: checked('emite_factura'),
-        acepta_credito: checked('acepta_credito'),
-        dias_entrega: val('dias_entrega'),
-        pedido_minimo: val('pedido_minimo'),
-        mensaje: mensaje,
+        mensaje: val('mensaje'),
         acepta_terminos: true
       };
     }
@@ -666,7 +593,6 @@
     // Init
     loadPlans();
     loadCats();
-    loadZonas();
     showStep(1);
   })();
   </script>

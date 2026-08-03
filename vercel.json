@@ -57,6 +57,7 @@
   },
   "crons": [
     { "path": "/api/cron/keep-alive", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/purge-comprobantes", "schedule": "30 4 * * *" }
+    { "path": "/api/cron/purge-comprobantes", "schedule": "30 4 * * *" },
+    { "path": "/api/cron/supplier-billing", "schedule": "0 5 * * *" }
   ]
 }

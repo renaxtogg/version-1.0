@@ -27,6 +27,7 @@ export function createRestaurantMarketplace(ctx) {
 
   /* ── utils locales (el módulo no asume helpers del panel anfitrión) ── */
   const fmt     = n => '₲ ' + (Math.round(n) || 0).toLocaleString('es-PY');
+  const fmtNumMk= n => Number(n || 0).toLocaleString('es-PY');
   const fmtDate = d => d ? new Date(d).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
   const paused  = () => (typeof shouldPause === 'function' ? shouldPause() : false);
   const precioLabel = p =>
@@ -39,6 +40,8 @@ export function createRestaurantMarketplace(ctx) {
   };
   // Sanitiza términos para el filtro or() de PostgREST (coma/paréntesis rompen la sintaxis del filtro)
   const ilikeSafe = s => String(s || '').replace(/[,()]/g, ' ').trim();
+  // Destacados primero, respetando el orden que ya trajo el servidor.
+  const ordenarDestacados = list => [...list].sort((a, b) => (b.destacado ? 1 : 0) - (a.destacado ? 1 : 0));
 
   const LEAD_TIPO   = { contacto: 'Contacto', cotizacion: 'Cotización' };
   const LEAD_ESTADO = { nueva: 'Enviada', respondida: 'Respondida', negociando: 'Negociando', cerrada: 'Cerrada', perdida: 'Perdida', archivada: 'Archivada' };
@@ -116,7 +119,10 @@ export function createRestaurantMarketplace(ctx) {
             : <Icon name="package" size={22} style={{ color: C.dim }} />}
         </div>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{p.nombre}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, display: 'flex', alignItems: 'center', gap: 5 }}>
+            {p.destacado && <span title="Destacado" style={{ color: C.orange, fontSize: 11 }}>★</span>}
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nombre}</span>
+          </div>
           <div style={{ fontSize: 11, color: C.dim }}>{p.presentacion || p.marca || '—'}</div>
         </div>
         <div style={{ fontSize: 13, fontWeight: 800, fontFamily: "'SF Mono',ui-monospace,monospace", color: C.ink }}>{precioLabel(p)}</div>
@@ -129,8 +135,41 @@ export function createRestaurantMarketplace(ctx) {
     );
   }
 
-  /* ════════════════ EXPLORAR ════════════════ */
-  function Explorar({ cats, suppliers, loadingSup, onOpenSupplier }) {
+  /* Título de sección de la vitrina. */
+  function Rubro({ children, extra }) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, letterSpacing: .5, textTransform: 'uppercase' }}>{children}</div>
+        {extra}
+      </div>
+    );
+  }
+
+  /* Baldosa de categoría con conteo real (los conteos salen de la RPC, no de un
+     array del navegador: una góndola que dice "12" y está vacía es peor que no
+     mostrarla). */
+  function CatTile({ c, onClick }) {
+    return (
+      <button type="button" onClick={onClick} style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
+        padding: '12px 14px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+        border: `1px solid ${C.border}`, background: C.surface, minWidth: 132, flex: '1 1 132px',
+      }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{c.nombre}</span>
+        <span style={{ fontSize: 11, color: C.dim }}>
+          {c.productos > 0 ? `${c.productos} producto${c.productos === 1 ? '' : 's'}` : `${c.proveedores} proveedor${c.proveedores === 1 ? '' : 'es'}`}
+        </span>
+      </button>
+    );
+  }
+
+  /* ════════════════ EXPLORAR (vitrina) ════════════════
+     Antes esto abría como un directorio: no se veía NI UN producto hasta que el
+     comprador buscaba algo (la grilla estaba condicionada a `hasSearch`), y todo
+     el filtrado corría en el navegador sobre un `.limit(300)` de proveedores —
+     con 40 proveedores anda, con 400 miente. Ahora: portada con destacados,
+     novedades y categorías cuando no hay búsqueda; y filtros que van al servidor. */
+  function Explorar({ cats, store, onOpenSupplier, onQuoteProduct }) {
     const [q, setQ] = useState('');
     const [selCat, setSelCat] = useState('');
     const [fCiudad, setFCiudad] = useState('');
@@ -138,47 +177,77 @@ export function createRestaurantMarketplace(ctx) {
     const [fFactura, setFFactura] = useState(false);
     const [fVerificado, setFVerificado] = useState(false);
     const [fDestacado, setFDestacado] = useState(false);
+    const [suppliers, setSuppliers] = useState([]);
     const [products, setProducts] = useState([]);
+    const [loadingSup, setLoadingSup] = useState(true);
     const [searching, setSearching] = useState(false);
 
     const catName = slug => (cats.find(c => c.slug === slug)?.nombre) || slug;
-    const supById = useMemo(() => { const m = {}; suppliers.forEach(s => { m[s.id] = s; }); return m; }, [suppliers]);
-    const hasSearch = !!(q.trim() || selCat);
+    const hasFilters = !!(q.trim() || selCat || fCiudad || fZona || fFactura || fVerificado || fDestacado);
+    const limpiar = () => { setQ(''); setSelCat(''); setFCiudad(''); setFZona(''); setFFactura(false); setFVerificado(false); setFDestacado(false); };
 
-    // Búsqueda de productos server-side (ILIKE), debounce 350ms
+    // Proveedores: consulta SERVER-SIDE con debounce. Los `.or()` repetidos que
+    // arma PostgREST se combinan con AND, que es justo lo que queremos.
     useEffect(() => {
       if (!db) return;
-      if (!hasSearch) { setProducts([]); return; }
+      let on = true;
+      setLoadingSup(true);
+      const t = setTimeout(async () => {
+        let query = db.from('marketplace_suppliers').select('*').eq('estado', 'activo')
+          .order('destacado', { ascending: false }).order('created_at', { ascending: false }).limit(120);
+        if (selCat) query = query.contains('categorias', [selCat]);
+        if (fZona) query = query.contains('zonas_entrega', [fZona]);
+        if (fCiudad) query = query.or(`ciudad.ilike.%${ilikeSafe(fCiudad)}%,departamento.ilike.%${ilikeSafe(fCiudad)}%`);
+        if (fFactura) query = query.eq('emite_factura', true);
+        if (fVerificado) query = query.eq('verificado', true);
+        if (fDestacado) query = query.eq('destacado', true);
+        const term = ilikeSafe(q);
+        if (term) query = query.or(`nombre_comercial.ilike.%${term}%,descripcion.ilike.%${term}%`);
+        const { data } = await query;
+        if (on) { setSuppliers(data || []); setLoadingSup(false); }
+      }, 300);
+      return () => { on = false; clearTimeout(t); };
+    }, [q, selCat, fCiudad, fZona, fFactura, fVerificado, fDestacado]);
+
+    // Productos: solo con término o categoría (fuera de eso manda la portada).
+    const buscaProductos = !!(q.trim() || selCat);
+    useEffect(() => {
+      if (!db) return;
+      if (!buscaProductos) { setProducts([]); return; }
       let on = true;
       setSearching(true);
       const t = setTimeout(async () => {
+        // Ver la nota del catálogo del perfil: `destacado` es de la mig 199, así
+        // que el orden por destacado se resuelve en el cliente (deploy-safe).
         let query = db.from('marketplace_products').select('*')
           .eq('estado', 'publicado').order('created_at', { ascending: false }).limit(60);
         if (selCat) query = query.eq('categoria_slug', selCat);
         const term = ilikeSafe(q);
         if (term) query = query.or(`nombre.ilike.%${term}%,descripcion.ilike.%${term}%,marca.ilike.%${term}%`);
         const { data } = await query;
-        if (on) { setProducts(data || []); setSearching(false); }
+        if (on) { setProducts(ordenarDestacados(data || [])); setSearching(false); }
       }, 350);
       return () => { on = false; clearTimeout(t); };
-    }, [q, selCat, hasSearch]);
+    }, [q, selCat, buscaProductos]);
 
-    const filtered = suppliers.filter(s => {
-      if (selCat && !(s.categorias || []).includes(selCat)) return false;
-      if (q.trim()) {
-        const hay = `${s.nombre_comercial} ${s.descripcion || ''} ${(s.categorias || []).join(' ')}`.toLowerCase();
-        if (!hay.includes(q.trim().toLowerCase())) return false;
-      }
-      if (fCiudad && !(`${s.ciudad || ''} ${s.departamento || ''}`).toLowerCase().includes(fCiudad.toLowerCase())) return false;
-      if (fZona && !(s.zonas_entrega || []).some(z => z.toLowerCase().includes(fZona.toLowerCase()))) return false;
-      if (fFactura && !s.emite_factura) return false;
-      if (fVerificado && !s.verificado) return false;
-      if (fDestacado && !s.destacado) return false;
-      return true;
-    });
-    const zonaMatch = s => !!(fZona && (s.zonas_entrega || []).some(z => z.toLowerCase().includes(fZona.toLowerCase())));
-    const destacados = suppliers.filter(s => s.destacado);
-    const showDestacados = !hasSearch && !fCiudad && !fZona && !fFactura && !fVerificado && !fDestacado && destacados.length > 0;
+    const supById = useMemo(() => { const m = {}; suppliers.forEach(s => { m[s.id] = s; }); return m; }, [suppliers]);
+    const abrirProveedor = async supplierId => {
+      const s = supById[supplierId] || (await db.from('marketplace_suppliers').select('*').eq('id', supplierId).maybeSingle()).data;
+      if (s) onOpenSupplier(s); else toast('Proveedor no disponible', false);
+    };
+
+    const zonas    = Array.isArray(store?.zonas) ? store.zonas : [];
+    const ciudades = Array.isArray(store?.ciudades) ? store.ciudades : [];
+    const destacados = Array.isArray(store?.featured) ? store.featured : [];
+    const novedades  = Array.isArray(store?.novedades) ? store.novedades : [];
+    const catsConteo = Array.isArray(store?.categorias) ? store.categorias.filter(c => c.productos > 0 || c.proveedores > 0) : [];
+
+    // Tarjeta de producto de la portada (la RPC ya trae el nombre del proveedor).
+    const storeCard = p => (
+      <ProductCard key={p.id} p={p} supplierName={p.supplier_nombre}
+        onOpenSupplier={() => abrirProveedor(p.supplier_id)}
+        onQuote={onQuoteProduct ? () => onQuoteProduct(p) : null} />
+    );
 
     return (
       <div>
@@ -197,44 +266,68 @@ export function createRestaurantMarketplace(ctx) {
           {cats.map(c => <Chip key={c.slug} on={selCat === c.slug} onClick={() => setSelCat(selCat === c.slug ? '' : c.slug)}>{c.nombre}</Chip>)}
         </div>
 
-        {/* Filtros adicionales */}
+        {/* Filtros: ciudad y zona salen de valores REALES (RPC), no de texto libre */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 18 }}>
-          <div style={{ width: 140 }}><Inp value={fCiudad} onChange={e => setFCiudad(e.target.value)} placeholder="Ciudad" /></div>
-          <div style={{ width: 170 }}><Inp value={fZona} onChange={e => setFZona(e.target.value)} placeholder="Zona de entrega" /></div>
+          <div style={{ width: 150 }}>
+            {ciudades.length > 0
+              ? <Sel value={fCiudad} onChange={e => setFCiudad(e.target.value)}>
+                  <option value="">Toda ciudad</option>
+                  {ciudades.map(c => <option key={c} value={c}>{c}</option>)}
+                </Sel>
+              : <Inp value={fCiudad} onChange={e => setFCiudad(e.target.value)} placeholder="Ciudad" />}
+          </div>
+          <div style={{ width: 175 }}>
+            {zonas.length > 0
+              ? <Sel value={fZona} onChange={e => setFZona(e.target.value)}>
+                  <option value="">Toda zona de entrega</option>
+                  {zonas.map(z => <option key={z} value={z}>{z}</option>)}
+                </Sel>
+              : <Inp value={fZona} onChange={e => setFZona(e.target.value)} placeholder="Zona de entrega" />}
+          </div>
           <Chip on={fFactura} onClick={() => setFFactura(!fFactura)}>Emite factura</Chip>
           <Chip on={fVerificado} onClick={() => setFVerificado(!fVerificado)}>Verificados</Chip>
           <Chip on={fDestacado} onClick={() => setFDestacado(!fDestacado)}>Destacados</Chip>
+          {hasFilters && <Btn variant="ghost" small onClick={limpiar}>Limpiar</Btn>}
         </div>
 
-        {showDestacados && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, letterSpacing: .5, textTransform: 'uppercase', marginBottom: 10 }}>Destacados</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-              {destacados.map(s => <SupplierCard key={s.id} s={s} catName={catName} zonaMatch={false} onOpen={onOpenSupplier} />)}
-            </div>
+        {/* ── PORTADA (sin filtros): así abre una tienda, con mercadería a la vista ── */}
+        {!hasFilters && (
+          <div>
+            {store && (
+              <div style={{ fontSize: 12, color: C.mid, marginBottom: 16 }}>
+                {fmtNumMk(store.totals?.products)} productos de {fmtNumMk(store.totals?.suppliers)} proveedores activos.
+              </div>
+            )}
+
+            {destacados.length > 0 && (
+              <div style={{ marginBottom: 22 }}>
+                <Rubro>Destacados</Rubro>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>{destacados.map(storeCard)}</div>
+              </div>
+            )}
+
+            {catsConteo.length > 0 && (
+              <div style={{ marginBottom: 22 }}>
+                <Rubro>Comprá por categoría</Rubro>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {catsConteo.map(c => <CatTile key={c.slug} c={c} onClick={() => setSelCat(c.slug)} />)}
+                </div>
+              </div>
+            )}
+
+            {novedades.length > 0 && (
+              <div style={{ marginBottom: 22 }}>
+                <Rubro>Novedades</Rubro>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>{novedades.map(storeCard)}</div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Proveedores */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, letterSpacing: .5, textTransform: 'uppercase', marginBottom: 10 }}>
-            Proveedores {loadingSup ? '' : `(${filtered.length})`}
-          </div>
-          {loadingSup
-            ? <div style={{ padding: 20, color: C.dim, fontSize: 13 }}>Cargando proveedores…</div>
-            : filtered.length === 0
-              ? <div style={{ padding: 20, color: C.dim, fontSize: 13 }}>Sin proveedores para esos filtros.</div>
-              : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                  {filtered.map(s => <SupplierCard key={s.id} s={s} catName={catName} zonaMatch={zonaMatch(s)} onOpen={onOpenSupplier} />)}
-                </div>}
-        </div>
-
-        {/* Productos (solo con búsqueda/categoría activa) */}
-        {hasSearch && (
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, letterSpacing: .5, textTransform: 'uppercase', marginBottom: 10 }}>
-              Productos {searching ? '' : `(${products.length})`}
-            </div>
+        {/* Productos encontrados (con término o categoría) */}
+        {buscaProductos && (
+          <div style={{ marginBottom: 22 }}>
+            <Rubro>Productos {searching ? '' : `(${products.length})`}</Rubro>
             {searching
               ? <div style={{ padding: 20, color: C.dim, fontSize: 13 }}>Buscando…</div>
               : products.length === 0
@@ -242,20 +335,30 @@ export function createRestaurantMarketplace(ctx) {
                 : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                     {products.map(p => (
                       <ProductCard key={p.id} p={p} supplierName={supById[p.supplier_id]?.nombre_comercial}
-                        onOpenSupplier={async () => {
-                          const s = supById[p.supplier_id] || (await db.from('marketplace_suppliers').select('*').eq('id', p.supplier_id).maybeSingle()).data;
-                          if (s) onOpenSupplier(s); else toast('Proveedor no disponible', false);
-                        }} />
+                        onOpenSupplier={() => abrirProveedor(p.supplier_id)}
+                        onQuote={onQuoteProduct ? () => onQuoteProduct(p) : null} />
                     ))}
                   </div>}
           </div>
         )}
+
+        {/* Proveedores */}
+        <div style={{ marginBottom: 20 }}>
+          <Rubro>{hasFilters ? `Proveedores ${loadingSup ? '' : `(${suppliers.length})`}` : 'Todos los proveedores'}</Rubro>
+          {loadingSup
+            ? <div style={{ padding: 20, color: C.dim, fontSize: 13 }}>Cargando proveedores…</div>
+            : suppliers.length === 0
+              ? <div style={{ padding: 20, color: C.dim, fontSize: 13 }}>Sin proveedores para esos filtros.</div>
+              : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                  {suppliers.map(s => <SupplierCard key={s.id} s={s} catName={catName} zonaMatch={!!fZona} onOpen={onOpenSupplier} />)}
+                </div>}
+        </div>
       </div>
     );
   }
 
   /* ════════════════ PERFIL DE PROVEEDOR ════════════════ */
-  function PerfilProveedor({ s, cats, onBack, onOpenChatSupplier }) {
+  function PerfilProveedor({ s, cats, initialQuote, onQuoteConsumed, onBack, onOpenChatSupplier }) {
     const [prods, setProds] = useState([]);
     const [files, setFiles] = useState([]);
     const [saved, setSaved] = useState(null);
@@ -269,14 +372,26 @@ export function createRestaurantMarketplace(ctx) {
     const load = useCallback(async () => {
       if (!db) return;
       const [p, f, sv] = await Promise.all([
-        db.from('marketplace_products').select('*').eq('supplier_id', s.id).eq('estado', 'publicado').order('created_at', { ascending: false }),
+        // Sin .order('destacado'): esa columna nace en la mig 199 y ordenar por
+        // ella rompería el catálogo con un 400 mientras la migración no esté
+        // aplicada. El destacado se ordena en el cliente (undefined = falsy).
+        db.from('marketplace_products').select('*').eq('supplier_id', s.id).eq('estado', 'publicado')
+          .order('created_at', { ascending: false }),
         db.from('marketplace_catalog_files').select('*').eq('supplier_id', s.id).order('created_at', { ascending: false }),
         db.from('marketplace_saved').select('*').eq('restaurant_id', rid).eq('supplier_id', s.id).is('product_id', null).maybeSingle(),
       ]);
-      setProds(p.data || []); setFiles(f.data || []);
+      setProds(ordenarDestacados(p.data || [])); setFiles(f.data || []);
       setSaved(sv.data || null); setNota(sv.data?.nota_interna || '');
     }, [s.id]);
     useEffect(() => { load(); }, [load]);
+
+    // "Cotizar" desde una tarjeta de la vitrina abre el perfil con el modal ya
+    // cargado con ese producto: el comprador no tiene que volver a buscarlo.
+    useEffect(() => {
+      if (!initialQuote) return;
+      setQuoteOpen({ product: initialQuote });
+      onQuoteConsumed && onQuoteConsumed();
+    }, [initialQuote]);
 
     async function toggleSave() {
       if (saved) {
@@ -712,23 +827,32 @@ export function createRestaurantMarketplace(ctx) {
     // viene a ver. Sin inyección (gerente) el módulo es puro marketplace → "Explorar".
     const [tab, setTab] = useState(InternalSuppliers ? 'mis' : 'explorar');   // explorar | mis | mensajes
     const [selSupplier, setSelSupplier] = useState(null);
+    const [pendingQuote, setPendingQuote] = useState(null);   // producto a cotizar al abrir el perfil
     const [chatTarget, setChatTarget] = useState(null);
     const [unread, setUnread] = useState(0);
     const [cats, setCats] = useState([]);
-    const [suppliers, setSuppliers] = useState([]);
-    const [loadingSup, setLoadingSup] = useState(true);
+    const [store, setStore] = useState(null);   // portada (RPC mig 199); null = sin portada
 
     useEffect(() => {
       if (!db) return;
       (async () => {
-        const [{ data: c }, { data: s }] = await Promise.all([
+        // La portada sale de una sola RPC agregada. Si la mig 199 no está
+        // aplicada, `store` queda null y Explorar sigue funcionando sin portada.
+        const [{ data: c }, sf] = await Promise.all([
           db.from('marketplace_categories').select('slug,nombre').eq('activa', true).order('orden'),
-          db.from('marketplace_suppliers').select('*').eq('estado', 'activo')
-            .order('destacado', { ascending: false }).order('created_at', { ascending: false }).limit(300),
+          db.rpc('marketplace_storefront', { p_limit: 12 }).then(r => r.error ? { data: null } : r),
         ]);
-        setCats(c || []); setSuppliers(s || []); setLoadingSup(false);
+        setCats(c || []); setStore(sf.data || null);
       })();
     }, []);
+
+    // "Cotizar" desde una tarjeta de la vitrina: abre el perfil del proveedor con
+    // el producto ya elegido (no hace falta buscarlo de nuevo adentro).
+    const cotizarProducto = async p => {
+      const { data: s } = await db.from('marketplace_suppliers').select('*').eq('id', p.supplier_id).maybeSingle();
+      if (!s) { toast('Proveedor no disponible', false); return; }
+      setPendingQuote(p); setSelSupplier(s);
+    };
 
     // Badge de mensajes sin leer (cuando NO estoy en la pestaña de mensajes,
     // el ChatSection no está montado → poll liviano propio).
@@ -775,7 +899,7 @@ export function createRestaurantMarketplace(ctx) {
 
         <div style={{ display: 'flex', gap: 6, borderBottom: `1px solid ${C.border}`, marginBottom: 16 }}>
           {TABS.map(([k, l]) => (
-            <button key={k} onClick={() => { setTab(k); setSelSupplier(null); }} style={{
+            <button key={k} onClick={() => { setTab(k); setSelSupplier(null); setPendingQuote(null); }} style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '10px 16px', background: 'none', border: 'none',
               borderBottom: `2px solid ${tab === k && !selSupplier ? C.ink : 'transparent'}`,
@@ -790,9 +914,12 @@ export function createRestaurantMarketplace(ctx) {
         </div>
 
         {selSupplier
-          ? <PerfilProveedor s={selSupplier} cats={cats} onBack={() => setSelSupplier(null)} onOpenChatSupplier={openChatSupplier} />
+          ? <PerfilProveedor s={selSupplier} cats={cats} initialQuote={pendingQuote}
+              onBack={() => { setSelSupplier(null); setPendingQuote(null); }}
+              onQuoteConsumed={() => setPendingQuote(null)}
+              onOpenChatSupplier={openChatSupplier} />
           : tab === 'explorar'
-            ? <Explorar cats={cats} suppliers={suppliers} loadingSup={loadingSup} onOpenSupplier={setSelSupplier} />
+            ? <Explorar cats={cats} store={store} onOpenSupplier={setSelSupplier} onQuoteProduct={cotizarProducto} />
             : tab === 'mis'
               ? <MisProveedores onOpenSupplier={s => { setSelSupplier(s); }} onOpenChatSupplier={openChatSupplier} />
               : <ChatSection side="restaurant" openConversationId={chatTarget}

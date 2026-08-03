@@ -71,17 +71,17 @@
     { slug: 'basico', name: 'Básico', headline: 'Empezá a recibir consultas',
       description: 'Tu tienda en el marketplace, lista para recibir contactos de restaurantes.',
       price_monthly_gs: 99000, price_annual_gs: 990000, currency: 'PYG',
-      features: ['Perfil de proveedor en el marketplace', 'Hasta 10 productos', '1 usuario', '1 categoría y 1 zona de cobertura', 'Contacto de leads con demora (24 h)'],
+      features: ['Perfil de proveedor en el marketplace', 'Hasta 10 productos publicados', '1 categoría y 1 zona de cobertura', 'Los datos del restaurante, 24 h después de la consulta'],
       badge: null, is_recommended: false },
     { slug: 'profesional', name: 'Profesional', headline: 'El plan que más venden',
       description: 'Contacto inmediato con los restaurantes y más catálogo para destacar.',
       price_monthly_gs: 199000, price_annual_gs: 1990000, currency: 'PYG',
-      features: ['Hasta 50 productos', 'Hasta 3 usuarios', '3 categorías y 3 zonas', 'Contacto de leads inmediato', '1 espacio destacado', 'Analítica básica', 'Hasta 3 catálogos PDF'],
+      features: ['Hasta 50 productos publicados', '3 categorías y 3 zonas de cobertura', 'Los datos del restaurante al instante', '1 producto destacado en la portada', 'Analítica de consultas', 'Hasta 3 catálogos PDF/Excel'],
       badge: 'Recomendado', is_recommended: true },
     { slug: 'premium', name: 'Premium', headline: 'Máxima visibilidad y prioridad',
       description: 'Todo ilimitado, prioridad en los leads y tu marca destacada.',
       price_monthly_gs: 349000, price_annual_gs: 3490000, currency: 'PYG',
-      features: ['Productos ilimitados', 'Usuarios ilimitados', 'Categorías y zonas ilimitadas', 'Contacto inmediato y prioritario', 'Destacados ilimitados', 'Analítica completa', 'Banner de marca', 'Catálogos PDF ilimitados'],
+      features: ['Productos publicados ilimitados', 'Categorías y zonas ilimitadas', 'Los datos del restaurante al instante', 'Productos destacados ilimitados', 'Analítica completa', 'Banner de marca propio', 'Catálogos PDF/Excel ilimitados'],
       badge: null, is_recommended: false }
   ];
 

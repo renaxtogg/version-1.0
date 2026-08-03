@@ -156,13 +156,24 @@ module.exports = async function handler(req, res) {
     const appPlan  = (typeof app.plan_slug === 'string' && app.plan_slug.trim()) ? app.plan_slug.trim() : '';
     const planSlug = bodyPlan || appPlan || 'basico';
     const planResp = await httpsGet(
-      `${SUPABASE_URL}/rest/v1/marketplace_supplier_plans?slug=eq.${encodeURIComponent(planSlug)}&select=slug,price_gs,trial_days&limit=1`,
+      `${SUPABASE_URL}/rest/v1/marketplace_supplier_plans?slug=eq.${encodeURIComponent(planSlug)}&select=slug,price_gs,trial_days,limits&limit=1`,
       SR_HEADERS
     );
     const plan = Array.isArray(planResp.data) && planResp.data[0] ? planResp.data[0] : null;
     if (!plan) {
       res.status(400).json({ error: `Plan de proveedor inexistente: ${planSlug}` }); return;
     }
+
+    // Los topes de categorías/zonas son triggers BEFORE UPDATE (mig 199): el alta
+    // los esquivaría y el proveedor arrancaría con más cupo del que paga (podría
+    // conservarlo para siempre, porque el trigger solo frena cuando el valor
+    // CRECE). Se recortan acá, en la puerta.
+    const planLimits = (plan.limits && typeof plan.limits === 'object') ? plan.limits : {};
+    const capList = (arr, max) => {
+      const list = Array.isArray(arr) ? arr : [];
+      const n = Number(max);
+      return (!Number.isFinite(n) || n === -1) ? list : list.slice(0, Math.max(0, n));
+    };
 
     const displayName = displayNameIn || app.contacto_nombre || app.nombre_comercial;
 
@@ -236,8 +247,8 @@ module.exports = async function handler(req, res) {
         tipo_proveedor:   app.tipo_proveedor,
         ciudad:           app.ciudad,
         departamento:     app.departamento,
-        categorias:       app.categorias || [],
-        zonas_entrega:    app.zonas_entrega || [],
+        categorias:       capList(app.categorias, planLimits.max_categorias),
+        zonas_entrega:    capList(app.zonas_entrega, planLimits.max_zonas),
         dias_entrega:     app.dias_entrega,
         pedido_minimo:    app.pedido_minimo,
         delivery_propio:  !!app.delivery_propio,

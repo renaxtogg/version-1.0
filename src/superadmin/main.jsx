@@ -4367,7 +4367,6 @@ const MKP_REPORT_TIPO_LBL = {
   spam:'Spam', otro:'Otro',
 };
 const MKP_TIPO_PROV = ['productor','distribuidor','mayorista','minorista','importador','fabricante','servicio'];
-const MKP_PLANES = ['fundador','basico','pro'];
 // Estado de la suscripción del proveedor (mig 177) y ciclo de vida del plan.
 const MKP_SUB_ESTADO = {
   trial:     {label:'Trial',      color:TINT.infoText,   bg:TINT.infoBg},
@@ -5349,6 +5348,7 @@ function MkPlanModal({plan, onClose, onDone, setFlash}) {
   const [f, setF] = useState({
     name: plan.name||'', slug: plan.slug||'', price_gs: plan.price_gs??0,
     billing_cycle: plan.billing_cycle||'monthly', trial_days: plan.trial_days??30,
+    grace_days: plan.grace_days??5,
     status: plan.status||'active', sort_order: plan.sort_order??0,
     features: Array.isArray(plan.features) ? plan.features.join('\n') : '',
     max_products: lim0.max_products??0, max_users: lim0.max_users??0, max_catalog_files: lim0.max_catalog_files??0,
@@ -5373,12 +5373,19 @@ function MkPlanModal({plan, onClose, onDone, setFlash}) {
     const features = f.features.split('\n').map(x=>x.trim()).filter(Boolean);
     const payload = {
       name, slug, price_gs: intOr(f.price_gs,0), billing_cycle: f.billing_cycle,
-      trial_days: intOr(f.trial_days,30), status: f.status, sort_order: intOr(f.sort_order,0), limits, features,
+      trial_days: intOr(f.trial_days,30), grace_days: intOr(f.grace_days,5),
+      status: f.status, sort_order: intOr(f.sort_order,0), limits, features,
     };
-    const q = esNueva
-      ? db.from('marketplace_supplier_plans').insert(payload)
-      : db.from('marketplace_supplier_plans').update(payload).eq('id',plan.id);
-    const { error } = await q;
+    const run = pl => esNueva
+      ? db.from('marketplace_supplier_plans').insert(pl)
+      : db.from('marketplace_supplier_plans').update(pl).eq('id',plan.id);
+    let { error } = await run(payload);
+    // Deploy-safe: si la mig 199 todavía no se aplicó, `grace_days` no existe.
+    // Se reintenta sin esa columna en vez de bloquear la edición del plan.
+    if (error && /grace_days/.test(error.message||'')) {
+      const { grace_days, ...legacy } = payload;
+      ({ error } = await run(legacy));
+    }
     setBusy(false);
     if (error) { setFlash({type:'error',text:/duplicate|unique/i.test(error.message)?'Ese slug ya existe':error.message}); return; }
     setFlash({type:'ok',text:esNueva?'Plan creado':'Plan actualizado'}); onDone();
@@ -5396,6 +5403,9 @@ function MkPlanModal({plan, onClose, onDone, setFlash}) {
           </SSel>
         </FormField>
         <FormField label="Días de trial"><SInp type="number" value={f.trial_days} onChange={v=>set('trial_days',v)}/></FormField>
+        <FormField label="Días de gracia" hint="Tras vencer, cuántos días sigue operando antes de que se le pause la tienda.">
+          <SInp type="number" value={f.grace_days} onChange={v=>set('grace_days',v)}/>
+        </FormField>
         <FormField label="Orden"><SInp type="number" value={f.sort_order} onChange={v=>set('sort_order',v)}/></FormField>
         <FormField label="Estado (ciclo de vida)">
           <SSel value={f.status} onChange={v=>set('status',v)}>
@@ -5433,6 +5443,198 @@ function MkPlanModal({plan, onClose, onDone, setFlash}) {
       <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
         <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
         <Btn onClick={save} disabled={busy}>{busy?'Guardando…':(esNueva?'Crear':'Guardar')}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ─── Tab FACTURACIÓN (proveedores) — mig 199 ───
+   Hasta la 199 el marketplace no cobraba: el trial no vencía nunca y los
+   proveedores no aparecían en ninguna métrica de ingresos (Facturación y
+   Finanzas solo cuentan restaurantes). Esta pestaña es el otro lado del cron
+   `supplier-billing`: mirar quién vence, registrar el cobro y reactivar.
+   Los totales salen de superadmin_supplier_billing_overview() — agregados
+   SERVER-SIDE: sumar el MRR sobre un array con `.limit()` daría un número que
+   empeora cuanto más crece el negocio (misma lección que la mig 197). */
+const MKP_BILL_FILTERS = [
+  ['todos',     'Todos'],
+  ['por_vencer','Vencen en 7 días'],
+  ['vencidos',  'Vencidos / en mora'],
+  ['sin_sub',   'Sin suscripción'],
+];
+
+function MkFacturacion({setFlash}) {
+  const [ov, setOv]           = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [missing, setMissing] = useState(false);   // mig 199 sin aplicar
+  const [filtro, setFiltro]   = useState('todos');
+  const [search, setSearch]   = useState('');
+  const [payFor, setPayFor]   = useState(null);
+
+  const load = useCallback(async () => {
+    if (!db) { setLoading(false); return; }
+    const { data, error } = await db.rpc('superadmin_supplier_billing_overview');
+    if (error) { setMissing(true); setLoading(false); return; }
+    setMissing(false); setOv(data || null); setLoading(false);
+  }, []);
+  useEffect(()=>{ load(); }, [load]);
+
+  if (loading) return <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:160,gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando facturación…</span></div>;
+  if (missing) return (
+    <MkEmpty text="Facturación de proveedores no disponible: falta aplicar la migración 199 en Supabase."/>
+  );
+
+  const rows = Array.isArray(ov?.rows) ? ov.rows : [];
+  const byStatus = ov?.by_status || {};
+  // Días hasta el vencimiento — calculado sobre la fecha que ya trae la RPC.
+  const daysLeft = r => {
+    if (!r.expires_on) return null;
+    return Math.ceil((new Date(r.expires_on).getTime() - Date.now()) / 86400000);
+  };
+
+  const shown = rows.filter(r => {
+    if (search) {
+      const q = search.toLowerCase();
+      if (!(r.nombre_comercial||'').toLowerCase().includes(q)) return false;
+    }
+    const d = daysLeft(r);
+    if (filtro==='sin_sub')    return !r.status;
+    if (filtro==='por_vencer') return !!r.status && d !== null && d >= 0 && d <= 7;
+    if (filtro==='vencidos')   return !!r.status && ((d !== null && d < 0) || r.status==='past_due' || r.auto_paused);
+    return true;
+  });
+
+  return (
+    <div className="animate-in">
+      <div className="sa-kpis" style={{marginBottom:18}}>
+        <Kpi label="MRR activo" value={fmtGuarani(ov?.mrr_active||0)} sub={`${fmtNum(byStatus.active||0)} suscripciones al día`}/>
+        <Kpi label="MRR potencial" value={fmtGuarani(ov?.mrr_potential||0)} sub="incluye trials y mora"/>
+        <Kpi label="Cobrado este mes" value={fmtGuarani(ov?.collected_month||0)} sub={`${fmtGuarani(ov?.collected_total||0)} histórico`}/>
+        <Kpi label="En prueba" value={fmtNum(byStatus.trial||0)} sub={`${fmtNum(byStatus.past_due||0)} en mora`} accent={(byStatus.past_due||0)>0?TINT.warnText:undefined}/>
+        <Kpi label="Sin suscripción" value={fmtNum(ov?.no_subscription||0)} sub="asignales un plan"/>
+      </div>
+
+      <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
+        <SInp value={search} onChange={setSearch} placeholder="Buscar proveedor…" style={{width:240}}/>
+        <SSel value={filtro} onChange={setFiltro} style={{width:200}}>
+          {MKP_BILL_FILTERS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+        </SSel>
+        <span style={{fontSize:12,color:C.mid}}>{shown.length} de {rows.length}</span>
+      </div>
+
+      <SectionCard>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
+            <thead><tr>
+              <Th>Proveedor</Th><Th>Plan</Th><Th>Suscripción</Th><Th>Vence</Th>
+              <Th style={{textAlign:'right'}}>Mensual</Th><Th>Último pago</Th>
+              <Th style={{textAlign:'right'}}>Cobrado</Th><Th style={{textAlign:'right'}}>Acciones</Th>
+            </tr></thead>
+            <tbody>
+              {shown.length===0 && <tr><Td colSpan={8} style={{textAlign:'center',color:C.dim}}>Sin proveedores con ese filtro.</Td></tr>}
+              {shown.map(r=>{
+                const d = daysLeft(r);
+                const vencido = d !== null && d < 0;
+                return (
+                  <tr key={r.supplier_id}>
+                    <Td>
+                      <span style={{fontWeight:600,color:C.ink}}>{r.nombre_comercial}</span>
+                      {r.auto_paused && <div style={{fontSize:11,color:TINT.dangerText,fontWeight:600}}>Tienda pausada por impago</div>}
+                      {!r.auto_paused && r.estado!=='activo' && <div style={{fontSize:11,color:C.dim}}>Tienda {r.estado}</div>}
+                    </Td>
+                    <Td>{r.plan_name || r.plan_slug || <span style={{color:C.dim}}>—</span>}</Td>
+                    <Td>{r.status ? <MkBadge map={MKP_SUB_ESTADO} value={r.status}/> : <span style={{fontSize:11.5,color:C.dim}}>sin suscripción</span>}</Td>
+                    <Td>
+                      {r.expires_on
+                        ? <span style={{fontSize:12,color:vencido?TINT.dangerText:(d<=7?TINT.warnText:C.mid),fontWeight:vencido||d<=7?700:400}}>
+                            {fmtDate(r.expires_on)}
+                            <div style={{fontSize:10.5,fontWeight:400}}>
+                              {vencido ? `hace ${Math.abs(d)} d (gracia ${r.grace_days} d)` : `en ${d} d`}
+                            </div>
+                          </span>
+                        : <span style={{color:C.dim}}>—</span>}
+                    </Td>
+                    <Td style={{textAlign:'right'}}>{r.status?fmtGuarani(r.monthly_amount||0):'—'}</Td>
+                    <Td><span style={{fontSize:12,color:C.mid}}>{r.last_payment_at?fmtDate(r.last_payment_at):'nunca'}</span></Td>
+                    <Td style={{textAlign:'right'}}>{fmtGuarani(r.paid_total||0)}</Td>
+                    <Td style={{textAlign:'right'}}>
+                      {r.status
+                        ? <Btn variant={vencido?'success':'ghost'} size="sm" onClick={()=>setPayFor(r)}>Registrar pago</Btn>
+                        : <span style={{fontSize:11,color:C.dim}}>Asignale un plan en Proveedores</span>}
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </SectionCard>
+
+      {payFor && <MkSupplierPaymentModal row={payFor} onClose={()=>setPayFor(null)}
+                   onDone={()=>{setPayFor(null);load();}} setFlash={setFlash}/>}
+    </div>
+  );
+}
+
+/* Registrar un cobro de proveedor. La RPC (mig 199) asienta el pago, extiende el
+   período y reactiva la tienda si estaba auto-pausada por mora — todo atómico. */
+function MkSupplierPaymentModal({row, onClose, onDone, setFlash}) {
+  const [amount, setAmount] = useState(String(row.monthly_amount||''));
+  const [months, setMonths] = useState('1');
+  const [method, setMethod] = useState('transferencia');
+  const [ref, setRef]       = useState('');
+  const [notes, setNotes]   = useState('');
+  const [busy, setBusy]     = useState(false);
+
+  const save = async () => {
+    const m = parseInt(months,10);
+    if (isNaN(m) || m < 1 || m > 36) { setFlash({type:'warn',text:'Meses: entre 1 y 36'}); return; }
+    const a = String(amount).replace(/\D/g,'');
+    setBusy(true);
+    const { data, error } = await db.rpc('superadmin_register_supplier_payment', {
+      p_supplier_id: row.supplier_id,
+      p_amount_gs:   a === '' ? null : Number(a),
+      p_months:      m,
+      p_method:      method,
+      p_reference:   ref.trim() || null,
+      p_notes:       notes.trim() || null,
+    });
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'ok',text: data?.reactivated
+      ? `Pago registrado — la tienda de ${row.nombre_comercial} volvió a estar activa`
+      : `Pago registrado — vence ${fmtDate(data?.period_end)}`});
+    onDone();
+  };
+
+  return (
+    <Modal title={`Registrar pago — ${row.nombre_comercial}`} onClose={onClose} width={460}>
+      <div style={{fontSize:12.5,color:C.mid,lineHeight:1.5,marginBottom:14}}>
+        El período nuevo arranca del vencimiento vigente si todavía no pasó, así no se
+        pierde ni se regala tiempo pagado.
+        {row.auto_paused && <b style={{color:C.ink}}> La tienda está pausada por impago: al registrar el pago se reactiva sola.</b>}
+      </div>
+      <div className="my-row-2" style={{gap:'0 16px'}}>
+        <FormField label="Monto (₲)" hint="Vacío = la mensualidad del plan">
+          <MilesInput value={amount} onChange={setAmount}/>
+        </FormField>
+        <FormField label="Meses que cubre"><SInp type="number" value={months} onChange={setMonths}/></FormField>
+        <FormField label="Método">
+          <SSel value={method} onChange={setMethod}>
+            <option value="transferencia">Transferencia</option>
+            <option value="efectivo">Efectivo</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="qr">QR</option>
+            <option value="manual">Manual</option>
+            <option value="otro">Otro</option>
+          </SSel>
+        </FormField>
+        <FormField label="Nº de comprobante"><SInp value={ref} onChange={setRef} placeholder="opcional"/></FormField>
+      </div>
+      <FormField label="Notas"><STa value={notes} onChange={setNotes} rows={2} placeholder="Opcional (no lo ve el proveedor)"/></FormField>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:6}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn variant="success" onClick={save} disabled={busy}>{busy?'Registrando…':'Registrar pago'}</Btn>
       </div>
     </Modal>
   );
@@ -5627,6 +5829,7 @@ function PageProveedores({restaurants, setFlash}) {
     {id:'leads', label:'Leads'},
     {id:'categorias', label:'Categorías'},
     {id:'planes', label:'Planes'},
+    {id:'facturacion', label:'Facturación'},
     {id:'reclamos', label:'Reclamos', badge:reclamosAbiertos},
   ];
 
@@ -5642,6 +5845,7 @@ function PageProveedores({restaurants, setFlash}) {
       {tab==='leads'       && <MkLeads leads={leads} supNameById={supNameById} restNameById={restNameById}/>}
       {tab==='categorias'  && <MkCategorias categories={categories} load={load} setFlash={setFlash}/>}
       {tab==='planes'      && <MkPlanes plans={supPlans} load={load} setFlash={setFlash}/>}
+      {tab==='facturacion' && <MkFacturacion setFlash={setFlash}/>}
       {tab==='reclamos'    && <MkReclamos reports={reports} reviews={reviews} supNameById={supNameById} prodNameById={prodNameById} restNameById={restNameById} onSuspend={suspendFromReport} load={load} setFlash={setFlash}/>}
     </div>
   );
@@ -8029,6 +8233,160 @@ function AddonEditModal({addon, onClose, setFlash, reload}) {
   );
 }
 
+/* ── Planes de PROVEEDOR (vidriera pública de /proveedores) — mig 179 + 199 ──
+   Faltaba el editor: `marketing_supplier_plans` (lo que ve el público) no se
+   podía tocar desde ningún panel, así que cambiar el precio en Proveedores ›
+   Planes dejaba /proveedores mostrando el precio VIEJO y sin arreglo posible
+   fuera del SQL Editor. Con la mig 199 el operativo empuja el precio por trigger;
+   acá se edita lo EDITORIAL (nombre, titular, features, badge, orden).
+   El precio queda de solo lectura cuando la tarjeta está linkeada: la fuente
+   única es el plan operativo — "gana el panel". */
+function SupplierPlanEditModal({plan, onClose, setFlash, reload}) {
+  const [name, setName]               = useState(plan.name||'');
+  const [headline, setHeadline]       = useState(plan.headline||'');
+  const [description, setDescription] = useState(plan.description||'');
+  const [badge, setBadge]             = useState(plan.badge||'');
+  const [features, setFeatures]       = useState(asArr(plan.features).join('\n'));
+  const [isRec, setIsRec]             = useState(plan.is_recommended===true);
+  const [isActive, setIsActive]       = useState(plan.is_active!==false);
+  const [order, setOrder]             = useState(plan.sort_order==null?'0':String(plan.sort_order));
+  const [monthly, setMonthly]         = useState(plan.price_monthly_gs==null?'':String(plan.price_monthly_gs));
+  const [saving, setSaving]           = useState(false);
+  const linked = !!plan.supplier_plan_slug;
+
+  const save = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión'}); return; }
+    if (!name.trim()) { setFlash({type:'error',text:'El nombre es obligatorio'}); return; }
+    const m = parseOptInt(monthly), o = parseOptInt(order);
+    if (!m.ok) { setFlash({type:'error',text:'Precio mensual: solo números'}); return; }
+    if (!o.ok) { setFlash({type:'error',text:'Orden: solo números'}); return; }
+    setSaving(true);
+    const { error } = await db.from('marketing_supplier_plans').update({
+      name: name.trim(),
+      headline: headline.trim() || null,
+      description: description.trim() || null,
+      badge: badge.trim() || null,
+      features: features.split('\n').map(s=>s.trim()).filter(Boolean),
+      is_recommended: isRec,
+      is_active: isActive,
+      sort_order: o.value==null ? 0 : o.value,
+      // Precio: solo si la tarjeta NO está linkeada al plan operativo. Si lo está,
+      // el trigger lo re-deriva igual — mandarlo a mano solo reintroduciría drift.
+      ...(linked ? {} : { price_monthly_gs: m.value, price_annual_gs: m.value==null?null:m.value*10 }),
+      updated_at: new Date().toISOString(),
+    }).eq('id', plan.id);          // slug NUNCA se envía (read-only)
+    setSaving(false);
+    if (error) { setFlash({type:'error',text:'No se pudo guardar el plan'}); return; }
+    setFlash({type:'success',text:'Plan de proveedor actualizado'});
+    onClose(); reload();
+  };
+
+  return (
+    <Modal title={`Editar plan de proveedor — ${plan.name||plan.slug}`} onClose={onClose} width={560}>
+      <FormField label="Slug (no editable)" hint="Clave estable que consume /proveedores y el alta de solicitudes.">
+        <input value={plan.slug||''} disabled readOnly/>
+      </FormField>
+      <FormField label="Nombre"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Profesional"/></FormField>
+      <FormField label="Titular (headline)"><input value={headline} onChange={e=>setHeadline(e.target.value)} placeholder="El plan que más venden"/></FormField>
+      <FormField label="Descripción"><textarea value={description} onChange={e=>setDescription(e.target.value)} rows={2}/></FormField>
+      <div className="my-row-2" style={{gap:12}}>
+        <FormField label="Precio mensual (₲)"
+          hint={linked ? 'Sincronizado desde Proveedores › Planes (fuente única)' : 'Tarjeta sin plan operativo: precio libre'}>
+          <GsInput value={monthly} onChange={setMonthly} placeholder="199000" disabled={linked} readOnly={linked}/>
+        </FormField>
+        <FormField label="Orden"><input value={order} onChange={e=>setOrder(e.target.value)} placeholder="0"/></FormField>
+      </div>
+      <FormField label="Badge"><input value={badge} onChange={e=>setBadge(e.target.value)} placeholder="Recomendado"/></FormField>
+      <FormField label="Features (una por línea)" hint="Prometé solo lo que el plan operativo entrega: los límites se aplican por trigger.">
+        <textarea value={features} onChange={e=>setFeatures(e.target.value)} rows={7} placeholder={"Hasta 50 productos\nContacto de leads inmediato\n1 producto destacado"}/>
+      </FormField>
+      <div style={{display:'flex',gap:24,flexWrap:'wrap',marginBottom:10}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink}}><Toggle checked={isRec} onChange={setIsRec}/><span>Recomendado</span></div>
+        <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink}}><Toggle checked={isActive} onChange={setIsActive}/><span>Visible en la web</span></div>
+      </div>
+      <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+        <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function SitioPlanesProveedor({plans, setFlash, reload}) {
+  const [editing, setEditing] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const sorted = [...plans].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+
+  // Re-tirar precio y límites desde el plan operativo. Con la mig 199 el push es
+  // automático (trigger); este botón queda como red: si la 199 todavía no está
+  // aplicada, tocar la fila dispara el trigger de la 179 (BEFORE UPDATE), que
+  // re-deriva precio y plan_config desde marketplace_supplier_plans.
+  const syncFromPanel = async () => {
+    if (!db) { setFlash({type:'warn',text:'Sin conexión — operación demo'}); return; }
+    setSyncing(true);
+    try {
+      const linked = plans.filter(p=>p.supplier_plan_slug);
+      for (const p of linked) {
+        await db.from('marketing_supplier_plans').update({updated_at:new Date().toISOString()}).eq('id',p.id);
+      }
+      setFlash({type:'ok',text:`Vidriera sincronizada (${linked.length} plan${linked.length===1?'':'es'})`});
+      reload();
+    } catch(e) { setFlash({type:'error',text:'No se pudo sincronizar: '+e.message}); }
+    setSyncing(false);
+  };
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+        <span style={{fontSize:12,color:C.mid}}>
+          Lo que ve el público en <b style={{color:C.ink}}>/proveedores</b>. Los límites reales se configuran en Proveedores › Planes.
+        </span>
+        <Btn variant="ghost" size="sm" onClick={syncFromPanel} disabled={syncing}>
+          {syncing?'Sincronizando…':'Sincronizar precios'}
+        </Btn>
+      </div>
+      {sorted.length===0 ? (
+        <MkEmpty text="Sin planes de proveedor en la vidriera. Aplicá la migración 179 para sembrarlos."/>
+      ) : (
+        <SectionCard>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',minWidth:720}}>
+              <thead><tr>
+                <Th style={{width:56,textAlign:'center'}}>Orden</Th><Th>Plan</Th><Th>Titular</Th>
+                <Th style={{textAlign:'right'}}>Mensual</Th><Th style={{textAlign:'center'}}>Features</Th>
+                <Th style={{textAlign:'center'}}>Web</Th><Th style={{textAlign:'right'}}>Acciones</Th>
+              </tr></thead>
+              <tbody>
+                {sorted.map(p=>(
+                  <tr key={p.id}>
+                    <Td style={{textAlign:'center',color:C.mid}}>{p.sort_order}</Td>
+                    <Td>
+                      <span style={{fontWeight:600,color:C.ink}}>{p.name}</span>
+                      {p.is_recommended && <span style={{marginLeft:7,padding:'1px 7px',borderRadius:20,fontSize:10,fontWeight:700,background:TINT.okBg,color:TINT.okText}}>{p.badge||'Recomendado'}</span>}
+                      <div><code style={{fontSize:11,color:C.dim}}>{p.slug}</code>
+                        {p.supplier_plan_slug && <span style={{fontSize:10.5,color:C.dim}}> · linkeado a {p.supplier_plan_slug}</span>}</div>
+                    </Td>
+                    <Td><span style={{fontSize:12,color:C.mid}}>{p.headline||'—'}</span></Td>
+                    <Td style={{textAlign:'right'}}>{fmtGsRaw(p.price_monthly_gs)}</Td>
+                    <Td style={{textAlign:'center',color:C.mid}}>{asArr(p.features).length}</Td>
+                    <Td style={{textAlign:'center'}}>
+                      <span style={{padding:'2px 9px',borderRadius:20,fontSize:11,fontWeight:600,
+                        background:p.is_active!==false?TINT.okBg:'var(--bg-subtle)',
+                        color:p.is_active!==false?TINT.okText:C.mid}}>{p.is_active!==false?'Visible':'Oculto'}</span>
+                    </Td>
+                    <Td style={{textAlign:'right'}}><Btn variant="ghost" size="sm" onClick={()=>setEditing(p)}>Editar</Btn></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
+      {editing && <SupplierPlanEditModal plan={editing} onClose={()=>setEditing(null)} setFlash={setFlash} reload={reload}/>}
+    </div>
+  );
+}
+
 function SitioAddons({addons, setFlash, reload}) {
   const [editing, setEditing] = useState(null);
   const sorted = [...addons].sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
@@ -8325,27 +8683,21 @@ const FORM_SPECS = [
   },
   {
     id:'proveedores', label:'Proveedores', page:'/proveedores', accent:'#AF52DE',
-    intro:'Solicitudes para sumarse al marketplace. Cuatro pasos: empresa, contacto, qué vende y condiciones.',
+    // El alta se acortó a 3 pasos (nombre, RUC, ciudad, tipo · WhatsApp, email,
+    // rubro · confirmación): pedir 30 campos antes de dejar entrar espantaba
+    // proveedores, y el resto del perfil ahora se completa desde el panel. Las
+    // preguntas retiradas (años en el mercado, condiciones, zonas) siguen en la
+    // base para las solicitudes históricas, pero ya no se preguntan.
+    intro:'Solicitudes para sumarse al marketplace. Tres pasos: empresa, contacto y rubro, confirmación.',
     questions:[
       {key:'tipo_proveedor', label:'Paso 1 · Tipo de proveedor', options:[
         ['productor','Productor'],['distribuidor','Distribuidor'],['mayorista','Mayorista'],
         ['minorista','Minorista'],['importador','Importador'],['fabricante','Fabricante'],['servicio','Servicio']]},
-      {key:'anhos_mercado', label:'Paso 1 · Años en el mercado', options:[
-        ['0_1','Menos de 2'],['2_5','2 a 5'],['6_15','6 a 15'],['16_mas','16 o más']]},
       {key:'ciudad', label:'Paso 1 · Ciudad', dynamic:true},
       {key:'contacto', label:'Paso 2 · ¿Por dónde se lo puede contactar?', options:[
         ['whatsapp','WhatsApp'],['solo_telefono','Solo teléfono'],['sin_contacto','Ningún contacto']]},
-      {key:'categorias', label:'Paso 3 · ¿Qué vendés?', multi:true, dynamic:true,
+      {key:'categorias', label:'Paso 2 · ¿Qué vendés?', multi:true, dynamic:true,
        hint:'El catálogo lo administra el propio marketplace, por eso las opciones salen de los datos.'},
-      {key:'ofrece', label:'Paso 4 · Condiciones que ofrece', multi:true, options:[
-        ['vende_mayor','Vende al por mayor'],['vende_menor','Vende al por menor'],
-        ['delivery_propio','Tiene delivery propio'],['retiro_local','Retiro en local'],
-        ['entrega_urgente','Hace entregas urgentes'],['emite_factura','Emite factura'],
-        ['acepta_credito','Acepta pago a crédito']]},
-      {key:'zonas_entrega', label:'Paso 4 · Zonas de entrega', multi:true, options:[
-        ['Asunción','Asunción'],['Gran Asunción','Gran Asunción'],['Central','Central'],
-        ['Ciudad del Este','Ciudad del Este'],['Encarnación','Encarnación'],
-        ['Interior','Interior'],['Todo el país','Todo el país']]},
       {key:'plan_slug', label:'Plan elegido', dynamic:true},
       {key:'estado', label:'Estado de la solicitud', options:[
         ['pendiente','Pendiente'],['en_revision','En revisión'],['falta_info','Falta info'],
@@ -8584,6 +8936,7 @@ function PageSitioWeb({setFlash}) {
   const [config, setConfig] = useState([]);
   const [plans,  setPlans]  = useState([]);
   const [addons, setAddons] = useState([]);
+  const [supplierPlans, setSupplierPlans] = useState([]);   // vidriera de /proveedores (mig 179)
   const [faqs,   setFaqs]   = useState([]);
   const [testimonials, setTestimonials] = useState([]);
   const [registros, setRegistros] = useState([]);
@@ -8596,7 +8949,7 @@ function PageSitioWeb({setFlash}) {
   // existe o RLS deniega (no rompe el panel).
   const load = useCallback(async () => {
     if (!db) { setLoading(false); return; }
-    const [l, e, c, p, a, f, t, rg, rs, rc] = await Promise.all([
+    const [l, e, c, p, a, f, t, rg, rs, rc, sp] = await Promise.all([
       db.from('marketing_leads').select('*').order('created_at',{ascending:false}).limit(500).then(r=>r.error?{data:[]}:r),
       db.from('marketing_events').select('*').order('created_at',{ascending:false}).limit(300).then(r=>r.error?{data:[]}:r),
       db.from('marketing_config').select('*').then(r=>r.error?{data:[]}:r),
@@ -8607,9 +8960,11 @@ function PageSitioWeb({setFlash}) {
       db.from('leads_prospectos').select('*').order('created_at',{ascending:false}).limit(500).then(r=>r.error?{data:[]}:r),
       db.from('restaurants').select('id,name,owner_email,status,created_at').order('created_at',{ascending:true}).limit(2000).then(r=>r.error?{data:null}:r),
       db.from('leads_prospectos').select('id',{count:'exact',head:true}).then(r=>r.error?{count:null}:r),
+      // Vidriera de planes de PROVEEDOR (mig 179). Degradada a [] si no está aplicada.
+      db.from('marketing_supplier_plans').select('*').order('sort_order',{ascending:true}).then(r=>r.error?{data:[]}:r),
     ]);
     setLeads(l.data||[]); setEvents(e.data||[]); setConfig(c.data||[]); setPlans(p.data||[]); setAddons(a.data||[]);
-    setFaqs(f.data||[]); setTestimonials(t.data||[]);
+    setFaqs(f.data||[]); setTestimonials(t.data||[]); setSupplierPlans(sp.data||[]);
     setRegistros(rg.data||[]); setRegRestaurants(rs.data); setRegCount(rc.count==null?null:rc.count);
     setLoading(false);
   }, []);
@@ -8622,6 +8977,7 @@ function PageSitioWeb({setFlash}) {
     {id:'leads',       label:'Leads'},
     {id:'actividad', label:'Actividad'},
     {id:'planes',    label:'Planes'},
+    {id:'planes_prov', label:'Planes proveedor'},
     {id:'addons',    label:'Add-ons'},
     {id:'faq',       label:'FAQ'},
     {id:'identidad', label:'Identidad y redes'},
@@ -8645,6 +9001,7 @@ function PageSitioWeb({setFlash}) {
           {tab==='leads'     && <SitioLeads    leads={leads} setFlash={setFlash} reload={load}/>}
           {tab==='actividad' && <SitioActividad events={events}/>}
           {tab==='planes'    && <SitioPlanes   plans={plans} setFlash={setFlash} reload={load}/>}
+          {tab==='planes_prov' && <SitioPlanesProveedor plans={supplierPlans} setFlash={setFlash} reload={load}/>}
           {tab==='addons'    && <SitioAddons   addons={addons} setFlash={setFlash} reload={load}/>}
           {tab==='faq'       && <SitioContenido faqs={faqs} testimonials={testimonials} setFlash={setFlash} reload={load}/>}
           {tab==='identidad' && <SitioIdentidad config={config} setFlash={setFlash} reload={load}/>}
