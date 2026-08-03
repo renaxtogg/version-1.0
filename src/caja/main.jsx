@@ -466,7 +466,7 @@ function DenomGrid({values,onChange,label=''}){
                 value={values[d.v]||''}
                 onChange={e=>onChange({...values,[d.v]:Math.max(0,parseInt(e.target.value)||0)})}
                 placeholder="0"
-                style={{width:'100%',background:'transparent',border:'none',color:C.white,fontSize:18,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,outline:'none',padding:0}}
+                style={{width:'100%',background:'transparent',border:'none',color:C.ink,fontSize:18,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,outline:'none',padding:0}}
               />
             </div>
             <div style={{fontSize:11,color:C.dim,fontFamily:"'SF Mono',ui-monospace,monospace",textAlign:'right',whiteSpace:'nowrap'}}>
@@ -602,7 +602,7 @@ function AperturaTurnoScreen({profile,cajas=[],openTurnos=[],onTurnoAbierto,onRe
         <div style={{textAlign:'center',marginBottom:28}}>
           <div style={{fontFamily:'DM Serif Display',fontSize:28,marginBottom:6}}>Apertura de Turno</div>
           <div style={{fontSize:13,color:C.mid}}>{new Date().toLocaleDateString('es-PY',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
-          <div style={{fontSize:13,color:C.dim,marginTop:4}}>Cajero: <span style={{color:C.white,fontWeight:700}}>{profile.display_name||profile.username}</span></div>
+          <div style={{fontSize:13,color:C.dim,marginTop:4}}>Cajero: <span style={{color:C.ink,fontWeight:700}}>{profile.display_name||profile.username}</span></div>
         </div>
 
         {/* Selector de caja (varias cajas, o una sola aún no auto-elegida) */}
@@ -1655,7 +1655,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
             {BILLETES.map(v=>(
               <button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{
                 padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,
-                background:C.card,color:C.white,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer',
+                background:C.card,color:C.ink,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer',
                 transition:'border-color .1s',
               }}
                 onMouseEnter={e=>e.currentTarget.style.borderColor='#86868B'}
@@ -1914,7 +1914,7 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
           <div style={{marginBottom:14}}>
             <Lbl>BILLETES RECIBIDOS</Lbl>
             <div className="my-grid" style={{'--my-col':'62px',gap:5,marginBottom:8}}>
-              {BILLETES.map(v=>(<button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,background:C.card,color:C.white,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer'}}>{v>=1000?`${v/1000}k`:v}</button>))}
+              {BILLETES.map(v=>(<button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,background:C.card,color:C.ink,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer'}}>{v>=1000?`${v/1000}k`:v}</button>))}
               <button onClick={()=>setMontoPagado(String(subtotal))} style={{padding:'9px 4px',borderRadius:6,border:`1px solid ${C.blue}55`,background:`rgba(59,130,246,0.1)`,color:C.blue,fontSize:11,fontWeight:700,cursor:'pointer'}}>Exacto</button>
             </div>
             <div style={{display:'flex',gap:6,alignItems:'flex-end'}}>
@@ -2708,7 +2708,7 @@ function ExtrasModal({item,extras,onClose,onConfirm}){
         <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>EXTRAS</div>
         <div style={{display:'flex',flexDirection:'column',gap:6}}>
           {extras.map(ex=>(
-            <label key={ex.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',background:sel.includes(ex.id)?'rgba(255,255,255,0.05)':C.card,border:`1px solid ${sel.includes(ex.id)?C.white:C.border}`,borderRadius:7,cursor:'pointer'}}>
+            <label key={ex.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',background:sel.includes(ex.id)?'var(--surface-hover)':C.card,border:`1px solid ${sel.includes(ex.id)?C.ink:C.border}`,borderRadius:7,cursor:'pointer'}}>
               <input type="checkbox" checked={sel.includes(ex.id)} onChange={()=>toggle(ex.id)} style={{width:14,height:14}}/>
               <span style={{flex:1,fontSize:13}}>{ex.name}</span>
               {Number(ex.price_guarani)>0&&<span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,color:C.green}}>+{fmt(ex.price_guarani)}</span>}
@@ -3013,7 +3013,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,cliente,ta
               {BILLETES.map(v=>(
                 <button key={v} onClick={()=>setMontoPagado(String(montoNum+v))} style={{
                   padding:'9px 4px',borderRadius:6,border:`1px solid ${C.border}`,
-                  background:C.bg,color:C.ink,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer',
+                  background:C.card,color:C.ink,fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:700,cursor:'pointer',
                 }}>{v>=1000?`${v/1000}k`:v}</button>
               ))}
               <button onClick={()=>setMontoPagado(String(total))} style={{
