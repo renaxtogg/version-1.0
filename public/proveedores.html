@@ -45,7 +45,8 @@
     .prov-plabel{font-size:11px;font-weight:600;color:var(--text-secondary);letter-spacing:.2px}
     .prov-pnode.active .prov-plabel{color:var(--text-primary)}
 
-    .prov-fstep{display:none}
+    /* fieldset trae border/padding/margin y min-inline-size:min-content del UA stylesheet */
+    .prov-fstep{display:none;border:0;margin:0;padding:0;min-width:0}
     .prov-fstep.active{display:block;animation:provFade .25s ease}
     @keyframes provFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
     .prov-fstep h2{font-size:18px;margin:0 0 4px}
