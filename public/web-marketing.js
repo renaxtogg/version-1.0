@@ -878,6 +878,11 @@
     return ({ contact: 'contact_submit', demo: 'demo_request_submit', trial_interest: 'trial_interest_submit' })[type] || 'contact_submit';
   }
   function emailValid(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+  // WhatsApp contactable = al menos 8 dígitos. Un celular paraguayo sin prefijo
+  // país ya son 10 (0981 123456) y una línea fija 9. MISMO umbral que la policy
+  // anon de marketing_leads (mig 198): si acá fuera más flojo, el envío lo
+  // rebotaría la base con un error genérico y nadie sabría qué corregir.
+  function waDigits(s) { return String(s || '').replace(/\D/g, '').length; }
 
   // form: <form> con inputs name="name|business_name|email|whatsapp|message|type",
   //       un [data-lead-status] y un [data-lead-submit].
@@ -905,7 +910,9 @@
       // Validaciones (mensajes claros en español; sin tecnicismos).
       if (!name) { setStatus('Decinos tu nombre, por favor.', 'error'); return; }
       if (email && !emailValid(email)) { setStatus('Ese email no parece válido. Revisalo, por favor.', 'error'); return; }
-      if (!email && !wsp) { setStatus('Dejanos al menos un WhatsApp o un email para responderte.', 'error'); return; }
+      // El WhatsApp dejó de ser alternativa del email y pasó a ser obligatorio:
+      // los leads que llegaban con solo un correo terminaban sin respuesta.
+      if (waDigits(wsp) < 8) { setStatus('Dejanos tu WhatsApp para poder responderte.', 'error'); return; }
       if (type === 'contact' && !msg) { setStatus('Contanos brevemente en qué te ayudamos.', 'error'); return; }
 
       var prev = submitBtn ? submitBtn.textContent : '';

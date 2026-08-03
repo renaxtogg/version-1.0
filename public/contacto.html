@@ -72,14 +72,14 @@
           <input id="c-email" name="email" type="email" placeholder="vos@turestaurante.com" autocomplete="email">
         </div>
         <div class="field">
-          <label for="c-wsp">WhatsApp</label>
-          <input id="c-wsp" name="whatsapp" type="tel" placeholder="+595 9xx xxx xxx" autocomplete="tel">
+          <label for="c-wsp">WhatsApp <span aria-hidden="true">*</span><span class="sr-only">(obligatorio)</span></label>
+          <input id="c-wsp" name="whatsapp" type="tel" placeholder="+595 9xx xxx xxx" autocomplete="tel" inputmode="tel" aria-required="true">
         </div>
         <div class="field">
           <label for="c-msg">Mensaje</label>
           <textarea id="c-msg" name="message" rows="4" placeholder="Contanos sobre tu restaurante"></textarea>
         </div>
-        <p class="microcopy" style="margin:0 0 12px">Dejanos al menos un WhatsApp o un email para poder responderte.</p>
+        <p class="microcopy" style="margin:0 0 12px">El WhatsApp es obligatorio: es por donde te respondemos.</p>
         <p data-lead-status class="lead-status" style="display:none" role="status" aria-live="polite"></p>
         <button class="btn btn-primary" type="submit" data-lead-submit>Enviar</button>
       </form>

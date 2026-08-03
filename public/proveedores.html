@@ -231,7 +231,7 @@
                 <div class="prov-field"><label>Nombre del contacto</label><input name="contacto_nombre" maxlength="120" placeholder="Nombre y apellido"></div>
                 <div class="prov-field"><label>Cargo</label><input name="contacto_cargo" maxlength="80" placeholder="Ej. Ventas"></div>
                 <div class="prov-field"><label>Teléfono</label><input name="telefono" maxlength="40" placeholder="+595 21 000 000"></div>
-                <div class="prov-field"><label>WhatsApp</label><input name="whatsapp" maxlength="40" placeholder="+595 981 000 000"></div>
+                <div class="prov-field"><label>WhatsApp <span class="req">*</span></label><input name="whatsapp" type="tel" inputmode="tel" maxlength="40" placeholder="+595 981 000 000"></div>
                 <div class="prov-field full"><label>Email <span class="req">*</span></label><input name="email" type="email" maxlength="160" placeholder="ventas@empresa.com"></div>
                 <div class="prov-field full"><label>Horario de atención</label><input name="horario_atencion" maxlength="120" placeholder="Ej. Lun a Vie 08:00-17:00"></div>
               </div>
@@ -361,6 +361,7 @@
     function val(name) { var el = form.querySelector('[name="' + name + '"]'); return el ? String(el.value == null ? '' : el.value).trim() : ''; }
     function checked(name) { var el = form.querySelector('[name="' + name + '"]'); return !!(el && el.checked); }
     function emailValid(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+    function waDigits(s) { return String(s || '').replace(/\D/g, '').length; }
 
     function showError(msg) { errorBox.textContent = msg; errorBox.classList.add('show'); errorBox.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     function clearError() { errorBox.textContent = ''; errorBox.classList.remove('show'); }
@@ -544,7 +545,11 @@
       if (n === 2) {
         var email = val('email');
         if (!email || !emailValid(email)) return 'Ingresá un email válido para contactarte.';
-        if (!val('telefono') && !val('whatsapp')) return 'Dejanos un teléfono o un WhatsApp.';
+        // El WhatsApp dejó de ser alternativa del teléfono: es el canal por el que
+        // se contacta al proveedor. Mismo umbral de 8 dígitos que exige el server
+        // (submit_supplier_application, mig 198) — si acá fuera más flojo, el envío
+        // rebotaría recién al final con un error genérico.
+        if (waDigits(val('whatsapp')) < 8) return 'Ingresá un WhatsApp válido para contactarte.';
       }
       if (n === 3) {
         if (Object.keys(selectedCats).length === 0) return 'Elegí al menos una categoría de lo que vendés.';

@@ -4583,7 +4583,10 @@ function MkSolicitudes({apps, load, setFlash}) {
                           ['Acepta crédito',a.acepta_credito?'Sí':'No'],['Emite factura',a.emite_factura?'Sí':'No'],['Categorías',(a.categorias||[]).join(', ')],
                           ['Marcas',a.marcas],['Productos principales',a.productos_principales],['Mensaje',a.mensaje],['Origen',a.origen]
                         ].filter(([,v])=>v!==null&&v!==undefined&&v!=='').map(([k,v])=>(
-                          <div key={k}><div style={{fontSize:10.5,color:C.dim,textTransform:'uppercase',letterSpacing:.4,marginBottom:2}}>{k}</div><div style={{color:C.ink}}>{String(v)}</div></div>
+                          <div key={k}><div style={{fontSize:10.5,color:C.dim,textTransform:'uppercase',letterSpacing:.4,marginBottom:2}}>{k}</div>
+                            {/* El WhatsApp es el canal de contacto del proveedor: se abre el chat
+                                desde acá en vez de copiar el número a mano. */}
+                            <div style={{color:C.ink}}>{k==='WhatsApp' ? <WaLink phone={v}/> : String(v)}</div></div>
                         ))}
                       </div>
                       <div style={{marginTop:6}}>
@@ -7107,7 +7110,9 @@ function RegistroDetailModal({registro, onClose, setFlash, reload}) {
     <Modal title="Detalle del registro" onClose={onClose} width={560}>
       <div style={{marginBottom:18}}>
         <Row label="Fecha">{fmtAlta(registro.created_at)}</Row>
+        <Row label="Nombre">{registro.nombre||'—'}</Row>
         <Row label="Email">{registro.email||'—'}</Row>
+        <Row label="WhatsApp"><WaLink phone={registro.whatsapp}/></Row>
         <Row label="Tipo de negocio">{regTipoLabel(registro.tipo_negocio)}</Row>
         <Row label="Origen">{registro.origen||'—'}</Row>
         <Row label="Verificado"><VerifBadge ok={registro.verificado}/></Row>
@@ -7132,6 +7137,30 @@ function RegistroDetailModal({registro, onClose, setFlash, reload}) {
     </Modal>
   );
 }
+
+/* Número de contacto → enlace de WhatsApp, para escribirle desde el panel sin
+   copiar y pegar. La normalización asume Paraguay (es a quien le vendemos y lo
+   que pide el placeholder de los formularios): 0981… → 595981…, y un número
+   corto sin prefijo también se asume paraguayo. Un número que YA trae código de
+   país largo (13+ dígitos) se deja intacto para no romperlo. Si no hay número
+   contactable se muestra un guion, no un enlace roto. */
+const waHref = s => {
+  let d = String(s||'').replace(/\D/g,'');
+  if (d.length < 8) return null;
+  if (d.startsWith('595')) return `https://wa.me/${d}`;
+  if (d.startsWith('0'))   return `https://wa.me/595${d.slice(1)}`;
+  if (d.length <= 10)      return `https://wa.me/595${d}`;
+  return `https://wa.me/${d}`;
+};
+const WaLink = ({phone}) => {
+  const href = waHref(phone);
+  if (!href) return <span style={{color:C.dim}}>{phone ? phone : '—'}</span>;
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}
+       title="Abrir chat de WhatsApp"
+       style={{color:C.green,fontWeight:600,textDecoration:'none',whiteSpace:'nowrap'}}>{phone}</a>
+  );
+};
 
 function SitioRegistros({registros, restaurants, totalExact, setFlash, reload}) {
   const [fEstado, setFEstado]         = useState('all');
@@ -7238,7 +7267,7 @@ function SitioRegistros({registros, restaurants, totalExact, setFlash, reload}) 
           : <div style={{overflowX:'auto'}}>
               <table style={{width:'100%',borderCollapse:'collapse'}}>
                 <thead><tr>
-                  <Th>Fecha</Th><Th>Email</Th><Th>Tipo negocio</Th><Th>Origen</Th><Th>Verificado</Th><Th>Estado</Th><Th>Local creado</Th><Th>Tiempo hasta local</Th>
+                  <Th>Fecha</Th><Th>Nombre</Th><Th>Email</Th><Th>WhatsApp</Th><Th>Tipo negocio</Th><Th>Origen</Th><Th>Verificado</Th><Th>Estado</Th><Th>Local creado</Th><Th>Tiempo hasta local</Th>
                 </tr></thead>
                 <tbody>
                   {shown.map(l=>(
@@ -7246,7 +7275,9 @@ function SitioRegistros({registros, restaurants, totalExact, setFlash, reload}) 
                         onMouseEnter={e=>e.currentTarget.style.background='var(--bg-subtle)'}
                         onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                       <Td style={{whiteSpace:'nowrap',color:C.mid,fontSize:12}}>{fmtAlta(l.created_at)}</Td>
+                      <Td style={{fontSize:12}}>{l.nombre||'—'}</Td>
                       <Td style={{fontSize:12}}>{l.email||'—'}</Td>
+                      <Td style={{fontSize:12}}><WaLink phone={l.whatsapp}/></Td>
                       <Td style={{fontSize:12,whiteSpace:'nowrap'}}>{regTipoLabel(l.tipo_negocio)}</Td>
                       <Td style={{fontSize:12,color:C.mid}}>{l.origen||'—'}</Td>
                       <Td><VerifBadge ok={l.verificado}/></Td>
@@ -7289,6 +7320,11 @@ function SitioResumen({leads, events, registros=[], registrosTotal=null}) {
                 : <>Hay <strong>{pendingNew}</strong> lead{pendingNew!==1?'s':''} con estado “Nuevo”. Revisalos en la pestaña <strong>Leads</strong>.</>}
             </div>}
       </SectionCard>
+      {/* Estos KPIs cuentan CUÁNTOS se registraron; para ver QUÉ contestaron
+          está la pestaña Formularios (conteo por cada opción de cada pregunta). */}
+      <div style={{fontSize:12,color:C.mid,marginTop:12,lineHeight:1.5}}>
+        Para ver <strong>qué contestó</strong> cada uno —opción por opción, con la forma del formulario original— entrá en la pestaña <strong>Formularios</strong>.
+      </div>
     </div>
   );
 }
@@ -7327,7 +7363,7 @@ function LeadDetailModal({lead, onClose, setFlash, reload}) {
         <Row label="Nombre">{lead.name||'—'}</Row>
         <Row label="Restaurante">{lead.business_name||'—'}</Row>
         <Row label="Email">{lead.email||'—'}</Row>
-        <Row label="WhatsApp">{lead.whatsapp||'—'}</Row>
+        <Row label="WhatsApp"><WaLink phone={lead.whatsapp}/></Row>
         <Row label="Plan">{lead.plan_slug||'—'}</Row>
         <Row label="Add-ons">{addons.length ? addons.join(', ') : '—'}</Row>
         <Row label="Mensaje">{lead.message||'—'}</Row>
@@ -7387,7 +7423,7 @@ function SitioLeads({leads, setFlash, reload}) {
                       <Td>{l.name||'—'}</Td>
                       <Td>{l.business_name||'—'}</Td>
                       <Td style={{fontSize:12,color:C.mid}}>{l.email||'—'}</Td>
-                      <Td style={{fontSize:12,color:C.mid,whiteSpace:'nowrap'}}>{l.whatsapp||'—'}</Td>
+                      <Td style={{fontSize:12,whiteSpace:'nowrap'}}><WaLink phone={l.whatsapp}/></Td>
                       <Td style={{fontSize:12}}>{l.plan_slug||'—'}</Td>
                       <Td><LeadStatusBadge status={l.status}/></Td>
                       <Td style={{whiteSpace:'nowrap'}}><Btn size="sm" variant="ghost" onClick={()=>setSelected(l)}>Ver</Btn></Td>
@@ -8205,6 +8241,342 @@ function SitioContenido({faqs, testimonials, setFlash, reload}) {
   );
 }
 
+/* ══════════════════════════════════════════════
+   SITIO WEB › FORMULARIOS — qué contesta la gente que se registra
+   ──────────────────────────────────────────────
+   Los formularios públicos (registro de dueños, onboarding, proveedores,
+   contacto) se guardaban pero SOLO se leían de a una fila, en cuatro tablas y
+   desde tres páginas distintas del panel. No había forma de responder "¿cuántos
+   dueños tienen delivery propio?" o "¿qué medio de pago pide todo el mundo?",
+   que es justamente para lo que se pregunta.
+
+   Esta pestaña dibuja cada formulario CON SU FORMA ORIGINAL — las preguntas en
+   el orden en que se hacen y TODAS las opciones, incluidas las que nadie eligió
+   (que son las que hay que mirar: una opción en cero puede significar que
+   sobra… o que está mal redactada).
+
+   Los conteos salen de la RPC `form_analytics` (mig 198), que agrega del lado
+   de la BASE sobre todo el historial. NO se agrupa el array `leads` del panel:
+   se carga con .limit(500), así que ese número empeoraría cuanto más creciera
+   el negocio — el mismo error que la mig 197 tuvo que arreglar en el CRM.
+
+   Las ETIQUETAS viven acá y no en la base, copiadas del formulario real, para
+   que reescribir una opción no exija una migración y para poder mostrar las
+   opciones con cero respuestas.
+══════════════════════════════════════════════ */
+const FORM_NONE = '__none__';   // clave que usa la RPC para "no respondió / vacío"
+
+const FORM_SPECS = [
+  {
+    id:'duenos_registro', label:'Dueños · Crear cuenta', page:'/registro', accent:'#007AFF',
+    intro:'Lo que completa un dueño para abrir su cuenta. El lead se guarda siempre, aunque después no verifique el correo ni contrate.',
+    questions:[
+      {key:'tipo_negocio', label:'¿Qué tipo de negocio tenés?', options:[
+        ['restaurante','Tengo un restaurante / local gastronómico'],
+        ['foodpark_local','Tengo un local en un foodpark o patio de comidas'],
+        ['foodpark_owner','Soy dueño de un foodpark (botón «Próximamente»)'],
+      ]},
+      {key:'contacto', label:'¿Por dónde se lo puede contactar?',
+       hint:'El WhatsApp es obligatorio desde la migración 198: los «solo email» y «sin contacto» son registros anteriores a ese cambio.',
+       options:[['whatsapp','WhatsApp'],['solo_email','Solo email'],['sin_contacto','Ningún contacto']]},
+      {key:'origen', label:'¿Desde dónde llegó?', options:[
+        ['web_registro','Formulario de registro'],['interes_foodpark','Interés en foodpark']]},
+      {key:'verificado', label:'¿Verificó el correo?', options:[['si','Sí'],['no','No']]},
+      {key:'estado', label:'Estado del prospecto', options:[
+        ['registrado','Registrado'],['onboarding','En onboarding'],['contactado','Contactado'],
+        ['calificado','Calificado'],['convertido','Convertido'],['descartado','Descartado']]},
+    ]
+  },
+  {
+    id:'duenos_onboarding', label:'Dueños · Onboarding', page:'/onboarding', accent:'#34C759',
+    intro:'El wizard de 7 pasos que completa el dueño al crear su local. Es la radiografía de cómo trabaja realmente la base de clientes.',
+    questions:[
+      {key:'business_type', label:'Paso 1 · ¿Qué tipo de negocio es?', options:[
+        ['restaurante','Restaurante, bar o cafetería'],
+        ['foodpark_local','Local gastronómico dentro de un foodpark'],
+        ['delivery_dark','Delivery o cocina oculta'],
+        ['otro','Otro tipo de local gastronómico']]},
+      {key:'onboarding', label:'¿Terminó el onboarding?', options:[
+        ['completado','Lo terminó'],['incompleto','Quedó a mitad de camino']]},
+      {key:'contacto', label:'Paso 3 · WhatsApp del local', options:[
+        ['whatsapp','WhatsApp cargado'],['solo_telefono','Solo teléfono fijo'],['sin_contacto','Ningún contacto']]},
+      {key:'operation_modes', label:'Paso 4 · ¿Cómo atendés hoy?', multi:true, options:[
+        ['mesas_salon','Mesas en salón'],['retiro_local','Retiro en el local'],
+        ['delivery_propio','Delivery propio'],['whatsapp','Pedidos por WhatsApp'],
+        ['apps_externas','Pedidos por apps externas']]},
+      {key:'order_intake', label:'Paso 4 · ¿Cómo se cargan los pedidos?', multi:true, options:[
+        ['mozo','Los toma el mozo'],['caja','Los carga la caja'],
+        ['qr_cliente','El cliente pide desde el QR'],['papel','Por ahora, papel o manual']]},
+      {key:'kitchen_routing', label:'Paso 4 · ¿Cómo llega el pedido a cocina o barra?', options:[
+        ['kds','Pantalla de cocina (KDS)'],['tablet','Tablet o celular'],
+        ['impresora','Impresora de comandas'],['manual','Todavía manual']]},
+      {key:'mesas', label:'Paso 4 · Cantidad aproximada de mesas', options:[
+        ['sin_mesas','Sin mesas'],['1_10','1 a 10'],['11_30','11 a 30'],['31_mas','31 o más']]},
+      {key:'payment_methods', label:'Paso 5 · ¿Qué medios de pago aceptás?', multi:true, options:[
+        ['efectivo','Efectivo'],['transferencia','Transferencia'],['tarjeta','Tarjeta / POS'],
+        ['qr_bancard','QR Bancard'],['qr_billetera','QR de otra billetera'],['contra_entrega','Pago contra entrega']]},
+      {key:'einvoicing_status', label:'Paso 5 · ¿Emitís factura actualmente?', options:[
+        ['no','No por ahora'],['impresa','Sí, factura impresa o preimpresa'],
+        ['electronica','Sí, factura electrónica'],['interesa','Me interesa activarla más adelante']]},
+      {key:'print_needs', label:'Paso 5 · ¿Qué necesitás imprimir?', multi:true, options:[
+        ['ticket_cliente','Ticket / cuenta para el cliente'],['comanda_cocina','Comanda para cocina'],
+        ['comanda_barra','Comanda para barra'],['factura_legal','Factura legal'],['ninguno','No imprimo por ahora']]},
+    ]
+  },
+  {
+    id:'proveedores', label:'Proveedores', page:'/proveedores', accent:'#AF52DE',
+    intro:'Solicitudes para sumarse al marketplace. Cuatro pasos: empresa, contacto, qué vende y condiciones.',
+    questions:[
+      {key:'tipo_proveedor', label:'Paso 1 · Tipo de proveedor', options:[
+        ['productor','Productor'],['distribuidor','Distribuidor'],['mayorista','Mayorista'],
+        ['minorista','Minorista'],['importador','Importador'],['fabricante','Fabricante'],['servicio','Servicio']]},
+      {key:'anhos_mercado', label:'Paso 1 · Años en el mercado', options:[
+        ['0_1','Menos de 2'],['2_5','2 a 5'],['6_15','6 a 15'],['16_mas','16 o más']]},
+      {key:'ciudad', label:'Paso 1 · Ciudad', dynamic:true},
+      {key:'contacto', label:'Paso 2 · ¿Por dónde se lo puede contactar?', options:[
+        ['whatsapp','WhatsApp'],['solo_telefono','Solo teléfono'],['sin_contacto','Ningún contacto']]},
+      {key:'categorias', label:'Paso 3 · ¿Qué vendés?', multi:true, dynamic:true,
+       hint:'El catálogo lo administra el propio marketplace, por eso las opciones salen de los datos.'},
+      {key:'ofrece', label:'Paso 4 · Condiciones que ofrece', multi:true, options:[
+        ['vende_mayor','Vende al por mayor'],['vende_menor','Vende al por menor'],
+        ['delivery_propio','Tiene delivery propio'],['retiro_local','Retiro en local'],
+        ['entrega_urgente','Hace entregas urgentes'],['emite_factura','Emite factura'],
+        ['acepta_credito','Acepta pago a crédito']]},
+      {key:'zonas_entrega', label:'Paso 4 · Zonas de entrega', multi:true, options:[
+        ['Asunción','Asunción'],['Gran Asunción','Gran Asunción'],['Central','Central'],
+        ['Ciudad del Este','Ciudad del Este'],['Encarnación','Encarnación'],
+        ['Interior','Interior'],['Todo el país','Todo el país']]},
+      {key:'plan_slug', label:'Plan elegido', dynamic:true},
+      {key:'estado', label:'Estado de la solicitud', options:[
+        ['pendiente','Pendiente'],['en_revision','En revisión'],['falta_info','Falta info'],
+        ['aprobada','Aprobada'],['rechazada','Rechazada']]},
+    ]
+  },
+  {
+    id:'delivery', label:'Delivery · Repartidores', page:'—', accent:'#FF9500',
+    intro:'Todavía no hay un formulario público para que un repartidor se postule: los riders los da de alta el dueño desde su panel.',
+    questions:[]
+  },
+  {
+    id:'clientes_web', label:'Clientes · Interesados de la web', page:'/contacto', accent:'#FFD60A',
+    intro:'Los que dejan sus datos en el sitio pidiendo información, una demo o una prueba. Todavía no son clientes.',
+    questions:[
+      {key:'type', label:'¿En qué te ayudamos?', options:[
+        ['contact','Contacto general'],['demo','Quiero una demo'],
+        ['trial_interest','Me interesa probar MYTHOS'],['whatsapp','Vino por WhatsApp'],['pricing','Consulta de precios']]},
+      {key:'contacto', label:'¿Por dónde se lo puede contactar?', options:[
+        ['whatsapp','WhatsApp'],['solo_email','Solo email'],['sin_contacto','Ningún contacto']]},
+      {key:'plan_slug', label:'Plan que estaba mirando', dynamic:true},
+      {key:'selected_addons', label:'Add-ons marcados', multi:true, dynamic:true},
+      {key:'source', label:'Página desde la que escribió', dynamic:true},
+      {key:'status', label:'Estado del lead', options:[
+        ['new','Nuevo'],['contacted','Contactado'],['qualified','Calificado'],
+        ['won','Ganado'],['lost','Perdido'],['spam','Spam']]},
+    ]
+  },
+  {
+    id:'comensales', label:'Clientes · Comensales de los locales', page:'CRM', accent:'#FF375F',
+    intro:'Las fichas que cargan los locales en su CRM (Admin, Caja, Mozo, QR y Delivery). Son clientes DE los restaurantes, no de Mythos.',
+    questions:[
+      {key:'source', label:'¿Desde dónde se cargó la ficha?', options:[
+        ['admin','Admin › Clientes'],['caja','Caja'],['mozo','Mozo'],
+        ['qr','QR de mesa (la cargó el comensal)'],['delivery','Delivery'],['backfill','Migrada de pedidos viejos']]},
+      {key:'contacto', label:'¿Tiene teléfono?',
+       hint:'En gastronomía el teléfono ES la identidad del cliente: una ficha sin número no se puede reconocer en la próxima visita.',
+       options:[['con_telefono','Con teléfono'],['solo_email','Solo email'],['sin_contacto','Ningún contacto']]},
+      {key:'datos', label:'Qué más completaron de la ficha', multi:true, options:[
+        ['email','Email'],['direccion','Dirección'],['documento','Documento / RUC'],['cumpleanos','Cumpleaños']]},
+      {key:'estado', label:'Estado de la ficha', options:[['activo','Activa'],['inactivo','Dada de baja']]},
+    ]
+  },
+];
+
+const FORM_PERIODS = [
+  {id:'all',  label:'Todo el historial'},
+  {id:'30d',  label:'Últimos 30 días'},
+  {id:'90d',  label:'Últimos 90 días'},
+  {id:'year', label:'Este año'},
+];
+// Rango como timestamptz. Paraguay es UTC-3 fijo (sin horario de verano desde
+// 2024), así que "este año" arranca el 1/1 a las 00:00 de Asunción — con un
+// toISOString() pelado empezaría a las 21:00 del 31/12 y el reporte de enero
+// se comería los registros de la última noche del año anterior.
+function formRange(period) {
+  const now = Date.now();
+  if (period === '30d')  return { from: new Date(now - 30*86400000).toISOString(), to: null };
+  if (period === '90d')  return { from: new Date(now - 90*86400000).toISOString(), to: null };
+  if (period === 'year') {
+    const y = new Date().toLocaleDateString('en-CA', {timeZone:'America/Asuncion'}).slice(0,4);
+    return { from: `${y}-01-01T00:00:00-03:00`, to: null };
+  }
+  return { from: null, to: null };
+}
+
+// Una pregunta con sus opciones. El orden es el DEL FORMULARIO (no el ranking):
+// leerlo de arriba a abajo tiene que sentirse como leer el formulario. Las
+// opciones fuera del catálogo (ciudades, planes, add-ons) van después ordenadas
+// por cantidad, y "sin responder" siempre al final.
+function FormQuestion({q, counts, total, accent}) {
+  const c = counts || {};
+  const known = new Set((q.options||[]).map(o=>o[0]));
+  const rows = (q.options||[]).map(([k,label]) => ({key:k, label, value:Number(c[k]||0)}));
+  Object.keys(c)
+    .filter(k => k !== FORM_NONE && !known.has(k))
+    .sort((a,b) => Number(c[b]) - Number(c[a]))
+    .forEach(k => rows.push({key:k, label:k, value:Number(c[k]||0)}));
+  const none = Number(c[FORM_NONE]||0);
+  if (none > 0) rows.push({key:FORM_NONE, label:'Sin responder', value:none, muted:true});
+
+  const base = total || 1;
+  return (
+    <div className="my-card" style={{padding:'14px 16px'}}>
+      <div style={{fontSize:13,fontWeight:600,color:C.ink,marginBottom:q.hint?4:12,lineHeight:1.35}}>{q.label}</div>
+      {q.hint && <div style={{fontSize:11,color:C.dim,marginBottom:10,lineHeight:1.45}}>{q.hint}</div>}
+      {q.multi && <div style={{fontSize:10,color:C.dim,marginBottom:8,textTransform:'uppercase',letterSpacing:.4}}>Se puede elegir más de una</div>}
+      {rows.length === 0
+        ? <div style={{fontSize:12,color:C.dim,padding:'6px 0'}}>Sin respuestas todavía</div>
+        : rows.map(r => {
+            const pct = Math.round((r.value / base) * 100);
+            return (
+              <div key={r.key} style={{marginBottom:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',gap:10,fontSize:12,marginBottom:4}}>
+                  <span style={{color:r.muted?C.dim:C.mid,fontStyle:r.muted?'italic':'normal',minWidth:0,overflow:'hidden',textOverflow:'ellipsis'}}>{r.label}</span>
+                  <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontWeight:600,color:r.value?C.ink:C.dim,whiteSpace:'nowrap'}}>
+                    {fmtNum(r.value)} <span style={{color:C.dim,fontWeight:400}}>· {pct}%</span>
+                  </span>
+                </div>
+                <div style={{height:8,background:C.bg,borderRadius:5,overflow:'hidden'}}>
+                  <div style={{height:'100%',width:`${Math.max((r.value/base)*100, r.value>0?2:0)}%`,
+                    background:r.muted?C.border:accent,borderRadius:5,transition:'width .6s ease'}}/>
+                </div>
+              </div>
+            );
+          })}
+    </div>
+  );
+}
+
+function SitioFormularios() {
+  const [period,  setPeriod]  = useState('all');
+  const [formId,  setFormId]  = useState(FORM_SPECS[0].id);
+  const [data,    setData]    = useState(null);
+  const [err,     setErr]     = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    if (!db) { setLoading(false); setErr('sin conexión con la base'); return; }
+    setLoading(true);
+    const r = formRange(period);
+    const { data:res, error } = await db.rpc('form_analytics', { p_from: r.from, p_to: r.to });
+    // El código va adelante del mensaje: PGRST202 ("no encuentro la función") es
+    // el caso de "falta la migración", y se avisa distinto que un error real.
+    if (error) { setErr(`${error.code ? error.code + ': ' : ''}${error.message || 'error'}`); setData(null); }
+    else       { setErr(''); setData(res || null); }
+    setLoading(false);
+  }, [period]);
+  useEffect(()=>{ load(); }, [load]);
+
+  const spec    = FORM_SPECS.find(f => f.id === formId) || FORM_SPECS[0];
+  const section = (data && data[spec.id]) || null;
+  const total   = section ? Number(section.total || 0) : 0;
+  const wa      = section && section.contacto ? Number(section.contacto.whatsapp || section.contacto.con_telefono || 0) : 0;
+  const waPct   = total ? Math.round((wa/total)*100) : 0;
+  // La RPC no existe (migración 198 sin aplicar) → PGRST202. Se distingue del
+  // resto de los errores porque la solución es distinta: no es un fallo, falta
+  // correr la migración.
+  const faltaMig = /PGRST202|function .*form_analytics|does not exist|no existe/i.test(err);
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
+        {FORM_PERIODS.map(p => <FilterBtn key={p.id} active={period===p.id} onClick={()=>setPeriod(p.id)}>{p.label}</FilterBtn>)}
+        <div style={{flex:1}}/>
+        <Btn size="sm" variant="ghost" onClick={load} disabled={loading}>{loading?'Actualizando…':'Actualizar'}</Btn>
+      </div>
+
+      {err && (
+        <SectionCard style={{marginBottom:16}}>
+          <div style={{padding:'16px 20px',fontSize:13,color:C.ink,lineHeight:1.6}}>
+            {faltaMig
+              ? <>Falta aplicar la <strong>migración 198</strong> en Supabase (<code>form_analytics</code> todavía no existe en la base).
+                  Hasta entonces esta pestaña no puede mostrar los conteos: se calculan del lado de la base a propósito, porque
+                  agrupar en el navegador el listado de leads —que se carga con un tope de 500— daría números cada vez más falsos
+                  a medida que crezca el negocio.</>
+              : <>No se pudo leer el reporte de formularios. <span style={{color:C.dim}}>({err})</span></>}
+          </div>
+        </SectionCard>
+      )}
+
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:16}}>
+        {FORM_SPECS.map(f => {
+          const s = data && data[f.id];
+          const n = s && s.disponible ? Number(s.total||0) : null;
+          return (
+            <FilterBtn key={f.id} active={formId===f.id} onClick={()=>setFormId(f.id)}>
+              {f.label}{n!=null ? ` (${fmtNum(n)})` : ''}
+            </FilterBtn>
+          );
+        })}
+      </div>
+
+      {loading && !data ? (
+        <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:160,gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando…</span></div>
+      ) : (
+        <div className="animate-in">
+          <SectionCard style={{marginBottom:16}}>
+            <div style={{padding:'16px 20px'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:6}}>
+                <span style={{width:10,height:10,borderRadius:3,background:spec.accent,flexShrink:0}}/>
+                <span style={{fontSize:15,fontWeight:700,color:C.ink}}>{spec.label}</span>
+                {spec.page !== '—' && <span style={{fontSize:11,color:C.dim,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{spec.page}</span>}
+              </div>
+              <div style={{fontSize:12.5,color:C.mid,lineHeight:1.55}}>{spec.intro}</div>
+            </div>
+          </SectionCard>
+
+          {!section || !section.disponible ? (
+            <SectionCard>
+              <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13,lineHeight:1.6}}>
+                {spec.id==='delivery'
+                  ? <>Todavía no existe el formulario público de repartidores.<br/>Cuando se publique, esta sección se llena sola.</>
+                  : section && section.error
+                    ? <>No se pudo leer esta sección. <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>({String(section.error)})</span></>
+                    : 'Sin datos para este formulario.'}
+              </div>
+            </SectionCard>
+          ) : total === 0 ? (
+            <SectionCard>
+              <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13}}>
+                Nadie completó este formulario en el período elegido.
+              </div>
+            </SectionCard>
+          ) : (
+            <>
+              <div className="sa-kpis" style={{marginBottom:16}}>
+                <Kpi label={spec.id==='comensales' ? 'Fichas cargadas' : 'Formularios completados'} value={fmtNum(total)}
+                     sub={period==='all' ? 'Todo el historial' : FORM_PERIODS.find(p=>p.id===period).label}/>
+                {section.contacto && (
+                  <Kpi label={spec.id==='comensales' ? 'Con teléfono' : 'Contactables por WhatsApp'}
+                       value={`${waPct}%`} sub={`${fmtNum(wa)} de ${fmtNum(total)}`}
+                       accent={waPct>=90 ? C.green : waPct>=60 ? undefined : C.red}/>
+                )}
+                {spec.id==='comensales' && section.locales!=null &&
+                  <Kpi label="Locales que cargan clientes" value={fmtNum(section.locales)}/>}
+              </div>
+
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:14}}>
+                {spec.questions.map(q => (
+                  <FormQuestion key={q.key} q={q} counts={section[q.key]} total={total} accent={spec.accent}/>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PageSitioWeb({setFlash}) {
   const [tab,    setTab]    = useState('resumen');
   const [leads,  setLeads]  = useState([]);
@@ -8244,9 +8616,10 @@ function PageSitioWeb({setFlash}) {
   useEffect(()=>{ load(); }, [load]);
 
   const TABS = [
-    {id:'resumen',   label:'Resumen'},
-    {id:'registros', label:'Registros'},
-    {id:'leads',     label:'Leads'},
+    {id:'resumen',     label:'Resumen'},
+    {id:'formularios', label:'Formularios'},
+    {id:'registros',   label:'Registros'},
+    {id:'leads',       label:'Leads'},
     {id:'actividad', label:'Actividad'},
     {id:'planes',    label:'Planes'},
     {id:'addons',    label:'Add-ons'},
@@ -8264,7 +8637,10 @@ function PageSitioWeb({setFlash}) {
         <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:160,gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando…</span></div>
       ) : (
         <>
-          {tab==='resumen'   && <SitioResumen  leads={leads} events={events} registros={registros} registrosTotal={regCount}/>}
+          {tab==='resumen'     && <SitioResumen  leads={leads} events={events} registros={registros} registrosTotal={regCount}/>}
+          {/* Self-fetch propio (RPC form_analytics): NO usa los arrays de arriba,
+              que vienen capados a 500 filas. Ver el encabezado de SitioFormularios. */}
+          {tab==='formularios' && <SitioFormularios/>}
           {tab==='registros' && <SitioRegistros registros={registros} restaurants={regRestaurants} totalExact={regCount} setFlash={setFlash} reload={load}/>}
           {tab==='leads'     && <SitioLeads    leads={leads} setFlash={setFlash} reload={load}/>}
           {tab==='actividad' && <SitioActividad events={events}/>}

@@ -157,6 +157,11 @@
           <input id="r-email" name="email" type="email" placeholder="vos@turestaurante.com" autocomplete="email" inputmode="email" aria-required="true">
         </div>
         <div class="field">
+          <label for="r-wsp">WhatsApp <span aria-hidden="true">*</span><span class="sr-only">(obligatorio)</span></label>
+          <input id="r-wsp" name="whatsapp" type="tel" placeholder="+595 9xx xxx xxx" autocomplete="tel" inputmode="tel" maxlength="40" aria-required="true">
+          <span class="field-hint">Es por donde te escribimos. Si no verificás el correo, es la única forma que tenemos de contactarte.</span>
+        </div>
+        <div class="field">
           <label for="r-pass">Contraseña</label>
           <input id="r-pass" name="password" type="password" placeholder="••••••••" autocomplete="new-password" aria-required="true">
           <span class="field-hint">Mínimo 8 caracteres.</span>
@@ -232,6 +237,12 @@
       }
       function emailValid(e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
       function val(id) { var el = document.getElementById(id); return el ? String(el.value == null ? '' : el.value).trim() : ''; }
+      // WhatsApp contactable = al menos 8 dígitos. Un celular paraguayo sin
+      // prefijo país ya son 10 (0981 123456) y una línea fija 9, así que 8 no
+      // rechaza a nadie real y sí frena el "-" o el "no tengo". MISMO umbral que
+      // la policy de la mig 198: si acá fuera más flojo, el insert lo rebotaría
+      // la base con un error genérico y el dueño no sabría qué corregir.
+      function waDigits(s) { return String(s || '').replace(/\D/g, '').length; }
 
       function setStatus(msg, kind) {
         if (!statusEl) return;
@@ -243,7 +254,7 @@
         else { statusEl.setAttribute('role', 'status'); statusEl.setAttribute('aria-live', 'polite'); }
       }
 
-      var INVALID_IDS = ['r-tipo-1', 'r-nombre', 'r-email', 'r-pass', 'r-pass2', 'r-terms'];
+      var INVALID_IDS = ['r-tipo-1', 'r-nombre', 'r-email', 'r-wsp', 'r-pass', 'r-pass2', 'r-terms'];
       function clearInvalid() {
         INVALID_IDS.forEach(function (id) { var el = document.getElementById(id); if (el) el.removeAttribute('aria-invalid'); });
       }
@@ -265,10 +276,24 @@
 
       // Lead SIEMPRE (best-effort, no bloquea ni rompe). anon INSERT-only,
       // return=minimal (anon no tiene SELECT; en supabase-js v2 ya es el default).
-      function saveLead(email, tipoNegocio, origen) {
+      // `nombre` y `whatsapp` son de la mig 198: si todavía no está aplicada, el
+      // insert rebota con "column not found" y se REINTENTA sin esas dos columnas
+      // —perder el lead entero por una migración pendiente sería peor que perder
+      // el teléfono—. Solo se reintenta por columna faltante, nunca por cualquier
+      // error (mismo criterio que el insert de `orders`: reintentar a ciegas
+      // degrada o duplica el registro).
+      function saveLead(fields, tipoNegocio, origen) {
         if (!db) return Promise.resolve({ ok: false, error: 'no-client' });
-        var row = { email: email || null, tipo_negocio: tipoNegocio, estado: 'registrado', origen: origen || 'web_registro', verificado: false };
-        return db.from('leads_prospectos').insert(row, { returning: 'minimal' })
+        var f = fields || {};
+        var base = { email: f.email || null, tipo_negocio: tipoNegocio, estado: 'registrado', origen: origen || 'web_registro', verificado: false };
+        var row = Object.assign({}, base, { nombre: f.nombre || null, whatsapp: f.whatsapp || null });
+        function ins(payload) { return db.from('leads_prospectos').insert(payload, { returning: 'minimal' }); }
+        return ins(row)
+          .then(function (r) {
+            var msg = r && r.error ? String(r.error.message || '') : '';
+            if (msg && /column|schema cache/i.test(msg) && /nombre|whatsapp/i.test(msg)) return ins(base);
+            return r;
+          })
           .then(function (r) {
             if (r && r.error) { try { console.warn('[registro] lead no guardado:', r.error.message); } catch (e) {} }
             return { ok: !(r && r.error), error: r && r.error ? r.error.message : null };
@@ -311,8 +336,11 @@
         setStatus('Aún no abrimos el registro de foodparks/patios de comida. Te avisamos cuando esté disponible.', null);
         if (foodparkOwnerInterested) return;
         foodparkOwnerInterested = true;
-        // Si ya escribió un email, lo guardamos con el interés; si no, igual queda el conteo.
-        saveLead(val('r-email') || null, 'foodpark_owner', 'interes_foodpark');
+        // Si ya escribió email/nombre/WhatsApp, viajan con el interés; si no, igual
+        // queda el conteo. Este origen está EXENTO del WhatsApp obligatorio (policy
+        // de la mig 198): el botón se toca antes de completar el formulario y
+        // exigirlo acá perdería lo único que ese botón captura.
+        saveLead({ email: val('r-email'), nombre: val('r-nombre'), whatsapp: val('r-wsp') }, 'foodpark_owner', 'interes_foodpark');
       }
       var bizSoon = document.getElementById('bizFoodparkOwner');
       if (bizSoon) bizSoon.addEventListener('click', expressFoodparkInterest);
@@ -326,13 +354,14 @@
         var checked = form.querySelector('input[name="tipo_negocio"]:checked');
         var tipo = checked ? checked.value : '';
         var nombre = val('r-nombre');
-        var email = val('r-email'), pass = val('r-pass'), pass2 = val('r-pass2');
+        var email = val('r-email'), wsp = val('r-wsp'), pass = val('r-pass'), pass2 = val('r-pass2');
         var terms = document.getElementById('r-terms');
 
         // Validación (mensajes claros; mueve el foco al primer campo inválido).
         if (!tipo) return fail('Elegí qué tipo de negocio tenés.', 'r-tipo-1');
         if (nombre.length < 2) return fail('Decinos tu nombre.', 'r-nombre');
         if (!email || !emailValid(email)) return fail('Ingresá un email válido.', 'r-email');
+        if (waDigits(wsp) < 8) return fail('Ingresá tu WhatsApp para que podamos contactarte.', 'r-wsp');
         if (pass.length < 8) return fail('La contraseña debe tener al menos 8 caracteres.', 'r-pass');
         if (pass !== pass2) return fail('Las contraseñas no coinciden.', 'r-pass2');
         if (!terms || !terms.checked) return fail('Necesitás aceptar los Términos y la Privacidad.', 'r-terms');
@@ -352,7 +381,7 @@
 
         // El lead se guarda SIEMPRE (aunque después no verifique ni contrate),
         // antes del signUp, para no perderlo por errores aguas abajo.
-        try { await saveLead(email, tipo, 'web_registro'); } catch (x) {}
+        try { await saveLead({ email: email, nombre: nombre, whatsapp: wsp }, tipo, 'web_registro'); } catch (x) {}
 
         try {
           // `data.full_name` viaja a auth.users.raw_user_meta_data (sin columna nueva

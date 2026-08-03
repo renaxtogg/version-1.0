@@ -645,7 +645,9 @@
   async function saveStep3() {
     var wa = v('f_wa'), addr = v('f_addr'), city = v('f_city'), country = v('f_country');
     var ownerName = v('f_owner_name');
-    if (!wa)   { setErr('Ingresá el WhatsApp del local.'); return; }
+    // ≥8 dígitos: mismo umbral que el resto de los formularios públicos (mig 198).
+    // El WhatsApp del local es el canal de contacto real con el dueño.
+    if (String(wa).replace(/\D/g, '').length < 8) { setErr('Ingresá el WhatsApp del local (con el número completo).'); return; }
     if (!addr) { setErr('Ingresá la dirección de tu local.'); return; }
     if (!city) { setErr('Ingresá la ciudad.'); return; }
     if (!country) { setErr('Ingresá el país.'); return; }
