@@ -130,7 +130,10 @@
     biz: { name: '', type: '' },   // Paso 1 (en memoria hasta crear el local)
     planId: '', planName: '',       // Paso 2
     ops: { tableCount: '' },         // Paso 4 (semilla de mesas, en memoria)
-    menuChoice: '', exampleSeeded: false  // Paso 6
+    menuChoice: '', exampleSeeded: false, // Paso 6
+    // Lo que la persona YA cargó en /registro. Se usa para prellenar y no volver a
+    // preguntar lo mismo (regla "un dato se pide una sola vez" — CLAUDE.md).
+    lead: { nombre: '', whatsapp: '', tipo: '', email: '' }
   };
 
   // [título, subtítulo] por paso (7 pasos).
@@ -228,6 +231,38 @@
     var s = parts.length >= 2 ? (parts[0][0] + parts[1][0]) : parts[0].slice(0, 2);
     return s.toUpperCase();
   }
+  // ── Lo que la persona ya escribió en /registro ────────────────────────────
+  // Nombre, WhatsApp y tipo de negocio viven en `leads_prospectos`, pero esa tabla
+  // sólo la lee el superadmin (policy de la mig 117): el dueño NO puede consultar su
+  // propio lead desde acá. Por eso /registro los copia además al metadata del signUp,
+  // que sí viaja en la sesión del propio usuario. Sin esto, el wizard vuelve a pedir
+  // los tres datos que la persona acaba de escribir dos pantallas atrás.
+  // Registros ANTERIORES a ese cambio no tienen metadata: para ésos, /api/onboarding
+  // (que sí tiene service_role) devuelve el lead al crear el local — ver mergeLead().
+  function readLead() {
+    var u = (st.session && st.session.user) || {};
+    var m = u.user_metadata || {};
+    st.lead.email    = String(u.email || '').trim();
+    st.lead.nombre   = String(m.full_name    || '').trim();
+    st.lead.whatsapp = String(m.whatsapp     || '').trim();
+    st.lead.tipo     = normBizType(m.tipo_negocio);
+  }
+  // El lead que devuelve el endpoint sólo COMPLETA lo que falta: el metadata de la
+  // sesión manda (es más nuevo y es del propio usuario).
+  function mergeLead(lead) {
+    if (!lead) return;
+    if (!st.lead.nombre)   st.lead.nombre   = String(lead.nombre   || '').trim();
+    if (!st.lead.whatsapp) st.lead.whatsapp = String(lead.whatsapp || '').trim();
+    if (!st.lead.tipo)     st.lead.tipo     = normBizType(lead.tipo_negocio);
+  }
+  // `leads_prospectos.tipo_negocio` ∈ {restaurante, foodpark_local, foodpark_owner};
+  // `restaurants.business_type` (BIZ) ∈ {restaurante, foodpark_local, delivery_dark,
+  // otro}. Los dos primeros coinciden; el resto no se preselecciona (foodpark_owner
+  // ni siquiera crea local: es el botón "próximamente" del registro).
+  function normBizType(t) {
+    var s = String(t || '').trim();
+    return BIZ.some(function (o) { return o[0] === s; }) ? s : '';
+  }
   function menuUrl() { return window.location.protocol + '//' + window.location.host + '/?r=' + encodeURIComponent(st.restaurantId); }
   function qrSrc() { return 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(menuUrl()) + '&margin=10'; }
 
@@ -248,6 +283,8 @@
       var sres = await db.auth.getSession();
       st.session = sres && sres.data ? sres.data.session : null;
       if (!st.session) { window.location.replace('login.html'); return; }
+
+      readLead();
 
       // Roles activos del propio usuario. FILTRAMOS por user_id explícito: la RLS de
       // user_roles hoy es PERMISIVA (un authenticated ve TODAS las filas, 23 en prod) →
@@ -369,9 +406,10 @@
 
   // STEP 1 — tu negocio (nombre + tipo)
   function step1() {
+    // El tipo de negocio ya lo eligió en /registro → viene preseleccionado.
     return field('f_name', 'Nombre comercial del local', st.biz.name || st.rest.name, 'Ej: La Parrilla de Don José', 'req') +
       '<label class="lbl">¿Qué tipo de negocio es? <span style="color:var(--error)">*</span></label>' +
-      checkCards('biz', BIZ, st.biz.type, 'radio') +
+      checkCards('biz', BIZ, st.biz.type || st.lead.tipo, 'radio') +
       '<a class="link-sec" href="/contacto">¿Tenés un foodpark y querés sumar tus locales? Escribinos</a>';
   }
 
@@ -408,7 +446,13 @@
   // STEP 3 — contacto y ubicación
   function step3() {
     var r = st.rest;
-    return field('f_wa', 'WhatsApp del local', r.whatsapp, '+595 9xx xxx xxx', 'req') +
+    // Prellenado desde /registro: WhatsApp, nombre y email del dueño ya se
+    // escribieron ahí. Lo guardado en el local manda (pudo corregirlo acá); el lead
+    // sólo cubre el campo vacío. El email sale de la sesión, así que nunca falta.
+    var waPre    = r.whatsapp    || st.lead.whatsapp;
+    var ownerPre = r.owner_name  || st.lead.nombre;
+    var mailPre  = r.owner_email || st.lead.email;
+    return field('f_wa', 'WhatsApp del local', waPre, '+595 9xx xxx xxx', 'req') +
       field('f_phone', 'Teléfono alternativo', r.phone, '+595 21 xxx xxx', 'opt') +
       field('f_addr', 'Dirección', r.address, 'Av. España 1234', 'req') +
       '<div class="grid2">' +
@@ -416,12 +460,12 @@
         field('f_country', 'País', r.country || 'Paraguay', 'Paraguay', 'req') +
       '</div>' +
       '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin:14px 0 4px">Dueño del local</div>' +
-      field('f_owner_name', 'Nombre del dueño', r.owner_name, 'Nombre y apellido', 'req') +
+      field('f_owner_name', 'Nombre del dueño', ownerPre, 'Nombre y apellido', 'req') +
       '<div class="grid2">' +
         field('f_owner_phone', 'Teléfono del dueño', r.owner_phone, '+595 9xx xxx xxx', 'opt') +
         field('f_owner_doc', 'Documento / RUC del dueño', r.owner_document, 'C.I. o RUC', 'opt') +
       '</div>' +
-      field('f_owner_email', 'Email del dueño', r.owner_email, 'dueno@correo.com', 'opt') +
+      field('f_owner_email', 'Email del dueño', mailPre, 'dueno@correo.com', 'opt') +
       '<div style="font-size:13px;font-weight:700;color:var(--text-primary);margin:14px 0 4px">Encargado <span class="opt" style="font-weight:500">(si difiere del dueño)</span></div>' +
       '<div class="grid2">' +
         field('f_mgr_name', 'Nombre del encargado', r.manager_name, 'Nombre y apellido', 'opt') +
@@ -623,6 +667,10 @@
 
     if (resp.ok && out && out.success) {
       st.restaurantId = out.restaurant_id;
+      // Registros anteriores al cambio de /registro no tienen los datos en su
+      // metadata; el endpoint (service_role) sí puede leer `leads_prospectos` y los
+      // devuelve acá para que el paso 3 igual salga prellenado.
+      mergeLead(out.lead);
       var r = await db.from('restaurants').select('*').eq('id', st.restaurantId).maybeSingle();
       st.rest = (r && r.data) ? r.data : { name: st.biz.name };
       // Avatar automático desde el nombre + tipo de negocio (feature-detect: si la

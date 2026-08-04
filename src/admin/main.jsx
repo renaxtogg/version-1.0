@@ -14037,6 +14037,46 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
     );
   }
 
+  // ── ¿Tomamos reservas? (mig 203) ─────────────────────────────────────────
+  // Antes se ofrecía reservar en TODOS los locales: el comensal mandaba una
+  // reserva que nadie iba a atender. Ahora lo decide el dueño, y la vitrina de
+  // /clientes y el panel de delivery lo respetan los dos.
+  function ReservasCard({ restaurant, canEdit, onRefresh }) {
+    const [busy, setBusy] = useState(false);
+    if (!restHasCol('reservations_enabled')) return null;
+    const on = restaurant?.reservations_enabled !== false;
+
+    const toggle = async () => {
+      setBusy(true);
+      try {
+        const { error } = await db.from('restaurants')
+          .update({ reservations_enabled: !on }).eq('id', RID);
+        if (error) throw error;
+        toast(!on ? 'Reservas activadas' : 'Reservas desactivadas');
+        if (onRefresh) onRefresh(true);
+      } catch (e) { toast('Error: ' + (e.message || e), false); }
+      setBusy(false);
+    };
+
+    return (
+      <div style={cardStyle}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+          <div style={{flex:1,minWidth:200}}>
+            <div style={{fontSize:14,fontWeight:700,marginBottom:3}}>Reservas de mesa</div>
+            <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6}}>
+              {on
+                ? 'Los comensales pueden reservar desde tu ficha en Mythos y desde tu link de delivery. Las reservas te llegan a Reservas.'
+                : 'Desactivado: no se muestra el botón de reservar en ningún lado.'}
+            </div>
+          </div>
+          <Btn variant={on ? 'ghost' : 'primary'} onClick={toggle} disabled={busy || !canEdit}>
+            {busy ? '…' : (on ? 'Desactivar' : 'Activar')}
+          </Btn>
+        </div>
+      </div>
+    );
+  }
+
   const saveLoc = async () => {
     if (!db || !RID) return;
     if (!canEditLocal) { toast('Solo el administrador del local puede editar estos datos', false); return; }
@@ -14086,6 +14126,9 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
 
       {/* Carta en PDF — se muestra en la vitrina pública de /clientes */}
       <MenuPdfCard restaurant={restaurant} canEdit={canEditLocal} onRefresh={onRefresh} />
+
+      {/* Reservas: lo decide el local y se refleja en /clientes */}
+      <ReservasCard restaurant={restaurant} canEdit={canEditLocal} onRefresh={onRefresh} />
 
       {/* Seguridad */}
       <div style={cardStyle}>

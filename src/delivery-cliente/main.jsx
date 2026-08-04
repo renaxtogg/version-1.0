@@ -265,6 +265,13 @@ async function dbLoadRestaurant() {
       const bh = await db.from('restaurants').select('business_hours,open_override').eq('id', RESTAURANT_ID).maybeSingle();
       if (bh && !bh.error && bh.data) { data.business_hours = bh.data.business_hours; data.open_override = bh.data.open_override; }
     } catch (_) {}
+    // ¿Toma reservas? (mig 203) — best-effort por lo mismo: va en su propia
+    // consulta para que, sin la migración aplicada, el "column does not exist"
+    // no se lleve puesta la carga entera del restaurante.
+    try {
+      const rs = await db.from('restaurants').select('reservations_enabled').eq('id', RESTAURANT_ID).maybeSingle();
+      if (rs && !rs.error && rs.data) data.reservations_enabled = rs.data.reservations_enabled;
+    } catch (_) {}
     // Datos de transferencia (mig 180) + config de cobro/delivery (mig 182/184) — best-effort:
     // si las columnas / el GRANT anon no están, se ignora y degrada al flujo de hoy.
     try {
@@ -819,7 +826,11 @@ function WelcomeScreen({ restaurant, onDelivery, onPickup, onReserva, onBrowse, 
           <Icon name="chevdown" size={18} color={T.silver} sw={2} />
         </button>
 
-        {/* Reserva */}
+        {/* Reserva — sólo si el local las toma (mig 203). Antes se ofrecía en
+            TODOS los locales, incluso los que no reservan: el comensal mandaba
+            una reserva que nadie iba a atender. `!== false` para que mientras
+            la 203 no esté aplicada siga como antes en vez de desaparecer. */}
+        {restaurant?.reservations_enabled !== false && (
         <button onClick={onReserva} style={{ width: '100%', height: 80, background: T.white, color: T.ink, border: `2px solid ${T.border}`, borderRadius: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 18, textAlign: 'left', transition: 'border-color 150ms' }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: T.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Icon name="calendar" size={22} color={T.ink} />
@@ -830,6 +841,7 @@ function WelcomeScreen({ restaurant, onDelivery, onPickup, onReserva, onBrowse, 
           </div>
           <Icon name="chevdown" size={18} color={T.silver} sw={2} />
         </button>
+        )}
 
         {/* Ver el menú (solo lectura) — acceso al menú SOLO con el local cerrado.
             Abierto, el menú se entra por Delivery/Pickup (que capturan datos del cliente). */}
@@ -2854,7 +2866,14 @@ function App() {
     try { const s = localStorage.getItem(lsk('dc_order')); return s ? JSON.parse(s) : null; } catch { return null; }
   });
   const [screen, setScreen] = useState(() => {
-    try { return localStorage.getItem(lsk('dc_order')) ? 'confirm' : 'welcome'; } catch { return 'welcome'; }
+    // ?reserva=1 — entrada directa a reservar desde la vitrina de /clientes.
+    // Va DESPUÉS del pedido en curso a propósito: si la persona dejó un pedido
+    // a medias, recuperarlo pesa más que el link por el que entró.
+    try { if (localStorage.getItem(lsk('dc_order'))) return 'confirm'; } catch {}
+    try {
+      if (new URLSearchParams(window.location.search).get('reserva') === '1') return 'reserva';
+    } catch {}
+    return 'welcome';
   });
   const [orderType, setOrderType] = useState(() => {
     try { return localStorage.getItem(lsk('dc_order_type')) || 'delivery'; } catch { return 'delivery'; }

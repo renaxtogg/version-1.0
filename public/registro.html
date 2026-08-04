@@ -384,16 +384,27 @@
         try { await saveLead({ email: email, nombre: nombre, whatsapp: wsp }, tipo, 'web_registro'); } catch (x) {}
 
         try {
-          // `data.full_name` viaja a auth.users.raw_user_meta_data (sin columna nueva
-          // ni migración). /api/onboarding lo lee del token validado y lo copia a
+          // `data.*` viaja a auth.users.raw_user_meta_data (sin columna nueva ni
+          // migración). /api/onboarding lee `full_name` del token validado y lo copia a
           // user_roles.display_name al crear el rol admin → el dueño aparece con su
           // nombre en Personal, y no como "—". El login sigue siendo por EMAIL: acá
           // NO se pide un `username` (el username de user_roles es el handle de
           // login del personal —la cédula—, no aplica al dueño).
+          //
+          // `whatsapp` y `tipo_negocio` viajan por la MISMA vía y por un motivo
+          // concreto: los tres datos ya quedaron en `leads_prospectos`, pero esa tabla
+          // sólo la lee el superadmin (policy de la mig 117) — el dueño no puede leer
+          // su propio lead desde el navegador. Sin esta copia en su metadata, el
+          // onboarding tiene que volver a preguntarle el nombre, el WhatsApp y el tipo
+          // de negocio que acaba de escribir acá. Es la única forma de prellenarlos sin
+          // migración ni endpoint nuevo. Ver docs/audits/datos-una-sola-vez.md (B1).
           var res = await db.auth.signUp({
             email: email,
             password: pass,
-            options: { emailRedirectTo: EMAIL_REDIRECT, captchaToken: captchaToken, data: { full_name: nombre } }
+            options: {
+              emailRedirectTo: EMAIL_REDIRECT, captchaToken: captchaToken,
+              data: { full_name: nombre, whatsapp: wsp, tipo_negocio: tipo }
+            }
           });
           // Token de un solo uso: refrescar el widget tras cada intento.
           if (window.MythosCaptcha) window.MythosCaptcha.reset();

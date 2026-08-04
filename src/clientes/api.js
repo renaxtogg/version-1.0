@@ -317,7 +317,11 @@ export function openCarts() {
 // muestra información (carta en PDF, dirección, horarios), no un carrito.
 export function orderUrl(restaurantId, service) {
   const r = encodeURIComponent(restaurantId);
-  return service === 'dine_in' ? `/index.html?r=${r}` : `/delivery-cliente.html?r=${r}`;
+  if (service === 'dine_in') return `/index.html?r=${r}`;
+  // La reserva ya vive en el panel de delivery (pantalla de bienvenida). Se
+  // entra derecho con ?reserva=1 en vez de reimplementarla acá.
+  if (service === 'reserva') return `/delivery-cliente.html?r=${r}&reserva=1`;
+  return `/delivery-cliente.html?r=${r}`;
 }
 
 // Mapa: si el local cargó coordenadas se abre el punto exacto; si no, la

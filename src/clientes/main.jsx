@@ -1381,17 +1381,25 @@ function RestaurantSheet({ r: r0, service, onClose, onFlash, onChanged, signedIn
   const revCount  = rev?.count ?? r.review_count ?? 0;
   const revAvg    = rev?.avg   ?? r.rating;
 
-  // UN SOLO botón para pedir de afuera: domicilio y retiro son la MISMA
-  // pantalla — `delivery-cliente` abre con las dos opciones y elige la persona.
-  // Dos botones prometían dos caminos que no existen, y el de retiro además
-  // caía en el menú del QR, o sea el mismo lugar que el salón.
+  // Qué botón aparece depende de TRES cosas, y las tres son del local:
+  //   • el PLAN — pedir de afuera vive en el panel de delivery, así que si el
+  //     local no lo contrató el botón mandaría a una pantalla que lo rebota.
+  //     Manda `has_delivery`, que sale de get_restaurant_capabilities (mig 203).
+  //   • `service_mode` (mig 173) — si reparte, si atiende salón, o las dos.
+  //   • `reservations_enabled` (mig 203) — lo prende el dueño en Admin.
+  // `!== false` y no `=== true`: mientras la 203 no esté aplicada el campo llega
+  // indefinido y se conserva el comportamiento de antes en vez de apagar botones.
+  const hasDeliveryPlan = r.has_delivery !== false;
+  const canOrder   = hasDeliveryPlan && canDeliv;
+  const canReserve = r.reservations_enabled !== false && canSalon;
+
+  // UN SOLO botón para pedir: domicilio y retiro son la MISMA pantalla —
+  // `delivery-cliente` abre con las dos opciones y elige la persona.
   //
   // El pedido de SALÓN no está acá y no es un olvido: hace falta el QR de la
   // mesa para saber dónde sentar la comanda. Desde la vitrina se ve la carta,
   // no se pide (§ regla en CLAUDE.md).
-  const orderLabel = !canDeliv ? 'Pedir para retirar'
-                   : !canSalon ? 'Pedir a domicilio'
-                   : 'Pedir a domicilio o retirar';
+  const orderLabel = !canSalon ? 'Pedir a domicilio' : 'Pedir a domicilio o retirar';
 
   return (
     <Sheet title={r.name} onClose={onClose} footer={
@@ -1401,9 +1409,20 @@ function RestaurantSheet({ r: r0, service, onClose, onFlash, onChanged, signedIn
             <Icon name="heart" size={18} color={fav ? T.bad : T.mid} />
           </Btn>
         )}
-        <Btn onClick={() => go('delivery')} full={false} style={{ flex: 1, minWidth: 150 }}>
-          {orderLabel}
-        </Btn>
+        {canOrder && (
+          <Btn onClick={() => go('delivery')} full={false} style={{ flex: 1, minWidth: 150 }}>
+            {orderLabel}
+          </Btn>
+        )}
+        {canReserve && (
+          <Btn variant={canOrder ? 'ghost' : 'primary'} onClick={() => go('reserva')}
+               full={false} style={{ flex: 1, minWidth: 130 }}>
+            Reservar mesa
+          </Btn>
+        )}
+        {!canOrder && !canReserve && (
+          <Btn variant="ghost" onClick={onClose}>Cerrar</Btn>
+        )}
       </div>
     }>
       <div style={{ display: 'flex', gap: 13, alignItems: 'center', marginBottom: 18 }}>

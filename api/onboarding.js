@@ -92,7 +92,29 @@ module.exports = async function handler(req, res) {
     // Sin él, user_roles queda sin display_name y el dueño se lista como "—" en
     // Personal. Se recorta a 80 (misma cota que el input del registro).
     const meta = (authed.data && authed.data.user_metadata) || {};
-    const ownerName = (typeof meta.full_name === 'string' ? meta.full_name : '').trim().slice(0, 80) || null;
+    const metaStr = (k, max) => (typeof meta[k] === 'string' ? meta[k] : '').trim().slice(0, max) || null;
+    const ownerName = metaStr('full_name', 80);
+
+    // 1b. El lead que la persona dejó en /registro. `leads_prospectos` sólo la lee el
+    //     superadmin (policy mig 117) → el dueño NO puede consultarlo desde el
+    //     navegador; acá sí, con service_role. Sirve para dos cosas: completar
+    //     owner_name/whatsapp si el metadata no los trae (registros anteriores a que
+    //     /registro empezara a copiarlos al signUp) y devolverlos al wizard para que
+    //     el paso 3 salga prellenado. Best-effort: si la tabla no está o falla, el
+    //     onboarding sigue igual — sólo se pierde el prellenado.
+    //     Se busca por email (el del TOKEN, no del body) y se toma el más reciente.
+    let lead = null;
+    try {
+      const lr = await httpsGet(
+        `${SUPABASE_URL}/rest/v1/leads_prospectos?email=eq.${encodeURIComponent(email)}` +
+        `&select=nombre,whatsapp,tipo_negocio&order=created_at.desc&limit=1`, svc);
+      if (lr.ok && Array.isArray(lr.data) && lr.data.length) lead = lr.data[0];
+    } catch (e) { /* best-effort */ }
+    const leadStr = (k, max) => (lead && typeof lead[k] === 'string' ? lead[k] : '').trim().slice(0, max) || null;
+
+    // El metadata manda sobre el lead (es del propio usuario y más nuevo).
+    const finalOwnerName = ownerName || leadStr('nombre', 80);
+    const finalWhatsapp  = metaStr('whatsapp', 40) || leadStr('whatsapp', 40);
 
     // 2. ANTI-DUPLICADO: si el usuario YA tiene rol/restaurante, no crear nada.
     const existing = await httpsGet(
