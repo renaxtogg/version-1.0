@@ -1,8 +1,14 @@
 # MYTHOS — Identidad del comensal y app de clientes (`/clientes`)
 
-> **Estado:** diseño para revisión. Nada implementado todavía.
-> **Migración prevista:** 200 (la última aplicada es la 199).
-> **Fecha:** 2026-08-03.
+> **Estado:** **IMPLEMENTADO** el 2026-08-03 (migración **200** escrita, front
+> completo y compilando). **La 200 todavía NO está aplicada en Supabase.**
+> **Fecha del diseño:** 2026-08-03.
+>
+> El alcance final quedó **más grande que el v1 del §9**: Renato sumó reseñas
+> multidimensionales, reputación, ranking, insignias, colecciones, retos y un
+> registro de gustos configurable. Todo eso entró en la misma migración. Lo que
+> se construyó, y los tres desvíos respecto de este documento, están en el
+> **§13** al final — leerlo antes de tocar nada.
 
 ---
 
@@ -738,6 +744,10 @@ Es una feature de plan, como los destacados de proveedores de la mig 199.
 
 | Fecha | Decisión |
 |---|---|
+| 2026-08-03 | **La app sale con reputación completa**, no con el v1 mínimo del §9: reseñas multidimensionales, credibilidad, ranking, insignias, colecciones y retos entran en la misma migración 200. |
+| 2026-08-03 | **Beta cerrada por allowlist en la BASE** (`diner_app_access`), no sólo en el front. Sembrada con `mancuellorenato@gmail.com` y `mancuelloempresas@gmail.com`. |
+| 2026-08-03 | **La ruta es `/clientes`** (con `/comer` y `/restaurantes` como alias). Cierra la §11.3. |
+| 2026-08-03 | **El QR y el delivery NO comparten sesión con `/clientes`** — el Camino A viaja por token de dispositivo. Motivo verificado en el §13.2. |
 | 2026-08-03 | Sin cédula para comensales. Antifraude por pedido pagado. |
 | 2026-08-03 | Sin contraseña: Google + correo, canales simétricos. |
 | 2026-08-03 | Los puntos son **XP, no moneda**. No se canjean. |
@@ -747,3 +757,133 @@ Es una feature de plan, como los destacados de proveedores de la mig 199.
 | 2026-08-03 | **Una persona = un usuario de Auth**, alineado con la regla de la mig 166. El perfil de comensal convive con un rol de negocio en la misma cuenta; el contexto se elige al entrar. Se descartó `auth_profile_registry` (§8.1). |
 | 2026-08-03 | **Dos roles de negocio a la vez** (admin + proveedor) queda para después: exige que `get_my_role()` sea sensible a la sesión, y esa zona no se toca con la deuda de RLS abierta. |
 | 2026-08-03 | **El teléfono sí es común** a los tres perfiles: es la llave de reconocimiento en el mostrador. Ninguna consulta puede usarlo para correlacionar perfiles (§8.1.2). |
+
+---
+
+## 13. Lo que se construyó (2026-08-03)
+
+Esta sección se agregó **después** de implementar. Donde contradice a las
+secciones de arriba, gana esta: las de arriba son el diseño, ésta es lo que
+existe.
+
+### 13.1 Entregables
+
+| # | Entregable | Archivo | Estado |
+|---|---|---|---|
+| 1 | Diseño aprobado | este documento | ✅ |
+| 2 | Migración **200** | `supabase/migrations/20260803_200_diner_identity_xp_reviews.sql` | ✅ escrita · ⏳ **sin aplicar** |
+| 3 | Rewrites + dominio real | `vercel.json`, `robots.txt`, `sitemap.xml`, legales | ✅ deployable ya |
+| 4 | **Superadmin › Comensales** | `src/superadmin/main.jsx` | ✅ 9 pestañas |
+| 5 | Panel `/clientes` | `src/clientes/{main,theme,api}.jsx`, `public/clientes.html` | ✅ |
+| 6 | ~~Bloqueo cruzado de altas~~ | — | descartado (§8.1) |
+| 7 | **Guarda en `delete-restaurant.js`** | `api/delete-restaurant.js` | ✅ **bloqueante, hecho** |
+| 8 | Vinculación por mostrador | `src/caja/main.jsx` → `VincularApp` | ✅ |
+| 9 | Pantallas | ver 13.3 | ✅ |
+| + | Vista del local | `src/admin/main.jsx` → Clientes › **App Mythos** | ✅ |
+| + | Selector de contexto | `public/login.html` | ✅ |
+
+**23 tablas nuevas** y ninguna columna nueva en tablas existentes. El único
+punto de contacto con lo vivo es un `AFTER`-hook por RPC explícita: `create_order`
+**no se reescribió** (ver 13.2).
+
+### 13.2 Los tres desvíos, con su motivo
+
+**(a) `xp_ledger` lleva `diner_id` Y `customer_id`** — el §4.4 pedía sólo
+`customer_id`. Reseñar, subir una foto o responder el registro son actos de la
+*persona* y pueden ocurrir sin ficha local; con sólo `customer_id` ese XP no
+tendría dónde anotarse. Lo que el §4.4 buscaba —que vincular una ficha absorba
+el historial viejo con un solo `INSERT` en el puente— se conserva intacto,
+porque el total suma las filas propias **más** las de las fichas vinculadas.
+
+**(b) El QR y el delivery NO comparten `storageKey` con `/clientes`** — el §5.2
+lo proponía. **Verificado en el código:** la policy `mi_auth_select` de
+`menu_items` (mig 086) exige `restaurant_id = get_my_restaurant_id()`, y un
+comensal **no tiene fila en `user_roles`** → esa función devuelve `NULL` → **el
+menú saldría vacío**. Compartir la sesión rompería el pedido, que es lo único
+que no se puede romper.
+
+En su lugar, el Camino A viaja por `diner_link_tokens` (`kind='device'`): la app
+guarda un token en `localStorage.mythos_diner_token`, el panel del QR sigue
+corriendo como `anon` y, **después** de crear el pedido, llama a
+`diner_claim_my_order(token, order_id)`.
+
+> También se descartó `set_config()` + trigger: PostgREST reusa conexiones de un
+> pool, así que con `is_local=false` el token de una persona se le aplicaría al
+> pedido de **otra**, y con `is_local=true` no sobrevive a la transacción. No hay
+> variante segura de esa idea.
+
+**(c) Ninguna policy de `UPDATE` sobre `diner_reviews`.** La RLS filtra **filas,
+no columnas**: una policy "el local edita las reseñas de su restaurante" le
+habilitaría `stars` y `status` —ponerse 5 estrellas solo—, y una "el autor edita
+la suya" le habilitaría `status` y `weight` —aprobarse una reseña en moderación
+y subirse el peso de su propia crítica—. Publicar, responder y moderar pasan por
+RPC: `diner_submit_review`, `restaurant_reply_review`, `superadmin_moderate`.
+
+### 13.3 El panel
+
+Shell de teléfono (390×844), blanco/negro estilo iOS, **idéntico al del QR**
+(`src/index/main.jsx`) salvo la navegación: barra inferior al alcance del pulgar
+en vez del sidebar de los paneles de staff (§9).
+
+Pantallas: acceso sin contraseña → registro de gustos (wizard de 4 pasos, las
+preguntas salen de la base) → **Explorar** (identidad + nivel, servicio, buscador,
+filtros, favoritos, novedades) → **restaurante** (nota ponderada, promedio por
+aspecto, reseñas con votos) → **Pedidos** (cruzados entre locales, repetir,
+calificar) → **calificar** (nota general + N aspectos + comentario + fotos) →
+**Ranking** (país/ciudad × histórico/mes) → **Perfil** (XP, credibilidad,
+estadísticas, insignias, colecciones, retos, código de mostrador).
+
+**El panel NO reimplementa el flujo de pedido.** Menú, carrito, extras,
+mitad-y-mitad, cupones, métodos de pago, comprobantes y facturación viven en
+`index.html` y `delivery-cliente.html` (~5.600 líneas entre los dos). Una segunda
+copia se desincronizaría al primer cambio de precios y terminaría cobrando
+distinto que la caja. `/clientes` descubre, manda al panel que ya sabe pedir, y
+recibe el pedido de vuelta.
+
+### 13.4 Todo se controla desde el superadmin
+
+**Superadmin › Comensales**, 9 pestañas: Resumen · Comensales (+ ajuste manual de
+XP) · **Experiencia** (`xp_rules` + `xp_levels`) · Insignias · Colecciones ·
+Retos · **Reseñas** (moderación de reseñas y fotos + catálogo de aspectos) ·
+**Registro** (preguntas + analítica server-side) · **Acceso** (portero de la
+beta, allowlist, módulos, reglas de reseña y pesos de credibilidad).
+
+Nada de eso está cableado en el código: cuánto XP da cada cosa, cómo se llaman
+los niveles, qué insignias existen, qué se califica y qué pregunta el registro
+son **datos**. Cambiarlos no pide migración ni deploy.
+
+La analítica del registro sale de `diner_profile_analytics()`, no de los arrays
+del panel — mismo criterio que `form_analytics` (mig 198) y `crm_customer_stats`
+(mig 197): agrupar en el navegador da un número que empeora cuanto más crece el
+negocio.
+
+### 13.5 Antes de aplicar la 200
+
+1. **Backup** de la base.
+2. Correr la migración entera (rol `postgres`, SQL Editor en **inglés**).
+3. Correr la **§16 de la migración** (verificación): 23 tablas, `anon` sin un
+   solo grant, todas las funciones con `search_path` fijo, tablas vacías y los
+   dos correos en la allowlist.
+4. **Verificar el *identity linking* del proyecto** (§8.1.1). Con "Confirm email"
+   apagado para el alta de dueños, alguien podría registrarse en `/registro` con
+   el correo de otro y quedarse en la misma cuenta cuando la víctima entre a
+   `/clientes` con Google. No es un problema de este diseño, pero **se activa
+   recién cuando `/clientes` existe**.
+5. Para **abrir la beta**: prender `is_public` en Superadmin › Comensales ›
+   Acceso **y** sacar `/clientes` del `Disallow` de `robots.txt` + agregarlo al
+   `sitemap.xml`. El panel lo avisa al prender el interruptor.
+
+### 13.6 Lo que sigue abierto
+
+- **La 200 no está aplicada.** Hasta que lo esté, `/clientes` muestra "falta un
+  paso en el servidor" y ningún otro panel cambia de comportamiento.
+- **`get_my_company_restaurant_ids()` sigue con `LIMIT 1` sin `ORDER BY`** (mig
+  092): el selector de local del login sigue siendo cosmético para la RLS. No se
+  toca mientras siga abierta la deuda de RLS (prioridad 1 de CLAUDE.md).
+- **La mig 166 sigue sin confirmarse en prod.** Sin ella nadie puede tener el
+  mismo rol en dos locales.
+- **OTP por teléfono**: postergado por presupuesto. El modelo ya lo contempla.
+- **Gift cards del comensal** desde `/clientes`: el motor está (mig 197), falta
+  la pantalla.
+- **Realtime** en el seguimiento del pedido: hoy refresca al volver a la
+  pestaña.

@@ -125,6 +125,26 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
     try { await db.rpc('attach_payment_proof', { p_order_id: oid, p_url: paymentProofPath, p_reference: paymentReference || null }); } catch (_) {}
   };
 
+  // Camino A del comensal (mig 200): si esta persona tiene sesión en la app
+  // /clientes, su navegador guardó un token de dispositivo. Con él, el pedido
+  // queda vinculado a su perfil y acredita la experiencia.
+  //
+  // Va por RPC DESPUÉS de crear el pedido, y no como parte de create_order,
+  // por dos motivos: (1) este panel corre como `anon` a propósito y no se le
+  // puede pasar la sesión de comensal —la policy mi_auth_select de menu_items
+  // exige get_my_restaurant_id(), que para alguien sin fila en user_roles es
+  // NULL, así que el menú saldría vacío—; (2) copiar el cuerpo de create_order
+  // acá para agregarle un parámetro es la forma más fácil de pisar una versión
+  // nueva con una vieja.
+  // Best-effort absoluto: si falla, el pedido ya entró y sólo se pierde el XP.
+  const _claimDiner = async (oid) => {
+    if (!oid) return;
+    let tok = '';
+    try { tok = localStorage.getItem('mythos_diner_token') || ''; } catch (_) { return; }
+    if (!tok) return;
+    try { await db.rpc('diner_claim_my_order', { p_token: tok, p_order: oid }); } catch (_) {}
+  };
+
   // ETAPA 2 (seguridad): crear el pedido por la RPC SECURITY DEFINER 'create_order'.
   // Es el único camino una vez aplicado el lockdown (ETAPA 3). Si la RPC todavía no
   // existe (ETAPA 1 sin aplicar), caemos al insert directo de abajo (compat).
@@ -156,7 +176,7 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
   };
   {
     const { data: rpcData, error: rpcErr } = await db.rpc('create_order', { payload: rpcPayload });
-    if (!rpcErr && rpcData && rpcData.id) { await _attachProof(rpcData.id); return rpcData; }
+    if (!rpcErr && rpcData && rpcData.id) { await _attachProof(rpcData.id); await _claimDiner(rpcData.id); return rpcData; }
     const missing = rpcErr && /PGRST202|could not find the function|42883/i.test(`${rpcErr.message || ''} ${rpcErr.code || ''}`);
     if (rpcErr && !missing) { console.error('create_order RPC error:', rpcErr); throw new Error(rpcErr.message || 'No se pudo crear el pedido'); }
     // missing → insert directo (compat pre-ETAPA 1).
@@ -212,6 +232,7 @@ async function dbSubmitOrder({ tableId, orderType, items, subtotal, discountAmou
   }
   await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
   await _attachProof(order.id);
+  await _claimDiner(order.id);
   return order;
 }
 

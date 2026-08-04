@@ -333,6 +333,19 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
     try { await db.rpc('attach_payment_proof', { p_order_id: oid, p_url: paymentProofPath, p_reference: paymentReference || null }); } catch (_) {}
   };
 
+  // Camino A del comensal (mig 200): si esta persona tiene sesión en /clientes,
+  // su navegador guardó un token de dispositivo y el pedido queda vinculado a
+  // su perfil. Este panel sigue corriendo como `anon` a propósito (ver el
+  // comentario extendido en src/index/main.jsx). Best-effort: un fallo acá
+  // sólo cuesta el XP de esta vez, nunca el pedido.
+  const _claimDiner = async (oid) => {
+    if (!oid) return;
+    let tok = '';
+    try { tok = localStorage.getItem('mythos_diner_token') || ''; } catch (_) { return; }
+    if (!tok) return;
+    try { await db.rpc('diner_claim_my_order', { p_token: tok, p_order: oid }); } catch (_) {}
+  };
+
   // order_type='delivery' para domicilio real; 'llevar' para retiro en local
   const dbOrderType = orderType === 'delivery' ? 'delivery' : 'llevar';
 
@@ -391,7 +404,7 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
   };
   {
     const { data: rpcData, error: rpcErr } = await db.rpc('create_order', { payload: rpcPayload });
-    if (!rpcErr && rpcData && rpcData.id) { await _attachProof(rpcData.id); return rpcData; }
+    if (!rpcErr && rpcData && rpcData.id) { await _attachProof(rpcData.id); await _claimDiner(rpcData.id); return rpcData; }
     const missing = rpcErr && /PGRST202|could not find the function|42883/i.test(`${rpcErr.message || ''} ${rpcErr.code || ''}`);
     if (rpcErr && !missing) { console.error('create_order RPC error:', rpcErr); throw new Error(rpcErr.message || 'No se pudo crear el pedido'); }
     // missing → insert directo (compat pre-ETAPA 1).
@@ -506,6 +519,7 @@ async function dbSubmitDeliveryOrder({ orderType, cartItems, subtotal, deliveryF
   await db.from('order_status_history').insert({ order_id: order.id, status: 'paid', changed_by: 'customer' });
 
   await _attachProof(order.id);
+  await _claimDiner(order.id);
   return order;
 }
 

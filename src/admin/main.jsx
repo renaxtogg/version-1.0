@@ -4174,7 +4174,203 @@ const CLIENTES_TABS = [
   ['crm',       'Clientes'],
   ['marketing', 'Marketing'],
   ['ratings',   'Calificaciones'],
+  ['app',       'App Mythos'],
 ];
+
+/* ══════════════════════════════════════════════
+   APP MYTHOS — lo que el local gana con la app de comensales (mig 200)
+   ──────────────────────────────────────────────
+   Dos cosas, y las dos son el incentivo del lado del restaurante:
+
+   1) TOP COMENSALES — quiénes son sus mejores clientes según la experiencia
+      que acumularon ACÁ. Sirve para premiarlos con algo exclusivo.
+   2) RESEÑAS VERIFICADAS — sólo puede opinar quien pidió y pagó en este local,
+      una vez por pedido. Eso es lo que Google Maps estructuralmente no puede
+      hacer, porque no ve la transacción.
+
+   Lo que el local NO ve, ni acá ni en ningún panel: la identidad global de la
+   persona (su correo, en qué OTROS restaurantes come, qué opina de ellos). Esa
+   línea la sostiene la RLS de la mig 200 y hay que sostenerla al agregar
+   reportes: que un mozo de este local sea además comensal no puede ser
+   deducible desde ninguna pantalla.
+══════════════════════════════════════════════ */
+function AppMythosTab() {
+  const [top,setTop]     = useState(null);
+  const [inbox,setInbox] = useState(null);
+  const [miss,setMiss]   = useState(false);
+  const [reply,setReply] = useState(null);   // {id, text}
+  const [busy,setBusy]   = useState(false);
+
+  const load = useCallback(async ()=>{
+    if (!db || !RID) return;
+    const [t,i] = await Promise.all([
+      db.rpc('restaurant_top_diners',   {p_restaurant:RID, p_limit:20}),
+      db.rpc('restaurant_reviews_inbox',{p_restaurant:RID, p_limit:50})
+    ]);
+    if (t.error || i.error) {
+      const m = (t.error?.message||'') + (i.error?.message||'');
+      setMiss(/function|does not exist|schema cache|PGRST202/i.test(m));
+      return;
+    }
+    setMiss(false); setTop(t.data||[]); setInbox(i.data||null);
+  },[]);
+  useEffect(()=>{ load(); },[load]);
+
+  const sendReply = async () => {
+    setBusy(true);
+    const {data,error} = await db.rpc('restaurant_reply_review',
+      {p_review:reply.id, p_reply:reply.text||''});
+    setBusy(false);
+    if (error || !data?.ok) { toast(data?.error||'No se pudo responder.',false); return; }
+    toast('Respuesta publicada'); setReply(null); load();
+  };
+
+  if (miss) return (
+    <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>
+      La app de comensales todavía no está disponible: falta aplicar la migración 200.
+    </div>
+  );
+  if (!top || !inbox) return <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>Cargando…</div>;
+
+  const dims = inbox.dimensions || {};
+
+  return (
+    <div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:20}}>
+        <div className="my-metric-card">
+          <div className="my-metric-card__label">Calificación</div>
+          <div style={{fontSize:26,fontWeight:800,color:C.ink}}>{inbox.avg ?? '—'}</div>
+          <div style={{fontSize:11,color:C.dim,marginTop:4}}>{inbox.count} reseña{inbox.count!==1?'s':''} verificada{inbox.count!==1?'s':''}</div>
+        </div>
+        <div className="my-metric-card">
+          <div className="my-metric-card__label">Comensales con app</div>
+          <div style={{fontSize:26,fontWeight:800,color:C.ink}}>{top.filter(t=>t.has_app).length}</div>
+          <div style={{fontSize:11,color:C.dim,marginTop:4}}>de {top.length} fichas con actividad</div>
+        </div>
+        <div className="my-metric-card">
+          <div className="my-metric-card__label">Sin responder</div>
+          <div style={{fontSize:26,fontWeight:800,color:C.ink}}>
+            {(inbox.rows||[]).filter(r=>!r.restaurant_reply).length}
+          </div>
+          <div style={{fontSize:11,color:C.dim,marginTop:4}}>responder sube la confianza</div>
+        </div>
+      </div>
+
+      {Object.keys(dims).length>0 && (
+        <div className="my-card" style={{padding:16,marginBottom:20}}>
+          <div style={{fontSize:11,fontWeight:800,color:C.dim,letterSpacing:1,marginBottom:12}}>
+            CÓMO TE CALIFICAN
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:12}}>
+            {Object.entries(dims).map(([k,v])=>(
+              <div key={k}>
+                <div style={{fontSize:12,color:C.dim,textTransform:'capitalize'}}>{k}</div>
+                <div style={{fontSize:19,fontWeight:800,color:v>=4?C.green:v>=3?C.ink:C.red}}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="my-card" style={{padding:0,marginBottom:20,overflow:'hidden'}}>
+        <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:13,fontWeight:700,color:C.ink}}>
+          Top comensales de tu local
+        </div>
+        <div style={{padding:'10px 16px',fontSize:11.5,color:C.dim,lineHeight:1.7,borderBottom:`1px solid ${C.border}`}}>
+          Ordenados por la experiencia que acumularon <b>acá</b>. Son los candidatos
+          naturales para una promoción exclusiva.
+        </div>
+        {top.length===0 ? (
+          <div style={{padding:36,textAlign:'center',color:C.dim,fontSize:13}}>
+            Todavía nadie acumuló experiencia en tu local.
+          </div>
+        ) : (
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr>
+              <th style={{padding:'9px 16px',textAlign:'left',fontSize:11,color:C.dim,fontWeight:700}}>CLIENTE</th>
+              <th style={{padding:'9px 16px',textAlign:'left',fontSize:11,color:C.dim,fontWeight:700}}>TELÉFONO</th>
+              <th style={{padding:'9px 16px',textAlign:'right',fontSize:11,color:C.dim,fontWeight:700}}>VISITAS</th>
+              <th style={{padding:'9px 16px',textAlign:'right',fontSize:11,color:C.dim,fontWeight:700}}>RESEÑAS</th>
+              <th style={{padding:'9px 16px',textAlign:'right',fontSize:11,color:C.dim,fontWeight:700}}>XP ACÁ</th>
+              <th style={{padding:'9px 16px',textAlign:'center',fontSize:11,color:C.dim,fontWeight:700}}>APP</th>
+            </tr></thead>
+            <tbody>
+              {top.map(t=>(
+                <tr key={t.customer_id} style={{borderTop:`1px solid ${C.border}`}}>
+                  <td style={{padding:'10px 16px',fontSize:13,fontWeight:600,color:C.ink}}>{t.full_name}</td>
+                  <td style={{padding:'10px 16px',fontSize:12,color:C.mid}}>{t.phone||'—'}</td>
+                  <td style={{padding:'10px 16px',fontSize:13,textAlign:'right'}}>{t.orders}</td>
+                  <td style={{padding:'10px 16px',fontSize:13,textAlign:'right'}}>{t.reviews}</td>
+                  <td style={{padding:'10px 16px',fontSize:13,textAlign:'right',fontWeight:700}}>
+                    {Number(t.xp_local||0).toLocaleString('es-PY')}
+                  </td>
+                  <td style={{padding:'10px 16px',textAlign:'center',fontSize:14}}>{t.has_app?'✓':'—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="my-card" style={{padding:0,overflow:'hidden'}}>
+        <div style={{padding:'12px 16px',borderBottom:`1px solid ${C.border}`,fontSize:13,fontWeight:700,color:C.ink}}>
+          Reseñas verificadas
+        </div>
+        <div style={{padding:'10px 16px',fontSize:11.5,color:C.dim,lineHeight:1.7,borderBottom:`1px solid ${C.border}`}}>
+          Sólo puede opinar quien pidió y pagó en tu local, y una sola vez por pedido.
+          Podés responder; las estrellas y el estado los modera Mythos, no el local.
+        </div>
+        {(inbox.rows||[]).length===0 ? (
+          <div style={{padding:36,textAlign:'center',color:C.dim,fontSize:13}}>Todavía no hay reseñas.</div>
+        ) : inbox.rows.map(r=>(
+          <div key={r.id} style={{padding:'14px 16px',borderTop:`1px solid ${C.border}`}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:5}}>
+              <span style={{color:'#FF9500',fontSize:13}}>{'★'.repeat(r.stars)}</span>
+              <span style={{fontSize:13,fontWeight:600,color:C.ink}}>{r.author}</span>
+              <span style={{fontSize:11,color:C.dim}}>
+                {r.author_level_name} · credibilidad {r.author_credibility}% ·{' '}
+                {new Date(r.created_at).toLocaleDateString('es-PY')}
+              </span>
+            </div>
+            {r.comment && <div style={{fontSize:13,color:C.mid,lineHeight:1.65,marginBottom:8}}>{r.comment}</div>}
+            {Object.keys(r.scores||{}).length>0 && (
+              <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:8}}>
+                {Object.entries(r.scores).map(([k,v])=>(
+                  <span key={k} style={{fontSize:11,color:C.mid,background:C.bg,border:`1px solid ${C.border}`,
+                    borderRadius:6,padding:'2px 7px'}}>{k} {v}★</span>
+                ))}
+              </div>
+            )}
+            {r.restaurant_reply ? (
+              <div style={{background:C.bg,borderLeft:`2px solid ${C.ink}`,padding:'8px 12px',borderRadius:'0 6px 6px 0'}}>
+                <div style={{fontSize:10,fontWeight:800,color:C.dim,letterSpacing:1,marginBottom:3}}>TU RESPUESTA</div>
+                <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6}}>{r.restaurant_reply}</div>
+                <button onClick={()=>setReply({id:r.id,text:r.restaurant_reply})}
+                  style={{background:'none',border:'none',color:C.dim,fontSize:11,cursor:'pointer',
+                          padding:'6px 0 0',textDecoration:'underline'}}>Editar respuesta</button>
+              </div>
+            ) : reply?.id===r.id ? null : (
+              <Btn small variant="ghost" onClick={()=>setReply({id:r.id,text:''})}>Responder</Btn>
+            )}
+            {reply?.id===r.id && (
+              <div style={{marginTop:8}}>
+                <textarea value={reply.text} rows={3}
+                  onChange={e=>setReply(v=>({...v,text:e.target.value}))}
+                  placeholder="Gracias por tu comentario…"
+                  style={{width:'100%',padding:10,fontSize:13,borderRadius:8,resize:'vertical',
+                          border:`1px solid ${C.border}`,background:C.surface,color:C.ink,fontFamily:'inherit'}}/>
+                <div style={{display:'flex',gap:8,marginTop:8}}>
+                  <Btn small onClick={sendReply} disabled={busy}>{busy?'…':'Publicar'}</Btn>
+                  <Btn small variant="ghost" onClick={()=>setReply(null)}>Cancelar</Btn>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function ClientesHubPage({orders,coupons,ratings,restaurant,onRefresh,setPage,initialTab='crm'}) {
   const [tab,setTab] = useState(CLIENTES_TABS.some(([k])=>k===initialTab)?initialTab:'crm');
@@ -4192,6 +4388,7 @@ function ClientesHubPage({orders,coupons,ratings,restaurant,onRefresh,setPage,in
       {tab==='crm'       && <ClientesPage  orders={orders} restaurant={restaurant} setPage={setPage} embedded/>}
       {tab==='marketing' && <MarketingPage coupons={coupons} orders={orders} restaurant={restaurant} onRefresh={onRefresh} embedded/>}
       {tab==='ratings'   && <RatingsPage   ratings={ratings} embedded/>}
+      {tab==='app'       && <AppMythosTab/>}
     </div>
   );
 }

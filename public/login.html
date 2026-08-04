@@ -329,6 +329,90 @@
     } catch (_) { /* sin nombres; los botones quedan con la etiqueta del rol */ }
   }
 
+  // ── Rama de comensal ────────────────────────────────────────────────────
+  // Una persona = un usuario de Auth (regla de la mig 166, §8.1 del diseño de
+  // identidad). El mismo correo puede ser dueño de un local, mozo en otro y
+  // además comer en los dos: eso NO es un conflicto porque `diners` no usa
+  // get_my_role() — su RLS es auth_user_id = auth.uid().
+  // Lo que hay que preguntar es con qué sombrero entra HOY.
+  //
+  // Devuelve { available, hasProfile } — best-effort: si la mig 200 no está
+  // aplicada, `available` queda en false y el login se comporta como siempre.
+  async function checkDiner() {
+    try {
+      const { data, error } = await db.rpc('diner_bootstrap');
+      if (error || !data) return { available: false, hasProfile: false };
+      return { available: !!data.allowed || !!data.diner, hasProfile: !!data.diner };
+    } catch (_) { return { available: false, hasProfile: false }; }
+  }
+
+  // Pasa la sesión ya autenticada a la ranura de token de /clientes.
+  // Sin esto, elegir "comensal" acá te deja pidiendo el correo otra vez en la
+  // app. Y NO se puede compartir la ranura: /clientes y los paneles de staff
+  // usan storageKey distinto a propósito — con el mismo, un dueño que abre la
+  // app en su celular le pisa la sesión de /admin y el logout de uno cierra
+  // el otro (la arquitectura de sesión es de signOut global).
+  async function handOffToDinerApp() {
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      if (!session) return false;
+      const app = window.supabase.createClient(url, key, {
+        auth: { persistSession: true, autoRefreshToken: false, storageKey: 'mythos-cliente-app' }
+      });
+      await app.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token
+      });
+      return true;
+    } catch (_) { return false; }
+  }
+
+  async function goToDinerApp() {
+    await handOffToDinerApp();
+    window.location.replace('clientes.html');
+  }
+
+  // "¿Cómo querés entrar?" — sólo aparece cuando la cuenta tiene las dos
+  // cosas. Con una sola, no hay nada que preguntar.
+  function showBranchChooser(profile, onStaff) {
+    const card = document.querySelector('.card');
+    if (!card) return;
+    const name = ((profile && (profile.display_name || profile.username)) || '').trim();
+    card.innerHTML =
+      '<div class="logo"><div class="logo-title">Mythos</div>' +
+        '<div class="logo-sub">' + (name ? 'Hola, ' + escapeHtml(name) + ' — ' : '') +
+        '¿cómo querés entrar?</div></div>' +
+      '<div class="social">' +
+        '<button class="btn-social" type="button" id="brDiner">Como comensal</button>' +
+        '<button class="btn-social" type="button" id="brStaff">Como colaborador de un restaurante</button>' +
+      '</div>' +
+      '<div class="hint"><a id="chooserLogout" href="#">Cerrar sesión</a></div>';
+    card.querySelector('#brDiner').addEventListener('click', goToDinerApp);
+    card.querySelector('#brStaff').addEventListener('click', async () => {
+      // routeStaff puede devolver el motivo por el que NO se puede entrar
+      // (rol sin panel, sin comercio asignado). Sin este await el mensaje se
+      // perdía y el botón quedaba mudo: hay que mostrarlo acá mismo, sin
+      // cerrar la sesión — la rama de comensal sigue siendo válida.
+      const err = await onStaff();
+      if (!err) return;
+      let box = card.querySelector('#branchErr');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'branchErr';
+        box.className = 'error show';
+        box.style.marginTop = '18px';
+        card.appendChild(box);
+      }
+      box.textContent = err;
+    });
+    card.querySelector('#chooserLogout').addEventListener('click', async (e) => {
+      e.preventDefault();
+      try { await db.auth.signOut(); } catch (_) {}
+      clearSession();
+      window.location.reload();
+    });
+  }
+
   // Pantalla simple "Elegí tu panel" (usuario con más de un panel disponible).
   function showChooser(items, profile) {
     const card = document.querySelector('.card');
@@ -368,10 +452,20 @@
   // si no, usar el flujo single-role probado (validateAndRedirect). Reutiliza
   // homeForRole. Best-effort: si la lectura de roles falla, cae al single-role.
   async function resolveAndRoute(profile) {
+    // ¿Esta cuenta tiene además perfil de comensal? Se pregunta ANTES de
+    // decidir nada: cambia el destino tanto de quien no tiene rol de negocio
+    // como de quien sí.
+    const diner = await checkDiner();
+
     // OWNER-ONBOARDING (Bloque C): sesión válida pero SIN rol asignado = dueño recién
     // registrado que todavía no creó su local → al onboarding (no es un error). El
     // resto de casos (rol no reconocido, sin comercio, varios roles) sigue igual.
-    if (!profile || !profile.role) { window.location.replace('onboarding.html'); return null; }
+    // Excepción: si la cuenta SÍ es comensal, mandarla al onboarding de dueños
+    // sería absurdo — no vino a abrir un restaurante.
+    if (!profile || !profile.role) {
+      if (diner.available) { await goToDinerApp(); return null; }
+      window.location.replace('onboarding.html'); return null;
+    }
 
     // Filas de rol activas del propio usuario. FILTRAMOS por user_id explícito: la RLS de
     // user_roles hoy es PERMISIVA (un authenticated ve TODAS las filas), así que sin este
@@ -404,6 +498,17 @@
       }
     } catch (_) { /* fail-open */ }
 
+    // Con las dos ramas disponibles, primero se elige el sombrero; recién
+    // después, si hace falta, el panel o el local.
+    if (diner.available) {
+      showBranchChooser(profile, () => routeStaff(profile, rows));
+      return null;
+    }
+    return routeStaff(profile, rows);
+  }
+
+  // Enrutado del lado laboral (lo que hacía resolveAndRoute hasta ahora).
+  async function routeStaff(profile, rows) {
     if (rows && rows.length > 1) {
       const items = [];
       const seen = {};

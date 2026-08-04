@@ -120,6 +120,28 @@ module.exports = async function handler(req, res) {
         const otherTenant = rlist.some(r => r.restaurant_id && r.restaurant_id !== restaurantId);
         if (isSuper)      { usersSkipped.push({ user_id: uid, reason: 'superadmin' }); continue; }
         if (otherTenant)  { usersSkipped.push({ user_id: uid, reason: 'tiene otro restaurante' }); continue; }
+
+        // ⚠ GUARDA DE COMENSAL (mig 200). Hasta acá el usuario se evaluaba
+        // mirando SÓLO su costado laboral. Desde que existe /clientes, una
+        // persona = un usuario de Auth: el dueño que además usa la app comparte
+        // el mismo `auth.users` entre `user_roles` y `diners`. Con la regla
+        // vieja, eliminar un restaurante le destruía la CUENTA PERSONAL —
+        // experiencia, historial y gift cards de OTROS locales que no tienen
+        // nada que ver con el que se borró. Y es irreversible.
+        //
+        // Se le quitan los roles de staff (los borra la RPC de abajo) y se lo
+        // deja como comensal. Fail-CLOSED a propósito: si la consulta falla no
+        // se puede saber si tiene perfil, y ante la duda no se borra a nadie.
+        let isDiner = null;
+        try {
+          const dinerResp = await httpsRequest('GET',
+            `${SUPABASE_URL}/rest/v1/diners?auth_user_id=eq.${uid}&select=id&limit=1`, svc);
+          if (dinerResp.ok) isDiner = Array.isArray(dinerResp.data) && dinerResp.data.length > 0;
+          else if (dinerResp.status === 404) isDiner = false;   // mig 200 sin aplicar
+        } catch (_) { isDiner = null; }
+        if (isDiner === true)  { usersSkipped.push({ user_id: uid, reason: 'es comensal' }); continue; }
+        if (isDiner === null)  { usersSkipped.push({ user_id: uid, reason: 'no se pudo verificar si es comensal' }); continue; }
+
         usersToDelete.push(uid);
       }
     }

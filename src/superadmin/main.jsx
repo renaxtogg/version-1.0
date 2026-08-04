@@ -6351,6 +6351,9 @@ const NAV = [
   {id:'prospeccion',    label:'Prospección',   icon:'pin'},
   {id:'usuarios',       label:'Usuarios',      icon:'users'},
   {id:'proveedores',    label:'Proveedores',   icon:'building'},
+  // "Comensales" son las PERSONAS que comen (app /clientes), no los
+  // restaurantes: acá "Clientes" es el grupo comercial de Mythos.
+  {id:'comensales',     label:'Comensales',    icon:'star'},
   null,
   {id:'facturacion',    label:'Facturación',   icon:'receipt',  group:'NEGOCIO'},
   {id:'finanzas',       label:'Finanzas',      icon:'money'},
@@ -7686,7 +7689,7 @@ const IDENTITY_FIELDS = [
   {key:'contact_email',        label:'Email de contacto',     type:'email', ph:'hola@mythos.com.py'},
   {key:'legal_address',        label:'Domicilio',             type:'text',  ph:'Asunción, Paraguay',          full:true},
   {key:'whatsapp',             label:'WhatsApp',              type:'text',  ph:'595986622735',                hint:'Solo dígitos: código de país + número. Única fuente del botón de WhatsApp en todo el sitio.'},
-  {key:'website_domain',       label:'Dominio del sitio',     type:'text',  ph:'mythos-pos.vercel.app',       hint:'Sin https://. Se usa en los meta OG y en los legales.'},
+  {key:'website_domain',       label:'Dominio del sitio',     type:'text',  ph:'mythos.com.py',       hint:'Sin https://. Se usa en los meta OG y en los legales.'},
   {key:'instagram_url',        label:'Instagram (URL)',       type:'url',   ph:'https://instagram.com/tu_cuenta', hint:'Vacío = se oculta el ícono.'},
   {key:'facebook_url',         label:'Facebook (URL)',        type:'url',   ph:'https://facebook.com/tu_pagina',  hint:'Vacío = se oculta el ícono.'},
   {key:'tiktok_url',           label:'TikTok (URL)',          type:'url',   ph:'https://tiktok.com/@tu_cuenta',   hint:'Vacío = se oculta el ícono.'},
@@ -9335,6 +9338,987 @@ function PageFiscal({setFlash}) {
   );
 }
 
+/* ════════════════════════════════════════════════════════════════════════════
+   PAGE: COMENSALES — la app /clientes se controla ENTERA desde acá (mig 200)
+   ────────────────────────────────────────────────────────────────────────────
+   Todo lo que el comensal ve es dato editable, no código: cuánto XP da cada
+   cosa, cómo se llaman los niveles, qué insignias existen, qué preguntas trae
+   el registro y qué aspectos se califican. Cambiar cualquiera de esas cosas
+   NO debe pedir una migración ni un deploy.
+
+   El portero de la beta también vive acá: mientras `is_public` esté en false,
+   sólo entran los correos de la lista. La defensa real está en la base
+   (ensure_my_diner rechaza), esto es el panel de control.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+const CM_TABS = [
+  {id:'resumen',     label:'Resumen'},
+  {id:'comensales',  label:'Comensales'},
+  {id:'experiencia', label:'Experiencia'},
+  {id:'insignias',   label:'Insignias'},
+  {id:'colecciones', label:'Colecciones'},
+  {id:'retos',       label:'Retos'},
+  {id:'resenas',     label:'Reseñas'},
+  {id:'registro',    label:'Registro'},
+  {id:'acceso',      label:'Acceso'},
+];
+
+// ── Editor genérico de catálogo ────────────────────────────────────────────
+// Los seis catálogos de la mig 200 (reglas, niveles, insignias, colecciones,
+// retos, dimensiones, preguntas) son la MISMA operación: listar, crear,
+// editar, borrar. Un editor por tabla serían ~900 líneas repetidas que se
+// desincronizan de a una.
+//
+// `columns` describe la tabla:
+//   {key, label, type, options?, hint?, hide?, required?, width?}
+//   type: text | textarea | number | bool | select | tags | json
+function CatalogEditor({table, pk='id', columns, orderBy, title, help, setFlash, onChanged, migNote}) {
+  const [rows,setRows]   = useState(null);
+  const [err,setErr]     = useState('');
+  const [edit,setEdit]   = useState(null);   // fila en edición (o {} = nueva)
+  const [busy,setBusy]   = useState(false);
+
+  const load = useCallback(async ()=>{
+    if (!db) { setRows([]); return; }
+    let q = db.from(table).select('*');
+    if (orderBy) orderBy.split(',').forEach(o=>{ q = q.order(o.trim()); });
+    const {data,error} = await q;
+    if (error) { setErr(error.message||'error'); setRows([]); return; }
+    setErr(''); setRows(data||[]);
+  },[table,orderBy]);
+  useEffect(()=>{ load(); },[load]);
+
+  const save = async () => {
+    const row = {...edit};
+    const isNew = !!row.__new;
+    delete row.__new;
+    // Los vacíos se mandan como NULL: '' en una columna numérica revienta,
+    // y en una de texto guarda una cadena vacía que después hay que limpiar.
+    columns.forEach(c=>{
+      if (row[c.key] === '' || row[c.key] === undefined) row[c.key] = null;
+      if (c.type==='number' && row[c.key]!=null) row[c.key] = Number(row[c.key]);
+      if (c.type==='tags' && typeof row[c.key]==='string') {
+        row[c.key] = row[c.key].split(',').map(s=>s.trim()).filter(Boolean);
+      }
+      if (c.type==='json' && typeof row[c.key]==='string') {
+        try { row[c.key] = JSON.parse(row[c.key]); }
+        catch(_) { throw new Error(`El campo "${c.label}" no es un JSON válido.`); }
+      }
+    });
+    const missing = columns.filter(c=>c.required && (row[c.key]==null || row[c.key]===''));
+    if (missing.length) { setFlash({type:'error',text:'Falta: '+missing.map(c=>c.label).join(', ')}); return; }
+
+    setBusy(true);
+    try {
+      const {error} = isNew
+        ? await db.from(table).insert(row)
+        : await db.from(table).update(row).eq(pk, edit[pk]);
+      if (error) throw error;
+      setFlash({type:'ok',text:'Guardado'});
+      setEdit(null); await load(); onChanged && onChanged();
+    } catch(e) {
+      setFlash({type:'error',text:'No se pudo guardar: '+(e.message||'')});
+    }
+    setBusy(false);
+  };
+
+  const remove = async (row) => {
+    if (!window.confirm('¿Eliminar "'+(row.name||row.label||row[pk])+'"? No se puede deshacer.')) return;
+    const {error} = await db.from(table).delete().eq(pk, row[pk]);
+    if (error) { setFlash({type:'error',text:'No se pudo eliminar: '+error.message}); return; }
+    setFlash({type:'ok',text:'Eliminado'}); load(); onChanged && onChanged();
+  };
+
+  if (rows===null) return <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>;
+  if (err) return <MkEmpty text={migNote || ('No se pudo leer '+table+': '+err)}/>;
+
+  const shown = columns.filter(c=>!c.hide);
+
+  return (
+    <SectionCard title={title} action={
+      <Btn size="sm" onClick={()=>setEdit({__new:true, ...Object.fromEntries(
+        columns.filter(c=>c.def!==undefined).map(c=>[c.key,c.def]))})}>+ Agregar</Btn>
+    }>
+      {help && <div style={{padding:'12px 18px',fontSize:12,color:C.mid,lineHeight:1.7,
+        borderBottom:`1px solid ${C.border}`}}>{help}</div>}
+      {rows.length===0 ? <MkEmpty text="Todavía no hay filas."/> : (
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr>
+              {shown.map(c=><Th key={c.key} style={c.width?{width:c.width}:undefined}>{c.label}</Th>)}
+              <Th style={{width:110,textAlign:'right'}}>Acciones</Th>
+            </tr></thead>
+            <tbody>
+              {rows.map(r=>(
+                <tr key={r[pk]}>
+                  {shown.map(c=>(
+                    <Td key={c.key}>
+                      {c.type==='bool'
+                        ? <span style={{color:r[c.key]?C.green:C.dim,fontWeight:700,fontSize:12}}>{r[c.key]?'Sí':'No'}</span>
+                        : c.type==='tags'
+                          ? <span style={{fontSize:12,color:C.mid}}>{(r[c.key]||[]).join(', ')||'—'}</span>
+                          : c.type==='json'
+                            ? <span style={{fontSize:11,color:C.dim}}>{Array.isArray(r[c.key])?r[c.key].length+' opciones':'—'}</span>
+                            : <span style={{fontSize:13,color:C.ink}}>{r[c.key]==null||r[c.key]===''?'—':String(r[c.key])}</span>}
+                    </Td>
+                  ))}
+                  <Td style={{textAlign:'right',whiteSpace:'nowrap'}}>
+                    <Btn size="sm" variant="ghost" onClick={()=>setEdit({...r})}>Editar</Btn>{' '}
+                    <Btn size="sm" variant="danger" onClick={()=>remove(r)}>×</Btn>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {edit && (
+        <Modal title={edit.__new?'Nueva fila':'Editar'} onClose={()=>setEdit(null)} width={560}>
+          {columns.map(c=>(
+            <FormField key={c.key} label={c.label} hint={c.hint}>
+              {c.type==='bool'
+                ? <Toggle checked={!!edit[c.key]} onChange={v=>setEdit(e=>({...e,[c.key]:v}))}/>
+                : c.type==='textarea'
+                  ? <STa value={edit[c.key]??''} onChange={v=>setEdit(e=>({...e,[c.key]:v}))}/>
+                  : c.type==='select'
+                    ? <SSel value={edit[c.key]??''} onChange={v=>setEdit(e=>({...e,[c.key]:v}))}>
+                        <option value="">—</option>
+                        {(c.options||[]).map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+                      </SSel>
+                    : c.type==='tags'
+                      ? <SInp value={Array.isArray(edit[c.key])?edit[c.key].join(', '):(edit[c.key]??'')}
+                              onChange={v=>setEdit(e=>({...e,[c.key]:v}))} placeholder="pizzeria, pizza"/>
+                      : c.type==='json'
+                        ? <STa rows={6} value={typeof edit[c.key]==='string'?edit[c.key]:JSON.stringify(edit[c.key]??[],null,1)}
+                               onChange={v=>setEdit(e=>({...e,[c.key]:v}))}/>
+                        : <SInp type={c.type==='number'?'number':'text'} value={edit[c.key]??''}
+                                onChange={v=>setEdit(e=>({...e,[c.key]:v}))}/>}
+            </FormField>
+          ))}
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <Btn variant="ghost" onClick={()=>setEdit(null)}>Cancelar</Btn>
+            <Btn onClick={save} disabled={busy}>{busy?'Guardando…':'Guardar'}</Btn>
+          </div>
+        </Modal>
+      )}
+    </SectionCard>
+  );
+}
+
+function PageComensales({setFlash}) {
+  const [tab,setTab] = useState('resumen');
+  const [ov,setOv]   = useState(null);
+  const [miss,setMiss] = useState(false);
+  const [bump,setBump] = useState(0);
+
+  const loadOv = useCallback(async ()=>{
+    if (!db) { setOv(null); return; }
+    const {data,error} = await db.rpc('superadmin_diner_overview');
+    if (error) {
+      setMiss(/function|does not exist|schema cache|PGRST202/i.test(error.message||''));
+      setOv(null); return;
+    }
+    setMiss(false); setOv(data||null);
+  },[]);
+  useEffect(()=>{ loadOv(); },[loadOv,bump]);
+
+  if (miss) return (
+    <MkEmpty text="App de comensales no disponible: falta aplicar la migración 200 en Supabase."/>
+  );
+
+  const pending = (ov?.reviews_pending||0) + (ov?.photos_pending||0);
+
+  return (
+    <div className="animate-in">
+      <MkTabBar active={tab} onSelect={setTab}
+        tabs={CM_TABS.map(t=>t.id==='resenas'?{...t,badge:pending}:t)}/>
+
+      {tab==='resumen'     && <CmResumen ov={ov} setTab={setTab}/>}
+      {tab==='comensales'  && <CmComensales ov={ov} setFlash={setFlash} onChanged={()=>setBump(b=>b+1)}/>}
+      {tab==='experiencia' && <CmExperiencia setFlash={setFlash}/>}
+      {tab==='insignias'   && <CmInsignias setFlash={setFlash}/>}
+      {tab==='colecciones' && <CmColecciones setFlash={setFlash}/>}
+      {tab==='retos'       && <CmRetos setFlash={setFlash}/>}
+      {tab==='resenas'     && <CmResenas setFlash={setFlash} onChanged={()=>setBump(b=>b+1)}/>}
+      {tab==='registro'    && <CmRegistro setFlash={setFlash}/>}
+      {tab==='acceso'      && <CmAcceso setFlash={setFlash}/>}
+    </div>
+  );
+}
+
+/* ─── Resumen ─── */
+function CmResumen({ov, setTab}) {
+  if (!ov) return <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>;
+  const n = v => Number(v||0).toLocaleString('es-PY');
+  return (
+    <div>
+      <div className="sa-kpis" style={{marginBottom:18}}>
+        <Kpi label="Comensales" value={n(ov.diners_total)} icon="users"
+             sub={`${n(ov.diners_active)} activos · ${n(ov.diners_30d)} en 30 días`}
+             onClick={()=>setTab('comensales')}/>
+        <Kpi label="Registro completado" value={n(ov.diners_onboarded)} icon="fileText"
+             sub={ov.diners_total ? Math.round(100*ov.diners_onboarded/ov.diners_total)+'% del total' : 'sin datos'}
+             onClick={()=>setTab('registro')}/>
+        <Kpi label="Reseñas" value={n(ov.reviews_total)} icon="star"
+             sub={ov.avg_stars ? `promedio ${ov.avg_stars} ★` : 'sin reseñas'}
+             onClick={()=>setTab('resenas')}/>
+        <Kpi label="Fichas vinculadas" value={n(ov.links_total)} icon="link"
+             sub={`${n(ov.xp_total)} XP repartido`}/>
+      </div>
+
+      {(ov.reviews_pending>0 || ov.photos_pending>0 || ov.recovery_pending>0) && (
+        <div style={{background:TINT.warnBg,border:`1px solid ${C.orange}`,borderRadius:10,
+                     padding:'12px 16px',marginBottom:18,display:'flex',alignItems:'center',gap:12}}>
+          <Icon name="alert" size={16}/>
+          <span style={{fontSize:13,color:TINT.warnText,flex:1}}>
+            Hay {ov.reviews_pending>0 && <b>{ov.reviews_pending} reseña{ov.reviews_pending!==1?'s':''}</b>}
+            {ov.reviews_pending>0 && ov.photos_pending>0 && ' y '}
+            {ov.photos_pending>0 && <b>{ov.photos_pending} foto{ov.photos_pending!==1?'s':''}</b>}
+            {(ov.reviews_pending>0||ov.photos_pending>0) && ' esperando moderación'}
+            {ov.recovery_pending>0 && `${(ov.reviews_pending||ov.photos_pending)?'. Además, ':''}${ov.recovery_pending} pedido(s) de recuperación de cuenta`}.
+          </span>
+          <Btn size="sm" onClick={()=>setTab('resenas')}>Revisar</Btn>
+        </div>
+      )}
+
+      <div style={{display:'grid',gridTemplateColumns:'1.6fr 1fr',gap:18}}>
+        <SectionCard title="Top comensales por experiencia">
+          {(ov.top_diners||[]).length===0 ? <MkEmpty text="Todavía nadie acumuló experiencia."/> : (
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse'}}>
+                <thead><tr>
+                  <Th>#</Th><Th>Comensal</Th><Th>Nivel</Th>
+                  <Th style={{textAlign:'right'}}>XP</Th>
+                  <Th style={{textAlign:'right'}}>Reseñas</Th>
+                  <Th style={{textAlign:'right'}}>Credibilidad</Th>
+                </tr></thead>
+                <tbody>
+                  {ov.top_diners.map((d,i)=>(
+                    <tr key={d.id}>
+                      <Td style={{color:C.dim,width:34}}>{i+1}</Td>
+                      <Td>
+                        <div style={{fontWeight:600,color:C.ink}}>{d.display_name||'Comensal'}</div>
+                        <div style={{fontSize:11,color:C.dim}}>{d.email||'—'}{d.city?' · '+d.city:''}</div>
+                      </Td>
+                      <Td style={{fontSize:12,color:C.mid}}>{d.level_name||'—'}</Td>
+                      <Td style={{textAlign:'right',fontWeight:700}}>{n(d.xp)}</Td>
+                      <Td style={{textAlign:'right'}}>{n(d.reviews)}</Td>
+                      <Td style={{textAlign:'right',color:d.credibility>=60?C.green:C.mid}}>{d.credibility}%</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Por ciudad">
+          {(ov.by_city||[]).length===0 ? <MkEmpty text="Sin datos."/> : (
+            <div style={{padding:'6px 0'}}>
+              {ov.by_city.map(r=>(
+                <div key={r.city} style={{display:'flex',justifyContent:'space-between',
+                     padding:'8px 18px',fontSize:13}}>
+                  <span style={{color:C.mid}}>{r.city}</span>
+                  <span style={{fontWeight:700,color:C.ink}}>{n(r.n)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Comensales (lista + soporte) ─── */
+function CmComensales({ov, setFlash, onChanged}) {
+  const [q,setQ] = useState('');
+  const [adj,setAdj] = useState(null);
+  const [xp,setXp]   = useState('');
+  const [note,setNote] = useState('');
+  const rows = (ov?.top_diners||[]).filter(d=>{
+    if (!q.trim()) return true;
+    const s = q.toLowerCase();
+    return (d.display_name||'').toLowerCase().includes(s) || (d.email||'').toLowerCase().includes(s);
+  });
+
+  const applyAdjust = async () => {
+    const v = parseInt(xp,10);
+    if (!v) { setFlash({type:'error',text:'El ajuste no puede ser 0.'}); return; }
+    const {data,error} = await db.rpc('superadmin_adjust_xp',
+      {p_diner:adj.id, p_xp:v, p_note:note||'ajuste de soporte'});
+    if (error || !data?.ok) { setFlash({type:'error',text:'No se pudo ajustar: '+(error?.message||'')}); return; }
+    setFlash({type:'ok',text:'Ajuste registrado. Total: '+Number(data.total).toLocaleString('es-PY')+' XP'});
+    setAdj(null); setXp(''); setNote(''); onChanged && onChanged();
+  };
+
+  return (
+    <>
+      <SectionCard title="Comensales" action={
+        <div style={{width:260}}><SInp value={q} onChange={setQ} placeholder="Buscar por nombre o correo…"/></div>
+      }>
+        <div style={{padding:'12px 18px',fontSize:12,color:C.mid,lineHeight:1.7,
+                     borderBottom:`1px solid ${C.border}`}}>
+          Esta es la única pantalla de Mythos que ve la identidad global de una persona.
+          El staff de un restaurante NO la ve: sólo alcanza su propia ficha de cliente y
+          el XP acumulado en su local. Que alguien sea a la vez mozo de un restaurante y
+          comensal no es deducible desde ningún panel — y tiene que seguir siendo así.
+        </div>
+        {rows.length===0 ? <MkEmpty text="Sin comensales que coincidan."/> : (
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr>
+                <Th>Comensal</Th><Th>Ciudad</Th><Th>Nivel</Th>
+                <Th style={{textAlign:'right'}}>XP</Th>
+                <Th style={{textAlign:'right'}}>Reseñas</Th>
+                <Th style={{textAlign:'right'}}>Credibilidad</Th>
+                <Th style={{textAlign:'right',width:130}}>Soporte</Th>
+              </tr></thead>
+              <tbody>
+                {rows.map(d=>(
+                  <tr key={d.id}>
+                    <Td>
+                      <div style={{fontWeight:600,color:C.ink}}>{d.display_name||'Comensal'}</div>
+                      <div style={{fontSize:11,color:C.dim}}>{d.email||'—'}</div>
+                    </Td>
+                    <Td style={{fontSize:12,color:C.mid}}>{d.city||'—'}</Td>
+                    <Td style={{fontSize:12,color:C.mid}}>{d.level_name||'—'}</Td>
+                    <Td style={{textAlign:'right',fontWeight:700}}>{Number(d.xp||0).toLocaleString('es-PY')}</Td>
+                    <Td style={{textAlign:'right'}}>{d.reviews}</Td>
+                    <Td style={{textAlign:'right'}}>{d.credibility}%</Td>
+                    <Td style={{textAlign:'right'}}>
+                      <Btn size="sm" variant="ghost" onClick={()=>setAdj(d)}>Ajustar XP</Btn>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
+
+      {adj && (
+        <Modal title={'Ajustar XP · '+(adj.display_name||adj.email)} onClose={()=>setAdj(null)} width={440}>
+          <div style={{fontSize:12.5,color:C.mid,lineHeight:1.7,marginBottom:16}}>
+            El ajuste se anota como una fila más en el libro, nunca editando el pasado:
+            así el historial sigue siendo auditable. Un número negativo resta.
+          </div>
+          <FormField label="XP a sumar o restar" hint="Ej.: 500 o −200">
+            <SInp type="number" value={xp} onChange={setXp}/>
+          </FormField>
+          <FormField label="Motivo" hint="Queda guardado junto al asiento.">
+            <SInp value={note} onChange={setNote} placeholder="Compensación por pedido no acreditado"/>
+          </FormField>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+            <Btn variant="ghost" onClick={()=>setAdj(null)}>Cancelar</Btn>
+            <Btn onClick={applyAdjust}>Registrar ajuste</Btn>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/* ─── Experiencia: reglas + niveles ─── */
+function CmExperiencia({setFlash}) {
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:18}}>
+      <CatalogEditor
+        table="xp_rules" pk="code" orderBy="sort_order" setFlash={setFlash}
+        title="Cuánto XP da cada cosa"
+        migNote="Falta aplicar la migración 200 en Supabase."
+        help={<>
+          El XP viene de <b>contribuir</b>, no de cuánto se gasta: el nivel mide lo que
+          dice medir y el que más plata pone no compra el voto más pesado sobre el
+          ranking. <b>El techo diario no es un detalle</b> — sin él, quien más actividad
+          genera termina siendo quien más influye. Si activás <i>XP por ₲1.000</i>,
+          ponele techo.
+        </>}
+        columns={[
+          {key:'code',        label:'Código', required:true, hint:'No se cambia: es lo que escribe la base al acreditar.'},
+          {key:'label',       label:'Nombre', required:true},
+          {key:'description', label:'Descripción', type:'textarea'},
+          {key:'xp_fixed',    label:'XP fijo', type:'number', def:0},
+          {key:'xp_per_unit', label:'XP por unidad', type:'number', def:0, hint:'Por dimensión calificada, por foto, por voto…'},
+          {key:'xp_per_1000', label:'XP por ₲1.000', type:'number', def:0, hint:'Dejalo en 0 salvo que quieras premiar el gasto.'},
+          {key:'per_event_cap',label:'Tope por evento', type:'number', hint:'Vacío = sin tope.'},
+          {key:'daily_cap',   label:'Techo diario', type:'number', hint:'Vacío = sin techo. Recomendado en todo lo repetible.'},
+          {key:'is_active',   label:'Activa', type:'bool', def:true},
+          {key:'sort_order',  label:'Orden', type:'number', def:0},
+        ]}/>
+
+      <CatalogEditor
+        table="xp_levels" pk="level" orderBy="level" setFlash={setFlash}
+        title="La escalera de niveles"
+        help={<>
+          El nivel <b>no se guarda en ningún lado</b>: se deriva comparando el XP contra
+          esta tabla. Por eso cambiar acá recalcula a todos los comensales al instante,
+          sin migrar un solo dato. <b>Peso de crítica</b> es cuánto vale la reseña de
+          alguien de este nivel en la nota del restaurante.
+        </>}
+        columns={[
+          {key:'level',        label:'Nivel', type:'number', required:true},
+          {key:'name',         label:'Título', required:true, hint:'Novato, Explorador, Catador, Crítico, Experto, Inspector, Embajador, Leyenda Gastronómica…'},
+          {key:'min_xp',       label:'XP mínimo', type:'number', required:true},
+          {key:'review_weight',label:'Peso de crítica', type:'number', def:1},
+        ]}/>
+    </div>
+  );
+}
+
+/* ─── Insignias ─── */
+const CRIT_OPTS = [
+  {v:'orders_total',        l:'Cantidad de pedidos'},
+  {v:'restaurants_total',   l:'Restaurantes distintos'},
+  {v:'reviews_total',       l:'Reseñas publicadas'},
+  {v:'photos_total',        l:'Fotos aprobadas'},
+  {v:'helpful_total',       l:'Votos útiles recibidos'},
+  {v:'level',               l:'Nivel alcanzado'},
+  {v:'orders_by_type',      l:'Pedidos en un tipo de local'},
+  {v:'restaurants_by_type', l:'Locales distintos de un tipo'},
+  {v:'restaurants_by_city', l:'Locales distintos de una ciudad'},
+];
+
+function CmInsignias({setFlash}) {
+  return (
+    <CatalogEditor
+      table="diner_badges_catalog" orderBy="sort_order" setFlash={setFlash}
+      title="Insignias"
+      migNote="Falta aplicar la migración 200 en Supabase."
+      help={<>
+        Se otorgan solas cuando el comensal abre su perfil. <b>Tipos de local</b> se
+        compara contra <code>restaurants.business_type</code>, que es texto libre: poné
+        todas las variantes que uses (<i>pizzeria, pizzería, pizza</i>) o la insignia no
+        se va a disparar nunca.
+      </>}
+      columns={[
+        {key:'code',          label:'Código', required:true},
+        {key:'name',          label:'Nombre', required:true},
+        {key:'emoji',         label:'Emoji', def:'🏅'},
+        {key:'description',   label:'Descripción', type:'textarea'},
+        {key:'criteria_type', label:'Se gana por', type:'select', options:CRIT_OPTS, required:true},
+        {key:'criteria_value',label:'Cantidad', type:'number', def:1},
+        {key:'match_types',   label:'Tipos de local', type:'tags', hint:'Separados por coma. Sólo si el criterio es "de un tipo".'},
+        {key:'match_city',    label:'Ciudad', hint:'Sólo si el criterio es por ciudad.'},
+        {key:'xp_reward',     label:'XP de regalo', type:'number', def:0},
+        {key:'is_active',     label:'Activa', type:'bool', def:true},
+        {key:'sort_order',    label:'Orden', type:'number', def:0},
+      ]}/>
+  );
+}
+
+/* ─── Colecciones ─── */
+function CmColecciones({setFlash}) {
+  return (
+    <CatalogEditor
+      table="diner_collections" orderBy="sort_order" setFlash={setFlash}
+      title="Colecciones"
+      migNote="Falta aplicar la migración 200 en Supabase."
+      help={<>
+        "Visitaste 18 de 35 hamburgueserías". Si dejás <b>Total</b> vacío, el
+        denominador lo calcula la base contando los locales activos que
+        realmente matchean — que es lo correcto: prometer 35 cuando hay 12 es una
+        promesa que la app no puede cumplir.
+      </>}
+      columns={[
+        {key:'code',        label:'Código', required:true},
+        {key:'name',        label:'Nombre', required:true},
+        {key:'emoji',       label:'Emoji', def:'📚'},
+        {key:'description', label:'Descripción', type:'textarea'},
+        {key:'match_types', label:'Tipos de local', type:'tags', required:true},
+        {key:'match_city',  label:'Ciudad', hint:'Vacío = todo el país.'},
+        {key:'target_count',label:'Total', type:'number', hint:'Vacío = se cuenta solo.'},
+        {key:'reward_xp',   label:'XP al completar', type:'number', def:0},
+        {key:'is_active',   label:'Activa', type:'bool', def:true},
+        {key:'sort_order',  label:'Orden', type:'number', def:0},
+      ]}/>
+  );
+}
+
+/* ─── Retos ─── */
+function CmRetos({setFlash}) {
+  return (
+    <CatalogEditor
+      table="diner_challenges" orderBy="sort_order" setFlash={setFlash}
+      title="Retos"
+      migNote="Falta aplicar la migración 200 en Supabase."
+      help={<>
+        El reto se vuelve a poner en juego cada semana o cada mes según su período, y el
+        premio se entrega <b>una sola vez por período</b>: correr el motor dos veces no
+        reparte dos veces.
+      </>}
+      columns={[
+        {key:'code',        label:'Código', required:true},
+        {key:'name',        label:'Nombre', required:true},
+        {key:'emoji',       label:'Emoji', def:'🎯'},
+        {key:'description', label:'Descripción', type:'textarea'},
+        {key:'period',      label:'Período', type:'select', def:'month',
+         options:[{v:'week',l:'Semanal'},{v:'month',l:'Mensual'},{v:'once',l:'Una sola vez'}]},
+        {key:'goal_type',   label:'Objetivo', type:'select', required:true,
+         options:[{v:'orders',l:'Pedidos'},{v:'restaurants',l:'Restaurantes distintos'},
+                  {v:'reviews',l:'Reseñas'},{v:'photos',l:'Fotos'},
+                  {v:'restaurants_by_type',l:'Locales de un tipo'}]},
+        {key:'goal_value',  label:'Cantidad', type:'number', def:1},
+        {key:'match_types', label:'Tipos de local', type:'tags'},
+        {key:'reward_xp',   label:'XP de premio', type:'number', def:0},
+        {key:'reward_text', label:'Premio extra', hint:'Texto libre: un cupón, un beneficio…'},
+        {key:'is_active',   label:'Activo', type:'bool', def:true},
+        {key:'sort_order',  label:'Orden', type:'number', def:0},
+      ]}/>
+  );
+}
+
+/* ─── Reseñas: moderación + dimensiones ─── */
+function CmResenas({setFlash, onChanged}) {
+  const [sub,setSub]   = useState('cola');
+  const [st,setSt]     = useState('pending');
+  const [q,setQ]       = useState(null);
+  const [busy,setBusy] = useState('');
+
+  const load = useCallback(async ()=>{
+    if (!db) return;
+    const {data} = await db.rpc('superadmin_review_queue',{p_status:st, p_limit:150});
+    setQ(data||{reviews:[],photos:[]});
+  },[st]);
+  useEffect(()=>{ if (sub==='cola') load(); },[load,sub]);
+
+  const moderate = async (kind,id,status) => {
+    setBusy(id);
+    const {data,error} = await db.rpc('superadmin_moderate',{p_kind:kind,p_id:id,p_status:status,p_note:null});
+    setBusy('');
+    if (error || !data?.ok) { setFlash({type:'error',text:'No se pudo moderar.'}); return; }
+    setFlash({type:'ok',text:status==='approved'?'Aprobado':'Rechazado'});
+    load(); onChanged && onChanged();
+  };
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,marginBottom:16}}>
+        <FilterBtn active={sub==='cola'} onClick={()=>setSub('cola')}>Moderación</FilterBtn>
+        <FilterBtn active={sub==='dims'} onClick={()=>setSub('dims')}>Aspectos que se califican</FilterBtn>
+      </div>
+
+      {sub==='dims' ? (
+        <CatalogEditor
+          table="review_dimensions" pk="code" orderBy="sort_order" setFlash={setFlash}
+          title="Aspectos de una reseña"
+          migNote="Falta aplicar la migración 200 en Supabase."
+          help={<>
+            Son de plataforma —iguales para todos los locales— para que la nota sea
+            comparable entre restaurantes. Cada aspecto que el comensal califica le suma
+            XP: por eso agregar uno nuevo cambia cuánto rinde escribir una reseña
+            completa. <b>Aplica a</b> permite que "Limpieza" sólo aparezca en salón y
+            "Delivery" sólo en pedidos a domicilio.
+          </>}
+          columns={[
+            {key:'code',        label:'Código', required:true},
+            {key:'label',       label:'Nombre', required:true},
+            {key:'emoji',       label:'Emoji'},
+            {key:'description', label:'Ayuda', hint:'La frase corta que ve el comensal debajo.'},
+            {key:'applies_to',  label:'Aplica a', type:'select', def:'all',
+             options:[{v:'all',l:'Todos los pedidos'},{v:'dine_in',l:'Sólo en el local'},
+                      {v:'delivery',l:'Sólo delivery'},{v:'pickup',l:'Sólo retiro'}]},
+            {key:'is_active',   label:'Activo', type:'bool', def:true},
+            {key:'sort_order',  label:'Orden', type:'number', def:0},
+          ]}/>
+      ) : (
+        <>
+          <div style={{display:'flex',gap:8,marginBottom:14}}>
+            {[['pending','Pendientes'],['approved','Aprobadas'],['rejected','Rechazadas'],['all','Todas']]
+              .map(([v,l])=><FilterBtn key={v} active={st===v} onClick={()=>setSt(v)}>{l}</FilterBtn>)}
+          </div>
+
+          <SectionCard title="Reseñas" style={{marginBottom:18}}>
+            {!q ? <div style={{display:'flex',justifyContent:'center',padding:36}}><Spinner/></div>
+             : (q.reviews||[]).length===0 ? <MkEmpty text="Nada en esta bandeja."/> : (
+              <div>
+                {q.reviews.map(r=>(
+                  <div key={r.id} style={{padding:'14px 18px',borderBottom:`1px solid ${C.border}`}}>
+                    <div style={{display:'flex',justifyContent:'space-between',gap:14,alignItems:'flex-start'}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                          <span style={{fontWeight:700,color:C.ink,fontSize:13.5}}>{r.restaurant_name}</span>
+                          <span style={{fontSize:12,color:C.orange,fontWeight:700}}>{'★'.repeat(r.stars)}</span>
+                          <span style={{fontSize:11,color:C.dim}}>
+                            {r.author} · credibilidad {r.author_credibility}% · peso ×{r.weight}
+                          </span>
+                        </div>
+                        {r.comment && <div style={{fontSize:13,color:C.mid,lineHeight:1.65,marginTop:6}}>{r.comment}</div>}
+                        {Object.keys(r.scores||{}).length>0 && (
+                          <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:8}}>
+                            {Object.entries(r.scores).map(([k,v])=>(
+                              <span key={k} style={{fontSize:11,color:C.mid,background:'var(--bg-subtle)',
+                                border:`1px solid ${C.border}`,borderRadius:6,padding:'2px 7px'}}>{k} {v}★</span>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{fontSize:11,color:C.dim,marginTop:7}}>
+                          {new Date(r.created_at).toLocaleString('es-PY')} · {r.service_type}
+                        </div>
+                      </div>
+                      <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
+                        {r.status!=='approved' && <Btn size="sm" variant="success" disabled={busy===r.id}
+                          onClick={()=>moderate('review',r.id,'approved')}>Aprobar</Btn>}
+                        {r.status!=='rejected' && <Btn size="sm" variant="danger" disabled={busy===r.id}
+                          onClick={()=>moderate('review',r.id,'rejected')}>Rechazar</Btn>}
+                        {r.status==='approved' && <Btn size="sm" variant="ghost" disabled={busy===r.id}
+                          onClick={()=>moderate('review',r.id,'hidden')}>Ocultar</Btn>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Fotos">
+            <div style={{padding:'12px 18px',fontSize:12,color:C.mid,lineHeight:1.7,
+                         borderBottom:`1px solid ${C.border}`}}>
+              El XP de la foto se acredita <b>recién al aprobarla</b>: si se pagara al
+              subirla, subir basura rendiría igual que subir algo útil.
+            </div>
+            {!q ? null : (q.photos||[]).length===0 ? <MkEmpty text="Sin fotos en esta bandeja."/> : (
+              <div style={{display:'flex',flexWrap:'wrap',gap:14,padding:18}}>
+                {q.photos.map(p=>(
+                  <div key={p.id} style={{width:180,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                    <img src={p.storage_path} alt="" style={{width:'100%',height:130,objectFit:'cover',display:'block'}}/>
+                    <div style={{padding:10}}>
+                      <div style={{fontSize:12,fontWeight:600,color:C.ink,overflow:'hidden',
+                        textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.restaurant_name}</div>
+                      <div style={{fontSize:11,color:C.dim,marginBottom:8}}>{p.author}</div>
+                      <div style={{display:'flex',gap:6}}>
+                        {p.status!=='approved' && <Btn size="sm" variant="success" disabled={busy===p.id}
+                          onClick={()=>moderate('photo',p.id,'approved')}>Aprobar</Btn>}
+                        {p.status!=='rejected' && <Btn size="sm" variant="danger" disabled={busy===p.id}
+                          onClick={()=>moderate('photo',p.id,'rejected')}>×</Btn>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─── Registro: preguntas + analítica ─── */
+function CmRegistro({setFlash}) {
+  const [sub,setSub] = useState('analitica');
+  const [an,setAn]   = useState(null);
+  const [miss,setMiss] = useState(false);
+
+  useEffect(()=>{
+    if (sub!=='analitica' || !db) return;
+    let alive = true;
+    (async ()=>{
+      const {data,error} = await db.rpc('diner_profile_analytics',{p_from:null,p_to:null});
+      if (!alive) return;
+      if (error) { setMiss(true); return; }
+      setMiss(false); setAn(data||null);
+    })();
+    return ()=>{ alive = false; };
+  },[sub]);
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,marginBottom:16}}>
+        <FilterBtn active={sub==='analitica'} onClick={()=>setSub('analitica')}>Respuestas</FilterBtn>
+        <FilterBtn active={sub==='preguntas'} onClick={()=>setSub('preguntas')}>Preguntas</FilterBtn>
+      </div>
+
+      {sub==='preguntas' ? (
+        <CatalogEditor
+          table="diner_profile_questions" pk="code" orderBy="step,sort_order" setFlash={setFlash}
+          title="Preguntas del registro"
+          migNote="Falta aplicar la migración 200 en Supabase."
+          help={<>
+            Es lo que hace útil a la app y lo que un restaurante solo no puede saber: qué
+            come esta persona. <b>Paso</b> agrupa las preguntas en pantallas del wizard.
+            Las <b>Opciones</b> son un JSON de <code>{'{value,label,emoji}'}</code>; el
+            <i> value</i> es lo que se guarda, así que cambiarlo desconecta las respuestas
+            ya cargadas — para renombrar, cambiá sólo el <i>label</i>.
+          </>}
+          columns={[
+            {key:'code',       label:'Código', required:true},
+            {key:'label',      label:'Pregunta', required:true},
+            {key:'help',       label:'Aclaración'},
+            {key:'kind',       label:'Tipo', type:'select', def:'multi', required:true,
+             options:[{v:'multi',l:'Varias opciones'},{v:'single',l:'Una opción'},
+                      {v:'text',l:'Texto libre'},{v:'number',l:'Número'},{v:'date',l:'Fecha'}]},
+            {key:'options',    label:'Opciones (JSON)', type:'json'},
+            {key:'is_required',label:'Obligatoria', type:'bool', def:false},
+            {key:'is_active',  label:'Activa', type:'bool', def:true},
+            {key:'step',       label:'Paso', type:'number', def:1},
+            {key:'sort_order', label:'Orden', type:'number', def:0},
+          ]}/>
+      ) : miss ? (
+        <MkEmpty text="Analítica del registro no disponible: falta aplicar la migración 200."/>
+      ) : !an ? (
+        <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>
+      ) : (
+        <>
+          <div className="sa-kpis" style={{marginBottom:18}}>
+            <Kpi label="Comensales" value={Number(an.total||0).toLocaleString('es-PY')} icon="users"/>
+            <Kpi label="Completaron el registro" value={Number(an.answered||0).toLocaleString('es-PY')}
+                 icon="check" sub={an.total?Math.round(100*an.answered/an.total)+'%':'—'}/>
+          </div>
+
+          <div style={{padding:'0 0 14px',fontSize:12,color:C.mid,lineHeight:1.7}}>
+            Los conteos salen de la base sobre <b>todo</b> el historial, no del array que
+            carga el panel: agrupar en el navegador da un número que empeora cuanto más
+            crece el negocio. Las opciones que <b>nadie eligió</b> también aparecen —
+            eso es información, no una fila que falta.
+          </div>
+
+          {(an.questions||[]).map(q=>(
+            <SectionCard key={q.code} title={q.label} style={{marginBottom:14}}
+              action={<span style={{fontSize:11,color:C.dim}}>{q.answers} respuesta{q.answers!==1?'s':''}</span>}>
+              {(q.options||[]).length===0 ? <MkEmpty text="Sin respuestas todavía."/> : (
+                <div style={{padding:'12px 18px'}}>
+                  {q.options.map(o=>{
+                    const pct = q.answers>0 ? Math.round(100*o.n/q.answers) : 0;
+                    return (
+                      <div key={o.value} style={{marginBottom:9}}>
+                        <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:4}}>
+                          <span style={{color:o.n?C.ink:C.dim}}>{o.emoji?o.emoji+' ':''}{o.label}</span>
+                          <span style={{color:C.mid,fontWeight:600}}>{o.n} · {pct}%</span>
+                        </div>
+                        <div style={{height:5,background:'var(--bg-subtle)',borderRadius:9999,overflow:'hidden'}}>
+                          <div style={{width:pct+'%',height:'100%',background:C.ink,borderRadius:9999}}/>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </SectionCard>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─── Acceso: portero de la beta + módulos + credibilidad ─── */
+function CmAcceso({setFlash}) {
+  const [cfg,setCfg]   = useState(null);
+  const [list,setList] = useState(null);
+  const [mail,setMail] = useState('');
+  const [note,setNote] = useState('');
+  const [busy,setBusy] = useState(false);
+
+  const load = useCallback(async ()=>{
+    if (!db) return;
+    const [c,l] = await Promise.all([
+      db.from('diner_app_config').select('*').maybeSingle(),
+      db.from('diner_app_access').select('*').order('created_at')
+    ]);
+    setCfg(c.data||null); setList(l.data||[]);
+  },[]);
+  useEffect(()=>{ load(); },[load]);
+
+  const patch = async (fields) => {
+    setCfg(c=>({...c,...fields}));   // optimista: el toggle no debe "saltar"
+    const {error} = await db.from('diner_app_config').update({...fields, updated_at:new Date().toISOString()}).eq('id',true);
+    if (error) { setFlash({type:'error',text:'No se pudo guardar: '+error.message}); load(); }
+  };
+
+  const addMail = async () => {
+    const v = mail.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { setFlash({type:'error',text:'Escribí un correo válido.'}); return; }
+    setBusy(true);
+    const {error} = await db.from('diner_app_access').insert({email:v, note:note||null});
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:/duplicate|unique/i.test(error.message)?'Ese correo ya está en la lista.':'Error: '+error.message}); return; }
+    setFlash({type:'ok',text:'Correo habilitado'}); setMail(''); setNote(''); load();
+  };
+
+  const delMail = async (row) => {
+    if (!window.confirm('¿Quitar '+row.email+' de la lista?')) return;
+    const {error} = await db.from('diner_app_access').delete().eq('id',row.id);
+    if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
+    load();
+  };
+
+  if (!cfg) return <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>;
+
+  const MODS = [
+    ['discovery_enabled',   'Descubrir restaurantes', 'La portada con el buscador y el listado.'],
+    ['reviews_enabled',     'Reseñas',                'Sólo puede reseñar quien pidió y pagó ahí.'],
+    ['photos_enabled',      'Fotos en las reseñas',   'Pasan por moderación antes de verse.'],
+    ['ranking_enabled',     'Ranking',                'Tabla de posiciones por país y por ciudad.'],
+    ['badges_enabled',      'Insignias',              null],
+    ['collections_enabled', 'Colecciones',            null],
+    ['challenges_enabled',  'Retos',                  null],
+  ];
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:18}}>
+      <SectionCard title="Estado de la app">
+        <div style={{padding:18}}>
+          <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:14}}>
+            <Toggle checked={!!cfg.is_public} onChange={v=>patch({is_public:v})}/>
+            <div>
+              <div style={{fontWeight:700,fontSize:14,color:C.ink}}>
+                {cfg.is_public ? 'Abierta al público' : 'Beta cerrada'}
+              </div>
+              <div style={{fontSize:12,color:C.mid,marginTop:2}}>
+                {cfg.is_public
+                  ? 'Cualquiera con correo o cuenta de Google puede crear su perfil de comensal.'
+                  : 'Sólo los correos de la lista de abajo pueden entrar.'}
+              </div>
+            </div>
+          </div>
+          {cfg.is_public && (
+            <div style={{background:TINT.warnBg,border:`1px solid ${C.orange}`,borderRadius:8,
+                         padding:'10px 14px',fontSize:12.5,color:TINT.warnText,lineHeight:1.7}}>
+              Antes de abrirla: sacá <code>/clientes</code> del <code>Disallow</code> de
+              <code> robots.txt</code> y agregala al <code>sitemap.xml</code>, o Google no
+              la va a indexar nunca.
+            </div>
+          )}
+          <FormField label="Mensaje mientras está cerrada" hint="Es lo que ve alguien que entra sin estar habilitado.">
+            <STa value={cfg.closed_message||''} rows={2}
+                 onChange={v=>setCfg(c=>({...c,closed_message:v}))}/>
+          </FormField>
+          <Btn size="sm" onClick={()=>patch({closed_message:cfg.closed_message})}>Guardar mensaje</Btn>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Correos habilitados">
+        <div style={{padding:'12px 18px',fontSize:12,color:C.mid,lineHeight:1.7,
+                     borderBottom:`1px solid ${C.border}`}}>
+          El portero está en la base, no en la pantalla: aunque alguien llegue a
+          <code> /clientes</code>, la base rechaza crearle perfil si su correo no está acá.
+          Esconder el botón nunca es la única defensa.
+        </div>
+        <div style={{padding:18,display:'flex',gap:10,alignItems:'flex-end',flexWrap:'wrap',
+                     borderBottom:`1px solid ${C.border}`}}>
+          <div style={{flex:'1 1 240px'}}>
+            <FormField label="Correo"><SInp value={mail} onChange={setMail} placeholder="alguien@correo.com"/></FormField>
+          </div>
+          <div style={{flex:'1 1 200px'}}>
+            <FormField label="Nota"><SInp value={note} onChange={setNote} placeholder="Prueba de campo"/></FormField>
+          </div>
+          <div style={{marginBottom:14}}><Btn onClick={addMail} disabled={busy}>Habilitar</Btn></div>
+        </div>
+        {!list ? null : list.length===0 ? <MkEmpty text="La lista está vacía."/> : (
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr><Th>Correo</Th><Th>Nota</Th><Th>Alta</Th><Th style={{width:70}}/></tr></thead>
+            <tbody>
+              {list.map(r=>(
+                <tr key={r.id}>
+                  <Td style={{fontWeight:600,color:C.ink}}>{r.email}</Td>
+                  <Td style={{color:C.mid,fontSize:12}}>{r.note||'—'}</Td>
+                  <Td style={{color:C.dim,fontSize:12}}>{new Date(r.created_at).toLocaleDateString('es-PY')}</Td>
+                  <Td style={{textAlign:'right'}}>
+                    <Btn size="sm" variant="danger" onClick={()=>delMail(r)}>×</Btn>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Módulos">
+        <div style={{padding:18}}>
+          {MODS.map(([k,label,hint])=>(
+            <div key={k} style={{display:'flex',alignItems:'center',gap:14,padding:'9px 0',
+                 borderBottom:`1px solid ${C.border}`}}>
+              <Toggle checked={!!cfg[k]} onChange={v=>patch({[k]:v})}/>
+              <div style={{flex:1}}>
+                <div style={{fontSize:13.5,fontWeight:600,color:C.ink}}>{label}</div>
+                {hint && <div style={{fontSize:11.5,color:C.dim,marginTop:1}}>{hint}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Reseñas — reglas">
+        <div style={{padding:18}}>
+          <div style={{display:'flex',alignItems:'center',gap:14,padding:'9px 0',borderBottom:`1px solid ${C.border}`}}>
+            <Toggle checked={!!cfg.review_auto_approve} onChange={v=>patch({review_auto_approve:v})}/>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13.5,fontWeight:600,color:C.ink}}>Publicar reseñas sin revisar</div>
+              <div style={{fontSize:11.5,color:C.dim,marginTop:1}}>
+                Apagado, cada reseña espera en la bandeja de moderación.
+              </div>
+            </div>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:14,padding:'9px 0',borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
+            <Toggle checked={!!cfg.weighted_rating_enabled} onChange={v=>patch({weighted_rating_enabled:v})}/>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13.5,fontWeight:600,color:C.ink}}>Nota ponderada por reputación</div>
+              <div style={{fontSize:11.5,color:C.dim,marginTop:1}}>
+                La reseña de alguien con 300 pedidos y 250 votos útiles pesa más que la de
+                una cuenta de ayer. Apagado, todas pesan igual.
+              </div>
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12}}>
+            <FormField label="Mínimo de caracteres" hint="0 = el comentario es opcional.">
+              <SInp type="number" value={cfg.review_min_chars??0}
+                    onChange={v=>setCfg(c=>({...c,review_min_chars:v}))}/>
+            </FormField>
+            <FormField label="Fotos por reseña">
+              <SInp type="number" value={cfg.review_max_photos??4}
+                    onChange={v=>setCfg(c=>({...c,review_max_photos:v}))}/>
+            </FormField>
+            <FormField label="Credibilidad mínima (%)" hint="Piso: nadie arranca en 0.">
+              <SInp type="number" value={cfg.cred_min_percent??5}
+                    onChange={v=>setCfg(c=>({...c,cred_min_percent:v}))}/>
+            </FormField>
+          </div>
+          <Btn size="sm" onClick={()=>patch({
+            review_min_chars:Number(cfg.review_min_chars)||0,
+            review_max_photos:Number(cfg.review_max_photos)||4,
+            cred_min_percent:Number(cfg.cred_min_percent)||0})}>Guardar</Btn>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Índice de credibilidad — pesos">
+        <div style={{padding:'12px 18px',fontSize:12,color:C.mid,lineHeight:1.7,
+                     borderBottom:`1px solid ${C.border}`}}>
+          Cada componente aporta como máximo su peso y satura en su "tope": 300 pedidos no
+          valen cinco veces más que 60, porque si no la reputación se compra con volumen.
+          Los pesos suman 100 si querés leer el resultado como un porcentaje directo.
+        </div>
+        <div style={{padding:18,display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0 18px'}}>
+          {[['orders','Pedidos verificados'],['diversity','Restaurantes distintos'],
+            ['helpful','Votos útiles recibidos'],['photos','Fotos aprobadas'],
+            ['age','Antigüedad de la cuenta'],['consistency','Meses con actividad']].map(([k,l])=>(
+            <React.Fragment key={k}>
+              <FormField label={l+' — peso'}>
+                <SInp type="number" value={cfg['cred_w_'+k]??0}
+                      onChange={v=>setCfg(c=>({...c,['cred_w_'+k]:v}))}/>
+              </FormField>
+              <FormField label={l+' — tope'}>
+                <SInp type="number"
+                      value={cfg[k==='age'?'cred_full_age_days':k==='consistency'?'cred_full_months':'cred_full_'+k]??0}
+                      onChange={v=>setCfg(c=>({...c,
+                        [k==='age'?'cred_full_age_days':k==='consistency'?'cred_full_months':'cred_full_'+k]:v}))}/>
+              </FormField>
+            </React.Fragment>
+          ))}
+          <div>
+            <Btn size="sm" onClick={()=>patch(Object.fromEntries(
+              ['cred_w_orders','cred_w_diversity','cred_w_helpful','cred_w_photos','cred_w_age',
+               'cred_w_consistency','cred_full_orders','cred_full_diversity','cred_full_helpful',
+               'cred_full_photos','cred_full_age_days','cred_full_months']
+              .map(k=>[k, Number(cfg[k])||0])))}>Guardar pesos</Btn>
+          </div>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
 function Sidebar({page, setPage, badges={}, themeMode, onToggleTheme}) {
   const signOut = async () => {
     if (db) { try { await db.auth.signOut(); } catch(e){} }
@@ -10136,6 +11120,7 @@ function App() {
               {page==='fiscal'        && <PageFiscal       setFlash={setFlash}/>}
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
               {page==='proveedores'   && <PageProveedores  restaurants={restaurants} setFlash={setFlash}/>}
+              {page==='comensales'    && <PageComensales   setFlash={setFlash}/>}
               {page==='soporte'       && <PageSoporte      setFlash={setFlash}/>}
               {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}

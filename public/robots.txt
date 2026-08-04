@@ -1,5 +1,10 @@
 # MYTHOS — robots
 # Sitio comercial indexable; paneles operativos y diagnóstico fuera del índice.
+#
+# El dominio canónico es mythos.com.py. 'mythos-pos.vercel.app' es un alias viejo
+# de Vercel: declararlo acá repartía el posicionamiento entre dos dominios que
+# sirven el MISMO contenido, así que Google elegía uno por su cuenta y la
+# autoridad de los enlaces quedaba partida al medio.
 User-agent: *
 Allow: /
 Disallow: /superadmin
@@ -10,6 +15,12 @@ Disallow: /mozo
 Disallow: /gerente
 Disallow: /delivery-rider
 Disallow: /delivery-cliente
+Disallow: /proveedor
 Disallow: /diag
+# App de comensales — beta cerrada (allowlist en diner_app_access, mig 200).
+# Sale del Disallow el día que se abra al público.
+Disallow: /clientes
+Disallow: /comer
+Disallow: /restaurantes
 
-Sitemap: https://mythos-pos.vercel.app/sitemap.xml
+Sitemap: https://mythos.com.py/sitemap.xml

@@ -279,6 +279,71 @@ function Inp({value,onChange,placeholder,type='text',mono,full=true,gs,style:sx,
   return <input type={type} value={value} onChange={onChange} placeholder={placeholder} {...rest} style={style}/>;
 }
 function Sel({value,onChange,children,...rest}){return<select value={value} onChange={onChange} {...rest} style={{width:'100%',padding:'9px 11px',fontSize:14,borderRadius:6,...(rest.style||{})}}>{children}</select>;}
+
+/* ── Vincular la ficha del local con la cuenta de la app (mig 200) ──────────
+   Camino B del diseño de identidad: el comensal abre /clientes, pide un código
+   de 6 dígitos y se lo DICTA al cajero. Acá se tipea y la ficha de este local
+   queda unida a su perfil, con todo el historial y la experiencia que ya venía
+   juntando.
+
+   Por qué en persona y no por SMS: no cuesta un guaraní, y para este caso la
+   presencia física es MÁS fuerte que un mensaje al teléfono —el cajero está
+   mirando a la persona—. El OTP quedó postergado por presupuesto; el modelo de
+   datos ya lo contempla y no habrá que rehacer nada cuando se active.
+
+   Es una operación totalmente opcional del mostrador: si la mig 200 no está
+   aplicada, el bloque avisa y no rompe nada del cobro. */
+function VincularApp({cliente}){
+  const [open,setOpen]=useState(false);
+  const [code,setCode]=useState('');
+  const [busy,setBusy]=useState(false);
+  if(!cliente||!cliente.id) return null;
+
+  const link=async()=>{
+    const c=String(code||'').replace(/\D/g,'');
+    if(c.length!==6){toast('El código son 6 dígitos.',false);return;}
+    setBusy(true);
+    try{
+      const {data,error}=await db.rpc('staff_link_diner_code',{p_code:c,p_customer_id:cliente.id});
+      if(error){
+        toast(/function|does not exist|schema cache|PGRST202/i.test(error.message||'')
+          ? 'Falta aplicar la migración 200 en Supabase.'
+          : ('No se pudo vincular: '+(error.message||'')), false);
+      } else if(!data||!data.ok){
+        toast(data?.error||'Código inválido o vencido.',false);
+      } else {
+        toast('Ficha vinculada · '+Number(data.total_xp||0).toLocaleString('es-PY')+' XP acumulados');
+        setOpen(false); setCode('');
+      }
+    }catch(e){ toast('No se pudo vincular.',false); }
+    setBusy(false);
+  };
+
+  if(!open) return (
+    <button onClick={()=>setOpen(true)} style={{marginTop:6,background:'none',border:'none',
+      color:C.mid,fontSize:11,fontWeight:600,cursor:'pointer',padding:0,textDecoration:'underline'}}>
+      Vincular con su cuenta de la app
+    </button>
+  );
+
+  return (
+    <div style={{marginTop:8,padding:'10px 12px',background:C.bg,border:`1px solid ${C.border}`,borderRadius:8}}>
+      <Lbl>CÓDIGO DE 6 DÍGITOS</Lbl>
+      <div style={{display:'flex',gap:8}}>
+        {/* mono + sin separador de miles: es un código, no una cantidad
+            (regla de formato numérico de CLAUDE.md). */}
+        <Inp value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6))}
+             placeholder="000000" mono inputMode="numeric"
+             onKeyDown={e=>{if(e.key==='Enter')link();}}/>
+        <Btn small onClick={link} disabled={busy}>{busy?'…':'Vincular'}</Btn>
+        <Btn small variant="ghost" onClick={()=>{setOpen(false);setCode('');}}>×</Btn>
+      </div>
+      <div style={{fontSize:10.5,color:C.mid,marginTop:7,lineHeight:1.6}}>
+        Pedile al cliente que lo genere en la app (Perfil → Pedir mi código). Dura 10 minutos.
+      </div>
+    </div>
+  );
+}
 function Textarea({value,onChange,placeholder,rows=3}){return<textarea value={value} onChange={onChange} placeholder={placeholder} rows={rows} style={{width:'100%',padding:'9px 11px',fontSize:13,borderRadius:6,resize:'vertical'}}/>;}
 function Btn({children,onClick,variant='primary',disabled,small,full,style:sx}){
   // PR-B3D: cableado a .my-btn + variante/tamaño. Sin cambio de props ni de la
@@ -3289,6 +3354,7 @@ function TomarPedidoPanel({turno,profile,onMovimiento}){
                 <ClientePicker db={db} restaurantId={RID} types={custTypes} source="caja"
                   value={cliente} onChange={elegirCliente}
                   label="CLIENTE" placeholder="Buscar o registrar cliente…"/>
+                <VincularApp cliente={cliente}/>
               </div>
 
               {orderType==='dine_in'?(

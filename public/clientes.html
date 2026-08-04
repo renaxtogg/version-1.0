@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mythos · Comensales</title>
+<!-- Beta cerrada: fuera del índice hasta que se abra al público (ver robots.txt). -->
+<meta name="robots" content="noindex, nofollow">
+<meta name="description" content="Tu identidad gastronómica en Mythos: historial entre restaurantes, experiencia y reseñas verificadas.">
+<meta name="theme-color" content="#000000">
+<link rel="stylesheet" href="design-system.css">
+<link rel="stylesheet" href="tokens.css">
+<script src="mythos-offline.js"></script>
+<!-- Supabase JS -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
+<!-- Configuración del proyecto (SUPABASE_URL + ANON_KEY) -->
+<script src="config.js"></script>
+<!-- Sin mythos-theme.js a propósito: el tema de este panel lo maneja React
+     (src/clientes/theme.jsx) porque el marco del teléfono pinta su propio
+     fondo, igual que el panel del QR. -->
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+  .phone-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh}
+  .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;box-shadow:0 40px 80px rgba(0,0,0,0.7),0 0 0 1px rgba(255,255,255,0.08);flex-shrink:0}
+  .screen{position:absolute;inset:0;overflow:hidden;display:flex;flex-direction:column;-webkit-overflow-scrolling:touch}
+  .screen::-webkit-scrollbar{display:none}
+  .screen *::-webkit-scrollbar{display:none}
+  .screen>*{flex:1;min-height:0}
+  input,textarea,select{font-family:inherit}
+  button{font-family:inherit}
+  @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* En un teléfono real el marco desaparece y la app ocupa la pantalla entera.
+     Mismo corte que el panel del QR (430px). */
+  @media(max-width:430px){
+    body{display:block;background:#fff}
+    .phone-wrap,.phone-wrap>div{display:block}
+    .phone{width:100%!important;height:100dvh!important;border-radius:0!important;box-shadow:none!important}
+    .screen{position:fixed!important}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<!-- Panel precompilado con Vite (patrón PR-5). El bundle lo genera
+     `npm run build` en public/build/ y lo reconstruye Vercel en cada deploy. -->
+<script src="build/clientes.js"></script>
+</body>
+</html>
