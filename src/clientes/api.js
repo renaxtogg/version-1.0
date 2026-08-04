@@ -208,6 +208,20 @@ export const browsePublic = (f = {}) => rpc('diner_browse_public', {
 export const placePublic  = (id) => rpc('diner_place_public', { p_restaurant: id });
 export const publicConfig = ()   => rpc('diner_public_config');
 
+// Rankings públicos (mig 205). Van aparte de `leaderboard` porque ésa está
+// otorgada sólo a `authenticated` y devuelve `is_me` y el puesto propio, que
+// sin sesión no significan nada.
+export const topPlaces = (scope, period, city, limit) =>
+  rpc('restaurant_leaderboard_public', {
+    p_scope: scope || 'country', p_period: period || 'all',
+    p_city: city || null, p_limit: limit || 30
+  });
+export const topDiners = (scope, period, city, limit) =>
+  rpc('diner_leaderboard_public', {
+    p_scope: scope || 'country', p_period: period || 'all',
+    p_city: city || null, p_limit: limit || 30
+  });
+
 export const myOrders         = (limit)               => rpc('diner_my_orders', { p_limit: limit || 60 });
 export const submitReview     = (payload)             => rpc('diner_submit_review', { p_payload: payload });
 export const voteReview       = (id, kind, on)        => rpc('diner_vote_review', { p_review: id, p_kind: kind, p_on: on !== false });

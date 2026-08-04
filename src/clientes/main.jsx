@@ -1024,6 +1024,238 @@ function ExperienciaPage({ type, types, rows, loading, search, setSearch, onOpen
   );
 }
 
+/* ══ RANKING PÚBLICO ═════════════════════════════════════════════ */
+// Se ve SIN cuenta a propósito: es el anzuelo. Alguien llega buscando "el mejor
+// de Encarnación", encuentra la tabla, y ahí abajo está la invitación a sumarse
+// —como comensal o como local—. Un ranking detrás de un login no atrae a nadie.
+function RankingPublic({ cities, onOpenPlace, onLogin, embedded, onSeeAll }) {
+  const T = useT();
+  const mob = useIsMobile();
+  const [kind, setKind]     = useState('places');  // places | diners
+  const [period, setPeriod] = useState('all');     // all | month
+  const [city, setCity]     = useState('');
+  const [data, setData]     = useState(null);
+  const [loading, setLoad]  = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoad(true);
+    const scope = city ? 'city' : 'country';
+    const call = kind === 'places' ? API.topPlaces : API.topDiners;
+    call(scope, period, city || null, embedded ? 5 : 40).then(({ data, missing }) => {
+      if (!alive) return;
+      setData(missing ? { missing: true, rows: [] } : (data || { rows: [] }));
+      setLoad(false);
+    });
+    return () => { alive = false; };
+  }, [kind, period, city, embedded]);
+
+  const rows = data?.rows || [];
+  // `enabled:false` = el superadmin tiene el ranking o las reseñas apagadas.
+  const off  = data && data.enabled === false;
+
+  const head = (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+      <Pill active={kind === 'places'} onClick={() => setKind('places')}>Restaurantes</Pill>
+      <Pill active={kind === 'diners'} onClick={() => setKind('diners')}>Exploradores</Pill>
+      <div style={{ width: 1, background: T.border, margin: '0 4px' }} />
+      <Pill active={period === 'all'}   onClick={() => setPeriod('all')}>Histórico</Pill>
+      <Pill active={period === 'month'} onClick={() => setPeriod('month')}>Este mes</Pill>
+    </div>
+  );
+
+  const body = (
+    <>
+      {!embedded && (
+        <>
+          {head}
+          {cities?.length > 0 && (
+            <div className="chips" style={{ marginBottom: 18 }}>
+              <Pill active={!city} onClick={() => setCity('')}>Todo el país</Pill>
+              {cities.map(c => (
+                <Pill key={c} active={city === c} onClick={() => setCity(c)}>{c}</Pill>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {off ? (
+        <Empty icon="trophy" title="El ranking está en pausa"
+               text="Vuelve apenas se reactive." />
+      ) : loading ? (
+        <div style={{ padding: 30, textAlign: 'center' }}><Spinner /></div>
+      ) : rows.length === 0 ? (
+        <Empty icon="trophy" title="Todavía no hay suficientes reseñas"
+               text={period === 'month'
+                 ? 'Este mes todavía no hubo reseñas. Probá con el histórico.'
+                 : 'Apenas empiecen a llegar reseñas verificadas, esta tabla se llena sola.'} />
+      ) : (
+        <div>
+          {rows.map(r => (
+            <div key={r.restaurant_id || r.diner_id}
+              onClick={r.restaurant_id && onOpenPlace ? () => onOpenPlace(r) : undefined}
+              style={{ display: 'flex', alignItems: 'center', gap: 13, padding: '11px 12px',
+                       borderRadius: 12, marginBottom: 3,
+                       cursor: r.restaurant_id && onOpenPlace ? 'pointer' : 'default',
+                       background: r.position <= 3 ? T.softBg : 'transparent' }}>
+              <div style={{ width: 30, textAlign: 'center', flexShrink: 0,
+                            fontFamily: T.F.h, fontSize: r.position <= 3 ? 20 : 15,
+                            color: r.position <= 3 ? T.ink : T.silver }}>
+                {r.position}
+              </div>
+
+              {r.restaurant_id
+                ? <RestLogo r={r} size={40} radius={11} />
+                : <div style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden',
+                                background: T.light, display: 'flex', alignItems: 'center',
+                                justifyContent: 'center', flexShrink: 0 }}>
+                    {r.avatar
+                      ? <img src={r.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : <span style={{ fontSize: 15, fontWeight: 800, color: T.mid }}>
+                          {(r.name || '?')[0].toUpperCase()}</span>}
+                  </div>}
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, overflow: 'hidden',
+                              textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</div>
+                <div style={{ fontSize: 11.5, color: T.gray, overflow: 'hidden',
+                              textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.restaurant_id
+                    ? [r.business_type && expInfo(r.business_type).label, r.city].filter(Boolean).join(' · ')
+                    : [r.level_name, r.city].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                {r.restaurant_id ? (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                      <Icon name="star" size={13} color={T.gold} />
+                      <span style={{ fontSize: 14, fontWeight: 800, color: T.ink }}>
+                        {Number(r.rating).toFixed(1)}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: T.silver }}>
+                      {r.reviews} reseña{r.reviews !== 1 ? 's' : ''}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: T.ink }}>{num(r.xp)}</div>
+                    <div style={{ fontSize: 10.5, color: T.silver }}>XP</div>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  // Versión compacta para la portada: título + top 5 + "ver todo".
+  if (embedded) return (
+    <section style={{ background: T.offwhite, borderTop: `1px solid ${T.border}`,
+                      padding: mob ? '38px 0' : '64px 0' }}>
+      <div className="wrap">
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+                      gap: 14, marginBottom: 6, flexWrap: 'wrap' }}>
+          <h2 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: mob ? 27 : 34, color: T.ink,
+                       letterSpacing: '-0.4px' }}>
+            {kind === 'places' ? 'Los mejor calificados' : 'Los que más exploran'}
+          </h2>
+          <button onClick={onSeeAll} style={{ background: 'none', border: 'none', cursor: 'pointer',
+            fontFamily: FONT, fontSize: 13.5, fontWeight: 700, color: T.mid,
+            textDecoration: 'underline' }}>Ver el ranking completo</button>
+        </div>
+        <p style={{ fontSize: 14, color: T.gray, lineHeight: 1.7, marginBottom: 18, maxWidth: 560 }}>
+          {kind === 'places'
+            ? 'Ordenado por reseñas verificadas: sólo puede calificar quien pidió y pagó ahí.'
+            : 'Cada pedido y cada reseña suman experiencia. Así se arma el ranking.'}
+        </p>
+        {head}
+        {body}
+      </div>
+    </section>
+  );
+
+  return (
+    <>
+      <section style={{ background: T.black, color: '#FFF' }}>
+        <div className="wrap" style={{ padding: mob ? '34px 16px 30px' : '54px 20px 44px' }}>
+          <h1 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: mob ? 34 : 48,
+                       lineHeight: 1.06, marginBottom: 12 }}>Ranking</h1>
+          <p style={{ fontSize: mob ? 14 : 16, color: 'rgba(255,255,255,.72)', maxWidth: 560,
+                      lineHeight: 1.7 }}>
+            Los restaurantes mejor calificados de Paraguay y los comensales que más
+            exploran. Se arma solo, con reseñas verificadas: sólo puede calificar
+            quien pidió y pagó ahí.
+          </p>
+        </div>
+      </section>
+
+      <section style={{ background: T.offwhite, padding: mob ? '24px 0 36px' : '36px 0 56px' }}>
+        <div className="wrap">{body}</div>
+      </section>
+
+      <JoinCta onLogin={onLogin} />
+    </>
+  );
+}
+
+/* ══ INVITACIÓN A SUMARSE ════════════════════════════════════════ */
+// Las dos puertas en el mismo bloque: el comensal se queda en /clientes, el
+// dueño se va a la web de venta. Separarlas manda a la mitad de la gente al
+// lugar equivocado.
+function JoinCta({ onLogin }) {
+  const T = useT();
+  const mob = useIsMobile();
+  return (
+    <section style={{ background: T.black, color: '#FFF', padding: mob ? '44px 0' : '64px 0' }}>
+      <div className="wrap" style={{ display: 'grid', gap: mob ? 30 : 46,
+                                     gridTemplateColumns: mob ? '1fr' : '1fr 1fr' }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.2em',
+                        textTransform: 'uppercase', color: 'rgba(255,255,255,.55)',
+                        marginBottom: 12 }}>Comés afuera</div>
+          <h3 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: mob ? 26 : 32,
+                       lineHeight: 1.15, marginBottom: 12 }}>
+            Sumá puntos por lo que ya hacés
+          </h3>
+          <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,.72)', lineHeight: 1.75,
+                      marginBottom: 20 }}>
+            Cada pedido suma experiencia y sube tu nivel. Dejá reseñas verificadas,
+            entrá al ranking y accedé a beneficios.
+          </p>
+          <button onClick={onLogin} style={{ background: '#FFF', color: '#000', border: 'none',
+            borderRadius: 9999, height: 48, padding: '0 28px', fontFamily: FONT, fontSize: 14.5,
+            fontWeight: 800, cursor: 'pointer' }}>Crear mi cuenta</button>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.2em',
+                        textTransform: 'uppercase', color: 'rgba(255,255,255,.55)',
+                        marginBottom: 12 }}>Tenés un local</div>
+          <h3 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: mob ? 26 : 32,
+                       lineHeight: 1.15, marginBottom: 12 }}>
+            Que te encuentren acá
+          </h3>
+          <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,.72)', lineHeight: 1.75,
+                      marginBottom: 20 }}>
+            Publicá tu local, recibí reseñas reales y entrá al ranking. Mythos además
+            te da menú QR, caja, cocina y delivery.
+          </p>
+          <a href="/registro" style={{ display: 'inline-block', background: 'transparent',
+            color: '#FFF', border: '1px solid rgba(255,255,255,.35)', borderRadius: 9999,
+            height: 48, lineHeight: '46px', padding: '0 28px', fontFamily: FONT, fontSize: 14.5,
+            fontWeight: 800, textDecoration: 'none' }}>Sumar mi restaurante</a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Faq({ q, a }) {
   const T = useT();
   return (
@@ -2668,9 +2900,13 @@ function App() {
         : needAccount('tus pedidos');
 
     } else if (tab === 'ranking') {
-      body = me
-        ? <div className="wrap" style={{ padding: '10px 20px 50px' }}><RankingScreen me={me} /></div>
-        : needAccount('el ranking');
+      // Público a propósito (mig 205): el ranking es el anzuelo. Detrás de un
+      // login no atrae a nadie — quien llega buscando "el mejor de Encarnación"
+      // se va antes de crear una cuenta.
+      body = <RankingPublic cities={browse?.cities || []} onOpenPlace={(row) => {
+        const full = rows.find(x => x.id === row.restaurant_id);
+        openPlace(full || { ...row, id: row.restaurant_id });
+      }} onLogin={() => setTab('login')} />;
 
     } else if (tab === 'profile') {
       body = me
@@ -2712,27 +2948,17 @@ function App() {
           </div>
         </section>
 
-        {!me && (
-          <section style={{ background: T.black, color: '#FFF', padding: '56px 0' }}>
-            <div className="wrap" style={{ textAlign: 'center' }}>
-              <h2 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: 34, lineHeight: 1.15,
-                           marginBottom: 14 }}>
-                Pedí sin cuenta.<br />Con cuenta, además, sumás.
-              </h2>
-              <p style={{ fontSize: 15, color: 'rgba(255,255,255,.72)', lineHeight: 1.75,
-                          maxWidth: 520, margin: '0 auto 26px' }}>
-                Cada pedido suma puntos y sube tu nivel. Podés dejar reseñas
-                verificadas —sólo si comiste ahí— y entrar al ranking de
-                exploradores de Paraguay.
-              </p>
-              <button onClick={() => setTab('login')} style={{ background: '#FFF', color: '#000',
-                border: 'none', borderRadius: 9999, height: 50, padding: '0 32px', fontFamily: FONT,
-                fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
-                Crear mi cuenta
-              </button>
-            </div>
-          </section>
-        )}
+        {/* Ranking en la portada: es lo que engancha a quien llega de Google
+            buscando "el mejor de …". Va antes de la invitación a sumarse. */}
+        <RankingPublic embedded cities={browse?.cities || []}
+          onSeeAll={() => { setTab('ranking'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+          onOpenPlace={(row) => {
+            const full = rows.find(x => x.id === row.restaurant_id);
+            openPlace(full || { ...row, id: row.restaurant_id });
+          }}
+          onLogin={() => setTab('login')} />
+
+        <JoinCta onLogin={() => setTab('login')} />
       </>;
     }
   }
