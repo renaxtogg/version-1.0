@@ -65,6 +65,8 @@ export const num  = (n) => Number(n || 0).toLocaleString('es-PY');
 export const Icon = ({ name, size = 20, color = 'currentColor', sw = 1.5, style }) => {
   const paths = {
     back:    <path d="M19 12H5M12 5l-7 7 7 7" />,
+    menu:    <path d="M3 6h18M3 12h18M3 18h18" />,
+    pin:     <><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" /><circle cx="12" cy="10" r="3" /></>,
     search:  <><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></>,
     x:       <path d="M18 6L6 18M6 6l12 12" />,
     check:   <path d="M20 6L9 17l-5-5" />,

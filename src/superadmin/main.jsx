@@ -10148,6 +10148,12 @@ function CmAcceso({setFlash}) {
 
   const MODS = [
     ['discovery_enabled',   'Descubrir restaurantes', 'La portada con el buscador y el listado.'],
+    // Interruptor de la mig 201. Es distinto del portero de arriba (is_public):
+    // ése decide quién puede CREAR perfil de comensal; éste decide si la vitrina
+    // se ve SIN cuenta. Arranca apagado — con la beta cerrada, prenderlo es lo
+    // que hace pública la portada de /clientes.
+    ['public_browse_enabled','Vitrina pública (sin cuenta)',
+     'Deja ver la portada, las experiencias y los locales a cualquiera, sin iniciar sesión. Requiere "Descubrir restaurantes" prendido.'],
     ['reviews_enabled',     'Reseñas',                'Sólo puede reseñar quien pidió y pagó ahí.'],
     ['photos_enabled',      'Fotos en las reseñas',   'Pasan por moderación antes de verse.'],
     ['ranking_enabled',     'Ranking',                'Tabla de posiciones por país y por ciudad.'],

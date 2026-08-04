@@ -345,13 +345,14 @@ const GoogleMark = () => (
 function ClosedScreen({ email, message, onOut }) {
   const T = useT();
   return (
-    <div style={{ height: '100%', background: T.offwhite, display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', padding: '0 30px', textAlign: 'center' }}>
+    <div style={{ background: T.offwhite, display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', padding: '80px 30px',
+                  textAlign: 'center' }}>
       <Icon name="shield" size={38} color={T.silver} />
       <div style={{ fontSize: 19, fontWeight: 800, color: T.ink, margin: '16px 0 8px' }}>
         Todavía no está abierta
       </div>
-      <div style={{ fontSize: 13.5, color: T.gray, lineHeight: 1.75, maxWidth: 290 }}>
+      <div style={{ fontSize: 13.5, color: T.gray, lineHeight: 1.75, maxWidth: 320 }}>
         {message || 'La app de comensales está en pruebas cerradas.'}
       </div>
       {email && (
@@ -359,9 +360,12 @@ function ClosedScreen({ email, message, onOut }) {
           Entraste como <b style={{ color: T.mid }}>{email}</b>
         </div>
       )}
-      <div style={{ marginTop: 26, width: '100%', maxWidth: 260 }}>
-        <Btn variant="ghost" onClick={onOut}><Icon name="logout" size={15} /> Salir</Btn>
-      </div>
+      {/* Sin sesión no hay nada que cerrar: el botón sólo aparece si hay a quién sacar. */}
+      {onOut && (
+        <div style={{ marginTop: 26, width: '100%', maxWidth: 260 }}>
+          <Btn variant="ghost" onClick={onOut}><Icon name="logout" size={15} /> Salir</Btn>
+        </div>
+      )}
     </div>
   );
 }
@@ -508,30 +512,524 @@ function OnboardingScreen({ boot, onDone, onFlash }) {
   );
 }
 
-/* ══ CABECERA ════════════════════════════════════════════════════ */
-function TopBar({ me, carts, onCart, onNotif, notifCount, dark, onTheme }) {
+/* ══ RESPONSIVE ══════════════════════════════════════════════════ */
+// El panel dejó de ser una maqueta de teléfono: es un sitio que se ve en el
+// celular Y en la computadora. El corte es el mismo que usa el CSS de
+// clientes.html (640px) para que JS y CSS no se contradigan.
+function useIsMobile(bp = 640) {
+  const [m, setM] = useState(() => {
+    try { return window.matchMedia(`(max-width:${bp}px)`).matches; } catch (_) { return false; }
+  });
+  useEffect(() => {
+    let mq;
+    try { mq = window.matchMedia(`(max-width:${bp}px)`); } catch (_) { return; }
+    const on = e => setM(e.matches);
+    // addListener: Safari viejo no tiene addEventListener en MediaQueryList.
+    if (mq.addEventListener) mq.addEventListener('change', on); else mq.addListener(on);
+    return () => { if (mq.removeEventListener) mq.removeEventListener('change', on); else mq.removeListener(on); };
+  }, [bp]);
+  return m;
+}
+
+/* ══ EXPERIENCIAS ════════════════════════════════════════════════ */
+// Una "experiencia" es el `business_type` del local — el mismo campo que carga
+// el dueño en el onboarding (mig 120) y que `diner_browse_public` ya agrupa y
+// cuenta del lado del servidor. NO se inventa una taxonomía nueva ni hace falta
+// una tabla: si mañana un dueño escribe un rubro que no está acá, igual aparece
+// (cae al texto genérico). El copy es editorial y vive en el front a propósito,
+// igual que FORM_SPECS del superadmin: cambiarlo no puede exigir una migración.
+const EXP_COPY = {
+  'pizzeria':      { label: 'Pizza',            sub: 'Napolitanas, al taglio y para la mesa larga' },
+  'pizzería':      { label: 'Pizza',            sub: 'Napolitanas, al taglio y para la mesa larga' },
+  'hamburgueseria':{ label: 'Hamburguesas',     sub: 'Smash, clásicas y con papas para compartir' },
+  'hamburguesería':{ label: 'Hamburguesas',     sub: 'Smash, clásicas y con papas para compartir' },
+  'sushi':         { label: 'Sushi & Nikkei',   sub: 'Barras, rolls y fusión peruano-japonesa' },
+  'parrilla':      { label: 'Parrillada',       sub: 'Cortes a la brasa y fuego lento' },
+  'parrillada':    { label: 'Parrillada',       sub: 'Cortes a la brasa y fuego lento' },
+  'cafeteria':     { label: 'Café & Brunch',    sub: 'Specialty coffee y mañanas largas' },
+  'cafetería':     { label: 'Café & Brunch',    sub: 'Specialty coffee y mañanas largas' },
+  'bar':           { label: 'After Office',     sub: 'Birra fría y happy hour al salir del trabajo' },
+  'restaurante':   { label: 'Restaurantes',     sub: 'Para sentarse, pedir tranquilo y quedarse' },
+  'heladeria':     { label: 'Heladerías',       sub: 'Helado artesanal y postres' },
+  'heladería':     { label: 'Heladerías',       sub: 'Helado artesanal y postres' },
+  'panaderia':     { label: 'Panaderías',       sub: 'Pan del día, facturas y masas' },
+  'panadería':     { label: 'Panaderías',       sub: 'Pan del día, facturas y masas' },
+  'comida rapida': { label: 'Comida rápida',    sub: 'Rápido, sin vueltas y para llevar' },
+  'comida rápida': { label: 'Comida rápida',    sub: 'Rápido, sin vueltas y para llevar' },
+  'food truck':    { label: 'Food trucks',      sub: 'Cocina sobre ruedas' },
+  'delivery':      { label: 'Sólo delivery',    sub: 'Cocinan y te lo mandan' }
+};
+
+const expInfo = (type) => {
+  const k = String(type || '').trim().toLowerCase();
+  return EXP_COPY[k] || { label: type || 'Otros', sub: 'Lugares para descubrir' };
+};
+
+/* ══ CABECERA DEL SITIO ══════════════════════════════════════════ */
+// Formato de vitrina: logo a la izquierda, navegación al centro en computadora
+// y hamburguesa en celular. El acceso a la cuenta VIVE ACÁ, no es un portón:
+// la vitrina se navega sin sesión (mig 201) y la cuenta agrega identidad —
+// puntos, reseñas, ranking— no el permiso de pedir.
+function SiteHeader({ me, tab, setTab, onLogin, onOut, carts, notifCount,
+                      onCart, onNotif, dark, onTheme }) {
+  const T = useT();
+  const mob = useIsMobile();
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => { setOpen(false); }, [tab, mob]);
+
+  const links = [
+    { k: 'home',    label: 'Explorar' },
+    { k: 'exps',    label: 'Experiencias' },
+    ...(me ? [{ k: 'orders', label: 'Pedidos' }] : []),
+    { k: 'ranking', label: 'Ranking' }
+  ];
+
+  const go = (k) => { setTab(k); setOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+
+  const navLink = (l) => (
+    <button key={l.k} onClick={() => go(l.k)} style={{
+      background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT,
+      fontSize: mob ? 15 : 13.5, fontWeight: tab === l.k ? 800 : 600,
+      color: tab === l.k ? T.ink : T.mid, padding: mob ? '12px 0' : '6px 2px',
+      textAlign: 'left', width: mob ? '100%' : 'auto',
+      borderBottom: mob ? `1px solid ${T.border}` : 'none'
+    }}>{l.label}</button>
+  );
+
+  return (
+    <header style={{ position: 'sticky', top: 0, zIndex: 500, background: T.hdrBg,
+                     borderBottom: `1px solid ${T.border}` }}>
+      <div className="wrap" style={{ display: 'flex', alignItems: 'center', gap: 18,
+                                     height: mob ? 60 : 70 }}>
+        <button onClick={() => go('home')} style={{ background: 'none', border: 'none', cursor: 'pointer',
+          fontFamily: T.F.h, fontSize: mob ? 20 : 23, color: T.hdrText, letterSpacing: '.14em',
+          fontWeight: 400, flexShrink: 0, padding: 0 }}>MYTHOS</button>
+
+        {!mob && (
+          <nav style={{ display: 'flex', gap: 22, marginLeft: 14 }}>{links.map(navLink)}</nav>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {!mob && <RoundBtn icon={dark ? 'sun' : 'moon'} onClick={onTheme} />}
+          {me && <RoundBtn icon="bell" onClick={onNotif} badge={notifCount} />}
+          {me && <RoundBtn icon="cart" onClick={onCart}
+                    badge={carts.reduce((s, c) => s + c.count, 0)} />}
+
+          {!mob && (me
+            ? <button onClick={() => go('profile')} style={{ display: 'flex', alignItems: 'center', gap: 9,
+                background: T.softBg, border: `1px solid ${T.softBorder}`, borderRadius: 9999,
+                padding: '5px 13px 5px 5px', cursor: 'pointer', fontFamily: FONT }}>
+                <Avatar me={me} size={28} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: T.ink, maxWidth: 120,
+                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {(me.display_name || 'Mi perfil').split(' ')[0]}
+                </span>
+              </button>
+            : <Btn full={false} onClick={onLogin} style={{ height: 40, padding: '0 20px', fontSize: 13.5 }}>
+                Iniciar sesión
+              </Btn>)}
+
+          {mob && (
+            <button onClick={() => setOpen(o => !o)} aria-label="Abrir menú"
+              style={{ width: 38, height: 38, borderRadius: 10, background: T.softBg,
+                       border: `1px solid ${T.softBorder}`, cursor: 'pointer', display: 'flex',
+                       alignItems: 'center', justifyContent: 'center' }}>
+              <Icon name={open ? 'x' : 'menu'} size={19} color={T.hdrText} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Menú móvil — acá adentro va el acceso a la cuenta, que es donde la
+          persona lo busca cuando la pantalla es angosta. */}
+      {mob && open && (
+        <div className="wrap" style={{ paddingBottom: 16, borderTop: `1px solid ${T.border}`,
+                                       display: 'flex', flexDirection: 'column' }}>
+          {links.map(navLink)}
+          {me ? (
+            <>
+              {navLink({ k: 'profile', label: 'Mi perfil' })}
+              <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                <Btn variant="ghost" onClick={onTheme}>{dark ? 'Tema claro' : 'Tema oscuro'}</Btn>
+                <Btn variant="ghost" onClick={onOut}>Salir</Btn>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 12.5, color: T.gray, lineHeight: 1.7, margin: '14px 0 12px' }}>
+                Podés mirar y pedir sin cuenta. Con cuenta sumás puntos, dejás reseñas
+                y entrás al ranking.
+              </div>
+              <Btn onClick={() => { setOpen(false); onLogin(); }}>Iniciar sesión</Btn>
+              <div style={{ marginTop: 8 }}>
+                <Btn variant="ghost" onClick={onTheme}>{dark ? 'Tema claro' : 'Tema oscuro'}</Btn>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </header>
+  );
+}
+
+function Avatar({ me, size = 32 }) {
   const T = useT();
   return (
-    <div style={{ background: T.hdrBg, padding: '46px 20px 14px', flexShrink: 0,
-                  borderBottom: `1px solid ${T.border}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: T.hdrSub, letterSpacing: '.14em',
-                        textTransform: 'uppercase', marginBottom: 2 }}>
-            Nivel {me?.level || 1} · {me?.level_name || 'Novato'}
-          </div>
-          <div style={{ fontFamily: T.F.h, fontSize: 22, color: T.hdrText, lineHeight: 1.1,
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            Hola{me?.display_name ? ', ' + me.display_name.split(' ')[0] : ''}
-          </div>
+    <div style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden',
+                  background: T.light, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', flexShrink: 0 }}>
+      {me?.avatar_url
+        ? <img src={me.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        : <span style={{ fontSize: size * 0.4, fontWeight: 800, color: T.mid }}>
+            {(me?.display_name || '?')[0].toUpperCase()}</span>}
+    </div>
+  );
+}
+
+/* ══ HERO ════════════════════════════════════════════════════════ */
+function Hero({ types, onPick, onExplore }) {
+  const T = useT();
+  const mob = useIsMobile();
+  const top = (types || []).slice(0, 4);
+  return (
+    <section style={{ background: T.black, color: '#FFF', position: 'relative', overflow: 'hidden' }}>
+      {/* Sin foto de stock: el lenguaje de Mythos es blanco y negro. La
+          profundidad la da un degradado, no una imagen que habría que licenciar. */}
+      <div style={{ position: 'absolute', inset: 0, background:
+        'radial-gradient(120% 90% at 15% 0%, rgba(255,255,255,.14) 0%, rgba(255,255,255,0) 55%),' +
+        'radial-gradient(90% 70% at 100% 100%, rgba(255,255,255,.07) 0%, rgba(255,255,255,0) 60%)' }} />
+      <div className="wrap" style={{ position: 'relative', padding: mob ? '54px 16px 46px' : '96px 20px 84px',
+                                     maxWidth: 1180 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.22em', textTransform: 'uppercase',
+                      color: 'rgba(255,255,255,.6)', marginBottom: 18 }}>Tu próxima salida</div>
+        <h1 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: mob ? 40 : 68, lineHeight: 1.04,
+                     letterSpacing: '-1px', maxWidth: 700, marginBottom: 18 }}>
+          ¿Qué te gustaría<br />comer hoy?
+        </h1>
+        <p style={{ fontSize: mob ? 15 : 18, color: 'rgba(255,255,255,.72)', lineHeight: 1.65,
+                    maxWidth: 520, marginBottom: 30 }}>
+          Descubrí los restaurantes, bares y cafés que están en Mythos — y pedí
+          en segundos, en el local o a domicilio.
+        </p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 26 }}>
+          <button onClick={onExplore} style={{ background: '#FFF', color: '#000', border: 'none',
+            borderRadius: 9999, height: 52, padding: '0 30px', fontFamily: FONT, fontSize: 15.5,
+            fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
+            Explorar lugares <Icon name="chevron" size={17} color="#000" />
+          </button>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <RoundBtn icon={dark ? 'sun' : 'moon'} onClick={onTheme} />
-          <RoundBtn icon="bell" onClick={onNotif} badge={notifCount} />
-          <RoundBtn icon="cart" onClick={onCart} badge={carts.reduce((s, c) => s + c.count, 0)} />
+        <div className="chips">
+          {top.map(t => (
+            <button key={t.type} onClick={() => onPick(t.type)} style={{
+              flexShrink: 0, background: 'rgba(255,255,255,.10)', color: '#FFF',
+              border: '1px solid rgba(255,255,255,.20)', borderRadius: 9999,
+              padding: '9px 16px', fontSize: 13, fontWeight: 700, fontFamily: FONT,
+              cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              {expInfo(t.type).label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ══ SECCIÓN: EXPERIENCIAS ═══════════════════════════════════════ */
+function ExperienciasSection({ types, rows, onPick, compact }) {
+  const T = useT();
+  const mob = useIsMobile();
+  if (!types?.length) return null;
+  const list = compact ? types.slice(0, 6) : types;
+
+  // Una portada por experiencia: se toma la del primer local de ese rubro que
+  // tenga imagen. Si ninguno subió una, la tarjeta usa el degradado — nunca
+  // queda un hueco gris ni se pide una foto que el local no cargó.
+  const coverFor = (type) => {
+    const hit = (rows || []).find(r =>
+      String(r.business_type || '').toLowerCase() === String(type).toLowerCase()
+      && (r.cover_image_url || r.logo_url));
+    return hit ? (hit.cover_image_url || hit.logo_url) : null;
+  };
+
+  return (
+    <section style={{ background: T.offwhite, padding: mob ? '44px 0' : '86px 0' }}>
+      <div className="wrap" style={{ display: mob ? 'block' : 'grid',
+                                     gridTemplateColumns: '340px 1fr', gap: 46, alignItems: 'start' }}>
+        <div style={{ marginBottom: mob ? 26 : 0, position: mob ? 'static' : 'sticky', top: 96 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.2em', textTransform: 'uppercase',
+                        color: T.gray, marginBottom: 14 }}>Experiencias</div>
+          <h2 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: mob ? 30 : 40, lineHeight: 1.12,
+                       color: T.ink, letterSpacing: '-0.5px', marginBottom: 14 }}>
+            Elegí el plan.<br />Nosotros, los lugares.
+          </h2>
+          <p style={{ fontSize: 14.5, color: T.gray, lineHeight: 1.75 }}>
+            Cada experiencia agrupa los lugares que la hacen posible — explorá,
+            mirá las reseñas y pedí.
+          </p>
+        </div>
+
+        <div className="grid">
+          {list.map(t => {
+            const info = expInfo(t.type);
+            const cover = coverFor(t.type);
+            return (
+              <button key={t.type} onClick={() => onPick(t.type)} style={{
+                position: 'relative', border: 'none', padding: 0, cursor: 'pointer',
+                borderRadius: 18, overflow: 'hidden', height: mob ? 190 : 230,
+                background: T.dark, textAlign: 'left', fontFamily: FONT, display: 'block' }}>
+                {cover
+                  ? <img src={cover} alt="" style={{ position: 'absolute', inset: 0, width: '100%',
+                          height: '100%', objectFit: 'cover' }} />
+                  : <div style={{ position: 'absolute', inset: 0, background:
+                      'linear-gradient(140deg, #2B2B2E 0%, #0A0A0B 100%)' }} />}
+                <div style={{ position: 'absolute', inset: 0, background:
+                  'linear-gradient(to top, rgba(0,0,0,.86) 0%, rgba(0,0,0,.30) 52%, rgba(0,0,0,.16) 100%)' }} />
+                <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(255,255,255,.94)',
+                              color: '#000', borderRadius: 9999, padding: '5px 12px', fontSize: 11,
+                              fontWeight: 800 }}>
+                  {t.total} {t.total === 1 ? 'lugar' : 'lugares'}
+                </div>
+                <div style={{ position: 'absolute', left: 18, right: 18, bottom: 16 }}>
+                  <div style={{ fontFamily: T.F.h, fontSize: mob ? 23 : 27, color: '#FFF',
+                                lineHeight: 1.1, marginBottom: 5 }}>{info.label}</div>
+                  <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,.78)', lineHeight: 1.5 }}>
+                    {info.sub}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ══ TARJETA DE LUGAR ════════════════════════════════════════════ */
+// Portada + logo montado encima, como la ficha de un negocio: el logo es lo
+// que la persona reconoce, la portada es lo que la seduce.
+function PlaceCard({ r, onOpen }) {
+  const T = useT();
+  return (
+    <div onClick={() => onOpen(r)} style={{ background: T.white, border: `1px solid ${T.border}`,
+      borderRadius: 16, overflow: 'hidden', cursor: 'pointer', display: 'flex',
+      flexDirection: 'column' }}>
+      <div style={{ position: 'relative', height: 150, background: T.light }}>
+        {r.cover_image_url
+          ? <img src={r.cover_image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          : <div style={{ width: '100%', height: '100%', background:
+              'linear-gradient(140deg, #303034 0%, #0C0C0D 100%)' }} />}
+        {r.is_open === false && (
+          <div style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(0,0,0,.72)',
+                        color: '#FFF', borderRadius: 9999, padding: '4px 10px', fontSize: 10.5,
+                        fontWeight: 800 }}>Cerrado</div>
+        )}
+        <div style={{ position: 'absolute', left: 14, bottom: -22 }}>
+          <RestLogo r={r} size={52} radius={14} />
+        </div>
+      </div>
+
+      <div style={{ padding: '30px 15px 15px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ fontSize: 15.5, fontWeight: 800, color: T.ink, marginBottom: 3 }}>{r.name}</div>
+        {(r.city || r.address) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: T.gray,
+                        marginBottom: 9 }}>
+            <Icon name="pin" size={12} color={T.silver} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {r.city || r.address}
+            </span>
+          </div>
+        )}
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          {r.business_type
+            ? <span style={{ background: T.softBg, border: `1px solid ${T.softBorder}`, color: T.mid,
+                             borderRadius: 9999, padding: '4px 10px', fontSize: 11, fontWeight: 700 }}>
+                {expInfo(r.business_type).label}
+              </span>
+            : <span />}
+          {r.rating != null && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+              <Icon name="star" size={13} color={T.gold} />
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: T.ink }}>{Number(r.rating).toFixed(1)}</span>
+              <span style={{ fontSize: 11.5, color: T.gray }}>({r.review_count || 0})</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+/* ══ PÁGINA: UNA EXPERIENCIA ═════════════════════════════════════ */
+function ExperienciaPage({ type, types, rows, loading, search, setSearch, onOpen, onPick, onBack }) {
+  const T = useT();
+  const mob = useIsMobile();
+  const info = expInfo(type);
+  const otras = (types || []).filter(t => t.type !== type).slice(0, 5);
+
+  return (
+    <>
+      <section style={{ background: T.black, color: '#FFF', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', inset: 0, background:
+          'radial-gradient(110% 80% at 50% 0%, rgba(255,255,255,.13) 0%, rgba(255,255,255,0) 60%)' }} />
+        <div className="wrap" style={{ position: 'relative', padding: mob ? '20px 16px 40px' : '26px 20px 56px' }}>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer',
+            color: 'rgba(255,255,255,.72)', fontFamily: FONT, fontSize: 13, fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: 7, padding: 0, marginBottom: mob ? 26 : 34 }}>
+            <Icon name="back" size={15} color="rgba(255,255,255,.72)" /> Todas las experiencias
+          </button>
+
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ display: 'inline-block', background: 'rgba(255,255,255,.14)',
+                          border: '1px solid rgba(255,255,255,.22)', borderRadius: 9999,
+                          padding: '5px 14px', fontSize: 10.5, fontWeight: 800,
+                          letterSpacing: '.16em', textTransform: 'uppercase', marginBottom: 16 }}>
+              Experiencia
+            </div>
+            <h1 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: mob ? 36 : 54, lineHeight: 1.06,
+                         letterSpacing: '-0.5px', marginBottom: 12 }}>{info.label}</h1>
+            <p style={{ fontSize: mob ? 14 : 16, color: 'rgba(255,255,255,.72)', marginBottom: 26 }}>
+              {info.sub}
+            </p>
+
+            <div style={{ maxWidth: 560, margin: '0 auto', position: 'relative' }}>
+              <span style={{ position: 'absolute', left: 18, top: '50%', transform: 'translateY(-50%)',
+                             display: 'flex' }}>
+                <Icon name="search" size={17} color={T.gray} />
+              </span>
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder={`Buscar en ${info.label}...`}
+                style={{ width: '100%', height: 54, borderRadius: 9999, border: 'none',
+                         background: '#FFF', color: '#1D1D1F', padding: '0 22px 0 46px',
+                         fontSize: 15, fontFamily: FONT, outline: 'none' }} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section style={{ background: T.offwhite, padding: mob ? '26px 0 40px' : '40px 0 64px' }}>
+        <div className="wrap">
+          <div style={{ fontSize: 13.5, color: T.gray, marginBottom: 20 }}>
+            {loading ? 'Buscando…'
+              : `${rows.length} ${rows.length === 1 ? 'lugar' : 'lugares'} para esta experiencia`}
+          </div>
+
+          {loading ? <div style={{ padding: 40, textAlign: 'center' }}><Spinner /></div>
+            : rows.length === 0
+              ? <Empty icon="utensils" title="Todavía no hay lugares acá"
+                       text="Probá con otra experiencia o cambiá la búsqueda." />
+              : <div className="grid">
+                  {rows.map(r => <PlaceCard key={r.id} r={r} onOpen={onOpen} />)}
+                </div>}
+
+          {/* Texto de la experiencia — lo mismo que el visitante buscaría en
+              Google. Es contenido, no relleno: la vitrina es pública. */}
+          <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 46, paddingTop: 34 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: T.ink, marginBottom: 14 }}>
+              {info.label} en Paraguay
+            </h3>
+            <p style={{ fontSize: 14, color: T.gray, lineHeight: 1.8, maxWidth: 760, marginBottom: 12 }}>
+              {info.sub}: los lugares que están en Mythos, con fotos, reseñas verificadas
+              y ubicación. Podés mirar y pedir sin crear una cuenta.
+            </p>
+            <p style={{ fontSize: 14, color: T.gray, lineHeight: 1.8, maxWidth: 760 }}>
+              Si tenés un antojo específico, el buscador de arriba busca dentro de
+              esta experiencia.
+            </p>
+          </div>
+
+          <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 34, paddingTop: 34 }}>
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: T.ink, marginBottom: 22 }}>
+              Preguntas frecuentes
+            </h3>
+            <div style={{ display: 'grid', gap: 26,
+                          gridTemplateColumns: mob ? '1fr' : 'repeat(2, 1fr)' }}>
+              <Faq q="¿Necesito una cuenta para pedir?"
+                   a="No. Entrás al lugar, mirás la carta y pedís igual que siempre. La cuenta suma puntos, reseñas y ranking — no hace falta para comer." />
+              <Faq q="¿Las reseñas son reales?"
+                   a="Sí. Sólo puede reseñar quien hizo un pedido pagado en ese local, y una sola vez por pedido." />
+              <Faq q="¿Para qué sirven los puntos?"
+                   a="Suben tu nivel y tu reputación como comensal. Cuanto más confiable sos, más pesa tu opinión — y más adelante, más beneficios." />
+              <Faq q="¿Puedo pedir a domicilio?"
+                   a="En los lugares con delivery activo, sí: elegís delivery y seguís el pedido en el mapa hasta tu puerta." />
+            </div>
+          </div>
+
+          {otras.length > 0 && (
+            <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 34, paddingTop: 30 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: T.ink, marginBottom: 16 }}>
+                Otras experiencias
+              </div>
+              <div className="chips">
+                {otras.map(t => (
+                  <Pill key={t.type} onClick={() => onPick(t.type)}>{expInfo(t.type).label}</Pill>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function Faq({ q, a }) {
+  const T = useT();
+  return (
+    <div>
+      <div style={{ fontSize: 14.5, fontWeight: 800, color: T.ink, marginBottom: 7 }}>{q}</div>
+      <div style={{ fontSize: 13.5, color: T.gray, lineHeight: 1.75 }}>{a}</div>
+    </div>
+  );
+}
+
+/* ══ PIE ═════════════════════════════════════════════════════════ */
+function SiteFooter({ onLogin, me }) {
+  const T = useT();
+  const mob = useIsMobile();
+  const link = { color: T.gray, fontSize: 13, textDecoration: 'none', display: 'block',
+                 marginBottom: 9, fontFamily: FONT };
+  return (
+    <footer style={{ background: T.white, borderTop: `1px solid ${T.border}`,
+                     padding: mob ? '34px 0 26px' : '52px 0 34px', marginTop: 'auto' }}>
+      <div className="wrap">
+        <div style={{ display: 'grid', gap: 30,
+                      gridTemplateColumns: mob ? '1fr' : '1.6fr 1fr 1fr' }}>
+          <div>
+            <div style={{ fontFamily: T.F.h, fontSize: 21, color: T.ink, letterSpacing: '.14em',
+                          marginBottom: 12 }}>MYTHOS</div>
+            <p style={{ fontSize: 13, color: T.gray, lineHeight: 1.75, maxWidth: 330 }}>
+              Descubrí dónde comer, pedí en segundos y construí tu identidad
+              gastronómica: puntos, reseñas verificadas y ranking.
+            </p>
+          </div>
+          <div>
+            <h5 style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.16em', textTransform: 'uppercase',
+                         color: T.ink, marginBottom: 13 }}>Comensales</h5>
+            {!me && <a href="#" onClick={e => { e.preventDefault(); onLogin(); }} style={link}>Iniciar sesión</a>}
+            <a href="/terminos" style={link}>Términos</a>
+            <a href="/privacidad" style={link}>Privacidad</a>
+            <a href="/cookies" style={link}>Cookies</a>
+          </div>
+          <div>
+            <h5 style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.16em', textTransform: 'uppercase',
+                         color: T.ink, marginBottom: 13 }}>¿Tenés un local?</h5>
+            <a href="/inicio" style={link}>Mythos para restaurantes</a>
+            <a href="/precios" style={link}>Precios</a>
+            <a href="/registro" style={link}>Probar gratis</a>
+            <a href="/login" style={link}>Entrar como local</a>
+          </div>
+        </div>
+        <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 26, paddingTop: 18,
+                      fontSize: 12, color: T.silver }}>
+          © {new Date().getFullYear()} Mythos · Hecho en Paraguay
+        </div>
+      </div>
+    </footer>
   );
 }
 
@@ -1707,10 +2205,43 @@ function App() {
   const [bump, setBump]     = useState(0);           // fuerza recarga del perfil
   const [recovery, setRecovery] = useState(URL_RECOVERY);
 
+  // Vitrina pública (mig 201) — la misma consulta sirve con y sin cuenta.
+  const [browse, setBrowse]   = useState(null);
+  const [bLoading, setBLoading] = useState(true);
+  const [expType, setExpType] = useState('');
+  const [search, setSearch]   = useState('');
+
   useEffect(() => { try { localStorage.setItem('mythos_clientes_mood', mood); } catch (_) {} }, [mood]);
+
+  /* ── Vitrina ── */
+  // Una sola RPC trae listado + experiencias con conteo + ciudades. El filtro
+  // por experiencia y la búsqueda van al SERVIDOR: recortar en el navegador da
+  // un número que empeora cuanto más locales hay (es lo que las migs 197/198/199
+  // tuvieron que arreglar tres veces).
+  const loadBrowse = useCallback(async () => {
+    setBLoading(true);
+    const { data, missing } = await API.browsePublic({
+      type: tab === 'exp' ? expType : '', search: tab === 'exp' ? search : ''
+    });
+    setBrowse(missing ? { missing: true, rows: [], types: [] } : (data || { rows: [], types: [] }));
+    setBLoading(false);
+  }, [tab, expType, search]);
+
+  // Debounce del buscador: sin esto se dispara una consulta por tecla.
+  useEffect(() => {
+    const t = setTimeout(loadBrowse, search ? 320 : 0);
+    return () => clearTimeout(t);
+  }, [loadBrowse]);
 
   /* ── Arranque ── */
   const load = useCallback(async () => {
+    // Sin sesión NO se llama a diner_bootstrap: está otorgada sólo a
+    // `authenticated` (mig 200) y con la anon key devolvería un error de
+    // permisos que se leería como "la app está rota". El visitante anónimo es
+    // un estado legítimo — la vitrina se navega sin cuenta (mig 201).
+    const sess = await API.getSession();
+    if (!sess) { setBoot({ signed_in: false }); return; }
+
     const { data, missing } = await API.bootstrap();
     if (missing) { setBoot({ missing: true }); return; }
     setBoot(data || { signed_in: false });
@@ -1770,102 +2301,222 @@ function App() {
   let body = null;
 
   if (boot === undefined) {
-    body = <div style={{ height: '100%', display: 'flex', alignItems: 'center',
-                         justifyContent: 'center', background: T.offwhite }}><Loading /></div>;
+    body = <Loading />;
 
   } else if (boot.missing) {
-    body = <div style={{ height: '100%', background: T.offwhite, display: 'flex',
-                         alignItems: 'center' }}>
-      <Empty icon="alert" title="La app todavía no está disponible"
-             text="Falta aplicar la migración 200 en Supabase. Una vez aplicada, esta pantalla desaparece sola." />
-    </div>;
+    body = <Empty icon="alert" title="La app todavía no está disponible"
+             text="Falta aplicar la migración 200 en Supabase. Una vez aplicada, esta pantalla desaparece sola." />;
 
   } else if (!API.db) {
-    body = <div style={{ height: '100%', background: T.offwhite, display: 'flex', alignItems: 'center' }}>
-      <Empty icon="alert" title="Sin conexión con el servidor"
-             text="No pudimos cargar la configuración. Revisá tu conexión y recargá." />
-    </div>;
+    body = <Empty icon="alert" title="Sin conexión con el servidor"
+             text="No pudimos cargar la configuración. Revisá tu conexión y recargá." />;
 
-  } else if (!boot.signed_in) {
-    body = <LoginScreen onFlash={setFlash} />;
-
-  } else if (recovery) {
+  } else if (recovery && boot.signed_in) {
     // Va ANTES del chequeo de allowlist: quien pidió cambiar la contraseña tiene
     // que poder terminar de cambiarla aunque su correo no esté habilitado — si no,
     // queda con sesión abierta y la contraseña vieja, que es la que no recuerda.
     body = <RecoveryScreen onFlash={setFlash}
              onDone={() => { setRecovery(false); setFlash('Contraseña actualizada'); load(); }} />;
 
-  } else if (!boot.allowed) {
-    body = <ClosedScreen email={boot.email} message={boot.closed_message} onOut={doOut} />;
+  } else if (boot.signed_in && boot.allowed && !boot.diner) {
+    body = <Loading />;
 
-  } else if (!boot.diner) {
-    body = <div style={{ height: '100%', display: 'flex', alignItems: 'center',
-                         justifyContent: 'center', background: T.offwhite }}><Loading /></div>;
-
-  } else if (!boot.diner.onboarded) {
+  } else if (boot.signed_in && boot.allowed && boot.diner && !boot.diner.onboarded) {
     body = <OnboardingScreen boot={boot} onFlash={setFlash} onDone={(xp) => {
       setFlash(xp > 0 ? `Listo · +${xp} XP` : 'Listo');
       load();
     }} />;
 
   } else {
-    const me = boot.diner;
-    body = (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: T.offwhite }}>
-        <TopBar me={me} carts={carts} notifCount={notifCount}
-          dark={mood === 'negro'} onTheme={() => setMood(m => m === 'negro' ? 'blanco' : 'negro')}
-          onCart={() => setSheet({ kind: 'carts' })}
-          onNotif={() => setSheet({ kind: 'notif' })} />
+    // ── Vitrina + pantallas personales ──────────────────────────────────
+    // El comensal identificado (o null si está mirando sin cuenta). No es un
+    // portón: sin `me` la vitrina se ve igual, sólo que las pantallas de
+    // identidad piden entrar.
+    const me = (boot.signed_in && boot.allowed) ? boot.diner : null;
+    const rows  = browse?.rows  || [];
+    const types = browse?.types || [];
 
-        {tab === 'home'    && <HomeScreen me={me} onFlash={setFlash}
-                                onOpen={(r, svc) => { setRests(rs => rs.some(x => x.id === r.id) ? rs : rs.concat(r));
-                                                      setSheet({ kind: 'rest', r, service: svc }); }} />}
-        {tab === 'orders'  && <OrdersScreen onFlash={setFlash}
-                                onRate={(o) => setSheet({ kind: 'rate', order: o })} />}
-        {tab === 'ranking' && <RankingScreen me={me} />}
-        {tab === 'profile' && <ProfileScreen onFlash={setFlash} onOut={doOut} reload={bump}
-                                onCounterCode={() => setSheet({ kind: 'code' })} />}
+    // La vitrina apagada (mig 201: public_browse_enabled=false) para alguien
+    // sin cuenta es la beta cerrada de siempre; para alguien con cuenta no
+    // cambia nada porque `discover` sigue andando por su lado.
+    const vitrinaOff = browse && browse.enabled === false && !me;
 
-        <BottomNav tab={tab} setTab={setTab} />
+    const openPlace = (r) => {
+      setRests(rs => rs.some(x => x.id === r.id) ? rs : rs.concat(r));
+      setSheet({ kind: 'rest', r, service: 'dine_in' });
+    };
+    const pickExp = (t) => {
+      setExpType(t); setSearch(''); setTab('exp');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    const needAccount = (what) => (
+      <div className="wrap" style={{ padding: '70px 20px', textAlign: 'center' }}>
+        <Icon name="user" size={36} color={T.silver} />
+        <div style={{ fontSize: 19, fontWeight: 800, color: T.ink, margin: '16px 0 8px' }}>
+          Entrá para ver {what}
+        </div>
+        <div style={{ fontSize: 14, color: T.gray, lineHeight: 1.75, maxWidth: 420, margin: '0 auto 22px' }}>
+          Mirar y pedir no necesita cuenta. {what[0].toUpperCase() + what.slice(1)} sí,
+          porque es tuyo: se construye con tus pedidos.
+        </div>
+        <div style={{ maxWidth: 260, margin: '0 auto' }}>
+          <Btn onClick={() => setTab('login')}>Iniciar sesión</Btn>
+        </div>
       </div>
     );
+
+    if (tab === 'login' && !me) {
+      body = <div className="wrap" style={{ maxWidth: 460, padding: '10px 20px 60px' }}>
+        <LoginScreen onFlash={setFlash} />
+      </div>;
+
+    } else if (boot.signed_in && !boot.allowed) {
+      // Con sesión pero fuera de la allowlist: la vitrina se sigue viendo,
+      // el aviso va arriba en vez de tapar la pantalla entera.
+      body = <>
+        <div style={{ background: T.softBg, borderBottom: `1px solid ${T.border}` }}>
+          <div className="wrap" style={{ padding: '14px 20px', display: 'flex', gap: 12,
+                                         alignItems: 'center', flexWrap: 'wrap' }}>
+            <Icon name="shield" size={17} color={T.mid} />
+            <span style={{ fontSize: 13, color: T.mid, flex: 1, minWidth: 200 }}>
+              {boot.closed_message || 'Tu cuenta todavía no está habilitada para la beta de comensales.'}
+            </span>
+            <Btn full={false} variant="ghost" onClick={doOut}
+                 style={{ height: 36, padding: '0 16px', fontSize: 12.5 }}>Salir</Btn>
+          </div>
+        </div>
+        <Hero types={types} onPick={pickExp} onExplore={() => setTab('exps')} />
+        <ExperienciasSection types={types} rows={rows} onPick={pickExp} compact />
+      </>;
+
+    } else if (vitrinaOff) {
+      body = <ClosedScreen email={boot.email} message={browse?.closed_message}
+                           onOut={boot.signed_in ? doOut : null} />;
+
+    } else if (tab === 'exp') {
+      body = <ExperienciaPage type={expType} types={types} rows={rows} loading={bLoading}
+               search={search} setSearch={setSearch} onOpen={openPlace} onPick={pickExp}
+               onBack={() => { setTab('exps'); setSearch(''); }} />;
+
+    } else if (tab === 'exps') {
+      body = <ExperienciasSection types={types} rows={rows} onPick={pickExp} />;
+
+    } else if (tab === 'orders') {
+      body = me
+        ? <div className="wrap" style={{ padding: '10px 20px 50px' }}>
+            <OrdersScreen onFlash={setFlash} onRate={(o) => setSheet({ kind: 'rate', order: o })} />
+          </div>
+        : needAccount('tus pedidos');
+
+    } else if (tab === 'ranking') {
+      body = me
+        ? <div className="wrap" style={{ padding: '10px 20px 50px' }}><RankingScreen me={me} /></div>
+        : needAccount('el ranking');
+
+    } else if (tab === 'profile') {
+      body = me
+        ? <div className="wrap" style={{ padding: '10px 20px 50px' }}>
+            <ProfileScreen onFlash={setFlash} onOut={doOut} reload={bump}
+              onCounterCode={() => setSheet({ kind: 'code' })} />
+          </div>
+        : needAccount('tu perfil');
+
+    } else {
+      // Portada
+      body = <>
+        <Hero types={types} onPick={pickExp} onExplore={() => setTab('exps')} />
+        <ExperienciasSection types={types} rows={rows} onPick={pickExp} compact />
+
+        <section style={{ background: T.white, borderTop: `1px solid ${T.border}`,
+                          padding: '46px 0 56px' }}>
+          <div className="wrap">
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+                          gap: 14, marginBottom: 22, flexWrap: 'wrap' }}>
+              <h2 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: 30, color: T.ink,
+                           letterSpacing: '-0.4px' }}>
+                {me ? 'Para vos' : 'Lugares en Mythos'}
+              </h2>
+              {types.length > 0 && (
+                <button onClick={() => setTab('exps')} style={{ background: 'none', border: 'none',
+                  cursor: 'pointer', fontFamily: FONT, fontSize: 13.5, fontWeight: 700,
+                  color: T.mid, textDecoration: 'underline' }}>Ver todas las experiencias</button>
+              )}
+            </div>
+            {bLoading
+              ? <div style={{ padding: 40, textAlign: 'center' }}><Spinner /></div>
+              : rows.length === 0
+                ? <Empty icon="utensils" title="Todavía no hay lugares publicados"
+                         text="En cuanto haya restaurantes activos aparecen acá." />
+                : <div className="grid">
+                    {rows.slice(0, 9).map(r => <PlaceCard key={r.id} r={r} onOpen={openPlace} />)}
+                  </div>}
+          </div>
+        </section>
+
+        {!me && (
+          <section style={{ background: T.black, color: '#FFF', padding: '56px 0' }}>
+            <div className="wrap" style={{ textAlign: 'center' }}>
+              <h2 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: 34, lineHeight: 1.15,
+                           marginBottom: 14 }}>
+                Pedí sin cuenta.<br />Con cuenta, además, sumás.
+              </h2>
+              <p style={{ fontSize: 15, color: 'rgba(255,255,255,.72)', lineHeight: 1.75,
+                          maxWidth: 520, margin: '0 auto 26px' }}>
+                Cada pedido suma puntos y sube tu nivel. Podés dejar reseñas
+                verificadas —sólo si comiste ahí— y entrar al ranking de
+                exploradores de Paraguay.
+              </p>
+              <button onClick={() => setTab('login')} style={{ background: '#FFF', color: '#000',
+                border: 'none', borderRadius: 9999, height: 50, padding: '0 32px', fontFamily: FONT,
+                fontSize: 15, fontWeight: 800, cursor: 'pointer' }}>
+                Crear mi cuenta
+              </button>
+            </div>
+          </section>
+        )}
+      </>;
+    }
   }
+
+  const me = (boot?.signed_in && boot?.allowed) ? boot.diner : null;
 
   return (
     <ThemeCtx.Provider value={T}>
-      <div className="phone-wrap">
-        <div className="phone" style={{ background: T.phoneBg }}>
-          <div className="screen" style={{ background: T.offwhite }}>{body}</div>
+      <SiteHeader me={me} tab={tab} setTab={setTab} carts={carts} notifCount={notifCount}
+        onLogin={() => setTab('login')} onOut={doOut}
+        onCart={() => setSheet({ kind: 'carts' })} onNotif={() => setSheet({ kind: 'notif' })}
+        dark={mood === 'negro'} onTheme={() => setMood(m => m === 'negro' ? 'blanco' : 'negro')} />
 
-          {sheet?.kind === 'rest' && (
-            <RestaurantSheet r={sheet.r} service={sheet.service} onFlash={setFlash}
-              onClose={() => setSheet(null)} onChanged={() => setBump(b => b + 1)} />
-          )}
-          {sheet?.kind === 'rate' && (
-            <RateSheet order={sheet.order} boot={boot} onFlash={setFlash}
-              onClose={() => setSheet(null)}
-              onDone={(xp, nPhotos) => {
-                setSheet(null);
-                setFlash(`¡Gracias! +${xp} XP${nPhotos ? ` · ${nPhotos} foto${nPhotos !== 1 ? 's' : ''} en revisión` : ''}`);
-                API.myOrders().then(({ data }) => { if (Array.isArray(data)) setOrders(data); });
-                load(); setBump(b => b + 1);
-              }} />
-          )}
-          {sheet?.kind === 'carts' && (
-            <CartsSheet carts={carts} restaurants={rests} onClose={() => setSheet(null)} />
-          )}
-          {sheet?.kind === 'notif' && (
-            <NotifSheet orders={orders} onClose={() => setSheet(null)}
-              onRate={(o) => setSheet({ kind: 'rate', order: o })} />
-          )}
-          {sheet?.kind === 'code' && (
-            <CodeSheet onClose={() => setSheet(null)} onFlash={setFlash} />
-          )}
+      <main style={{ flex: 1, background: T.offwhite }}>{body}</main>
 
-          {flash && <Toast msg={flash} onHide={() => setFlash('')} />}
-        </div>
-      </div>
+      <SiteFooter me={me} onLogin={() => setTab('login')} />
+
+      {sheet?.kind === 'rest' && (
+        <RestaurantSheet r={sheet.r} service={sheet.service} onFlash={setFlash}
+          onClose={() => setSheet(null)} onChanged={() => setBump(b => b + 1)} />
+      )}
+      {sheet?.kind === 'rate' && (
+        <RateSheet order={sheet.order} boot={boot} onFlash={setFlash}
+          onClose={() => setSheet(null)}
+          onDone={(xp, nPhotos) => {
+            setSheet(null);
+            setFlash(`¡Gracias! +${xp} XP${nPhotos ? ` · ${nPhotos} foto${nPhotos !== 1 ? 's' : ''} en revisión` : ''}`);
+            API.myOrders().then(({ data }) => { if (Array.isArray(data)) setOrders(data); });
+            load(); setBump(b => b + 1);
+          }} />
+      )}
+      {sheet?.kind === 'carts' && (
+        <CartsSheet carts={carts} restaurants={rests} onClose={() => setSheet(null)} />
+      )}
+      {sheet?.kind === 'notif' && (
+        <NotifSheet orders={orders} onClose={() => setSheet(null)}
+          onRate={(o) => setSheet({ kind: 'rate', order: o })} />
+      )}
+      {sheet?.kind === 'code' && (
+        <CodeSheet onClose={() => setSheet(null)} onFlash={setFlash} />
+      )}
+
+      {flash && <Toast msg={flash} onHide={() => setFlash('')} />}
     </ThemeCtx.Provider>
   );
 }

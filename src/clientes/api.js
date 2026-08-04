@@ -192,6 +192,22 @@ export const discover         = (f = {})              => rpc('diner_discover', {
                                                             p_search: f.search || null, p_city: f.city || null,
                                                             p_service: f.service || null, p_type: f.type || null,
                                                             p_limit: f.limit || 60 });
+/* ── Vitrina PÚBLICA (mig 201) ───────────────────────────────────── */
+// Se navega SIN sesión: descubrir y entrar a pedir es el mismo camino que ya
+// tiene cualquiera con el QR o el link de delivery. La cuenta no da permiso de
+// pedir, da IDENTIDAD (XP, reseñas, ranking, beneficios).
+//
+// Van por RPC propia y no por `discover`: `diner_discover` está otorgada sólo a
+// `authenticated`, y `restaurants` quedó tenant-scoped para `anon` en la mig
+// 103 — un visitante sin cuenta no vería NI UN local. `diner_browse_public` es
+// SECURITY DEFINER y devuelve sólo lo que ya es público de un negocio.
+export const browsePublic = (f = {}) => rpc('diner_browse_public', {
+  p_search: f.search || null, p_city: f.city || null,
+  p_type:   f.type   || null, p_limit: f.limit || 60
+});
+export const placePublic  = (id) => rpc('diner_place_public', { p_restaurant: id });
+export const publicConfig = ()   => rpc('diner_public_config');
+
 export const myOrders         = (limit)               => rpc('diner_my_orders', { p_limit: limit || 60 });
 export const submitReview     = (payload)             => rpc('diner_submit_review', { p_payload: payload });
 export const voteReview       = (id, kind, on)        => rpc('diner_vote_review', { p_review: id, p_kind: kind, p_on: on !== false });

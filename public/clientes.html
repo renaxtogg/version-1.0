@@ -74,27 +74,39 @@
      (src/clientes/theme.jsx) porque el marco del teléfono pinta su propio
      fondo, igual que el panel del QR. -->
 <style>
+  /* ── Página responsive real: celular Y computadora ──────────────────────
+     Antes esto era un marco de teléfono de 390×844 centrado sobre fondo
+     oscuro: en una notebook se veía una maqueta, no un sitio. La vitrina se
+     navega sin cuenta y tiene que verse como lo que es en las dos pantallas.
+     El color de fondo lo pinta React (tema claro/oscuro), acá sólo la caja. */
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-  .phone-wrap{display:flex;align-items:center;justify-content:center;min-height:100vh}
-  .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;box-shadow:0 40px 80px rgba(0,0,0,0.7),0 0 0 1px rgba(255,255,255,0.08);flex-shrink:0}
-  .screen{position:absolute;inset:0;overflow:hidden;display:flex;flex-direction:column;-webkit-overflow-scrolling:touch}
-  .screen::-webkit-scrollbar{display:none}
-  .screen *::-webkit-scrollbar{display:none}
-  .screen>*{flex:1;min-height:0}
-  input,textarea,select{font-family:inherit}
-  button{font-family:inherit}
+  html{scroll-behavior:smooth}
+  body{min-height:100dvh;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  #app{min-height:100dvh;display:flex;flex-direction:column}
+  img{max-width:100%;display:block}
+  input,textarea,select,button{font-family:inherit}
+
+  /* Contenedor único de todas las secciones. El ancho máximo es el mismo que
+     usa la web de marketing, así /clientes no se siente otro sitio. */
+  .wrap{width:100%;max-width:1180px;margin:0 auto;padding:0 20px}
+  @media(max-width:640px){ .wrap{padding:0 16px} }
+
+  /* Grilla de tarjetas: 3 → 2 → 1 según ancho. Nunca desborda en horizontal. */
+  .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+  @media(max-width:640px){ .grid{gap:14px;grid-template-columns:1fr} }
+
+  /* Fila de chips que se desplaza sola en celular en vez de romper el layout. */
+  .chips{display:flex;gap:9px;flex-wrap:wrap}
+  @media(max-width:640px){
+    .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;
+           padding-bottom:2px;-webkit-overflow-scrolling:touch}
+    .chips::-webkit-scrollbar{display:none}
+  }
+
   @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   @keyframes spin{to{transform:rotate(360deg)}}
-  /* En un teléfono real el marco desaparece y la app ocupa la pantalla entera.
-     Mismo corte que el panel del QR (430px). */
-  @media(max-width:430px){
-    body{display:block;background:#fff}
-    .phone-wrap,.phone-wrap>div{display:block}
-    .phone{width:100%!important;height:100dvh!important;border-radius:0!important;box-shadow:none!important}
-    .screen{position:fixed!important}
-  }
 </style>
 </head>
 <body>
