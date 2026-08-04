@@ -25,6 +25,11 @@ export const PALETTES = {
     hdrInputBg: '#F5F5F5', hdrInputBorder: '#E2E2E2', hdrInputText: '#1D1D1F',
     softBg: 'rgba(0,0,0,0.04)', softBorder: 'rgba(0,0,0,0.08)',
     btnPrimary: '#000000', btnPrimaryText: '#FFF', phoneBg: '#F8F8F8',
+    // Panel de contraste (tarjeta de identidad). NO es `ink`: en tema oscuro
+    // `ink` es casi blanco, así que usarlo de fondo con texto blanco fijo dejaba
+    // la tarjeta ilegible. Va como token propio para que cada tema decida.
+    heroBg: '#000000', heroText: '#FFFFFF', heroDim: 'rgba(255,255,255,.55)',
+    heroTrack: 'rgba(255,255,255,.18)',
     good: '#16A34A', warn: '#B45309', bad: '#B91C1C', gold: '#B8860B'
   },
   negro: {
@@ -35,6 +40,10 @@ export const PALETTES = {
     hdrInputBg: 'rgba(255,255,255,0.07)', hdrInputBorder: 'rgba(255,255,255,0.12)', hdrInputText: '#FFF',
     softBg: 'rgba(255,255,255,0.05)', softBorder: 'rgba(255,255,255,0.10)',
     btnPrimary: '#FFFFFF', btnPrimaryText: '#000000', phoneBg: '#000000',
+    // En oscuro el negro puro se funde con el fondo de la pantalla (offwhite es
+    // #000): la tarjeta de identidad se ELEVA, no se hunde.
+    heroBg: '#1F1F23', heroText: '#F5F5F7', heroDim: 'rgba(255,255,255,.5)',
+    heroTrack: 'rgba(255,255,255,.14)',
     good: '#4ADE80', warn: '#FBBF24', bad: '#F87171', gold: '#E0B84C'
   }
 };
@@ -192,14 +201,18 @@ export function Spinner({ size = 20, color }) {
 }
 
 /* ── Barra de progreso de nivel ──────────────────────────────────── */
-export function XpBar({ xp, min, next, height = 6 }) {
+// `color`/`track` son obligatorios cuando la barra va DENTRO del panel de
+// contraste: los defaults (T.ink sobre T.softBg) son tinta sobre tinta ahí, o
+// sea una barra invisible — pasaba en los dos temas, no sólo en el oscuro.
+export function XpBar({ xp, min, next, height = 6, color, track }) {
   const T = useT();
   // Sin siguiente nivel = nivel máximo: la barra va llena, no vacía.
   const pct = next == null ? 100
             : Math.max(0, Math.min(100, ((xp - min) / Math.max(next - min, 1)) * 100));
   return (
-    <div style={{ width: '100%', height, background: T.softBg, borderRadius: 9999, overflow: 'hidden' }}>
-      <div style={{ width: pct + '%', height: '100%', background: T.ink, borderRadius: 9999,
+    <div style={{ width: '100%', height, background: track || T.softBg,
+                  borderRadius: 9999, overflow: 'hidden' }}>
+      <div style={{ width: pct + '%', height: '100%', background: color || T.ink, borderRadius: 9999,
                     transition: 'width .4s ease' }} />
     </div>
   );

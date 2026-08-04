@@ -1188,26 +1188,27 @@ function HomeScreen({ me, onOpen, onFlash }) {
     <div style={{ flex: 1, overflowY: 'auto', background: T.offwhite }}>
       {/* Tarjeta de identidad — lo primero es quién sos, no una lista */}
       <div style={{ padding: '14px 18px 4px' }}>
-        <Card style={{ background: T.ink, border: 'none' }}>
+        <Card style={{ background: T.heroBg, border: 'none' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: 'rgba(255,255,255,.55)',
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: T.heroDim,
                             letterSpacing: '.16em', textTransform: 'uppercase' }}>
                 Explorador Gastronómico
               </div>
-              <div style={{ fontFamily: T.F.h, fontSize: 25, color: '#FFF', marginTop: 5 }}>
+              <div style={{ fontFamily: T.F.h, fontSize: 25, color: T.heroText, marginTop: 5 }}>
                 Nivel {me?.level || 1} · {me?.level_name || 'Novato'}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 21, fontWeight: 800, color: '#FFF' }}>{num(me?.xp || 0)}</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,.55)', fontWeight: 700,
+              <div style={{ fontSize: 21, fontWeight: 800, color: T.heroText }}>{num(me?.xp || 0)}</div>
+              <div style={{ fontSize: 10, color: T.heroDim, fontWeight: 700,
                             letterSpacing: '.1em' }}>XP</div>
             </div>
           </div>
           <div style={{ marginTop: 14 }}>
-            <XpBar xp={me?.xp || 0} min={me?.level_min_xp || 0} next={me?.next_level_xp} />
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,.55)', marginTop: 7 }}>
+            <XpBar xp={me?.xp || 0} min={me?.level_min_xp || 0} next={me?.next_level_xp}
+                   color={T.heroText} track={T.heroTrack} />
+            <div style={{ fontSize: 11, color: T.heroDim, marginTop: 7 }}>
               {me?.next_level_xp
                 ? `${num(me.next_level_xp - (me.xp || 0))} XP para el nivel ${(me.level || 1) + 1}`
                 : 'Llegaste al nivel máximo'}
@@ -1979,18 +1980,18 @@ function RankingScreen({ me }) {
 
       {data?.me && (
         <div style={{ padding: '4px 18px 12px' }}>
-          <Card style={{ background: T.ink, border: 'none', display: 'flex',
+          <Card style={{ background: T.heroBg, border: 'none', display: 'flex',
                          alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: 'rgba(255,255,255,.55)',
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: T.heroDim,
                             letterSpacing: '.15em', textTransform: 'uppercase' }}>Tu puesto</div>
-              <div style={{ fontFamily: T.F.h, fontSize: 28, color: '#FFF', marginTop: 3 }}>
+              <div style={{ fontFamily: T.F.h, fontSize: 28, color: T.heroText, marginTop: 3 }}>
                 #{data.me.position}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: '#FFF' }}>{num(data.me.xp)} XP</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,.55)' }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: T.heroText }}>{num(data.me.xp)} XP</div>
+              <div style={{ fontSize: 11, color: T.heroDim }}>
                 de {num(data.total || 0)} exploradores
               </div>
             </div>
