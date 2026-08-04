@@ -304,6 +304,12 @@ export function openCarts() {
 // Se sale de /clientes hacia el panel que YA sabe pedir. No se duplica menú,
 // carrito ni checkout: eso vive en index.html / delivery-cliente.html y
 // cualquier copia se desincronizaría al primer cambio de precios.
+// UN SOLO destino para pedir de afuera, y no es una simplificación: domicilio y
+// retiro son la misma pantalla. `delivery-cliente.html` abre con las dos
+// opciones y hasta ofrece el retiro solo cuando la dirección queda fuera de
+// cobertura. Mandar el retiro a `index.html` (el menú del QR) era el bug que
+// hacía que "Pedir para retirar" cayera en el mismo lugar que el salón.
+//
 // OJO con `dine_in`: NO hay link de pedido para comer en el salón, y es a
 // propósito. El pedido de salón necesita saber QUÉ MESA es, y eso sólo lo sabe
 // el QR pegado a la mesa. Un botón de "pedir" a distancia mandaría comandas a
@@ -311,9 +317,7 @@ export function openCarts() {
 // muestra información (carta en PDF, dirección, horarios), no un carrito.
 export function orderUrl(restaurantId, service) {
   const r = encodeURIComponent(restaurantId);
-  if (service === 'delivery') return `/delivery-cliente.html?r=${r}`;
-  if (service === 'pickup')   return `/index.html?r=${r}&modo=pickup`;
-  return `/index.html?r=${r}`;
+  return service === 'dine_in' ? `/index.html?r=${r}` : `/delivery-cliente.html?r=${r}`;
 }
 
 // Mapa: si el local cargó coordenadas se abre el punto exacto; si no, la

@@ -1381,12 +1381,17 @@ function RestaurantSheet({ r: r0, service, onClose, onFlash, onChanged, signedIn
   const revCount  = rev?.count ?? r.review_count ?? 0;
   const revAvg    = rev?.avg   ?? r.rating;
 
+  // UN SOLO botón para pedir de afuera: domicilio y retiro son la MISMA
+  // pantalla — `delivery-cliente` abre con las dos opciones y elige la persona.
+  // Dos botones prometían dos caminos que no existen, y el de retiro además
+  // caía en el menú del QR, o sea el mismo lugar que el salón.
+  //
   // El pedido de SALÓN no está acá y no es un olvido: hace falta el QR de la
   // mesa para saber dónde sentar la comanda. Desde la vitrina se ve la carta,
   // no se pide (§ regla en CLAUDE.md).
-  const actions = [];
-  if (canDeliv) actions.push({ k: 'delivery', label: 'Pedir a domicilio', primary: true });
-  if (canSalon) actions.push({ k: 'pickup',   label: 'Pedir para retirar', primary: !canDeliv });
+  const orderLabel = !canDeliv ? 'Pedir para retirar'
+                   : !canSalon ? 'Pedir a domicilio'
+                   : 'Pedir a domicilio o retirar';
 
   return (
     <Sheet title={r.name} onClose={onClose} footer={
@@ -1396,14 +1401,9 @@ function RestaurantSheet({ r: r0, service, onClose, onFlash, onChanged, signedIn
             <Icon name="heart" size={18} color={fav ? T.bad : T.mid} />
           </Btn>
         )}
-        {actions.length === 0
-          ? <Btn variant="ghost" onClick={onClose}>Cerrar</Btn>
-          : actions.map(a => (
-              <Btn key={a.k} variant={a.primary ? 'primary' : 'ghost'} onClick={() => go(a.k)}
-                   full={false} style={{ flex: 1, minWidth: 130 }}>
-                {a.label}
-              </Btn>
-            ))}
+        <Btn onClick={() => go('delivery')} full={false} style={{ flex: 1, minWidth: 150 }}>
+          {orderLabel}
+        </Btn>
       </div>
     }>
       <div style={{ display: 'flex', gap: 13, alignItems: 'center', marginBottom: 18 }}>
