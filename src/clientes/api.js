@@ -304,9 +304,35 @@ export function openCarts() {
 // Se sale de /clientes hacia el panel que YA sabe pedir. No se duplica menú,
 // carrito ni checkout: eso vive en index.html / delivery-cliente.html y
 // cualquier copia se desincronizaría al primer cambio de precios.
+// OJO con `dine_in`: NO hay link de pedido para comer en el salón, y es a
+// propósito. El pedido de salón necesita saber QUÉ MESA es, y eso sólo lo sabe
+// el QR pegado a la mesa. Un botón de "pedir" a distancia mandaría comandas a
+// la cocina de gente que no está sentada en el local. Para el salón la vitrina
+// muestra información (carta en PDF, dirección, horarios), no un carrito.
 export function orderUrl(restaurantId, service) {
   const r = encodeURIComponent(restaurantId);
-  return service === 'delivery'
-    ? `/delivery-cliente.html?r=${r}`
-    : `/index.html?r=${r}`;
+  if (service === 'delivery') return `/delivery-cliente.html?r=${r}`;
+  if (service === 'pickup')   return `/index.html?r=${r}&modo=pickup`;
+  return `/index.html?r=${r}`;
+}
+
+// Mapa: si el local cargó coordenadas se abre el punto exacto; si no, la
+// búsqueda por dirección. Sin ninguno de los dos no se muestra el botón —
+// mandar a Google Maps con una cadena vacía deja al comensal en cualquier lado.
+export function mapsUrl(r) {
+  if (!r) return null;
+  if (r.lat != null && r.lng != null) return `https://www.google.com/maps/search/?api=1&query=${r.lat},${r.lng}`;
+  const q = [r.name, r.address, r.city].filter(Boolean).join(', ');
+  return q ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}` : null;
+}
+
+export function socialUrl(kind, value) {
+  const v = String(value || '').trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  const handle = v.replace(/^@/, '');
+  if (kind === 'instagram') return `https://instagram.com/${handle}`;
+  if (kind === 'facebook')  return `https://facebook.com/${handle}`;
+  if (kind === 'whatsapp')  return `https://wa.me/${v.replace(/[^\d]/g, '')}`;
+  return `https://${v}`;
 }

@@ -104,6 +104,30 @@
     .chips::-webkit-scrollbar{display:none}
   }
 
+  /* ── App del comensal identificado ──────────────────────────────────────
+     Dos shells en la misma página, a propósito:
+       • SIN cuenta  → vitrina responsive (lo de arriba). Es una web pública:
+         se navega igual en una notebook que en el celular.
+       • CON cuenta  → la app de siempre, en marco de teléfono. Renato la
+         prefiere así y tiene sentido: adentro es una app personal de una mano
+         (navegación abajo, una pantalla por objetivo), no un sitio para leer.
+     En un celular real el marco desaparece y ocupa la pantalla entera. */
+  body.app-mode{background:#111;display:flex;align-items:center;justify-content:center}
+  body.app-mode #app{display:block;min-height:100dvh}
+  .phone-wrap{display:flex;align-items:center;justify-content:center;min-height:100dvh}
+  .phone{width:390px;height:844px;border-radius:44px;overflow:hidden;position:relative;
+         box-shadow:0 40px 80px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.08);flex-shrink:0}
+  .screen{position:absolute;inset:0;overflow:hidden;display:flex;flex-direction:column;
+          -webkit-overflow-scrolling:touch}
+  .screen::-webkit-scrollbar,.screen *::-webkit-scrollbar{display:none}
+  .screen>*{flex:1;min-height:0}
+  @media(max-width:430px){
+    body.app-mode{display:block;background:#fff}
+    .phone-wrap{display:block;min-height:0}
+    .phone{width:100%!important;height:100dvh!important;border-radius:0!important;box-shadow:none!important}
+    .screen{position:fixed!important}
+  }
+
   @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   @keyframes spin{to{transform:rotate(360deg)}}

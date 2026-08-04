@@ -1033,26 +1033,38 @@ function SiteFooter({ onLogin, me }) {
   );
 }
 
-function RoundBtn({ icon, onClick, badge }) {
+/* ══ APP IDENTIFICADA: CABECERA ══════════════════════════════════ */
+// La app de adentro NO es la vitrina. Afuera es una web pública que se lee;
+// adentro es una app personal de una mano — saludo, nivel, y la navegación al
+// alcance del pulgar. Renato la prefiere así y el uso le da la razón: el
+// comensal entra de noche, con hambre, mirando su perfil, no leyendo una home.
+function TopBar({ me, carts, onCart, onNotif, notifCount, dark, onTheme }) {
   const T = useT();
   return (
-    <button onClick={onClick} style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%',
-      background: T.softBg, border: `1px solid ${T.softBorder}`, cursor: 'pointer',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.hdrText }}>
-      <Icon name={icon} size={17} color={T.hdrText} />
-      {badge > 0 && (
-        <span style={{ position: 'absolute', top: -3, right: -3, minWidth: 17, height: 17,
-                       borderRadius: 9999, background: T.bad, color: '#FFF', fontSize: 10,
-                       fontWeight: 800, display: 'flex', alignItems: 'center',
-                       justifyContent: 'center', padding: '0 4px' }}>{badge > 9 ? '9+' : badge}</span>
-      )}
-    </button>
+    <div style={{ background: T.hdrBg, padding: '46px 20px 14px', flexShrink: 0,
+                  borderBottom: `1px solid ${T.border}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: T.hdrSub, letterSpacing: '.14em',
+                        textTransform: 'uppercase', marginBottom: 2 }}>
+            Nivel {me?.level || 1} · {me?.level_name || 'Novato'}
+          </div>
+          <div style={{ fontFamily: T.F.h, fontSize: 22, color: T.hdrText, lineHeight: 1.1,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            Hola{me?.display_name ? ', ' + me.display_name.split(' ')[0] : ''}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <RoundBtn icon={dark ? 'sun' : 'moon'} onClick={onTheme} />
+          <RoundBtn icon="bell" onClick={onNotif} badge={notifCount} />
+          <RoundBtn icon="cart" onClick={onCart} badge={carts.reduce((s, c) => s + c.count, 0)} />
+        </div>
+      </div>
+    </div>
   );
 }
 
-/* ══ NAVEGACIÓN INFERIOR ═════════════════════════════════════════ */
-// Abajo, al alcance del pulgar: el comensal entra de noche, con una mano y
-// con hambre. No es el sidebar de los paneles de staff (§9 del diseño).
+/* ══ APP IDENTIFICADA: NAVEGACIÓN INFERIOR ═══════════════════════ */
 function BottomNav({ tab, setTab }) {
   const T = useT();
   const items = [
@@ -1080,7 +1092,24 @@ function BottomNav({ tab, setTab }) {
   );
 }
 
-/* ══ PANTALLA: EXPLORAR ══════════════════════════════════════════ */
+function RoundBtn({ icon, onClick, badge }) {
+  const T = useT();
+  return (
+    <button onClick={onClick} style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%',
+      background: T.softBg, border: `1px solid ${T.softBorder}`, cursor: 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.hdrText }}>
+      <Icon name={icon} size={17} color={T.hdrText} />
+      {badge > 0 && (
+        <span style={{ position: 'absolute', top: -3, right: -3, minWidth: 17, height: 17,
+                       borderRadius: 9999, background: T.bad, color: '#FFF', fontSize: 10,
+                       fontWeight: 800, display: 'flex', alignItems: 'center',
+                       justifyContent: 'center', padding: '0 4px' }}>{badge > 9 ? '9+' : badge}</span>
+      )}
+    </button>
+  );
+}
+
+/* ══ PANTALLA: EXPLORAR (app identificada) ═══════════════════════ */
 function HomeScreen({ me, onOpen, onFlash }) {
   const T = useT();
   const [service, setService] = useState('dine_in');
@@ -1296,15 +1325,38 @@ function RestCardH({ r, onOpen }) {
 }
 
 /* ══ HOJA: RESTAURANTE ═══════════════════════════════════════════ */
-function RestaurantSheet({ r, service, onClose, onFlash, onChanged }) {
+const miniBtn = (T, primary) => ({
+  display: 'inline-flex', alignItems: 'center', gap: 7, textDecoration: 'none',
+  background: primary ? T.btnPrimary : 'transparent',
+  color: primary ? T.btnPrimaryText : T.ink,
+  border: `1px solid ${primary ? T.btnPrimary : T.border}`,
+  borderRadius: 9999, padding: '8px 14px', fontSize: 12.5, fontWeight: 700,
+  fontFamily: FONT, cursor: 'pointer', whiteSpace: 'nowrap'
+});
+
+function RestaurantSheet({ r: r0, service, onClose, onFlash, onChanged, signedIn = true }) {
   const T = useT();
   const [rev, setRev]   = useState(null);
-  const [fav, setFav]   = useState(!!r.is_favorite);
+  const [fav, setFav]   = useState(!!r0.is_favorite);
   const [busy, setBusy] = useState(false);
+  const [pub, setPub]   = useState(null);   // ficha pública (mig 202)
 
+  // La ficha completa (redes, horarios, PDF, categorías) sale de
+  // `diner_place_public`, que anda CON y SIN sesión. Las reseñas siguen saliendo
+  // de la RPC de siempre cuando hay cuenta, porque esa trae además mis votos.
   useEffect(() => {
-    (async () => { const { data } = await API.restaurantReviews(r.id); setRev(data); })();
-  }, [r.id]);
+    (async () => {
+      const { data } = await API.placePublic(r0.id);
+      if (data?.found) setPub(data);
+      if (signedIn) {
+        const { data: rv } = await API.restaurantReviews(r0.id);
+        setRev(rv);
+      }
+    })();
+  }, [r0.id, signedIn]);
+
+  const r = { ...r0, ...(pub?.restaurant || {}) };
+  const cats = pub?.categories || [];
 
   const toggleFav = async () => {
     setBusy(true);
@@ -1320,15 +1372,38 @@ function RestaurantSheet({ r, service, onClose, onFlash, onChanged }) {
   const dims = rev?.dimensions || {};
   const dimKeys = Object.keys(dims);
 
+  // Qué se puede hacer con este local. `service_mode` viene de la mig 173:
+  // 'delivery' = sólo reparte (no se come ahí), 'salon_sin_delivery' = no reparte.
+  const mode      = r.service_mode || 'salon';
+  const canDeliv  = mode !== 'salon_sin_delivery';
+  const canSalon  = mode !== 'delivery';
+  const maps      = API.mapsUrl(r);
+  const revCount  = rev?.count ?? r.review_count ?? 0;
+  const revAvg    = rev?.avg   ?? r.rating;
+
+  // El pedido de SALÓN no está acá y no es un olvido: hace falta el QR de la
+  // mesa para saber dónde sentar la comanda. Desde la vitrina se ve la carta,
+  // no se pide (§ regla en CLAUDE.md).
+  const actions = [];
+  if (canDeliv) actions.push({ k: 'delivery', label: 'Pedir a domicilio', primary: true });
+  if (canSalon) actions.push({ k: 'pickup',   label: 'Pedir para retirar', primary: !canDeliv });
+
   return (
     <Sheet title={r.name} onClose={onClose} footer={
-      <div style={{ display: 'flex', gap: 9 }}>
-        <Btn variant="ghost" onClick={toggleFav} disabled={busy} full={false} style={{ width: 52 }}>
-          <Icon name="heart" size={18} color={fav ? T.bad : T.mid} />
-        </Btn>
-        <Btn onClick={() => go(service === 'delivery' ? 'delivery' : 'dine_in')}>
-          {service === 'delivery' ? 'Pedir a domicilio' : 'Ver la carta y pedir'}
-        </Btn>
+      <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+        {signedIn && (
+          <Btn variant="ghost" onClick={toggleFav} disabled={busy} full={false} style={{ width: 52 }}>
+            <Icon name="heart" size={18} color={fav ? T.bad : T.mid} />
+          </Btn>
+        )}
+        {actions.length === 0
+          ? <Btn variant="ghost" onClick={onClose}>Cerrar</Btn>
+          : actions.map(a => (
+              <Btn key={a.k} variant={a.primary ? 'primary' : 'ghost'} onClick={() => go(a.k)}
+                   full={false} style={{ flex: 1, minWidth: 130 }}>
+                {a.label}
+              </Btn>
+            ))}
       </div>
     }>
       <div style={{ display: 'flex', gap: 13, alignItems: 'center', marginBottom: 18 }}>
@@ -1337,11 +1412,11 @@ function RestaurantSheet({ r, service, onClose, onFlash, onChanged }) {
           <div style={{ fontSize: 12.5, color: T.gray }}>
             {[r.business_type, r.city].filter(Boolean).join(' · ') || 'Restaurante'}
           </div>
-          {rev?.count > 0 ? (
+          {revCount > 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 5 }}>
-              <Stars value={rev.avg} size={14} />
-              <span style={{ fontSize: 15, fontWeight: 800, color: T.ink }}>{rev.avg}</span>
-              <span style={{ fontSize: 11.5, color: T.silver }}>· {rev.count} reseña{rev.count !== 1 ? 's' : ''}</span>
+              <Stars value={revAvg} size={14} />
+              <span style={{ fontSize: 15, fontWeight: 800, color: T.ink }}>{revAvg}</span>
+              <span style={{ fontSize: 11.5, color: T.silver }}>· {revCount} reseña{revCount !== 1 ? 's' : ''}</span>
             </div>
           ) : (
             <div style={{ fontSize: 12, color: T.silver, marginTop: 5 }}>Todavía nadie lo calificó</div>
@@ -1349,6 +1424,80 @@ function RestaurantSheet({ r, service, onClose, onFlash, onChanged }) {
           {r.address && <div style={{ fontSize: 11.5, color: T.silver, marginTop: 4 }}>{r.address}</div>}
         </div>
       </div>
+
+      {/* ── Comer en el local ────────────────────────────────────────────
+          Se muestra la carta, no un carrito: pedir en el salón exige el QR de
+          la mesa. Explicarlo evita que se lea como una función que falta. */}
+      {canSalon && (
+        <div style={{ background: T.softBg, border: `1px solid ${T.softBorder}`, borderRadius: 12,
+                      padding: 14, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <Icon name="utensils" size={15} color={T.mid} />
+            <span style={{ fontSize: 13, fontWeight: 800, color: T.ink }}>Para comer en el local</span>
+          </div>
+          <div style={{ fontSize: 12.5, color: T.mid, lineHeight: 1.65, marginBottom: 12 }}>
+            Mirá la carta desde acá. El pedido se hace escaneando el QR de tu mesa
+            cuando llegás — así la cocina sabe a qué mesa mandarlo.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {r.menu_pdf_url && (
+              <a href={r.menu_pdf_url} target="_blank" rel="noopener noreferrer"
+                 style={miniBtn(T, true)}>
+                <Icon name="img" size={14} color={T.btnPrimaryText} /> Ver la carta (PDF)
+              </a>
+            )}
+            {maps && (
+              <a href={maps} target="_blank" rel="noopener noreferrer" style={miniBtn(T)}>
+                <Icon name="pin" size={14} color={T.ink} /> Cómo llegar
+              </a>
+            )}
+          </div>
+          {!r.menu_pdf_url && (
+            <div style={{ fontSize: 11.5, color: T.silver, marginTop: 10 }}>
+              Este local todavía no subió su carta en PDF.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Qué se come acá ──────────────────────────────────────────────
+          Las categorías con cuántos platos tiene cada una: da una idea real
+          sin publicar la carta con precios, que vive en el QR y el delivery. */}
+      {cats.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <SectionLabel>Qué se come acá</SectionLabel>
+          <div className="chips" style={{ marginTop: 4 }}>
+            {cats.map(c => (
+              <span key={c.name} style={{ flexShrink: 0, background: T.softBg,
+                border: `1px solid ${T.softBorder}`, borderRadius: 9999, padding: '6px 12px',
+                fontSize: 12, fontWeight: 700, color: T.mid, whiteSpace: 'nowrap' }}>
+                {c.name} <span style={{ color: T.silver, fontWeight: 600 }}>· {c.total}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Contacto, redes y horarios ───────────────────────────────── */}
+      {(r.phone || r.whatsapp || r.instagram || r.facebook || r.website || r.opening_hours) && (
+        <div style={{ marginBottom: 18 }}>
+          <SectionLabel>Información</SectionLabel>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+            {r.whatsapp  && <a href={API.socialUrl('whatsapp',  r.whatsapp)}  target="_blank" rel="noopener noreferrer" style={miniBtn(T)}>WhatsApp</a>}
+            {r.phone     && <a href={`tel:${String(r.phone).replace(/[^\d+]/g, '')}`} style={miniBtn(T)}>Llamar</a>}
+            {r.instagram && <a href={API.socialUrl('instagram', r.instagram)} target="_blank" rel="noopener noreferrer" style={miniBtn(T)}>Instagram</a>}
+            {r.facebook  && <a href={API.socialUrl('facebook',  r.facebook)}  target="_blank" rel="noopener noreferrer" style={miniBtn(T)}>Facebook</a>}
+            {r.website   && <a href={API.socialUrl('web',       r.website)}   target="_blank" rel="noopener noreferrer" style={miniBtn(T)}>Sitio web</a>}
+            {maps && !canSalon && <a href={maps} target="_blank" rel="noopener noreferrer" style={miniBtn(T)}>Cómo llegar</a>}
+          </div>
+          {typeof r.opening_hours === 'string' && r.opening_hours.trim() && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 12 }}>
+              <Icon name="clock" size={14} color={T.silver} />
+              <span style={{ fontSize: 12.5, color: T.mid, lineHeight: 1.6 }}>{r.opening_hours}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* La nota ponderada existe porque no todas las opiniones pesan igual:
           una reseña de alguien con 300 pedidos y 250 votos útiles no vale lo
@@ -1382,18 +1531,26 @@ function RestaurantSheet({ r, service, onClose, onFlash, onChanged }) {
       )}
 
       <SectionLabel>Reseñas verificadas</SectionLabel>
-      {!rev ? <Loading /> : (rev.rows || []).length === 0 ? (
-        <div style={{ fontSize: 12.5, color: T.gray, lineHeight: 1.7, padding: '8px 0 4px' }}>
-          Nadie lo reseñó todavía. Sólo puede opinar quien pidió y pagó acá, así que
-          la primera reseña puede ser la tuya.
-        </div>
-      ) : rev.rows.map(rv => (
-        <ReviewCard key={rv.id} rv={rv} onVote={async (kind, on) => {
-          const { data } = await API.voteReview(rv.id, kind, on);
-          if (data?.ok) { const { data: d2 } = await API.restaurantReviews(r.id); setRev(d2); }
-          else onFlash(data?.error || 'No pudimos registrar tu voto.');
-        }} />
-      ))}
+      {/* Sin cuenta las reseñas salen de la ficha pública: se LEEN igual (son
+          el motivo por el que alguien entra a mirar un local). Votar sí pide
+          cuenta — un voto anónimo no se puede limitar a uno por persona. */}
+      {(() => {
+        const rows = signedIn ? (rev?.rows || null) : (pub?.reviews || null);
+        if (!rows) return <Loading />;
+        if (rows.length === 0) return (
+          <div style={{ fontSize: 12.5, color: T.gray, lineHeight: 1.7, padding: '8px 0 4px' }}>
+            Nadie lo reseñó todavía. Sólo puede opinar quien pidió y pagó acá, así que
+            la primera reseña puede ser la tuya.
+          </div>
+        );
+        return rows.map(rv => (
+          <ReviewCard key={rv.id} rv={rv} onVote={signedIn ? (async (kind, on) => {
+            const { data } = await API.voteReview(rv.id, kind, on);
+            if (data?.ok) { const { data: d2 } = await API.restaurantReviews(r.id); setRev(d2); }
+            else onFlash(data?.error || 'No pudimos registrar tu voto.');
+          }) : null} />
+        ));
+      })()}
     </Sheet>
   );
 }
@@ -2327,12 +2484,38 @@ function App() {
       load();
     }} />;
 
+  } else if (boot.signed_in && boot.allowed && boot.diner) {
+    // ── APP IDENTIFICADA ────────────────────────────────────────────────
+    // Al entrar vuelve la app de siempre, en marco de teléfono: es lo que
+    // Renato prefiere y lo que el uso pide. La vitrina de afuera es una web
+    // para leer y decidir; esto es una app personal.
+    const me = boot.diner;
+    const appTab = ['home', 'orders', 'ranking', 'profile'].includes(tab) ? tab : 'home';
+    body = (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: T.offwhite }}>
+        <TopBar me={me} carts={carts} notifCount={notifCount}
+          dark={mood === 'negro'} onTheme={() => setMood(m => m === 'negro' ? 'blanco' : 'negro')}
+          onCart={() => setSheet({ kind: 'carts' })}
+          onNotif={() => setSheet({ kind: 'notif' })} />
+
+        {appTab === 'home'    && <HomeScreen me={me} onFlash={setFlash}
+                                    onOpen={(r, svc) => { setRests(rs => rs.some(x => x.id === r.id) ? rs : rs.concat(r));
+                                                          setSheet({ kind: 'rest', r, service: svc }); }} />}
+        {appTab === 'orders'  && <OrdersScreen onFlash={setFlash}
+                                    onRate={(o) => setSheet({ kind: 'rate', order: o })} />}
+        {appTab === 'ranking' && <RankingScreen me={me} />}
+        {appTab === 'profile' && <ProfileScreen onFlash={setFlash} onOut={doOut} reload={bump}
+                                    onCounterCode={() => setSheet({ kind: 'code' })} />}
+
+        <BottomNav tab={appTab} setTab={setTab} />
+      </div>
+    );
+
   } else {
-    // ── Vitrina + pantallas personales ──────────────────────────────────
-    // El comensal identificado (o null si está mirando sin cuenta). No es un
-    // portón: sin `me` la vitrina se ve igual, sólo que las pantallas de
-    // identidad piden entrar.
-    const me = (boot.signed_in && boot.allowed) ? boot.diner : null;
+    // ── Vitrina pública ─────────────────────────────────────────────────
+    // Sin cuenta se ve todo: descubrir y entrar a pedir es el mismo camino de
+    // siempre. La cuenta agrega identidad, no permiso.
+    const me = null;
     const rows  = browse?.rows  || [];
     const types = browse?.types || [];
 
@@ -2478,21 +2661,21 @@ function App() {
     }
   }
 
+  // `appMode` = hay comensal identificado → shell de app (marco de teléfono).
+  // Si no, shell de vitrina (web pública responsive). El <body> lleva la clase
+  // porque el fondo oscuro del marco lo pinta el CSS, no React.
   const me = (boot?.signed_in && boot?.allowed) ? boot.diner : null;
+  const appMode = !!(me && me.onboarded);
 
-  return (
-    <ThemeCtx.Provider value={T}>
-      <SiteHeader me={me} tab={tab} setTab={setTab} carts={carts} notifCount={notifCount}
-        onLogin={() => setTab('login')} onOut={doOut}
-        onCart={() => setSheet({ kind: 'carts' })} onNotif={() => setSheet({ kind: 'notif' })}
-        dark={mood === 'negro'} onTheme={() => setMood(m => m === 'negro' ? 'blanco' : 'negro')} />
+  useEffect(() => {
+    try { document.body.classList.toggle('app-mode', appMode); } catch (_) {}
+  }, [appMode]);
 
-      <main style={{ flex: 1, background: T.offwhite }}>{body}</main>
-
-      <SiteFooter me={me} onLogin={() => setTab('login')} />
-
+  const sheets = (
+    <>
       {sheet?.kind === 'rest' && (
         <RestaurantSheet r={sheet.r} service={sheet.service} onFlash={setFlash}
+          signedIn={!!me}
           onClose={() => setSheet(null)} onChanged={() => setBump(b => b + 1)} />
       )}
       {sheet?.kind === 'rate' && (
@@ -2515,8 +2698,32 @@ function App() {
       {sheet?.kind === 'code' && (
         <CodeSheet onClose={() => setSheet(null)} onFlash={setFlash} />
       )}
-
       {flash && <Toast msg={flash} onHide={() => setFlash('')} />}
+    </>
+  );
+
+  if (appMode) return (
+    <ThemeCtx.Provider value={T}>
+      <div className="phone-wrap">
+        <div className="phone" style={{ background: T.phoneBg }}>
+          <div className="screen" style={{ background: T.offwhite }}>{body}</div>
+          {sheets}
+        </div>
+      </div>
+    </ThemeCtx.Provider>
+  );
+
+  return (
+    <ThemeCtx.Provider value={T}>
+      <SiteHeader me={me} tab={tab} setTab={setTab} carts={carts} notifCount={notifCount}
+        onLogin={() => setTab('login')} onOut={doOut}
+        onCart={() => setSheet({ kind: 'carts' })} onNotif={() => setSheet({ kind: 'notif' })}
+        dark={mood === 'negro'} onTheme={() => setMood(m => m === 'negro' ? 'blanco' : 'negro')} />
+
+      <main style={{ flex: 1, background: T.offwhite }}>{body}</main>
+
+      <SiteFooter me={me} onLogin={() => setTab('login')} />
+      {sheets}
     </ThemeCtx.Provider>
   );
 }

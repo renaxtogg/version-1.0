@@ -13944,6 +13944,99 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
     } catch(_) { return false; }
   };
 
+  // ── Carta en PDF (mig 202) ───────────────────────────────────────────────
+  // Es lo que ve el comensal en la vitrina pública de /clientes cuando el local
+  // es de SALÓN: ahí no hay botón de pedido (pedir en el salón exige el QR de
+  // la mesa), así que la carta se muestra para leer. Un PDF sirve justo para
+  // eso: se lee, no se toca.
+  function MenuPdfCard({ restaurant, canEdit, onRefresh }) {
+    const [busy, setBusy] = useState(false);
+    const url  = restaurant?.menu_pdf_url || '';
+    const name = restaurant?.menu_pdf_name || '';
+
+    // La columna la agrega la mig 202: si no está aplicada, la tarjeta no se
+    // dibuja en vez de romper el guardado con "column does not exist".
+    if (!restHasCol('menu_pdf_url')) return null;
+
+    const pick = async (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      if (f.type !== 'application/pdf') { toast('La carta tiene que ser un PDF', false); return; }
+      if (f.size > 10 * 1024 * 1024)    { toast('El PDF no puede pasar de 10 MB', false); return; }
+      setBusy(true);
+      try {
+        // La ruta arranca con el id del restaurante porque la policy del bucket
+        // compara justamente esa primera carpeta: sin eso, el staff de un local
+        // podría reemplazar la carta de otro.
+        const path = `${RID}/carta-${Date.now()}.pdf`;
+        const { error: upErr } = await db.storage.from('menus')
+          .upload(path, f, { contentType: 'application/pdf', upsert: false });
+        if (upErr) throw upErr;
+        const { data: pub } = db.storage.from('menus').getPublicUrl(path);
+        const { error } = await db.from('restaurants')
+          .update({ menu_pdf_url: pub.publicUrl, menu_pdf_name: f.name })
+          .eq('id', RID);
+        if (error) throw error;
+        toast('Carta publicada');
+        if (onRefresh) onRefresh(true);
+      } catch (err) {
+        toast('No se pudo subir: ' + (err.message || err), false);
+      }
+      setBusy(false);
+    };
+
+    const quitar = async () => {
+      if (!window.confirm('¿Quitar la carta de la vitrina?')) return;
+      setBusy(true);
+      try {
+        const { error } = await db.from('restaurants')
+          .update({ menu_pdf_url: null, menu_pdf_name: null }).eq('id', RID);
+        if (error) throw error;
+        toast('Carta quitada');
+        if (onRefresh) onRefresh(true);
+      } catch (err) { toast('Error: ' + (err.message || err), false); }
+      setBusy(false);
+    };
+
+    return (
+      <div style={cardStyle}>
+        <div style={{fontSize:14,fontWeight:700,marginBottom:3}}>Carta en PDF</div>
+        <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6,marginBottom:14}}>
+          Se muestra en tu ficha pública de Mythos para que la gente vea qué cocinás
+          antes de ir. No reemplaza al menú digital: el pedido sigue saliendo del QR
+          de la mesa, del delivery o del retiro.
+        </div>
+
+        {url ? (
+          <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',
+                       background:C.soft,border:`1px solid ${C.line}`,borderRadius:10,padding:'10px 12px'}}>
+            <div style={{flex:1,minWidth:160,fontSize:13,fontWeight:600,overflow:'hidden',
+                         textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+              {name || 'carta.pdf'}
+            </div>
+            <a href={url} target="_blank" rel="noopener noreferrer"
+               style={{fontSize:12.5,fontWeight:700,color:C.ink}}>Ver</a>
+            <Btn variant="ghost" onClick={quitar} disabled={busy || !canEdit}>Quitar</Btn>
+          </div>
+        ) : (
+          <div style={{fontSize:12.5,color:C.dim}}>Todavía no subiste ninguna carta.</div>
+        )}
+
+        <div style={{display:'flex',justifyContent:'flex-end',marginTop:14}}>
+          <label style={{cursor: canEdit && !busy ? 'pointer' : 'not-allowed', opacity: canEdit ? 1 : .5}}>
+            <input type="file" accept="application/pdf" onChange={pick}
+                   disabled={busy || !canEdit} style={{display:'none'}} />
+            <span style={{display:'inline-block',background:C.ink,color:'#FFF',borderRadius:8,
+                          padding:'9px 16px',fontSize:13,fontWeight:700}}>
+              {busy ? 'Subiendo…' : (url ? 'Reemplazar carta' : 'Subir carta (PDF)')}
+            </span>
+          </label>
+        </div>
+      </div>
+    );
+  }
+
   const saveLoc = async () => {
     if (!db || !RID) return;
     if (!canEditLocal) { toast('Solo el administrador del local puede editar estos datos', false); return; }
@@ -13990,6 +14083,9 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
           <Btn onClick={saveProfile} disabled={savingProfile}>{savingProfile?'Guardando…':'Guardar cambios'}</Btn>
         </div>
       </div>
+
+      {/* Carta en PDF — se muestra en la vitrina pública de /clientes */}
+      <MenuPdfCard restaurant={restaurant} canEdit={canEditLocal} onRefresh={onRefresh} />
 
       {/* Seguridad */}
       <div style={cardStyle}>
