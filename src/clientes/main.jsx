@@ -557,12 +557,37 @@ const EXP_COPY = {
   'comida rapida': { label: 'Comida rápida',    sub: 'Rápido, sin vueltas y para llevar' },
   'comida rápida': { label: 'Comida rápida',    sub: 'Rápido, sin vueltas y para llevar' },
   'food truck':    { label: 'Food trucks',      sub: 'Cocina sobre ruedas' },
-  'delivery':      { label: 'Sólo delivery',    sub: 'Cocinan y te lo mandan' }
+  'delivery':      { label: 'Sólo delivery',    sub: 'Cocinan y te lo mandan' },
+  // Los 4 de abajo son los VALORES DEL ONBOARDING (`BIZ` en onboarding.html,
+  // mig 120): el dueño elige de una lista y lo que se guarda es el slug, no la
+  // etiqueta que él leyó. De esos cuatro sólo 'restaurante' coincidía por
+  // casualidad con una clave de acá, así que la portada mostraba el slug crudo
+  // ("delivery_dark", "otro"). Si se agrega una opción al onboarding, se agrega
+  // acá también — son la misma lista vista desde los dos lados.
+  'foodpark_local':{ label: 'En foodparks',     sub: 'Locales dentro de un patio gastronómico' },
+  'delivery_dark': { label: 'Cocinas ocultas',  sub: 'Sin salón: cocinan y te lo mandan' },
+  'otro':          { label: 'Otros lugares',    sub: 'Lugares para descubrir' }
 };
 
-const expInfo = (type) => {
-  const k = String(type || '').trim().toLowerCase();
-  return EXP_COPY[k] || { label: type || 'Otros', sub: 'Lugares para descubrir' };
+// Acepta el objeto que devuelve la RPC ({type,label,sub,image,total}) o un
+// texto suelto (un `business_type`). Gana SIEMPRE lo que Renato cargó en
+// Superadmin › Comensales › Experiencias (mig 204); EXP_COPY quedó como red de
+// seguridad para los rubros que todavía nadie editó.
+const expInfo = (t) => {
+  const isObj = t && typeof t === 'object';
+  const raw   = isObj ? t.type : t;
+  const k     = String(raw || '').trim().toLowerCase();
+  const fb    = EXP_COPY[k];
+  // `business_type` es TEXT libre, así que puede entrar un slug que no está en
+  // el diccionario. Antes que mostrarlo tal cual se lo presenta legible.
+  const pretty = k ? k.replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase()) : '';
+  const base = fb || { label: pretty || 'Otros lugares', sub: 'Lugares para descubrir' };
+  if (!isObj) return { ...base, image: null };
+  return {
+    label: t.label || base.label,
+    sub:   t.sub   || base.sub,
+    image: t.image || null
+  };
 };
 
 /* ══ CABECERA DEL SITIO ══════════════════════════════════════════ */
@@ -690,35 +715,45 @@ function Avatar({ me, size = 32 }) {
 }
 
 /* ══ HERO ════════════════════════════════════════════════════════ */
-function Hero({ types, onPick, onExplore }) {
+function Hero({ types, site, onPick, onExplore }) {
   const T = useT();
   const mob = useIsMobile();
   const top = (types || []).slice(0, 4);
+  const S = site || {};
+  const img = S.hero_image || null;
   return (
     <section style={{ background: T.black, color: '#FFF', position: 'relative', overflow: 'hidden' }}>
-      {/* Sin foto de stock: el lenguaje de Mythos es blanco y negro. La
-          profundidad la da un degradado, no una imagen que habría que licenciar. */}
-      <div style={{ position: 'absolute', inset: 0, background:
-        'radial-gradient(120% 90% at 15% 0%, rgba(255,255,255,.14) 0%, rgba(255,255,255,0) 55%),' +
-        'radial-gradient(90% 70% at 100% 100%, rgba(255,255,255,.07) 0%, rgba(255,255,255,0) 60%)' }} />
+      {/* Imagen de portada detrás del texto — la carga Renato en Superadmin ›
+          Comensales › Sitio (mig 204). Sin imagen, la profundidad la da un
+          degradado: el lenguaje de Mythos es blanco y negro y no depende de
+          una foto de stock que haya que licenciar. */}
+      {img && (
+        <img src={img} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%',
+              objectFit: 'cover', opacity: 0.45 }} />
+      )}
+      <div style={{ position: 'absolute', inset: 0, background: img
+        ? 'linear-gradient(to right, rgba(0,0,0,.85) 0%, rgba(0,0,0,.55) 60%, rgba(0,0,0,.7) 100%)'
+        : 'radial-gradient(120% 90% at 15% 0%, rgba(255,255,255,.14) 0%, rgba(255,255,255,0) 55%),' +
+          'radial-gradient(90% 70% at 100% 100%, rgba(255,255,255,.07) 0%, rgba(255,255,255,0) 60%)' }} />
       <div className="wrap" style={{ position: 'relative', padding: mob ? '54px 16px 46px' : '96px 20px 84px',
                                      maxWidth: 1180 }}>
         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.22em', textTransform: 'uppercase',
-                      color: 'rgba(255,255,255,.6)', marginBottom: 18 }}>Tu próxima salida</div>
+                      color: 'rgba(255,255,255,.6)', marginBottom: 18 }}>
+          {S.hero_eyebrow || 'Tu próxima salida'}
+        </div>
         <h1 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: mob ? 40 : 68, lineHeight: 1.04,
-                     letterSpacing: '-1px', maxWidth: 700, marginBottom: 18 }}>
-          ¿Qué te gustaría<br />comer hoy?
+                     letterSpacing: '-1px', maxWidth: 700, marginBottom: 18, whiteSpace: 'pre-line' }}>
+          {S.hero_title || '¿Qué te gustaría\ncomer hoy?'}
         </h1>
         <p style={{ fontSize: mob ? 15 : 18, color: 'rgba(255,255,255,.72)', lineHeight: 1.65,
                     maxWidth: 520, marginBottom: 30 }}>
-          Descubrí los restaurantes, bares y cafés que están en Mythos — y pedí
-          en segundos, en el local o a domicilio.
+          {S.hero_sub || 'Descubrí los restaurantes, bares y cafés que están en Mythos — y pedí en segundos, en el local o a domicilio.'}
         </p>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 26 }}>
           <button onClick={onExplore} style={{ background: '#FFF', color: '#000', border: 'none',
             borderRadius: 9999, height: 52, padding: '0 30px', fontFamily: FONT, fontSize: 15.5,
             fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}>
-            Explorar lugares <Icon name="chevron" size={17} color="#000" />
+            {S.hero_cta || 'Explorar lugares'} <Icon name="chevron" size={17} color="#000" />
           </button>
         </div>
         <div className="chips">
@@ -728,7 +763,7 @@ function Hero({ types, onPick, onExplore }) {
               border: '1px solid rgba(255,255,255,.20)', borderRadius: 9999,
               padding: '9px 16px', fontSize: 13, fontWeight: 700, fontFamily: FONT,
               cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              {expInfo(t.type).label}
+              {expInfo(t).label}
             </button>
           ))}
         </div>
@@ -738,9 +773,10 @@ function Hero({ types, onPick, onExplore }) {
 }
 
 /* ══ SECCIÓN: EXPERIENCIAS ═══════════════════════════════════════ */
-function ExperienciasSection({ types, rows, onPick, compact }) {
+function ExperienciasSection({ types, rows, site, onPick, compact }) {
   const T = useT();
   const mob = useIsMobile();
+  const S = site || {};
   if (!types?.length) return null;
   const list = compact ? types.slice(0, 6) : types;
 
@@ -760,21 +796,24 @@ function ExperienciasSection({ types, rows, onPick, compact }) {
                                      gridTemplateColumns: '340px 1fr', gap: 46, alignItems: 'start' }}>
         <div style={{ marginBottom: mob ? 26 : 0, position: mob ? 'static' : 'sticky', top: 96 }}>
           <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.2em', textTransform: 'uppercase',
-                        color: T.gray, marginBottom: 14 }}>Experiencias</div>
+                        color: T.gray, marginBottom: 14 }}>
+            {S.exps_eyebrow || 'Experiencias'}
+          </div>
           <h2 style={{ fontFamily: T.F.h, fontWeight: 400, fontSize: mob ? 30 : 40, lineHeight: 1.12,
-                       color: T.ink, letterSpacing: '-0.5px', marginBottom: 14 }}>
-            Elegí el plan.<br />Nosotros, los lugares.
+                       color: T.ink, letterSpacing: '-0.5px', marginBottom: 14, whiteSpace: 'pre-line' }}>
+            {S.exps_title || 'Elegí el plan.\nNosotros, los lugares.'}
           </h2>
           <p style={{ fontSize: 14.5, color: T.gray, lineHeight: 1.75 }}>
-            Cada experiencia agrupa los lugares que la hacen posible — explorá,
-            mirá las reseñas y pedí.
+            {S.exps_sub || 'Cada experiencia agrupa los lugares que la hacen posible — explorá, mirá las reseñas y pedí.'}
           </p>
         </div>
 
         <div className="grid">
           {list.map(t => {
-            const info = expInfo(t.type);
-            const cover = coverFor(t.type);
+            const info = expInfo(t);
+            // La imagen que cargó Renato manda; si no hay, se toma la portada
+            // de un local de esa experiencia; si tampoco, el degradado.
+            const cover = info.image || coverFor(t.type);
             return (
               <button key={t.type} onClick={() => onPick(t.type)} style={{
                 position: 'relative', border: 'none', padding: 0, cursor: 'pointer',
@@ -869,13 +908,21 @@ function ExperienciaPage({ type, types, rows, loading, search, setSearch, onOpen
   const T = useT();
   const mob = useIsMobile();
   const info = expInfo(type);
-  const otras = (types || []).filter(t => t.type !== type).slice(0, 5);
+  const slug = (type && typeof type === 'object') ? type.type : type;
+  const otras = (types || []).filter(t => t.type !== slug).slice(0, 5);
 
   return (
     <>
       <section style={{ background: T.black, color: '#FFF', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', inset: 0, background:
-          'radial-gradient(110% 80% at 50% 0%, rgba(255,255,255,.13) 0%, rgba(255,255,255,0) 60%)' }} />
+        {/* Imagen de fondo detrás del título, si Renato cargó una (mig 204).
+            Va oscurecida: el texto encima tiene que seguir leyéndose. */}
+        {info.image && (
+          <img src={info.image} alt="" style={{ position: 'absolute', inset: 0, width: '100%',
+                height: '100%', objectFit: 'cover', opacity: 0.42 }} />
+        )}
+        <div style={{ position: 'absolute', inset: 0, background: info.image
+          ? 'linear-gradient(to bottom, rgba(0,0,0,.55), rgba(0,0,0,.8))'
+          : 'radial-gradient(110% 80% at 50% 0%, rgba(255,255,255,.13) 0%, rgba(255,255,255,0) 60%)' }} />
         <div className="wrap" style={{ position: 'relative', padding: mob ? '20px 16px 40px' : '26px 20px 56px' }}>
           <button onClick={onBack} style={{ background: 'none', border: 'none', cursor: 'pointer',
             color: 'rgba(255,255,255,.72)', fontFamily: FONT, fontSize: 13, fontWeight: 600,
@@ -966,7 +1013,7 @@ function ExperienciaPage({ type, types, rows, loading, search, setSearch, onOpen
               </div>
               <div className="chips">
                 {otras.map(t => (
-                  <Pill key={t.type} onClick={() => onPick(t.type)}>{expInfo(t.type).label}</Pill>
+                  <Pill key={t.type} onClick={() => onPick(t.type)}>{expInfo(t).label}</Pill>
                 ))}
               </div>
             </div>
@@ -1278,7 +1325,8 @@ function RestRow({ r, service, onOpen }) {
         </div>
         <div style={{ fontSize: 12, color: T.gray, marginTop: 2, overflow: 'hidden',
                       textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {[r.business_type, r.city].filter(Boolean).join(' · ') || 'Restaurante'}
+          {[r.business_type && expInfo(r.business_type).label, r.city]
+            .filter(Boolean).join(' · ') || 'Restaurante'}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 5 }}>
           {r.rating ? (
@@ -1318,7 +1366,9 @@ function RestCardH({ r, onOpen }) {
         <div style={{ fontSize: 12.5, fontWeight: 700, color: T.ink, lineHeight: 1.3,
                       overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2,
                       WebkitBoxOrient: 'vertical', minHeight: 32 }}>{r.name}</div>
-        <div style={{ fontSize: 10.5, color: T.gray, marginTop: 3 }}>{r.business_type || 'Restaurante'}</div>
+        <div style={{ fontSize: 10.5, color: T.gray, marginTop: 3 }}>
+          {r.business_type ? expInfo(r.business_type).label : 'Restaurante'}
+        </div>
       </div>
     </div>
   );
@@ -1429,7 +1479,8 @@ function RestaurantSheet({ r: r0, service, onClose, onFlash, onChanged, signedIn
         <RestLogo r={r} size={62} radius={14} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 12.5, color: T.gray }}>
-            {[r.business_type, r.city].filter(Boolean).join(' · ') || 'Restaurante'}
+            {[r.business_type && expInfo(r.business_type).label, r.city]
+              .filter(Boolean).join(' · ') || 'Restaurante'}
           </div>
           {revCount > 0 ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 5 }}>
@@ -2536,7 +2587,11 @@ function App() {
     // siempre. La cuenta agrega identidad, no permiso.
     const me = null;
     const rows  = browse?.rows  || [];
-    const types = browse?.types || [];
+    // `experiences` es el nombre nuevo (mig 204); `types` el que devolvía la
+    // 203. Se leen los dos para que la vitrina no quede vacía en el rato entre
+    // aplicar la migración y que Vercel termine de recompilar.
+    const types = browse?.experiences || browse?.types || [];
+    const site  = browse?.site || {};
 
     // La vitrina apagada (mig 201: public_browse_enabled=false) para alguien
     // sin cuenta es la beta cerrada de siempre; para alguien con cuenta no
@@ -2587,8 +2642,8 @@ function App() {
                  style={{ height: 36, padding: '0 16px', fontSize: 12.5 }}>Salir</Btn>
           </div>
         </div>
-        <Hero types={types} onPick={pickExp} onExplore={() => setTab('exps')} />
-        <ExperienciasSection types={types} rows={rows} onPick={pickExp} compact />
+        <Hero types={types} site={site} onPick={pickExp} onExplore={() => setTab('exps')} />
+        <ExperienciasSection types={types} rows={rows} site={site} onPick={pickExp} compact />
       </>;
 
     } else if (vitrinaOff) {
@@ -2596,12 +2651,13 @@ function App() {
                            onOut={boot.signed_in ? doOut : null} />;
 
     } else if (tab === 'exp') {
-      body = <ExperienciaPage type={expType} types={types} rows={rows} loading={bLoading}
+      body = <ExperienciaPage type={types.find(t => t.type === expType) || expType}
+               types={types} rows={rows} loading={bLoading}
                search={search} setSearch={setSearch} onOpen={openPlace} onPick={pickExp}
                onBack={() => { setTab('exps'); setSearch(''); }} />;
 
     } else if (tab === 'exps') {
-      body = <ExperienciasSection types={types} rows={rows} onPick={pickExp} />;
+      body = <ExperienciasSection types={types} rows={rows} site={site} onPick={pickExp} />;
 
     } else if (tab === 'orders') {
       body = me
@@ -2626,8 +2682,8 @@ function App() {
     } else {
       // Portada
       body = <>
-        <Hero types={types} onPick={pickExp} onExplore={() => setTab('exps')} />
-        <ExperienciasSection types={types} rows={rows} onPick={pickExp} compact />
+        <Hero types={types} site={site} onPick={pickExp} onExplore={() => setTab('exps')} />
+        <ExperienciasSection types={types} rows={rows} site={site} onPick={pickExp} compact />
 
         <section style={{ background: T.white, borderTop: `1px solid ${T.border}`,
                           padding: '46px 0 56px' }}>

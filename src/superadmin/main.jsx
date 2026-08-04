@@ -1,4 +1,4 @@
-﻿// ════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
 // PR-5 — Panel superadmin precompilado con Vite (batch de migración legacy).
 // Migrado 1:1 desde el <script type="text/babel"> inline de public/superadmin.html.
 // Sin cambios de comportamiento ni de UI. React/createRoot vienen de npm
@@ -9352,9 +9352,14 @@ function PageFiscal({setFlash}) {
    ════════════════════════════════════════════════════════════════════════════ */
 
 const CM_TABS = [
-  {id:'resumen',     label:'Resumen'},
-  {id:'comensales',  label:'Comensales'},
-  {id:'experiencia', label:'Experiencia'},
+  {id:'resumen',      label:'Resumen'},
+  {id:'comensales',   label:'Comensales'},
+  // Las categorías de la vitrina y el copy del sitio (mig 204). Van acá y no en
+  // "Sitio web" porque ese módulo es la web de venta a restaurantes; esto es la
+  // vitrina del comensal, otro público y otro contenido.
+  {id:'experiencias', label:'Experiencias'},
+  {id:'sitio',        label:'Sitio'},
+  {id:'experiencia',  label:'Experiencia'},
   {id:'insignias',   label:'Insignias'},
   {id:'colecciones', label:'Colecciones'},
   {id:'retos',       label:'Retos'},
@@ -9536,6 +9541,8 @@ function PageComensales({setFlash}) {
 
       {tab==='resumen'     && <CmResumen ov={ov} setTab={setTab}/>}
       {tab==='comensales'  && <CmComensales ov={ov} setFlash={setFlash} onChanged={()=>setBump(b=>b+1)}/>}
+      {tab==='experiencias'&& <CmExperiencias setFlash={setFlash}/>}
+      {tab==='sitio'       && <CmSitio setFlash={setFlash}/>}
       {tab==='experiencia' && <CmExperiencia setFlash={setFlash}/>}
       {tab==='insignias'   && <CmInsignias setFlash={setFlash}/>}
       {tab==='colecciones' && <CmColecciones setFlash={setFlash}/>}
@@ -9544,6 +9551,329 @@ function PageComensales({setFlash}) {
       {tab==='registro'    && <CmRegistro setFlash={setFlash}/>}
       {tab==='acceso'      && <CmAcceso setFlash={setFlash}/>}
     </div>
+  );
+}
+
+/* ─── Imágenes de la vitrina (bucket `vitrina`, mig 204) ─── */
+// Subir + guardar la URL. Se comparte entre las experiencias y la portada
+// porque es la misma operación y el mismo bucket.
+async function uploadVitrina(file) {
+  if (!file) return null;
+  if (!/^image\//.test(file.type || '')) throw new Error('Tiene que ser una imagen');
+  if (file.size > 5 * 1024 * 1024)       throw new Error('La imagen no puede pasar de 5 MB');
+  const ext  = (file.name.split('.').pop() || 'jpg').toLowerCase();
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const { error } = await db.storage.from('vitrina')
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (error) throw error;
+  return db.storage.from('vitrina').getPublicUrl(path).data.publicUrl;
+}
+
+function ImagePicker({value, onChange, label, hint}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState('');
+  const pick = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    setBusy(true); setErr('');
+    try { onChange(await uploadVitrina(f)); }
+    catch (ex) { setErr(ex.message || 'No se pudo subir'); }
+    setBusy(false);
+  };
+  return (
+    <div style={{marginBottom:14}}>
+      {label && <div style={{fontSize:12,fontWeight:700,color:C.mid,marginBottom:6}}>{label}</div>}
+      <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+        <div style={{width:120,height:74,borderRadius:10,overflow:'hidden',background:C.soft,
+                     border:`1px solid ${C.line}`,display:'flex',alignItems:'center',
+                     justifyContent:'center',flexShrink:0}}>
+          {value ? <img src={value} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                 : <span style={{fontSize:11,color:C.dim}}>sin imagen</span>}
+        </div>
+        <label style={{cursor:busy?'wait':'pointer'}}>
+          <input type="file" accept="image/*" onChange={pick} disabled={busy} style={{display:'none'}}/>
+          <span style={{display:'inline-block',background:C.ink,color:'#FFF',borderRadius:8,
+                        padding:'8px 14px',fontSize:12.5,fontWeight:700}}>
+            {busy ? 'Subiendo…' : (value ? 'Cambiar' : 'Subir imagen')}
+          </span>
+        </label>
+        {value && (
+          <button onClick={()=>onChange(null)} style={{background:'none',border:'none',cursor:'pointer',
+                   fontSize:12.5,color:C.mid,textDecoration:'underline'}}>Quitar</button>
+        )}
+      </div>
+      {hint && <div style={{fontSize:11.5,color:C.dim,marginTop:6,lineHeight:1.5}}>{hint}</div>}
+      {err  && <div style={{fontSize:11.5,color:'#B91C1C',marginTop:6}}>{err}</div>}
+    </div>
+  );
+}
+
+/* ─── Experiencias de la vitrina (mig 204) ─── */
+// Es lo que pidió Renato: crear "Pizzas" y decidir qué locales se sugieren ahí.
+// Un local entra por su RUBRO (match_types) o porque se lo eligió a mano — las
+// dos vías conviven porque `business_type` es texto libre y nadie lo escribe
+// igual ("Pizzeria", "pizzería", "Pizza & Pasta" son tres grupos distintos).
+function CmExperiencias({setFlash}) {
+  const [rows, setRows] = useState(null);
+  const [rests, setRests] = useState([]);
+  const [edit, setEdit] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState('');
+
+  const load = useCallback(async ()=>{
+    if (!db) { setRows([]); return; }
+    const {data, error} = await db.from('diner_experiences').select('*').order('sort_order').order('label');
+    if (error) { setErr(error.message||'error'); setRows([]); return; }
+    const ids = (data||[]).map(r=>r.id);
+    let links = [];
+    if (ids.length) {
+      const lk = await db.from('diner_experience_places').select('experience_id,restaurant_id').in('experience_id', ids);
+      links = lk.data || [];
+    }
+    setErr('');
+    setRows((data||[]).map(r=>({...r, places: links.filter(l=>l.experience_id===r.id).map(l=>l.restaurant_id)})));
+  },[]);
+
+  useEffect(()=>{ load(); },[load]);
+  useEffect(()=>{ (async()=>{
+    if (!db) return;
+    const {data} = await db.from('restaurants').select('id,name,business_type,city')
+      .eq('is_active',true).order('name').limit(500);
+    setRests(data||[]);
+  })(); },[]);
+
+  const save = async () => {
+    const row = {...edit};
+    const places = row.places || [];
+    const isNew = !!row.__new;
+    delete row.places; delete row.__new;
+    if (!row.label || !row.slug) { setFlash({type:'error',text:'Nombre y slug son obligatorios'}); return; }
+    if (typeof row.match_types === 'string') {
+      row.match_types = row.match_types.split(',').map(s=>s.trim()).filter(Boolean);
+    }
+    row.sort_order = Number(row.sort_order||0);
+    setBusy(true);
+    try {
+      let id = row.id;
+      if (isNew) {
+        delete row.id;
+        const {data,error} = await db.from('diner_experiences').insert(row).select('id').single();
+        if (error) throw error;
+        id = data.id;
+      } else {
+        const {error} = await db.from('diner_experiences').update(row).eq('id', id);
+        if (error) throw error;
+      }
+      // Los locales sugeridos se reescriben enteros: son pocos y así no hay que
+      // calcular altas y bajas por separado.
+      await db.from('diner_experience_places').delete().eq('experience_id', id);
+      if (places.length) {
+        await db.from('diner_experience_places')
+          .insert(places.map((rid,i)=>({experience_id:id, restaurant_id:rid, sort_order:i})));
+      }
+      setFlash({type:'ok',text:'Experiencia guardada'});
+      setEdit(null); load();
+    } catch(e) { setFlash({type:'error',text:'Error: '+(e.message||e)}); }
+    setBusy(false);
+  };
+
+  const del = async (row) => {
+    if (!window.confirm('¿Borrar la experiencia "'+row.label+'"?')) return;
+    const {error} = await db.from('diner_experiences').delete().eq('id',row.id);
+    if (error) { setFlash({type:'error',text:'Error: '+error.message}); return; }
+    load();
+  };
+
+  // NFD separa la letra de su tilde y el rango siguiente borra la tilde suelta:
+  // "Cafetería" → "cafeteria". Mismo idioma que los otros slugify del panel.
+  const slugify = s => String(s||'').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+
+  if (rows === null) return <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>;
+
+  return (
+    <SectionCard title="Experiencias de la vitrina"
+      action={<Btn onClick={()=>setEdit({__new:true, is_active:true, sort_order:(rows.length+1)*10, match_types:'', places:[]})}>Nueva experiencia</Btn>}>
+      <div style={{padding:18}}>
+        <div style={{fontSize:12.5,color:C.mid,lineHeight:1.7,marginBottom:16}}>
+          Son las categorías que ve el comensal en <b>mythos.com.py/clientes</b>. Un local
+          entra a una experiencia por su <b>rubro</b> o porque lo elegís a mano — las dos
+          cosas suman. Si no hay ninguna activa, la vitrina agrupa por el rubro que cada
+          dueño cargó, como antes.
+        </div>
+
+        {err && <div style={{fontSize:12.5,color:'#B91C1C',marginBottom:12}}>
+          {/rela|exist/i.test(err) ? 'Falta aplicar la migración 204.' : err}
+        </div>}
+
+        {rows.length === 0 ? (
+          <div style={{fontSize:13,color:C.dim}}>Todavía no creaste ninguna experiencia.</div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            {rows.map(r=>(
+              <div key={r.id} style={{display:'flex',gap:12,alignItems:'center',padding:12,
+                     border:`1px solid ${C.line}`,borderRadius:10,opacity:r.is_active?1:.5}}>
+                <div style={{width:64,height:44,borderRadius:8,overflow:'hidden',background:C.soft,flexShrink:0}}>
+                  {r.image_url && <img src={r.image_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13.5,fontWeight:700,color:C.ink}}>{r.label}</div>
+                  <div style={{fontSize:11.5,color:C.dim,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                    /{r.slug} · rubros: {(r.match_types||[]).join(', ')||'—'} · a mano: {r.places.length}
+                  </div>
+                </div>
+                <Btn variant="ghost" onClick={()=>setEdit({...r, match_types:(r.match_types||[]).join(', ')})}>Editar</Btn>
+                <Btn variant="ghost" onClick={()=>del(r)}>Borrar</Btn>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {edit && (
+        <Modal title={edit.__new?'Nueva experiencia':'Editar experiencia'} onClose={()=>setEdit(null)} width={560}>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <FormField label="Nombre visible">
+              <SInp value={edit.label||''} placeholder="Pizzas"
+                onChange={v=>setEdit({...edit, label:v,
+                  slug: edit.__new && !edit.__slugTouched ? slugify(v) : edit.slug})}/>
+            </FormField>
+            <FormField label="Slug (va en el enlace)">
+              <SInp value={edit.slug||''} placeholder="pizzas"
+                onChange={v=>setEdit({...edit, slug:slugify(v), __slugTouched:true})}/>
+            </FormField>
+            <FormField label="Bajada">
+              <SInp value={edit.subtitle||''} placeholder="Napolitanas, al taglio y para la mesa larga"
+                onChange={v=>setEdit({...edit, subtitle:v})}/>
+            </FormField>
+
+            <ImagePicker label="Imagen de fondo" value={edit.image_url}
+              onChange={u=>setEdit({...edit, image_url:u})}
+              hint="Se ve detrás del título en la tarjeta y en la página de la experiencia. Horizontal, mínimo 1200px de ancho."/>
+
+            <FormField label="Rubros que agrupa">
+              <SInp value={edit.match_types||''} placeholder="Pizzeria, Pizzería, Pizza"
+                onChange={v=>setEdit({...edit, match_types:v})}/>
+              <div style={{fontSize:11.5,color:C.dim,marginTop:5,lineHeight:1.5}}>
+                Separados por coma. Es el rubro que el dueño cargó en su onboarding, y
+                cada uno lo escribe distinto — poné todas las variantes.
+              </div>
+            </FormField>
+
+            <FormField label="Locales sugeridos (además de los del rubro)">
+              <div style={{maxHeight:190,overflowY:'auto',border:`1px solid ${C.line}`,
+                           borderRadius:8,padding:8}}>
+                {rests.length===0 ? <div style={{fontSize:12,color:C.dim}}>Sin restaurantes.</div>
+                : rests.map(rr=>{
+                  const on = (edit.places||[]).includes(rr.id);
+                  return (
+                    <label key={rr.id} style={{display:'flex',alignItems:'center',gap:9,
+                             padding:'5px 2px',cursor:'pointer',fontSize:12.5}}>
+                      <input type="checkbox" checked={on} onChange={()=>setEdit({...edit,
+                        places: on ? edit.places.filter(x=>x!==rr.id) : [...(edit.places||[]), rr.id]})}/>
+                      <span style={{color:C.ink}}>{rr.name}</span>
+                      <span style={{color:C.dim}}>{[rr.business_type, rr.city].filter(Boolean).join(' · ')}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </FormField>
+
+            <div style={{display:'flex',gap:14,alignItems:'center'}}>
+              <FormField label="Orden">
+                <SInp type="number" value={edit.sort_order??0}
+                  onChange={v=>setEdit({...edit, sort_order:v})}/>
+              </FormField>
+              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:13,marginTop:18}}>
+                <input type="checkbox" checked={edit.is_active!==false}
+                  onChange={e=>setEdit({...edit, is_active:e.target.checked})}/>
+                Activa
+              </label>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </SectionCard>
+  );
+}
+
+/* ─── Textos e imágenes del sitio (mig 204) ─── */
+// El copy va en un jsonb, no en columnas: cada frase nueva que quiera Renato
+// exigiría una migración. Vacío = el texto por defecto del front.
+const SITE_FIELDS = [
+  ['hero_eyebrow', 'Portada · línea de arriba',  'Tu próxima salida', false],
+  ['hero_title',   'Portada · título',           '¿Qué te gustaría\ncomer hoy?', true],
+  ['hero_sub',     'Portada · bajada',           'Descubrí los restaurantes, bares y cafés que están en Mythos…', true],
+  ['hero_cta',     'Portada · botón',            'Explorar lugares', false],
+  ['exps_eyebrow', 'Experiencias · línea de arriba', 'Experiencias', false],
+  ['exps_title',   'Experiencias · título',      'Elegí el plan.\nNosotros, los lugares.', true],
+  ['exps_sub',     'Experiencias · bajada',      'Cada experiencia agrupa los lugares que la hacen posible…', true],
+];
+
+function CmSitio({setFlash}) {
+  const [cfg, setCfg]   = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState('');
+
+  const load = useCallback(async ()=>{
+    if (!db) return;
+    const {data, error} = await db.from('diner_app_config').select('site_texts,hero_image_url').maybeSingle();
+    if (error) { setErr(error.message||'error'); setCfg({}); return; }
+    setErr(''); setCfg({ ...(data?.site_texts||{}), hero_image_url: data?.hero_image_url||null });
+  },[]);
+  useEffect(()=>{ load(); },[load]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const { hero_image_url, ...texts } = cfg;
+      // Las claves vacías se BORRAN en vez de guardarse como '': una cadena
+      // vacía taparía el texto por defecto y dejaría el hueco en blanco.
+      const clean = {};
+      Object.keys(texts).forEach(k=>{ if (String(texts[k]||'').trim()) clean[k]=texts[k]; });
+      const {error} = await db.from('diner_app_config')
+        .update({ site_texts: clean, hero_image_url: hero_image_url||null }).eq('id', true);
+      if (error) throw error;
+      setFlash({type:'ok',text:'Sitio actualizado'});
+    } catch(e) { setFlash({type:'error',text:'Error: '+(e.message||e)}); }
+    setBusy(false);
+  };
+
+  if (cfg === null) return <div style={{display:'flex',justifyContent:'center',padding:40}}><Spinner/></div>;
+
+  return (
+    <SectionCard title="Textos e imágenes de la vitrina"
+      action={<Btn onClick={save} disabled={busy}>{busy?'Guardando…':'Guardar'}</Btn>}>
+      <div style={{padding:18}}>
+        <div style={{fontSize:12.5,color:C.mid,lineHeight:1.7,marginBottom:16}}>
+          Es lo que se lee en <b>mythos.com.py/clientes</b> sin iniciar sesión. Lo que
+          dejes vacío usa el texto por defecto.
+        </div>
+
+        {err && <div style={{fontSize:12.5,color:'#B91C1C',marginBottom:12}}>
+          {/column|exist/i.test(err) ? 'Falta aplicar la migración 204.' : err}
+        </div>}
+
+        <ImagePicker label="Imagen de portada" value={cfg.hero_image_url}
+          onChange={u=>setCfg({...cfg, hero_image_url:u})}
+          hint="Va detrás del título de la portada, oscurecida para que el texto se lea. Horizontal, mínimo 1600px de ancho."/>
+
+        <div style={{display:'flex',flexDirection:'column',gap:12,marginTop:6}}>
+          {SITE_FIELDS.map(([k,label,ph,multi])=>(
+            <FormField key={k} label={label}>
+              {multi
+                ? <STa value={cfg[k]||''} onChange={v=>setCfg({...cfg,[k]:v})} placeholder={ph} rows={2}/>
+                : <SInp value={cfg[k]||''} onChange={v=>setCfg({...cfg,[k]:v})} placeholder={ph}/>}
+            </FormField>
+          ))}
+          <div style={{fontSize:11.5,color:C.dim,lineHeight:1.5}}>
+            En los títulos, un salto de línea se respeta tal cual lo escribís.
+          </div>
+        </div>
+      </div>
+    </SectionCard>
   );
 }
 
