@@ -68,7 +68,13 @@ export async function rpc(name, args) {
     const { data, error } = await db.rpc(name, args || {});
     if (error) {
       const m = `${error.message || ''} ${error.code || ''}`;
-      const missing = /PGRST202|could not find the function|42883|does not exist/i.test(m);
+      // SÓLO "la función no existe" (42883 / PGRST202). Antes esto incluía un
+      // `does not exist` suelto y se comía también los errores de COLUMNA
+      // (42703): un `sum(x.points)` mal escrito se degradaba en silencio a
+      // "todavía no hay datos" en vez de avisar. Un bug tapado por el fallback
+      // deploy-safe es peor que un cartel de error.
+      const missing = /PGRST202|could not find the function|42883/i.test(m);
+      if (!missing) { try { console.error('[clientes] RPC ' + name, error); } catch (_) {} }
       return { data: null, error, missing };
     }
     return { data, error: null, missing: false };

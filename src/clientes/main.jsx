@@ -1042,9 +1042,13 @@ function RankingPublic({ cities, onOpenPlace, onLogin, embedded, onSeeAll }) {
     setLoad(true);
     const scope = city ? 'city' : 'country';
     const call = kind === 'places' ? API.topPlaces : API.topDiners;
-    call(scope, period, city || null, embedded ? 5 : 40).then(({ data, missing }) => {
+    call(scope, period, city || null, embedded ? 5 : 40).then(({ data, error, missing }) => {
       if (!alive) return;
-      setData(missing ? { missing: true, rows: [] } : (data || { rows: [] }));
+      // Un fallo real NO se disfraza de "todavía no hay datos": eso fue lo que
+      // escondió el bug de la 205 (columna mal escrita) detrás de una tabla vacía.
+      setData(missing ? { missing: true, rows: [] }
+            : error   ? { failed: true, rows: [] }
+            : (data || { rows: [] }));
       setLoad(false);
     });
     return () => { alive = false; };
@@ -1083,6 +1087,9 @@ function RankingPublic({ cities, onOpenPlace, onLogin, embedded, onSeeAll }) {
       {off ? (
         <Empty icon="trophy" title="El ranking está en pausa"
                text="Vuelve apenas se reactive." />
+      ) : data?.failed ? (
+        <Empty icon="alert" title="No pudimos cargar el ranking"
+               text="Hubo un error del servidor. Probá recargar en un momento." />
       ) : loading ? (
         <div style={{ padding: 30, textAlign: 'center' }}><Spinner /></div>
       ) : rows.length === 0 ? (
