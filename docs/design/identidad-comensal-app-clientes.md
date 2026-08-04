@@ -1,7 +1,9 @@
 # MYTHOS — Identidad del comensal y app de clientes (`/clientes`)
 
-> **Estado:** **IMPLEMENTADO** el 2026-08-03 (migración **200** escrita, front
-> completo y compilando). **La 200 todavía NO está aplicada en Supabase.**
+> **Estado:** **IMPLEMENTADO Y EN PRODUCCIÓN** el 2026-08-03. Migración **200
+> aplicada** (junto con la 196, que era su prerrequisito) y front deployado
+> (commit `92af20b`). **Falta sólo cargar la Redirect URL de `/clientes` en
+> Supabase** — ver §13.5.
 > **Fecha del diseño:** 2026-08-03.
 >
 > El alcance final quedó **más grande que el v1 del §9**: Renato sumó reseñas
@@ -857,21 +859,33 @@ del panel — mismo criterio que `form_analytics` (mig 198) y `crm_customer_stat
 (mig 197): agrupar en el navegador da un número que empeora cuanto más crece el
 negocio.
 
-### 13.5 Antes de aplicar la 200
+### 13.5 Configuración de Supabase — lo único que falta
 
-1. **Backup** de la base.
-2. Correr la migración entera (rol `postgres`, SQL Editor en **inglés**).
-3. Correr la **§16 de la migración** (verificación): 23 tablas, `anon` sin un
-   solo grant, todas las funciones con `search_path` fijo, tablas vacías y los
-   dos correos en la allowlist.
-4. **Verificar el *identity linking* del proyecto** (§8.1.1). Con "Confirm email"
-   apagado para el alta de dueños, alguien podría registrarse en `/registro` con
-   el correo de otro y quedarse en la misma cuenta cuando la víctima entre a
-   `/clientes` con Google. No es un problema de este diseño, pero **se activa
-   recién cuando `/clientes` existe**.
-5. Para **abrir la beta**: prender `is_public` en Superadmin › Comensales ›
-   Acceso **y** sacar `/clientes` del `Disallow` de `robots.txt` + agregarlo al
-   `sitemap.xml`. El panel lo avisa al prender el interruptor.
+La 200 y la 196 ya están aplicadas. Lo que queda no se puede hacer desde una
+migración porque vive en el dashboard:
+
+1. **Redirect URL — obligatorio, sin esto no se puede entrar.**
+   Supabase → Authentication → URL Configuration:
+   - *Site URL* = `https://mythos.com.py`
+   - *Redirect URLs* → agregar `https://mythos.com.py/clientes`
+     (y `https://mythos.com.py/clientes.html`).
+   El link mágico llega igual, pero al tocarlo Supabase lo rechaza si el destino
+   no está en esa lista.
+
+2. **Google — opcional.** El botón "Continuar con Google" sólo aparece con
+   `MYTHOS_AUTH_GOOGLE=true` en Vercel **y** el provider habilitado en Supabase.
+   Sin eso queda sólo el link por correo, que alcanza para operar.
+
+3. **Chequeo de cuentas duplicadas** (§8.1.1). Con "Confirm email" apagado en el
+   alta de dueños, cualquiera pudo haberse registrado en `/registro` con un
+   correo ajeno. Mirar Authentication → Users y confirmar que
+   `mancuellorenato@gmail.com` y `mancuelloempresas@gmail.com` tienen **una sola
+   fila cada uno** y con la fecha de alta esperada. Si aparece una cuenta que no
+   reconocés con esos correos, borrarla antes de entrar a `/clientes`.
+
+4. Para **abrir la beta** (más adelante): prender `is_public` en Superadmin ›
+   Comensales › Acceso **y** sacar `/clientes` del `Disallow` de `robots.txt` +
+   agregarlo al `sitemap.xml`. El panel lo avisa al prender el interruptor.
 
 ### 13.6 Lo que sigue abierto
 
