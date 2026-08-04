@@ -460,96 +460,92 @@ y de esa función cuelga el RLS de ~25 tablas.
 Con esa regla respetada, la identidad de comensal vive **sólo** en `diners`, y
 que una persona sea las dos cosas deja de ser un problema. Los tres casos:
 
-**Regla de identidad (decidida 2026-08-03): un correo por perfil, siempre.**
+**Regla de identidad (2026-08-03): una persona = un usuario de Auth. El contexto
+se elige al entrar.**
 
-| Perfil | Correo de Auth | Comparte cuenta con el perfil de comensal |
+Mythos ya había elegido este camino, y está escrito en la **migración 166**:
+
+> **REGLA DE NEGOCIO (Renato):** una cédula = una persona = un `user_id`, pero esa
+> misma persona **sí** puede tener rol en uno o más restaurantes.
+
+Antes de la 166, `UNIQUE(user_id, role)` (mig 006) impedía que un mozo trabajara
+en dos locales: el alta en el segundo **rebotaba**. La 166 mueve la unicidad de
+fila para que incluya el restaurante, y defiende la identidad —cédula/username →
+un solo `user_id`— con `EXCLUDE`.
+
+> ⚠ La 166 está marcada **PREPARED, aplicar manualmente**. Confirmar si está
+> aplicada en prod antes de asumir que el multi-local ya funciona.
+
+#### Qué combinaciones funcionan
+
+| Combinación | Estado | Por qué |
 |---|---|---|
-| **Dueño / admin** | su correo real de trabajo | **No** |
-| **Empleado** (mozo/cajero/cocina/rider) | sintético `${cedula}@mythos.internal`; el real va en `user_roles.recovery_email` | **No** |
-| **Comensal** | su correo personal (Google o link mágico) | — |
+| Mismo rol en varios locales (mozo en 2) | ✅ con la mig 166 | El sistema no elige nada: sos mozo, y suma los locales |
+| **Comensal + un rol de negocio** | ✅ **sin trabajo extra** | `diners` no usa `get_my_role()`: su RLS es `auth_user_id = auth.uid()` |
+| Dos roles de negocio (admin **y** proveedor) | ❌ falta | `get_my_role()` devuelve UNO solo, y siempre el de más permisos |
 
-Una persona que es las tres cosas tiene tres cuentas. **El teléfono sí es común**
-(§8.1.2): es lo que la identifica como comensal cuando entra a un restaurante.
+La fila del medio es la que importa acá: **el perfil de comensal convive con
+cualquier rol de negocio en la misma cuenta, hoy, sin tocar nada.** No hace falta
+separar correos ni bloquear altas.
 
-**Por qué separado y no fusionado**, aunque Supabase fusione por defecto:
+#### Lo que se evaluó y se descartó
 
-- **El empleado** recibe una cuenta creada por su admin, **con una contraseña que
-  el admin eligió** (`create-user.js`). Si esa cuenta cargara además su identidad
-  de comensal, **el patrón podría entrar al perfil personal de su empleado** y
-  ver dónde come, qué pide y qué opina de otros restaurantes.
-- **El dueño** elige su propia contraseña, así que fusionar sería técnicamente
-  seguro — pero mantener una sola regla para todos evita un criterio distinto por
-  tipo de usuario, que es justo la clase de matiz que se olvida y se rompe.
-- Además su vida como comensal (dónde come, qué opina de la competencia) no
-  tiene por qué colgar de la cuenta con la que administra su negocio.
+Una tabla `auth_profile_registry` con PK sobre `auth_user_id`, para forzar "un
+usuario de Auth = una sola rama". **Descartada:** va justo en contra de la regla
+de la 166 y bloquearía el selector de contexto que sí se quiere. Queda anotado
+para que no se vuelva a proponer.
+
+#### Lo que sí falta: que el contexto elegido llegue a la base
+
+El login ya sabe preguntar *"¿a qué panel entrás?"* y, desde el commit `8209db1`,
+también *"¿a qué local?"*. Pero la base todavía **no escucha esa respuesta**:
+
+- `get_my_role()` (mig 029) devuelve un solo rol con `LIMIT 1` por prioridad.
+- `get_my_company_restaurant_ids()` (mig 092) resuelve el restaurante con
+  `LIMIT 1` **sin ORDER BY** para roles operativos.
+
+Las dos derivan el contexto **del usuario**, no de la sesión. Mientras sea así,
+elegir en el login es cosmético: la RLS sigue apuntando a lo que decidió la base,
+y quien elija "el otro" local va a ver el panel vacío.
+
+Hacerlas sensibles al contexto elegido (claim en el JWT, o tabla de sesión) es el
+trabajo que habilita a la vez el multi-local real y el selector de ramas. Toca la
+función de la que cuelga la RLS de ~25 tablas, así que **no se encara mientras
+siga abierta la deuda de RLS que es la prioridad 1 de CLAUDE.md** — no conviene
+operar dos veces sobre la misma zona.
+
+**Mientras tanto**, para el caso raro de alguien que necesite dos roles de
+negocio: el mismo buzón admite varias direcciones
+(`juan+proveedor@gmail.com` llega a `juan@gmail.com`). Cero costo, cero riesgo.
+
+#### El empleado queda separado solo
+
+No hace falta ninguna regla: el login del empleado es el sintético
+`${cedula}@mythos.internal`, así que si se registra como comensal con su correo
+real son **dos cuentas distintas por construcción**.
+
+Y conviene que siga así. El empleado recibe una cuenta creada por su admin, **con
+una contraseña que el admin eligió** (`create-user.js`). Si esa misma cuenta
+cargara además su identidad de comensal, **el patrón podría entrar al perfil
+personal de su empleado** y ver dónde come y qué opina de otros restaurantes. El
+dueño, en cambio, elige su propia contraseña: para él fusionar es seguro.
+
+> **Regla:** si algún día el empleado pasa a loguearse con su correo real, hay que
+> revisar esto — su privacidad deja de estar garantizada por construcción.
 
 **Sobre el correo real del empleado — ya existe.** `create-user.js` acepta
 `recovery_email` y lo guarda en `user_roles.recovery_email`, con la regla escrita
 de que **el sintético NUNCA se muestra como "su correo"**. Lo que falta no es
 capturarlo, es *usarlo*: hoy un empleado no puede recuperar su contraseña solo,
 porque no recibe correo en `@mythos.internal` y el reseteo pasa por el admin.
-Habilitar el reseteo contra `recovery_email` es una mejora independiente de este
-diseño y conviene hacerla.
+Habilitar el reseteo contra `recovery_email` es una mejora independiente y
+conviene hacerla.
 
 **El sintético no se puede eliminar:** hay empleados sin correo (cocina, limpieza,
 personal temporal). Sin ese fallback no se los podría dar de alta.
 
-Queda pendiente igual la sesión del navegador (§8.4): tres cuentas distintas no
-sirven de nada si comparten la ranura del token.
-
-### 8.1.1-bis La regla vale para TODA rama de Mythos
-
-**Un correo por perfil, en cualquier rama** — restaurante, proveedor, delivery, y
-la que venga. Una persona que es dueña de un local, además provee insumos y
-además come afuera, tiene **tres cuentas**.
-
-Hoy esto es más simple de lo que parece, porque las ramas de negocio ya comparten
-un solo espacio: **proveedores y riders viven en `user_roles`**
-(`approve-supplier.js` crea `role='supplier'` con `restaurant_id=NULL`, y usa el
-**correo real** del proveedor). O sea que hoy hay exactamente dos espacios de
-identidad:
-
-| Espacio | Quiénes | Dónde vive |
-|---|---|---|
-| **Negocio** | dueño, admin, mozo, cajero, cocina, rider, supervisor, **proveedor** | `user_roles` |
-| **Comensal** | la persona que come | `diners` |
-
-### La separación NO es automática — y no alcanza con chequearla en el endpoint
-
-Supabase Auth fusiona por correo: **mismo correo = mismo usuario**. Si un dueño
-entra a `/clientes` con el correo de su cuenta de admin, Supabase le devuelve
-**su usuario de admin**, no uno nuevo.
-
-Se podría chequear en cada alta (`/clientes`, `create-user.js`,
-`approve-supplier.js`…), pero son N lugares y la rama N+1 va a olvidarse de uno.
-Sigue el criterio que este proyecto ya aplica en todos lados —*esconder el botón
-nunca es la única defensa*—: **la invariante la sostiene la base.**
-
-```sql
-CREATE TABLE public.auth_profile_registry (
-  auth_user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  branch       TEXT NOT NULL CHECK (branch IN ('negocio','proveedor','comensal')),
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-La **PK sobre `auth_user_id`** es toda la defensa: un usuario de Auth no puede
-pertenecer a dos ramas, porque físicamente no entra la segunda fila. Un trigger
-en `user_roles` y otro en `diners` la pueblan; una rama nueva agrega su trigger y
-hereda la garantía sin tocar ningún endpoint.
-
-Los endpoints igual devuelven el mensaje claro —*"Ese correo ya pertenece a una
-cuenta de trabajo en Mythos. Usá tu correo personal para tu perfil de
-comensal."*— pero como cortesía, no como defensa.
-
-> **⚠ Verificar antes de activar:** hoy nada impide que un mismo usuario tenga
-> `role='admin'` y `role='supplier'` (la unicidad de `user_roles` es
-> `(user_id, role)`). Si esa combinación ya existe en prod, el registro no se
-> puede sembrar sin decidir qué hacer con ella. **Consultar antes de escribir la
-> migración.**
-
-**Costo real de esta decisión:** un dueño con una sola casilla de correo tiene que
-crear otra para usar la app. Molestia de una vez; aislamiento permanente.
+Queda pendiente igual la sesión del navegador (§8.4): que una cuenta pueda llevar
+los dos sombreros no sirve de nada si `/clientes` y `/admin` se pisan el token.
 
 ### 8.1.2 El teléfono sí es común a los tres perfiles
 
@@ -574,14 +570,15 @@ las dos**. La unicidad del §4.2 aplica sólo entre comensales.
 protegida, sea superadmin, o tenga rol en otro restaurante. **No mira si ese
 usuario tiene fila en `diners`.**
 
-Con la regla de un correo por perfil (§8.1) **ningún comensal debería compartir
-usuario con una fila de staff**, así que este escenario no debería poder darse.
-La guarda queda igual, como red de seguridad: si el bloqueo del alta falla, si
-queda alguna cuenta mezclada de antes, o si mañana alguien crea usuarios por otro
-camino, lo que se pierde es **irreversible** — XP, historial cruzado y gift cards
-en restaurantes que no tienen nada que ver con el que se borró.
+**Es un riesgo de primera línea, no una red de seguridad.** Con la regla de §8.1
+—una persona, un usuario de Auth, rol de negocio y perfil de comensal en la misma
+cuenta— **el caso es el normal, no la excepción**: cualquier dueño que además use
+la app comparte usuario entre `user_roles` y `diners`.
 
-Tres líneas de código contra una pérdida de datos irreparable: se ponen.
+Hoy se borra el usuario mirando sólo su costado laboral. En cuanto exista
+`/clientes`, eliminar un restaurante le destruye al dueño su **cuenta personal**:
+XP, historial y gift cards de **otros** locales que no tienen nada que ver con el
+que se borró. Y es irreversible.
 
 > Si el `user_id` tiene fila en `diners`, **no se borra el usuario de Auth**: se
 > le quitan los roles de staff y se lo deja como comensal. Sumar el motivo
@@ -671,12 +668,13 @@ distinto.
 | 3 | Rewrites `/clientes` y `/restaurantes` + `sitemap.xml`/`robots.txt` al dominio real | — |
 | 4 | **Superadmin › Clientes › Experiencia** — ABM de `xp_rules` y `xp_levels` | 2 |
 | 5 | Esqueleto del panel (`src/clientes/main.jsx`, `vite.config.clientes.mjs`, `public/clientes.html`, `npm run build`) + login Google/correo | 2, 3 |
-| 6 | **`auth_profile_registry`** + triggers en `user_roles` y `diners` — una rama por usuario de Auth (§8.1.1-bis) | 2 |
+| 6 | ~~Bloqueo cruzado de altas~~ — **descartado**: una cuenta puede llevar rol de negocio + perfil de comensal (§8.1) | — |
 | 7 | **Guarda en `delete-restaurant.js`** — no borrar de Auth a quien tenga fila en `diners` (§8.1.3) | 2 |
 | 8 | Vinculación por mostrador — campo de código en Caja | 5 |
 | 9 | Pantallas de v1 | 5 |
 
-Los pasos **6 y 7 son bloqueantes**: no se abre `/clientes` sin ellos.
+El paso **7 es bloqueante**: no se abre `/clientes` sin esa guarda, porque con la
+regla de §8.1 compartir cuenta es el caso normal y el borrado es irreversible.
 
 Cada paso es deployable solo. El 3 es independiente y se puede hacer ya.
 
@@ -746,5 +744,6 @@ Es una feature de plan, como los destacados de proveedores de la mig 199.
 | 2026-08-03 | Reglas de XP y niveles **editables desde el superadmin**, no cableadas. |
 | 2026-08-03 | **OTP por teléfono postergado** (sin presupuesto). v1 vincula por pedido con sesión iniciada y por código en el mostrador. |
 | 2026-08-03 | El XP viene de la **contribución**, no del monto gastado. Fórmula en definición (§11.2). |
-| 2026-08-03 | **Un correo por perfil, en TODA rama de Mythos** — restaurante, proveedor, delivery y las que vengan. La invariante la sostiene `auth_profile_registry` en la base, no chequeos por endpoint (§8.1.1-bis). |
+| 2026-08-03 | **Una persona = un usuario de Auth**, alineado con la regla de la mig 166. El perfil de comensal convive con un rol de negocio en la misma cuenta; el contexto se elige al entrar. Se descartó `auth_profile_registry` (§8.1). |
+| 2026-08-03 | **Dos roles de negocio a la vez** (admin + proveedor) queda para después: exige que `get_my_role()` sea sensible a la sesión, y esa zona no se toca con la deuda de RLS abierta. |
 | 2026-08-03 | **El teléfono sí es común** a los tres perfiles: es la llave de reconocimiento en el mostrador. Ninguna consulta puede usarlo para correlacionar perfiles (§8.1.2). |
