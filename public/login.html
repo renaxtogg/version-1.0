@@ -309,17 +309,42 @@
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
   }
 
+  // Nombres de los locales, para poder rotular "Mozo — Terrapizza" cuando el
+  // mismo rol aparece en más de un restaurante (si no, los dos botones dirían
+  // "Mozo" y serían indistinguibles). Best-effort: ante cualquier error el botón
+  // queda con la etiqueta del rol sola — el chooser sigue funcionando y el login
+  // NUNCA se frena por esto.
+  async function attachRestaurantNames(items) {
+    try {
+      const ids = [];
+      items.forEach(it => {
+        if (it.restaurant_id && ids.indexOf(it.restaurant_id) < 0) ids.push(it.restaurant_id);
+      });
+      if (ids.length < 2) return;   // un solo local: el nombre no desambigua nada
+      const { data, error } = await db.from('restaurants').select('id, name').in('id', ids);
+      if (error || !Array.isArray(data)) return;
+      const byId = {};
+      data.forEach(r => { if (r && r.id) byId[r.id] = r.name; });
+      items.forEach(it => { it.restaurant_name = byId[it.restaurant_id] || ''; });
+    } catch (_) { /* sin nombres; los botones quedan con la etiqueta del rol */ }
+  }
+
   // Pantalla simple "Elegí tu panel" (usuario con más de un panel disponible).
   function showChooser(items, profile) {
     const card = document.querySelector('.card');
     if (!card) return;
     const name = ((profile && (profile.display_name || profile.username)) || '').trim();
-    const btns = items.map((it, i) =>
-      '<button class="btn-social" type="button" data-i="' + i + '">' + escapeHtml(roleLabel(it.role)) + '</button>'
-    ).join('');
+    // Si el mismo panel se repite (mismo rol en dos locales), lo que se elige no
+    // es el panel sino el local — el texto lo dice así.
+    const repeatsPanel = items.some((a, i) => items.some((b, j) => i !== j && a.dest === b.dest));
+    const prompt = repeatsPanel ? 'elegí dónde entrás' : 'elegí tu panel';
+    const btns = items.map((it, i) => {
+      const label = roleLabel(it.role) + (it.restaurant_name ? ' — ' + it.restaurant_name : '');
+      return '<button class="btn-social" type="button" data-i="' + i + '">' + escapeHtml(label) + '</button>';
+    }).join('');
     card.innerHTML =
       '<div class="logo"><div class="logo-title">Mythos</div>' +
-        '<div class="logo-sub">' + (name ? 'Hola, ' + escapeHtml(name) + ' — ' : '') + 'elegí tu panel</div></div>' +
+        '<div class="logo-sub">' + (name ? 'Hola, ' + escapeHtml(name) + ' — ' : '') + prompt + '</div></div>' +
       '<div class="social">' + btns + '</div>' +
       '<div class="hint"><a id="chooserLogout" href="#">Cerrar sesión</a></div>';
     items.forEach((it, i) => {
@@ -389,10 +414,22 @@
           || String(r.role).toLowerCase() === 'superadmin'
           || String(r.role).toLowerCase() === 'supplier';
         if (!okTenant) return;
-        if (seen[dest]) return; seen[dest] = true;
+        // La clave de deduplicación incluye el RESTAURANTE, no sólo el panel.
+        // Antes agrupaba por `dest` solo: un mozo con rol en DOS locales genera
+        // dos filas que van las dos a mozo.html, así que la segunda se descartaba
+        // → quedaba un solo item → no aparecía el chooser y entraba a uno de los
+        // dos sin poder elegir. Y cuál le tocaba dependía del orden en que la
+        // consulta devolviera las filas (no hay ORDER BY): podía cambiar entre
+        // logins. Ver mig 166, que habilita el mismo rol en varios locales.
+        const key = dest + '|' + (r.restaurant_id || '');
+        if (seen[key]) return; seen[key] = true;
         items.push({ role: r.role, restaurant_id: r.restaurant_id, dest });
       });
-      if (items.length > 1) { showChooser(items, profile); return null; }
+      if (items.length > 1) {
+        await attachRestaurantNames(items);
+        showChooser(items, profile);
+        return null;
+      }
     }
     return validateAndRedirect(profile);
   }
