@@ -87,14 +87,27 @@ hunden con reseñas falsas, el reclamo viene a Mythos.
 La cuenta se autentica por **canales verificados**, y ninguno de ellos es un dato
 público como la cédula.
 
-**Sin contraseña.** Tres canales, todos simétricos — cada uno sirve para entrar
-*y* para recuperar:
-
 | Canal | Costo | Rol | Estado |
 |---|---|---|---|
 | Google (OAuth) | gratis | alta y login diario | **v1** |
-| Correo (link mágico) | gratis | alta y login diario | **v1** |
+| Correo + contraseña | gratis | alta y login diario | **v1** |
+| Correo (link) | gratis | **sólo recuperar** la contraseña | **v1** |
 | Teléfono (código) | se paga por mensaje | verificar para absorber historial viejo | **postergado** (§5.2) |
+
+> **⚠ CAMBIO 2026-08-03 — decisión de Renato, ya implementada.** El diseño
+> original era **sin contraseña** (link mágico como login diario). Se revirtió a
+> **login normal: correo + contraseña**, con "olvidé mi contraseña" por correo.
+> El argumento del diseño original —que el comensal olvida la contraseña y que el
+> correo es la autoridad final de todos modos— sigue siendo cierto; la decisión
+> es que el login conocido pesa más que esa ganancia. El link mágico **no
+> desapareció**: quedó donde todo el mundo espera encontrarlo, en la recuperación.
+>
+> **Consecuencia operativa:** el CAPTCHA (Turnstile) está **prendido** en Supabase
+> Auth, así que `signUp`, `signInWithPassword` y `resetPasswordForEmail` tienen que
+> mandar `captchaToken` o el server responde *"captcha protection: request
+> disallowed"*. El widget lo monta `public/clientes.html` y lo consume
+> `src/clientes/api.js`. **El token es de un solo uso**: hay que `reset()` después
+> de cada intento o el segundo se rechaza con datos correctos.
 
 `build.sh` ya trae `MYTHOS_AUTH_GOOGLE` y `MYTHOS_AUTH_FACEBOOK` preparadas y sin
 usar, con degradación elegante si faltan.
@@ -592,17 +605,27 @@ que se borró. Y es irreversible.
 > le quitan los roles de staff y se lo deja como comensal. Sumar el motivo
 > `'es comensal'` a `usersSkipped`.
 
-### 8.1.1 La verificación del correo sale gratis — pero hay algo que verificar
+### 8.1.1 La verificación del correo — y por qué ahora "Confirm email" SÍ importa
 
-**La verificación del comensal no depende del ajuste "Confirm email" de
-Supabase**, porque el login es sin contraseña (§3.3):
+**⚠ Reescrito el 2026-08-03 junto con el cambio a login con contraseña (§3.3).**
+La versión anterior decía que la verificación salía gratis porque el login era
+sin contraseña. Con el alta por contraseña **eso dejó de ser cierto**, y el
+ajuste del dashboard pasó a ser parte del diseño:
 
-- **Google** — Google ya verificó que el correo es suyo.
-- **Link mágico** — hay que abrir la casilla para entrar. **La verificación *es*
-  el login.**
+| Canal de alta | ¿Verifica el correo por sí solo? |
+|---|---|
+| Google | **Sí** — Google ya verificó que el correo es suyo. |
+| Correo + contraseña | **Sólo si "Confirm email" está PRENDIDO** en Supabase. |
 
-O sea que el perfil del comensal queda verificado por construcción, sin depender
-de una configuración que hoy está apagada para el funnel de dueños.
+Con "Confirm email" apagado, cualquiera puede crear una cuenta de comensal con el
+correo de otra persona y elegirle la contraseña — el mismo agujero que el funnel
+de dueños ya tenía, ahora también acá. **`/clientes` no debe abrirse al público
+con ese ajuste apagado.** Durante la beta cerrada el riesgo es acotado: el
+portero de `diner_app_access` deja la cuenta afuera igual, pero la fila en
+`auth.users` queda creada y con contraseña ajena.
+
+El código maneja los dos modos sin tocar nada (`signUpWithPassword` devuelve
+`needsConfirm` cuando no hay sesión), así que prenderlo no requiere deploy.
 
 > **⚠ A verificar en el dashboard ANTES de abrir `/clientes`:** si "Confirm email"
 > sigue apagado para el alta de dueños, aparece un vector nuevo al juntar los dos

@@ -15,6 +15,61 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
 <!-- Configuración del proyecto (SUPABASE_URL + ANON_KEY) -->
 <script src="config.js"></script>
+<!-- CAPTCHA: Cloudflare Turnstile (soporte NATIVO de Supabase Auth). Está PRENDIDO
+     en el proyecto, así que TODA llamada de Auth (signUp, signInWithPassword,
+     resetPasswordForEmail) tiene que mandar options.captchaToken o el server
+     responde "captcha protection: request disallowed".
+
+     Diferencia con registro.html: acá el widget lo monta REACT cuando dibuja la
+     pantalla de acceso (mount(el)), porque el contenedor no existe en el HTML.
+     El token es de UN SOLO USO: después de cada intento hay que reset() o el
+     segundo intento se rechaza aunque los datos estén bien. -->
+<script>
+(function () {
+  // Site key PÚBLICA de Turnstile — la misma de registro.html (va en el front).
+  var SITE_KEY = '0x4AAAAAADs0-Olt_9L_CI3V';
+  var st = { token: '', id: null, ready: false, el: null };
+
+  function render() {
+    if (!window.turnstile || !st.el || st.id !== null) return;
+    try {
+      st.id = window.turnstile.render(st.el, {
+        sitekey: SITE_KEY,
+        callback: function (t) { st.token = t; },
+        'error-callback': function () { st.token = ''; },
+        'expired-callback': function () { st.token = ''; }
+      });
+    } catch (e) {}
+  }
+
+  window.onTurnstileLoad = function () { st.ready = true; render(); };
+
+  window.MythosCaptcha = {
+    siteKey: SITE_KEY,
+    mount: function (el) { st.el = el; render(); },
+    token: function () { return st.token; },
+    reset: function () {
+      try { if (st.id !== null) window.turnstile.reset(st.id); } catch (e) {}
+      st.token = '';
+    },
+    // El token llega ASÍNCRONO: si alguien tipea rápido y toca Entrar antes de
+    // que Turnstile resuelva, mandaríamos vacío y el server rebota con un error
+    // que el usuario no puede corregir. Esperamos hasta `ms` y si no llega,
+    // devolvemos '' — que Supabase decida (si el CAPTCHA se apaga, sigue andando).
+    waitToken: function (ms) {
+      var limit = ms || 12000, t0 = Date.now();
+      return new Promise(function (resolve) {
+        (function poll() {
+          if (st.token) return resolve(st.token);
+          if (Date.now() - t0 > limit) return resolve('');
+          setTimeout(poll, 150);
+        })();
+      });
+    }
+  };
+})();
+</script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit" async defer></script>
 <!-- Sin mythos-theme.js a propósito: el tema de este panel lo maneja React
      (src/clientes/theme.jsx) porque el marco del teléfono pinta su propio
      fondo, igual que el panel del QR. -->

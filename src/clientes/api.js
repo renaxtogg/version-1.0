@@ -84,6 +84,16 @@ export async function getSession() {
   catch (_) { return null; }
 }
 
+// El login con contraseña no recarga la página: sin esto la sesión queda abierta
+// pero la pantalla se queda en el formulario.
+export function onAuthChange(cb) {
+  if (!db) return () => {};
+  let sub = null;
+  try { sub = db.auth.onAuthStateChange((event, session) => cb(event, session))?.data?.subscription; }
+  catch (_) {}
+  return () => { try { sub && sub.unsubscribe(); } catch (_) {} };
+}
+
 export async function signInWithGoogle() {
   if (!db) throw new Error('Sin conexión.');
   const redirectTo = window.location.origin + window.location.pathname;
@@ -91,16 +101,77 @@ export async function signInWithGoogle() {
   if (error) throw error;
 }
 
-// Link mágico: la verificación ES el login (§8.1.1). Hay que abrir la casilla
-// para entrar, así que el correo queda verificado por construcción — sin
-// depender del ajuste "Confirm email" del proyecto, que hoy está apagado.
-export async function signInWithEmail(email) {
+/* ── CAPTCHA ─────────────────────────────────────────────────────── */
+// El proyecto tiene Turnstile PRENDIDO en Supabase Auth: sin captchaToken el
+// server rebota con "captcha protection: request disallowed" y el usuario ve un
+// error que no puede corregir. El widget lo monta la pantalla de acceso; acá
+// sólo se espera el token. El token es de UN SOLO USO → reset() después de cada
+// intento, exitoso o no, o el segundo intento se rechaza con datos correctos.
+async function captcha() {
+  const c = window.MythosCaptcha;
+  if (!c) return undefined;                       // Turnstile no cargó: que decida el server.
+  const t = await c.waitToken();
+  return t || undefined;
+}
+function captchaReset() {
+  try { window.MythosCaptcha && window.MythosCaptcha.reset(); } catch (_) {}
+}
+
+/* ── Login con contraseña ────────────────────────────────────────── */
+// Decisión de Renato (2026-08-03): login normal, correo + contraseña. El link
+// mágico quedó SÓLO para recuperar (resetPassword). Ver §3.3 del doc de diseño,
+// que documenta el criterio anterior y por qué se cambió.
+export async function signInWithPassword(email, password) {
   if (!db) throw new Error('Sin conexión.');
-  const redirectTo = window.location.origin + window.location.pathname;
-  const { error } = await db.auth.signInWithOtp({
+  const captchaToken = await captcha();
+  const { data, error } = await db.auth.signInWithPassword({
     email: String(email || '').trim(),
-    options: { emailRedirectTo: redirectTo }
+    password: String(password || ''),
+    options: { captchaToken }
   });
+  captchaReset();
+  if (error) throw error;
+  return data;
+}
+
+// Devuelve { needsConfirm } — si el proyecto tiene "Confirm email" PRENDIDO,
+// signUp NO devuelve sesión y hay que avisar que revise el correo. Con el ajuste
+// apagado entra derecho. Los dos modos se manejan sin tocar código (mismo
+// criterio que registro.html).
+export async function signUpWithPassword(email, password, fullName) {
+  if (!db) throw new Error('Sin conexión.');
+  const captchaToken = await captcha();
+  const redirectTo = window.location.origin + window.location.pathname;
+  const { data, error } = await db.auth.signUp({
+    email: String(email || '').trim(),
+    password: String(password || ''),
+    options: {
+      captchaToken,
+      emailRedirectTo: redirectTo,
+      data: { full_name: String(fullName || '').trim() }
+    }
+  });
+  captchaReset();
+  if (error) throw error;
+  return { needsConfirm: !data?.session };
+}
+
+export async function resetPassword(email) {
+  if (!db) throw new Error('Sin conexión.');
+  const captchaToken = await captcha();
+  const redirectTo = window.location.origin + window.location.pathname;
+  const { error } = await db.auth.resetPasswordForEmail(String(email || '').trim(), {
+    captchaToken, redirectTo
+  });
+  captchaReset();
+  if (error) throw error;
+}
+
+// Se usa en la pantalla a la que aterriza el enlace de recuperación: ahí Supabase
+// ya dejó una sesión abierta (detectSessionInUrl), así que alcanza con updateUser.
+export async function updatePassword(password) {
+  if (!db) throw new Error('Sin conexión.');
+  const { error } = await db.auth.updateUser({ password: String(password || '') });
   if (error) throw error;
 }
 

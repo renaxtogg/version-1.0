@@ -26,6 +26,18 @@ import * as API from "./api.js";
 
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
+/* ══ ATERRIZAJE DE RECUPERACIÓN ══════════════════════════════════ */
+// Se lee al cargar el módulo, ANTES de que supabase-js consuma el hash: con
+// detectSessionInUrl:true la librería lo limpia de la URL apenas lo procesa, y
+// después ya no hay forma de saber que este arranque venía de "olvidé mi
+// contraseña". El evento PASSWORD_RECOVERY del listener es el segundo cinturón.
+const URL_RECOVERY = (() => {
+  try {
+    const h = (window.location.hash || '') + ' ' + (window.location.search || '');
+    return /type=recovery/.test(h);
+  } catch (_) { return false; }
+})();
+
 /* ══ SERVICIOS ═══════════════════════════════════════════════════ */
 const SERVICES = [
   { key: 'dine_in',  label: 'En el local', icon: 'utensils' },
@@ -76,87 +88,246 @@ function Sheet({ title, children, onClose, footer }) {
   );
 }
 
-/* ══ PANTALLA: ACCESO ════════════════════════════════════════════ */
+/* ══ ACCESO ══════════════════════════════════════════════════════ */
+// Login NORMAL: correo + contraseña (decisión de Renato, 2026-08-03). El link
+// mágico quedó sólo para recuperar. El widget de Turnstile se monta acá porque
+// el CAPTCHA de Supabase Auth está prendido y sin token el server rechaza TODA
+// llamada de Auth — ver el head-script de public/clientes.html.
+
+// Los mensajes de Supabase vienen en inglés y algunos son crípticos. Traducirlos
+// no es cosmética: "Invalid login credentials" en inglés hace que el comensal
+// crea que la app se rompió y no que se equivocó de contraseña.
+function authMsg(e) {
+  const m = String(e?.message || e || '');
+  if (/invalid login credentials/i.test(m))        return 'Correo o contraseña incorrectos.';
+  if (/email not confirmed/i.test(m))              return 'Confirmá tu correo antes de entrar: te mandamos un enlace cuando creaste la cuenta.';
+  if (/user already registered|already been reg/i.test(m)) return 'Ese correo ya tiene cuenta. Entrá con tu contraseña.';
+  if (/password should be at least/i.test(m))      return 'La contraseña necesita al menos 6 caracteres.';
+  if (/captcha/i.test(m))                          return 'No pudimos verificar que sos una persona. Esperá a que cargue el recuadro de seguridad y probá de nuevo.';
+  if (/rate limit|too many/i.test(m))              return 'Demasiados intentos seguidos. Esperá un minuto.';
+  if (/for security purposes/i.test(m))            return 'Esperá unos segundos antes de volver a intentar.';
+  return m || 'No pudimos completar la operación.';
+}
+
+function Field({ label, ...rest }) {
+  const T = useT();
+  return (
+    <div style={{ marginBottom: 11 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: T.gray, letterSpacing: '.06em',
+                    textTransform: 'uppercase', marginBottom: 6 }}>{label}</div>
+      <input {...rest}
+        style={{ width: '100%', height: 48, background: T.white, border: `1px solid ${T.border}`,
+                 borderRadius: 12, padding: '0 15px', fontSize: 15, color: T.ink,
+                 fontFamily: FONT, outline: 'none' }} />
+    </div>
+  );
+}
+
+// El widget vive FUERA del árbol que React re-dibuja (Turnstile pinta un iframe
+// propio): si React lo desmontara y remontara en cada tecleo perdería el token.
+function CaptchaBox() {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current && window.MythosCaptcha) window.MythosCaptcha.mount(ref.current);
+  }, []);
+  return <div ref={ref} style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 14px' }} />;
+}
+
 function LoginScreen({ onFlash }) {
   const T = useT();
+  const [mode, setMode]   = useState('in');       // in | up | forgot
+  const [name, setName]   = useState('');
   const [email, setEmail] = useState('');
+  const [pass, setPass]   = useState('');
+  const [pass2, setPass2] = useState('');
   const [busy, setBusy]   = useState('');
-  const [sent, setSent]   = useState(false);
+  const [done, setDone]   = useState('');         // 'confirm' | 'reset'
   const googleOn = !!(window.MYTHOS_CONFIG && window.MYTHOS_CONFIG.authProviders
                       && window.MYTHOS_CONFIG.authProviders.google);
+
+  const emailOk = v => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v || '').trim());
 
   const withGoogle = async () => {
     setBusy('google');
     try { await API.signInWithGoogle(); }
-    catch (e) { onFlash('No pudimos abrir Google. ' + (e.message || '')); setBusy(''); }
+    catch (e) { onFlash('No pudimos abrir Google. ' + authMsg(e)); setBusy(''); }
   };
 
-  const withEmail = async () => {
-    const v = email.trim();
-    if (!v || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) { onFlash('Escribí un correo válido.'); return; }
-    setBusy('email');
-    try { await API.signInWithEmail(v); setSent(true); }
-    catch (e) { onFlash(e.message || 'No pudimos enviar el enlace.'); }
+  const submit = async () => {
+    if (!emailOk(email)) { onFlash('Escribí un correo válido.'); return; }
+
+    if (mode === 'forgot') {
+      setBusy('go');
+      try { await API.resetPassword(email); setDone('reset'); }
+      catch (e) { onFlash(authMsg(e)); }
+      setBusy('');
+      return;
+    }
+
+    if (pass.length < 6) { onFlash('La contraseña necesita al menos 6 caracteres.'); return; }
+
+    if (mode === 'up') {
+      if (!name.trim())    { onFlash('¿Cómo te llamás?'); return; }
+      if (pass !== pass2)  { onFlash('Las contraseñas no coinciden.'); return; }
+      setBusy('go');
+      try {
+        const { needsConfirm } = await API.signUpWithPassword(email, pass, name);
+        // Con sesión (Confirm email apagado) el onAuthStateChange del App entra solo.
+        if (needsConfirm) setDone('confirm');
+      } catch (e) { onFlash(authMsg(e)); }
+      setBusy('');
+      return;
+    }
+
+    setBusy('go');
+    try { await API.signInWithPassword(email, pass); }
+    catch (e) { onFlash(authMsg(e)); }
     setBusy('');
   };
 
-  return (
+  const go = e => { if (e.key === 'Enter') submit(); };
+
+  const wrap = (kids) => (
     <div style={{ height: '100%', background: T.offwhite, display: 'flex', flexDirection: 'column',
-                  padding: '0 26px', justifyContent: 'center' }}>
-      <div style={{ textAlign: 'center', marginBottom: 34 }}>
+                  padding: '0 26px', justifyContent: 'center', overflowY: 'auto' }}>
+      <div style={{ textAlign: 'center', margin: '26px 0 28px' }}>
         <div style={{ fontFamily: T.F.h, fontSize: 40, fontWeight: 400, color: T.ink,
                       letterSpacing: '-0.5px', marginBottom: 8 }}>Mythos</div>
         <div style={{ fontSize: 11, fontWeight: 800, color: T.gray, letterSpacing: '0.18em',
                       textTransform: 'uppercase' }}>Explorador Gastronómico</div>
       </div>
+      {kids}
+    </div>
+  );
 
-      {sent ? (
-        <Card style={{ textAlign: 'center' }}>
-          <Icon name="mail" size={30} color={T.ink} />
-          <div style={{ fontSize: 16, fontWeight: 800, color: T.ink, margin: '12px 0 6px' }}>
-            Revisá tu correo
-          </div>
-          <div style={{ fontSize: 13, color: T.gray, lineHeight: 1.7 }}>
-            Te mandamos un enlace a <b style={{ color: T.ink }}>{email.trim()}</b>. Abrilo desde este
-            mismo teléfono y entrás directo — no hay contraseña que recordar.
-          </div>
-          <div style={{ marginTop: 16 }}>
-            <Btn variant="ghost" onClick={() => setSent(false)}>Usar otro correo</Btn>
-          </div>
-        </Card>
-      ) : (
+  if (done) return wrap(
+    <Card style={{ textAlign: 'center' }}>
+      <Icon name="mail" size={30} color={T.ink} />
+      <div style={{ fontSize: 16, fontWeight: 800, color: T.ink, margin: '12px 0 6px' }}>
+        Revisá tu correo
+      </div>
+      <div style={{ fontSize: 13, color: T.gray, lineHeight: 1.7 }}>
+        {done === 'confirm'
+          ? <>Te mandamos un enlace a <b style={{ color: T.ink }}>{email.trim()}</b> para confirmar
+              tu cuenta. Abrilo y ya podés entrar con tu contraseña.</>
+          : <>Te mandamos un enlace a <b style={{ color: T.ink }}>{email.trim()}</b> para elegir una
+              contraseña nueva. Abrilo desde este mismo teléfono.</>}
+      </div>
+      <div style={{ marginTop: 16 }}>
+        <Btn variant="ghost" onClick={() => { setDone(''); setMode('in'); setPass(''); setPass2(''); }}>
+          Volver
+        </Btn>
+      </div>
+    </Card>
+  );
+
+  const title = mode === 'up' ? 'Crear mi cuenta' : mode === 'forgot' ? 'Recuperar contraseña' : 'Entrar';
+
+  return wrap(
+    <>
+      {googleOn && mode !== 'forgot' && (
         <>
-          {googleOn && (
-            <Btn variant="ghost" onClick={withGoogle} disabled={busy === 'google'} style={{ marginBottom: 12 }}>
-              {busy === 'google' ? <Spinner size={16} /> : <GoogleMark />}
-              Continuar con Google
-            </Btn>
-          )}
-
+          <Btn variant="ghost" onClick={withGoogle} disabled={busy === 'google'}>
+            {busy === 'google' ? <Spinner size={16} /> : <GoogleMark />}
+            Continuar con Google
+          </Btn>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0',
                         color: T.silver, fontSize: 11, fontWeight: 700, letterSpacing: '.1em' }}>
             <div style={{ flex: 1, height: 1, background: T.border }} />
-            {googleOn ? 'O CON TU CORREO' : 'ENTRÁ CON TU CORREO'}
+            O CON TU CORREO
             <div style={{ flex: 1, height: 1, background: T.border }} />
-          </div>
-
-          <input value={email} onChange={e => setEmail(e.target.value)} type="email"
-            inputMode="email" autoComplete="email" placeholder="tu@correo.com"
-            onKeyDown={e => { if (e.key === 'Enter') withEmail(); }}
-            style={{ width: '100%', height: 48, background: T.white, border: `1px solid ${T.border}`,
-                     borderRadius: 12, padding: '0 15px', fontSize: 15, color: T.ink,
-                     fontFamily: FONT, outline: 'none', marginBottom: 12 }} />
-          <Btn onClick={withEmail} disabled={busy === 'email'}>
-            {busy === 'email' ? <Spinner size={16} color={T.btnPrimaryText} /> : null}
-            Enviarme el enlace
-          </Btn>
-
-          <div style={{ fontSize: 11.5, color: T.gray, textAlign: 'center', marginTop: 20, lineHeight: 1.7 }}>
-            Sin contraseña. El enlace del correo es a la vez tu forma de entrar
-            y de recuperar la cuenta.
           </div>
         </>
       )}
+
+      {mode === 'up' && (
+        <Field label="Tu nombre" value={name} onChange={e => setName(e.target.value)}
+          type="text" autoComplete="name" placeholder="Renato Mancuello" onKeyDown={go} />
+      )}
+
+      <Field label="Correo" value={email} onChange={e => setEmail(e.target.value)}
+        type="email" inputMode="email" autoComplete="email" placeholder="tu@correo.com" onKeyDown={go} />
+
+      {mode !== 'forgot' && (
+        <Field label="Contraseña" value={pass} onChange={e => setPass(e.target.value)}
+          type="password" placeholder="••••••••" onKeyDown={go}
+          autoComplete={mode === 'up' ? 'new-password' : 'current-password'} />
+      )}
+
+      {mode === 'up' && (
+        <Field label="Repetir contraseña" value={pass2} onChange={e => setPass2(e.target.value)}
+          type="password" autoComplete="new-password" placeholder="••••••••" onKeyDown={go} />
+      )}
+
+      <CaptchaBox />
+
+      <Btn onClick={submit} disabled={busy === 'go'}>
+        {busy === 'go' ? <Spinner size={16} color={T.btnPrimaryText} /> : null}
+        {title}
+      </Btn>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center',
+                    marginTop: 20, fontSize: 12.5 }}>
+        {mode === 'in' && (
+          <>
+            <button onClick={() => setMode('forgot')} style={linkBtn(T)}>Olvidé mi contraseña</button>
+            <div style={{ color: T.gray }}>
+              ¿No tenés cuenta?{' '}
+              <button onClick={() => setMode('up')} style={linkBtn(T, true)}>Crear una</button>
+            </div>
+          </>
+        )}
+        {mode !== 'in' && (
+          <button onClick={() => { setMode('in'); setPass2(''); }} style={linkBtn(T)}>
+            Volver a entrar
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+const linkBtn = (T, strong) => ({
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: FONT,
+  fontSize: 12.5, fontWeight: strong ? 800 : 600, color: strong ? T.ink : T.gray,
+  textDecoration: 'underline'
+});
+
+/* ══ PANTALLA: NUEVA CONTRASEÑA ══════════════════════════════════ */
+// Aterrizaje del enlace de recuperación. Supabase ya dejó la sesión abierta
+// (detectSessionInUrl), así que si no elegimos contraseña acá la persona queda
+// adentro con la vieja — que es justo la que no recuerda.
+function RecoveryScreen({ onFlash, onDone }) {
+  const T = useT();
+  const [pass, setPass]   = useState('');
+  const [pass2, setPass2] = useState('');
+  const [busy, setBusy]   = useState(false);
+
+  const save = async () => {
+    if (pass.length < 6)  { onFlash('La contraseña necesita al menos 6 caracteres.'); return; }
+    if (pass !== pass2)   { onFlash('Las contraseñas no coinciden.'); return; }
+    setBusy(true);
+    try { await API.updatePassword(pass); onDone(); }
+    catch (e) { onFlash(authMsg(e)); }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ height: '100%', background: T.offwhite, display: 'flex', flexDirection: 'column',
+                  padding: '0 26px', justifyContent: 'center' }}>
+      <div style={{ textAlign: 'center', marginBottom: 28 }}>
+        <div style={{ fontFamily: T.F.h, fontSize: 34, fontWeight: 400, color: T.ink,
+                      letterSpacing: '-0.5px' }}>Nueva contraseña</div>
+      </div>
+      <Field label="Contraseña" value={pass} onChange={e => setPass(e.target.value)}
+        type="password" autoComplete="new-password" placeholder="••••••••" />
+      <Field label="Repetir contraseña" value={pass2} onChange={e => setPass2(e.target.value)}
+        type="password" autoComplete="new-password" placeholder="••••••••"
+        onKeyDown={e => { if (e.key === 'Enter') save(); }} />
+      <Btn onClick={save} disabled={busy}>
+        {busy ? <Spinner size={16} color={T.btnPrimaryText} /> : null}
+        Guardar y entrar
+      </Btn>
     </div>
   );
 }
@@ -1534,6 +1705,7 @@ function App() {
   const [carts, setCarts]   = useState([]);
   const [rests, setRests]   = useState([]);
   const [bump, setBump]     = useState(0);           // fuerza recarga del perfil
+  const [recovery, setRecovery] = useState(URL_RECOVERY);
 
   useEffect(() => { try { localStorage.setItem('mythos_clientes_mood', mood); } catch (_) {} }, [mood]);
 
@@ -1565,6 +1737,16 @@ function App() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  /* ── Cambios de sesión ── */
+  // Entrar con contraseña no recarga la página: sin este listener la sesión
+  // queda abierta pero la pantalla se queda en el formulario de login.
+  useEffect(() => {
+    return API.onAuthChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') { setRecovery(true); return; }
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED') load();
+    });
+  }, [load]);
 
   // Refresca los pedidos al volver a la pestaña (el estado cambia en cocina,
   // no acá). Realtime queda para cuando el panel salga de la beta.
@@ -1606,6 +1788,13 @@ function App() {
 
   } else if (!boot.signed_in) {
     body = <LoginScreen onFlash={setFlash} />;
+
+  } else if (recovery) {
+    // Va ANTES del chequeo de allowlist: quien pidió cambiar la contraseña tiene
+    // que poder terminar de cambiarla aunque su correo no esté habilitado — si no,
+    // queda con sesión abierta y la contraseña vieja, que es la que no recuerda.
+    body = <RecoveryScreen onFlash={setFlash}
+             onDone={() => { setRecovery(false); setFlash('Contraseña actualizada'); load(); }} />;
 
   } else if (!boot.allowed) {
     body = <ClosedScreen email={boot.email} message={boot.closed_message} onOut={doOut} />;
