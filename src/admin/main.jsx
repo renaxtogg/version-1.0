@@ -10789,21 +10789,47 @@ function DelivRedMythos({onRefreshRiders}) {
 
   if(state===null) return <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>Cargando…</div>;
 
-  const p = state.partner;
-  const netOff = missing || state.network_enabled===false;
+  const p  = state.partner;
   const rs = state.riders||[];
 
-  // ── La red todavía no existe / no está aplicada ──
-  if(netOff){
+  // Son TRES motivos distintos por los que esta pestaña no opera, y cada uno se
+  // resuelve en otro lado. Mostrar el mismo cartel para los tres —como hacía la
+  // 207— convierte la pantalla en un acertijo: el dueño no puede saber si tiene
+  // que esperar, llamar a Mythos, o si hay algo roto.
+  //   missing → la migración 207 no está aplicada  (técnico: se arregla en la DB)
+  //   off     → red apagada para toda la plataforma (Superadmin › Riders › Configuración)
+  //   pilot   → red encendida, local fuera del piloto cerrado (mig 208, allowlist)
+  // `availability` nace en la 208: si sólo está la 207 se cae al criterio viejo,
+  // así que la pestaña sigue andando con la base sin actualizar.
+  const avail = missing ? 'missing'
+              : (state.availability || (state.network_enabled===false ? 'off' : 'on'));
+
+  if(avail!=='on'){
+    const msg = {
+      missing:<>El módulo todavía no está instalado en esta base de datos:
+              {' '}<strong>falta aplicar la migración 207</strong>. No es algo que se arregle desde el panel.</>,
+      off:    <><strong>Todavía no está habilitada.</strong> Te avisamos cuando abra.</>,
+      pilot:  <>Está funcionando en <strong>piloto cerrado</strong>, con un grupo reducido de locales.
+              Tu restaurante todavía no entró — te avisamos cuando abra.</>,
+    }[avail];
     return (
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:26,textAlign:'center'}}>
         <div style={{display:'flex',justifyContent:'center',marginBottom:12,color:C.dim}}><Icon name="bike" size={34}/></div>
         <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:8}}>Red de Riders Mythos</div>
         <div style={{fontSize:13,color:C.mid,lineHeight:1.6,maxWidth:520,margin:'0 auto'}}>
           Repartidores verificados por Mythos que trabajan para varios restaurantes de la plataforma.
-          Cuando no tenés rider propio disponible, el pedido se les ofrece a ellos.
-          {' '}<strong>Todavía no está habilitada.</strong> Te avisamos cuando abra.
+          Cuando no tenés rider propio disponible, el pedido se les ofrece a ellos. {msg}
         </div>
+        {/* La solapa de arriba cuenta los riders de la red vinculados al local. Si
+            hay alguno y acá no se dice nada, el contador y la tarjeta se
+            contradicen y no hay forma de saber cuál miente. */}
+        {rs.length>0 && (
+          <div style={{marginTop:14,padding:'9px 12px',background:C.card,borderRadius:8,fontSize:12.5,
+                       color:C.mid,lineHeight:1.6,maxWidth:520,margin:'14px auto 0'}}>
+            Ya {rs.length===1?'hay 1 rider de la red vinculado':`hay ${rs.length} riders de la red vinculados`} a
+            tu local, {rs.length===1?'pero no recibe':'pero no reciben'} pedidos mientras la red no esté habilitada acá.
+          </div>
+        )}
       </div>
     );
   }

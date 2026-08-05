@@ -10065,13 +10065,16 @@ function RdCasoDetalle({caseId,onClose,setFlash,onChanged}) {
 function RdConfig({setFlash}) {
   const [c,setC]     = useState(null);
   const [docs,setDocs]= useState([]);
+  const [rests,setRests]= useState([]);   // para la allowlist del piloto
+  const [pq,setPq]   = useState('');
   const [saving,setSaving]= useState(false);
   const load = useCallback(async()=>{
-    const [a,b] = await Promise.all([
+    const [a,b,r] = await Promise.all([
       db.from('mythos_rider_config').select('*').eq('id',true).maybeSingle(),
       db.from('mythos_rider_doc_types').select('*').order('sort_order'),
+      db.from('restaurants').select('id,name,city').order('name'),
     ]);
-    setC(a.data||null); setDocs(b.data||[]);
+    setC(a.data||null); setDocs(b.data||[]); setRests(r.data||[]);
   },[]);
   useEffect(()=>{ load(); },[load]);
   if(!c) return <MkEmpty text="Cargando…"/>;
@@ -10093,6 +10096,13 @@ function RdConfig({setFlash}) {
       suspension_days:Number(c.suspension_days)||7,
       auto_suspend_on_expiry:c.auto_suspend_on_expiry,
       site_texts:c.site_texts||{}, hero_image_url:c.hero_image_url||null,
+      // Piloto cerrado (mig 208). Se mandan sólo si la columna existe en la fila
+      // cargada: con la 208 sin aplicar, incluirlas rebota el UPDATE entero y se
+      // perdería toda la configuración de riders.
+      ...( 'pilot_mode' in c ? {
+        pilot_mode:!!c.pilot_mode,
+        pilot_restaurant_ids:c.pilot_restaurant_ids||[],
+      } : {}),
       updated_at:new Date().toISOString(),
     }).eq('id',true);
     setSaving(false);
@@ -10121,6 +10131,47 @@ function RdConfig({setFlash}) {
                hint="Apagada, /riders muestra que todavía no está disponible y ningún local puede solicitarla.">
             <Toggle checked={!!c.network_enabled} onChange={v=>set('network_enabled',v)}/>
           </Row>
+          {/* Piloto cerrado (mig 208). Sólo se dibuja si la columna existe: con la
+              208 sin aplicar, el interruptor prometería un filtro que la base no
+              aplica — y eso es peor que no tenerlo. */}
+          {('pilot_mode' in c) && (<>
+            <Row label="Piloto cerrado"
+                 hint="Con la red encendida, sólo los restaurantes de abajo pueden ser socios activos. Los riders se siguen postulando normalmente: son de la plataforma, no de un local.">
+              <Toggle checked={!!c.pilot_mode} onChange={v=>set('pilot_mode',v)}/>
+            </Row>
+            {!!c.pilot_mode && (
+              <div style={{padding:'4px 0 12px'}}>
+                <RdIn value={pq} onChange={e=>setPq(e.target.value)}
+                      placeholder="Buscar restaurante…" style={{maxWidth:340,marginBottom:8}}/>
+                <div style={{maxHeight:230,overflowY:'auto',border:`1px solid ${C.border}`,borderRadius:8}}>
+                  {rests
+                    .filter(r=>!pq.trim() || `${r.name||''} ${r.city||''}`.toLowerCase().includes(pq.trim().toLowerCase()))
+                    .map((r,i)=>{
+                      const on = (c.pilot_restaurant_ids||[]).includes(r.id);
+                      return (
+                        <label key={r.id} style={{display:'flex',gap:10,alignItems:'center',padding:'9px 12px',
+                                 cursor:'pointer',borderTop:i?`1px solid ${C.border}`:'none',
+                                 background:on?C.card:'transparent'}}>
+                          <input type="checkbox" checked={on} onChange={()=>{
+                            const cur = c.pilot_restaurant_ids||[];
+                            set('pilot_restaurant_ids', on ? cur.filter(x=>x!==r.id) : [...cur, r.id]);
+                          }}/>
+                          <span style={{flex:1,minWidth:0}}>
+                            <span style={{fontSize:13,color:C.ink,fontWeight:on?700:500}}>{r.name||'—'}</span>
+                            {r.city && <span style={{fontSize:11.5,color:C.dim}}> · {r.city}</span>}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  {rests.length===0 && <div style={{padding:'12px',fontSize:12.5,color:C.dim}}>No hay restaurantes.</div>}
+                </div>
+                <div style={{fontSize:11.5,color:C.dim,marginTop:7,lineHeight:1.5}}>
+                  {(c.pilot_restaurant_ids||[]).length} habilitado(s).
+                  {' '}Al guardar, los locales que ya eran socios y quedan fuera de la lista pasan a <strong>pausado</strong> (reversible).
+                </div>
+              </div>
+            )}
+          </>)}
           <Row label="Postulaciones abiertas"
                hint="Cerrarlas no saca a nadie: los riders que ya están siguen trabajando.">
             <Toggle checked={!!c.registration_open} onChange={v=>set('registration_open',v)}/>
