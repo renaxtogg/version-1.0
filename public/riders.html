@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="es-PY">
+<html lang="es-PY" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Mythos · Riders</title>
+<title>Convertite en Rider Mythos — MYTHOS Riders</title>
 <meta name="description" content="Convertite en Rider Mythos: trabajá cuando quieras, sin horarios obligatorios, recibiendo pedidos cercanos de los restaurantes de la red.">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#FFFFFF">
 <link rel="canonical" href="/riders">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta property="og:type" content="website">
@@ -13,10 +13,16 @@
 <meta property="og:site_name" content="MYTHOS">
 <meta property="og:title" content="Convertite en Rider Mythos">
 <meta property="og:description" content="Trabajá cuando quieras, sin horarios obligatorios. Usá tu moto, bici o auto.">
-<link rel="stylesheet" href="design-system.css">
+
+<!-- MISMA hoja de estilos que el resto del sitio (/inicio, /precios,
+     /proveedores). Antes esta página traía `design-system.css` —el de los
+     paneles operativos— y una paleta propia en el JSX, así que /riders no se
+     parecía en nada a la web pública siendo una landing de captación igual que
+     /proveedores. Todo lo que se ve acá sale de los tokens de tokens.css. -->
 <link rel="stylesheet" href="tokens.css">
-<script src="mythos-offline.js"></script>
-<script src="mythos-icons.js"></script>
+<link rel="stylesheet" href="web-marketing.css">
+<script src="mythos-theme.js"></script>
+<script>if(!localStorage.getItem('mythos-theme')&&window.MythosTheme){window.MythosTheme.init('light');}</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <!-- CAPTCHA: Cloudflare Turnstile. Está PRENDIDO en el proyecto, así que TODA
@@ -63,41 +69,242 @@
 })();
 </script>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit" async defer></script>
+
 <style>
-  /* ── Sitio responsive real: celular Y computadora ────────────────────────
-     Mismo criterio que /clientes: nada de marco de teléfono. El rider se
-     postula desde el celular, pero también desde la notebook de un cyber, y
-     el superadmin abre la misma URL para ver cómo se ve. El corte móvil es
-     640px y está TAMBIÉN en el JSX (useIsMobile): si se toca, se toca en los
-     dos o el layout se contradice solo. */
-  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html{scroll-behavior:smooth}
-  body{min-height:100dvh;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-       -webkit-font-smoothing:antialiased;overflow-x:hidden;background:#FFF}
-  #app{min-height:100dvh;display:flex;flex-direction:column}
-  img{max-width:100%;display:block}
-  input,textarea,select,button{font-family:inherit}
+  /* ══════════════════════════════════════════════════════════════════════
+     CHROME DE LA APLICACIÓN DEL RIDER (scoped .rd-*)
+     ──────────────────────────────────────────────────────────────────────
+     web-marketing.css cubre la LANDING (hero, .block, .grid/.mod, .steps,
+     .faq, .cta-final): esa parte no define nada propio y se ve igual que
+     /inicio y /proveedores. Lo que sí necesita estilo propio es la parte con
+     sesión —postulación en pasos, perfil con solapas, documentos, tablas—,
+     que en el sitio comercial no existe.
+     Mismo patrón que `.prov-*` en proveedores.html: clases acotadas, y TODOS
+     los colores desde los tokens. Nada hardcodeado, así el tema oscuro y
+     cualquier cambio de marca llegan solos.
+     El corte móvil es 640px y está TAMBIÉN en el JSX (useIsMobile): si se
+     toca, se toca en los dos o el layout se contradice solo.
+     ══════════════════════════════════════════════════════════════════════ */
 
-  .wrap{width:100%;max-width:1180px;margin:0 auto;padding:0 20px}
-  @media(max-width:640px){ .wrap{padding:0 16px} }
+  .rd-narrow { max-width: 780px; margin: 0 auto; }
+  .rd-tight  { max-width: 460px; margin: 0 auto; }
 
-  .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
-  @media(max-width:640px){ .grid{gap:14px;grid-template-columns:1fr} }
+  /* Imagen del hero (la carga el superadmin en `hero_image_url`). Ocupa el
+     lugar que en /inicio ocupa el mockup de paneles. */
+  .rd-hero-img {
+    display: block; max-width: 880px; width: 100%; margin: 52px auto 0;
+    border: 1px solid var(--border); border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-md); object-fit: cover; max-height: 420px;
+  }
+
+  /* ── Barra de cuenta ──────────────────────────────────────────────────
+     No es un segundo header: el del sitio ya está arriba. Es la fila de
+     identidad del rider dentro de su propia área. */
+  .rd-acct {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 14px 18px; margin-bottom: 26px;
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    background: var(--bg-subtle);
+  }
+  .rd-acct-id { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1 1 auto; }
+  .rd-avatar {
+    width: 42px; height: 42px; border-radius: var(--radius-full); flex: none;
+    background: var(--surface); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-tertiary); overflow: hidden;
+  }
+  .rd-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .rd-acct-name { font-weight: var(--weight-semibold); font-size: var(--text-base); line-height: 1.25; }
+  .rd-acct-sub  { font-size: var(--text-xs); color: var(--text-tertiary); margin-top: 2px; }
+  .rd-acct-act  { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  /* ── Tarjeta ──────────────────────────────────────────────────────────── */
+  .rd-card {
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    background: var(--surface); padding: 20px;
+  }
+  .rd-card--sunk { background: var(--bg-subtle); }
+  .rd-card--form { padding: 26px 24px; border-radius: var(--radius-xl); box-shadow: var(--shadow-md); }
+  .rd-card h3 { font-size: var(--text-base); margin: 0 0 6px; }
+
+  .rd-sec-h { font-size: var(--text-xl); margin: 0 0 6px; letter-spacing: -.02em; }
+  .rd-sec-p { font-size: var(--text-sm); color: var(--text-secondary); margin: 0 0 22px; line-height: var(--leading-normal); }
+
+  /* ── Píldora de estado ────────────────────────────────────────────────── */
+  .rd-pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px;
+    border-radius: var(--radius-full); font-size: var(--text-xs);
+    font-weight: var(--weight-bold); letter-spacing: .01em; white-space: nowrap;
+    background: var(--bg-subtle); color: var(--text-secondary);
+  }
+  .rd-pill--ok   { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
+  .rd-pill--warn { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
+  .rd-pill--bad  { background: color-mix(in srgb, var(--error) 12%, transparent);   color: var(--error); }
+  .rd-pill--ink  { background: var(--primary); color: var(--primary-text); }
+
+  /* ── Formulario ───────────────────────────────────────────────────────── */
+  .rd-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+  .rd-grid2 .full { grid-column: 1 / -1; }
+  @media (max-width: 640px) { .rd-grid2 { grid-template-columns: 1fr; } }
+
+  .rd-field { display: block; margin-bottom: 15px; }
+  .rd-field > .lbl {
+    display: block; font-size: var(--text-xs); font-weight: var(--weight-bold);
+    color: var(--text-secondary); text-transform: uppercase; letter-spacing: .4px;
+    margin-bottom: 6px;
+  }
+  .rd-field .req  { color: var(--error); }
+  .rd-field .hint { font-size: var(--text-xs); color: var(--text-tertiary); margin-top: 5px; line-height: 1.45; }
+
+  .rd-in {
+    width: 100%; box-sizing: border-box; height: var(--control-lg);
+    padding: 0 13px; border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--bg-subtle); color: var(--text-primary);
+    font-size: var(--text-base); font-family: inherit;
+  }
+  textarea.rd-in { height: auto; min-height: 96px; padding: 11px 13px; line-height: var(--leading-normal); resize: vertical; }
+  select.rd-in   { appearance: none; cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-tertiary) 50%),
+                      linear-gradient(135deg, var(--text-tertiary) 50%, transparent 50%);
+    background-position: calc(100% - 18px) center, calc(100% - 13px) center;
+    background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+  .rd-in:focus { outline: none; border-color: var(--border-strong); background: var(--surface); }
+  .rd-in::placeholder { color: var(--text-disabled); }
+
+  /* ── Progreso de la postulación ───────────────────────────────────────── */
+  .rd-steps { display: flex; gap: 8px; margin-bottom: 24px; }
+  .rd-snode { flex: 1; text-align: center; min-width: 0; }
+  .rd-sbar  { height: 5px; border-radius: 3px; background: var(--bg-subtle); overflow: hidden; margin-bottom: 7px; }
+  .rd-sbar i { display: block; height: 100%; width: 0; background: var(--primary); transition: width .25s; }
+  .rd-snode.done .rd-sbar i, .rd-snode.active .rd-sbar i { width: 100%; }
+  .rd-slabel { font-size: 11px; font-weight: var(--weight-semibold); color: var(--text-tertiary);
+               letter-spacing: .2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rd-snode.active .rd-slabel { color: var(--text-primary); }
+
+  /* ── Solapas del perfil ───────────────────────────────────────────────── */
+  .rd-tabs {
+    display: flex; gap: 4px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    border-bottom: 1px solid var(--border); margin-bottom: 24px; padding-bottom: 0;
+    scrollbar-width: none;
+  }
+  .rd-tabs::-webkit-scrollbar { display: none; }
+  .rd-tab {
+    flex: none; background: none; border: 0; border-bottom: 2px solid transparent;
+    padding: 11px 14px; cursor: pointer; font-family: inherit;
+    font-size: var(--text-sm); font-weight: var(--weight-semibold);
+    color: var(--text-tertiary); white-space: nowrap;
+  }
+  .rd-tab:hover { color: var(--text-secondary); }
+  .rd-tab.active { color: var(--text-primary); border-bottom-color: var(--primary); }
+  .rd-tab .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+                 background: var(--error); margin-left: 6px; vertical-align: middle; }
+
+  /* ── KPIs ─────────────────────────────────────────────────────────────── */
+  .rd-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .rd-kpi { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px 18px; background: var(--surface); }
+  .rd-kpi .k { font-size: var(--text-xs); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .4px; font-weight: var(--weight-semibold); }
+  .rd-kpi .v { font-size: var(--text-xl); font-weight: var(--weight-bold); margin-top: 5px; letter-spacing: -.02em; }
+
+  /* ── Filas (documentos, locales, avisos) ──────────────────────────────── */
+  .rd-row {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 15px 0; border-top: 1px solid var(--border);
+  }
+  .rd-row:first-child { border-top: 0; }
+  .rd-row-main { flex: 1 1 220px; min-width: 0; }
+  .rd-row-t { font-size: var(--text-base); font-weight: var(--weight-semibold); }
+  .rd-row-s { font-size: var(--text-sm); color: var(--text-secondary); margin-top: 3px; line-height: 1.45; }
 
   /* Tablas anchas (historial, liquidaciones) scrollean en SU caja: el body
      nunca scrollea en horizontal. */
-  .tscroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .rd-tscroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .rd-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+  .rd-table th, .rd-table td { padding: 11px 12px; text-align: left; white-space: nowrap; }
+  .rd-table th { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: .4px;
+                 color: var(--text-tertiary); font-weight: var(--weight-bold); border-bottom: 1px solid var(--border); }
+  .rd-table td { border-bottom: 1px solid var(--border); }
+  .rd-table tr:last-child td { border-bottom: 0; }
 
-  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-  @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+  /* ── Estados vacíos / carga ───────────────────────────────────────────── */
+  .rd-empty { text-align: center; padding: 52px 20px; }
+  .rd-empty .ic { color: var(--border-strong); display: flex; justify-content: center; margin-bottom: 12px; }
+  .rd-empty .t  { font-size: var(--text-base); font-weight: var(--weight-semibold); }
+  .rd-empty .s  { font-size: var(--text-sm); color: var(--text-secondary); margin: 6px auto 0; max-width: 380px; line-height: 1.55; }
+  .rd-spin { width: 22px; height: 22px; border: 2px solid var(--border); border-top-color: var(--primary);
+             border-radius: 50%; animation: rdspin .7s linear infinite; }
+
+  /* ── Avisos ───────────────────────────────────────────────────────────── */
+  .rd-note {
+    border: 1px solid var(--border); border-left-width: 3px; border-radius: var(--radius-md);
+    padding: 13px 15px; font-size: var(--text-sm); line-height: 1.55;
+    color: var(--text-secondary); background: var(--bg-subtle);
+  }
+  .rd-note--warn { border-left-color: var(--warning); }
+  .rd-note--bad  { border-left-color: var(--error); }
+  .rd-note--ok   { border-left-color: var(--success); }
+
+  /* ── Modal ────────────────────────────────────────────────────────────────
+     Cierra SÓLO con la X o con Escape, nunca con click en el fondo (regla de
+     CLAUDE.md: seleccionar texto y soltar afuera perdía todo lo cargado). Por
+     eso el backdrop no lleva handler. */
+  .rd-modal { position: fixed; inset: 0; z-index: 1000; background: var(--overlay);
+              display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .rd-modal-card { background: var(--surface); border-radius: var(--radius-xl); width: 100%;
+                   max-height: 86dvh; display: flex; flex-direction: column;
+                   box-shadow: var(--shadow-lg); animation: rdfade .18s ease; }
+  .rd-modal-h { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+                padding: 17px 20px 14px; border-bottom: 1px solid var(--border); flex: none; }
+  .rd-modal-h h3 { font-size: var(--text-lg); margin: 0; }
+  .rd-modal-x { background: none; border: 0; cursor: pointer; padding: 4px; line-height: 0; color: var(--text-secondary); }
+  .rd-modal-b { flex: 1; overflow-y: auto; padding: 20px; }
+  .rd-modal-f { padding: 16px 20px; border-top: 1px solid var(--border); flex: none; }
+  @media (max-width: 640px) {
+    .rd-modal { align-items: flex-end; padding: 0; }
+    .rd-modal-card { max-height: 92dvh; border-radius: var(--radius-xl) var(--radius-xl) 0 0; animation: rdslide .26s ease; }
+  }
+
+  /* ── Toast ────────────────────────────────────────────────────────────── */
+  .rd-toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 9999;
+    background: var(--primary); color: var(--primary-text); border-radius: var(--radius-full);
+    padding: 12px 22px; font-size: var(--text-sm); font-weight: var(--weight-semibold);
+    max-width: min(92vw, 460px); text-align: center; line-height: 1.45;
+    box-shadow: var(--shadow-lg); animation: rdfade .2s ease;
+  }
+  .rd-toast--bad { background: var(--error); color: var(--on-error); }
+
+  @keyframes rdfade  { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @keyframes rdslide { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  @keyframes rdspin  { to { transform: rotate(360deg); } }
+  /* El modal centrado no usa translateX, así que su fade no debe moverlo. */
+  .rd-modal-card { animation-name: rdfadeplain; }
+  @keyframes rdfadeplain { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 </style>
 </head>
 <body>
-<div id="app"></div>
-<!-- Panel precompilado con Vite. El bundle lo genera `npm run build` en
-     public/build/ y lo reconstruye Vercel en cada deploy. -->
-<script src="build/riders.js"></script>
+  <!-- Header del sitio (misma navegación que /inicio) inyectado por web-marketing.js -->
+  <div id="site-header"></div>
+  <noscript>
+    <nav class="wrap" style="display:flex;gap:20px;padding:16px 24px;border-bottom:1px solid var(--border)">
+      <a href="/inicio"><strong>MYTHOS</strong></a>
+      <a href="/precios">Precios</a><a href="/proveedores">Proveedores</a>
+      <a href="/contacto">Contacto</a><a href="/login">Iniciar sesión</a>
+    </nav>
+    <p class="wrap" style="padding:40px 24px">Para postularte como rider necesitás JavaScript activado.</p>
+  </noscript>
+
+  <main id="app"></main>
+
+  <!-- Footer del sitio inyectado por web-marketing.js -->
+  <div id="site-footer"></div>
+
+  <script src="mythos-icons.js"></script>
+  <script defer src="mythos-cookie-banner.js"></script>
+  <script src="web-marketing-data.js"></script>
+  <script src="web-marketing.js"></script>
+  <script>MythosWeb.init({ active: 'riders' });</script>
+  <!-- Panel precompilado con Vite. El bundle lo genera `npm run build` en
+       public/build/ y lo reconstruye Vercel en cada deploy. -->
+  <script src="build/riders.js"></script>
 </body>
 </html>

@@ -36,26 +36,33 @@ const URL_RECOVERY = (() => {
   } catch (_) { return false; }
 })();
 
-/* ══ PALETA — blanco y negro, línea iOS ══════════════════════════ */
+/* ══ PALETA — los MISMOS tokens que el resto del sitio ═══════════
+   Esto era una paleta propia con hexadecimales cableados, y ahí estaba el
+   problema: /riders es una landing de captación igual que /proveedores, pero
+   no se parecía en nada a mythos.com.py porque no compartía ni un color.
+   Ahora cada clave apunta al token de tokens.css, así que lo que quede escrito
+   inline igual sale del sistema de diseño — y el tema oscuro y cualquier
+   cambio de marca llegan solos, sin tocar este archivo. */
 const T = {
-  ink:    '#000000',
-  body:   '#1C1C1E',
-  mid:    '#6E6E73',
-  soft:   '#8E8E93',
-  line:   '#E5E5EA',
-  hair:   '#F2F2F7',
-  bg:     '#FFFFFF',
-  card:   '#FFFFFF',
-  sunk:   '#FAFAFA',
-  ok:     '#1B7F3B',
-  okBg:   '#EDF7F0',
-  warn:   '#8A5A00',
-  warnBg: '#FFF7E6',
-  bad:    '#B3261E',
-  badBg:  '#FDEDEC',
+  ink:    'var(--text-primary)',
+  body:   'var(--text-primary)',
+  mid:    'var(--text-secondary)',
+  soft:   'var(--text-tertiary)',
+  line:   'var(--border)',
+  hair:   'var(--bg-subtle)',
+  bg:     'var(--bg)',
+  card:   'var(--surface)',
+  sunk:   'var(--bg-subtle)',
+  ok:     'var(--success)',
+  okBg:   'color-mix(in srgb, var(--success) 12%, transparent)',
+  warn:   'var(--warning)',
+  warnBg: 'color-mix(in srgb, var(--warning) 16%, transparent)',
+  bad:    'var(--error)',
+  badBg:  'color-mix(in srgb, var(--error) 12%, transparent)',
+  onInk:  'var(--primary-text)',   // texto SOBRE fondo tinta (chip seleccionado)
+  onBad:  'var(--on-error)',
 };
-const FONT = "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
-const R = { sm: 10, md: 14, lg: 20, pill: 9999 };
+const R = { sm: 8, md: 10, lg: 16, pill: 9999 };
 
 const fmtGs = n => '₲ ' + Math.round(Number(n) || 0).toLocaleString('es-PY');
 const fmtDate = d => { try { return new Date(d).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: 'numeric' }); } catch (_) { return '—'; } };
@@ -78,81 +85,58 @@ const Icon = ({ name, size = 16, style }) => (
         dangerouslySetInnerHTML={{ __html: window.MythosIcons ? window.MythosIcons.html(name, { size }) : '' }} />
 );
 
-/* ══ PRIMITIVAS ══════════════════════════════════════════════════ */
-function Btn({ children, variant = 'primary', small, wide, style, ...rest }) {
-  const base = {
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-    padding: small ? '9px 16px' : '13px 22px', fontSize: small ? 13 : 15, fontWeight: 600,
-    borderRadius: R.pill, cursor: rest.disabled ? 'default' : 'pointer',
-    border: '1px solid transparent', transition: 'opacity .15s, background .15s',
-    opacity: rest.disabled ? .45 : 1, width: wide ? '100%' : undefined,
-    fontFamily: FONT, whiteSpace: 'nowrap',
+/* ══ PRIMITIVAS ══════════════════════════════════════════════════
+   Emiten las clases del sitio (`.btn` de web-marketing.css) y las `.rd-*` que
+   define public/riders.html. Antes cada una traía su propio bloque de estilos
+   inline, que es exactamente lo que hacía que esta página no se pareciera al
+   resto de mythos.com.py. Cambiando acá se restila TODA la app de una vez:
+   ninguna pantalla dibuja botones ni campos por su cuenta. */
+function Btn({ children, variant = 'primary', small, wide, style, className, ...rest }) {
+  const cls = ['btn',
+    variant === 'secondary' ? 'btn-secondary'
+      : variant === 'ghost' ? 'btn-ghost'
+      : variant === 'danger' ? 'btn-secondary'
+      : 'btn-primary',
+    small ? 'btn-sm' : '', className || ''].filter(Boolean).join(' ');
+  const extra = {
+    ...(wide ? { width: '100%' } : null),
+    ...(rest.disabled ? { opacity: .45, pointerEvents: 'none' } : null),
+    ...(variant === 'danger' ? { color: T.bad } : null),
+    ...(style || {}),
   };
-  const v = {
-    primary:   { background: T.ink, color: '#FFF' },
-    secondary: { background: '#FFF', color: T.ink, borderColor: T.line },
-    ghost:     { background: 'transparent', color: T.mid, borderColor: 'transparent' },
-    danger:    { background: '#FFF', color: T.bad, borderColor: '#F0C8C5' },
-  }[variant] || {};
-  return <button {...rest} style={{ ...base, ...v, ...(style || {}) }}>{children}</button>;
+  return <button {...rest} className={cls} style={extra}>{children}</button>;
 }
 
-function Card({ children, style, pad = 20 }) {
+function Card({ children, style, pad, sunk, className }) {
   return (
-    <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: R.lg,
-                  padding: pad, ...(style || {}) }}>{children}</div>
+    <div className={['rd-card', sunk ? 'rd-card--sunk' : '', className || ''].filter(Boolean).join(' ')}
+         style={{ ...(pad != null ? { padding: pad } : null), ...(style || {}) }}>{children}</div>
   );
 }
 
 function Pill({ children, tone = 'neutral', style }) {
-  const c = {
-    neutral: { bg: T.hair,   fg: T.mid },
-    ok:      { bg: T.okBg,   fg: T.ok },
-    warn:    { bg: T.warnBg, fg: T.warn },
-    bad:     { bg: T.badBg,  fg: T.bad },
-    ink:     { bg: T.ink,    fg: '#FFF' },
-  }[tone] || { bg: T.hair, fg: T.mid };
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px',
-                   borderRadius: R.pill, background: c.bg, color: c.fg, fontSize: 11.5,
-                   fontWeight: 700, letterSpacing: '.01em', ...(style || {}) }}>{children}</span>
-  );
+  const mod = { ok: 'rd-pill--ok', warn: 'rd-pill--warn', bad: 'rd-pill--bad', ink: 'rd-pill--ink' }[tone] || '';
+  return <span className={['rd-pill', mod].filter(Boolean).join(' ')} style={style}>{children}</span>;
 }
 
-function Field({ label, hint, children, req }) {
+function Field({ label, hint, children, req, full }) {
   return (
-    <label style={{ display: 'block', marginBottom: 14 }}>
-      <div style={{ fontSize: 11, fontWeight: 800, color: T.soft, letterSpacing: '.06em',
-                    textTransform: 'uppercase', marginBottom: 6 }}>
-        {label}{req && <span style={{ color: T.bad }}> *</span>}
-      </div>
+    <label className={['rd-field', full ? 'full' : ''].filter(Boolean).join(' ')}>
+      <span className="lbl">{label}{req && <span className="req"> *</span>}</span>
       {children}
-      {hint && <div style={{ fontSize: 11.5, color: T.soft, marginTop: 5, lineHeight: 1.45 }}>{hint}</div>}
+      {hint && <span className="hint">{hint}</span>}
     </label>
   );
 }
 
-const inputStyle = {
-  width: '100%', height: 46, background: '#FFF', border: `1px solid ${T.line}`,
-  borderRadius: R.md, padding: '0 14px', fontSize: 15, color: T.body,
-  fontFamily: FONT, outline: 'none',
-};
-const Inp = props => <input {...props} style={{ ...inputStyle, ...(props.style || {}) }} />;
-const Sel = props => (
-  <select {...props} style={{ ...inputStyle, appearance: 'none', cursor: 'pointer',
-    backgroundImage: 'linear-gradient(45deg,transparent 50%,#8E8E93 50%),linear-gradient(135deg,#8E8E93 50%,transparent 50%)',
-    backgroundPosition: 'calc(100% - 18px) 20px, calc(100% - 13px) 20px',
-    backgroundSize: '5px 5px, 5px 5px', backgroundRepeat: 'no-repeat',
-    ...(props.style || {}) }} />
-);
-const Area = props => (
-  <textarea {...props} style={{ ...inputStyle, height: 'auto', minHeight: 96, padding: '12px 14px',
-                                lineHeight: 1.5, resize: 'vertical', ...(props.style || {}) }} />
-);
+const cx = (a, b) => [a, b].filter(Boolean).join(' ');
+const Inp  = ({ className, ...p }) => <input    {...p} className={cx('rd-in', className)} />;
+const Sel  = ({ className, ...p }) => <select   {...p} className={cx('rd-in', className)} />;
+const Area = ({ className, ...p }) => <textarea {...p} className={cx('rd-in', className)} />;
 
-function Spinner({ size = 22, style }) {
-  return <div style={{ width: size, height: size, border: `2px solid ${T.line}`, borderTopColor: T.ink,
-                       borderRadius: '50%', animation: 'spin .7s linear infinite', ...(style || {}) }} />;
+function Spinner({ size, style }) {
+  return <div className="rd-spin"
+              style={{ ...(size ? { width: size, height: size } : null), ...(style || {}) }} />;
 }
 
 function Loading({ label = 'Cargando…' }) {
@@ -165,53 +149,37 @@ function Loading({ label = 'Cargando…' }) {
 
 function Empty({ icon = 'package', title, sub }) {
   return (
-    <div style={{ textAlign: 'center', padding: '52px 20px', color: T.soft }}>
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, color: T.line }}>
-        <Icon name={icon} size={40} />
-      </div>
-      <div style={{ fontSize: 15, fontWeight: 700, color: T.body }}>{title}</div>
-      {sub && <div style={{ fontSize: 13.5, marginTop: 6, lineHeight: 1.55, maxWidth: 380, margin: '6px auto 0' }}>{sub}</div>}
+    <div className="rd-empty">
+      <div className="ic"><Icon name={icon} size={40} /></div>
+      <div className="t">{title}</div>
+      {sub && <div className="s">{sub}</div>}
     </div>
   );
 }
 
 function Toast({ msg, tone, onHide }) {
   useEffect(() => { const t = setTimeout(onHide, 3400); return () => clearTimeout(t); }, [msg]);
-  return (
-    <div style={{ position: 'fixed', left: '50%', bottom: 26, transform: 'translateX(-50%)',
-                  background: tone === 'bad' ? T.bad : T.ink, color: '#FFF', borderRadius: R.pill,
-                  padding: '12px 22px', fontSize: 13.5, fontWeight: 600, zIndex: 9999,
-                  maxWidth: 'min(92vw,460px)', textAlign: 'center', lineHeight: 1.45,
-                  boxShadow: '0 10px 40px rgba(0,0,0,.28)', animation: 'fadeIn .2s' }}>{msg}</div>
-  );
+  return <div className={cx('rd-toast', tone === 'bad' ? 'rd-toast--bad' : '')}>{msg}</div>;
 }
 
 // Cierre SÓLO con la X o con Escape — nunca con click en el fondo (regla de
-// CLAUDE.md: seleccionar texto y soltar afuera perdía todo lo cargado).
+// CLAUDE.md: seleccionar texto y soltar afuera perdía todo lo cargado). Por eso
+// el div del fondo NO lleva onClick.
 function Sheet({ title, children, onClose, footer, width = 560 }) {
   useEffect(() => {
     const esc = e => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', esc);
     return () => window.removeEventListener('keydown', esc);
   }, [onClose]);
-  const mob = useIsMobile();
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000,
-                  display: 'flex', alignItems: mob ? 'flex-end' : 'center', justifyContent: 'center',
-                  padding: mob ? 0 : 24 }}>
-      <div style={{ background: '#FFF', width: '100%', maxWidth: width, maxHeight: mob ? '92dvh' : '86dvh',
-                    borderRadius: mob ? '20px 20px 0 0' : R.lg, display: 'flex', flexDirection: 'column',
-                    animation: mob ? 'slideUp .26s ease' : 'fadeIn .18s' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '17px 20px 14px', borderBottom: `1px solid ${T.line}`, flexShrink: 0 }}>
-          <div style={{ fontSize: 16.5, fontWeight: 800, color: T.ink }}>{title}</div>
-          <button onClick={onClose} aria-label="Cerrar"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, lineHeight: 0 }}>
-            <Icon name="x" size={19} />
-          </button>
+    <div className="rd-modal">
+      <div className="rd-modal-card" style={{ maxWidth: width }}>
+        <div className="rd-modal-h">
+          <h3>{title}</h3>
+          <button className="rd-modal-x" onClick={onClose} aria-label="Cerrar"><Icon name="x" size={19} /></button>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>{children}</div>
-        {footer && <div style={{ padding: 16, borderTop: `1px solid ${T.line}`, flexShrink: 0 }}>{footer}</div>}
+        <div className="rd-modal-b">{children}</div>
+        {footer && <div className="rd-modal-f">{footer}</div>}
       </div>
     </div>
   );
@@ -279,266 +247,194 @@ function copyOf(site, key) {
   return (typeof v === 'string' && v.trim()) ? v : COPY[key];
 }
 
-/* ══ HEADER ══════════════════════════════════════════════════════ */
-function Header({ session, rider, onAccount, onSignOut, unread }) {
-  const mob = useIsMobile();
-  const [open, setOpen] = useState(false);
-  const links = [
-    { href: '#beneficios', label: 'Beneficios' },
-    { href: '#como',       label: 'Cómo funciona' },
-    { href: '#requisitos', label: 'Requisitos' },
-    { href: '#faq',        label: 'Preguntas' },
-  ];
+/* ══ BARRA DE CUENTA ═════════════════════════════════════════════
+   NO es un header: el del sitio (logo, navegación, tema, "Iniciar sesión") lo
+   inyecta web-marketing.js en #site-header, igual que en /inicio y
+   /proveedores. Antes este archivo dibujaba su propio header sticky, y el
+   resultado era una página que no compartía navegación con el sitio del que
+   forma parte. Acá queda sólo lo que el header del sitio no puede saber: quién
+   es este rider, cómo está y por dónde entra a trabajar. */
+function AccountBar({ rider, unread, onSignOut }) {
+  const st = STATUS[rider?.status] || STATUS.borrador;
+  const nombre = [rider?.first_name, rider?.last_name].filter(Boolean).join(' ');
   return (
-    <header style={{ position: 'sticky', top: 0, zIndex: 500, background: 'rgba(255,255,255,.92)',
-                     backdropFilter: 'saturate(180%) blur(18px)', borderBottom: `1px solid ${T.line}` }}>
-      <div className="wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                     height: 62, gap: 16 }}>
-        <a href="/inicio" style={{ display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none' }}>
-          <span style={{ fontSize: 17, fontWeight: 800, color: T.ink, letterSpacing: '-.02em' }}>MYTHOS</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: T.mid, background: T.hair,
-                         padding: '3px 8px', borderRadius: R.pill }}>RIDERS</span>
-        </a>
-
-        {!mob && !session && (
-          <nav style={{ display: 'flex', gap: 24 }}>
-            {links.map(l => (
-              <a key={l.href} href={l.href}
-                 style={{ fontSize: 13.5, color: T.mid, textDecoration: 'none', fontWeight: 500 }}>{l.label}</a>
-            ))}
-          </nav>
+    <div className="rd-acct">
+      <div className="rd-acct-id">
+        <span className="rd-avatar">
+          {rider?.photo_url ? <img src={rider.photo_url} alt="" /> : <Icon name="user" size={19} />}
+        </span>
+        <span style={{ minWidth: 0 }}>
+          <span className="rd-acct-name">{nombre || 'Tu cuenta de rider'}</span>
+          <span className="rd-acct-sub">
+            {rider?.city ? `${rider.city} · ` : ''}Rider de la red
+          </span>
+        </span>
+      </div>
+      <div className="rd-acct-act">
+        <Pill tone={st.tone}>{st.label}</Pill>
+        {unread > 0 && <Pill tone="bad">{unread} aviso{unread === 1 ? '' : 's'}</Pill>}
+        {rider?.status === 'activo' && (
+          <a className="btn btn-primary btn-sm" href="/delivery-rider">
+            <Icon name="bike" size={14} /> Ir a trabajar
+          </a>
         )}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {session ? (
-            <>
-              {rider?.status === 'activo' && (
-                <a href="/delivery-rider" style={{ textDecoration: 'none' }}>
-                  <Btn small><Icon name="bike" size={14} /> Ir a trabajar</Btn>
-                </a>
-              )}
-              <button onClick={() => setOpen(o => !o)}
-                      style={{ background: 'none', border: `1px solid ${T.line}`, borderRadius: R.pill,
-                               padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center',
-                               gap: 7, fontSize: 13, color: T.body, fontWeight: 600, position: 'relative' }}>
-                <Icon name="user" size={14} />
-                {!mob && (rider?.first_name || 'Mi cuenta')}
-                {unread > 0 && <span style={{ position: 'absolute', top: -3, right: -3, width: 9, height: 9,
-                                              borderRadius: '50%', background: T.bad }} />}
-              </button>
-            </>
-          ) : (
-            <Btn small variant="secondary" onClick={onAccount}>Entrar</Btn>
-          )}
-
-          {mob && !session && (
-            <button onClick={() => setOpen(o => !o)} aria-label="Menú"
-                    style={{ background: 'none', border: `1px solid ${T.line}`, borderRadius: R.sm,
-                             padding: '7px 9px', cursor: 'pointer', lineHeight: 0 }}>
-              <Icon name="menu" size={16} />
-            </button>
-          )}
-        </div>
+        <Btn small variant="ghost" onClick={onSignOut}>Salir</Btn>
       </div>
-
-      {open && (
-        <div className="wrap" style={{ paddingBottom: 14, borderTop: `1px solid ${T.hair}`, paddingTop: 12 }}>
-          {!session && links.map(l => (
-            <a key={l.href} href={l.href} onClick={() => setOpen(false)}
-               style={{ display: 'block', padding: '10px 0', fontSize: 14.5, color: T.body,
-                        textDecoration: 'none', fontWeight: 500 }}>{l.label}</a>
-          ))}
-          {session && (
-            <button onClick={() => { setOpen(false); onSignOut(); }}
-                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 0',
-                             fontSize: 14.5, color: T.bad, background: 'none', border: 'none',
-                             cursor: 'pointer', fontWeight: 600 }}>Cerrar sesión</button>
-          )}
-        </div>
-      )}
-    </header>
+    </div>
   );
 }
 
-function Footer() {
-  return (
-    <footer style={{ borderTop: `1px solid ${T.line}`, marginTop: 60, padding: '32px 0 44px' }}>
-      <div className="wrap" style={{ display: 'flex', flexWrap: 'wrap', gap: 18,
-                                     justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontSize: 12.5, color: T.soft }}>
-          © {new Date().getFullYear()} Mythos · Asunción, Paraguay
-        </div>
-        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-          {[['/terminos-riders', 'Términos para Riders'], ['/privacidad', 'Privacidad'],
-            ['/inicio', 'Mythos para restaurantes']].map(([h, l]) => (
-            <a key={h} href={h} style={{ fontSize: 12.5, color: T.mid, textDecoration: 'none' }}>{l}</a>
-          ))}
-        </div>
-      </div>
-    </footer>
-  );
-}
+/* ══ LANDING PÚBLICA ═════════════════════════════════════════════
+   Usa el MISMO markup que /inicio y /proveedores: .hero/.eyebrow/.sub/.chip,
+   .trust, .block + .grid/.mod, .steps/.step, .faq con <details>, .cta-final.
+   Cero estilos propios — si mañana cambia la tipografía o el radio de las
+   tarjetas del sitio, esta página cambia con él.
 
-/* ══ LANDING PÚBLICA ═════════════════════════════════════════════ */
+   OJO con `.reveal`: NO se usa acá a propósito. Arranca en opacity:0 y se
+   revela con un IntersectionObserver que web-marketing.js engancha en init(),
+   o sea ANTES de que React monte — una sección .reveal dibujada por React
+   nunca queda observada y se quedaría invisible para siempre. */
 function Landing({ cfg, onStart }) {
-  const mob = useIsMobile();
   const site = cfg?.site || {};
   const open = cfg?.enabled && cfg?.registration_open;
-  const [faqOpen, setFaqOpen] = useState(null);
   const hero = site.hero_image;
 
   return (
-    <main style={{ flex: 1 }}>
-      {/* Hero */}
-      <section style={{ position: 'relative', overflow: 'hidden',
-                        borderBottom: `1px solid ${T.line}` }}>
-        {hero && (
-          <div style={{ position: 'absolute', inset: 0, backgroundImage: `url(${hero})`,
-                        backgroundSize: 'cover', backgroundPosition: 'center', opacity: .14 }} />
-        )}
-        <div className="wrap" style={{ position: 'relative', padding: mob ? '54px 16px 48px' : '96px 20px 84px',
-                                       textAlign: 'center' }}>
-          <Pill tone="ink" style={{ marginBottom: 20 }}>RED DE RIDERS MYTHOS</Pill>
-          <h1 style={{ fontSize: mob ? 34 : 58, lineHeight: 1.06, fontWeight: 800, color: T.ink,
-                       letterSpacing: '-.035em', maxWidth: 880, margin: '0 auto' }}>
-            {copyOf(site, 'hero_title')}
-          </h1>
-          <p style={{ fontSize: mob ? 16 : 19, color: T.mid, marginTop: 18, lineHeight: 1.55,
-                      maxWidth: 620, margin: '18px auto 0' }}>
-            {copyOf(site, 'hero_sub')}
-          </p>
-          <div style={{ marginTop: 32, display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-            {open
-              ? <Btn onClick={onStart} style={{ padding: '15px 30px', fontSize: 16 }}>
-                  {copyOf(site, 'cta')}
-                </Btn>
-              : <Card style={{ background: T.sunk, maxWidth: 480 }} pad={16}>
-                  <div style={{ fontSize: 14, color: T.body, lineHeight: 1.55 }}>
-                    {cfg?.enabled
-                      ? (cfg?.closed_message || 'Las postulaciones están cerradas por ahora.')
-                      : 'La Red de Riders Mythos todavía no está disponible. Muy pronto.'}
-                  </div>
-                </Card>}
-            <Btn variant="secondary" onClick={onStart} style={{ padding: '15px 26px', fontSize: 16 }}>
-              Ya soy rider
-            </Btn>
-          </div>
+    <>
+      {/* ── HERO ─────────────────────────────────────────────────── */}
+      <section className="hero wrap">
+        <span className="eyebrow"><Icon name="bike" size={14} /> Red de Riders Mythos</span>
+        <h1>{copyOf(site, 'hero_title')}</h1>
+        <p className="sub">{copyOf(site, 'hero_sub')}</p>
+
+        <div className="hero-bullets">
+          <span className="chip"><Icon name="clock" size={14} /> Sin horarios obligatorios</span>
+          <span className="chip"><Icon name="bike" size={14} /> Tu moto, bici o auto</span>
+          <span className="chip"><Icon name="store" size={14} /> Varios restaurantes</span>
+          <span className="chip"><Icon name="money" size={14} /> Te paga el local</span>
         </div>
+
+        <div className="hero-cta">
+          {open && (
+            <button type="button" className="btn btn-primary btn-lg" onClick={onStart}>
+              {copyOf(site, 'cta')}
+            </button>
+          )}
+          <button type="button" className={open ? 'btn btn-secondary btn-lg' : 'btn btn-primary btn-lg'}
+                  onClick={onStart}>
+            Ya soy rider
+          </button>
+        </div>
+
+        {open
+          ? <p className="microcopy">Postularte es gratis. Vos elegís cuándo trabajás.</p>
+          : <div className="rd-note rd-note--warn"
+                 style={{ maxWidth: 540, margin: '24px auto 0', textAlign: 'left' }}>
+              {cfg?.enabled
+                ? (cfg?.closed_message || 'Las postulaciones están cerradas por ahora.')
+                : 'La Red de Riders Mythos todavía no está disponible. Muy pronto.'}
+            </div>}
+
+        {hero && <img className="rd-hero-img" src={hero} alt="" />}
       </section>
 
-      {/* Beneficios */}
-      <section id="beneficios" className="wrap" style={{ padding: mob ? '46px 16px' : '72px 20px' }}>
-        <h2 style={{ fontSize: mob ? 24 : 32, fontWeight: 800, color: T.ink, letterSpacing: '-.025em',
-                     marginBottom: 8 }}>Por qué la red</h2>
-        <p style={{ fontSize: 15, color: T.mid, marginBottom: 30, maxWidth: 560, lineHeight: 1.55 }}>
+      {/* ── TIRA DE CONFIANZA ────────────────────────────────────── */}
+      <div className="trust">
+        <div className="wrap">
+          <span className="t-item"><Icon name="pin" size={17} /> Hecho en Paraguay</span>
+          <span className="t-item"><Icon name="check" size={17} /> Un perfil para toda la red</span>
+          <span className="t-item"><Icon name="money" size={17} /> Sin comisión sobre lo que ganás</span>
+          <span className="t-item"><Icon name="chat" size={17} /> Soporte por WhatsApp</span>
+        </div>
+      </div>
+
+      {/* ── BENEFICIOS ───────────────────────────────────────────── */}
+      <section className="block wrap center" id="beneficios">
+        <h2>Por qué la red</h2>
+        <p className="lead">
           Un solo perfil para todos los restaurantes de Mythos. Cargás tus papeles una vez.
         </p>
         <div className="grid">
           {COPY.benefits.map(b => (
-            <Card key={b.t}>
-              <div style={{ width: 40, height: 40, borderRadius: R.md, background: T.hair,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            color: T.ink, marginBottom: 14 }}>
-                <Icon name={b.icon} size={19} />
-              </div>
-              <div style={{ fontSize: 15.5, fontWeight: 700, color: T.ink, marginBottom: 6 }}>{b.t}</div>
-              <div style={{ fontSize: 13.5, color: T.mid, lineHeight: 1.55 }}>{b.d}</div>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      {/* Cómo funciona */}
-      <section id="como" style={{ background: T.sunk, borderTop: `1px solid ${T.line}`,
-                                  borderBottom: `1px solid ${T.line}` }}>
-        <div className="wrap" style={{ padding: mob ? '46px 16px' : '72px 20px' }}>
-          <h2 style={{ fontSize: mob ? 24 : 32, fontWeight: 800, color: T.ink,
-                       letterSpacing: '-.025em', marginBottom: 30 }}>Cómo funciona</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {COPY.steps.map((s, i) => (
-              <div key={s.t} style={{ display: 'flex', gap: 18, alignItems: 'flex-start',
-                                      padding: '18px 0', borderTop: i ? `1px solid ${T.line}` : 'none' }}>
-                <div style={{ width: 30, height: 30, borderRadius: '50%', background: T.ink, color: '#FFF',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{i + 1}</div>
-                <div>
-                  <div style={{ fontSize: 15.5, fontWeight: 700, color: T.ink }}>{s.t}</div>
-                  <div style={{ fontSize: 13.5, color: T.mid, marginTop: 3, lineHeight: 1.55 }}>{s.d}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Requisitos — sale del catálogo real de documentos, no de una lista
-          escrita a mano: si el superadmin cambia lo que se exige, esto cambia. */}
-      <section id="requisitos" className="wrap" style={{ padding: mob ? '46px 16px' : '72px 20px' }}>
-        <h2 style={{ fontSize: mob ? 24 : 32, fontWeight: 800, color: T.ink,
-                     letterSpacing: '-.025em', marginBottom: 8 }}>Qué necesitás</h2>
-        <p style={{ fontSize: 15, color: T.mid, marginBottom: 30, maxWidth: 560, lineHeight: 1.55 }}>
-          Ser mayor de {cfg?.min_age || 18} años y tener tu documentación al día. Todo se sube desde el celular.
-        </p>
-        <div className="grid">
-          {(cfg?.doc_types || []).map(d => (
-            <Card key={d.slug}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                <span style={{ color: d.required ? T.ink : T.soft, marginTop: 2 }}>
-                  <Icon name={d.required ? 'check' : 'info'} size={16} />
-                </span>
-                <div>
-                  <div style={{ fontSize: 14.5, fontWeight: 700, color: T.ink }}>
-                    {d.label}{!d.required && <span style={{ color: T.soft, fontWeight: 500 }}> · opcional</span>}
-                  </div>
-                  {d.help && <div style={{ fontSize: 13, color: T.mid, marginTop: 4, lineHeight: 1.5 }}>{d.help}</div>}
-                  {Array.isArray(d.vehicles) && d.vehicles.length > 0 && (
-                    <div style={{ fontSize: 12, color: T.soft, marginTop: 5 }}>
-                      Sólo para: {d.vehicles.map(v => (VEHICLES.find(x => x.v === v)?.label || v)).join(', ')}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section id="faq" style={{ background: T.sunk, borderTop: `1px solid ${T.line}` }}>
-        <div className="wrap" style={{ padding: mob ? '46px 16px' : '72px 20px', maxWidth: 820 }}>
-          <h2 style={{ fontSize: mob ? 24 : 32, fontWeight: 800, color: T.ink,
-                       letterSpacing: '-.025em', marginBottom: 26 }}>Preguntas frecuentes</h2>
-          {COPY.faq.map((f, i) => (
-            <div key={f.q} style={{ borderTop: i ? `1px solid ${T.line}` : 'none' }}>
-              <button onClick={() => setFaqOpen(faqOpen === i ? null : i)}
-                      style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none',
-                               padding: '17px 0', cursor: 'pointer', display: 'flex',
-                               justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
-                <span style={{ fontSize: 15.5, fontWeight: 600, color: T.ink }}>{f.q}</span>
-                <span style={{ color: T.soft, transform: faqOpen === i ? 'rotate(45deg)' : 'none',
-                               transition: 'transform .18s', fontSize: 20, lineHeight: 1 }}>+</span>
-              </button>
-              {faqOpen === i && (
-                <div style={{ fontSize: 14, color: T.mid, lineHeight: 1.65, paddingBottom: 18 }}>{f.a}</div>
-              )}
+            <div className="mod" key={b.t}>
+              <div className="mod-ic"><Icon name={b.icon} size={21} /></div>
+              <h3>{b.t}</h3>
+              <p>{b.d}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* CTA final */}
-      <section className="wrap" style={{ padding: mob ? '48px 16px' : '76px 20px', textAlign: 'center' }}>
-        <h2 style={{ fontSize: mob ? 26 : 36, fontWeight: 800, color: T.ink, letterSpacing: '-.03em' }}>
-          ¿Empezamos?
-        </h2>
-        <p style={{ fontSize: 15, color: T.mid, marginTop: 12, marginBottom: 26 }}>
-          La postulación toma unos minutos. Si falta algo, te lo decimos y lo corregís sin empezar de cero.
-        </p>
-        <Btn onClick={onStart} style={{ padding: '15px 32px', fontSize: 16 }}>
-          {open ? copyOf(site, 'cta') : 'Entrar a mi cuenta'}
-        </Btn>
+      {/* ── CÓMO FUNCIONA ────────────────────────────────────────── */}
+      <section className="block wrap center" id="como">
+        <h2>Cómo funciona</h2>
+        <p className="lead">De la postulación al primer pedido. Si falta algo, te lo decimos.</p>
+        <div className="steps">
+          {COPY.steps.map((s, i) => (
+            <div className="step" key={s.t}>
+              <div className="num">{i + 1}</div>
+              <h3>{s.t}</h3>
+              <p>{s.d}</p>
+            </div>
+          ))}
+        </div>
       </section>
-    </main>
+
+      {/* ── REQUISITOS ───────────────────────────────────────────────
+          Sale del catálogo REAL de documentos (mig 206), no de una lista
+          escrita a mano: si el superadmin cambia lo que se exige, esto
+          cambia solo. */}
+      <section className="block wrap center" id="requisitos">
+        <h2>Qué necesitás</h2>
+        <p className="lead">
+          Ser mayor de {cfg?.min_age || 18} años y tener tu documentación al día.
+          Todo se sube desde el celular.
+        </p>
+        <div className="grid">
+          {(cfg?.doc_types || []).map(d => (
+            <div className="mod" key={d.slug}>
+              <div className="mod-ic"><Icon name={d.required ? 'check' : 'info'} size={21} /></div>
+              <h3>{d.label}</h3>
+              {d.help && <p>{d.help}</p>}
+              <p style={{ marginTop: 8, color: T.soft, fontSize: 12.5 }}>
+                {d.required ? 'Obligatorio' : 'Opcional'}
+                {Array.isArray(d.vehicles) && d.vehicles.length > 0 &&
+                  ' · sólo ' + d.vehicles.map(v => (VEHICLES.find(x => x.v === v)?.label || v)).join(', ')}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── FAQ ──────────────────────────────────────────────────── */}
+      <section className="block wrap" id="faq">
+        <h2 className="center">Preguntas frecuentes</h2>
+        <p className="lead center">Lo que todo el mundo pregunta antes de postularse.</p>
+        <div className="faq">
+          {COPY.faq.map((f, i) => (
+            <details key={f.q} open={i === 0}>
+              <summary>{f.q}</summary>
+              <p>{f.a}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
+      {/* ── CTA FINAL ────────────────────────────────────────────── */}
+      <section className="cta-final wrap">
+        <h2>¿Empezamos?</h2>
+        <p className="lead">
+          La postulación toma unos minutos. Si falta algo, te lo decimos y lo corregís
+          sin empezar de cero.
+        </p>
+        <div className="hero-cta">
+          <button type="button" className="btn btn-primary btn-lg" onClick={onStart}>
+            {open ? copyOf(site, 'cta') : 'Entrar a mi cuenta'}
+          </button>
+          <a className="btn btn-secondary btn-lg" href="/terminos-riders">Leer los términos</a>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -796,7 +692,7 @@ function Application({ profile, cfg, reload, toast }) {
   const missingDocs = docs.filter(d => d.required && d.status === 'faltante').length;
 
   return (
-    <main style={{ flex: 1 }}>
+    <div>
       <div className="wrap" style={{ maxWidth: 760, padding: mob ? '24px 16px 40px' : '38px 20px 60px' }}>
         <h1 style={{ fontSize: mob ? 26 : 34, fontWeight: 800, color: T.ink, letterSpacing: '-.03em' }}>
           Tu postulación
@@ -810,7 +706,7 @@ function Application({ profile, cfg, reload, toast }) {
           {STEPS.map((s, i) => (
             <button key={s} onClick={() => saveStep(i)}
                     style={{ flex: mob ? '0 0 auto' : 1, background: i === step ? T.ink : T.hair,
-                             color: i === step ? '#FFF' : T.mid, border: 'none', borderRadius: R.pill,
+                             color: i === step ? T.onInk : T.mid, border: 'none', borderRadius: R.pill,
                              padding: '9px 15px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
                              whiteSpace: 'nowrap' }}>
               {i + 1}. {s}
@@ -883,7 +779,7 @@ function Application({ profile, cfg, reload, toast }) {
                          onChange={e => pickPhoto(e, 'selfie')} />
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px',
                                  border: `1px solid ${T.line}`, borderRadius: R.pill, fontSize: 13,
-                                 fontWeight: 600, cursor: 'pointer', color: T.ink, background: '#FFF' }}>
+                                 fontWeight: 600, cursor: 'pointer', color: T.ink, background: T.card }}>
                     <Icon name="camera" size={14} /> {f.selfie_path ? 'Cargada · cambiar' : 'Tomar selfie'}
                   </span>
                 </label>
@@ -899,8 +795,8 @@ function Application({ profile, cfg, reload, toast }) {
                   <button key={v.v} onClick={() => set('vehicle_type', v.v)}
                           style={{ padding: '11px 20px', borderRadius: R.pill, cursor: 'pointer',
                                    border: `1px solid ${f.vehicle_type === v.v ? T.ink : T.line}`,
-                                   background: f.vehicle_type === v.v ? T.ink : '#FFF',
-                                   color: f.vehicle_type === v.v ? '#FFF' : T.body,
+                                   background: f.vehicle_type === v.v ? T.ink : T.card,
+                                   color: f.vehicle_type === v.v ? T.onInk : T.body,
                                    fontSize: 14, fontWeight: 600 }}>{v.label}</button>
                 ))}
               </div>
@@ -1022,7 +918,7 @@ function Application({ profile, cfg, reload, toast }) {
               </Btn>}
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -1041,7 +937,7 @@ function StatusScreen({ profile, cfg, reload, toast, onFix }) {
   }
 
   return (
-    <main style={{ flex: 1 }}>
+    <div>
       <div className="wrap" style={{ maxWidth: 660, padding: mob ? '34px 16px 50px' : '60px 20px 70px',
                                      textAlign: 'center' }}>
         <div style={{ width: 62, height: 62, borderRadius: '50%', margin: '0 auto 20px',
@@ -1111,7 +1007,7 @@ function StatusScreen({ profile, cfg, reload, toast, onFix }) {
           </div>
         )}
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -1161,7 +1057,7 @@ function Profile({ profile, cfg, reload, toast }) {
   }
 
   return (
-    <main style={{ flex: 1 }}>
+    <div>
       <div className="wrap" style={{ padding: mob ? '20px 16px 44px' : '32px 20px 60px' }}>
 
         {/* Cabecera */}
@@ -1216,12 +1112,12 @@ function Profile({ profile, cfg, reload, toast }) {
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0,
-                             background: tab === t.id ? T.ink : '#FFF', color: tab === t.id ? '#FFF' : T.mid,
+                             background: tab === t.id ? T.ink : T.card, color: tab === t.id ? T.onInk : T.mid,
                              border: `1px solid ${tab === t.id ? T.ink : T.line}`, borderRadius: R.pill,
                              padding: '9px 15px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               <Icon name={t.icon} size={14} /> {t.label}
               {t.id === 'avisos' && st.unread > 0 && (
-                <span style={{ background: tab === t.id ? '#FFF' : T.bad, color: tab === t.id ? T.ink : '#FFF',
+                <span style={{ background: tab === t.id ? T.card : T.bad, color: tab === t.id ? T.ink : T.onBad,
                                borderRadius: R.pill, padding: '1px 6px', fontSize: 10.5, fontWeight: 800 }}>
                   {st.unread}
                 </span>
@@ -1238,7 +1134,7 @@ function Profile({ profile, cfg, reload, toast }) {
         {tab === 'casos'     && <TabCasos profile={profile} reload={reload} toast={toast} />}
         {tab === 'avisos'    && <TabAvisos profile={profile} reload={reload} />}
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -1493,7 +1389,7 @@ function TabHistorial({ toast }) {
                       letterSpacing: '.06em', textTransform: 'uppercase' }}>Entregas</div>
         {rows.length === 0
           ? <Empty icon="clipboard" title="Sin entregas en ese rango" />
-          : <div className="tscroll">
+          : <div className="rd-tscroll">
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 620 }}>
                 <thead>
                   <tr>{['Fecha', 'Local', 'Cliente', 'Pedido', 'Minutos', 'Te toca'].map(h => (
@@ -1568,7 +1464,7 @@ function TabRanking({ rider }) {
           <button key={v} onClick={() => setScope(v)}
                   style={{ padding: '8px 14px', borderRadius: R.pill, cursor: 'pointer', fontSize: 12.5,
                            fontWeight: 600, border: `1px solid ${scope === v ? T.ink : T.line}`,
-                           background: scope === v ? T.ink : '#FFF', color: scope === v ? '#FFF' : T.mid }}>{l}</button>
+                           background: scope === v ? T.ink : T.card, color: scope === v ? T.onInk : T.mid }}>{l}</button>
         ))}
         {rider.city && (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5,
@@ -1732,7 +1628,7 @@ function RecoveryScreen({ onDone, toast }) {
   }
 
   return (
-    <main style={{ flex: 1 }}>
+    <div>
       <div className="wrap" style={{ maxWidth: 420, padding: mob ? '34px 16px 50px' : '60px 20px 70px' }}>
         <h1 style={{ fontSize: mob ? 25 : 31, fontWeight: 800, color: T.ink, letterSpacing: '-.03em' }}>
           Elegí una contraseña nueva
@@ -1752,14 +1648,14 @@ function RecoveryScreen({ onDone, toast }) {
           <Btn type="submit" wide disabled={busy}>{busy ? 'Guardando…' : 'Guardar contraseña'}</Btn>
         </form>
       </div>
-    </main>
+    </div>
   );
 }
 
 /* ══ PANTALLAS DE BORDE ══════════════════════════════════════════ */
 function Blocked({ title, sub, action }) {
   return (
-    <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '70px 24px', minHeight: '44vh' }}>
       <div style={{ textAlign: 'center', maxWidth: 460 }}>
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16, color: T.line }}>
           <Icon name="bike" size={44} />
@@ -1768,7 +1664,7 @@ function Blocked({ title, sub, action }) {
         <div style={{ fontSize: 14.5, color: T.mid, marginTop: 10, lineHeight: 1.6 }}>{sub}</div>
         {action && <div style={{ marginTop: 22 }}>{action}</div>}
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -1825,6 +1721,21 @@ function App() {
 
   useEffect(() => { if (session !== undefined) loadProfile(); }, [session, loadProfile]);
 
+  /* El header del sitio trae "Iniciar sesión" → /login, que es el login del
+     STAFF y del comensal. Un rider de la red no tiene fila en `user_roles`, así
+     que ahí no entra a ningún lado: su sesión es la de esta página. Se repunta
+     el enlace (el del header y el del menú móvil) al mismo modal que abre el
+     botón de la landing. Corre después de MythosWeb.init(), que inyecta el
+     header antes de que cargue este bundle. */
+  useEffect(() => {
+    if (session) return;                       // con sesión ya manda la barra de cuenta
+    const links = document.querySelectorAll('#site-header a[href="/login"]');
+    if (!links.length) return;
+    const open = e => { e.preventDefault(); setAuthOpen(true); };
+    links.forEach(a => { a.textContent = 'Entrar como rider'; a.addEventListener('click', open); });
+    return () => links.forEach(a => a.removeEventListener('click', open));
+  }, [session]);
+
   async function signOut() {
     await API.signOut();
     setSession(null); setProfile(null); setForceEdit(false);
@@ -1880,11 +1791,17 @@ function App() {
     if (forceEdit && rider && ['pendiente', 'activo', 'aprobado'].includes(rider.status)) setForceEdit(false);
   }, [rider?.status]);
 
+  // El header y el pie los pone el SITIO (web-marketing.js → #site-header /
+  // #site-footer), igual que en /inicio y /proveedores. Acá sólo va la barra de
+  // identidad del rider, y únicamente cuando hay ficha: en la landing pública
+  // sobraría, y el botón "Iniciar sesión" ya vive en el header del sitio.
   return (<>
-    <Header session={session} rider={rider} unread={profile?.stats?.unread || 0}
-            onAccount={() => setAuthOpen(true)} onSignOut={signOut} />
+    {profile && !recovery && (
+      <div className="wrap" style={{ paddingTop: 26 }}>
+        <AccountBar rider={rider} unread={profile?.stats?.unread || 0} onSignOut={signOut} />
+      </div>
+    )}
     {body}
-    <Footer />
     {authOpen && (
       <AuthScreen canRegister={canRegister} closedMsg={cfg?.closed_message}
                   onClose={() => setAuthOpen(false)}
