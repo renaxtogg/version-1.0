@@ -94,8 +94,11 @@ const fmtDate = d => new Date(d).toLocaleDateString('es-PY',{day:'2-digit',month
 const fmtTime = d => new Date(d).toLocaleTimeString('es-PY',{hour:'2-digit',minute:'2-digit'});
 const fmtDT   = d => `${fmtDate(d)} ${fmtTime(d)}`;
 const DAY = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
-const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',kitchen_received:'En cocina',cooking:'Preparando',ready:'Listo',delivered:'Entregado',cancelled:'Cancelado'};
-const SC = {draft:'#86868B',confirmed:'#6E6E73',paid:'#FF9500',kitchen_received:'#007AFF',cooking:'#FF9500',ready:'#34C759',delivered:'#86868B',cancelled:'#FF3B30'};
+/* pending_payment = ENTREGADO pero sin cobrar. Faltaba en las dos tablas y el
+   badge mostraba el código crudo en pantalla. Va con color propio a propósito:
+   no es "preparando" (naranja) ni "cerrado" (gris), es plata que falta entrar. */
+const SL = {draft:'Borrador',confirmed:'Confirmado',paid:'Nuevo',kitchen_received:'En cocina',cooking:'Preparando',ready:'Listo',pending_payment:'A cobrar',delivered:'Entregado',cancelled:'Cancelado'};
+const SC = {draft:'#86868B',confirmed:'#6E6E73',paid:'#FF9500',kitchen_received:'#007AFF',cooking:'#FF9500',ready:'#34C759',pending_payment:'#5856D6',delivered:'#86868B',cancelled:'#FF3B30'};
 const PL = {efectivo:'Efectivo',tarjeta:'Tarjeta',qr:'QR',pos:'POS'};
 const EG_CATS = ['Insumos','Personal','Servicios','Alquiler','Mantenimiento','Impuestos','Otro'];
 function mesaLabel(o) {
@@ -229,7 +232,10 @@ function KpiCard({label,value,sub,accent,icon,onClick}) {
   );
 }
 function Stars({n}) { return <span style={{color:C.yellow,letterSpacing:2,fontSize:14}}>{'★'.repeat(n)}{'☆'.repeat(5-n)}</span>; }
-function Th({children,right}) { return <th style={{padding:'9px 14px',textAlign:right?'right':'left',fontSize:10,color:C.ink,fontWeight:700,letterSpacing:1,whiteSpace:'nowrap',textTransform:'uppercase'}}>{children}</th>; }
+/* letterSpacing 1px sobre 10px de tipografía separaba tanto los encabezados que
+   cada columna reservaba un ancho que su contenido no usaba (el aire entre
+   TIPO · DESTINO · ESTADO · ITEMS que se ve en la tabla de Pedidos). */
+function Th({children,right}) { return <th style={{padding:'9px 12px',textAlign:right?'right':'left',fontSize:10,color:C.ink,fontWeight:700,letterSpacing:0.4,whiteSpace:'nowrap',textTransform:'uppercase'}}>{children}</th>; }
 function Td({children,mono,dim,right,style:sx}) { return <td style={{padding:'10px 14px',fontSize:13,fontFamily:mono?"'SF Mono',ui-monospace,monospace":'inherit',color:dim?'var(--text-secondary)':'var(--text-primary)',textAlign:right?'right':'left',...sx}}>{children}</td>; }
 function EmptyRow({cols,label}) { return <tr><td colSpan={cols} style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>{label||'Sin datos'}</td></tr>; }
 function Lbl({children}) { return <label style={{fontSize:10,color:C.mid,display:'block',marginBottom:5,fontWeight:700,letterSpacing:1}}>{children}</label>; }
@@ -1945,14 +1951,26 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
     {id:'delivery', label:'Delivery',    icon:'bike', color:'#FF9500'},
     {id:'llevar',   label:'Para llevar', icon:'package', color:'#5856D6'},
   ];
+  /* 'pending_payment' no estaba en NINGUNA solapa: un pedido entregado sin cobrar
+     sólo se veía en "Todos" — invisible justo en el estado donde falta plata.
+     Va en solapa propia porque entregado y cobrado son cosas distintas. */
   const STATUS_TABS = [
     {id:'all',       label:'Todos',      color:C.ink, statuses:null},
     {id:'pending',   label:'Pendientes', color:C.dim, statuses:['draft','confirmed']},
     {id:'kitchen',   label:'En cocina',  color:'#FF9500', statuses:['paid','kitchen_received','cooking']},
     {id:'ready',     label:'Listos',     color:'#34C759', statuses:['ready']},
+    {id:'tocharge',  label:'A cobrar',   color:'#5856D6', statuses:['pending_payment']},
     {id:'delivered', label:'Entregados', color:C.mid, statuses:['delivered']},
     {id:'cancelled', label:'Cancelados', color:'#FF3B30', statuses:['cancelled']},
   ];
+  /* Tipo y destino decían lo mismo en delivery y para llevar ("Delivery/Delivery",
+     "Llevar/Para llevar"); sólo diferían en salón. Una columna, no dos. */
+  const TYPE_META = {
+    delivery:{icon:'bike',    color:'#FF9500'},
+    llevar:  {icon:'package', color:'#5856D6'},
+    local:   {icon:'utensils',color:'#007AFF'},
+  };
+  const typeOf = o => o.order_type==='delivery'?'delivery':o.order_type==='llevar'?'llevar':'local';
 
   const periodFiltered = useMemo(()=>{
     let res = [...orders];
@@ -2001,8 +2019,8 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
     return res;
   },[typeFiltered,statusFilter,soloComp]);
 
-  const rowBg = s => selected?.status===s?'':['paid','kitchen_received','cooking'].includes(s)?TINT.amberBg:s==='ready'?TINT.greenBg:s==='cancelled'?TINT.redBg:'transparent';
-  const rowBorderColor = s => ['paid','kitchen_received','cooking'].includes(s)?'#FF9500':s==='ready'?'#34C759':s==='cancelled'?'#FF3B30':'transparent';
+  const rowBg = s => selected?.status===s?'':['paid','kitchen_received','cooking'].includes(s)?TINT.amberBg:s==='ready'?TINT.greenBg:s==='pending_payment'?TINT.purpleBg:s==='cancelled'?TINT.redBg:'transparent';
+  const rowBorderColor = s => ['paid','kitchen_received','cooking'].includes(s)?'#FF9500':s==='ready'?'#34C759':s==='pending_payment'?'#5856D6':s==='cancelled'?'#FF3B30':'transparent';
 
   useEffect(()=>{
     if(!db) return;
@@ -2055,13 +2073,49 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
     setDetailLoading(false);
   }
   function closeDetail() { setDetail(null); setDetailItems([]); setDetailDeliv(null); }
-  async function updateStatus(orderId,newStatus) {
+  async function updateStatus(orderId,newStatus,extra) {
     if(!db) return; setUpd(true);
-    const{data,error}=await db.from('orders').update({status:newStatus,...(newStatus==='delivered'?{completed_at:new Date().toISOString()}:{})}).eq('id',orderId).select('id');
+    let patch = {status:newStatus,...(extra||{})};
+    let {data,error} = await db.from('orders').update(patch).eq('id',orderId).select('id');
+    // Fallback si la mig 067 no está aplicada (columna delivered_to_table_at):
+    // el estado se guarda igual, sólo se pierde la marca de entrega física.
+    if(error && /delivered_to_table_at|schema cache/.test(error.message||'')){
+      const {delivered_to_table_at:_drop, ...safe} = patch;
+      patch = safe;
+      ({data,error} = await db.from('orders').update(patch).eq('id',orderId).select('id'));
+    }
     if(error){toast('Error: '+error.message,false);}
     else if(!data||data.length===0){toast('No se pudo actualizar el estado — verificá RLS en Supabase',false);}
-    else{toast('Estado actualizado');setSelected(s=>s?.id===orderId?{...s,status:newStatus}:s);refreshOrders();}
+    else{
+      // Cocina y mozo dejan rastro en order_status_history; el admin no lo hacía y
+      // el pedido quedaba con un salto de estado sin autor. Best-effort: si falla,
+      // el estado ya se guardó y no tiene sentido frenar la operación por la traza.
+      db.from('order_status_history').insert({order_id:orderId,status:newStatus,changed_by:'admin'}).then(()=>{},()=>{});
+      toast('Estado actualizado');
+      setSelected(s=>s?.id===orderId?{...s,...patch}:s);
+      refreshOrders();
+    }
     setUpd(false);
+  }
+
+  /* ENTREGAR ≠ COBRAR. Antes el botón mandaba siempre a 'delivered', así que un
+     pedido sin pagar se cerraba y desaparecía de la lista de cobro de caja: la
+     venta quedaba entregada y nadie volvía a pedirle la plata al cliente.
+     Mismo criterio que finalizarOrden() del panel mozo:
+       · ya pagado  → delivered + completed_at (se cierra)
+       · sin pagar  → pending_payment (entregado, pero sigue esperando cobro)
+
+     delivered_to_table_at se marca SIEMPRE, no sólo en salón con mesa. El nombre
+     dice "mesa" pero su función real es "la comida ya llegó al cliente", y caja
+     la usa como condición para cerrar el pedido al cobrarlo (cerrarOrden en
+     caja/main.jsx:1462). Sin esta marca, un pedido de salón sin mesa / para
+     llevar / retiro se cobraba y quedaba en pending_payment PARA SIEMPRE. */
+  function entregar(o) {
+    const nowIso = new Date().toISOString();
+    const pagado = o.payment_status === 'paid';
+    updateStatus(o.id, pagado ? 'delivered' : 'pending_payment',
+      pagado ? {completed_at:nowIso, delivered_to_table_at:nowIso}
+             : {delivered_to_table_at:nowIso});
   }
 
   const activeType = TYPE_TABS.find(t=>t.id===typeFilter)||TYPE_TABS[0];
@@ -2084,11 +2138,12 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
         </div>
       </div>
 
-      {/* Filtro de período */}
-      <div style={{display:'flex',gap:8,marginBottom:14,alignItems:'center',flexWrap:'wrap'}}>
-        <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+      {/* Período + tipo + conciliación en UNA fila. Antes eran cuatro bloques
+          apilados: ~290px de controles antes de ver el primer pedido. */}
+      <div style={{display:'flex',gap:10,marginBottom:10,alignItems:'center',flexWrap:'wrap'}}>
+        <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',flexShrink:0}}>
           {['hoy','7d','30d','custom'].map((p,i,a)=>(
-            <button key={p} onClick={()=>setPeriod(p)} style={{padding:'6px 14px',fontSize:12,fontWeight:period===p?700:400,background:period===p?C.ink:C.white,color:period===p?C.sidebar:C.dim,border:'none',cursor:'pointer',borderRight:i<a.length-1?`1px solid ${C.border}`:'none'}}>
+            <button key={p} onClick={()=>setPeriod(p)} style={{padding:'6px 12px',fontSize:12,fontWeight:period===p?700:400,background:period===p?C.ink:C.white,color:period===p?C.sidebar:C.dim,border:'none',cursor:'pointer',borderRight:i<a.length-1?`1px solid ${C.border}`:'none'}}>
               {p==='hoy'?'Hoy':p==='7d'?'7 días':p==='30d'?'30 días':'Personalizado'}
             </button>
           ))}
@@ -2100,27 +2155,33 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
             <input type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)} style={{padding:'5px 8px',fontSize:12,borderRadius:6,border:`1px solid ${C.border}`}}/>
           </div>
         )}
-        <span style={{fontSize:12,color:C.dim,marginLeft:'auto'}}>{filtered.length} pedido{filtered.length!==1?'s':''}</span>
-      </div>
 
-      {/* Tabs de tipo */}
-      <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+        <div style={{width:1,height:22,background:C.border,flexShrink:0}}/>
+
         {TYPE_TABS.map(t=>{
           const count=typeCounts[t.id];
           const active=typeFilter===t.id;
           return (
             <button key={t.id} onClick={()=>{setTypeFilter(t.id);setStatusFilter('all');}}
-              style={{display:'flex',alignItems:'center',gap:7,padding:'8px 16px',borderRadius:8,border:`2px solid ${active?t.color:C.border}`,background:active?t.color+'18':C.surface,color:active?t.color:C.mid,fontSize:13,fontWeight:active?700:500,cursor:'pointer',transition:'all .15s'}}>
-              <Icon name={t.icon} size={14}/>
+              style={{display:'flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:8,border:`1px solid ${active?t.color:C.border}`,background:active?t.color+'18':C.surface,color:active?t.color:C.mid,fontSize:12.5,fontWeight:active?700:500,cursor:'pointer',transition:'all .15s'}}>
+              <Icon name={t.icon} size={13}/>
               <span>{t.label}</span>
-              <span style={{background:active?t.color:C.dim,color:'#fff',fontSize:10,fontWeight:800,padding:'1px 7px',borderRadius:10,minWidth:20,textAlign:'center'}}>{count}</span>
+              <span style={{background:active?t.color:C.dim,color:'#fff',fontSize:10,fontWeight:800,padding:'1px 6px',borderRadius:10,minWidth:18,textAlign:'center'}}>{count}</span>
             </button>
           );
         })}
+
+        <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:10}}>
+          <button onClick={()=>setSoloComp(v=>!v)} title="Sólo transferencias/QR/tarjeta con comprobante cargado"
+            style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:700,borderRadius:8,cursor:'pointer',border:`1px solid ${soloComp?'#34C759':C.border}`,background:soloComp?'rgba(52,199,89,0.10)':C.surface,color:soloComp?'#2FA84F':C.mid}}>
+            <span>🧾</span> Con comprobante {soloComp&&<span style={{fontSize:13,lineHeight:1}}>✓</span>}
+          </button>
+          <span style={{fontSize:12,color:C.dim,whiteSpace:'nowrap'}}>{filtered.length} pedido{filtered.length!==1?'s':''}</span>
+        </div>
       </div>
 
       {/* Tabs de estado */}
-      <div style={{display:'flex',gap:0,borderBottom:`2px solid ${C.border}`,marginBottom:14}}>
+      <div style={{display:'flex',gap:0,borderBottom:`2px solid ${C.border}`,flexWrap:'wrap'}}>
         {STATUS_TABS.map(s=>{
           const count=statusCounts[s.id]??0;
           const active=statusFilter===s.id;
@@ -2134,21 +2195,15 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
         })}
       </div>
 
-      {/* Filtro de conciliación: solo transferencias/QR/tarjeta que tienen comprobante (N° o foto) */}
-      <div style={{display:'flex',alignItems:'center',gap:8,margin:'12px 0 0'}}>
-        <button onClick={()=>setSoloComp(v=>!v)} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',fontSize:12,fontWeight:700,borderRadius:8,cursor:'pointer',border:`1px solid ${soloComp?'#34C759':C.border}`,background:soloComp?'rgba(52,199,89,0.10)':C.surface,color:soloComp?'#2FA84F':C.mid}}>
-          <span>🧾</span> Solo transferencias con comprobante {soloComp&&<span style={{fontSize:13,lineHeight:1}}>✓</span>}
-        </button>
-        {soloComp&&<span style={{fontSize:11,color:C.dim}}>{filtered.length} pedido{filtered.length!==1?'s':''}</span>}
-      </div>
-
       {/* Tabla + Panel de detalle */}
-      <div style={{display:'flex',gap:12,minHeight:400,marginTop:12}}>
-        <div style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
+      {/* alignSelf:'flex-start' en vez de minHeight fijo: con 2 pedidos la caja
+          dejaba media pantalla en blanco. Ahora la tabla mide lo que tiene. */}
+      <div style={{display:'flex',gap:12,marginTop:12,alignItems:'flex-start'}}>
+        <div style={{flex:1,minWidth:0,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'auto'}}>
           <table style={{width:'100%',borderCollapse:'collapse'}}>
             <thead>
               <tr style={{borderBottom:`1px solid ${C.border}`,background:'var(--bg-subtle)'}}>
-                <Th>#</Th><Th>Tipo</Th><Th>Destino</Th><Th>Estado</Th><Th>Items</Th><Th right>Total</Th><Th>Pago</Th><Th>Hora</Th><Th></Th>
+                <Th>#</Th><Th>Pedido</Th><Th>Estado</Th><Th right>Items</Th><Th right>Total</Th><Th>Pago</Th><Th right>Hora</Th><Th></Th>
               </tr>
             </thead>
             <tbody>
@@ -2161,71 +2216,107 @@ function PedidosPage({orders, tables, onRefresh, onRefreshOrders}) {
                     style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer',background:bg,borderLeft:`3px solid ${bl}`}}>
                     <Td mono dim>{o.order_number}</Td>
                     <Td>
-                      {o.order_type==='delivery'
-                        ?<span style={{color:'#FF9500',fontSize:12,fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="bike" size={12}/> Delivery</span>
-                        :o.order_type==='llevar'
-                        ?<span style={{color:'#5856D6',fontSize:12,fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="package" size={12}/> Llevar</span>
-                        :<span style={{color:'#007AFF',fontSize:12,fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="utensils" size={12}/> Local</span>}
+                      {(()=>{const m=TYPE_META[typeOf(o)];return(
+                        <span style={{color:m.color,fontSize:12.5,fontWeight:600,display:'inline-flex',alignItems:'center',gap:5,whiteSpace:'nowrap'}}>
+                          <Icon name={m.icon} size={12}/> {mesaLabel(o)}
+                        </span>);})()}
                     </Td>
-                    <Td>{mesaLabel(o)}</Td>
                     <Td><Badge status={o.status}/></Td>
-                    <Td dim>{o.items_count||0}</Td>
+                    <Td dim right>{o.items_count||0}</Td>
                     <Td mono right>{fmt(o.total)}</Td>
                     <Td dim>
-                      <span style={{display:'inline-flex',alignItems:'center',gap:5}}>
+                      <span style={{display:'inline-flex',alignItems:'center',gap:5,whiteSpace:'nowrap'}}>
                         {PL[o.payment_method]||'—'}
                         {(o.payment_proof_url||o.payment_reference)&&<span title="Con comprobante" style={{fontSize:12}}>🧾</span>}
                         {(()=>{const m=reviewMeta(o.payment_review_status);return m?<span title={m.label} style={{width:7,height:7,borderRadius:'50%',background:m.color,display:'inline-block'}}/>:null;})()}
                       </span>
                     </Td>
-                    <Td mono dim>{fmtTime(o.created_at)}</Td>
+                    <Td mono dim right>{fmtTime(o.created_at)}</Td>
                     <Td right style={{whiteSpace:'nowrap'}}>
                       <Btn small variant="secondary" onClick={e=>{e.stopPropagation();openDetail(o);}}>Ver detalle</Btn>
                     </Td>
                   </tr>
                 );
               })}
-              {filtered.length===0&&<EmptyRow cols={9} label="Sin pedidos en este período"/>}
+              {filtered.length===0&&<EmptyRow cols={8} label="Sin pedidos en este período"/>}
             </tbody>
           </table>
         </div>
 
         {selected&&(
-          <div style={{width:290,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,flexShrink:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-            <div style={{padding:'13px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',background:'var(--bg-subtle)'}}>
+          <div style={{width:368,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,flexShrink:0,display:'flex',flexDirection:'column',overflow:'hidden',alignSelf:'flex-start',position:'sticky',top:12,maxHeight:'calc(100vh - 100px)'}}>
+            <div style={{padding:'13px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'flex-start',background:'var(--bg-subtle)'}}>
               <div>
-                <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:14,fontWeight:700}}>{selected.order_number}</div>
-                <div style={{fontSize:10,color:C.dim,marginTop:2}}>{fmtDT(selected.created_at)}</div>
+                <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:16,fontWeight:700}}>{selected.order_number}</div>
+                <div style={{fontSize:11,color:C.dim,marginTop:3}}>{fmtDT(selected.created_at)}</div>
               </div>
               <button onClick={()=>{setSelected(null);setItems([]);}} style={{background:'none',border:'none',color:C.dim,fontSize:22,lineHeight:1,padding:0,cursor:'pointer'}}>×</button>
             </div>
-            <div style={{padding:'8px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            <div style={{padding:'9px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:7,flexWrap:'wrap',alignItems:'center'}}>
               <Badge status={selected.status}/>
-              <span style={{fontSize:12,color:C.mid}}>{mesaLabel(selected)}</span>
-              {selected.order_type==='delivery'&&<span style={{fontSize:11,color:'#FF9500',fontWeight:600,background:TINT.amberBg,padding:'2px 7px',borderRadius:6,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="bike" size={11}/> Delivery</span>}
-              {selected.order_type==='llevar'&&<span style={{fontSize:11,color:TINT.purpleText,fontWeight:600,background:TINT.purpleBg,padding:'2px 7px',borderRadius:6,display:'inline-flex',alignItems:'center',gap:4}}><Icon name="package" size={11}/> Para llevar</span>}
+              {(()=>{const m=TYPE_META[typeOf(selected)];return(
+                <span style={{fontSize:11.5,color:m.color,fontWeight:700,background:m.color+'18',padding:'3px 8px',borderRadius:6,display:'inline-flex',alignItems:'center',gap:4}}>
+                  <Icon name={m.icon} size={11}/> {mesaLabel(selected)}
+                </span>);})()}
             </div>
-            <div style={{flex:1,padding:'8px 16px',overflowY:'auto',borderBottom:`1px solid ${C.border}`}}>
+            {/* Estado del cobro, separado del estado del pedido: son dos ejes
+                distintos y el panel no mostraba ninguno de los dos datos de pago. */}
+            <div style={{padding:'9px 16px',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:12}}>
+              <span style={{color:C.dim}}>Pago</span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:6}}>
+                <span style={{color:C.mid,fontWeight:600}}>{PL[selected.payment_method]||selected.payment_method||'Sin método'}</span>
+                <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:6,
+                  background:selected.payment_status==='paid'?TINT.greenBg:TINT.amberBg,
+                  color:selected.payment_status==='paid'?TINT.greenText:TINT.amberText}}>
+                  {selected.payment_status==='paid'?'Cobrado':'Sin cobrar'}
+                </span>
+              </span>
+            </div>
+            <div style={{flex:1,padding:'8px 16px',overflowY:'auto',borderBottom:`1px solid ${C.border}`,minHeight:90}}>
               {loadingItems&&<span className="spin"/>}
               {items.map((it,i)=>(
-                <div key={i} style={{borderBottom:`1px solid #F5F5F5`,padding:'7px 0'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}>
+                <div key={i} style={{borderBottom:`1px solid ${C.border}`,padding:'9px 0'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',gap:10,fontSize:13.5}}>
                     <span style={{fontWeight:600}}>{it.quantity}× {it.item_name}</span>
-                    <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.mid,marginLeft:6}}>{fmt(it.total_price)}</span>
+                    <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",color:C.mid,whiteSpace:'nowrap'}}>{fmt(it.total_price)}</span>
                   </div>
-                  {it.observations&&<div style={{fontSize:11,color:C.mid,marginTop:2}}>→ {it.observations}</div>}
+                  {it.observations&&<div style={{fontSize:11.5,color:C.mid,marginTop:3}}>→ {it.observations}</div>}
                 </div>
               ))}
             </div>
-            <div style={{padding:'10px 16px',borderBottom:`1px solid ${C.border}`}}>
+            <div style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`}}>
               {selected.discount_amount>0&&<div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:4,color:C.green}}><span>Descuento</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>-{fmt(selected.discount_amount)}</span></div>}
-              <div style={{display:'flex',justifyContent:'space-between',fontWeight:800,fontSize:15}}><span>Total</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(selected.total)}</span></div>
+              <div style={{display:'flex',justifyContent:'space-between',fontWeight:800,fontSize:16}}><span>Total</span><span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmt(selected.total)}</span></div>
             </div>
+            {/* AVANCE EN 2 PASOS. El camino largo pedía 4 clics y además dejaba
+                huecos: en 'kitchen_received' no aparecía ningún botón y el pedido
+                quedaba trabado. Ahora el pedido entra ya como recibido y desde acá
+                sólo se marca LISTO y ENTREGADO. Los estados intermedios siguen
+                existiendo en la base — cocina, mozo y el tracking del cliente los
+                leen — lo que se acorta es el camino del admin, no el flujo. */}
             <div style={{padding:'12px 16px',display:'flex',flexDirection:'column',gap:7}}>
+              {/* 'draft' queda afuera: es un carrito que el cliente nunca confirmó.
+                  Ofrecer "marcar listo" sobre un carrito abandonado no significa nada. */}
+              {['confirmed','paid','kitchen_received','cooking'].includes(selected.status)&&(
+                <>
+                  <Btn onClick={()=>updateStatus(selected.id,'ready')} disabled={upd}>✓ Marcar listo</Btn>
+                  {/* Opcional: quien quiera el dato fino de cuánto tardó la cocina
+                      puede marcar el arranque. No es obligatorio para avanzar. */}
+                  {['paid','kitchen_received'].includes(selected.status)&&
+                    <Btn variant="ghost" small onClick={()=>updateStatus(selected.id,'cooking')} disabled={upd}>→ Marcar en preparación</Btn>}
+                </>
+              )}
+              {selected.status==='ready'&&(
+                <Btn onClick={()=>entregar(selected)} disabled={upd}>
+                  {selected.payment_status==='paid'?'✓ Entregar y cerrar':'✓ Entregar (queda a cobrar)'}
+                </Btn>
+              )}
+              {selected.status==='pending_payment'&&(
+                <div style={{fontSize:12,fontWeight:600,color:TINT.purpleText,background:TINT.purpleBg,border:`1px solid ${TINT.purpleBorder}`,borderRadius:8,padding:'9px 12px',textAlign:'center'}}>
+                  Entregado · falta cobrar en Caja
+                </div>
+              )}
               <Btn variant="secondary" onClick={()=>openDetail(selected)}>Ver detalle completo</Btn>
-              {selected.status==='paid'&&<Btn onClick={()=>updateStatus(selected.id,'cooking')} disabled={upd}>→ Iniciar preparación</Btn>}
-              {selected.status==='cooking'&&<Btn onClick={()=>updateStatus(selected.id,'ready')} disabled={upd}>✓ Marcar listo</Btn>}
-              {selected.status==='ready'&&<Btn onClick={()=>updateStatus(selected.id,'delivered')} disabled={upd}>✓ Entregar</Btn>}
               {!['delivered','cancelled'].includes(selected.status)&&<Btn variant="danger" onClick={()=>{if(confirm(`¿Cancelar ${selected.order_number}?`))updateStatus(selected.id,'cancelled');}} disabled={upd}>✕ Cancelar</Btn>}
             </div>
           </div>

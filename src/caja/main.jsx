@@ -3931,7 +3931,45 @@ function SalonPanel({turno,profile}){
   const [nowTick,setNowTick]=useState(Date.now());
   const [resvInfo,setResvInfo]=useState(null);
   const [qrModal,setQrModal]=useState(false);
+  const [advBusy,setAdvBusy]=useState(null);
   const ACTIVE=['paid','pending_payment','kitchen_received','cooking','ready'];
+
+  /* AVANCE DE ESTADO DESDE CAJA. El cajero veía el estado del pedido pero no
+     podía moverlo: si la cocina no usa el KDS, el pedido quedaba trabado y el
+     mostrador no tenía cómo despacharlo. Dos pasos, igual que Admin › Pedidos.
+
+     ENTREGAR ≠ COBRAR: sin pago confirmado el pedido pasa a 'pending_payment'
+     (entregado, sigue en la lista de cobro), nunca a 'delivered'. Cerrarlo acá
+     haría desaparecer una venta sin cobrar de la vista de caja — que es
+     justamente la pantalla encargada de que esa plata entre. */
+  async function advanceOrder(order,to){
+    if(!db) return;
+    setAdvBusy(order.id);
+    const nowIso=new Date().toISOString();
+    // delivered_to_table_at es la condición que usa cerrarOrden (línea ~1462) para
+    // cerrar el pedido al cobrarlo. Si no se marca al entregar, el cobro deja el
+    // pedido en pending_payment para siempre y nunca sale de la lista.
+    let patch={status:to};
+    if(to==='delivered')       patch={...patch,completed_at:nowIso,delivered_to_table_at:nowIso};
+    if(to==='pending_payment') patch={...patch,delivered_to_table_at:nowIso};
+    let{data,error}=await db.from('orders').update(patch).eq('id',order.id).select('id');
+    // Fallback si la mig 067 (delivered_to_table_at) no está aplicada.
+    if(error&&/delivered_to_table_at|schema cache/.test(error.message||'')){
+      const{delivered_to_table_at:_d,...safe}=patch;
+      ({data,error}=await db.from('orders').update(safe).eq('id',order.id).select('id'));
+    }
+    if(error||!data||data.length===0){
+      toast('No se pudo cambiar el estado'+(error?': '+error.message:''),false);
+    }else{
+      // Cocina y mozo dejan rastro en order_status_history; caja también debe.
+      db.from('order_status_history').insert({order_id:order.id,status:to,changed_by:'caja'}).then(()=>{},()=>{});
+      toast(to==='ready'?'Pedido listo':to==='delivered'?'Entregado y cerrado':'Entregado · queda a cobrar');
+      load();
+    }
+    setAdvBusy(null);
+  }
+  /* Al entregar, el destino depende del cobro, no del gusto del cajero. */
+  const entregarDest = o => o.payment_status==='paid' ? 'delivered' : 'pending_payment';
 
   useEffect(()=>{
     const id=setInterval(()=>setNowTick(Date.now()),60000);
@@ -4118,6 +4156,10 @@ function SalonPanel({turno,profile}){
       ?(order.status==='delivered'?`✓ Entregado · oculta en ${entregadoHace}m`:'✓ Pagado · en cocina')
       :(SL[order.status]||order.status);
     const statusCol=esPickupPagado?C.green:(SC[order.status]||'#6E6E73');
+    // Delivery se despacha por su propio circuito (rider), no desde el mostrador.
+    const esDelivery=order.order_type==='delivery';
+    const puedeAvanzar=!esDelivery&&['confirmed','paid','kitchen_received','cooking'].includes(order.status);
+    const puedeEntregar=!esDelivery&&order.status==='ready';
     return(
       <div style={{
         background:C.surface,border:`1px solid ${statusCol}44`,
@@ -4140,14 +4182,34 @@ function SalonPanel({turno,profile}){
           </div>
           <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:800,color:C.green,whiteSpace:'nowrap'}}>{fmt(order.total)}</div>
         </div>
-        {allowCancel&&(
-          <div style={{display:'flex',justifyContent:'flex-end'}}>
+        {(allowCancel||puedeAvanzar||puedeEntregar)&&(
+          <div style={{display:'flex',justifyContent:'flex-end',gap:6,flexWrap:'wrap'}}>
+            {puedeAvanzar&&(
+              <button
+                disabled={advBusy===order.id}
+                onClick={e=>{e.stopPropagation();advanceOrder(order,'ready');}}
+                title="Marcar el pedido como listo"
+                style={{padding:'5px 10px',background:'transparent',color:C.green,border:`1px solid ${C.green}66`,borderRadius:6,fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',letterSpacing:0.2,display:'inline-flex',alignItems:'center',gap:4,opacity:advBusy===order.id?.5:1}}>
+                <Icon name="check" size={12} /> Listo
+              </button>
+            )}
+            {puedeEntregar&&(
+              <button
+                disabled={advBusy===order.id}
+                onClick={e=>{e.stopPropagation();advanceOrder(order,entregarDest(order));}}
+                title={order.payment_status==='paid'?'Entregar y cerrar el pedido':'Entregar — el pedido queda pendiente de cobro'}
+                style={{padding:'5px 10px',background:'transparent',color:C.blue||'#007AFF',border:`1px solid ${(C.blue||'#007AFF')}66`,borderRadius:6,fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',letterSpacing:0.2,display:'inline-flex',alignItems:'center',gap:4,opacity:advBusy===order.id?.5:1}}>
+                <Icon name="check" size={12} /> {order.payment_status==='paid'?'Entregar':'Entregar (a cobrar)'}
+              </button>
+            )}
+            {allowCancel&&(
             <button
               onClick={e=>{e.stopPropagation();setCancelTarget(order);}}
               title="Cancelar pedido"
               style={{padding:'5px 10px',background:'transparent',color:C.red,border:`1px solid ${C.red}55`,borderRadius:6,fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',letterSpacing:0.2,display:'inline-flex',alignItems:'center',gap:4}}>
               <Icon name="x" size={12} /> Cancelar
             </button>
+            )}
           </div>
         )}
       </div>
