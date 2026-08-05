@@ -5956,6 +5956,10 @@ async function _loadReceiptCfg(){
     fields:{...(base.fields||{}),...(rc.fields||{})},
     header:{...(base.header||{}),...(rc.header||{})},
     social:{...(base.social||{}),...(rc.social||{})},
+    // Igual que las de arriba: el spread de un objeto guardado a medias (por
+    // ejemplo sólo {comanda:true}) borraría las claves que el local no tocó.
+    prints:{...(base.prints||{}),...(rc.prints||{})},
+    comanda:{...(base.comanda||{}),...(rc.comanda||{})},
   };
 }
 // Chip "dónde se hace esto". La confusión recurrente del panel de impresora es
@@ -5991,6 +5995,7 @@ function ComprobanteDesign({restaurant,onRefresh}){
   const [biz,setBiz]=useState({name:'',address:'',phone:'',instagram:'',facebook:'',logo_url:''});
   const [loaded,setLoaded]=useState(false);
   const [saving,setSaving]=useState(false);
+  const [pvKind,setPvKind]=useState('cliente');   // qué documento muestra la vista previa
 
   useEffect(()=>{
     let alive=true;
@@ -6018,7 +6023,7 @@ function ComprobanteDesign({restaurant,onRefresh}){
       // inexistente rebota entero y no guardaría NADA de los datos del negocio.
       if(restaurant&&Object.prototype.hasOwnProperty.call(restaurant,'facebook')) upd.facebook=biz.facebook||null;
       await db.from('restaurants').update(upd).eq('id',RID);
-      await _saveReceiptCfg({showLogo:cfg.showLogo,fields:cfg.fields,header:cfg.header,footer:cfg.footer,legalNote:cfg.legalNote,social:cfg.social});
+      await _saveReceiptCfg({showLogo:cfg.showLogo,fields:cfg.fields,header:cfg.header,footer:cfg.footer,legalNote:cfg.legalNote,social:cfg.social,prints:cfg.prints,comanda:cfg.comanda});
       toast('Diseño del comprobante guardado');
       if(onRefresh) onRefresh(true);
     }catch(e){ toast('No se pudo guardar: '+(e.message||e),false); }
@@ -6026,7 +6031,18 @@ function ComprobanteDesign({restaurant,onRefresh}){
   }
 
   const previewBiz={name:biz.name,address:biz.address,phone:biz.phone,instagram:biz.instagram,logoUrl:biz.logo_url,ruc:(restaurant||{}).ruc,legalName:(restaurant||{}).legal_name,facebook:biz.facebook};
-  const previewHtml=(loaded&&MR)? MR.buildHTML(MR.sampleData,{...cfg,business:previewBiz}) : '';
+  // La vista previa muestra el documento que se esté editando. La comanda se
+  // previsualiza con un agregado y una observación: son las dos cosas que hacen
+  // que la cocina la lea bien o mande el plato equivocado.
+  const previewData=(loaded&&MR)?(
+    pvKind==='comanda'
+      ? {...MR.sampleData, kind:'comanda', waiter:'Juan Pérez',
+         items:MR.sampleData.items.map((it,i)=>i===0
+           ? {...it, observations:'Sin cebolla, bien cocido', order_item_extras:[{extra_name:'Queso extra'}]}
+           : it)}
+      : {...MR.sampleData, kind:pvKind}
+  ):null;
+  const previewHtml=(loaded&&MR)? MR.buildHTML(previewData,{...cfg,business:previewBiz}) : '';
 
   const FIELDS=[['orderNumber','N° de pedido'],['customerName','Nombre del cliente (o "Anónimo")'],['table','N° de mesa'],['cashier','Cajero'],['dateTime','Fecha y hora'],['paymentMethod','Método de pago'],['change','Vuelto'],['ruc','RUC del cliente (si lo dio)'],['unitPrice','Precio unitario por ítem (suma un renglón a cada línea)']];
   const HEAD=[['showName','Nombre comercial'],['showRuc','RUC / Razón social'],['showAddress','Dirección'],['showPhone','Teléfono'],['showInstagram','Instagram'],['showFacebook','Facebook']];
@@ -6066,6 +6082,46 @@ function ComprobanteDesign({restaurant,onRefresh}){
           </div>
         </div>
 
+        {/* QUÉ SE IMPRIME. Hasta ahora salía un solo papel (el del cliente).
+            Cada local elige cuáles de los tres usa; en Caja el cajero puede
+            desmarcar uno para UNA venta sin cambiar esta configuración. */}
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>QUÉ SE IMPRIME EN CADA VENTA</div>
+          <div style={{fontSize:11,color:C.dim,marginBottom:10}}>Lo que quede marcado sale automáticamente al cobrar. En Caja el cajero puede desmarcar uno para una venta puntual.</div>
+          <div className="my-row-2" style={{gap:'0 18px'}}>
+            <RcToggle on={cfg.prints?.cliente!==false} onChange={v=>setCfg({...cfg,prints:{...cfg.prints,cliente:v}})}
+              label="Comprobante del cliente" hint="El que se entrega en el mostrador."/>
+            <RcToggle on={!!cfg.prints?.interno} onChange={v=>setCfg({...cfg,prints:{...cfg.prints,interno:v}})}
+              label="Copia interna del local" hint="La misma venta, marcada como copia de control para el arqueo."/>
+            <RcToggle on={!!cfg.prints?.comanda} onChange={v=>setCfg({...cfg,prints:{...cfg.prints,comanda:v}})}
+              label="Comanda de cocina" hint="Papel para la cocina, sin precios. Imprescindible si el local no usa la pantalla de cocina."/>
+          </div>
+          {cfg.prints?.comanda&&(
+            <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${C.border}`}}>
+              <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>OPCIONES DE LA COMANDA</div>
+              <div className="my-row-2" style={{gap:'0 18px'}}>
+                <RcToggle on={cfg.comanda?.upperItems!==false} onChange={v=>setCfg({...cfg,comanda:{...cfg.comanda,upperItems:v}})}
+                  label="Platos en MAYÚSCULAS" hint="Se leen de lejos en una cocina."/>
+                <RcToggle on={cfg.comanda?.showTime!==false} onChange={v=>setCfg({...cfg,comanda:{...cfg.comanda,showTime:v}})} label="Hora del pedido"/>
+                <RcToggle on={cfg.comanda?.showWaiter!==false} onChange={v=>setCfg({...cfg,comanda:{...cfg.comanda,showWaiter:v}})} label="Quién tomó el pedido"/>
+                <RcToggle on={!!cfg.comanda?.showCustomer} onChange={v=>setCfg({...cfg,comanda:{...cfg.comanda,showCustomer:v}})}
+                  label="Nombre del cliente" hint="La cocina no suele necesitarlo."/>
+              </div>
+              <div className="my-row-2" style={{gap:12,marginTop:10}}>
+                <div>
+                  <Lbl>COPIAS</Lbl>
+                  <Sel value={String(cfg.comanda?.copies||1)} onChange={e=>setCfg({...cfg,comanda:{...cfg.comanda,copies:Number(e.target.value)}})}>
+                    <option value="1">1 — sólo cocina</option>
+                    <option value="2">2 — cocina y mostrador</option>
+                    <option value="3">3</option>
+                  </Sel>
+                </div>
+                <div><Lbl>AVISO FIJO EN LA COMANDA</Lbl><Inp value={cfg.comanda?.note||''} onChange={e=>setCfg({...cfg,comanda:{...cfg.comanda,note:e.target.value}})} placeholder="Revisar alergias antes de servir"/></div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:18}}>
           <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:6}}>ENCABEZADO — QUÉ MOSTRAR</div>
           <div className="my-row-2" style={{gap:'0 18px'}}>
@@ -6085,6 +6141,11 @@ function ComprobanteDesign({restaurant,onRefresh}){
 
       <div style={{position:'sticky',top:12}}>
         <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>VISTA PREVIA · 80MM</div>
+        <div style={{display:'flex',gap:0,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginBottom:8}}>
+          {[['cliente','Cliente'],['interno','Interno'],['comanda','Comanda']].map(([k,l],i,a)=>(
+            <button key={k} onClick={()=>setPvKind(k)} style={{flex:1,padding:'6px 10px',fontSize:12,fontWeight:pvKind===k?700:400,background:pvKind===k?C.ink:C.white,color:pvKind===k?C.sidebar:C.dim,border:'none',cursor:'pointer',borderRight:i<a.length-1?`1px solid ${C.border}`:'none'}}>{l}</button>
+          ))}
+        </div>
         <div style={{background:'#fff',border:`1px solid ${C.border}`,borderRadius:10,padding:14,display:'flex',justifyContent:'center'}}>
           <iframe title="preview-comprobante" srcDoc={previewHtml} style={{width:'80mm',minHeight:360,border:'none',background:'#fff'}}/>
         </div>

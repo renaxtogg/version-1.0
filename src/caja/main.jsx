@@ -1,4 +1,4 @@
-﻿// ════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
 // PR-5 — Panel caja precompilado con Vite (batch de migración legacy).
 // Migrado 1:1 desde el <script type="text/babel"> inline de public/caja.html.
 // Sin cambios de comportamiento ni de UI. React/createRoot vienen de npm
@@ -120,16 +120,32 @@ const FONDO_MINIMO   = 50000; // ₲ 50.000 mínimo recomendado
 // compartido con el diseñador de admin (vista previa = lo que se imprime). printTicket
 // arma el `data` y delega; la config (campos/ancho/encabezado) sale de window._receiptConfig,
 // cargada en el bootstrap desde restaurant_settings.settings_json.receipt + datos del negocio.
-function printTicket(t){
+// Qué se imprime por defecto en este local (comprobante del cliente / copia
+// interna / comanda de cocina). Sale de la config del restaurante; sin config,
+// sólo el del cliente — que es lo único que el sistema imprimía hasta ahora.
+function defaultPrints(){
+  const cfg = window._receiptConfig || (window.MythosReceipt && window.MythosReceipt.defaultConfig) || {};
+  const p = cfg.prints || {};
+  return {cliente: p.cliente!==false, interno: !!p.interno, comanda: !!p.comanda};
+}
+
+// `which` permite al cajero decidir sobre ESTA venta (los checkboxes del modal);
+// si no se pasa, manda la config del local.
+function printTicket(t, which){
   t = t || {};
   if(!window.MythosReceipt){ toast('No se pudo cargar el módulo de impresión',false); return; }
   const cfg = window._receiptConfig || window.MythosReceipt.defaultConfig;
-  const ok = window.MythosReceipt.print({
+  const w = which || defaultPrints();
+  if(!w.cliente && !w.interno && !w.comanda){ toast('No hay ningún ticket marcado para imprimir',false); return; }
+  const ok = window.MythosReceipt.printSet({
     orderNumber: t.orderNumber,
     tableLabel:  t.mesa,
     customerName:t.customerName,        // undefined → el renderer pone "Anónimo"
     customerRuc: t.customerRuc,
     cashier:     t.cashier,
+    waiter:      t.waiter || t.cashier, // comanda: quién tomó el pedido
+    orderNote:   t.orderNote,
+    reprint:     !!t.reprint,           // comanda repetida → se marca, o se cocina dos veces
     createdAt:   t.createdAt,
     items:       t.items,
     total:       t.total,
@@ -138,7 +154,7 @@ function printTicket(t){
     giftCard:    t.giftCard,          // {code, applied, balance} — mig 197
     isOffline:   t.isOffline,
     partial:     t.partial,            // cobro por mesa: badge "PAGO PARCIAL"
-  }, cfg);
+  }, cfg, w);
   if(ok===false) toast('Permití ventanas emergentes para imprimir',false);
 }
 
@@ -355,6 +371,40 @@ function Btn({children,onClick,variant='primary',disabled,small,full,style:sx}){
   return<button onClick={onClick} disabled={disabled} className={cls} style={{...(full?{width:'100%'}:{}),...sx}}>{children}</button>;
 }
 function Divider(){return<div style={{height:1,background:C.border,margin:'8px 0'}}/>;}
+
+/* ── QUÉ IMPRIMIR ──────────────────────────────────────────────────────
+   Los tres papeles de una venta, marcables uno por uno. Arranca con lo que
+   el local dejó configurado en Admin › Comprobante, y el cajero puede
+   cambiarlo para ESTA venta sin tocar la configuración del negocio: el
+   cliente que no quiere ticket, la comanda que hay que repetir porque la
+   cocina la perdió. Si el local desactivó un documento no aparece acá —
+   marcarlo cada vez sería la configuración al revés. */
+const PRINT_DOCS = [
+  {id:'cliente', lbl:'Cliente',  hint:'El comprobante que se entrega'},
+  {id:'interno', lbl:'Interno',  hint:'Copia de control del local'},
+  {id:'comanda', lbl:'Comanda',  hint:'Papel de cocina, sin precios'},
+];
+function PrintPicker({value,onChange,available}){
+  const av = available || defaultPrints();
+  const docs = PRINT_DOCS.filter(d=>av[d.id]);
+  if(docs.length<=1) return null;   // un solo documento: no hay nada que elegir
+  return(
+    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10,alignItems:'center'}}>
+      <span style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:0.6}}>IMPRIMIR</span>
+      {docs.map(d=>{
+        const on=!!value[d.id];
+        return(
+          <button key={d.id} type="button" title={d.hint}
+            onClick={()=>onChange({...value,[d.id]:!on})}
+            style={{display:'inline-flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:7,cursor:'pointer',fontSize:12,fontWeight:700,
+              border:`1px solid ${on?C.green:C.border}`,background:on?'rgba(52,199,89,0.10)':'transparent',color:on?C.green:C.mid}}>
+            <span style={{fontSize:12,lineHeight:1}}>{on?'✓':'○'}</span> {d.lbl}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 /* ── Datos de transferencia del comercio (mig 180) — loader cacheado + hook ──
    Los carga el dueño en Admin → Configuración. Caja los muestra al cobrar por
@@ -1354,6 +1404,8 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [busy,setBusy]=useState(false);
   const [items,setItems]=useState([]);
   const [successTicket,setSuccessTicket]=useState(null);
+  // Arranca con lo configurado por el local; el cajero lo ajusta por venta.
+  const [prints,setPrints]=useState(defaultPrints);
   const [showBancardToast,setShowBancardToast]=useState(false);
   const [invoiceType,setInvoiceType]=useState(()=>{
     if(!order.requires_invoice) return 'none';
@@ -1550,7 +1602,7 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
         createdAt:order.created_at||new Date().toISOString(),
       };
       setSuccessTicket(ticket);
-      if(invoiceType==='ticket') printTicket(ticket);
+      if(invoiceType==='ticket') printTicket(ticket,prints);
     }catch(e){toast('Error al cobrar: '+e.message,false);}
     setBusy(false);
   }
@@ -1592,8 +1644,9 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
             </div>
           )}
         </div>
+        <PrintPicker value={prints} onChange={setPrints}/>
         <div style={{display:'flex',gap:10}}>
-          <Btn full onClick={()=>printTicket(successTicket)} variant="secondary"><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir ticket</Btn>
+          <Btn full onClick={()=>printTicket(successTicket,prints)} variant="secondary"><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir ticket</Btn>
           <Btn full onClick={cerrarTrasExito} variant="success">Cerrar</Btn>
         </div>
       </Modal>
@@ -1820,6 +1873,8 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
   const [successTicket,setSuccessTicket]=useState(null);
+  // Arranca con lo configurado por el local; el cajero lo ajusta por venta.
+  const [prints,setPrints]=useState(defaultPrints);
   const successRef=React.useRef(null);
   const BILLETES=[1000,2000,5000,10000,20000,50000,100000];
   const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
@@ -1872,7 +1927,7 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
         total:subReal, metodo, cambio:Math.max(0,montoNum-subReal),
         cashier:profile.display_name||profile.username, createdAt:new Date().toISOString(),
       };
-      printTicket(ticket);
+      printTicket(ticket,prints);
       successRef.current={
         mov:{id:res.movimiento_id,tipo:'cobro',monto:subReal,metodo_pago:metodo,pedido_id:null,
              usuario_nombre:profile.display_name||profile.username,created_at:new Date().toISOString()},
@@ -1915,8 +1970,9 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
             </div>
           )}
         </div>
+        <PrintPicker value={prints} onChange={setPrints}/>
         <div style={{display:'flex',gap:10}}>
-          <Btn full onClick={()=>printTicket(successTicket)} variant="secondary"><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Reimprimir</Btn>
+          <Btn full onClick={()=>printTicket(successTicket,prints)} variant="secondary"><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Reimprimir</Btn>
           <Btn full onClick={cerrarTrasExito} variant="success">Cerrar</Btn>
         </div>
       </Modal>
@@ -2805,6 +2861,8 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,cliente,ta
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
   const [successTicket,setSuccessTicket]=useState(null);
+  // Arranca con lo configurado por el local; el cajero lo ajusta por venta.
+  const [prints,setPrints]=useState(defaultPrints);
   const [invoiceType,setInvoiceType]=useState('none'); // 'none'|'ticket'|'fiscal'
   const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
   const [proofUrl,setProofUrl]=useState('');         // foto del comprobante (mig 182)
@@ -2987,7 +3045,7 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,cliente,ta
         createdAt:order.created_at||new Date().toISOString(),
       };
       setSuccessTicket(ticket);
-      if(invoiceType==='ticket' || metodo==='efectivo') printTicket(ticket);
+      if(invoiceType==='ticket' || metodo==='efectivo') printTicket(ticket,prints);
     }catch(e){toast('Error: '+e.message,false);}
     setBusy(false);
   }
@@ -3024,8 +3082,9 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,cliente,ta
             </div>
           )}
         </div>
+        <PrintPicker value={prints} onChange={setPrints}/>
         <div style={{display:'flex',gap:10}}>
-          <Btn full onClick={()=>printTicket(successTicket)} variant="secondary"><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir ticket</Btn>
+          <Btn full onClick={()=>printTicket(successTicket,prints)} variant="secondary"><Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Imprimir ticket</Btn>
           <Btn full onClick={cerrarTrasExito} variant="success">Cerrar</Btn>
         </div>
       </Modal>
@@ -3568,7 +3627,24 @@ function OrderDetailModal({order,onClose}){
         <span style={{fontSize:13,fontWeight:700,color:C.mid}}>TOTAL</span>
         <span style={{fontSize:22,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.green}}>{fmt(order.total)}</span>
       </div>
-      <Btn variant="ghost" full onClick={onClose}>Cerrar</Btn>
+      {/* Reimprimir la comanda desde acá cubre el caso que el cobro no cubre:
+          los pedidos que entraron por el mozo o por el QR nunca pasan por caja,
+          así que su comanda no se imprime sola. Y también el clásico "la cocina
+          la perdió" — por eso sale marcada como REIMPRESIÓN: sin esa marca, se
+          cocina de nuevo y salen dos platos que nadie pidió. */}
+      <div style={{display:'flex',gap:8}}>
+        <Btn variant="secondary" full onClick={()=>printTicket({
+          orderNumber:order.order_number, mesa,
+          customerName:order.customer_name||null,
+          waiter:order.waiter_name||null,
+          createdAt:order.created_at,
+          items:items.map(it=>({...it,total_price:Number(it.unit_price||0)*Number(it.quantity||1)})),
+          total:order.total, reprint:true,
+        },{cliente:false,interno:false,comanda:true})}>
+          <Icon name="print" size={14} style={{verticalAlign:'-2px',marginRight:5}}/>Comanda
+        </Btn>
+        <Btn variant="ghost" full onClick={onClose}>Cerrar</Btn>
+      </div>
     </Modal>
   );
 }
@@ -6053,6 +6129,10 @@ async function initApp(session){
     const base=(window.MythosReceipt&&window.MythosReceipt.defaultConfig)||{};
     window._receiptConfig={
       ...base, ...rcfg,
+      // Deep-merge: un objeto guardado a medias borraría las claves que el local
+      // no tocó (el spread es superficial).
+      prints:{...(base.prints||{}),...(rcfg.prints||{})},
+      comanda:{...(base.comanda||{}),...(rcfg.comanda||{})},
       business:{
         name:r?.name||'', address:r?.address||'', phone:r?.phone||'',
         instagram:r?.instagram||'', website:r?.website||'', logoUrl:r?.logo_url||'',

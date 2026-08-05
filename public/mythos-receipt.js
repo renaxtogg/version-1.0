@@ -174,7 +174,31 @@
     },
     footer: '¡Gracias por su visita!',
     legalNote: 'COMPROBANTE DE CONSUMO\nNo válido como factura legal',
-    social: { facebook: '' }
+    social: { facebook: '' },
+
+    // ── QUÉ SE IMPRIME EN CADA VENTA ────────────────────────────────
+    // Hasta ahora el sistema imprimía UN solo papel: el del cliente. Ahora son
+    // tres documentos distintos y cada local elige cuáles usa. Los defaults
+    // dejan el comportamiento de siempre: sólo el del cliente.
+    //   cliente → el comprobante que se entrega
+    //   interno → la misma venta, marcada como copia de control del local
+    //   comanda → el papel de cocina (sin precios)
+    prints: { cliente: true, interno: false, comanda: false },
+
+    // ── COMANDA (papel de cocina) ───────────────────────────────────
+    // Un local que no usa el KDS necesita que la cocina se entere del pedido:
+    // sin este papel, el cocinero no sabe qué cocinar. Es OTRO documento, no
+    // otro formato del ticket — comparte la impresora y la grilla, nada más.
+    // Todo apagado por defecto: el que usa KDS no quiere papel saliendo solo.
+    comanda: {
+      autoPrint: false,      // imprimir sola al entrar un pedido nuevo (panel caja)
+      copies: 1,             // 2 = una para la cocina y otra para el mostrador
+      upperItems: true,      // MAYÚSCULAS: se leen de lejos en una cocina
+      showWaiter: true,
+      showCustomer: false,   // la cocina no necesita el nombre del cliente
+      showTime: true,
+      note: ''               // aviso fijo del local ("revisar alergias", etc.)
+    }
   };
 
   // Datos de ejemplo para la vista previa / "Imprimir prueba" en admin.
@@ -215,6 +239,8 @@
       footer: (config.footer != null ? config.footer : defaultConfig.footer),
       legalNote: (config.legalNote != null ? config.legalNote : defaultConfig.legalNote),
       social: Object.assign({}, defaultConfig.social, config.social || {}),
+      prints: Object.assign({}, defaultConfig.prints, config.prints || {}),
+      comanda: Object.assign({}, defaultConfig.comanda, config.comanda || {}),
       business: config.business || {}
     };
   }
@@ -247,6 +273,13 @@
            'md' → 1.15em  · 'lg' → 1.35em (centradas a ancho reducido,
                   así el centrado por espacios también cae bien)      */
   function buildLines(data, c) {
+    // La comanda es OTRO documento, no otro formato del ticket. Comparte
+    // impresora, grilla y sanitizado; el contenido no tiene nada que ver.
+    if (data && data.kind === 'comanda') return buildComandaLines(data, c);
+    // COPIA INTERNA: el mismo ticket, pero es del local. Se marca fuerte y sin
+    // el pie de cortesía — si sale igual que el del cliente, en el arqueo nadie
+    // distingue la copia del original y se cuenta la venta dos veces.
+    var INT = !!(data && data.kind === 'interno');
     var W = c.charsPerLine;
     var A = c.asciiOnly;
     var cur = c.currency;
@@ -275,7 +308,9 @@
     if (out.length > head0) rule();
 
     // ── nota legal / tipo de comprobante ──
-    var legalLines = String(c.legalNote || '').split('\n').filter(function (l) { return l.trim(); });
+    var legalLines = String(
+      INT ? 'COPIA INTERNA\nControl del local — no entregar al cliente' : (c.legalNote || '')
+    ).split('\n').filter(function (l) { return l.trim(); });
     if (legalLines.length) {
       legalLines.forEach(function (l, i) { block(l, i === 0 ? 'b' : ''); });
       rule();
@@ -291,7 +326,9 @@
     if (c.fields.table && data.tableLabel) left(String(data.tableLabel));
     if (c.fields.customerName) left('Cliente: ' + (data.customerName || 'Anónimo'));
     if (c.fields.ruc && data.customerRuc) left('RUC Cliente: ' + data.customerRuc);
-    if (c.fields.cashier && data.cashier) left('Cajero: ' + data.cashier);
+    // En la copia interna el cajero va SIEMPRE: es una copia de control, y sin
+    // saber quién cobró no sirve para arquear.
+    if ((c.fields.cashier || INT) && data.cashier) left('Cajero: ' + data.cashier);
     if (out.length > meta0) rule();
 
     // ── ítems: nombre a la izquierda, importe en columna derecha ──
@@ -349,12 +386,90 @@
     }
 
     // ── pie ──
-    var footer = String(c.footer || '').trim();
+    // El "¡Gracias por su visita!" es para el cliente. En la copia interna sólo
+    // gastaría papel y la haría más parecida al original.
+    var footer = INT ? '' : String(c.footer || '').trim();
     if (footer) { rule(); block(footer); }
 
     // Avance final: sin esto el corte manual se come el pie del ticket.
     for (var f = 0; f < c.feedLines; f++) push('');
 
+    return out;
+  }
+
+  /* ── COMANDA: el papel que va a la cocina ──────────────────────────
+     NO lleva precios ni totales, y no es una decisión estética: una comanda
+     con importes se termina entregando como si fuera la cuenta, y encima
+     obliga al cocinero a saltear números para encontrar el plato.
+     Lo que la cocina necesita, en este orden: a dónde va, qué se cocina y qué
+     tiene de especial. Todo lo demás es ruido que gasta papel.
+     Las líneas grandes se envuelven al ancho que les corresponde (W / escala):
+     con el ancho normal, un nombre largo en 'lg' se sale del rollo. */
+  function buildComandaLines(data, c) {
+    var W = c.charsPerLine;
+    var A = c.asciiOnly;
+    var k = c.comanda || {};
+    var out = [];
+    var S = function (x) { return sane(x, A); };
+    var push = function (s, kk) { out.push({ s: s, k: kk || '' }); };
+    var rule = function (ch) { push(rep(ch || '-', W)); };
+    var wLG = Math.floor(W / SCALE.lg);
+    var wMD = Math.floor(W / SCALE.md);
+    var block = function (txt, kk, w) {
+      w = w || W;
+      wrap(S(txt), w).forEach(function (l) { push(center(l, w), kk); });
+    };
+    var left = function (txt) { wrap(S(txt), W).forEach(function (l) { push(l); }); };
+
+    rule('=');
+    // "REIMPRESIÓN" bien visible: sin esa marca, una comanda repetida se cocina
+    // de nuevo y salen dos platos que nadie pidió.
+    block(data.reprint ? 'COMANDA · REIMPRESIÓN' : 'COMANDA', 'md', wMD);
+    rule('=');
+
+    // El destino va primero y en grande: es el dato con el que se levanta el
+    // plato, y el que evita que termine en la mesa equivocada.
+    var dest = data.tableLabel || data.destino || '';
+    if (dest) block(dest, 'lg', wLG);
+    if (data.orderNumber != null) block('Pedido #' + data.orderNumber, 'md', wMD);
+    rule();
+
+    var meta0 = out.length;
+    if (k.showTime !== false) left('Hora: ' + dateStr(data));
+    if (k.showWaiter !== false && data.waiter) left('Pidió: ' + data.waiter);
+    if (k.showCustomer && data.customerName) left('Cliente: ' + data.customerName);
+    if (out.length > meta0) rule();
+
+    var items = (data.items || []).filter(Boolean);
+    items.forEach(function (it, i) {
+      if (i) rule();   // raya entre platos: dos pegados se leen como uno solo
+      var qty = Number(it.quantity) || 1;
+      var nm = S(it.item_name || it.name || '');
+      if (k.upperItems !== false) nm = nm.toUpperCase();
+      wrap(qty + 'x ' + nm, wLG).forEach(function (l, j) { push(j ? '  ' + l : l, 'lg'); });
+      var ex = it.order_item_extras || it.extras || [];
+      (Array.isArray(ex) ? ex : []).forEach(function (x) {
+        var n = S(x.extra_name || x.name || x);
+        if (n) wrap('+ ' + n, wMD - 2).forEach(function (l, j) { push('  ' + (j ? '  ' : '') + l, 'md'); });
+      });
+      // La observación es el motivo por el que la comanda existe en papel:
+      // "sin cebolla" mal leído es un plato devuelto.
+      if (it.observations) {
+        wrap('** ' + S(it.observations), wMD - 2).forEach(function (l, j) { push('  ' + (j ? '   ' : '') + l, 'md'); });
+      }
+    });
+    if (items.length) {
+      rule('=');
+      var totQ = items.reduce(function (s, it) { return s + (Number(it.quantity) || 1); }, 0);
+      left('Total: ' + items.length + ' línea' + (items.length !== 1 ? 's' : '')
+           + ' / ' + totQ + ' ítem' + (totQ !== 1 ? 's' : ''));
+    }
+
+    if (data.orderNote) { rule(); left('NOTA: ' + data.orderNote); }
+    var note = String(k.note || '').trim();
+    if (note) { rule(); block(note); }
+
+    for (var f = 0; f < c.feedLines; f++) push('');
     return out;
   }
 
@@ -379,7 +494,9 @@
     fs = Math.min(24, Math.max(7, Math.round(fs * 10) / 10));
 
     var lines = buildLines(data, c);
-    var logoOn = !!(c.showLogo && b.logoUrl);
+    // La comanda no lleva logo: es papel interno y las térmicas rinden mal las
+    // imágenes — gastaría 22mm de rollo por pedido para nada.
+    var logoOn = !!(c.showLogo && b.logoUrl && data.kind !== 'comanda');
 
     // ── ALTO EXACTO DE LA PÁGINA ──────────────────────────────────
     // `@page{size:80mm auto}` NO es CSS válido: la gramática de `size` es
@@ -424,7 +541,8 @@
 
     return '<!DOCTYPE html><html><head><meta charset="utf-8">'
       + '<meta name="viewport" content="width=device-width,initial-scale=1">'
-      + '<title>Comprobante' + (data.orderNumber != null ? ' #' + esc(data.orderNumber) : '') + '</title>'
+      + '<title>' + (data.kind === 'comanda' ? 'Comanda' : data.kind === 'interno' ? 'Copia interna' : 'Comprobante')
+      +   (data.orderNumber != null ? ' #' + esc(data.orderNumber) : '') + '</title>'
       + '<style>'
       + '@page{size:' + w + 'mm ' + hMM + 'mm;margin:0}'            /* ← ambas medidas, si no la regla no vale */
       + '*{margin:0;padding:0;box-sizing:border-box}'
@@ -457,7 +575,7 @@
   // ventana que parpadea). El diálogo del navegador igual aparece salvo que
   // Chrome corra con --kiosk-printing (ver nota en el panel Impresora).
   // Devuelve true salvo que ni siquiera se pueda crear el iframe.
-  function _printViaIframe(html) {
+  function _printViaIframe(html, onDone) {
     if (!document || !document.body) return false;
     var iframe = document.createElement('iframe');
     iframe.setAttribute('aria-hidden', 'true');
@@ -467,6 +585,9 @@
     function cleanup() {
       if (cleaned) return; cleaned = true;
       setTimeout(function () { try { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); } catch (e) {} }, 500);
+      // Encadena el documento siguiente. El guard `cleaned` garantiza que corre
+      // una sola vez, venga de onafterprint, del catch o del backstop.
+      if (onDone) { try { onDone(); } catch (e) {} }
     }
     var win = iframe.contentWindow;
     var idoc = win.document;
@@ -502,6 +623,44 @@
     return _printViaPopup(html);
   }
 
+  /* Varios documentos en UNA operación. Van EN SECUENCIA, esperando el
+     afterprint de cada uno: tres iframes a la vez abren tres diálogos
+     superpuestos y el cajero termina cancelando el que no era. */
+  function printMany(docs, config) {
+    var list = (docs || []).filter(Boolean);
+    if (!list.length) return false;
+    var i = 0;
+    function next() {
+      if (i >= list.length) return;
+      var html = buildHTML(list[i++], config);
+      var ok = false;
+      try { ok = _printViaIframe(html, next); } catch (e) { ok = false; }
+      // Sin iframe queda la ventana emergente, que no encadena: se abren todas
+      // juntas. Es el camino raro (entorno sin document.body), no el normal.
+      if (!ok) { _printViaPopup(html); next(); }
+    }
+    next();
+    return true;
+  }
+
+  /* Los papeles de UNA venta, según lo que esté marcado.
+     El orden no es casual: primero la comanda (la cocina tiene que arrancar
+     ya), después el del cliente (que está esperando en el mostrador) y al
+     final la copia interna, que no la espera nadie. */
+  function printSet(data, config, which) {
+    var c = mergeConfig(config);
+    var w = which || c.prints;
+    var docs = [];
+    if (w.comanda) {
+      var n = clamp((c.comanda && c.comanda.copies) || 1, 1, 3);
+      for (var i = 0; i < n; i++) docs.push(Object.assign({}, data, { kind: 'comanda' }));
+    }
+    if (w.cliente) docs.push(Object.assign({}, data, { kind: 'cliente' }));
+    if (w.interno)  docs.push(Object.assign({}, data, { kind: 'interno' }));
+    if (!docs.length) return false;   // nada marcado: no es un error, es una elección
+    return printMany(docs, config);
+  }
+
   window.MythosReceipt = {
     defaultConfig: defaultConfig,
     sampleData: sampleData,
@@ -510,6 +669,8 @@
     buildText: buildText,
     measure: measure,
     buildHTML: buildHTML,
-    print: print
+    print: print,
+    printMany: printMany,
+    printSet: printSet
   };
 })();
