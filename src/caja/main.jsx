@@ -129,6 +129,22 @@ function defaultPrints(){
   return {cliente: p.cliente!==false, interno: !!p.interno, comanda: !!p.comanda};
 }
 
+/* CADA DOCUMENTO SALE UNA VEZ, EN SU MOMENTO.
+     'cocina' → el pedido entra a la cocina (mozo, QR): comanda + copia interna.
+     'cobro'  → se cierra y se marca pagado: comprobante del cliente.
+     'ambos'  → cobro ANTES de enviar a cocina: los dos momentos son el mismo,
+                y por eso ahí salen los tres juntos.
+   Reimprimir la comanda al cobrar un pedido que YA pasó por cocina haría
+   cocinar el plato dos veces; y el comprobante del cliente no existe antes de
+   que haya un pago que informar. El cajero igual puede marcar a mano lo que
+   quiera — la regla es el default, no una reja. */
+function printsFor(moment){
+  const p = defaultPrints();
+  if(moment==='cocina') return {cliente:false,     interno:p.interno, comanda:p.comanda};
+  if(moment==='cobro')  return {cliente:p.cliente, interno:false,     comanda:false};
+  return p;
+}
+
 // `which` permite al cajero decidir sobre ESTA venta (los checkboxes del modal);
 // si no se pasa, manda la config del local.
 function printTicket(t, which){
@@ -1404,8 +1420,9 @@ function CobroModal({order,turno,profile,deliveryInfo,onClose,onSuccess}){
   const [busy,setBusy]=useState(false);
   const [items,setItems]=useState([]);
   const [successTicket,setSuccessTicket]=useState(null);
-  // Arranca con lo configurado por el local; el cajero lo ajusta por venta.
-  const [prints,setPrints]=useState(defaultPrints);
+  // Cobro de un pedido que YA pasó por cocina: sale el del cliente. El cajero
+  // puede marcar otro a mano si hace falta reimprimirlo.
+  const [prints,setPrints]=useState(()=>printsFor('cobro'));
   const [showBancardToast,setShowBancardToast]=useState(false);
   const [invoiceType,setInvoiceType]=useState(()=>{
     if(!order.requires_invoice) return 'none';
@@ -1873,8 +1890,9 @@ function CobroMesaModal({tableId,tableNumber,mesaOrders,turno,profile,onClose,on
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
   const [successTicket,setSuccessTicket]=useState(null);
-  // Arranca con lo configurado por el local; el cajero lo ajusta por venta.
-  const [prints,setPrints]=useState(defaultPrints);
+  // Cobro de un pedido que YA pasó por cocina: sale el del cliente. El cajero
+  // puede marcar otro a mano si hace falta reimprimirlo.
+  const [prints,setPrints]=useState(()=>printsFor('cobro'));
   const successRef=React.useRef(null);
   const BILLETES=[1000,2000,5000,10000,20000,50000,100000];
   const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
@@ -2861,8 +2879,9 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,cliente,ta
   const [montoPagado,setMontoPagado]=useState('0');
   const [busy,setBusy]=useState(false);
   const [successTicket,setSuccessTicket]=useState(null);
-  // Arranca con lo configurado por el local; el cajero lo ajusta por venta.
-  const [prints,setPrints]=useState(defaultPrints);
+  // Cobro ANTES de enviar a cocina: los dos momentos son el mismo, así que acá
+  // sí salen los tres (lo que el local tenga activado).
+  const [prints,setPrints]=useState(()=>printsFor('ambos'));
   const [invoiceType,setInvoiceType]=useState('none'); // 'none'|'ticket'|'fiscal'
   const [comprobante,setComprobante]=useState('');   // Nº comprobante/operación (mig 180)
   const [proofUrl,setProofUrl]=useState('');         // foto del comprobante (mig 182)
@@ -4007,6 +4026,7 @@ function SalonPanel({turno,profile}){
   const [nowTick,setNowTick]=useState(Date.now());
   const [resvInfo,setResvInfo]=useState(null);
   const [qrModal,setQrModal]=useState(false);
+  const [autoP,setAutoP]=useState(autoPrintOn);
   const [advBusy,setAdvBusy]=useState(null);
   const ACTIVE=['paid','pending_payment','kitchen_received','cooking','ready'];
 
@@ -4315,6 +4335,15 @@ function SalonPanel({turno,profile}){
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,gap:10,flexWrap:'wrap'}}>
         <h1 style={{fontSize:20,fontWeight:800}}>Vista del Salón</h1>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {/* Por EQUIPO, no por restaurante: con dos cajas abiertas, una config
+              del negocio haría que el mismo pedido salga dos veces. Se prende
+              en la terminal que tiene la impresora al lado y en ninguna otra. */}
+          <button onClick={()=>{const v=!autoP;setAutoPrint(v);setAutoP(v);toast(v?'Esta caja imprimirá las comandas que entren':'Comanda automática apagada en esta caja');}}
+            title="Imprime sola la comanda de los pedidos que entran por el QR o el mozo. Se guarda en ESTE equipo."
+            style={{display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:8,fontSize:12,fontWeight:700,cursor:'pointer',
+              border:`1px solid ${autoP?C.green:C.border}`,background:autoP?'rgba(52,199,89,0.10)':'transparent',color:autoP?C.green:C.mid}}>
+            <Icon name="print" size={13}/> Comanda automática · {autoP?'SÍ':'NO'}
+          </button>
           <Btn small variant="secondary" onClick={()=>setQrModal(true)}><Icon name="dashboard" size={13} style={{verticalAlign:'-2px',marginRight:4}}/>QR mostrador</Btn>
           <Btn small variant="secondary" onClick={load}><Icon name="refresh" size={13} style={{verticalAlign:'-2px',marginRight:4}}/>Actualizar</Btn>
         </div>
@@ -5999,7 +6028,79 @@ function DashboardCaja({turno,profile,onCierre}){
 /* ═══════════════════════════════════════════
    APP PRINCIPAL
 ═══════════════════════════════════════════ */
+/* ── COMANDA AUTOMÁTICA DE LOS PEDIDOS QUE NO PASAN POR CAJA ────────────
+   Un pedido del QR nace en el teléfono del cliente, que no tiene la impresora
+   del local; y uno del mozo sale de una tablet que puede no tenerla cerca. Si
+   nadie los imprime, la cocina no se entera — que es exactamente el problema
+   que la comanda vino a resolver.
+
+   El interruptor es POR EQUIPO (localStorage), no por restaurante, y es a
+   propósito: con dos cajas abiertas, una config del negocio haría que el mismo
+   pedido salga dos veces. Se prende en la terminal que tiene la impresora al
+   lado y en ninguna otra.
+
+   Dos guardas más: sólo pedidos creados DESPUÉS de abrir el panel (si no, al
+   recargar la página se reimprimiría toda la jornada) y una lista de ya
+   impresos, porque el mismo pedido dispara varios eventos de Realtime. */
+const AUTOPRINT_KEY='mythos_caja_autoprint';
+const AUTOPRINT_DONE='mythos_caja_autoprint_done';
+const autoPrintOn =()=>{try{return localStorage.getItem(AUTOPRINT_KEY)==='1';}catch(_){return false;}};
+const setAutoPrint=v=>{try{localStorage.setItem(AUTOPRINT_KEY,v?'1':'0');}catch(_){}};
+function _doneIds(){try{return JSON.parse(localStorage.getItem(AUTOPRINT_DONE)||'[]');}catch(_){return [];}}
+function _markDone(id){
+  try{
+    const l=_doneIds(); if(l.includes(id)) return false;
+    l.push(id); localStorage.setItem(AUTOPRINT_DONE,JSON.stringify(l.slice(-300)));
+    return true;
+  }catch(_){return true;}
+}
+
+function useAutoComanda(){
+  useEffect(()=>{
+    if(!db||!RID) return;
+    const since=Date.now();
+    const KITCHEN=['paid','kitchen_received','cooking'];
+    async function maybePrint(row){
+      if(!autoPrintOn()) return;
+      if(!row||!row.id) return;
+      if(!KITCHEN.includes(row.status)) return;
+      // Sólo lo que entró con el panel abierto.
+      if(row.created_at && new Date(row.created_at).getTime() < since - 60000) return;
+      const w=printsFor('cocina');
+      if(!w.comanda&&!w.interno) return;
+      if(!_markDone(row.id)) return;               // ya impreso: no repetir
+      let items=[];
+      try{
+        const{data}=await db.from('order_items')
+          .select('item_name,quantity,unit_price,total_price,observations,order_item_extras(extra_name)')
+          .eq('order_id',row.id);
+        items=data||[];
+      }catch(_){}
+      if(!items.length) return;
+      let mesa=null;
+      if(row.table_id){
+        try{const{data:t}=await db.from('tables').select('number').eq('id',row.table_id).maybeSingle();
+            if(t) mesa='Mesa '+t.number;}catch(_){}
+      }
+      if(!mesa) mesa=orderTypeLabel(row.order_type)||'Mostrador';
+      if(!window.MythosReceipt) return;
+      window.MythosReceipt.printSet({
+        orderNumber:row.order_number, tableLabel:mesa,
+        customerName:row.customer_name||null, waiter:row.waiter_name||null,
+        cashier:row.waiter_name||null, createdAt:row.created_at,
+        items, total:row.total, metodo:row.payment_method,
+      }, window._receiptConfig||window.MythosReceipt.defaultConfig, w);
+    }
+    const ch=db.channel('caja-autocomanda')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},p=>maybePrint(p.new))
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'orders',filter:`restaurant_id=eq.${RID}`},p=>maybePrint(p.new))
+      .subscribe();
+    return ()=>{db.removeChannel(ch);};
+  },[]);
+}
+
 function CajaApp({profile}){
+  useAutoComanda();
   const [turno,setTurno]=useState(null);
   const [turnoConflicto,setTurnoConflicto]=useState(null);
   const [loading,setLoading]=useState(true);

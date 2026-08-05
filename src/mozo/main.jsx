@@ -51,6 +51,91 @@ const RESTAURANT_ID = _SUPER_RID || localStorage.getItem('mythos_restaurant_id')
 initBusinessTZ(db, RESTAURANT_ID);
 const RID = RESTAURANT_ID; // alias retro-compatible con consultas/suscripciones existentes
 
+/* ── IMPRESIÓN ─────────────────────────────────────────────────────────
+   El renderer 80mm es window.MythosReceipt (public/mythos-receipt.js), el
+   mismo que usan caja y la vista previa del admin — "lo que se ve = lo que
+   se imprime", y una sola grilla de caracteres para las tres pantallas.
+   El mozo imprime porque es quien manda el pedido a la cocina: en un local
+   sin KDS, si la comanda no sale desde acá el cocinero no se entera. */
+async function loadReceiptConfig() {
+  if (!db || !RID) return;
+  try {
+    const [{ data: r }, { data: st }] = await Promise.all([
+      db.from('restaurants').select('name,address,phone,instagram,logo_url,ruc,legal_name').eq('id', RID).maybeSingle(),
+      db.from('restaurant_settings').select('settings_json').eq('restaurant_id', RID).maybeSingle(),
+    ]);
+    const rcfg = (st && st.settings_json && st.settings_json.receipt) || {};
+    const base = (window.MythosReceipt && window.MythosReceipt.defaultConfig) || {};
+    window._receiptConfig = {
+      ...base, ...rcfg,
+      // El spread es superficial: un objeto guardado a medias borraría las
+      // claves que el local no tocó.
+      prints:  { ...(base.prints  || {}), ...(rcfg.prints  || {}) },
+      comanda: { ...(base.comanda || {}), ...(rcfg.comanda || {}) },
+      fields:  { ...(base.fields  || {}), ...(rcfg.fields  || {}) },
+      header:  { ...(base.header  || {}), ...(rcfg.header  || {}) },
+      business: {
+        name: r?.name || '', address: r?.address || '', phone: r?.phone || '',
+        instagram: r?.instagram || '', logoUrl: r?.logo_url || '',
+        ruc: r?.ruc || '', legalName: r?.legal_name || '',
+      },
+    };
+  } catch (_) { /* sin config, el renderer usa sus defaults */ }
+}
+loadReceiptConfig();
+
+// Qué se imprime por defecto en este local. Sin config: sólo el del cliente,
+// que es lo único que el sistema imprimía antes de que existieran los tres.
+function defaultPrints() {
+  const cfg = window._receiptConfig || (window.MythosReceipt && window.MythosReceipt.defaultConfig) || {};
+  const p = cfg.prints || {};
+  return { cliente: p.cliente !== false, interno: !!p.interno, comanda: !!p.comanda };
+}
+
+/* CADA DOCUMENTO SALE UNA VEZ, EN SU MOMENTO.
+     'cocina' → el pedido entra a la cocina (mozo, QR): comanda + copia interna.
+     'cobro'  → se cierra y se marca pagado: comprobante del cliente.
+     'ambos'  → cobro antes de enviar (caja): los dos momentos son el mismo.
+   Volver a imprimir la comanda al cobrar un pedido que YA pasó por cocina
+   haría cocinar el plato dos veces; y el comprobante del cliente no existe
+   antes de que haya un pago que informar. */
+function printsFor(moment) {
+  const p = defaultPrints();
+  if (moment === 'cocina') return { cliente: false,      interno: p.interno, comanda: p.comanda };
+  if (moment === 'cobro')  return { cliente: p.cliente,  interno: false,     comanda: false };
+  return p;
+}
+
+/* Imprime los papeles de UN pedido. Los ítems se releen de la base con sus
+   extras: los selects del panel no los traen, y una comanda sin "+ queso
+   extra" manda a la cocina un plato distinto del que pidió el cliente. */
+async function printOrderDocs(order, which, extra) {
+  if (!order || !db) return;
+  const w = which || defaultPrints();
+  if (!w.cliente && !w.interno && !w.comanda) return;
+  if (!window.MythosReceipt) return;
+  let items = [];
+  try {
+    const { data } = await db.from('order_items')
+      .select('item_name,quantity,unit_price,total_price,observations,order_item_extras(extra_name)')
+      .eq('order_id', order.id);
+    items = data || [];
+  } catch (_) { items = order.order_items || []; }
+  if (!items.length) return;
+  window.MythosReceipt.printSet({
+    orderNumber: order.order_number,
+    tableLabel:  (extra && extra.mesa) || null,
+    customerName: order.customer_name || null,
+    waiter:      order.waiter_name || (extra && extra.waiter) || null,
+    cashier:     (extra && extra.waiter) || order.waiter_name || null,
+    createdAt:   order.created_at,
+    items,
+    total:       order.total,
+    metodo:      order.payment_method,
+    reprint:     !!(extra && extra.reprint),
+  }, window._receiptConfig || window.MythosReceipt.defaultConfig, w);
+}
+
 /* ── UTILS ── */
 const fGs = n => '₲ ' + Math.round(n || 0).toLocaleString('es-PY');
 // El selector de cobro usa el dominio de movimientos_caja.metodo_pago
@@ -1438,6 +1523,13 @@ function App() {
     setItemNotes({});
     setItemExtras({});
     showToast(editable ? `${items.length} ítem(s) agregado(s)` : `${items.length} ítem(s) enviado(s) a cocina`);
+    // Ítems que entran a cocina como ticket aparte (la orden vieja ya avanzó):
+    // su comanda sale ahora. Si la orden seguía editable no se envió nada
+    // todavía — esa comanda sale al tocar "Enviar a cocina".
+    if (!editable) {
+      printOrderDocs({ ...targetOrder, total: newTotal }, printsFor('cocina'),
+        { mesa: activeTable?.number ? `Mesa ${activeTable.number}` : null, waiter: mozoSession?.mozo_name });
+    }
   }
 
   /* ── SAVE ITEM NOTE ── */
@@ -1512,6 +1604,11 @@ function App() {
     await db.from('order_status_history').insert({ order_id: order.id, status: 'kitchen_received', changed_by: 'mozo' });
     await loadData();
     showToast('Orden enviada a cocina');
+    // Comanda + copia interna salen JUSTO cuando el pedido entra a cocina;
+    // cinco minutos después ya no sirven. El comprobante del cliente no: todavía
+    // no hay pago que informar, sale recién al cerrar la cuenta.
+    printOrderDocs(order, printsFor('cocina'),
+      { mesa: activeTable?.number ? `Mesa ${activeTable.number}` : null, waiter: mozoSession?.mozo_name });
   }
 
   /* ── LLAMAR A CAJA ── */
@@ -2517,6 +2614,19 @@ function App() {
                         Llamar a caja
                       </button>
                     </div>
+                    {/* Reimpresión manual: la comanda sale sola al enviar a cocina,
+                        pero se pierde, se moja o la máquina se queda sin papel. Sale
+                        marcada REIMPRESIÓN para que la cocina no cocine dos veces. */}
+                    {defaultPrints().comanda && activeOrder && (
+                      <div className="actions-bar" style={{ paddingTop: 0 }}>
+                        <button className="btn btn-secondary" style={{ flex: 1 }}
+                          onClick={() => { printOrderDocs(activeOrder, { cliente: false, interno: false, comanda: true },
+                            { mesa: activeTable?.number ? `Mesa ${activeTable.number}` : null, waiter: mozoSession?.mozo_name, reprint: true });
+                            showToast('Reimprimiendo comanda'); }}>
+                          Reimprimir comanda
+                        </button>
+                      </div>
+                    )}
                   </>
                 ) : (
                   /* Mesa ocupada pero sin orden activa */
