@@ -783,8 +783,9 @@ function Application({ profile, cfg, reload, toast }) {
   async function submit() {
     if (!accepted) { toast('Tenés que aceptar los términos para enviar la solicitud.', 'bad'); return; }
     setSaving(true);
-    const ip = await API.clientIp();
-    const { error } = await API.submitApplication(cfg?.contract?.version, ip, navigator.userAgent);
+    // La IP del comprobante la resuelve la RPC del lado del servidor: ver la
+    // nota al pie de src/riders/api.js.
+    const { error } = await API.submitApplication(cfg?.contract?.version, navigator.userAgent);
     setSaving(false);
     if (error) { toast(error.message || 'No pudimos enviar la solicitud.', 'bad'); return; }
     toast('¡Solicitud enviada! Te avisamos apenas la revisemos.');

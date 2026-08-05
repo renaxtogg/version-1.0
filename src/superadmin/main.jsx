@@ -5452,7 +5452,8 @@ function MkPlanModal({plan, onClose, onDone, setFlash}) {
    Hasta la 199 el marketplace no cobraba: el trial no vencía nunca y los
    proveedores no aparecían en ninguna métrica de ingresos (Facturación y
    Finanzas solo cuentan restaurantes). Esta pestaña es el otro lado del cron
-   `supplier-billing`: mirar quién vence, registrar el cobro y reactivar.
+   nocturno (`/api/cron/nightly`, paso `proveedores`): mirar quién vence,
+   registrar el cobro y reactivar.
    Los totales salen de superadmin_supplier_billing_overview() — agregados
    SERVER-SIDE: sumar el MRR sobre un array con `.limit()` daría un número que
    empeora cuanto más crece el negocio (misma lección que la mig 197). */

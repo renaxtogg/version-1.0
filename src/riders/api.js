@@ -137,8 +137,12 @@ export const publicConfig      = ()             => rpc('rider_public_config');
 export const ensureRider       = ()             => rpc('ensure_my_rider');
 export const myProfile         = ()             => rpc('my_rider_profile');
 export const saveDraft         = (payload)      => rpc('save_my_rider_draft', { payload });
-export const submitApplication = (version, ip, ua) =>
-  rpc('submit_my_rider_application', { p_contract_version: version, p_accept: true, p_ip: ip, p_user_agent: ua });
+// La IP NO viaja desde acá: la lee la propia RPC del header `x-forwarded-for`
+// que PostgREST expone en `request.headers`. Una IP que manda el navegador en
+// el payload no prueba nada — la del servidor sí, y de paso ahorra una función
+// serverless (el plan Hobby de Vercel topea en 12 y el repo estaba en 12).
+export const submitApplication = (version, ua) =>
+  rpc('submit_my_rider_application', { p_contract_version: version, p_accept: true, p_user_agent: ua });
 export const registerDocument  = (slug, path, mime, issued, expires) =>
   rpc('rider_register_document', { p_slug: slug, p_path: path, p_mime: mime || null,
                                    p_issued_at: issued || null, p_expires_at: expires || null });
@@ -194,22 +198,13 @@ export async function signedDoc(path, seconds = 300) {
   return data?.signedUrl || null;
 }
 
-/* ── IP del postulante para el comprobante del contrato ──────────── */
-// Sale de /api/rider-ip (mismo origen) y NO de un servicio externo tipo
-// ipify: el `connect-src` del CSP (vercel.json) sólo admite 'self', Supabase,
-// Google Maps, Nominatim y Turnstile — cualquier otro host lo bloquea el
-// navegador y la llamada nunca sale. El endpoint devuelve la IP que ve Vercel.
-//
-// Alcance honesto de este dato: la manda el navegador dentro del payload, así
-// que sirve como registro de la aceptación, no como prueba forense de origen.
-// Best-effort además: si falla, el contrato se registra igual — la fecha, la
-// versión y el agente ya identifican la aceptación, y no se va a bloquear una
-// postulación por no poder leer una IP.
-export async function clientIp() {
-  try {
-    const r = await fetch('/api/rider-ip', { cache: 'no-store' });
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j?.ip || null;
-  } catch (_) { return null; }
-}
+/* ── Nota sobre la IP del comprobante del contrato ───────────────── */
+// No hay función `clientIp()` a propósito, y tampoco un endpoint /api/rider-ip.
+// La IP la resuelve `submit_my_rider_application` leyendo `x-forwarded-for` de
+// `request.headers` (el GUC que PostgREST llena con los headers de la
+// petición). Dos razones, en este orden:
+//   1) una IP que el navegador manda dentro del payload la puede escribir
+//      cualquiera — como registro de aceptación no prueba nada;
+//   2) un servicio externo tipo ipify lo bloquea el `connect-src` del CSP, así
+//      que hacía falta un endpoint propio… y el plan Hobby de Vercel topea en
+//      12 funciones serverless: el repo ya estaba exactamente en 12.

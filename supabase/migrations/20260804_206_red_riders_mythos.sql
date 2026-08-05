@@ -1202,6 +1202,7 @@ DECLARE
   v_ct   public.mythos_rider_contract_versions%ROWTYPE;
   v_miss TEXT[] := '{}';
   v_d    RECORD;
+  v_ip   TEXT;
 BEGIN
   IF v_id IS NULL THEN
     RAISE EXCEPTION 'no tenés una ficha de rider' USING ERRCODE = '22023';
@@ -1268,13 +1269,28 @@ BEGIN
     RAISE EXCEPTION 'te falta cargar: %', array_to_string(v_miss, ', ') USING ERRCODE = '22023';
   END IF;
 
+  -- IP del lado del SERVIDOR. PostgREST expone los headers de la petición en el
+  -- GUC `request.headers`, así que la IP que queda en el comprobante es la que
+  -- vio la infraestructura y no un dato que mandó el navegador dentro del
+  -- payload — que es justamente lo que hace que sirva como prueba. El parámetro
+  -- p_ip queda sólo como respaldo (y para no cambiar la firma ni el GRANT).
+  -- Se lee acá y no en un endpoint propio porque el plan Hobby de Vercel topea
+  -- en 12 funciones y el repo ya estaba exactamente en 12.
+  BEGIN
+    v_ip := split_part(
+      COALESCE(current_setting('request.headers', true)::json->>'x-forwarded-for', ''), ',', 1);
+  EXCEPTION WHEN OTHERS THEN
+    v_ip := NULL;  -- llamada fuera de PostgREST (psql, cron): no hay headers.
+  END;
+  v_ip := NULLIF(btrim(COALESCE(NULLIF(btrim(COALESCE(v_ip,'')), ''), p_ip, '')), '');
+
   INSERT INTO public.mythos_rider_contracts (rider_id, version, body_hash, ip, user_agent)
   -- md5() y no digest(): es built-in de PostgreSQL. Con pgcrypto la huella
   -- sería más fuerte, pero acá sólo sirve para probar que el texto aceptado es
   -- el mismo que quedó guardado — y una migración no puede depender de que una
   -- extensión esté instalada en este proyecto.
   VALUES (v_id, v_ct.version, md5(v_ct.body),
-          left(COALESCE(p_ip,''), 60), left(COALESCE(p_user_agent,''), 400));
+          left(COALESCE(v_ip,''), 60), left(COALESCE(p_user_agent,''), 400));
 
   UPDATE public.mythos_riders
      SET status = CASE WHEN COALESCE(v_cfg.auto_approve, false) THEN 'aprobado' ELSE 'pendiente' END,
@@ -3327,7 +3343,7 @@ GRANT EXECUTE ON FUNCTION public.superadmin_resolve_case(uuid,text,text) TO auth
 -- ════════════════════════════════════════════════════════════════════════
 -- 33) VENCIMIENTOS — el módulo que evita que alguien reparta sin papeles
 -- ════════════════════════════════════════════════════════════════════════
--- Lo dispara el cron diario /api/cron/rider-docs. Avisa en los umbrales
+-- Lo dispara el cron diario /api/cron/nightly. Avisa en los umbrales
 -- configurados y, cuando un documento OBLIGATORIO vence, suspende. La
 -- suspensión es reversible por definición: se levanta reponiendo el papel y
 -- aprobándolo — no es una sanción, es una habilitación que caducó.
