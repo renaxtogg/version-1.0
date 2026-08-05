@@ -242,16 +242,20 @@ No tocar. Estos son los patrones que hay que replicar en el resto.
 
 Ordenado por relación valor/riesgo. **Nada de esto está hecho todavía.**
 
-### Etapa 1 — solo frontend, sin migración, sin riesgo
+### Etapa 1 — ✅ APLICADA (2026-08-04) · solo frontend, sin migración
 
-| # | Arreglo | Archivos |
+Los seis arreglos están implementados y los 11 paneles compilan (`npm run build`).
+
+| # | Arreglo | Cómo quedó |
 |---|---|---|
-| 1 | Prellenar el onboarding con lo que ya dio el registro: nombre desde `user_metadata.full_name`, email desde la sesión, WhatsApp y tipo de negocio desde `leads_prospectos` (el lookup ya existe en `api/onboarding.js:176`) | `public/onboarding.html`, `api/onboarding.js` |
-| 2 | En Admin › Info del local, agregar los campos que faltan: WhatsApp, Facebook, ciudad, RUC, razón social (resuelve C1–C3 sin tocar la base — las columnas ya existen) | `src/admin/main.jsx` |
-| 3 | Caja: al elegir ficha, llenar también `invName`/`invRuc` — copiar el patrón del mozo | `src/caja/main.jsx` |
-| 4 | QR: sembrar los campos de factura desde "Mis datos" | `src/index/main.jsx` |
-| 5 | Delivery cliente: pasar `dc_customer` a la clave **global** `mythos_mis_datos`, compartida con el QR (migrar lo que ya esté guardado por local) | `src/delivery-cliente/main.jsx`, `src/index/main.jsx` |
-| 6 | Admin › Mi cuenta: botón "usar mis datos" en la tarjeta del dueño, o directamente sembrarla desde el perfil cuando esté vacía | `src/admin/main.jsx` |
+| 1 | **Onboarding prellenado desde el registro** (B1, A4) | `/registro` copia `whatsapp` y `tipo_negocio` al metadata del signUp junto al `full_name` que ya copiaba — es la única vía, porque `leads_prospectos` sólo la lee el superadmin (mig 117) y el dueño no puede consultar su propio lead. El paso 1 trae el tipo de negocio preseleccionado; el paso 3, WhatsApp, nombre y email del dueño. Para los registros **anteriores** al cambio (sin metadata), `api/onboarding.js` lee el lead con `service_role` y lo devuelve en la respuesta → `mergeLead()`. El `whatsapp` se persiste en `restaurants` al crear, con reintento sin esa columna si la mig 118 no estuviera (perder el WhatsApp es preferible a perder el alta) |
+| 2 | **Admin › Info del local completo** (C1–C3) | `INFO_FIELDS` pasó de 5 a 10 campos: se suman WhatsApp, Facebook, ciudad, razón social y RUC. La lista es ahora la **fuente única** — `save()` la recorre, así que agregar un campo alcanza para que se dibuje *y* se guarde. Filtrado por columna existente, con guard anti-borrado si el row aún no cargó |
+| 3 | **Facebook unificado** (A1) | El diseñador de comprobante lee y escribe `restaurants.facebook` (la columna real, la que muestra `/clientes`), con la copia vieja de `settings_json` sólo como respaldo. Al guardar, el fork se cierra solo. Igual en Caja, con la columna pedida en un query aparte para que un 400 no se lleve puesto el nombre del local y el diseño del ticket |
+| 4 | **Caja siembra la factura** (B5) | `PagarAntesDeEnviarModal` inicializa `invName`/`invRuc`/`invEmail` desde la ficha ya elegida — el patrón que el mozo ya tenía. State inicial y no efecto: el modal se monta después de elegir la ficha, así lo que el cajero corrija a mano nunca se pisa |
+| 5 | **QR y delivery comparten "Mis datos"** (B4, B6) | Módulo nuevo **`src/shared/misdatos.js`** — fuente única, mismo criterio que `clientes.js`. El delivery dejó de guardar los datos personales por local: ahora lee y escribe la clave **global** `mythos_mis_datos`, la misma que el QR. `guardarMisDatos()` mezcla y nunca pisa con vacío, así el delivery (que no pregunta el correo) no borra el que cargó el QR. Los campos de factura de los dos paneles arrancan sembrados |
+| 6 | **Admin › Mi cuenta deja de pedir el nombre dos veces** (B2) | Si el local no tiene cargados los datos del dueño, se proponen los del perfil personal. Sólo completa lo vacío, **no guarda solo** (queda en el formulario hasta que se toque «Guardar datos del local») y avisa en pantalla de dónde salieron, para que quien tenga otro titular lo corrija |
+
+**Pendiente menor detectado durante la implementación:** el modal de cobro de un pedido *existente* en Caja prellena la factura desde `order.customer_name`/`customer_ruc`, pero no desde la ficha vinculada (`orders.customer_id` no viene en el `select`), así que el documento y el correo de la ficha no llegan. Traerlos exige tocar el select de `orders`, que es sensible — queda para la Etapa 2.
 
 ### Etapa 2 — módulo compartido (el arreglo estructural)
 

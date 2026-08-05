@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="es-PY">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mythos · Riders</title>
+<meta name="description" content="Convertite en Rider Mythos: trabajá cuando quieras, sin horarios obligatorios, recibiendo pedidos cercanos de los restaurantes de la red.">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="/riders">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="es_PY">
+<meta property="og:site_name" content="MYTHOS">
+<meta property="og:title" content="Convertite en Rider Mythos">
+<meta property="og:description" content="Trabajá cuando quieras, sin horarios obligatorios. Usá tu moto, bici o auto.">
+<link rel="stylesheet" href="design-system.css">
+<link rel="stylesheet" href="tokens.css">
+<script src="mythos-offline.js"></script>
+<script src="mythos-icons.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<!-- CAPTCHA: Cloudflare Turnstile. Está PRENDIDO en el proyecto, así que TODA
+     llamada de Auth (signUp, signInWithPassword, resetPasswordForEmail) tiene
+     que mandar options.captchaToken o el server responde "captcha protection:
+     request disallowed". Copiado tal cual de clientes.html: el widget lo monta
+     React cuando dibuja la pantalla de acceso, y el token es de UN SOLO USO
+     (después de cada intento hay que reset() o el segundo se rechaza). -->
+<script>
+(function () {
+  var SITE_KEY = '0x4AAAAAADs0-Olt_9L_CI3V';
+  var st = { token: '', id: null, ready: false, el: null };
+  function render() {
+    if (!window.turnstile || !st.el || st.id !== null) return;
+    try {
+      st.id = window.turnstile.render(st.el, {
+        sitekey: SITE_KEY,
+        callback: function (t) { st.token = t; },
+        'error-callback': function () { st.token = ''; },
+        'expired-callback': function () { st.token = ''; }
+      });
+    } catch (e) {}
+  }
+  window.onTurnstileLoad = function () { st.ready = true; render(); };
+  window.MythosCaptcha = {
+    siteKey: SITE_KEY,
+    mount: function (el) { st.el = el; render(); },
+    token: function () { return st.token; },
+    reset: function () {
+      try { if (st.id !== null) window.turnstile.reset(st.id); } catch (e) {}
+      st.token = '';
+    },
+    waitToken: function (ms) {
+      var limit = ms || 12000, t0 = Date.now();
+      return new Promise(function (resolve) {
+        (function poll() {
+          if (st.token) return resolve(st.token);
+          if (Date.now() - t0 > limit) return resolve('');
+          setTimeout(poll, 150);
+        })();
+      });
+    }
+  };
+})();
+</script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad&render=explicit" async defer></script>
+<style>
+  /* ── Sitio responsive real: celular Y computadora ────────────────────────
+     Mismo criterio que /clientes: nada de marco de teléfono. El rider se
+     postula desde el celular, pero también desde la notebook de un cyber, y
+     el superadmin abre la misma URL para ver cómo se ve. El corte móvil es
+     640px y está TAMBIÉN en el JSX (useIsMobile): si se toca, se toca en los
+     dos o el layout se contradice solo. */
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html{scroll-behavior:smooth}
+  body{min-height:100dvh;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+       -webkit-font-smoothing:antialiased;overflow-x:hidden;background:#FFF}
+  #app{min-height:100dvh;display:flex;flex-direction:column}
+  img{max-width:100%;display:block}
+  input,textarea,select,button{font-family:inherit}
+
+  .wrap{width:100%;max-width:1180px;margin:0 auto;padding:0 20px}
+  @media(max-width:640px){ .wrap{padding:0 16px} }
+
+  .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+  @media(max-width:640px){ .grid{gap:14px;grid-template-columns:1fr} }
+
+  /* Tablas anchas (historial, liquidaciones) scrollean en SU caja: el body
+     nunca scrollea en horizontal. */
+  .tscroll{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+  @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<!-- Panel precompilado con Vite. El bundle lo genera `npm run build` en
+     public/build/ y lo reconstruye Vercel en cada deploy. -->
+<script src="build/riders.js"></script>
+</body>
+</html>

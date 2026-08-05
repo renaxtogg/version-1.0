@@ -6354,6 +6354,10 @@ const NAV = [
   // "Comensales" son las PERSONAS que comen (app /clientes), no los
   // restaurantes: acá "Clientes" es el grupo comercial de Mythos.
   {id:'comensales',     label:'Comensales',    icon:'star'},
+  // Los riders NO son "clientes" de Mythos ni personal de un local: son la
+  // tercera pata de la red, con su propio ciclo de alta, documentación y
+  // disciplina. Por eso tienen entrada propia y no una pestaña dentro de otro.
+  {id:'riders',         label:'Riders',        icon:'bike'},
   null,
   {id:'facturacion',    label:'Facturación',   icon:'receipt',  group:'NEGOCIO'},
   {id:'finanzas',       label:'Finanzas',      icon:'money'},
@@ -9511,6 +9515,762 @@ function CatalogEditor({table, pk='id', columns, orderBy, title, help, setFlash,
   );
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   RIDERS — Red de Riders Mythos (mig 206)
+   ──────────────────────────────────────────────────────────────────────────
+   La mesa de control de la red: quién se postula, qué papeles trajo, quién
+   está habilitado, qué locales trabajan con ella y qué pasa cuando hay un
+   conflicto. Todo lo que se ve acá sale de RPC agregadas del lado del
+   servidor: agrupar un `.limit()` en el navegador da un número que empeora
+   cuanto más crece la red (el error que las migs 197 y 198 ya tuvieron que
+   arreglar dos veces).
+══════════════════════════════════════════════════════════════════════════ */
+const RD_TABS = [
+  {id:'resumen',    label:'Resumen'},
+  {id:'solicitudes',label:'Solicitudes'},
+  {id:'riders',     label:'Riders'},
+  {id:'socios',     label:'Locales socios'},
+  {id:'casos',      label:'Expedientes'},
+  {id:'config',     label:'Configuración'},
+  {id:'contrato',   label:'Contrato'},
+];
+const RD_STATUS = {
+  borrador:{l:'Borrador',c:C.dim}, pendiente:{l:'Pendiente',c:C.orange},
+  observado:{l:'Observado',c:C.orange}, rechazado:{l:'Rechazado',c:C.red},
+  aprobado:{l:'Aprobado',c:C.green}, activo:{l:'Activo',c:C.green},
+  suspendido:{l:'Suspendido',c:C.red}, bloqueado:{l:'Bloqueado',c:C.red},
+  baja:{l:'Baja',c:C.dim},
+};
+const rdIn = {width:'100%',padding:'9px 11px',border:`1px solid ${C.border}`,borderRadius:8,
+              fontSize:13,background:C.surface,color:C.ink,fontFamily:'inherit'};
+const RdIn = p => <input {...p} style={{...rdIn,...(p.style||{})}}/>;
+const RdSel = p => <select {...p} style={{...rdIn,cursor:'pointer',...(p.style||{})}}/>;
+const RdArea = p => <textarea {...p} style={{...rdIn,minHeight:80,resize:'vertical',...(p.style||{})}}/>;
+const RdPill = ({s}) => {
+  const m = RD_STATUS[s] || {l:s,c:C.mid};
+  return <span style={{padding:'2px 9px',borderRadius:20,fontSize:11,fontWeight:700,
+                       background:m.c+'1A',color:m.c,whiteSpace:'nowrap'}}>{m.l}</span>;
+};
+
+function PageRiders({setFlash}) {
+  const [tab,setTab]   = useState('resumen');
+  const [dash,setDash] = useState(null);
+  const [miss,setMiss] = useState(false);
+  const [bump,setBump] = useState(0);
+
+  const load = useCallback(async()=>{
+    if(!db){ setDash(null); return; }
+    const {data,error} = await db.rpc('superadmin_rider_dashboard');
+    if(error){
+      setMiss(/function|does not exist|schema cache|PGRST202/i.test(error.message||''));
+      setDash(null); return;
+    }
+    setMiss(false); setDash(data||null);
+  },[]);
+  useEffect(()=>{ load(); },[load,bump]);
+
+  if(miss) return <MkEmpty text="Red de Riders no disponible: falta aplicar la migración 206 en Supabase."/>;
+
+  const refresh = ()=>setBump(b=>b+1);
+  return (
+    <div className="animate-in">
+      <MkTabBar active={tab} onSelect={setTab}
+        tabs={RD_TABS.map(t=> t.id==='solicitudes' ? {...t,badge:dash?.pendientes||0}
+                            : t.id==='casos'       ? {...t,badge:dash?.casos_abiertos||0} : t)}/>
+      {tab==='resumen'     && <RdResumen d={dash} setTab={setTab}/>}
+      {tab==='solicitudes' && <RdLista soloPendientes setFlash={setFlash} onChanged={refresh}/>}
+      {tab==='riders'      && <RdLista setFlash={setFlash} onChanged={refresh}/>}
+      {tab==='socios'      && <RdSocios setFlash={setFlash} onChanged={refresh}/>}
+      {tab==='casos'       && <RdCasos setFlash={setFlash} onChanged={refresh}/>}
+      {tab==='config'      && <RdConfig setFlash={setFlash}/>}
+      {tab==='contrato'    && <RdContrato setFlash={setFlash}/>}
+    </div>
+  );
+}
+
+function RdResumen({d,setTab}) {
+  if(!d) return <MkEmpty text="Sin datos de la red todavía."/>;
+  return (
+    <div className="animate-in">
+      <div className="sa-kpis" style={{marginBottom:18}}>
+        <Kpi label="Registrados"   value={fmtNum(d.total||0)}       sub={`${fmtNum(d.borradores||0)} sin enviar`} icon="users"/>
+        <Kpi label="Pendientes"    value={fmtNum(d.pendientes||0)}  sub="Esperando revisión" icon="clock"
+             accent={(d.pendientes||0)>0?C.orange:undefined} onClick={()=>setTab('solicitudes')}/>
+        <Kpi label="Activos"       value={fmtNum(d.activos||0)}     sub={`${fmtNum(d.aprobados||0)} aprobados sin capacitar`} icon="check"/>
+        <Kpi label="En línea ahora" value={fmtNum(d.en_linea||0)}   sub="Disponibles u ocupados" icon="activity"/>
+        <Kpi label="Entregas hoy"  value={fmtNum(d.entregas_hoy||0)} sub="De riders de la red" icon="bike"/>
+        <Kpi label="Suspendidos"   value={fmtNum(d.suspendidos||0)} sub={`${fmtNum(d.bloqueados||0)} bloqueados`} icon="alert"
+             accent={(d.suspendidos||0)>0?C.red:undefined}/>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:16}}>
+        <SectionCard title="Documentación">
+          <div style={{padding:18}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:10}}>
+              <span style={{color:C.mid}}>Por vencer (30 días)</span>
+              <strong style={{color:(d.docs_por_vencer||0)>0?C.orange:C.ink}}>{fmtNum(d.docs_por_vencer||0)}</strong>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}>
+              <span style={{color:C.mid}}>Vencidos</span>
+              <strong style={{color:(d.docs_vencidos||0)>0?C.red:C.ink}}>{fmtNum(d.docs_vencidos||0)}</strong>
+            </div>
+            <div style={{fontSize:11.5,color:C.dim,marginTop:12,lineHeight:1.55}}>
+              El cron diario avisa en los umbrales configurados y suspende solo al que se le vence un
+              documento obligatorio. La suspensión se levanta reponiendo el papel y aprobándolo.
+            </div>
+          </div>
+        </SectionCard>
+        <SectionCard title="Locales de la red">
+          <div style={{padding:18}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:10}}>
+              <span style={{color:C.mid}}>Socios activos</span><strong style={{color:C.ink}}>{fmtNum(d.socios||0)}</strong>
+            </div>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:13}}>
+              <span style={{color:C.mid}}>Solicitudes de local</span>
+              <strong style={{color:(d.socios_pend||0)>0?C.orange:C.ink}}>{fmtNum(d.socios_pend||0)}</strong>
+            </div>
+            <div style={{marginTop:14}}>
+              <Btn size="sm" variant="ghost" onClick={()=>setTab('socios')}>Ver locales socios</Btn>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
+
+function RdLista({soloPendientes, setFlash, onChanged}) {
+  const [rows,setRows] = useState(null);
+  const [q,setQ]       = useState('');
+  const [st,setSt]     = useState(soloPendientes?'pendiente':'');
+  const [sel,setSel]   = useState(null);
+
+  const load = useCallback(async()=>{
+    if(!db) return;
+    setRows(null);
+    const {data} = await db.rpc('superadmin_rider_list',
+      {p_status:st||null,p_search:q||null,p_city:null,p_limit:200});
+    setRows(Array.isArray(data)?data:[]);
+  },[q,st]);
+  useEffect(()=>{ load(); },[load]);
+
+  return (
+    <div className="animate-in">
+      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap',alignItems:'center'}}>
+        <RdIn value={q} placeholder="Buscar por nombre, documento, teléfono o patente"
+              onChange={e=>setQ(e.target.value)} style={{maxWidth:340}}/>
+        <RdSel value={st} onChange={e=>setSt(e.target.value)} style={{maxWidth:190}}>
+          <option value="">Todos los estados</option>
+          {Object.keys(RD_STATUS).map(k=><option key={k} value={k}>{RD_STATUS[k].l}</option>)}
+        </RdSel>
+        <Btn size="sm" variant="ghost" onClick={load}>↻</Btn>
+      </div>
+
+      {rows===null ? <MkEmpty text="Cargando…"/>
+        : rows.length===0 ? <MkEmpty text={soloPendientes?'No hay solicitudes esperando revisión.':'Sin riders que coincidan.'}/>
+        : <SectionCard>
+            <div style={{overflowX:'auto'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+                <thead><tr>{['Rider','Ciudad','Vehículo','Estado','Locales','Docs','Entregas',''].map(h=>(
+                  <th key={h} style={{textAlign:'left',fontSize:11,fontWeight:700,color:C.mid,
+                    padding:'10px 16px',borderBottom:`1px solid ${C.border}`,whiteSpace:'nowrap'}}>{h}</th>))}</tr></thead>
+                <tbody>
+                  {rows.map(r=>(
+                    <tr key={r.id}>
+                      <td style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`}}>
+                        <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                          {r.photo_url
+                            ? <img src={r.photo_url} alt="" style={{width:32,height:32,borderRadius:'50%',objectFit:'cover'}}/>
+                            : <div style={{width:32,height:32,borderRadius:'50%',background:C.bg,display:'flex',
+                                alignItems:'center',justifyContent:'center',color:C.dim}}><Icon name="user" size={14}/></div>}
+                          <div>
+                            <div style={{fontSize:13,fontWeight:600,color:C.ink}}>{r.name||'—'}</div>
+                            <div style={{fontSize:11,color:C.dim}}>{r.doc_number||'—'} · {r.phone||'—'}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{padding:'11px 16px',fontSize:12.5,color:C.mid,borderBottom:`1px solid ${C.border}`}}>{r.city||'—'}</td>
+                      <td style={{padding:'11px 16px',fontSize:12.5,color:C.mid,borderBottom:`1px solid ${C.border}`}}>{r.vehicle_type||'—'}</td>
+                      <td style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`}}><RdPill s={r.status}/></td>
+                      <td style={{padding:'11px 16px',fontSize:12.5,color:C.mid,borderBottom:`1px solid ${C.border}`}}>{r.places||0}</td>
+                      <td style={{padding:'11px 16px',fontSize:12,borderBottom:`1px solid ${C.border}`,whiteSpace:'nowrap'}}>
+                        {r.docs_venc>0 && <span style={{color:C.red,fontWeight:700}}>{r.docs_venc} venc.</span>}
+                        {r.docs_venc>0 && r.docs_pend>0 && ' · '}
+                        {r.docs_pend>0 && <span style={{color:C.orange,fontWeight:700}}>{r.docs_pend} p/rev.</span>}
+                        {!r.docs_venc && !r.docs_pend && <span style={{color:C.dim}}>ok</span>}
+                      </td>
+                      <td style={{padding:'11px 16px',fontSize:12.5,color:C.mid,borderBottom:`1px solid ${C.border}`}}>{r.deliveries||0}</td>
+                      <td style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`}}>
+                        <Btn size="sm" variant="ghost" onClick={()=>setSel(r.id)}>Ver solicitud</Btn>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>}
+
+      {sel && <RdFicha riderId={sel} onClose={()=>setSel(null)} setFlash={setFlash}
+                       onChanged={()=>{ load(); onChanged&&onChanged(); }}/>}
+    </div>
+  );
+}
+
+/* La ficha completa: todo lo que la persona cargó, sus papeles, su historial y
+   las acciones. Los documentos viven en un bucket PRIVADO, así que se abren con
+   URL firmada temporal — un enlace a una cédula no puede quedar vivo. */
+function RdFicha({riderId,onClose,setFlash,onChanged}) {
+  const [d,setD]     = useState(null);
+  const [busy,setBusy]= useState('');
+  const [note,setNote]= useState('');
+  const [days,setDays]= useState(7);
+
+  const load = useCallback(async()=>{
+    const {data} = await db.rpc('superadmin_rider_detail',{p_rider_id:riderId});
+    setD(data&&data.ok?data:null);
+  },[riderId]);
+  useEffect(()=>{ load(); },[load]);
+
+  async function verDoc(path){
+    try{
+      const {data,error} = await db.storage.from('rider-docs').createSignedUrl(path,300);
+      if(error||!data?.signedUrl) throw error||new Error('sin url');
+      window.open(data.signedUrl,'_blank','noopener');
+    }catch(_){ setFlash({type:'error',text:'No se pudo abrir el documento.'}); }
+  }
+  async function accion(action){
+    setBusy(action);
+    try{
+      const {error} = await db.rpc('superadmin_review_rider',
+        {p_rider_id:riderId,p_action:action,p_note:note||null,p_days:action==='suspender'?Number(days)||7:null});
+      if(error) throw error;
+      setFlash({type:'success',text:'Listo.'}); setNote(''); load(); onChanged&&onChanged();
+    }catch(e){ setFlash({type:'error',text:e.message||'No se pudo'}); }
+    setBusy('');
+  }
+  async function doc(docId,action){
+    setBusy(docId);
+    try{
+      const {error} = await db.rpc('superadmin_review_document',
+        {p_doc_id:docId,p_action:action,p_note:note||null});
+      if(error) throw error;
+      load(); onChanged&&onChanged();
+    }catch(e){ setFlash({type:'error',text:e.message||'No se pudo'}); }
+    setBusy('');
+  }
+
+  const r = d?.rider;
+  return (
+    <Modal title={r?[r.first_name,r.last_name].filter(Boolean).join(' ')||'Rider':'Rider'} onClose={onClose} width={760}>
+      {!d ? <MkEmpty text="Cargando…"/> : (<>
+        <div style={{display:'flex',gap:16,alignItems:'center',marginBottom:18,flexWrap:'wrap'}}>
+          {r.photo_url
+            ? <img src={r.photo_url} alt="" style={{width:64,height:64,borderRadius:'50%',objectFit:'cover'}}/>
+            : <div style={{width:64,height:64,borderRadius:'50%',background:C.bg,display:'flex',
+                alignItems:'center',justifyContent:'center',color:C.dim}}><Icon name="user" size={24}/></div>}
+          <div style={{flex:1,minWidth:200}}>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <RdPill s={r.status}/>
+              <span style={{fontSize:12,color:C.mid}}>{r.availability}</span>
+              {r.suspended_until && <span style={{fontSize:12,color:C.red}}>hasta {fmtRelTime(r.suspended_until)}</span>}
+            </div>
+            <div style={{fontSize:12.5,color:C.mid,marginTop:6,lineHeight:1.6}}>
+              {r.doc_number||'—'} · {r.phone||'—'} · {r.email||'—'}<br/>
+              {[r.address,r.city,r.department].filter(Boolean).join(', ')||'—'}<br/>
+              Nacimiento {r.birth_date||'—'} · {r.nationality||'—'}
+            </div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:22,fontWeight:800,color:C.ink}}>{r.deliveries_count||0}</div>
+            <div style={{fontSize:11,color:C.dim}}>entregas</div>
+            {r.rating_avg!=null && <div style={{fontSize:12,color:C.mid,marginTop:4}}>★ {Number(r.rating_avg).toFixed(2)}</div>}
+          </div>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:14,marginBottom:18}}>
+          <div style={{background:C.bg,borderRadius:10,padding:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>VEHÍCULO</div>
+            <div style={{fontSize:12.5,color:C.ink,lineHeight:1.7}}>
+              {r.vehicle_type} · {[r.vehicle_brand,r.vehicle_model,r.vehicle_color].filter(Boolean).join(' ')||'—'}<br/>
+              Año {r.vehicle_year||'—'} · Patente <strong>{r.vehicle_plate||'—'}</strong><br/>
+              Chasis {r.vehicle_chassis||'—'} · Motor {r.vehicle_engine||'—'}
+            </div>
+          </div>
+          <div style={{background:C.bg,borderRadius:10,padding:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>COBRO</div>
+            <div style={{fontSize:12.5,color:C.ink,lineHeight:1.7}}>
+              {r.bank_holder||'—'}<br/>{r.bank_name||'—'} · {r.bank_account_type||'—'}<br/>
+              {r.bank_account||'—'}{r.bank_alias?` · ${r.bank_alias}`:''}
+            </div>
+          </div>
+          <div style={{background:C.bg,borderRadius:10,padding:14}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>CONTRATO ACEPTADO</div>
+            {(d.contracts||[]).length===0
+              ? <div style={{fontSize:12.5,color:C.dim}}>Sin aceptación registrada.</div>
+              : (d.contracts||[]).slice(0,2).map(c=>(
+                  <div key={c.id} style={{fontSize:12,color:C.ink,lineHeight:1.6}}>
+                    v{c.version} · {new Date(c.accepted_at).toLocaleString('es-PY')}<br/>
+                    <span style={{color:C.dim}}>IP {c.ip||'—'}</span>
+                  </div>))}
+          </div>
+        </div>
+
+        {/* Documentos */}
+        <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>DOCUMENTOS</div>
+        <div style={{marginBottom:18}}>
+          {(d.docs||[]).filter(x=>!x.replaced_at).length===0
+            ? <div style={{fontSize:12.5,color:C.dim,padding:'8px 0'}}>No subió ningún documento todavía.</div>
+            : (d.docs||[]).filter(x=>!x.replaced_at).map((x,i)=>(
+              <div key={x.id} style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',
+                padding:'10px 0',borderTop:i?`1px solid ${C.border}`:'none'}}>
+                <div style={{flex:1,minWidth:170}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.ink}}>
+                    {x.label||x.slug}{x.required?'':' (opcional)'}
+                  </div>
+                  <div style={{fontSize:11.5,color:C.dim,marginTop:2}}>
+                    {x.expires_at?`Vence ${x.expires_at}`:'Sin vencimiento'} · subido {fmtRelTime(x.uploaded_at)}
+                  </div>
+                  {x.review_note && <div style={{fontSize:11.5,color:C.red,marginTop:2}}>{x.review_note}</div>}
+                </div>
+                <span style={{padding:'2px 9px',borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:'nowrap',
+                  background:(x.status==='aprobado'?C.green:x.status==='rechazado'||x.status==='vencido'?C.red:C.orange)+'1A',
+                  color:x.status==='aprobado'?C.green:x.status==='rechazado'||x.status==='vencido'?C.red:C.orange}}>
+                  {x.status}
+                </span>
+                <Btn size="sm" variant="ghost" onClick={()=>verDoc(x.file_path)}>Ver</Btn>
+                <Btn size="sm" variant="success" disabled={busy===x.id} onClick={()=>doc(x.id,'aprobar')}>Aprobar</Btn>
+                <Btn size="sm" variant="danger"  disabled={busy===x.id} onClick={()=>doc(x.id,'rechazar')}>Rechazar</Btn>
+              </div>))}
+        </div>
+
+        {/* Locales + historial */}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))',gap:16,marginBottom:18}}>
+          <div>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>LOCALES</div>
+            {(d.links||[]).length===0 ? <div style={{fontSize:12.5,color:C.dim}}>No se sumó a ninguno.</div>
+              : (d.links||[]).map(l=>(
+                  <div key={l.link_id} style={{fontSize:12.5,color:C.ink,padding:'4px 0'}}>
+                    {l.name} <span style={{color:C.dim}}>· {l.link_status} · {l.deliveries} entregas</span>
+                  </div>))}
+          </div>
+          <div>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>HISTORIAL DISCIPLINARIO</div>
+            {(d.incidents||[]).length===0 ? <div style={{fontSize:12.5,color:C.dim}}>Sin antecedentes.</div>
+              : (d.incidents||[]).slice(0,8).map(i=>(
+                  <div key={i.id} style={{fontSize:12,color:C.ink,padding:'4px 0',lineHeight:1.5}}>
+                    <strong>{i.kind}</strong> · {fmtRelTime(i.created_at)}
+                    {i.detail && <div style={{color:C.dim}}>{i.detail}</div>}
+                  </div>))}
+          </div>
+        </div>
+
+        {/* Acciones */}
+        <div style={{background:C.bg,borderRadius:10,padding:16}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:10}}>ACCIÓN</div>
+          <RdArea value={note} placeholder="Observación para el rider (la ve en su perfil y le llega como aviso)"
+                  onChange={e=>setNote(e.target.value)} style={{marginBottom:10}}/>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            <Btn size="sm" variant="success" disabled={!!busy} onClick={()=>accion('aprobar')}>Aprobar</Btn>
+            <Btn size="sm" disabled={!!busy} onClick={()=>accion('observar')}>Pedir correcciones</Btn>
+            <Btn size="sm" variant="danger"  disabled={!!busy} onClick={()=>accion('rechazar')}>Rechazar</Btn>
+            <Btn size="sm" disabled={!!busy} onClick={()=>accion('advertir')}>Advertencia</Btn>
+            <span style={{display:'inline-flex',gap:6,alignItems:'center'}}>
+              <RdIn type="number" value={days} onChange={e=>setDays(e.target.value)} style={{width:64}}/>
+              <Btn size="sm" variant="danger" disabled={!!busy} onClick={()=>accion('suspender')}>Suspender (días)</Btn>
+            </span>
+            <Btn size="sm" variant="danger" disabled={!!busy} onClick={()=>accion('bloquear')}>Bloquear</Btn>
+            <Btn size="sm" variant="ghost"  disabled={!!busy} onClick={()=>accion('activar')}>Reactivar</Btn>
+          </div>
+          <div style={{fontSize:11,color:C.dim,marginTop:10,lineHeight:1.55}}>
+            Cada acción deja su asiento con fecha y responsable. El historial no se borra: una sanción
+            se corrige con una reactivación, no reescribiendo la anterior.
+          </div>
+        </div>
+      </>)}
+    </Modal>
+  );
+}
+
+function RdSocios({setFlash,onChanged}) {
+  const [rows,setRows] = useState(null);
+  const load = useCallback(async()=>{
+    if(!db) return;
+    const {data} = await db.from('mythos_delivery_partners')
+      .select('*, restaurants(name,city)').order('requested_at',{ascending:false});
+    setRows(data||[]);
+  },[]);
+  useEffect(()=>{ load(); },[load]);
+
+  async function accion(rid,action){
+    try{
+      const {error} = await db.rpc('superadmin_review_partner',{p_restaurant_id:rid,p_action:action});
+      if(error) throw error;
+      setFlash({type:'success',text:'Listo.'}); load(); onChanged&&onChanged();
+    }catch(e){ setFlash({type:'error',text:e.message||'No se pudo'}); }
+  }
+
+  if(rows===null) return <MkEmpty text="Cargando…"/>;
+  if(!rows.length) return <MkEmpty text="Ningún restaurante pidió trabajar con la red todavía."/>;
+  return (
+    <SectionCard>
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:760}}>
+          <thead><tr>{['Restaurante','Estado','Paga','Despacho','Cupo','Solicitado',''].map(h=>(
+            <th key={h} style={{textAlign:'left',fontSize:11,fontWeight:700,color:C.mid,
+              padding:'10px 16px',borderBottom:`1px solid ${C.border}`,whiteSpace:'nowrap'}}>{h}</th>))}</tr></thead>
+          <tbody>
+            {rows.map(p=>(
+              <tr key={p.restaurant_id}>
+                <td style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.ink}}>{p.restaurants?.name||'—'}</div>
+                  <div style={{fontSize:11.5,color:C.dim}}>{p.restaurants?.city||'—'}
+                    {p.contact_name?` · ${p.contact_name}`:''}{p.contact_phone?` · ${p.contact_phone}`:''}</div>
+                  {p.note && <div style={{fontSize:11.5,color:C.mid,marginTop:3}}>{p.note}</div>}
+                </td>
+                <td style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`}}>
+                  <span style={{padding:'2px 9px',borderRadius:20,fontSize:11,fontWeight:700,whiteSpace:'nowrap',
+                    background:(p.status==='activo'?C.green:p.status==='pendiente'?C.orange:C.red)+'1A',
+                    color:p.status==='activo'?C.green:p.status==='pendiente'?C.orange:C.red}}>{p.status}</span>
+                </td>
+                <td style={{padding:'11px 16px',fontSize:12.5,color:C.mid,borderBottom:`1px solid ${C.border}`,whiteSpace:'nowrap'}}>
+                  {p.pay_type==='pct'?`${p.pay_value}%`:fmtGs(p.pay_value)}<br/>
+                  <span style={{fontSize:11,color:C.dim}}>{p.pay_method}</span>
+                </td>
+                <td style={{padding:'11px 16px',fontSize:12.5,color:C.mid,borderBottom:`1px solid ${C.border}`}}>{p.dispatch_mode}</td>
+                <td style={{padding:'11px 16px',fontSize:12.5,color:C.mid,borderBottom:`1px solid ${C.border}`}}>{p.max_riders??'—'}</td>
+                <td style={{padding:'11px 16px',fontSize:12,color:C.dim,borderBottom:`1px solid ${C.border}`,whiteSpace:'nowrap'}}>
+                  {fmtRelTime(p.requested_at)}</td>
+                <td style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`,whiteSpace:'nowrap'}}>
+                  {p.status!=='activo' && <Btn size="sm" variant="success" onClick={()=>accion(p.restaurant_id,'aprobar')}>Aprobar</Btn>}
+                  {p.status==='activo' && <Btn size="sm" onClick={()=>accion(p.restaurant_id,'pausar')}>Pausar</Btn>}
+                  {' '}<Btn size="sm" variant="danger" onClick={()=>accion(p.restaurant_id,'rechazar')}>Rechazar</Btn>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </SectionCard>
+  );
+}
+
+function RdCasos({setFlash,onChanged}) {
+  const [rows,setRows] = useState(null);
+  const [sel,setSel]   = useState(null);
+  const load = useCallback(async()=>{
+    if(!db) return;
+    const {data} = await db.from('mythos_rider_cases').select('*')
+      .order('created_at',{ascending:false}).limit(200);
+    setRows(data||[]);
+  },[]);
+  useEffect(()=>{ load(); },[load]);
+
+  if(rows===null) return <MkEmpty text="Cargando…"/>;
+  if(!rows.length) return <MkEmpty text="Sin expedientes. Se abren cuando hay un conflicto en una entrega."/>;
+  return (<>
+    <SectionCard>
+      <div style={{overflowX:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',minWidth:680}}>
+          <thead><tr>{['Código','Asunto','Abierto por','Estado','Fecha',''].map(h=>(
+            <th key={h} style={{textAlign:'left',fontSize:11,fontWeight:700,color:C.mid,
+              padding:'10px 16px',borderBottom:`1px solid ${C.border}`}}>{h}</th>))}</tr></thead>
+          <tbody>
+            {rows.map(c=>(
+              <tr key={c.id}>
+                <td style={{padding:'11px 16px',fontSize:12,fontFamily:"'SF Mono',ui-monospace,monospace",
+                  color:C.ink,borderBottom:`1px solid ${C.border}`}}>{c.code}</td>
+                <td style={{padding:'11px 16px',fontSize:13,color:C.ink,borderBottom:`1px solid ${C.border}`}}>{c.subject}</td>
+                <td style={{padding:'11px 16px',fontSize:12.5,color:C.mid,borderBottom:`1px solid ${C.border}`}}>{c.opened_role}</td>
+                <td style={{padding:'11px 16px',fontSize:12.5,borderBottom:`1px solid ${C.border}`}}>
+                  <span style={{color:['resuelto','cerrado'].includes(c.status)?C.green:C.orange,fontWeight:700}}>{c.status}</span></td>
+                <td style={{padding:'11px 16px',fontSize:12,color:C.dim,borderBottom:`1px solid ${C.border}`}}>{fmtRelTime(c.created_at)}</td>
+                <td style={{padding:'11px 16px',borderBottom:`1px solid ${C.border}`}}>
+                  <Btn size="sm" variant="ghost" onClick={()=>setSel(c.id)}>Abrir</Btn></td>
+              </tr>))}
+          </tbody>
+        </table>
+      </div>
+    </SectionCard>
+    {sel && <RdCasoDetalle caseId={sel} onClose={()=>setSel(null)} setFlash={setFlash}
+                           onChanged={()=>{load(); onChanged&&onChanged();}}/>}
+  </>);
+}
+
+function RdCasoDetalle({caseId,onClose,setFlash,onChanged}) {
+  const [d,setD]   = useState(null);
+  const [msg,setMsg] = useState('');
+  const [res,setRes] = useState('');
+  const load = useCallback(async()=>{
+    const {data} = await db.rpc('rider_case_detail',{p_case_id:caseId});
+    setD(data&&data.ok?data:null);
+    if(data?.case?.resolution) setRes(data.case.resolution);
+  },[caseId]);
+  useEffect(()=>{ load(); },[load]);
+
+  async function enviar(){
+    if(!msg.trim()) return;
+    const {error} = await db.rpc('add_rider_case_message',{p_case_id:caseId,p_body:msg,p_file_path:null});
+    if(error){ setFlash({type:'error',text:error.message}); return; }
+    setMsg(''); load();
+  }
+  async function resolver(status){
+    const {error} = await db.rpc('superadmin_resolve_case',
+      {p_case_id:caseId,p_status:status,p_resolution:res||null});
+    if(error){ setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'success',text:'Expediente actualizado.'}); load(); onChanged&&onChanged();
+  }
+
+  return (
+    <Modal title={d?.case?.code||'Expediente'} onClose={onClose} width={640}>
+      {!d ? <MkEmpty text="Cargando…"/> : (<>
+        <div style={{fontSize:14,fontWeight:700,color:C.ink,marginBottom:6}}>{d.case.subject}</div>
+        <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6,marginBottom:16}}>{d.case.description||'—'}</div>
+
+        <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>
+          EVIDENCIA Y DESCARGOS ({(d.messages||[]).length})
+        </div>
+        <div style={{maxHeight:240,overflowY:'auto',marginBottom:16}}>
+          {(d.messages||[]).length===0
+            ? <div style={{fontSize:12.5,color:C.dim}}>Todavía nadie aportó nada.</div>
+            : (d.messages||[]).map(m=>(
+                <div key={m.id} style={{padding:'9px 0',borderBottom:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:11.5,color:C.dim,marginBottom:3}}>
+                    <strong style={{color:C.mid}}>{m.author_name||m.author_role}</strong> · {m.author_role} · {fmtRelTime(m.created_at)}
+                  </div>
+                  <div style={{fontSize:12.5,color:C.ink,lineHeight:1.55}}>{m.body||'(archivo adjunto)'}</div>
+                </div>))}
+        </div>
+
+        <RdArea value={msg} placeholder="Escribir en el expediente" onChange={e=>setMsg(e.target.value)}
+                style={{marginBottom:8}}/>
+        <Btn size="sm" onClick={enviar}>Agregar</Btn>
+
+        <div style={{marginTop:20,paddingTop:16,borderTop:`1px solid ${C.border}`}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>RESOLUCIÓN</div>
+          <RdArea value={res} onChange={e=>setRes(e.target.value)}
+                  placeholder="Qué se decidió y por qué. Queda firmado con tu usuario y la fecha."
+                  style={{marginBottom:10}}/>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <Btn size="sm" onClick={()=>resolver('en_revision')}>Marcar en revisión</Btn>
+            <Btn size="sm" onClick={()=>resolver('esperando')}>Esperando a una parte</Btn>
+            <Btn size="sm" variant="success" onClick={()=>resolver('resuelto')}>Resolver</Btn>
+            <Btn size="sm" variant="danger" onClick={()=>resolver('cerrado')}>Cerrar</Btn>
+          </div>
+        </div>
+      </>)}
+    </Modal>
+  );
+}
+
+function RdConfig({setFlash}) {
+  const [c,setC]     = useState(null);
+  const [docs,setDocs]= useState([]);
+  const [saving,setSaving]= useState(false);
+  const load = useCallback(async()=>{
+    const [a,b] = await Promise.all([
+      db.from('mythos_rider_config').select('*').eq('id',true).maybeSingle(),
+      db.from('mythos_rider_doc_types').select('*').order('sort_order'),
+    ]);
+    setC(a.data||null); setDocs(b.data||[]);
+  },[]);
+  useEffect(()=>{ load(); },[load]);
+  if(!c) return <MkEmpty text="Cargando…"/>;
+
+  const set = (k,v)=>setC(p=>({...p,[k]:v}));
+  async function save(){
+    setSaving(true);
+    const {error} = await db.from('mythos_rider_config').update({
+      network_enabled:c.network_enabled, registration_open:c.registration_open,
+      closed_message:c.closed_message, min_age:Number(c.min_age)||18,
+      require_selfie:c.require_selfie, require_bank:c.require_bank,
+      require_training:c.require_training, training_url:c.training_url||null,
+      auto_approve:c.auto_approve,
+      accept_seconds:Number(c.accept_seconds)||60, max_distance_km:Number(c.max_distance_km)||10,
+      offer_max_riders:Number(c.offer_max_riders)||6,
+      geo_enabled:c.geo_enabled, geo_interval_seconds:Number(c.geo_interval_seconds)||60,
+      max_rejections_per_day:Number(c.max_rejections_per_day)||5,
+      warnings_before_suspension:Number(c.warnings_before_suspension)||3,
+      suspension_days:Number(c.suspension_days)||7,
+      auto_suspend_on_expiry:c.auto_suspend_on_expiry,
+      site_texts:c.site_texts||{}, hero_image_url:c.hero_image_url||null,
+      updated_at:new Date().toISOString(),
+    }).eq('id',true);
+    setSaving(false);
+    setFlash(error?{type:'error',text:error.message}:{type:'success',text:'Configuración guardada.'});
+  }
+  async function saveDoc(d,patch){
+    const {error} = await db.from('mythos_rider_doc_types').update(patch).eq('id',d.id);
+    if(error) setFlash({type:'error',text:error.message}); else load();
+  }
+
+  const Row = ({label,hint,children}) => (
+    <div style={{display:'flex',gap:14,alignItems:'center',padding:'11px 0',borderTop:`1px solid ${C.border}`,flexWrap:'wrap'}}>
+      <div style={{flex:1,minWidth:230}}>
+        <div style={{fontSize:13,color:C.ink,fontWeight:600}}>{label}</div>
+        {hint && <div style={{fontSize:11.5,color:C.dim,marginTop:2,lineHeight:1.5}}>{hint}</div>}
+      </div>
+      {children}
+    </div>
+  );
+
+  return (
+    <div className="animate-in" style={{display:'grid',gap:16}}>
+      <SectionCard title="La red" action={<Btn size="sm" onClick={save} disabled={saving}>{saving?'Guardando…':'Guardar'}</Btn>}>
+        <div style={{padding:'6px 18px 18px'}}>
+          <Row label="Red de riders habilitada"
+               hint="Apagada, /riders muestra que todavía no está disponible y ningún local puede solicitarla.">
+            <Toggle checked={!!c.network_enabled} onChange={v=>set('network_enabled',v)}/>
+          </Row>
+          <Row label="Postulaciones abiertas"
+               hint="Cerrarlas no saca a nadie: los riders que ya están siguen trabajando.">
+            <Toggle checked={!!c.registration_open} onChange={v=>set('registration_open',v)}/>
+          </Row>
+          <Row label="Mensaje cuando están cerradas">
+            <RdIn value={c.closed_message||''} onChange={e=>set('closed_message',e.target.value)} style={{maxWidth:340}}/>
+          </Row>
+          <Row label="Edad mínima"><RdIn type="number" value={c.min_age} onChange={e=>set('min_age',e.target.value)} style={{width:90}}/></Row>
+          <Row label="Pedir selfie de validación"><Toggle checked={!!c.require_selfie} onChange={v=>set('require_selfie',v)}/></Row>
+          <Row label="Pedir datos bancarios"><Toggle checked={!!c.require_bank} onChange={v=>set('require_bank',v)}/></Row>
+          <Row label="Aprobar automáticamente" hint="Con esto prendido nadie revisa las solicitudes. Dejalo apagado salvo prueba.">
+            <Toggle checked={!!c.auto_approve} onChange={v=>set('auto_approve',v)}/>
+          </Row>
+          <Row label="Capacitación obligatoria" hint="El aprobado no puede trabajar hasta marcarla como hecha.">
+            <Toggle checked={!!c.require_training} onChange={v=>set('require_training',v)}/>
+          </Row>
+          <Row label="Link de la capacitación">
+            <RdIn value={c.training_url||''} onChange={e=>set('training_url',e.target.value)} style={{maxWidth:340}}/>
+          </Row>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Despacho y penalizaciones" action={<Btn size="sm" onClick={save} disabled={saving}>Guardar</Btn>}>
+        <div style={{padding:'6px 18px 18px'}}>
+          <Row label="Tiempo para aceptar un pedido (segundos)"
+               hint="Si vence, el pedido pasa solo al siguiente rider.">
+            <RdIn type="number" value={c.accept_seconds} onChange={e=>set('accept_seconds',e.target.value)} style={{width:90}}/>
+          </Row>
+          <Row label="Distancia máxima al local (km)">
+            <RdIn type="number" value={c.max_distance_km} onChange={e=>set('max_distance_km',e.target.value)} style={{width:90}}/>
+          </Row>
+          <Row label="A cuántos riders se le ofrece antes de rendirse"
+               hint="Agotados, el pedido queda sin asignar y lo ve el local para darlo a mano.">
+            <RdIn type="number" value={c.offer_max_riders} onChange={e=>set('offer_max_riders',e.target.value)} style={{width:90}}/>
+          </Row>
+          <Row label="Geolocalización" hint="Nunca se registra si el rider está desconectado.">
+            <Toggle checked={!!c.geo_enabled} onChange={v=>set('geo_enabled',v)}/>
+          </Row>
+          <Row label="Cada cuántos segundos se actualiza la ubicación">
+            <RdIn type="number" value={c.geo_interval_seconds} onChange={e=>set('geo_interval_seconds',e.target.value)} style={{width:90}}/>
+          </Row>
+          <Row label="Máximo de pedidos sin tomar por día" hint="Al superarlo se registra una advertencia automática.">
+            <RdIn type="number" value={c.max_rejections_per_day} onChange={e=>set('max_rejections_per_day',e.target.value)} style={{width:90}}/>
+          </Row>
+          <Row label="Advertencias antes de suspender">
+            <RdIn type="number" value={c.warnings_before_suspension} onChange={e=>set('warnings_before_suspension',e.target.value)} style={{width:90}}/>
+          </Row>
+          <Row label="Días de suspensión por defecto">
+            <RdIn type="number" value={c.suspension_days} onChange={e=>set('suspension_days',e.target.value)} style={{width:90}}/>
+          </Row>
+          <Row label="Suspender al vencerse un documento obligatorio">
+            <Toggle checked={!!c.auto_suspend_on_expiry} onChange={v=>set('auto_suspend_on_expiry',v)}/>
+          </Row>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Documentos que se exigen">
+        <div style={{padding:'6px 18px 18px'}}>
+          <div style={{fontSize:11.5,color:C.dim,lineHeight:1.55,padding:'8px 0'}}>
+            Cambiar esto NO pide migración. Lo que marques como obligatorio es lo que la base va a
+            exigir para poder enviar una solicitud, y lo que la landing muestra en “Qué necesitás”.
+          </div>
+          {docs.map(d=>(
+            <div key={d.id} style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',
+              padding:'11px 0',borderTop:`1px solid ${C.border}`}}>
+              <div style={{flex:1,minWidth:200}}>
+                <div style={{fontSize:13,fontWeight:600,color:C.ink}}>{d.label}</div>
+                <div style={{fontSize:11.5,color:C.dim,marginTop:2}}>
+                  {d.slug}{(d.vehicles||[]).length?` · sólo ${(d.vehicles||[]).join(', ')}`:' · todos los vehículos'}
+                </div>
+              </div>
+              <label style={{display:'flex',gap:6,alignItems:'center',fontSize:12,color:C.mid}}>
+                <input type="checkbox" checked={!!d.required} onChange={e=>saveDoc(d,{required:e.target.checked})}/>
+                obligatorio
+              </label>
+              <label style={{display:'flex',gap:6,alignItems:'center',fontSize:12,color:C.mid}}>
+                <input type="checkbox" checked={!!d.has_expiry} onChange={e=>saveDoc(d,{has_expiry:e.target.checked})}/>
+                vence
+              </label>
+              <label style={{display:'flex',gap:6,alignItems:'center',fontSize:12,color:C.mid}}>
+                <input type="checkbox" checked={!!d.is_active} onChange={e=>saveDoc(d,{is_active:e.target.checked})}/>
+                activo
+              </label>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function RdContrato({setFlash}) {
+  const [rows,setRows] = useState(null);
+  const [nv,setNv]     = useState({version:'',title:'Términos de la Red de Riders Mythos',body:''});
+  const load = useCallback(async()=>{
+    const {data} = await db.from('mythos_rider_contract_versions').select('*')
+      .order('published_at',{ascending:false});
+    setRows(data||[]);
+    const cur = (data||[]).find(x=>x.is_current);
+    if(cur) setNv(v=>v.body?v:{version:'',title:cur.title,body:cur.body});
+  },[]);
+  useEffect(()=>{ load(); },[load]);
+
+  async function publicar(){
+    if(!nv.version.trim()||!nv.body.trim()){ setFlash({type:'error',text:'Poné versión y texto.'}); return; }
+    // Una sola versión vigente: primero se baja la actual (hay un índice único
+    // parcial que lo garantiza igual del lado de la base).
+    await db.from('mythos_rider_contract_versions').update({is_current:false}).eq('is_current',true);
+    const {error} = await db.from('mythos_rider_contract_versions')
+      .insert({version:nv.version.trim(),title:nv.title,body:nv.body,is_current:true});
+    if(error){ setFlash({type:'error',text:error.message}); return; }
+    setFlash({type:'success',text:'Versión publicada. Los nuevos postulantes aceptan ésta.'});
+    setNv({version:'',title:nv.title,body:nv.body}); load();
+  }
+
+  return (
+    <div className="animate-in" style={{display:'grid',gap:16}}>
+      <SectionCard title="Publicar una versión nueva">
+        <div style={{padding:18}}>
+          <div style={{fontSize:12,color:C.mid,lineHeight:1.6,marginBottom:14}}>
+            El texto se versiona a propósito: una redacción nueva <strong>no</strong> reescribe lo que las
+            personas ya aceptaron — esa aceptación es la prueba, y reescribirla la rompería. La
+            redacción definitiva la tiene que revisar un abogado en Paraguay.
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'160px 1fr',gap:10,marginBottom:10}}>
+            <RdIn value={nv.version} placeholder="v1" onChange={e=>setNv({...nv,version:e.target.value})}/>
+            <RdIn value={nv.title} onChange={e=>setNv({...nv,title:e.target.value})}/>
+          </div>
+          <RdArea value={nv.body} onChange={e=>setNv({...nv,body:e.target.value})} style={{minHeight:260}}/>
+          <div style={{marginTop:12}}><Btn onClick={publicar}>Publicar como vigente</Btn></div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Versiones">
+        <div style={{padding:18}}>
+          {rows===null ? 'Cargando…' : rows.length===0 ? <MkEmpty text="Sin versiones."/>
+            : rows.map((r,i)=>(
+                <div key={r.id} style={{padding:'10px 0',borderTop:i?`1px solid ${C.border}`:'none',
+                  display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+                  <strong style={{fontSize:13,color:C.ink}}>{r.version}</strong>
+                  {r.is_current && <span style={{padding:'2px 9px',borderRadius:20,fontSize:11,fontWeight:700,
+                    background:C.green+'1A',color:C.green}}>vigente</span>}
+                  <span style={{fontSize:12,color:C.dim,flex:1}}>{r.title}</span>
+                  <span style={{fontSize:12,color:C.dim}}>{fmtRelTime(r.published_at)}</span>
+                </div>))}
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
 function PageComensales({setFlash}) {
   const [tab,setTab] = useState('resumen');
   const [ov,setOv]   = useState(null);
@@ -11457,6 +12217,7 @@ function App() {
               {page==='usuarios'      && <PageUsuarios     restaurants={restaurants} setFlash={setFlash}/>}
               {page==='proveedores'   && <PageProveedores  restaurants={restaurants} setFlash={setFlash}/>}
               {page==='comensales'    && <PageComensales   setFlash={setFlash}/>}
+              {page==='riders'        && <PageRiders       setFlash={setFlash}/>}
               {page==='soporte'       && <PageSoporte      setFlash={setFlash}/>}
               {page==='reportes'      && <PageReportes     enriched={enriched} orders={orders} ratings={ratings} subscriptions={subscriptions} plans={plans} events={events}/>}
               {page==='actividad'     && <PageActividad    events={events} restaurants={restaurants} setFlash={setFlash} reload={reloadSilent}/>}

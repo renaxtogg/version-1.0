@@ -118,25 +118,139 @@ function ErrorScreen({ msg, onLogout }) {
 }
 
 /* ─────────────────────────────────────────
+   OFERTA DE PEDIDO (Red Mythos, mig 206)
+   El rider ve lo que necesita para decidir ANTES de aceptar: de qué local es,
+   a qué distancia, cuánto le pagan y cuánto tiempo le queda. La cuenta
+   regresiva es local (un intervalo de 1 s); la que MANDA es `expires_at` en la
+   base — si el reloj del celular está corrido, el servidor igual la vence.
+───────────────────────────────────────── */
+function OfferCard({ offer, onRespond }) {
+  const [left, setLeft] = useState(() => Math.max(0, Number(offer.seconds_left) || 0));
+  const [busy, setBusy] = useState('');
+  useEffect(() => {
+    setLeft(Math.max(0, Number(offer.seconds_left) || 0));
+    const iv = setInterval(() => setLeft(s => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(iv);
+  }, [offer.id, offer.seconds_left]);
+  useEffect(() => { vibrate(); }, [offer.id]);
+
+  const total = (offer.order_total || 0) + (offer.delivery_fee || 0);
+  const urgent = left <= 15;
+
+  return (
+    <div style={{background:'var(--surface)',border:'2px solid var(--primary)',borderRadius:16,
+                 padding:16,marginBottom:16,animation:'fadeIn .2s'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10,gap:8}}>
+        <div style={{fontSize:14,fontWeight:800,color:'var(--text-primary)',display:'flex',alignItems:'center',gap:6}}>
+          <Icon name="bell" size={15} /> Nuevo pedido
+        </div>
+        <div style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:15,fontWeight:800,
+                     color: urgent ? '#DC2626' : 'var(--text-primary)',
+                     animation: urgent ? 'pulse 1s ease-in-out infinite' : 'none'}}>
+          {String(Math.floor(left/60)).padStart(2,'0')}:{String(left%60).padStart(2,'0')}
+        </div>
+      </div>
+
+      <div style={{fontSize:15,fontWeight:700,color:'var(--text-primary)'}}>{offer.restaurant_name}</div>
+      <div style={{fontSize:12,color:'var(--text-secondary)',marginTop:2}}>{offer.restaurant_address || '—'}</div>
+
+      <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid var(--bg-subtle)',fontSize:12.5,
+                   color:'var(--text-primary)',lineHeight:1.5}}>
+        <div><Icon name="pin" size={12} style={{verticalAlign:'-2px',marginRight:4}} />
+             {offer.delivery_address || 'Sin dirección'}</div>
+        {offer.distance_km != null && (
+          <div style={{color:'var(--text-secondary)',marginTop:3}}>A {offer.distance_km} km del local</div>
+        )}
+      </div>
+
+      <div className="my-row-3" style={{gap:8,marginTop:12,textAlign:'center'}}>
+        <div>
+          <div style={{fontSize:14,fontWeight:800,color:'var(--text-primary)'}}>{fmt(total)}</div>
+          <div style={{fontSize:10,color:'var(--text-tertiary)',marginTop:2}}>Pedido</div>
+        </div>
+        <div>
+          <div style={{fontSize:14,fontWeight:800,color:'#34C759'}}>{fmt(offer.pay_estimate || 0)}</div>
+          <div style={{fontSize:10,color:'var(--text-tertiary)',marginTop:2}}>Te pagan</div>
+        </div>
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:'var(--text-primary)'}}>
+            {offer.cash_amount ? 'Efectivo' : (offer.payment_method || 'Pagado')}
+          </div>
+          <div style={{fontSize:10,color:'var(--text-tertiary)',marginTop:2}}>Cobro</div>
+        </div>
+      </div>
+
+      {offer.cash_amount > 0 && (
+        <div style={{marginTop:10,padding:'8px 10px',background:'var(--bg-subtle)',borderRadius:8,
+                     fontSize:12,color:'var(--text-primary)'}}>
+          Cobrás {fmt(offer.cash_amount)} en efectivo — llevá vuelto.
+        </div>
+      )}
+
+      <div style={{display:'flex',gap:8,marginTop:14}}>
+        <button onClick={() => { setBusy('no'); onRespond(offer.id, false); }}
+                disabled={!!busy || left <= 0}
+                style={{flex:1,padding:'13px',background:'transparent',color:'var(--text-secondary)',
+                        border:'1.5px solid var(--border)',borderRadius:12,fontSize:14,fontWeight:600,
+                        cursor: busy ? 'default' : 'pointer', opacity: busy ? .6 : 1}}>
+          {busy === 'no' ? '…' : 'Rechazar'}
+        </button>
+        <button onClick={() => { setBusy('si'); onRespond(offer.id, true); }}
+                disabled={!!busy || left <= 0}
+                style={{flex:2,padding:'13px',background:'var(--primary)',color:'var(--on-primary)',
+                        border:'none',borderRadius:12,fontSize:15,fontWeight:700,
+                        cursor: busy ? 'default' : 'pointer', opacity: busy ? .6 : 1}}>
+          {busy === 'si' ? '…' : left <= 0 ? 'Expiró' : 'Aceptar'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────
    PANTALLA: HOME (con pedidos asignados integrados)
 ───────────────────────────────────────── */
-function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onShowHistory, onLogout, onStatusChange, onRefresh }) {
+function HomeScreen({ rider, stats, activeOrders, offers, isNetwork, links, onRespondOffer,
+                      onStartRoute, onShowRoute, onShowHistory, onLogout, onStatusChange, onRefresh }) {
   const [changingStatus, setChangingStatus] = useState(false);
   const [starting, setStarting] = useState(false);
   const status = rider.current_status || 'disponible';
 
   const pendingOrders = activeOrders.filter(o => o.rider_status === 'confirmed');
   const routeOrders   = activeOrders.filter(o => o.rider_status === 'on_way');
+  // ¿Trabaja para más de un local? Decide si vale la pena mostrar de qué
+  // restaurante es cada pedido: con uno solo sería ruido en cada tarjeta.
+  const multiPlace = new Set([...(links || []).map(l => l.restaurant_id),
+                              ...activeOrders.map(o => o.restaurant_id)].filter(Boolean)).size > 1;
 
   async function toggleStatus() {
     if (!db) return;
     setChangingStatus(true);
     const next = status === 'disponible' ? 'offline' : 'disponible';
-    await db.from('delivery_riders').update({ current_status: next }).eq('id', rider.id);
+    // RED MYTHOS: el rider tiene UN estado, no uno por local. La RPC lo escribe
+    // en `mythos_riders` y un trigger lo empuja a TODAS sus fichas (mig 206):
+    // escribir `delivery_riders` a mano lo dejaría disponible en un local y
+    // offline en otro. Para el rider propio de un local nada cambia — la RPC
+    // no existe para él y cae al UPDATE de siempre.
+    let done = false;
+    if (isNetwork) {
+      try {
+        const { error } = await db.rpc('rider_set_availability',
+          { p_status: next === 'disponible' ? 'disponible' : 'desconectado' });
+        done = !error;
+      } catch(_) {}
+    }
+    if (!done) {
+      await db.from('delivery_riders').update({ current_status: next }).eq('id', rider.id);
+    }
     // Al ponerse EN LÍNEA (Disponible): rebalanceo → jala pedidos transferibles
-    // (aún en el local, no recogidos) de los riders en ruta para agilizar.
-    if (next === 'disponible' && rider.restaurant_id) {
-      try { await db.rpc('rebalance_delivery_dispatch', { p_restaurant_id: rider.restaurant_id }); } catch(_) {}
+    // (aún en el local, no recogidos) de los riders en ruta para agilizar, y de
+    // paso rescata huérfanos. Con varios locales se corre en todos.
+    if (next === 'disponible') {
+      const rids = (links && links.length ? links : [rider]).map(l => l.restaurant_id).filter(Boolean);
+      for (const rid of [...new Set(rids)]) {
+        try { await db.rpc('rebalance_delivery_dispatch', { p_restaurant_id: rid }); } catch(_) {}
+      }
       onRefresh && onRefresh();
     }
     onStatusChange(next);
@@ -147,12 +261,23 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
     if (!pendingOrders.length || !db || starting) return;
     setStarting(true);
     for (const o of pendingOrders) {
-      await db.from('delivery_orders').update({
-        rider_status: 'on_way',
-        picked_up_at: new Date().toISOString(),
-      }).eq('id', o.id);
+      // Carril chico y controlado (mig 206): la RPC toca sólo el estado del
+      // pedido y verifica que sea del rider que llama. Un UPDATE directo no
+      // funciona para el rider de la RED, que no pasa el tenant-scoping de la
+      // mig 092. Respaldo al UPDATE de siempre si la 206 no está aplicada.
+      let ok = false;
+      try {
+        const { error } = await db.rpc('rider_update_order', { p_order_id: o.id, p_action: 'pickup' });
+        ok = !error;
+      } catch(_) {}
+      if (!ok) {
+        await db.from('delivery_orders').update({
+          rider_status: 'on_way',
+          picked_up_at: new Date().toISOString(),
+        }).eq('id', o.id);
+        await db.from('delivery_riders').update({ current_status: 'en_ruta' }).eq('id', o.rider_id || rider.id);
+      }
     }
-    await db.from('delivery_riders').update({ current_status: 'en_ruta' }).eq('id', rider.id);
     setStarting(false);
     onStartRoute(pendingOrders);
   }
@@ -188,6 +313,12 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
           <div style={{fontSize:12,color:'var(--text-tertiary)',marginTop:2}}>{rider.name}</div>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {/* El rider de la red administra su ficha, sus papeles y sus locales
+              en /riders. Acá sólo reparte: el panel de trabajo no duplica esa
+              pantalla, la enlaza. */}
+          {isNetwork && (
+            <a href="/riders" aria-label="Mi perfil" style={{background:'none',border:'1.5px solid var(--border)',borderRadius:8,padding:'6px 10px',color:'var(--text-secondary)',cursor:'pointer',display:'inline-flex',alignItems:'center',textDecoration:'none'}}><Icon name="user" size={14} /></a>
+          )}
           <button onClick={onRefresh} aria-label="Actualizar" style={{background:'none',border:'1.5px solid var(--border)',borderRadius:8,padding:'6px 10px',color:'var(--text-secondary)',cursor:'pointer',display:'inline-flex',alignItems:'center'}}><Icon name="refresh" size={14} /></button>
           <button onClick={onLogout} style={{background:'none',border:'1.5px solid var(--border)',borderRadius:8,padding:'6px 12px',fontSize:12,color:'var(--text-secondary)',cursor:'pointer',fontWeight:500}}>Salir</button>
         </div>
@@ -207,6 +338,12 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
             )}
           </div>
         </div>
+
+        {/* Ofertas de la Red Mythos: hay que ACEPTARLAS y tienen tiempo.
+            Si vence, el pedido pasa solo al siguiente rider (mig 206). */}
+        {offers && offers.length > 0 && offers.map(of => (
+          <OfferCard key={of.id} offer={of} onRespond={onRespondOffer} />
+        ))}
 
         {/* Ruta activa */}
         {routeOrders.length > 0 && (
@@ -253,9 +390,17 @@ function HomeScreen({ rider, stats, activeOrders, onStartRoute, onShowRoute, onS
                 return (
                 <div key={o.id} style={{background: isReady ? 'color-mix(in srgb, var(--success) 12%, var(--surface))' : 'var(--bg-subtle)', border: isReady ? '1.5px solid var(--success)' : '1.5px solid transparent', borderRadius:14,padding:'14px 16px',animation:'fadeIn .15s'}}>
                   {/* Ticket + estado cocina */}
-                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8,flexWrap:'wrap'}}>
                     {orderNum && <span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,fontWeight:800,color:'var(--text-primary)'}}>#{orderNum}</span>}
                     <KitchenBadge status={kitchenStatus} />
+                    {/* De qué local hay que retirar. Con un solo local es
+                        redundante y no se muestra; con varios (Red Mythos) es
+                        el dato sin el cual el rider no sabe adónde ir. */}
+                    {o.restaurant_name && multiPlace && (
+                      <span style={{fontSize:11,fontWeight:700,color:'var(--text-secondary)',
+                                    background:'var(--surface)',border:'1px solid var(--border)',
+                                    borderRadius:6,padding:'2px 7px'}}>{o.restaurant_name}</span>
+                    )}
                   </div>
                   <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:6}}>
                     <div style={{width:26,height:26,borderRadius:'50%',background:'var(--primary)',color:'var(--on-primary)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,flexShrink:0,marginTop:1}}>{i+1}</div>
@@ -372,14 +517,26 @@ function RouteScreen({ rider, initialOrders, onDone }) {
 
     if (db) {
       const delivOrd = orders.find(o => o.id === id);
-      await db.from('delivery_orders').update({
-        rider_status: 'delivered',
-        status: 'delivered',
-        delivered_at: new Date().toISOString(),
-      }).eq('id', id);
-      // Actualizar orders.status para que caja y cliente vean el pedido como entregado
-      if (delivOrd?.order_id) {
-        await db.from('orders').update({ status: 'delivered' }).eq('id', delivOrd.order_id);
+      // La RPC (mig 206) marca el pedido entregado Y pone `orders.status` en
+      // 'delivered' en la misma transacción, además de devolver al rider a
+      // "disponible" si no le queda nada EN NINGUNO de sus locales. Para el
+      // rider de la RED es además el único camino: no pasa el tenant-scoping
+      // de `orders` (mig 092). Respaldo al par de UPDATE de siempre.
+      let ok = false;
+      try {
+        const { error } = await db.rpc('rider_update_order', { p_order_id: id, p_action: 'deliver' });
+        ok = !error;
+      } catch(_) {}
+      if (!ok) {
+        await db.from('delivery_orders').update({
+          rider_status: 'delivered',
+          status: 'delivered',
+          delivered_at: new Date().toISOString(),
+        }).eq('id', id);
+        // Actualizar orders.status para que caja y cliente vean el pedido como entregado
+        if (delivOrd?.order_id) {
+          await db.from('orders').update({ status: 'delivered' }).eq('id', delivOrd.order_id);
+        }
       }
     }
 
@@ -390,7 +547,10 @@ function RouteScreen({ rider, initialOrders, onDone }) {
 
     if (updated.every(o => o._done)) {
       if (db) {
-        await db.from('delivery_riders').update({ current_status:'disponible' }).eq('id', rider.id);
+        // Con la RPC de arriba el rider ya volvió a "disponible" solo. Este
+        // UPDATE queda como respaldo para el camino viejo y es inocuo si ya
+        // está en ese estado.
+        try { await db.from('delivery_riders').update({ current_status:'disponible' }).eq('id', rider.id); } catch(_) {}
         // Ruta terminada → rider disponible → rebalancear (puede recibir cola nueva).
         if (rider.restaurant_id) { try { await db.rpc('rebalance_delivery_dispatch', { p_restaurant_id: rider.restaurant_id }); } catch(_) {} }
       }
@@ -618,6 +778,10 @@ function App() {
   const [stats, setStats]         = useState({ count:0, earned:0, avgMin:0 });
   const [errMsg, setErrMsg]       = useState('');
   const [origin, setOrigin]       = useState(null);   // {lat,lng} del local → ordenar ruta por cercanía
+  // Red Mythos (mig 206): N fichas (una por local) + ofertas para aceptar.
+  const [links, setLinks]         = useState([]);
+  const [isNetwork, setIsNetwork] = useState(false);
+  const [offers, setOffers]       = useState([]);
 
   // Multi-tenant Engine: fail-safe — sin tenant en sesión, limpia y expulsa al login (salvo superadmin).
   useEffect(() => {
@@ -639,36 +803,67 @@ function App() {
       try { const { data:{ user } } = await db.auth.getUser(); uid = user?.id || ''; } catch(_) {}
       if (!uid) uid = localStorage.getItem('mythos_user_id') || '';
       if (!uid) { window.location.replace('login.html?next=delivery-rider.html'); return; }
-      const { data, error } = await db.from('delivery_riders').select('*').eq('user_id', uid).maybeSingle();
+      // ── Ficha(s) del rider ────────────────────────────────────────────
+      // RED MYTHOS (mig 206): un rider ya NO tiene una sola ficha. La red lo
+      // materializa como UNA FILA DE delivery_riders POR LOCAL, que es
+      // justamente lo que permite que el despacho de siempre lo vea sin
+      // aprender nada nuevo. `maybeSingle()` reventaba con más de una, así
+      // que se piden todas y se resuelve acá.
+      // Se ordena por created_at (columna de la mig 035) y no por linked_at:
+      // esa nace en la 206 y un panel desplegado antes de aplicarla se
+      // llevaría un 400. Todo este archivo degrada así.
+      const { data: fichas, error } = await db.from('delivery_riders')
+        .select('*').eq('user_id', uid).order('created_at', { ascending: true });
       if (cancelled) return;
-      if (error || !data) {
-        setErrMsg('Tu cuenta no está vinculada a un rider. Pedile al administrador que te dé de alta en Delivery → Riders.');
+      if (error || !fichas || !fichas.length) {
+        setErrMsg('Tu cuenta no está vinculada a un rider. Si sos rider de la red, sumate a un local desde tu perfil en /riders; si trabajás para un restaurante, pedile al administrador que te dé de alta en Delivery → Riders.');
         setScreen('error'); return;
       }
-      if (data.active === false) {
-        setErrMsg('Tu cuenta de rider está desactivada. Contactá al administrador.');
+
+      const isNetwork = fichas.some(f => f.mythos_rider_id);
+      const enabled   = fichas.filter(f => f.active !== false);
+      if (!enabled.length) {
+        setErrMsg(isNetwork
+          ? 'Tus vínculos con los locales están pausados. Revisá tu perfil en /riders.'
+          : 'Tu cuenta de rider está desactivada. Contactá al administrador.');
         setScreen('error'); return;
       }
-      // WS1-B · Gate por plan: el panel Rider debe estar incluido en allowed_panels
-      // del plan del restaurante (get_restaurant_capabilities, mig 090/108).
-      // Fail-closed: si no se puede confirmar la capability, se BLOQUEA (no se
-      // arranca la sesión del rider ni se cargan pedidos/stats/realtime).
-      let planOk = false;
-      try {
-        const { data: caps } = await db.rpc('get_restaurant_capabilities', { p_restaurant_id: data.restaurant_id });
-        planOk = !!(caps && Array.isArray(caps.allowed_panels) && caps.allowed_panels.includes('delivery-rider'));
-      } catch (_) { planOk = false; }
+
+      // WS1-B · Gate por plan: el panel Rider debe estar incluido en
+      // allowed_panels del plan del restaurante (get_restaurant_capabilities,
+      // mig 090/108). Fail-closed y AHORA POR LOCAL: a un rider de la red que
+      // trabaja en tres restaurantes no se lo puede dejar afuera de los tres
+      // porque uno tenga un plan sin delivery — se descarta ese y sigue con
+      // los demás. Si no queda ninguno, se bloquea como antes.
+      const allowed = [];
+      for (const f of enabled) {
+        let ok = false;
+        try {
+          const { data: caps } = await db.rpc('get_restaurant_capabilities', { p_restaurant_id: f.restaurant_id });
+          ok = !!(caps && Array.isArray(caps.allowed_panels) && caps.allowed_panels.includes('delivery-rider'));
+        } catch (_) { ok = false; }
+        if (ok) allowed.push(f);
+      }
       if (cancelled) return;
-      if (!planOk) {
-        setErrMsg('El panel de Rider Delivery no está incluido en el plan de este restaurante. Contactá al administrador.');
+      if (!allowed.length) {
+        setErrMsg(isNetwork
+          ? 'Ninguno de los locales donde estás tiene el panel de rider habilitado en su plan.'
+          : 'El panel de Rider Delivery no está incluido en el plan de este restaurante. Contactá al administrador.');
         setScreen('error'); return;
       }
-      // Origen para la hoja de ruta (ordenar paradas por cercanía). Best-effort.
+
+      const primary = allowed[0];
+      setLinks(allowed);
+      setIsNetwork(isNetwork);
+
+      // Origen para la hoja de ruta (ordenar paradas por cercanía). Con varios
+      // locales el origen deja de ser único: la hoja de ruta usa el local del
+      // primer pedido de la tanda, así que acá sólo se guarda como respaldo.
       try {
-        const { data: rest } = await db.from('restaurants').select('lat,lng').eq('id', data.restaurant_id).maybeSingle();
+        const { data: rest } = await db.from('restaurants').select('lat,lng').eq('id', primary.restaurant_id).maybeSingle();
         if (!cancelled && rest && rest.lat!=null && rest.lng!=null) setOrigin({ lat: rest.lat, lng: rest.lng });
       } catch(_) {}
-      startRiderSession(data);
+      startRiderSession(primary, allowed);
     })();
     return () => { cancelled = true; };
   }, []);
@@ -698,8 +893,26 @@ function App() {
     setStats({ count: data.length, earned, avgMin });
   }
 
+  // Cola del repartidor. Va por RPC (mig 206) y no por query directa, por dos
+  // motivos que se refuerzan: (1) trae los pedidos de TODOS sus locales de una
+  // sola vez, y (2) un rider de la RED no tiene fila en `user_roles`, así que
+  // las policies de delivery_orders / orders / restaurants (migs 092/103) le
+  // devolverían CERO filas — la RPC es su única puerta. La query vieja queda
+  // como respaldo para cuando la 206 todavía no esté aplicada.
   async function loadActiveOrders(r) {
     if (!db || !r) return;
+    try {
+      const { data, error } = await db.rpc('rider_my_orders');
+      if (!error && Array.isArray(data)) {
+        setActiveOrders(data.map(o => ({
+          ...o,
+          // El panel ya sabe leer `o.orders.status`: se conserva esa forma para
+          // no tocar las tarjetas ni el badge de cocina.
+          orders: { status: o.kitchen_status, order_number: o.order_number },
+        })));
+        return;
+      }
+    } catch(_) { /* RPC ausente → respaldo */ }
     const { data } = await db.from('delivery_orders')
       .select('*, orders!order_id(status, order_number)')
       .eq('rider_id', r.id)
@@ -708,17 +921,39 @@ function App() {
     setActiveOrders(data || []);
   }
 
+  // Ofertas pendientes (red en modo "oferta"). La propia RPC vence las que
+  // expiraron y se las pasa al siguiente rider, así que leerlas mantiene el
+  // despacho vivo sin depender de un cron por minuto.
+  async function loadOffers() {
+    if (!db) return;
+    try {
+      const { data, error } = await db.rpc('rider_my_offers');
+      if (!error && Array.isArray(data)) setOffers(data);
+    } catch(_) { setOffers([]); }
+  }
+
+  async function respondOffer(offerId, accept) {
+    if (!db) return;
+    try {
+      const { data, error } = await db.rpc('rider_respond_offer', { p_offer_id: offerId, p_accept: accept });
+      if (error) return;
+      if (accept && data && data.ok) { vibrate(); loadActiveOrders(rider); }
+    } catch(_) {}
+    loadOffers();
+  }
+
   const pollRef = useRef(null);
   // Canal realtime activo. Se guarda para poder cerrarlo: startRiderSession puede
   // correr más de una vez en la misma carga (reconexión / cambio de rider) y sin esto
   // quedaban canales colgados suscritos a la misma tabla.
   const chanRef = useRef(null);
 
-  function startRiderSession(riderData) {
+  function startRiderSession(riderData, allLinks) {
+    const fichas = (allLinks && allLinks.length) ? allLinks : [riderData];
     // Registrar conexión del rider para el módulo Personal del admin (presencia).
     try {
       window.MythosPresence?.start({
-        restaurant_id: RID, role: 'rider', panel: 'delivery-rider',
+        restaurant_id: riderData.restaurant_id || RID, role: 'rider', panel: 'delivery-rider',
         rider_id: riderData.id, user_id: riderData.user_id || null, name: riderData.name || null
       });
     } catch(_) {}
@@ -726,6 +961,7 @@ function App() {
     setScreen('home');
     loadStats(riderData);
     loadActiveOrders(riderData);
+    loadOffers();
 
     if (db) {
       // Realtime: delivery_orders debe estar en supabase_realtime publication (migración 078).
@@ -733,18 +969,27 @@ function App() {
       // con ese filtro no llegaría. Sí se filtra por restaurant_id — sin él, cada rider
       // recibía un evento por CADA pedido de CADA restaurante de la plataforma y
       // recargaba su cola en cada uno.
+      // Con la red son N locales ⇒ N filtros: un canal con una suscripción por
+      // ficha. Sigue sin escuchar nada que no sea de un local donde trabaja.
       if (chanRef.current) { try { db.removeChannel(chanRef.current); } catch(_) {} }
-      chanRef.current = db.channel('rider-orders-' + riderData.id)
-        .on('postgres_changes', {
+      let ch = db.channel('rider-orders-' + riderData.id);
+      const seen = new Set();
+      for (const f of fichas) {
+        if (!f.restaurant_id || seen.has(f.restaurant_id)) continue;
+        seen.add(f.restaurant_id);
+        ch = ch.on('postgres_changes', {
           event: '*', schema: 'public', table: 'delivery_orders',
-          filter: 'restaurant_id=eq.' + (riderData.restaurant_id || RID)
-        }, () => loadActiveOrders(riderData))
-        .subscribe();
+          filter: 'restaurant_id=eq.' + f.restaurant_id
+        }, () => loadActiveOrders(riderData));
+      }
+      chanRef.current = ch.subscribe();
     }
 
     // Polling de respaldo cada 30 s por si el realtime falla o se desconecta.
+    // Las ofertas se miran más seguido (15 s): tienen cuenta regresiva y si se
+    // enteran tarde, el pedido ya pasó al siguiente rider.
     if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => loadActiveOrders(riderData), 30000);
+    pollRef.current = setInterval(() => { loadActiveOrders(riderData); loadOffers(); }, 15000);
   }
 
   async function handleLogout() {
@@ -757,7 +1002,17 @@ function App() {
       // mandando pedidos estando deslogueado → "rider fantasma", justo lo que
       // M9 cierra al nacer offline. Vuelve a 'disponible' sólo cuando entra al
       // panel y se pone En línea.
-      await db.from('delivery_riders').update({ current_status: 'offline' }).eq('id', rider.id);
+      // Rider de la RED: un solo interruptor para todos sus locales (mig 206).
+      // Con el UPDATE por ficha quedaría offline en uno y disponible en los
+      // otros — y el despacho le seguiría mandando pedidos estando deslogueado,
+      // que es justo el "rider fantasma" que la mig 158 cerró.
+      let done = false;
+      if (isNetwork) {
+        try { const { error } = await db.rpc('rider_set_availability', { p_status: 'desconectado' }); done = !error; } catch(_) {}
+      }
+      if (!done) {
+        await db.from('delivery_riders').update({ current_status: 'offline' }).eq('id', rider.id);
+      }
       try { db.removeAllChannels(); } catch(_) {}
     }
     // El rider es una cuenta auth real → cerrar sesión Supabase y volver al login.
@@ -795,6 +1050,10 @@ function App() {
               rider={rider}
               stats={stats}
               activeOrders={activeOrders}
+              offers={offers}
+              isNetwork={isNetwork}
+              links={links}
+              onRespondOffer={respondOffer}
               onStartRoute={handleStartRoute}
               onShowRoute={() => setScreen('route')}
               onShowHistory={() => setScreen('history')}

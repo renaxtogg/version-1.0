@@ -5891,7 +5891,13 @@ async function _saveReceiptCfg(patch){
 function ComprobanteDesign({restaurant,onRefresh}){
   const MR=window.MythosReceipt;
   const [cfg,setCfg]=useState(()=> (MR&&MR.defaultConfig)||{});
-  const [biz,setBiz]=useState({name:'',address:'',phone:'',instagram:'',logo_url:''});
+  // `facebook` sale de la COLUMNA `restaurants.facebook` (mig 118), igual que
+  // instagram — no de `settings_json.receipt.social`. Había dos Facebook del local:
+  // la columna (que carga el onboarding y muestra la ficha pública de /clientes) y
+  // esta copia, que era la única que imprimía el ticket. El dueño lo cargaba en el
+  // onboarding, acá lo veía vacío, lo reescribía, y quedaban dos valores distintos
+  // sin forma de saber cuál valía. Ver docs/audits/datos-una-sola-vez.md (A1).
+  const [biz,setBiz]=useState({name:'',address:'',phone:'',instagram:'',facebook:'',logo_url:''});
   const [loaded,setLoaded]=useState(false);
   const [saving,setSaving]=useState(false);
 
@@ -5901,7 +5907,10 @@ function ComprobanteDesign({restaurant,onRefresh}){
       const c=await _loadReceiptCfg();
       const r=restaurant||{};
       if(!alive)return;
-      setBiz({name:r.name||'',address:r.address||'',phone:r.phone||'',instagram:r.instagram||'',logo_url:r.logo_url||''});
+      // Fallback al valor viejo de settings_json mientras haya locales que sólo lo
+      // tengan ahí: al guardar sube a la columna y el fork queda cerrado solo.
+      setBiz({name:r.name||'',address:r.address||'',phone:r.phone||'',instagram:r.instagram||'',
+              facebook:r.facebook||(c&&c.social&&c.social.facebook)||'',logo_url:r.logo_url||''});
       setCfg(c); setLoaded(true);
     })();
     return ()=>{alive=false;};
@@ -5913,7 +5922,11 @@ function ComprobanteDesign({restaurant,onRefresh}){
   async function save(){
     setSaving(true);
     try{
-      await db.from('restaurants').update({name:biz.name||null,address:biz.address||null,phone:biz.phone||null,instagram:biz.instagram||null,logo_url:biz.logo_url||null}).eq('id',RID);
+      const upd={name:biz.name||null,address:biz.address||null,phone:biz.phone||null,instagram:biz.instagram||null,logo_url:biz.logo_url||null};
+      // Sólo si la columna existe en esta base (mig 118): un PATCH con una columna
+      // inexistente rebota entero y no guardaría NADA de los datos del negocio.
+      if(restaurant&&Object.prototype.hasOwnProperty.call(restaurant,'facebook')) upd.facebook=biz.facebook||null;
+      await db.from('restaurants').update(upd).eq('id',RID);
       await _saveReceiptCfg({showLogo:cfg.showLogo,fields:cfg.fields,header:cfg.header,footer:cfg.footer,legalNote:cfg.legalNote,social:cfg.social});
       toast('Diseño del comprobante guardado');
       if(onRefresh) onRefresh(true);
@@ -5921,7 +5934,7 @@ function ComprobanteDesign({restaurant,onRefresh}){
     setSaving(false);
   }
 
-  const previewBiz={name:biz.name,address:biz.address,phone:biz.phone,instagram:biz.instagram,logoUrl:biz.logo_url,ruc:(restaurant||{}).ruc,legalName:(restaurant||{}).legal_name,facebook:(cfg.social&&cfg.social.facebook)||''};
+  const previewBiz={name:biz.name,address:biz.address,phone:biz.phone,instagram:biz.instagram,logoUrl:biz.logo_url,ruc:(restaurant||{}).ruc,legalName:(restaurant||{}).legal_name,facebook:biz.facebook};
   const previewHtml=(loaded&&MR)? MR.buildHTML(MR.sampleData,{...cfg,business:previewBiz}) : '';
 
   const FIELDS=[['orderNumber','N° de pedido'],['customerName','Nombre del cliente (o "Anónimo")'],['table','N° de mesa'],['cashier','Cajero'],['dateTime','Fecha y hora'],['paymentMethod','Método de pago'],['change','Vuelto'],['ruc','RUC del cliente (si lo dio)'],['unitPrice','Precio unitario por ítem (suma un renglón a cada línea)']];
@@ -5939,7 +5952,7 @@ function ComprobanteDesign({restaurant,onRefresh}){
             <div><Lbl>TELÉFONO</Lbl><Inp value={biz.phone} onChange={e=>setBiz({...biz,phone:e.target.value})}/></div>
             <div style={{gridColumn:'1 / -1'}}><Lbl>DIRECCIÓN</Lbl><Inp value={biz.address} onChange={e=>setBiz({...biz,address:e.target.value})}/></div>
             <div><Lbl>INSTAGRAM</Lbl><Inp value={biz.instagram} onChange={e=>setBiz({...biz,instagram:e.target.value})} placeholder="kamuipoolbar"/></div>
-            <div><Lbl>FACEBOOK</Lbl><Inp value={(cfg.social&&cfg.social.facebook)||''} onChange={e=>setCfg({...cfg,social:{...cfg.social,facebook:e.target.value}})}/></div>
+            <div><Lbl>FACEBOOK</Lbl><Inp value={biz.facebook} onChange={e=>setBiz({...biz,facebook:e.target.value})} placeholder="facebook.com/turestaurante"/></div>
             <div style={{gridColumn:'1 / -1'}}><Lbl>TEXTO AL PIE</Lbl><Inp value={cfg.footer||''} onChange={e=>setCfg({...cfg,footer:e.target.value})} placeholder="¡Gracias por su visita!"/></div>
             {/* legalNote = 2 renglones: el primero sale en negrita como título. */}
             <div><Lbl>TÍTULO DEL COMPROBANTE</Lbl><Inp value={_legalPart(cfg.legalNote,0)} onChange={e=>setCfg({...cfg,legalNote:_legalJoin(e.target.value,_legalPart(cfg.legalNote,1))})} placeholder="COMPROBANTE DE CONSUMO"/></div>
@@ -6013,7 +6026,8 @@ function ImpresoraConfig({restaurant}){
     catch(e){ toast('No se pudo guardar: '+(e.message||e),false); }
     setSaving(false);
   }
-  const bizOf=()=>{ const r=restaurant||{}; return {name:r.name||'Mythos',address:r.address||'',phone:r.phone||'',instagram:r.instagram||'',logoUrl:r.logo_url||'',ruc:r.ruc||'',legalName:r.legal_name||'',facebook:(cfg.social&&cfg.social.facebook)||''}; };
+  // facebook: columna real primero, copia vieja de settings_json como respaldo (A1).
+  const bizOf=()=>{ const r=restaurant||{}; return {name:r.name||'Mythos',address:r.address||'',phone:r.phone||'',instagram:r.instagram||'',logoUrl:r.logo_url||'',ruc:r.ruc||'',legalName:r.legal_name||'',facebook:r.facebook||(cfg.social&&cfg.social.facebook)||''}; };
   function testPrint(){
     if(!MR){toast('Módulo de impresión no disponible',false);return;}
     const ok=MR.print(MR.sampleData,{...cfg,business:bizOf()});
@@ -9805,6 +9819,37 @@ function cleanBusinessHours(bhDays){
 }
 
 function ConfigPage({restaurant,onRefresh}) {
+  // Feature-detect contra el row real: si una columna no existe en esta base, el
+  // campo no se dibuja ni se manda en el UPDATE (un PATCH con una columna
+  // inexistente rebota entero y no se guarda NADA de la tarjeta).
+  const restHasCol = c => restaurant && Object.prototype.hasOwnProperty.call(restaurant, c);
+
+  // Campos de texto de la tarjeta "Info del restaurante". `wide` = ocupa la fila
+  // entera dentro de la rejilla de 2 columnas.
+  // WhatsApp, Facebook, ciudad, RUC y razón social se cargaban en el ONBOARDING y
+  // después no había forma de corregirlos: este editor no los guardaba y el del
+  // superadmin tampoco cubre la ficha entera. Un dato que se captura tiene que poder
+  // editarse (ver docs/audits/datos-una-sola-vez.md, sección C). Importa además
+  // porque WhatsApp y Facebook son lo que muestra la ficha pública del local en
+  // /clientes, y el RUC / la razón social encabezan el ticket impreso.
+  // Esta lista es la fuente única: el UPDATE de save() la recorre, así que agregar
+  // un campo acá alcanza para que se dibuje Y se guarde.
+  const INFO_FIELDS=[
+    {key:'name',label:'Nombre del restaurante',wide:true},
+    {key:'address',label:'Dirección',wide:true},
+    {key:'city',label:'Ciudad',ph:'Asunción'},
+    {key:'phone',label:'Teléfono'},
+    {key:'whatsapp',label:'WhatsApp',ph:'+595 9xx xxx xxx'},
+    {key:'instagram',label:'Instagram',ph:'@turestaurante'},
+    {key:'facebook',label:'Facebook',ph:'facebook.com/turestaurante'},
+    {key:'website',label:'Sitio web',ph:'turestaurante.com.py'},
+    {key:'legal_name',label:'Razón social',ph:'Mi Restaurante S.A.'},
+    {key:'ruc',label:'RUC',ph:'80012345-6'},
+  // El filtro descarta una columna sólo cuando SABEMOS que no existe. Mientras el row
+  // del restaurante no cargó no se puede afirmar nada, y filtrar ahí dejaría la
+  // tarjeta sin un solo campo.
+  ].filter(f=>!restaurant||restHasCol(f.key));
+
   const [form,setForm] = useState({});
   const [bhDays,setBhDays] = useState({});            // { '0':[{start,end}], … } (mig 125)
   const [openOverride,setOpenOverride] = useState('auto'); // 'auto' | 'open' | 'closed'
@@ -9841,8 +9886,18 @@ function ConfigPage({restaurant,onRefresh}) {
   const setRange    = (d,idx,field,val)=>setBhDays(p=>({...p,[d]:(p[d]||[]).map((r,j)=>j===idx?{...r,[field]:val}:r)}));
 
   async function save(){
-    if(!db)return;setSaving(true);
-    const upd={name:form.name,address:form.address,phone:form.phone,instagram:form.instagram,website:form.website,logo_initials:form.logo_initials||null,cover_image_url:form.cover_image_url||null,logo_url:form.logo_url||null};
+    if(!db)return;
+    // Guard anti-borrado (mismo criterio que MiCuentaPage): si el row todavía no
+    // cargó, `form` está en blanco y guardar vaciaría los datos que ya estaban.
+    if(!restaurant){toast('Los datos del local aún se están cargando, probá de nuevo',false);return;}
+    setSaving(true);
+    // Los campos de texto salen de INFO_FIELDS (ya filtrado por columnas existentes),
+    // así que agregar uno a esa lista alcanza: no hay que acordarse de tocar acá.
+    const upd={logo_initials:form.logo_initials||null,cover_image_url:form.cover_image_url||null,logo_url:form.logo_url||null};
+    INFO_FIELDS.forEach(f=>{ upd[f.key]=(form[f.key]||'').trim()||null; });
+    // El nombre es lo único que no puede quedar vacío (identifica al local en todos
+    // los paneles y en el ticket). Si lo borraron, se conserva el que estaba.
+    if(!upd.name) upd.name=restaurant?.name||form.name;
     const{data,error}=await db.from('restaurants').update(upd).eq('id',RID).select('id');
     if(error){toast('Error: '+error.message,false);}
     else if(!data||data.length===0){toast('No se pudo guardar — verificá RLS en Supabase',false);}
@@ -9907,9 +9962,6 @@ function ConfigPage({restaurant,onRefresh}) {
     else{toast('Política de cobro guardada');setDcForm(cfg);onRefresh();}
     setSavingDc(false);
   }
-
-  // `wide` = ocupa la fila entera dentro de la rejilla de 2 columnas de la tarjeta.
-  const INFO_FIELDS=[{key:'name',label:'Nombre del restaurante',wide:true},{key:'address',label:'Dirección',wide:true},{key:'phone',label:'Teléfono'},{key:'instagram',label:'Instagram',ph:'@turestaurante'},{key:'website',label:'Sitio web',ph:'turestaurante.com.py',wide:true}];
 
   return (
     <div className="page">
@@ -10641,8 +10693,350 @@ function DelivPedidos({deliveryOrders, riders, channels, zones, onRefresh}) {
   );
 }
 
+/* ── Red de Riders Mythos (mig 206) ──────────────────────────────────────────
+   NO es un módulo nuevo: vive DENTRO de Delivery → Riders, como una segunda
+   solapa al lado de "Mis riders". La razón es que para el local no son dos
+   sistemas: son dos formas de tener repartidor. La logística es la misma —el
+   rider de la red se materializa como una fila de `delivery_riders`, o sea la
+   misma ficha que el despacho ya lee— así que Pedidos, Dashboard y el
+   rebalanceo lo cuentan sin enterarse de la diferencia.
+   Deploy-safe: si la 206 no está aplicada, la RPC no existe y se muestra la
+   tarjeta informativa en vez de romper la pestaña. */
+function DelivRedMythos({onRefreshRiders}) {
+  const [state,setState]   = useState(null);     // null = cargando
+  const [missing,setMissing]= useState(false);
+  const [modal,setModal]   = useState(null);     // 'solicitar' | 'liquidar'
+  const [busy,setBusy]     = useState('');
+  const [form,setForm]     = useState({pay_type:'fixed',pay_value:0,pay_method:'transferencia',
+                                       dispatch_mode:'oferta',max_riders:'',auto_accept_riders:true,
+                                       contact_name:'',contact_phone:'',note:''});
+  const [liq,setLiq]       = useState(null);     // {rider_id, name, from, to, preview}
+
+  const load = useCallback(async()=>{
+    if(!db) return;
+    try{
+      const {data,error} = await db.rpc('mythos_partner_panel',{p_restaurant_id:RID});
+      if(error){
+        const m=`${error.message||''} ${error.code||''}`;
+        if(/PGRST202|could not find the function|42883|does not exist/i.test(m)){ setMissing(true); setState({}); return; }
+        setState({}); return;
+      }
+      setState(data||{});
+      if(data?.partner) setForm(f=>({...f,
+        pay_type:data.partner.pay_type||'fixed', pay_value:data.partner.pay_value||0,
+        pay_method:data.partner.pay_method||'transferencia',
+        dispatch_mode:data.partner.dispatch_mode||'oferta',
+        max_riders:data.partner.max_riders??'', auto_accept_riders:data.partner.auto_accept_riders!==false,
+        contact_name:data.partner.contact_name||'', contact_phone:data.partner.contact_phone||'',
+        note:data.partner.note||''}));
+    }catch(_){ setMissing(true); setState({}); }
+  },[]);
+  useEffect(()=>{ load(); },[load]);
+
+  async function solicitar(){
+    setBusy('req');
+    try{
+      const {error}=await db.rpc('request_mythos_delivery',{p_restaurant_id:RID,payload:{
+        ...form, max_riders: form.max_riders===''?null:Number(form.max_riders)}});
+      if(error) throw error;
+      toast(state?.partner?'Preferencias guardadas':'Solicitud enviada a Mythos');
+      setModal(null); load();
+    }catch(e){ toast(e.message||'No se pudo enviar',false); }
+    setBusy('');
+  }
+
+  async function linkAction(linkId, action){
+    setBusy(linkId);
+    try{
+      const {error}=await db.rpc('partner_set_rider_link',
+        {p_restaurant_id:RID,p_link_id:linkId,p_action:action});
+      if(error) throw error;
+      toast(action==='quitar'?'Rider quitado de tu local':action==='pausar'?'Rider pausado':'Rider activado');
+      load(); onRefreshRiders && onRefreshRiders();
+    }catch(e){ toast(e.message||'No se pudo',false); }
+    setBusy('');
+  }
+
+  async function openLiq(r){
+    const to = todayLocal(), from = to.slice(0,8)+'01';
+    setLiq({rider_id:r.rider_id, name:r.name, from, to, preview:null});
+    setModal('liquidar');
+    const {data}=await db.rpc('rider_settlement_preview',
+      {p_restaurant_id:RID,p_rider_id:r.rider_id,p_from:from,p_to:to});
+    setLiq(l=>l?{...l,preview:data}:l);
+  }
+  async function reloadLiq(next){
+    setLiq(l=>({...l,...next,preview:null}));
+    const q={...liq,...next};
+    const {data}=await db.rpc('rider_settlement_preview',
+      {p_restaurant_id:RID,p_rider_id:q.rider_id,p_from:q.from,p_to:q.to});
+    setLiq(l=>l?{...l,preview:data}:l);
+  }
+  async function registrarPago(){
+    if(!liq?.preview) return;
+    setBusy('liq');
+    try{
+      const {error}=await db.rpc('register_rider_settlement',{payload:{
+        restaurant_id:RID, rider_id:liq.rider_id, period_from:liq.from, period_to:liq.to,
+        deliveries:liq.preview.deliveries, amount:liq.preview.amount,
+        method:liq.preview.pay_method, reference:liq.reference||'', note:liq.note||''}});
+      if(error) throw error;
+      toast('Pago registrado');
+      setModal(null); setLiq(null);
+    }catch(e){ toast(e.message||'No se pudo registrar',false); }
+    setBusy('');
+  }
+
+  if(state===null) return <div style={{padding:40,textAlign:'center',color:C.dim,fontSize:13}}>Cargando…</div>;
+
+  const p = state.partner;
+  const netOff = missing || state.network_enabled===false;
+  const rs = state.riders||[];
+
+  // ── La red todavía no existe / no está aplicada ──
+  if(netOff){
+    return (
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:26,textAlign:'center'}}>
+        <div style={{display:'flex',justifyContent:'center',marginBottom:12,color:C.dim}}><Icon name="bike" size={34}/></div>
+        <div style={{fontSize:16,fontWeight:800,color:C.ink,marginBottom:8}}>Red de Riders Mythos</div>
+        <div style={{fontSize:13,color:C.mid,lineHeight:1.6,maxWidth:520,margin:'0 auto'}}>
+          Repartidores verificados por Mythos que trabajan para varios restaurantes de la plataforma.
+          Cuando no tenés rider propio disponible, el pedido se les ofrece a ellos.
+          {' '}<strong>Todavía no está habilitada.</strong> Te avisamos cuando abra.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Estado del convenio */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:20}}>
+        <div style={{display:'flex',justifyContent:'space-between',gap:14,flexWrap:'wrap',alignItems:'flex-start'}}>
+          <div style={{flex:1,minWidth:240}}>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <div style={{fontSize:15,fontWeight:800,color:C.ink}}>Red de Riders Mythos</div>
+              {p && <span style={{fontSize:10,fontWeight:800,padding:'3px 9px',borderRadius:5,
+                background: p.status==='activo'?'#F0FAF4':p.status==='pendiente'?'#FFF7ED':'#FEF2F2',
+                color: p.status==='activo'?'#166534':p.status==='pendiente'?'#C2410C':'#991B1B'}}>
+                {p.status==='activo'?'ACTIVO':p.status==='pendiente'?'EN REVISIÓN':p.status.toUpperCase()}
+              </span>}
+            </div>
+            <div style={{fontSize:12.5,color:C.mid,marginTop:6,lineHeight:1.6,maxWidth:620}}>
+              {!p && <>Repartidores verificados por Mythos, con documentación al día, que trabajan para
+                varios restaurantes. <strong>Se les ofrece el pedido sólo cuando no tenés un rider propio
+                disponible</strong>: no reemplazan a los tuyos, cubren los huecos. Vos ponés cuánto pagás
+                por entrega y le pagás directamente al rider — Mythos no toca esa plata.</>}
+              {p && p.status==='pendiente' && <>Recibimos tu solicitud. Mythos la revisa y te habilita.
+                Mientras tanto podés ajustar las condiciones.</>}
+              {p && p.status==='activo' && <>Pagás {p.pay_type==='pct'?`${p.pay_value}% del pedido`:fmt(p.pay_value)+' por entrega'}
+                {' '}por {p.pay_method}. {p.dispatch_mode==='oferta'
+                  ? 'A los riders de la red se les OFRECE el pedido y tienen que aceptarlo.'
+                  : 'Los riders de la red reciben pedidos igual que los tuyos.'}</>}
+              {p && p.status==='pausado' && <>Tu participación está pausada. Los riders de la red no reciben tus pedidos.</>}
+              {p && p.status==='rechazado' && <>La solicitud no fue aprobada.{p.review_note?` Motivo: ${p.review_note}`:''}</>}
+            </div>
+          </div>
+          <Btn variant={p?'secondary':'primary'} onClick={()=>setModal('solicitar')}>
+            {p? 'Editar condiciones' : 'Solicitar riders de Mythos'}
+          </Btn>
+        </div>
+      </div>
+
+      {/* Riders de la red en este local */}
+      {p && p.status!=='rechazado' && (
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20,marginBottom:20}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>
+            RIDERS DE LA RED EN TU LOCAL ({rs.length})
+          </div>
+          {rs.length===0
+            ? <div style={{fontSize:12.5,color:C.dim,lineHeight:1.6}}>
+                Todavía no se sumó ningún rider de la red. Cuando lo hagan aparecen acá y
+                {p.auto_accept_riders?' empiezan a trabajar directamente.':' vos los tenés que activar.'}
+              </div>
+            : <div style={{display:'flex',flexDirection:'column',gap:0}}>
+                {rs.map((r,i)=>(
+                  <div key={r.link_id} style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap',
+                    padding:'12px 0',borderTop:i?`1px solid ${C.border}`:'none'}}>
+                    {r.photo_url
+                      ? <img src={r.photo_url} alt="" style={{width:38,height:38,borderRadius:'50%',objectFit:'cover'}}/>
+                      : <div style={{width:38,height:38,borderRadius:'50%',background:C.card,display:'flex',
+                          alignItems:'center',justifyContent:'center',color:C.dim}}><Icon name="user" size={16}/></div>}
+                    <div style={{flex:1,minWidth:150}}>
+                      <div style={{fontSize:13.5,fontWeight:700,color:C.ink}}>{r.name||'Rider'}</div>
+                      <div style={{fontSize:11.5,color:C.dim,marginTop:2}}>
+                        {[r.city,r.phone].filter(Boolean).join(' · ')||'—'}
+                        {r.rating_avg!=null && ` · ★ ${Number(r.rating_avg).toFixed(1)}`}
+                      </div>
+                      <div style={{fontSize:11.5,color:C.mid,marginTop:3}}>
+                        {r.deliveries_here} entrega(s) acá{r.active_here>0?` · ${r.active_here} en curso`:''}
+                      </div>
+                    </div>
+                    <span style={{fontSize:10,fontWeight:800,padding:'3px 8px',borderRadius:5,
+                      background: r.availability==='disponible'?'#F0FAF4':r.availability==='ocupado'?'#FFF7ED':'#F5F5F7',
+                      color: r.availability==='disponible'?'#166534':r.availability==='ocupado'?'#C2410C':'#86868B'}}>
+                      {(r.availability||'').toUpperCase()}
+                    </span>
+                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                      <Btn small variant="secondary" onClick={()=>openLiq(r)}>Liquidar</Btn>
+                      <Btn small variant="secondary" disabled={busy===r.link_id}
+                           onClick={()=>linkAction(r.link_id, r.link_status==='activo'?'pausar':'activar')}>
+                        {r.link_status==='activo'?'Pausar':'Activar'}
+                      </Btn>
+                      <Btn small variant="danger" disabled={busy===r.link_id}
+                           onClick={()=>linkAction(r.link_id,'quitar')}>Quitar</Btn>
+                    </div>
+                  </div>
+                ))}
+              </div>}
+        </div>
+      )}
+
+      {/* Actividad de ofertas */}
+      {p && p.status==='activo' && (state.offers||[]).length>0 && (
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:20}}>
+          <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:12}}>
+            ÚLTIMAS OFERTAS ENVIADAS
+          </div>
+          {(state.offers||[]).map((o,i)=>(
+            <div key={o.id} style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',
+              padding:'8px 0',borderTop:i?`1px solid ${C.border}`:'none',fontSize:12}}>
+              <span style={{flex:1,minWidth:120,color:C.ink,fontWeight:600}}>{o.rider||'—'}</span>
+              <span style={{color:C.dim}}>intento {o.seq}</span>
+              <span style={{fontWeight:700,color:o.status==='aceptada'?'#166534':o.status==='pendiente'?'#C2410C':C.dim}}>
+                {o.status}
+              </span>
+              <span style={{color:C.dim}}>{new Date(o.offered_at).toLocaleString('es-PY',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modal: solicitar / editar condiciones */}
+      {modal==='solicitar' && (
+        <Modal title={p?'Condiciones con la red':'Trabajar con Mythos Delivery'} onClose={()=>setModal(null)} width={480}>
+          <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6,marginBottom:16}}>
+            El pago del delivery se lo hacés <strong>vos directamente al rider</strong>. Mythos no cobra
+            ni administra ese dinero: sólo lleva el registro de lo que le corresponde por período.
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:12}}>
+            <div className="my-row-2" style={{gap:8}}>
+              <div><Lbl>CÓMO LE PAGÁS</Lbl>
+                <Sel value={form.pay_type} onChange={e=>setForm({...form,pay_type:e.target.value})}>
+                  <option value="fixed">Monto fijo por entrega</option>
+                  <option value="pct">% del pedido</option>
+                </Sel>
+              </div>
+              <div><Lbl>{form.pay_type==='pct'?'PORCENTAJE %':'MONTO ₲/ENTREGA'}</Lbl>
+                {form.pay_type==='pct'
+                  ? <Inp type="number" value={form.pay_value} onChange={e=>setForm({...form,pay_value:e.target.value})}/>
+                  : <MoneyInp value={form.pay_value} onChange={v=>setForm({...form,pay_value:v})}/>}
+              </div>
+            </div>
+            <div><Lbl>MEDIO DE PAGO</Lbl>
+              <Sel value={form.pay_method} onChange={e=>setForm({...form,pay_method:e.target.value})}>
+                <option value="transferencia">Transferencia</option>
+                <option value="efectivo">Efectivo</option>
+                <option value="ambos">Ambos</option>
+              </Sel>
+            </div>
+            <div><Lbl>CÓMO LES LLEGA EL PEDIDO</Lbl>
+              <Sel value={form.dispatch_mode} onChange={e=>setForm({...form,dispatch_mode:e.target.value})}>
+                <option value="oferta">Se les ofrece y tienen que aceptarlo (recomendado)</option>
+                <option value="auto">Se les asigna directo, como a tus riders</option>
+              </Sel>
+              <div style={{fontSize:11,color:C.dim,marginTop:5,lineHeight:1.5}}>
+                Con “oferta”, el rider ve el pedido, la distancia y cuánto cobra antes de aceptar; si no
+                responde a tiempo pasa al siguiente. Con “directo” entra al mismo reparto que tus riders propios.
+              </div>
+            </div>
+            <div className="my-row-2" style={{gap:8}}>
+              <div><Lbl>MÁXIMO DE RIDERS DE LA RED</Lbl>
+                <Inp type="number" value={form.max_riders} placeholder="Sin límite"
+                     onChange={e=>setForm({...form,max_riders:e.target.value})}/>
+              </div>
+              <div><Lbl>¿SE SUMAN SOLOS?</Lbl>
+                <Sel value={form.auto_accept_riders?'1':'0'}
+                     onChange={e=>setForm({...form,auto_accept_riders:e.target.value==='1'})}>
+                  <option value="1">Sí, entran directo</option>
+                  <option value="0">No, los apruebo yo</option>
+                </Sel>
+              </div>
+            </div>
+            <div className="my-row-2" style={{gap:8}}>
+              <div><Lbl>CONTACTO</Lbl><Inp value={form.contact_name}
+                   onChange={e=>setForm({...form,contact_name:e.target.value})}/></div>
+              <div><Lbl>TELÉFONO</Lbl><Inp value={form.contact_phone}
+                   onChange={e=>setForm({...form,contact_phone:e.target.value})}/></div>
+            </div>
+            <div><Lbl>ALGO QUE QUERÉS ACLARAR</Lbl>
+              <textarea value={form.note} onChange={e=>setForm({...form,note:e.target.value})}
+                style={{width:'100%',minHeight:70,padding:10,border:`1px solid ${C.border}`,borderRadius:8,
+                        fontSize:13,fontFamily:'inherit',resize:'vertical'}}/>
+            </div>
+            <Btn onClick={solicitar} disabled={busy==='req'}>
+              {busy==='req'?'Enviando…':p?'Guardar':'Enviar solicitud'}
+            </Btn>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal: liquidar */}
+      {modal==='liquidar' && liq && (
+        <Modal title={`Liquidar a ${liq.name||'rider'}`} onClose={()=>{setModal(null);setLiq(null);}} width={470}>
+          <div style={{display:'flex',gap:8,marginBottom:16}}>
+            <div style={{flex:1}}><Lbl>DESDE</Lbl>
+              <Inp type="date" value={liq.from} onChange={e=>reloadLiq({from:e.target.value})}/></div>
+            <div style={{flex:1}}><Lbl>HASTA</Lbl>
+              <Inp type="date" value={liq.to} onChange={e=>reloadLiq({to:e.target.value})}/></div>
+          </div>
+          {!liq.preview
+            ? <div style={{padding:20,textAlign:'center',color:C.dim,fontSize:13}}>Calculando…</div>
+            : (<>
+              <div style={{background:C.card,borderRadius:10,padding:16,marginBottom:16}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:13,color:C.mid,marginBottom:6}}>
+                  <span>Entregas del período</span><strong style={{color:C.ink}}>{liq.preview.deliveries}</strong>
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:15}}>
+                  <span style={{color:C.mid}}>Le corresponde</span>
+                  <strong style={{color:C.ink}}>{fmt(liq.preview.amount)}</strong>
+                </div>
+                <div style={{fontSize:11,color:C.dim,marginTop:8,lineHeight:1.5}}>
+                  Calculado con lo que declaraste que pagás
+                  ({liq.preview.pay_type==='pct'?`${liq.preview.pay_value}%`:fmt(liq.preview.pay_value)+' por entrega'}).
+                </div>
+              </div>
+              {liq.preview.rider && (
+                <div style={{background:'#F8F9FB',border:`1px solid ${C.border}`,borderRadius:10,padding:14,marginBottom:16}}>
+                  <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:8}}>DATOS PARA TRANSFERIR</div>
+                  <div style={{fontSize:12.5,color:C.ink,lineHeight:1.7}}>
+                    <div><strong>{liq.preview.rider.holder||liq.preview.rider.name||'—'}</strong></div>
+                    <div>{liq.preview.rider.bank||'—'} · {liq.preview.rider.type||'—'}</div>
+                    <div style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>{liq.preview.rider.account||'—'}</div>
+                    {liq.preview.rider.alias && <div>Alias: {liq.preview.rider.alias}</div>}
+                  </div>
+                </div>
+              )}
+              <div style={{marginBottom:12}}><Lbl>Nº DE COMPROBANTE</Lbl>
+                <Inp value={liq.reference||''} onChange={e=>setLiq({...liq,reference:e.target.value})}/></div>
+              <Btn wide onClick={registrarPago} disabled={busy==='liq'||!liq.preview.deliveries}>
+                {busy==='liq'?'Registrando…':'Registrar el pago'}
+              </Btn>
+              <div style={{fontSize:11,color:C.dim,marginTop:10,lineHeight:1.5}}>
+                Esto deja asentado que ya le pagaste. Mythos no mueve el dinero: la transferencia la hacés vos.
+              </div>
+            </>)}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 /* ── DelivRiders ── */
 function DelivRiders({riders, deliveryOrders=[], settings, onRefresh, onRebalance, onTransfer}) {
+  // Dos orígenes de repartidor en la MISMA pestaña: los que contrata el local y
+  // los de la red. No son módulos distintos porque para el local no lo son.
+  const [origen,setOrigen] = useState('propios');
   const [modal,setModal] = useState(null);
   const [form,setForm] = useState({name:'',phone:'',vehicle:'moto',commission_type:'pct',commission_value:0,username:'',password:'',active:true});
   const [saving,setSaving] = useState(false);
@@ -10742,10 +11136,27 @@ function DelivRiders({riders, deliveryOrders=[], settings, onRefresh, onRebalanc
     return `${fmt(r.commission_value||0)} por entrega`;
   }
 
+  // Los riders de la RED también son filas de delivery_riders (así el despacho
+  // los ve sin cambios), pero NO son personal del local: no se editan ni se dan
+  // de baja desde acá. Se los saca de "Mis riders" y viven en su propia solapa.
+  const propios = riders.filter(r=>!r.mythos_rider_id);
+  const enRed   = riders.filter(r=> r.mythos_rider_id);
+
   return (
     <div>
+      <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap'}}>
+        {[['propios',`Mis riders (${propios.length})`],['red',`Red Mythos${enRed.length?` (${enRed.length})`:''}`]].map(([v,l])=>(
+          <button key={v} onClick={()=>setOrigen(v)}
+            style={{padding:'8px 16px',borderRadius:20,fontSize:12.5,fontWeight:600,cursor:'pointer',
+                    border:`1px solid ${origen===v?C.ink:C.border}`,
+                    background:origen===v?C.ink:C.surface, color:origen===v?'#fff':C.mid}}>{l}</button>
+        ))}
+      </div>
+
+      {origen==='red' && <DelivRedMythos onRefreshRiders={onRefresh}/>}
+      {origen!=='red' && (<>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-        <div style={{fontSize:13,color:C.mid}}>{riders.length} riders registrados</div>
+        <div style={{fontSize:13,color:C.mid}}>{propios.length} riders registrados</div>
         <Btn onClick={openNew}>+ Nuevo Rider</Btn>
       </div>
 
@@ -10796,10 +11207,10 @@ function DelivRiders({riders, deliveryOrders=[], settings, onRefresh, onRebalanc
         }
       </div>
 
-      {riders.length===0
-        ? <div style={{textAlign:'center',padding:60,color:C.dim,fontSize:14}}>No hay riders — creá el primero</div>
+      {propios.length===0
+        ? <div style={{textAlign:'center',padding:60,color:C.dim,fontSize:14}}>No hay riders propios — creá el primero, o sumate a la <strong>Red Mythos</strong>.</div>
         : <div className="my-row-3" style={{gap:14}}>
-            {riders.map(r=>{
+            {propios.map(r=>{
               // Estado real del rider: current_status manda (offline/en_ruta/disponible);
               // active===false también cuenta como offline. Se ignora la columna `status` legacy (muerta).
               const statusKey = (r.active===false || (r.current_status||'disponible')==='offline')
@@ -10848,6 +11259,7 @@ function DelivRiders({riders, deliveryOrders=[], settings, onRefresh, onRebalanc
             })}
           </div>
       }
+      </>)}
       {modal&&(
         <Modal title={modal==='new'?'Nuevo Rider':'Editar Rider'} onClose={()=>setModal(null)} width={440}>
           <div style={{display:'flex',flexDirection:'column',gap:12}}>
@@ -13901,6 +14313,35 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
     });
   },[restaurant]);
 
+  // Para el dueño de un local unipersonal —el caso normal— "Mi perfil" y "Dueño del
+  // local" son LA MISMA PERSONA, y esta pantalla le pedía el nombre y el teléfono dos
+  // veces, las dos tarjetas en blanco. Si el local todavía no tiene cargados los datos
+  // del dueño, se proponen los del perfil. Sólo se COMPLETA lo vacío y NO se guarda
+  // solo: queda escrito en el formulario y se persiste al tocar «Guardar datos del
+  // local», así el dueño puede corregirlo si el titular es otra persona.
+  // Corre aparte del efecto de arriba porque el perfil llega async y podría no estar
+  // cuando el row del restaurante ya cargó. Ver docs/audits/datos-una-sola-vez.md (B2).
+  const [autoFromProfile,setAutoFromProfile] = useState(false);
+  const seededSelf = useRef(false);
+  useEffect(()=>{
+    if (seededSelf.current) return;
+    if (!isAdminSelf || !canEditLocal) return;
+    if (!restaurant || seededRestId.current !== restaurant.id) return;   // esperar al sembrado base
+    if (!name.trim() && !phone.trim() && !email.trim()) return;          // el perfil todavía no llegó
+    const patch = {};
+    if (!restaurant.owner_name  && name.trim())  patch.owner_name  = name.trim();
+    if (!restaurant.owner_phone && phone.trim()) patch.owner_phone = phone.trim();
+    if (!restaurant.owner_email && email.trim()) patch.owner_email = email.trim();
+    seededSelf.current = true;
+    if (!Object.keys(patch).length) return;
+    setLoc(s=>{
+      const n = {...s};
+      Object.keys(patch).forEach(k=>{ if (!String(n[k]||'').trim()) n[k] = patch[k]; });
+      return n;
+    });
+    setAutoFromProfile(true);
+  },[restaurant,name,phone,email,isAdminSelf,canEditLocal]);
+
   const iStyle = {width:'100%',padding:'9px 12px',fontSize:13.5,borderRadius:8,border:`1px solid ${C.border}`,background:C.surface,color:C.ink,outline:'none',boxSizing:'border-box'};
   const iDisabled = {...iStyle, opacity:.6, cursor:'not-allowed'};
   const lStyle = {display:'block',fontSize:11,color:C.mid,fontWeight:700,marginBottom:5,textTransform:'uppercase',letterSpacing:.4};
@@ -14144,7 +14585,13 @@ function MiCuentaPage({ restaurant, onRefresh, embedded }) {
       {/* Dueño y encargado del local */}
       <div style={cardStyle}>
         <div style={{fontSize:14,fontWeight:700,marginBottom:3}}>Dueño y encargado del local</div>
-        <div style={{fontSize:12.5,color:C.mid,marginBottom:14}}>{canEditLocal ? 'Datos de contacto del dueño y (si difiere) del encargado del local.' : 'Solo el administrador del local puede editar estos datos.'}</div>
+        <div style={{fontSize:12.5,color:C.mid,marginBottom:autoFromProfile?10:14}}>{canEditLocal ? 'Datos de contacto del dueño y (si difiere) del encargado del local.' : 'Solo el administrador del local puede editar estos datos.'}</div>
+        {autoFromProfile && (
+          <div style={{fontSize:12,color:C.mid,background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 11px',marginBottom:14,lineHeight:1.5}}>
+            Completamos estos campos con los datos de <strong style={{color:C.ink}}>tu perfil</strong> para que no los escribas de nuevo.
+            Si el titular del local es otra persona, cambialos. Se guardan al tocar «Guardar datos del local».
+          </div>
+        )}
         <div style={{fontSize:10,color:C.mid,fontWeight:700,textTransform:'uppercase',letterSpacing:.5,marginBottom:8}}>Dueño</div>
         <div className="my-row-2" style={{gap:'0 16px'}}>
           <AcctField label="Nombre"><input value={loc.owner_name} onChange={sf('owner_name')} disabled={!canEditLocal} placeholder="Nombre del dueño" style={canEditLocal?iStyle:iDisabled}/></AcctField>

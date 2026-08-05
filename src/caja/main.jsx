@@ -2810,9 +2810,14 @@ function PagarAntesDeEnviarModal({cart,orderType,tableId,customerName,cliente,ta
   const [proofUrl,setProofUrl]=useState('');         // foto del comprobante (mig 182)
   const bankInfo=useBankInfo();
   const requireProof=useRequireProof();              // exigir comprobante en QR (mig 182 · require_proof)
-  const [invName,setInvName]=useState('');
-  const [invRuc,setInvRuc]=useState('');
-  const [invEmail,setInvEmail]=useState('');
+  // Datos de la factura sembrados desde la ficha del cliente que ya se eligió en el
+  // panel (mismo patrón que el mozo). Antes arrancaban vacíos: el cajero tenía la
+  // ficha en pantalla y aun así retipeaba nombre, RUC y correo. Es state inicial y
+  // no efecto porque el modal se monta DESPUÉS de elegir la ficha, y así lo que el
+  // cajero corrija a mano nunca se pisa. Ver docs/audits/datos-una-sola-vez.md (B5).
+  const [invName,setInvName]=useState(()=>(cliente?custFullName(cliente):'')||customerName||'');
+  const [invRuc,setInvRuc]=useState(()=>(cliente&&cliente.doc_number)||'');
+  const [invEmail,setInvEmail]=useState(()=>(cliente&&cliente.email)||'');
   const movDataRef=React.useRef(null);
   const orderRef=React.useRef(null);
   const [showBancardToast,setShowBancardToast]=useState(false);
@@ -5972,9 +5977,14 @@ async function initApp(session){
   try{
     // Datos del negocio + config del comprobante (settings_json.receipt) para el
     // render 80mm. La identidad vive en restaurants; el diseño en restaurant_settings.
-    const [{data:r},{data:st}] = await Promise.all([
+    // `facebook` (mig 118) va en un query APARTE a propósito: si esa columna no
+    // existiera en la base, sumarla al select de arriba daría 400 y se perdería todo
+    // el bloque — nombre del local y diseño del comprobante incluidos — y el ticket
+    // saldría como "Restaurante". Separado, lo peor que pasa es que no haya Facebook.
+    const [{data:r},{data:st},{data:fb}] = await Promise.all([
       db.from('restaurants').select('name,address,phone,instagram,website,logo_url,logo_initials,ruc,legal_name,email').eq('id',RID).maybeSingle(),
       db.from('restaurant_settings').select('settings_json').eq('restaurant_id',RID).maybeSingle(),
+      db.from('restaurants').select('facebook').eq('id',RID).maybeSingle().then(x=>x.error?{data:null}:x),
     ]);
     window._restaurantName=r?.name||'Restaurante';
     const rcfg=(st&&st.settings_json&&st.settings_json.receipt)||{};
@@ -5985,7 +5995,10 @@ async function initApp(session){
         name:r?.name||'', address:r?.address||'', phone:r?.phone||'',
         instagram:r?.instagram||'', website:r?.website||'', logoUrl:r?.logo_url||'',
         ruc:r?.ruc||'', legalName:r?.legal_name||'', email:r?.email||'',
-        facebook:(rcfg.social&&rcfg.social.facebook)||'',
+        // Columna real primero (la que edita Admin y muestra la ficha de /clientes);
+        // la copia vieja de settings_json queda sólo de respaldo. Ver A1 en
+        // docs/audits/datos-una-sola-vez.md.
+        facebook:(fb&&fb.facebook)||(rcfg.social&&rcfg.social.facebook)||'',
       },
     };
   }catch(e){window._restaurantName='Restaurante';}

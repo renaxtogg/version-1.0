@@ -27,6 +27,10 @@
     { "source": "/privacidad", "destination": "/privacidad.html" },
     { "source": "/cookies", "destination": "/cookies.html" },
     { "source": "/proveedores", "destination": "/proveedores.html" },
+    { "source": "/terminos-riders", "destination": "/terminos-riders.html" },
+    { "source": "/riders", "destination": "/riders.html" },
+    { "source": "/rider", "destination": "/riders.html" },
+    { "source": "/repartidores", "destination": "/riders.html" },
     { "source": "/clientes", "destination": "/clientes.html" },
     { "source": "/comer", "destination": "/clientes.html" },
     { "source": "/restaurantes", "destination": "/clientes.html" },
@@ -61,6 +65,7 @@
   "crons": [
     { "path": "/api/cron/keep-alive", "schedule": "0 9 * * *" },
     { "path": "/api/cron/purge-comprobantes", "schedule": "30 4 * * *" },
-    { "path": "/api/cron/supplier-billing", "schedule": "0 5 * * *" }
+    { "path": "/api/cron/supplier-billing", "schedule": "0 5 * * *" },
+    { "path": "/api/cron/rider-docs", "schedule": "0 6 * * *" }
   ]
 }

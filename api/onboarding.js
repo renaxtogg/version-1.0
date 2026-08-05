@@ -153,10 +153,20 @@ module.exports = async function handler(req, res) {
     // 6a. Crear restaurante (status 'trial'). onboarding_date toma CURRENT_DATE por default.
     // auto_provisioned distingue las altas web de las manuales del superadmin
     // (la columna tiene DEFAULT false, mig 090 — sin esto quedan indistinguibles).
-    const restResp = await httpsPost(`${SUPABASE_URL}/rest/v1/restaurants`,
-      { ...svcJson, 'Prefer': 'return=representation' },
-      JSON.stringify({ name: restaurantName, owner_email: email, status: 'trial', auto_provisioned: true,
-                       ...(ownerName ? { owner_name: ownerName } : {}) }));
+    const restBase = { name: restaurantName, owner_email: email, status: 'trial', auto_provisioned: true,
+                       ...(finalOwnerName ? { owner_name: finalOwnerName } : {}) };
+    const postRest = payload => httpsPost(`${SUPABASE_URL}/rest/v1/restaurants`,
+      { ...svcJson, 'Prefer': 'return=representation' }, JSON.stringify(payload));
+    // `whatsapp` es de la mig 118. Si esa migración no estuviera aplicada, mandarla
+    // haría fallar el INSERT entero y se PERDERÍA el alta del local — perder el
+    // WhatsApp es infinitamente preferible. Se reintenta sólo si el error es la
+    // columna faltante, nunca a ciegas (mismo criterio que el lead de registro.html
+    // y el insert de `orders`: reintentar por cualquier error degrada o duplica).
+    let restResp = await postRest(finalWhatsapp ? { ...restBase, whatsapp: finalWhatsapp } : restBase);
+    if (!restResp.ok && finalWhatsapp) {
+      const m = String((restResp.data && (restResp.data.message || restResp.data.hint)) || '');
+      if (/column|schema cache/i.test(m) && /whatsapp/i.test(m)) restResp = await postRest(restBase);
+    }
     const restRow = (restResp.ok && Array.isArray(restResp.data)) ? restResp.data[0] : null;
     if (!restRow || !restRow.id) {
       res.status(400).json({ error: errMsg(restResp, 'No se pudo crear el local. Probá de nuevo.') }); return;
@@ -167,7 +177,7 @@ module.exports = async function handler(req, res) {
     const roleResp = await httpsPost(`${SUPABASE_URL}/rest/v1/user_roles`,
       { ...svcJson, 'Prefer': 'return=minimal' },
       JSON.stringify({ user_id: userId, restaurant_id: restaurantId, role: 'admin', email, is_active: true,
-                       ...(ownerName ? { display_name: ownerName } : {}) }));
+                       ...(finalOwnerName ? { display_name: finalOwnerName } : {}) }));
     if (!roleResp.ok) {
       await rollbackDelete(`${SUPABASE_URL}/rest/v1/restaurants?id=eq.${restaurantId}`, svc, 'restaurants');
       // UNIQUE(user_id, role) (mig 006) es el backstop real del anti-duplicado: si dos
@@ -208,7 +218,13 @@ module.exports = async function handler(req, res) {
                          description: 'Alta self-service (dueño) — trial 14 días' }));
     } catch (e) { /* best-effort */ }
 
-    res.status(200).json({ success: true, restaurant_id: restaurantId, role: 'admin', trial_end: endDate });
+    // `lead` viaja de vuelta para que el wizard prellene el paso 3 sin volver a
+    // preguntar lo que la persona ya escribió en /registro. Son datos SUYOS (el lead
+    // se busca por el email del token), así que devolverlos no expone nada ajeno.
+    res.status(200).json({
+      success: true, restaurant_id: restaurantId, role: 'admin', trial_end: endDate,
+      lead: { nombre: finalOwnerName, whatsapp: finalWhatsapp, tipo_negocio: leadStr('tipo_negocio', 40) }
+    });
   } catch (e) {
     // No filtrar internals al cliente; el detalle queda en los logs del server.
     console.error('[onboarding] error:', (e && e.stack) || e);

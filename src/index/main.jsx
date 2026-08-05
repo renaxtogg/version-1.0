@@ -13,6 +13,7 @@ import { uploadComprobante } from "../shared/comprobante.jsx";
 // CRM (mig 196) — el comensal deja sus datos y queda con ficha en el local.
 // La escritura pasa por RPC (`upsert_customer_self`): anon NO toca la tabla.
 import { customerPayload, upsertSelf } from "../shared/clientes.js";
+import { leerMisDatos, LS_KEY as MIS_DATOS_LS } from "../shared/misdatos.js";
 
 const { useState, useEffect, useRef, createContext, useContext, useCallback } = React;
 
@@ -1287,24 +1288,34 @@ function PayScreen({ total, subtotal, discountAmount, couponCode, onBack, onDone
   const [method, setMethod] = useState('efectivo');
   const [invoiceType, setInvoiceType] = useState('none'); // 'none' | 'ticket' | 'fiscal'
   const [invoiceDelivery, setInvoiceDelivery] = useState('print'); // 'print' | 'email'
-  const [name, setName] = useState('');
-  const [ruc, setRuc] = useState('');
-  const [email, setEmail] = useState('');
-  const [ordNum, setOrdNum] = useState('');
-  const [submitError, setSubmitError] = useState(null);
   // ── CRM (mig 196): "Mis datos" ─────────────────────────────────────
   // Hasta ahora el pedido por QR sólo guardaba el nombre si el comensal pedía
   // factura fiscal — por eso el CRM del local estaba lleno de "pedidos sin
   // identificar". Este bloque es OPCIONAL y se persiste en el dispositivo, así
   // que el habitué lo completa UNA vez y sus siguientes pedidos ya lo traen.
-  const CRM_LS = 'mythos_mis_datos';
+  // La clave es GLOBAL a propósito (sin prefijo de restaurante): es la persona,
+  // no su relación con un local — le sirve en cualquier local al que escanee, y el
+  // panel de delivery lee y escribe LA MISMA (src/shared/misdatos.js es la fuente
+  // única; antes el delivery tenía su propia copia por restaurante).
+  const crm0 = React.useMemo(() => leerMisDatos(), []);
+  // Los datos de la factura arrancan con lo que el comensal YA cargó en "Mis datos":
+  // es la misma persona y el mismo dato, y hacerlo retipear nombre, documento y
+  // correo era pura fricción. Si factura a nombre de otro (la empresa), los edita
+  // acá y "Mis datos" no se toca — la ficha del CRM sigue siendo la suya, porque el
+  // armado de `customer` de más abajo le da precedencia a `crm` sobre este
+  // formulario. Ver docs/audits/datos-una-sola-vez.md (B4).
+  const [name, setName] = useState(() => `${crm0.first_name || ''} ${crm0.last_name || ''}`.trim());
+  const [ruc, setRuc] = useState(() => crm0.doc_number || '');
+  const [email, setEmail] = useState(() => crm0.email || '');
+  const [ordNum, setOrdNum] = useState('');
+  const [submitError, setSubmitError] = useState(null);
   const [crmOpen, setCrmOpen] = useState(false);
-  const [crm, setCrm] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(CRM_LS) || '{}') || {}; } catch (_) { return {}; }
-  });
+  const [crm, setCrm] = useState(crm0);
   const setCrmField = (k, v) => setCrm(p => {
     const n = { ...p, [k]: v };
-    try { localStorage.setItem(CRM_LS, JSON.stringify(n)); } catch (_) {}
+    // Se persiste el objeto entero (no el merge de guardarMisDatos): acá el comensal
+    // está EDITANDO sus datos, así que vaciar un campo tiene que poder vaciarlo.
+    try { localStorage.setItem(MIS_DATOS_LS, JSON.stringify(n)); } catch (_) {}
     return n;
   });
   // FASE D2 (mig 183): comprobante de transferencia que sube el cliente.

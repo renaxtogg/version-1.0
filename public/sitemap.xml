@@ -10,8 +10,14 @@
   <url><loc>https://mythos.com.py/contacto</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <!-- /registro es noindex (formulario de interés): se omite del sitemap a propósito. -->
   <!-- /clientes está en beta cerrada: no se publica hasta abrirla (ver robots.txt). -->
+  <!-- /riders es una landing de captación: se indexa a propósito. Que la red
+       esté apagada no la saca del índice — la página muestra "todavía no está
+       disponible" y sigue siendo el lugar al que llega quien busca "trabajar
+       de delivery en Asunción". -->
+  <url><loc>https://mythos.com.py/riders</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://mythos.com.py/terminos</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
   <url><loc>https://mythos.com.py/terminos-proveedores</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://mythos.com.py/terminos-riders</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
   <url><loc>https://mythos.com.py/privacidad</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
   <url><loc>https://mythos.com.py/cookies</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
 </urlset>

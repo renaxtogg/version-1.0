@@ -14,6 +14,7 @@ import { uploadComprobante } from '../shared/comprobante.jsx';
 // CRM (mig 196) — el pedido a domicilio deja ficha del cliente en el local.
 // La escritura pasa por RPC (`upsert_customer_self`): anon NO toca la tabla.
 import { customerPayload, upsertSelf } from '../shared/clientes.js';
+import { leerMisDatos, guardarMisDatos, combinar, fromDelivery, toDelivery } from '../shared/misdatos.js';
 const { useState, useEffect, useRef, createContext, useContext, useCallback } = React;
 
 /* ── SUPABASE CLIENT ─────────────────────── */
@@ -1316,7 +1317,7 @@ function CoverageScreen({ zones, restaurant, settings, onCovered, onPickupFallba
 }
 
 /* ══ PANTALLA 3 — DATOS DE ENTREGA ══════ */
-function CustomerDataScreen({ orderType, zones, settings, deliveryResult, onNext, onPickup, onBack }) {
+function CustomerDataScreen({ orderType, zones, settings, deliveryResult, customerData, onNext, onPickup, onBack }) {
   const T = useContext(ThemeCtx);
   const restaurant = useContext(RestaurantCtx);
   const isDelivery = orderType === 'delivery';
@@ -1346,15 +1347,26 @@ function CustomerDataScreen({ orderType, zones, settings, deliveryResult, onNext
     setQuoteBusy(false);
   }, [zones, settings, restLat, restLng]);
 
-  const [form, setForm] = useState({
-    name: '', phone: '',
-    // CRM (mig 196): apellido y CI/RUC son OPCIONALES y viajan a la ficha del
-    // cliente en el local. Sin ellos el delivery funciona exactamente igual.
-    last_name: '', doc_type: 'ci', doc_number: '',
-    address: deliveryResult?.manualAddr || '',
-    detail: '',
-    corner: '',
-    references: deliveryResult?.manualRef || ''
+  // Arranca con lo que la persona YA cargó: primero lo de este pedido (si volvió
+  // atrás desde el menú), y si no, "Mis datos" del dispositivo — que puede venir de
+  // un pedido por QR o del delivery de OTRO local, porque es la misma persona.
+  // La dirección tipeada manualmente en la cotización gana sobre la guardada: es la
+  // que se acaba de confirmar para ESTE envío. Ver docs/audits/datos-una-sola-vez.md (B6).
+  const [form, setForm] = useState(() => {
+    // combinar() y no un spread: `customerData` de un pedido anterior puede traer
+    // campos vacíos, y un spread normal le borraría con '' lo que la persona sí tiene
+    // cargado en "Mis datos".
+    const prev = combinar(toDelivery(leerMisDatos()), customerData);
+    return {
+      name: prev.name || '', phone: prev.phone || '',
+      // CRM (mig 196): apellido y CI/RUC son OPCIONALES y viajan a la ficha del
+      // cliente en el local. Sin ellos el delivery funciona exactamente igual.
+      last_name: prev.last_name || '', doc_type: prev.doc_type || 'ci', doc_number: prev.doc_number || '',
+      address: deliveryResult?.manualAddr || prev.address || '',
+      detail: prev.detail || '',
+      corner: prev.corner || '',
+      references: deliveryResult?.manualRef || prev.references || ''
+    };
   });
   // lat/lng viven aparte del form: el PIN del mapa es la fuente de verdad de la ubicación.
   const [lat, setLat] = useState(initLat);
@@ -2079,9 +2091,15 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
   const [cashInput, setCashInput]   = useState('');
   const [invoiceType, setInvoiceType] = useState('none'); // 'none'|'ticket'|'fiscal'
   const [invoiceDelivery, setInvoiceDelivery] = useState('print'); // 'print' | 'email'
-  const [invName, setInvName] = useState('');
-  const [invRuc, setInvRuc] = useState('');
-  const [invEmail, setInvEmail] = useState('');
+  // Datos de la factura: los de este pedido primero, y lo que falte desde "Mis
+  // datos" del dispositivo. El comensal acaba de escribir su nombre y su CI/RUC en
+  // la pantalla anterior — volver a pedírselos acá era pedir dos veces lo mismo.
+  // Si factura a nombre de otro, lo edita y "Mis datos" no se toca.
+  const _mis = React.useMemo(() => leerMisDatos(), []);
+  const [invName, setInvName] = useState(() =>
+    `${(customerData?.name || _mis.first_name || '')} ${(customerData?.last_name || _mis.last_name || '')}`.trim());
+  const [invRuc, setInvRuc] = useState(() => customerData?.doc_number || _mis.doc_number || '');
+  const [invEmail, setInvEmail] = useState(() => _mis.email || '');
   // FASE D2 (mig 183/184): comprobante de transferencia + cliente frecuente.
   const [proofPath, setProofPath] = useState('');
   const [proofPreview, setProofPreview] = useState('');
@@ -2162,6 +2180,14 @@ function PayScreen({ orderType, subtotal, deliveryFee, total, customerData, deli
         paymentProofPath: method === 'qr' ? (proofPath || null) : null,
         paymentReference: method === 'qr' ? (proofRef.trim() || null) : null,
       });
+      // El correo de la factura queda en "Mis datos" para no volver a pedírselo —
+      // pero SÓLO si todavía no tenía uno cargado: quien factura a la empresa pone
+      // ahí el correo de contabilidad, y pisarle el suyo con ése sería peor que no
+      // guardar nada. El RUC de la factura NO se guarda por el mismo motivo: puede
+      // ser el de la empresa, no el documento de la persona.
+      try {
+        if (invoiceType === 'fiscal' && invEmail && !leerMisDatos().email) guardarMisDatos({ email: invEmail });
+      } catch (_) {}
       setStep('form');
       onConfirmed(order);
     } catch(e) {
@@ -3003,6 +3029,10 @@ function App() {
   // que deliveryFee/deliveryResult reflejen la ubicación REALMENTE confirmada.
   const handleCustomerNext = (data, quote) => {
     setCustomerData(data);
+    // Espejo GLOBAL de los datos personales: la próxima vez —en este local, en otro,
+    // o pidiendo por el QR de la mesa— ya salen cargados. Sólo lo personal; el pin,
+    // la esquina y el detalle del piso son de ESTE envío y no se comparten.
+    try { guardarMisDatos(fromDelivery(data)); } catch (_) {}
     if (quote !== undefined) setDeliveryResult(quote);
     setScreen('menu');
   };
@@ -3064,7 +3094,7 @@ function App() {
                   <ReservaScreen onBack={() => setScreen('welcome')} onDone={() => setScreen('welcome')} />
                 )}
                 {screen === 'customer' && (
-                  <CustomerDataScreen orderType={orderType} zones={zones} settings={deliverySettings} deliveryResult={deliveryResult} onNext={handleCustomerNext} onPickup={handlePickupFallback} onBack={() => setScreen('welcome')} />
+                  <CustomerDataScreen orderType={orderType} zones={zones} settings={deliverySettings} deliveryResult={deliveryResult} customerData={customerData} onNext={handleCustomerNext} onPickup={handlePickupFallback} onBack={() => setScreen('welcome')} />
                 )}
                 {screen === 'menu' && (
                   <MenuScreen onItemSelect={setSelItem} cartTotal={cartTotal} cartCount={cartCount} onViewCart={() => setScreen('cart')} orderType={orderType} menuStatus={menuStatus} canOrder={canOrder} openState={openState} />

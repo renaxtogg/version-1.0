@@ -78,6 +78,10 @@
     // existía sólo para quien conociera la URL. La beta sigue cerrada por la
     // allowlist de la base — el enlace no abre nada que la base no permita.
     { id: 'clientes',    label: 'Comensales',  href: '/clientes' },
+    // Captación de repartidores. Mismo motivo que /clientes: sin un camino
+    // desde el sitio, /riders existiría sólo para quien conozca la URL — y la
+    // red no se llena sola.
+    { id: 'riders',      label: 'Riders',      href: '/riders' },
     { id: 'contacto',    label: 'Contacto',    href: '/contacto' }
   ];
 
@@ -118,7 +122,7 @@
               '<div class="foot-social" id="footSocial" style="display:flex;gap:8px;margin-top:12px"></div>' +
             '</div>' +
             '<div><h5>Producto</h5><a href="/precios">Precios</a><a href="/inicio#modulos">Módulos</a><a href="/inicio#demo">Demo</a><a href="/clientes">App del comensal</a><a href="/registro">Probar gratis</a></div>' +
-            '<div><h5>Empresa</h5><a href="/contacto">Contacto</a><a href="/proveedores">Quiero ser proveedor</a><a href="/inicio#faq">Preguntas frecuentes</a><a href="' + CONFIG.loginUrl + '" data-track="login_entry_click">Iniciar sesión</a></div>' +
+            '<div><h5>Empresa</h5><a href="/contacto">Contacto</a><a href="/proveedores">Quiero ser proveedor</a><a href="/riders">Quiero ser rider</a><a href="/inicio#faq">Preguntas frecuentes</a><a href="' + CONFIG.loginUrl + '" data-track="login_entry_click">Iniciar sesión</a></div>' +
             '<div><h5>Contacto y legal</h5>' +
               '<a id="footWa" data-wa="Hola, quiero más información sobre MYTHOS." style="display:none">WhatsApp</a>' +
               '<a id="footEmail" data-email>Escribinos por email</a>' +
