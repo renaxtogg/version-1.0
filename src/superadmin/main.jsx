@@ -11294,8 +11294,8 @@ function CmAcceso({setFlash}) {
     // ése decide quién puede CREAR perfil de comensal; éste decide si la vitrina
     // se ve SIN cuenta. Arranca apagado — con la beta cerrada, prenderlo es lo
     // que hace pública la portada de /clientes.
-    ['public_browse_enabled','Vitrina pública (sin cuenta)',
-     'Deja ver la portada, las experiencias y los locales a cualquiera, sin iniciar sesión. Requiere "Descubrir restaurantes" prendido.'],
+    ['public_browse_enabled','Dejar MIRAR la vitrina sin iniciar sesión',
+     'Sólo mirar: la portada, las experiencias y los locales se ven sin cuenta. NO habilita a nadie a crear perfil de comensal — eso es el interruptor de arriba. Requiere "Descubrir restaurantes" prendido.'],
     ['reviews_enabled',     'Reseñas',                'Sólo puede reseñar quien pidió y pagó ahí.'],
     ['photos_enabled',      'Fotos en las reseñas',   'Pasan por moderación antes de verse.'],
     ['ranking_enabled',     'Ranking',                'Tabla de posiciones por país y por ciudad.'],
@@ -11306,18 +11306,35 @@ function CmAcceso({setFlash}) {
 
   return (
     <div style={{display:'flex',flexDirection:'column',gap:18}}>
-      <SectionCard title="Estado de la app">
+      <SectionCard title="Quién puede CREAR perfil de comensal">
         <div style={{padding:18}}>
           <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:14}}>
-            <Toggle checked={!!cfg.is_public} onChange={v=>patch({is_public:v})}/>
+            {/* Confirmación al ABRIR, nunca al cerrar: cerrar es siempre seguro.
+                Este interruptor tiene un efecto que no se ve en esta pantalla —
+                con `is_public` en true, `diner_access_allowed()` (mig 200) sale
+                por el `RETURN true` antes de mirar la lista de abajo, así que la
+                lista deja de filtrar sin que nada acá lo indique. El 2026-08-05
+                quedó prendido sin querer (se confundía con el de mirar la
+                vitrina) y cuentas de restaurante terminaron como comensales. */}
+            <Toggle checked={!!cfg.is_public} onChange={v=>{
+              if (v && !window.confirm(
+                'Vas a ABRIR el alta de comensales a cualquiera.\n\n' +
+                'Desde ese momento la lista de correos habilitados DEJA DE FILTRAR: ' +
+                'cualquier persona con cuenta en Mythos —dueños, mozos y cajeros incluidos— ' +
+                'puede crear su perfil de comensal.\n\n' +
+                'Si lo que querías es que la portada se vea sin iniciar sesión, ese es ' +
+                'otro interruptor: "Dejar MIRAR la vitrina sin iniciar sesión".\n\n' +
+                '¿Confirmás abrirla?')) return;
+              patch({is_public:v});
+            }}/>
             <div>
               <div style={{fontWeight:700,fontSize:14,color:C.ink}}>
-                {cfg.is_public ? 'Abierta al público' : 'Beta cerrada'}
+                {cfg.is_public ? 'Cualquiera — abierta al público' : 'Sólo la lista de abajo — beta cerrada'}
               </div>
               <div style={{fontSize:12,color:C.mid,marginTop:2}}>
                 {cfg.is_public
-                  ? 'Cualquiera con correo o cuenta de Google puede crear su perfil de comensal.'
-                  : 'Sólo los correos de la lista de abajo pueden entrar.'}
+                  ? 'La lista de correos habilitados no filtra nada mientras esto esté prendido.'
+                  : 'Nadie más puede crear perfil de comensal, aunque llegue a /clientes con sesión.'}
               </div>
             </div>
           </div>
@@ -11338,6 +11355,17 @@ function CmAcceso({setFlash}) {
       </SectionCard>
 
       <SectionCard title="Correos habilitados">
+        {/* Si la app está abierta, esta lista no filtra NADA. Sin este aviso la
+            pantalla miente por omisión: se ve una lista de dos correos y se lee
+            como "sólo entran estos dos". */}
+        {cfg.is_public && (
+          <div style={{background:TINT.warnBg,borderBottom:`1px solid ${C.orange}`,
+                       padding:'12px 18px',fontSize:12.5,color:TINT.warnText,lineHeight:1.7}}>
+            <b>Esta lista no está filtrando nada.</b> Con el interruptor de arriba
+            abierto, cualquier cuenta puede crear perfil de comensal, esté o no acá.
+            Cerrá la beta para que vuelva a tener efecto.
+          </div>
+        )}
         <div style={{padding:'12px 18px',fontSize:12,color:C.mid,lineHeight:1.7,
                      borderBottom:`1px solid ${C.border}`}}>
           El portero está en la base, no en la pantalla: aunque alguien llegue a

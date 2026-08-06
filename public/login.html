@@ -462,8 +462,15 @@
     // resto de casos (rol no reconocido, sin comercio, varios roles) sigue igual.
     // Excepción: si la cuenta SÍ es comensal, mandarla al onboarding de dueños
     // sería absurdo — no vino a abrir un restaurante.
+    //
+    // La condición es `hasProfile` (tiene fila en `diners`), NO `available`.
+    // `available` incluye "su correo está habilitado", y con la beta abierta
+    // (diner_app_config.is_public = true) eso es verdad para CUALQUIER correo:
+    // todo dueño recién registrado terminaba en /clientes en vez del onboarding,
+    // y /clientes le creaba la ficha de comensal sola. Fue así como cuentas de
+    // restaurante aparecieron en el ranking de comensales (2026-08-05).
     if (!profile || !profile.role) {
-      if (diner.available) { await goToDinerApp(); return null; }
+      if (diner.hasProfile) { await goToDinerApp(); return null; }
       window.location.replace('onboarding.html'); return null;
     }
 

@@ -370,6 +370,75 @@ function ClosedScreen({ email, message, onOut }) {
   );
 }
 
+/* ══ PANTALLA: CREAR EL PERFIL DE COMENSAL ═══════════════════════ */
+// Abrir una URL no puede crear una identidad. Hasta el 2026-08-05 esta pantalla
+// no existía: `load()` llamaba a `ensure_my_diner()` sola apenas veía sesión +
+// correo habilitado, y bautizaba a la persona con la parte izquierda de su
+// correo (`email.split('@')[0]`). Resultado real en producción: cuentas de
+// staff que sólo pasaron por acá quedaron como comensales sin haber llenado
+// nada — 0 XP, sin ciudad, con un nombre público que nadie eligió — y salían
+// en el ranking. El wizard de gustos NO es el alta: cuando aparece, la fila ya
+// está creada, así que abandonarlo no deshace nada.
+//
+// El portero de la base (`diner_access_allowed`, allowlist de la mig 200)
+// decide QUIÉN PUEDE. Esto pregunta SI QUIERE, que no es lo mismo, y no hay
+// forma de deducir lo segundo de lo primero.
+function CreateProfileScreen({ email, onCreated, onFlash, onOut }) {
+  const T = useT();
+  const [busy, setBusy] = useState(false);
+
+  const create = async () => {
+    setBusy(true);
+    // Se crea SIN nombre a propósito. El que vale lo elige la persona en el
+    // paso 1 del registro; precargarlo con el correo dejaba "mancuelloempresas"
+    // como nombre público de alguien que nunca lo escribió.
+    const { error } = await API.ensureDiner(null, null);
+    setBusy(false);
+    if (error) { onFlash('No pudimos crear tu perfil. Probá de nuevo.'); return; }
+    onCreated();
+  };
+
+  return (
+    <div style={{ background: T.offwhite, display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', padding: '72px 30px',
+                  textAlign: 'center' }}>
+      <Icon name="user" size={38} color={T.silver} />
+      <div style={{ fontFamily: T.F.h, fontSize: 25, color: T.ink,
+                    margin: '16px 0 10px', lineHeight: 1.25 }}>
+        Creá tu perfil de comensal
+      </div>
+      <div style={{ fontSize: 13.5, color: T.gray, lineHeight: 1.75, maxWidth: 360 }}>
+        Es tu identidad como cliente: guarda tus pedidos de todos los locales,
+        junta experiencia, te deja reseñar donde comiste y entrar al ranking.
+      </div>
+      <div style={{ fontSize: 12.5, color: T.silver, lineHeight: 1.7,
+                    maxWidth: 360, marginTop: 14 }}>
+        No hace falta para pedir. Pedir es el camino de siempre — el QR de la
+        mesa o el delivery — y sigue andando sin cuenta.
+      </div>
+      {email && (
+        <div style={{ marginTop: 20, fontSize: 12, color: T.silver }}>
+          Se va a crear para <b style={{ color: T.mid }}>{email}</b>
+        </div>
+      )}
+      <div style={{ marginTop: 24, width: '100%', maxWidth: 280,
+                    display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <Btn onClick={create} disabled={busy}>
+          {busy ? 'Creando…' : 'Crear mi perfil'}
+        </Btn>
+        {/* Las dos únicas salidas honestas: crearlo o irse. No hay un tercer
+            estado "con sesión y sin perfil mirando la vitrina" porque la
+            vitrina ya se ve sin cuenta (mig 201) — para eso alcanza salir. */}
+        {onOut && (
+          <Btn variant="ghost" onClick={onOut} disabled={busy}>
+            <Icon name="logout" size={15} /> Ahora no, salir
+          </Btn>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ══ PANTALLA: REGISTRO DE GUSTOS ════════════════════════════════ */
 // El alta no puede ser sólo nombre y correo. Lo que hace útil a la app —y lo
 // que un local no puede saber solo— es qué come esta persona. Las preguntas
@@ -2713,15 +2782,11 @@ function App() {
     if (missing) { setBoot({ missing: true }); return; }
     setBoot(data || { signed_in: false });
 
-    if (data?.signed_in && data?.allowed) {
-      // Perfil: si el correo está habilitado pero todavía no hay fila en
-      // `diners`, se crea acá (el portero real está en la base).
-      if (!data.diner) {
-        const { error } = await API.ensureDiner(
-          data.email ? data.email.split('@')[0] : null, null);
-        if (!error) { const { data: d2 } = await API.bootstrap(); setBoot(d2); }
-        return;
-      }
+    // El perfil NO se crea acá. Estar habilitado no es haber pedido entrar:
+    // sin fila en `diners` la pantalla pregunta primero (CreateProfileScreen).
+    // Ver el comentario de esa función — este `load()` creaba la identidad sola
+    // con sólo abrir la URL.
+    if (data?.signed_in && data?.allowed && data?.diner) {
       // Token de dispositivo: es lo que permite que un pedido hecho en el QR
       // o en delivery se reconozca como tuyo (Camino A). Se renueva si falta.
       if (!API.getDeviceToken()) {
@@ -2786,7 +2851,10 @@ function App() {
              onDone={() => { setRecovery(false); setFlash('Contraseña actualizada'); load(); }} />;
 
   } else if (boot.signed_in && boot.allowed && !boot.diner) {
-    body = <Loading />;
+    // Habilitado pero sin perfil todavía. Antes acá había un <Loading/> porque
+    // `load()` ya estaba creando la fila de fondo: la espera ERA el alta.
+    body = <CreateProfileScreen email={boot.email} onFlash={setFlash} onOut={doOut}
+             onCreated={() => { setFlash('Perfil creado'); load(); }} />;
 
   } else if (boot.signed_in && boot.allowed && boot.diner && !boot.diner.onboarded) {
     body = <OnboardingScreen boot={boot} onFlash={setFlash} onDone={(xp) => {
