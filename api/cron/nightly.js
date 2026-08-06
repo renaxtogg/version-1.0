@@ -104,5 +104,79 @@ export default async function handler(req, res) {
   try { steps.riders_ofertas = await rpc('expire_rider_offers'); }
   catch (e) { steps.riders_ofertas = { ok: false, error: e.message }; }
 
+  // ── 5) Porteros: avisar cuando cambia quién puede entrar ────────────────
+  // El 2026-08-05 `diner_app_config.is_public` estuvo en `true` sin que nadie
+  // lo supiera: la allowlist de la beta cerrada dejó de filtrar y cuentas de
+  // restaurante terminaron con perfil de comensal. No lo detectó ningún
+  // escaneo de código, y no podía: el dato era el VALOR DE UNA FILA. Se
+  // descubrió de casualidad, mirando una tabla de ranking.
+  //
+  // Esto NO valida contra un estado "correcto" fijo — abrir la app algún día
+  // es una decisión de negocio legítima, y un cron que grite por eso se vuelve
+  // ruido que se ignora. Detecta CAMBIOS: guarda una foto por noche y sólo
+  // anota un evento cuando algo se movió respecto de la anterior. Un
+  // interruptor que se abre solo, o que alguien abrió sin avisar, deja rastro
+  // con fecha.
+  //
+  // Va a `platform_events`, que el superadmin ya lee: sin canal nuevo, sin otra
+  // función serverless (el plan Hobby topea en 12) y sin otro cron (topea en 2).
+  async function checkPorteros() {
+    async function get(path) {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: authH });
+      if (!r.ok) return null;                       // tabla ausente = migración pendiente
+      const j = await r.json().catch(() => null);
+      return Array.isArray(j) ? (j[0] || null) : j;
+    }
+
+    const diner = await get('diner_app_config?select=is_public,public_browse_enabled&limit=1');
+    const rider = await get('mythos_rider_config?select=enabled,pilot_mode&limit=1');
+    if (!diner && !rider) return { ok: false, pending: true, motivo: 'sin tablas de config' };
+
+    const ahora = {
+      diner_signup_abierto: diner ? !!diner.is_public : null,
+      diner_vitrina_publica: diner ? !!diner.public_browse_enabled : null,
+      riders_red_activa:     rider ? !!rider.enabled : null,
+      riders_modo_piloto:    rider ? !!rider.pilot_mode : null,
+    };
+
+    const previo = await get(
+      'platform_events?select=metadata&event_type=eq.porteros_snapshot' +
+      '&order=created_at.desc&limit=1');
+    const antes = previo && previo.metadata ? previo.metadata.estado : null;
+
+    const cambios = [];
+    for (const k of Object.keys(ahora)) {
+      if (antes && antes[k] !== undefined && antes[k] !== ahora[k]) {
+        cambios.push({ interruptor: k, antes: antes[k], ahora: ahora[k] });
+      }
+    }
+
+    // La foto se guarda SIEMPRE (es la base de la comparación de mañana); el
+    // aviso sólo cuando hubo movimiento.
+    const eventos = [{
+      event_type: 'porteros_snapshot',
+      description: 'Estado nocturno de los porteros de acceso',
+      metadata: { estado: ahora },
+    }];
+    if (cambios.length) {
+      eventos.push({
+        event_type: 'porteros_cambio',
+        description: 'Cambió quién puede entrar: ' +
+          cambios.map(c => `${c.interruptor} ${c.antes} → ${c.ahora}`).join(' · '),
+        metadata: { cambios, estado: ahora },
+      });
+    }
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/platform_events`, {
+        method: 'POST', headers: authH, body: JSON.stringify(eventos),
+      });
+    } catch (_) { /* best-effort: mañana vuelve a intentar */ }
+
+    return { ok: true, estado: ahora, cambios, primera_vez: !antes };
+  }
+
+  try { steps.porteros = await checkPorteros(); }
+  catch (e) { steps.porteros = { ok: false, error: e.message }; }
+
   return res.status(200).json({ ok: true, steps, checked_at: new Date().toISOString() });
 }
