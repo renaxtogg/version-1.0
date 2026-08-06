@@ -302,6 +302,10 @@
   <script defer src="mythos-cookie-banner.js"></script>
   <script src="web-marketing-data.js"></script>
   <script src="web-marketing.js"></script>
+  <!-- Renderer de los formularios públicos (mig 211). Script plano y NO módulo
+       del bundle: lo comparte con /proveedores, que es HTML+JS sin Vite. Va
+       antes de build/riders.js porque el panel lo busca en window al montar. -->
+  <script src="mythos-form.js"></script>
   <script>MythosWeb.init({ active: 'riders' });</script>
   <!-- Panel precompilado con Vite. El bundle lo genera `npm run build` en
        public/build/ y lo reconstruye Vercel en cada deploy. -->

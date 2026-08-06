@@ -15,7 +15,7 @@ import { formatGs, parseGs, GsInput } from "../shared/gs.jsx";
 // (re-autentica con signInWithPassword).
 import { useTurnstile } from "../shared/turnstile.js";
 
-const { useState, useEffect, useCallback, useRef, useReducer } = React;
+const { useState, useEffect, useCallback, useMemo, useRef, useReducer } = React;
 
 // ── Paleta — reactiva al tema ────────────────────────────────
 const PALETTES = {
@@ -8713,8 +8713,12 @@ const FORM_SPECS = [
     ]
   },
   {
-    id:'delivery', label:'Delivery · Repartidores', page:'—', accent:'#FF9500',
-    intro:'Todavía no hay un formulario público para que un repartidor se postule: los riders los da de alta el dueño desde su panel.',
+    id:'delivery', label:'Delivery · Repartidores', page:'/riders', accent:'#FF9500',
+    // Esta sección mide el ALTA real de la Red de Riders (mythos_riders), no la
+    // encuesta de demanda: esa vive en la pestaña Encuestas, con sus preguntas
+    // guardadas en la base (mig 211). Mientras el alta esté cerrada este número
+    // va a quedar en cero, y está bien: es lo que está pasando.
+    intro:'Postulaciones reales a la Red de Riders. La encuesta previa de interés está en la pestaña «Encuestas».',
     questions:[]
   },
   {
@@ -8898,7 +8902,7 @@ function SitioFormularios() {
             <SectionCard>
               <div style={{padding:48,textAlign:'center',color:C.dim,fontSize:13,lineHeight:1.6}}>
                 {spec.id==='delivery'
-                  ? <>Todavía no existe el formulario público de repartidores.<br/>Cuando se publique, esta sección se llena sola.</>
+                  ? <>Todavía no hay postulaciones reales a la Red de Riders.<br/>La encuesta de interés se mira en la pestaña «Encuestas».</>
                   : section && section.error
                     ? <>No se pudo leer esta sección. <span style={{fontFamily:"'SF Mono',ui-monospace,monospace"}}>({String(section.error)})</span></>
                     : 'Sin datos para este formulario.'}
@@ -8932,6 +8936,728 @@ function SitioFormularios() {
             </>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SITIO WEB › ENCUESTAS — el motor de formularios públicos (mig 211)
+
+   Diferencia con la pestaña "Formularios" de al lado, que se confunde fácil:
+     · Formularios = reporte de los formularios REALES del producto (registro,
+       onboarding, alta de proveedores). Sus preguntas SON columnas de tablas de
+       negocio, por eso sus etiquetas viven en FORM_SPECS, en el código.
+     · Encuestas  = formularios de demanda que se arman ACÁ. Preguntas, opciones
+       y textos viven en la BASE justamente para que cambiarlos no exija una
+       migración ni un deploy.
+
+   Los conteos salen de `public_form_stats` y las filas de `public_form_export`,
+   las dos agregando/paginando del lado de la base. Es la cuarta vez que se
+   escribe esta nota (migs 197, 198, 200 y 211) y la razón no cambia: agrupar en
+   el navegador un listado capado da un número que empeora cuanto más crece el
+   negocio.
+══════════════════════════════════════════════════════════════ */
+// Los acentos se sacan con una RegExp construida desde texto y NO con los
+// caracteres combinantes escritos literalmente en el patron: esos son
+// invisibles en el editor y cualquier normalizacion del archivo (o un diff mal
+// resuelto) los borra sin que se note, dejando una regex que compila y no
+// filtra nada. Asi el rango U+0300..U+036F queda legible y a prueba de eso.
+const RE_ACENTOS = new RegExp('[\u0300-\u036f]', 'g');
+const slugifyOpt = s => String(s||'').toLowerCase().normalize('NFD')
+  .replace(RE_ACENTOS,'').replace(/[^a-z0-9]+/g,'_')
+  .replace(/^_+|_+$/g,'').slice(0,40) || 'opcion';
+
+const QTYPES = [
+  {id:'single',     label:'Una opción'},
+  {id:'multi',      label:'Varias opciones'},
+  {id:'short_text', label:'Texto corto'},
+  {id:'long_text',  label:'Texto largo'},
+  {id:'number',     label:'Número'},
+];
+// Las tres que además se guardan en columna propia (ver §2 de la mig 211). No
+// se pueden borrar ni cambiarles la clave: de ellas dependen el dedupe por
+// teléfono, el filtro por ciudad y la agenda de contactos del export.
+const QKEY_FIJAS = ['nombre','whatsapp','ciudad'];
+
+const encInput = {width:'100%',padding:'8px 11px',borderRadius:8,border:`1px solid ${C.border}`,
+  background:C.surface,color:C.ink,fontSize:13,fontFamily:'inherit'};
+
+function EncuestaPregunta({q, onSave, onDelete, onMove, first, last, setFlash}) {
+  const [open, setOpen] = useState(false);
+  const [d, setD] = useState(q);
+  useEffect(()=>{ setD(q); }, [q.id, q.updated_at]);
+
+  const isChoice = d.qtype==='single' || d.qtype==='multi';
+  const fija = QKEY_FIJAS.includes(q.qkey);
+  const opts = Array.isArray(d.options) ? d.options : [];
+
+  const setOpt = (i, label) => {
+    const next = opts.slice();
+    // El `value` se genera al CREAR la opción y después no se toca: es lo que
+    // quedó escrito dentro de cada respuesta ya guardada. Cambiarlo dejaría
+    // esas respuestas apuntando a una opción que ya no existe y el reporte las
+    // mostraría como una barra huérfana.
+    next[i] = {...next[i], label};
+    setD({...d, options: next});
+  };
+  const addOpt = () => setD({...d, options: opts.concat([{value:'', label:''}])});
+  const delOpt = i => setD({...d, options: opts.filter((_,j)=>j!==i)});
+
+  const save = () => {
+    const clean = opts
+      .map(o => ({ value: (o.value || slugifyOpt(o.label)), label: String(o.label||'').trim() }))
+      .filter(o => o.label);
+    if (isChoice && clean.length < 2) { setFlash({type:'error',text:'Una pregunta de opciones necesita al menos dos.'}); return; }
+    if (!String(d.label||'').trim()) { setFlash({type:'error',text:'La pregunta necesita un texto.'}); return; }
+    onSave({
+      id: q.id,
+      label: String(d.label).trim(),
+      help: String(d.help||'').trim() || null,
+      qtype: d.qtype,
+      required: !!d.required,
+      allow_other: isChoice ? !!d.allow_other : false,
+      options: isChoice ? clean : [],
+      max_len: Math.max(1, Math.min(4000, Number(d.max_len)||400)),
+      placeholder: String(d.placeholder||'').trim() || null,
+      is_active: d.is_active !== false,
+    });
+    setOpen(false);
+  };
+
+  return (
+    <div className="my-card" style={{padding:0,marginBottom:10,opacity:q.is_active===false?.55:1}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px'}}>
+        <div style={{display:'flex',flexDirection:'column',gap:2}}>
+          <button onClick={()=>onMove(q,-1)} disabled={first} title="Subir"
+            style={{border:'none',background:'transparent',cursor:first?'default':'pointer',color:first?C.border:C.mid,fontSize:11,lineHeight:1,padding:0}}>▲</button>
+          <button onClick={()=>onMove(q,1)} disabled={last} title="Bajar"
+            style={{border:'none',background:'transparent',cursor:last?'default':'pointer',color:last?C.border:C.mid,fontSize:11,lineHeight:1,padding:0}}>▼</button>
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:600,color:C.ink,lineHeight:1.35}}>
+            {q.label}{q.required && <span style={{color:C.red,marginLeft:3}}>*</span>}
+          </div>
+          <div style={{fontSize:11,color:C.dim,marginTop:3,fontFamily:"'SF Mono',ui-monospace,monospace"}}>
+            {q.qkey} · {(QTYPES.find(t=>t.id===q.qtype)||{}).label}
+            {Array.isArray(q.options) && q.options.length ? ` · ${q.options.length} opciones` : ''}
+            {q.allow_other ? ' · con «Otra»' : ''}
+            {q.is_active===false ? ' · RETIRADA' : ''}
+            {fija ? ' · fija' : ''}
+          </div>
+        </div>
+        <Btn size="sm" variant="ghost" onClick={()=>{ setD(q); setOpen(o=>!o); }}>{open?'Cerrar':'Editar'}</Btn>
+      </div>
+
+      {open && (
+        <div style={{borderTop:`1px solid ${C.border}`,padding:'14px 16px',display:'grid',gap:12}}>
+          <FormField label="Pregunta">
+            <input style={encInput} value={d.label||''} onChange={e=>setD({...d,label:e.target.value})}/>
+          </FormField>
+          <FormField label="Ayuda (opcional)" hint="Texto chico debajo de la pregunta.">
+            <input style={encInput} value={d.help||''} onChange={e=>setD({...d,help:e.target.value})}/>
+          </FormField>
+
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:12}}>
+            <FormField label="Tipo">
+              <select style={encInput} value={d.qtype} disabled={fija}
+                      onChange={e=>setD({...d,qtype:e.target.value})}>
+                {QTYPES.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Largo máximo">
+              <input style={encInput} type="number" min={1} max={4000} value={d.max_len||400}
+                     onChange={e=>setD({...d,max_len:e.target.value})}/>
+            </FormField>
+          </div>
+
+          {!isChoice && (
+            <FormField label="Texto de ejemplo (placeholder)">
+              <input style={encInput} value={d.placeholder||''} onChange={e=>setD({...d,placeholder:e.target.value})}/>
+            </FormField>
+          )}
+
+          <div style={{display:'flex',gap:20,flexWrap:'wrap',alignItems:'center'}}>
+            <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:C.mid,cursor:'pointer'}}>
+              <Toggle checked={!!d.required} onChange={v=>setD({...d,required:v})}/> Obligatoria
+            </label>
+            {isChoice && (
+              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:C.mid,cursor:'pointer'}}>
+                <Toggle checked={!!d.allow_other} onChange={v=>setD({...d,allow_other:v})}/> Dejar escribir «Otra»
+              </label>
+            )}
+            {!fija && (
+              <label style={{display:'flex',alignItems:'center',gap:8,fontSize:12.5,color:C.mid,cursor:'pointer'}}>
+                <Toggle checked={d.is_active!==false} onChange={v=>setD({...d,is_active:v})}/> Visible en el formulario
+              </label>
+            )}
+          </div>
+
+          {isChoice && (
+            <div>
+              <div style={{fontSize:11,color:C.mid,fontWeight:600,marginBottom:7,textTransform:'uppercase',letterSpacing:.4}}>Opciones</div>
+              {opts.map((o,i)=>(
+                <div key={i} style={{display:'flex',gap:8,alignItems:'center',marginBottom:7}}>
+                  <input style={{...encInput,flex:1}} value={o.label||''} placeholder="Texto de la opción"
+                         onChange={e=>setOpt(i,e.target.value)}/>
+                  <span style={{fontSize:10,color:C.dim,fontFamily:"'SF Mono',ui-monospace,monospace",width:96,
+                                overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}
+                        title={o.value || slugifyOpt(o.label)}>{o.value || slugifyOpt(o.label)}</span>
+                  <button onClick={()=>delOpt(i)} title="Quitar opción"
+                    style={{border:'none',background:'transparent',color:C.red,cursor:'pointer',fontSize:16,lineHeight:1,padding:'0 4px'}}>×</button>
+                </div>
+              ))}
+              <Btn size="sm" variant="ghost" onClick={addOpt}>+ Agregar opción</Btn>
+              <div style={{fontSize:11,color:C.dim,marginTop:8,lineHeight:1.5}}>
+                La clave gris de la derecha es la que queda guardada en cada respuesta. Se genera sola
+                al crear la opción y ya no cambia: si cambiara, las respuestas viejas quedarían apuntando
+                a una opción que no existe.
+              </div>
+            </div>
+          )}
+
+          <div style={{display:'flex',gap:8,justifyContent:'space-between',alignItems:'center',
+                       borderTop:`1px solid ${C.border}`,paddingTop:12}}>
+            {fija
+              ? <span style={{fontSize:11,color:C.dim}}>Pregunta fija: no se puede borrar ni cambiarle el tipo.</span>
+              : <Btn size="sm" variant="ghost" style={{color:C.red}} onClick={()=>onDelete(q)}>Borrar</Btn>}
+            <div style={{display:'flex',gap:8}}>
+              <Btn size="sm" variant="ghost" onClick={()=>{ setD(q); setOpen(false); }}>Cancelar</Btn>
+              <Btn size="sm" onClick={save}>Guardar</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SitioEncuestas({setFlash}) {
+  const [forms,  setForms]  = useState([]);
+  const [qs,     setQs]     = useState([]);
+  const [slug,   setSlug]   = useState('');
+  const [sub,    setSub]    = useState('reporte');
+  const [period, setPeriod] = useState('all');
+  const [stats,  setStats]  = useState(null);
+  const [dump,   setDump]   = useState(null);
+  const [gates,  setGates]  = useState({});
+  const [loading,setLoading]= useState(true);
+  const [busy,   setBusy]   = useState(false);
+  const [err,    setErr]    = useState('');
+
+  const load = useCallback(async () => {
+    if (!db) { setLoading(false); setErr('sin conexión con la base'); return; }
+    setLoading(true);
+    const [f, q, rc, mc] = await Promise.all([
+      db.from('public_forms').select('*').order('sort_order'),
+      db.from('public_form_questions').select('*').order('sort_order'),
+      db.from('mythos_rider_config').select('registration_open,closed_message').maybeSingle(),
+      db.from('marketing_config').select('value').eq('key','supplier_signup').maybeSingle(),
+    ]);
+    // PGRST205 = la tabla no existe → falta aplicar la 211. Se distingue de un
+    // error real porque la solución es otra: no es un fallo, falta la migración.
+    if (f.error) { setErr(`${f.error.code||''} ${f.error.message||''}`.trim()); setForms([]); setLoading(false); return; }
+    setErr('');
+    const list = f.data || [];
+    setForms(list);
+    setQs(q.data || []);
+    setGates({
+      riders: rc.data ? !!rc.data.registration_open : null,
+      proveedores: mc.data && mc.data.value ? mc.data.value.open !== false : null,
+      proveedores_msg: mc.data && mc.data.value ? (mc.data.value.closed_message||'') : '',
+    });
+    setSlug(s => (s && list.some(x=>x.slug===s)) ? s : (list[0]?.slug || ''));
+    setLoading(false);
+  }, []);
+  useEffect(()=>{ load(); }, [load]);
+
+  const form = forms.find(f=>f.slug===slug) || null;
+  const myQs = useMemo(
+    () => qs.filter(q=>form && q.form_id===form.id).sort((a,b)=>(a.sort_order-b.sort_order)||(a.id<b.id?-1:1)),
+    [qs, form]);
+
+  const range = useMemo(()=>formRange(period), [period]);
+
+  const loadStats = useCallback(async () => {
+    if (!db || !slug) return;
+    const [s, e] = await Promise.all([
+      db.rpc('public_form_stats',  {p_slug:slug, p_from:range.from, p_to:range.to}),
+      db.rpc('public_form_export', {p_slug:slug, p_from:range.from, p_to:range.to}),
+    ]);
+    setStats(s.error ? null : s.data);
+    setDump(e.error ? null : e.data);
+  }, [slug, range.from, range.to]);
+  useEffect(()=>{ loadStats(); }, [loadStats]);
+
+  /* ── Guardar ───────────────────────────────────────────────── */
+  const patchForm = async (patch) => {
+    if (!form) return;
+    setBusy(true);
+    const { error } = await db.from('public_forms').update({...patch, updated_at:new Date().toISOString()}).eq('id', form.id);
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setForms(fs => fs.map(f => f.id===form.id ? {...f, ...patch} : f));
+    setFlash({type:'success',text:'Guardado'});
+  };
+
+  const saveQ = async (patch) => {
+    const { id, ...rest } = patch;
+    const { error } = await db.from('public_form_questions').update(rest).eq('id', id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setQs(list => list.map(q => q.id===id ? {...q, ...rest} : q));
+    setFlash({type:'success',text:'Pregunta actualizada'});
+  };
+
+  const delQ = async (q) => {
+    if (!window.confirm(`¿Borrar «${q.label}»?\n\nLas respuestas ya recibidas conservan lo que la gente contestó, pero esta pregunta deja de aparecer en el reporte. Si sólo querés sacarla del formulario, apagá «Visible» en vez de borrarla.`)) return;
+    const { error } = await db.from('public_form_questions').delete().eq('id', q.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setQs(list => list.filter(x=>x.id!==q.id));
+    setFlash({type:'success',text:'Pregunta borrada'});
+  };
+
+  const moveQ = async (q, dir) => {
+    const i = myQs.findIndex(x=>x.id===q.id);
+    const j = i + dir;
+    if (i<0 || j<0 || j>=myQs.length) return;
+    const a = myQs[i], b = myQs[j];
+    const [oa, ob] = [a.sort_order, b.sort_order];
+    // Si dos preguntas comparten sort_order (se puede dar al importar), un swap
+    // pelado no movería nada: se les reasigna una separación explícita.
+    const na = (oa===ob) ? ob + (dir>0 ? 1 : -1) : ob;
+    const nb = (oa===ob) ? oa : oa;
+    setQs(list => list.map(x => x.id===a.id ? {...x,sort_order:na} : x.id===b.id ? {...x,sort_order:nb} : x));
+    await Promise.all([
+      db.from('public_form_questions').update({sort_order:na}).eq('id',a.id),
+      db.from('public_form_questions').update({sort_order:nb}).eq('id',b.id),
+    ]);
+  };
+
+  const addQ = async () => {
+    if (!form) return;
+    const label = window.prompt('¿Qué querés preguntar?');
+    if (!label || !label.trim()) return;
+    let key = slugifyOpt(label);
+    const used = new Set(myQs.map(q=>q.qkey));
+    if (used.has(key)) { let n=2; while(used.has(`${key}_${n}`)) n++; key = `${key}_${n}`; }
+    const max = myQs.reduce((m,q)=>Math.max(m,q.sort_order||0), 0);
+    const row = {form_id:form.id, qkey:key, label:label.trim(), qtype:'single',
+                 options:[{value:'si',label:'Sí'},{value:'no',label:'No'}],
+                 sort_order:max+10};
+    const { data, error } = await db.from('public_form_questions').insert(row).select().single();
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setQs(list => list.concat([data]));
+    setFlash({type:'success',text:'Pregunta agregada — editala para poner sus opciones'});
+  };
+
+  /* ── Interruptores del alta real ───────────────────────────── */
+  const setRiderGate = async (open) => {
+    const { error } = await db.from('mythos_rider_config').update({registration_open:open}).eq('id', true);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setGates(g => ({...g, riders:open}));
+    setFlash({type:'success',text:open?'Alta de riders ABIERTA':'Alta de riders cerrada'});
+  };
+  const setSupplierGate = async (open) => {
+    const value = {open, closed_message: gates.proveedores_msg || 'Todavía no abrimos el alta de proveedores. Dejanos tus datos y te avisamos apenas empecemos.'};
+    const { error } = await db.from('marketing_config')
+      .upsert({key:'supplier_signup', value, is_public:true}, {onConflict:'key'});
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setGates(g => ({...g, proveedores:open}));
+    setFlash({type:'success',text:open?'Alta de proveedores ABIERTA':'Alta de proveedores cerrada'});
+  };
+
+  /* ── Exportar ──────────────────────────────────────────────── */
+  // Las etiquetas salen de las opciones que devolvió la RPC: adentro de
+  // `answers` está guardado el value ('mas_300k'), y una planilla llena de
+  // slugs no la lee nadie.
+  const labelOf = (col, v) => {
+    const o = (col.options||[]).find(x=>x.value===v);
+    if (o) return o.label;
+    if (typeof v === 'string' && v.indexOf('otro:')===0) return 'Otra: ' + v.slice(5);
+    return v;
+  };
+  const cellOf = (col, row) => {
+    const v = row.answers ? row.answers[col.qkey] : null;
+    if (v == null) return '';
+    if (Array.isArray(v)) return v.map(x=>labelOf(col,x)).join(' · ');
+    return labelOf(col, v);
+  };
+  const sheet = () => {
+    const cols = (dump && dump.columns) || [];
+    const head = ['Fecha','Estado'].concat(cols.map(c=>c.label))
+      .concat(['Origen (utm_source)','Campaña','Dispositivo','Página','Notas internas']);
+    const body = ((dump && dump.rows) || []).map(r => [
+      r.created_at ? new Date(r.created_at).toLocaleString('es-PY') : '',
+      r.estado || '',
+    ].concat(cols.map(c=>cellOf(c,r)))
+     .concat([
+       (r.utm && r.utm.utm_source) || '',
+       (r.utm && r.utm.utm_campaign) || '',
+       r.device || '', r.landing_path || '', r.notas_internas || '',
+     ]));
+    return [head].concat(body);
+  };
+  const exportXLS = () => {
+    if (!window.XLSX) { setFlash({type:'error',text:'SheetJS no disponible'}); return; }
+    const ws = window.XLSX.utils.aoa_to_sheet(sheet());
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, (form?.title||'Encuesta').slice(0,31));
+    window.XLSX.writeFile(wb, `mythos_${slug}_${todayPY()}.xlsx`);
+  };
+  const exportCSV = () => mkDownloadCSV(`mythos_${slug}_${todayPY()}.csv`, sheet());
+
+  // El PDF es el INFORME (porcentajes + textos), no la planilla: para los datos
+  // crudos está el Excel, y un PDF de 400 filas no lo lee nadie.
+  const exportPDF = () => {
+    if (!stats || !stats.disponible) return;
+    const total = Number(stats.total||0) || 1;
+    const bloques = myQs.map(q => {
+      if (q.qtype==='single' || q.qtype==='multi') {
+        const counts = (stats.counts||{})[q.qkey] || {};
+        const opts = (q.options||[]).map(o=>[o.value,o.label]);
+        if (q.allow_other) opts.push(['otro','Otra (escrita)']);
+        opts.push([FORM_NONE,'Sin responder']);
+        const filas = opts.map(([k,lab])=>{
+          const n = Number(counts[k]||0);
+          if (k===FORM_NONE && !n) return '';
+          const pct = Math.round((n/total)*100);
+          return `<tr><td style="padding:4px 8px;font-size:11px;border-bottom:1px solid #eee">${esc(lab)}</td>
+                  <td style="padding:4px 8px;font-size:11px;border-bottom:1px solid #eee;text-align:right;white-space:nowrap">${fmtNum(n)} · ${pct}%</td>
+                  <td style="padding:4px 8px;border-bottom:1px solid #eee;width:45%"><div style="height:7px;background:#eee;border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:#1D1D1F"></div></div></td></tr>`;
+        }).join('');
+        const otros = ((stats.otros||{})[q.qkey]||[]).map(o=>`${esc(o.texto)} (${o.veces})`).join(' · ');
+        return `<div style="margin-bottom:18px;break-inside:avoid">
+          <div style="font-size:13px;font-weight:700;margin-bottom:6px">${esc(q.label)}</div>
+          <table style="width:100%;border-collapse:collapse">${filas}</table>
+          ${otros?`<div style="font-size:10px;color:#666;margin-top:5px"><b>Escribieron:</b> ${otros}</div>`:''}
+        </div>`;
+      }
+      const txt = ((stats.abiertas||{})[q.qkey]||[]).slice(0,60)
+        .map(a=>`<li style="font-size:11px;margin-bottom:5px;line-height:1.45">${esc(a.texto)}
+                 <span style="color:#999"> — ${esc(a.nombre||'')}${a.ciudad?', '+esc(a.ciudad):''}</span></li>`).join('');
+      if (!txt) return '';
+      return `<div style="margin-bottom:18px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px">${esc(q.label)}</div>
+        <ul style="margin:0;padding-left:18px">${txt}</ul></div>`;
+    }).join('');
+
+    const w = window.open('','_blank');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(form?.title||'Encuesta')}</title>
+      <style>body{font-family:system-ui,sans-serif;margin:32px;color:#222}@media print{button{display:none!important}}</style></head><body>
+      <div style="font-size:22px;font-weight:800;margin-bottom:4px">Mythos — Encuestas</div>
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px">${esc(form?.title||'')}</div>
+      <div style="font-size:11px;color:#888;margin-bottom:18px">Generado: ${new Date().toLocaleDateString('es-PY')} ·
+        Período: ${esc((FORM_PERIODS.find(p=>p.id===period)||{}).label||'')} ·
+        <b>${fmtNum(stats.total||0)} respuestas</b></div>
+      <div style="border-top:2px solid #1D1D1F;padding-top:16px">${bloques}</div>
+      <div style="margin-top:24px;font-size:9px;color:#bbb;text-align:right">Mythos Platform</div>
+      <script>window.onload=function(){window.print();}<\/script></body></html>`);
+    w.document.close();
+  };
+
+  const setEstado = async (row, estado) => {
+    const { error } = await db.from('public_form_submissions').update({estado}).eq('id', row.id);
+    if (error) { setFlash({type:'error',text:error.message}); return; }
+    setDump(d => d ? {...d, rows: d.rows.map(r => r.id===row.id ? {...r, estado} : r)} : d);
+  };
+
+  /* ── Render ────────────────────────────────────────────────── */
+  const faltaMig = /PGRST205|PGRST202|does not exist|no existe|schema cache/i.test(err);
+  if (loading) return <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:160,gap:12}}><Spinner/><span style={{color:C.mid}}>Cargando…</span></div>;
+
+  if (err) return (
+    <SectionCard>
+      <div style={{padding:'18px 22px',fontSize:13,color:C.ink,lineHeight:1.65}}>
+        {faltaMig
+          ? <>Falta aplicar la <strong>migración 211</strong> en Supabase (las tablas <code>public_forms</code> todavía
+              no existen). Es la que crea el motor de encuestas: los dos formularios vienen sembrados y
+              <strong> apagados</strong>, así que aplicarla no publica nada por sí sola.</>
+          : <>No se pudo leer las encuestas. <span style={{color:C.dim}}>({err})</span></>}
+      </div>
+    </SectionCard>
+  );
+
+  if (!forms.length) return <SectionCard><MkEmpty text="Todavía no hay ninguna encuesta."/></SectionCard>;
+
+  const total = stats && stats.disponible ? Number(stats.total||0) : 0;
+  const gateOpen = form && (form.audience==='delivery' ? gates.riders
+                          : form.audience==='proveedores' ? gates.proveedores : null);
+
+  return (
+    <div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:14,alignItems:'center'}}>
+        {forms.map(f=>(
+          <FilterBtn key={f.slug} active={slug===f.slug} onClick={()=>{ setSlug(f.slug); setStats(null); setDump(null); }}>
+            {f.title.length>34 ? f.title.slice(0,34)+'…' : f.title}
+            {f.is_open ? '' : ' · apagada'}
+          </FilterBtn>
+        ))}
+        <div style={{flex:1}}/>
+        <Btn size="sm" variant="ghost" onClick={()=>{ load(); loadStats(); }}>Actualizar</Btn>
+      </div>
+
+      {form && (
+        <>
+          {/* ── Interruptores ──────────────────────────────────── */}
+          <SectionCard style={{marginBottom:16}}>
+            <div style={{padding:'16px 20px',display:'grid',gap:14}}>
+              <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+                <Toggle checked={!!form.is_open} onChange={v=>patchForm({is_open:v})}/>
+                <div style={{flex:1,minWidth:220}}>
+                  <div style={{fontSize:13.5,fontWeight:700,color:C.ink}}>
+                    {form.is_open ? 'La encuesta está PUBLICADA' : 'La encuesta está apagada'}
+                  </div>
+                  <div style={{fontSize:12,color:C.mid,lineHeight:1.5,marginTop:2}}>
+                    {form.is_open
+                      ? <>Cualquiera que entre a <code>{form.audience==='delivery'?'/riders':'/proveedores'}</code> la ve y la puede completar.</>
+                      : <>Nadie la puede completar. La página muestra el mensaje de cerrado y la base rechaza los envíos.</>}
+                  </div>
+                </div>
+              </div>
+
+              {gateOpen != null && (
+                <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',
+                             borderTop:`1px solid ${C.border}`,paddingTop:14}}>
+                  <Toggle checked={!!gateOpen}
+                          onChange={v=>form.audience==='delivery'?setRiderGate(v):setSupplierGate(v)}/>
+                  <div style={{flex:1,minWidth:220}}>
+                    <div style={{fontSize:13.5,fontWeight:700,color:C.ink}}>
+                      {gateOpen ? 'El alta REAL está abierta' : 'El alta REAL está cerrada'}
+                    </div>
+                    <div style={{fontSize:12,color:C.mid,lineHeight:1.5,marginTop:2}}>
+                      {form.audience==='delivery'
+                        ? 'Es el mismo interruptor de Riders › Configuración (registration_open): un rider puede crear su ficha y postularse en serio.'
+                        : 'Habilita el formulario de solicitud del marketplace. Lo respeta también la base, no sólo la pantalla.'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {form.is_open && gateOpen && (
+                <div style={{fontSize:12,color:C.orange,lineHeight:1.55,background:`${C.orange}14`,
+                             border:`1px solid ${C.orange}55`,borderRadius:9,padding:'10px 13px'}}>
+                  Están prendidas las <strong>dos</strong> cosas a la vez. La página va a ofrecer el alta real y la
+                  encuesta va a quedar escondida detrás. Si querés medir demanda antes de abrir, cerrá el alta.
+                </div>
+              )}
+            </div>
+          </SectionCard>
+
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
+            <MkTabBar tabs={[{id:'reporte',label:'Reporte'},{id:'respuestas',label:`Respuestas${total?` (${fmtNum(total)})`:''}`},{id:'editor',label:'Editar formulario'}]}
+                      active={sub} onSelect={setSub}/>
+          </div>
+
+          {sub!=='editor' && (
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
+              {FORM_PERIODS.map(p=><FilterBtn key={p.id} active={period===p.id} onClick={()=>setPeriod(p.id)}>{p.label}</FilterBtn>)}
+              <div style={{flex:1}}/>
+              <Btn size="sm" variant="ghost" onClick={exportPDF} disabled={!total}>↓ PDF (informe)</Btn>
+              <Btn size="sm" variant="ghost" onClick={exportXLS} disabled={!total}>↓ Excel</Btn>
+              <Btn size="sm" variant="ghost" onClick={exportCSV} disabled={!total}>↓ CSV</Btn>
+            </div>
+          )}
+
+          {/* ── REPORTE ────────────────────────────────────────── */}
+          {sub==='reporte' && (
+            !total ? <SectionCard><MkEmpty text={form.is_open?'Todavía nadie respondió.':'Todavía nadie respondió — la encuesta está apagada.'}/></SectionCard> : (
+              <>
+                <div className="sa-kpis" style={{marginBottom:16}}>
+                  <Kpi label="Respuestas" value={fmtNum(total)} sub={(FORM_PERIODS.find(p=>p.id===period)||{}).label}/>
+                  <Kpi label="Ciudades" value={fmtNum(Object.keys((stats.contexto||{}).ciudad||{}).length)}/>
+                  <Kpi label="Sin contactar"
+                       value={fmtNum(((stats.contexto||{}).estado||{}).nuevo||0)}
+                       accent={C.orange}/>
+                </div>
+
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:14,marginBottom:16}}>
+                  {myQs.filter(q=>q.qtype==='single'||q.qtype==='multi').map(q=>{
+                    const opts = (q.options||[]).map(o=>[o.value,o.label]);
+                    if (q.allow_other) opts.push(['otro','Otra (escrita)']);
+                    return <FormQuestion key={q.id} accent={form.accent} total={total}
+                              counts={(stats.counts||{})[q.qkey]}
+                              q={{key:q.qkey, label:q.label, hint:q.help, multi:q.qtype==='multi', options:opts}}/>;
+                  })}
+                </div>
+
+                {/* Lo que la gente ESCRIBIÓ. Va aparte y no en barras: es la
+                    respuesta que más suele valer y un conteo de textos únicos
+                    no dice nada. */}
+                {myQs.filter(q=>['short_text','long_text','number'].includes(q.qtype)
+                                && ((stats.abiertas||{})[q.qkey]||[]).length
+                                && !QKEY_FIJAS.includes(q.qkey)).map(q=>(
+                  <SectionCard key={q.id} title={q.label} style={{marginBottom:14}}>
+                    <div style={{padding:'4px 20px 16px',maxHeight:420,overflowY:'auto'}}>
+                      {((stats.abiertas||{})[q.qkey]||[]).map((a,i)=>(
+                        <div key={i} style={{padding:'11px 0',borderBottom:`1px solid ${C.border}`}}>
+                          <div style={{fontSize:13,color:C.ink,lineHeight:1.55}}>{a.texto}</div>
+                          <div style={{fontSize:11,color:C.dim,marginTop:4}}>
+                            {a.nombre||'—'}{a.ciudad?` · ${a.ciudad}`:''}
+                            {a.fecha?` · ${new Date(a.fecha).toLocaleDateString('es-PY')}`:''}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </SectionCard>
+                ))}
+
+                {/* Lo que escribieron en "Otra": son las opciones que le faltan
+                    al formulario. */}
+                {Object.keys(stats.otros||{}).length>0 && (
+                  <SectionCard title="Lo que escribieron en «Otra»" style={{marginBottom:14}}>
+                    <div style={{padding:'4px 20px 16px'}}>
+                      {Object.entries(stats.otros).map(([k,arr])=>{
+                        const q = myQs.find(x=>x.qkey===k);
+                        return (
+                          <div key={k} style={{padding:'11px 0',borderBottom:`1px solid ${C.border}`}}>
+                            <div style={{fontSize:12,color:C.mid,marginBottom:6}}>{q?q.label:k}</div>
+                            <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>
+                              {arr.map((o,i)=>(
+                                <span key={i} style={{fontSize:12,padding:'4px 10px',borderRadius:20,
+                                  border:`1px solid ${C.border}`,color:C.ink}}>{o.texto} <span style={{color:C.dim}}>×{o.veces}</span></span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </SectionCard>
+                )}
+
+                {/* De dónde vino la gente. Es la mitad del valor de tener el
+                    formulario en casa y no en Google Forms. */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:14}}>
+                  {[['ciudad','Ciudad'],['utm_source','Origen de la campaña'],['utm_campaign','Campaña'],['device','Dispositivo']].map(([k,lab])=>{
+                    const c = (stats.contexto||{})[k];
+                    if (!c || !Object.keys(c).length) return null;
+                    const opts = Object.keys(c).filter(x=>x!==FORM_NONE)
+                      .sort((a,b)=>Number(c[b])-Number(c[a]))
+                      .map(x=>{
+                        const q = myQs.find(y=>y.qkey===k);
+                        const o = q && (q.options||[]).find(z=>z.value===x);
+                        return [x, o ? o.label : x];
+                      });
+                    return <FormQuestion key={k} accent={form.accent} total={total} counts={c}
+                              q={{key:k, label:lab, options:opts}}/>;
+                  })}
+                </div>
+              </>
+            )
+          )}
+
+          {/* ── RESPUESTAS ─────────────────────────────────────── */}
+          {sub==='respuestas' && (
+            !dump || !dump.rows || !dump.rows.length
+              ? <SectionCard><MkEmpty text="Todavía nadie respondió."/></SectionCard>
+              : (
+                <SectionCard>
+                  {dump.truncado && (
+                    <div style={{padding:'11px 20px',fontSize:12,color:C.orange,borderBottom:`1px solid ${C.border}`}}>
+                      Hay más de 5.000 respuestas: se muestran y exportan las 5.000 más recientes.
+                    </div>
+                  )}
+                  <div style={{overflowX:'auto'}}>
+                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
+                      <thead>
+                        <tr style={{textAlign:'left',color:C.mid}}>
+                          {['Fecha','Nombre','WhatsApp','Ciudad','Origen','Estado'].map(h=>(
+                            <th key={h} style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,fontWeight:600,whiteSpace:'nowrap'}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dump.rows.slice(0,300).map(r=>(
+                          <tr key={r.id}>
+                            <td style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,whiteSpace:'nowrap',color:C.mid}}>
+                              {r.created_at?new Date(r.created_at).toLocaleDateString('es-PY',{day:'2-digit',month:'short'}):'—'}
+                            </td>
+                            <td style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,color:C.ink,fontWeight:600}}>{r.nombre||'—'}</td>
+                            <td style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,whiteSpace:'nowrap'}}>
+                              {r.whatsapp
+                                ? <a href={`https://wa.me/${String(r.whatsapp).replace(/\D/g,'').replace(/^0/,'595')}`}
+                                     target="_blank" rel="noopener" style={{color:C.green,textDecoration:'none',fontWeight:600}}>{r.whatsapp}</a>
+                                : '—'}
+                            </td>
+                            <td style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,color:C.mid}}>
+                              {(()=>{ const q=myQs.find(x=>x.qkey==='ciudad');
+                                      const o=q&&(q.options||[]).find(z=>z.value===r.ciudad);
+                                      return o?o.label:(r.ciudad||'—'); })()}
+                            </td>
+                            <td style={{padding:'10px 14px',borderBottom:`1px solid ${C.border}`,color:C.dim,fontSize:11.5}}>
+                              {(r.utm&&r.utm.utm_source)||r.device||'—'}
+                            </td>
+                            <td style={{padding:'8px 14px',borderBottom:`1px solid ${C.border}`}}>
+                              <select value={r.estado||'nuevo'} onChange={e=>setEstado(r,e.target.value)}
+                                      style={{...encInput,padding:'5px 8px',fontSize:12,width:'auto'}}>
+                                {['nuevo','contactado','interesado','descartado','convertido'].map(s=>
+                                  <option key={s} value={s}>{s[0].toUpperCase()+s.slice(1)}</option>)}
+                              </select>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {dump.rows.length>300 && (
+                    <div style={{padding:'11px 20px',fontSize:11.5,color:C.dim}}>
+                      Se muestran 300 en pantalla; el Excel y el CSV exportan las {fmtNum(dump.rows.length)}.
+                    </div>
+                  )}
+                </SectionCard>
+              )
+          )}
+
+          {/* ── EDITOR ─────────────────────────────────────────── */}
+          {sub==='editor' && (
+            <>
+              <SectionCard title="Textos del formulario" style={{marginBottom:16}}>
+                <div style={{padding:'4px 20px 18px',display:'grid',gap:2}}>
+                  <FormField label="Título">
+                    <input style={encInput} defaultValue={form.title} key={`t${form.id}`}
+                           onBlur={e=>e.target.value!==form.title && patchForm({title:e.target.value})}/>
+                  </FormField>
+                  <FormField label="Descripción" hint="Se muestra arriba del formulario.">
+                    <textarea style={{...encInput,minHeight:72,resize:'vertical'}} defaultValue={form.description||''} key={`d${form.id}`}
+                              onBlur={e=>e.target.value!==(form.description||'') && patchForm({description:e.target.value})}/>
+                  </FormField>
+                  <FormField label="Mensaje cuando está apagada">
+                    <input style={encInput} defaultValue={form.closed_message} key={`c${form.id}`}
+                           onBlur={e=>e.target.value!==form.closed_message && patchForm({closed_message:e.target.value})}/>
+                  </FormField>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:14}}>
+                    <FormField label="Título del «gracias»">
+                      <input style={encInput} defaultValue={form.success_title} key={`st${form.id}`}
+                             onBlur={e=>e.target.value!==form.success_title && patchForm({success_title:e.target.value})}/>
+                    </FormField>
+                    <FormField label="Mensaje del «gracias»" hint="Es el momento de más atención de todo el formulario.">
+                      <input style={encInput} defaultValue={form.success_message} key={`sm${form.id}`}
+                             onBlur={e=>e.target.value!==form.success_message && patchForm({success_message:e.target.value})}/>
+                    </FormField>
+                  </div>
+                  <div style={{fontSize:11.5,color:C.dim,lineHeight:1.55}}>
+                    Los cambios se guardan al salir de cada campo. {busy?'Guardando…':''}
+                  </div>
+                </div>
+              </SectionCard>
+
+              <SectionCard title={`Preguntas (${myQs.length})`}
+                           action={<Btn size="sm" onClick={addQ}>+ Agregar pregunta</Btn>}>
+                <div style={{padding:'4px 16px 16px'}}>
+                  {myQs.map((q,i)=>(
+                    <EncuestaPregunta key={q.id} q={q} setFlash={setFlash}
+                      first={i===0} last={i===myQs.length-1}
+                      onSave={saveQ} onDelete={delQ} onMove={moveQ}/>
+                  ))}
+                  <div style={{fontSize:11.5,color:C.dim,lineHeight:1.6,marginTop:14}}>
+                    Cambiar el texto de una pregunta o de una opción <strong>no</strong> afecta las respuestas
+                    ya recibidas: lo que queda guardado es la clave gris, no la redacción. Por eso se puede
+                    corregir un texto mientras la encuesta corre sin romper el reporte.
+                  </div>
+                </div>
+              </SectionCard>
+            </>
+          )}
+        </>
       )}
     </div>
   );
@@ -8981,6 +9707,7 @@ function PageSitioWeb({setFlash}) {
   const TABS = [
     {id:'resumen',     label:'Resumen'},
     {id:'formularios', label:'Formularios'},
+    {id:'encuestas',   label:'Encuestas'},
     {id:'registros',   label:'Registros'},
     {id:'leads',       label:'Leads'},
     {id:'actividad', label:'Actividad'},
@@ -9005,6 +9732,9 @@ function PageSitioWeb({setFlash}) {
           {/* Self-fetch propio (RPC form_analytics): NO usa los arrays de arriba,
               que vienen capados a 500 filas. Ver el encabezado de SitioFormularios. */}
           {tab==='formularios' && <SitioFormularios/>}
+          {/* Motor de encuestas (mig 211). Self-fetch propio: sus preguntas
+              viven en la base, no en FORM_SPECS. */}
+          {tab==='encuestas'   && <SitioEncuestas setFlash={setFlash}/>}
           {tab==='registros' && <SitioRegistros registros={registros} restaurants={regRestaurants} totalExact={regCount} setFlash={setFlash} reload={load}/>}
           {tab==='leads'     && <SitioLeads    leads={leads} setFlash={setFlash} reload={load}/>}
           {tab==='actividad' && <SitioActividad events={events}/>}

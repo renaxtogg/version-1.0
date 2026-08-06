@@ -294,10 +294,60 @@ function AccountBar({ rider, unread, onSignOut }) {
    revela con un IntersectionObserver que web-marketing.js engancha en init(),
    o sea ANTES de que React monte — una sección .reveal dibujada por React
    nunca queda observada y se quedaría invisible para siempre. */
+/* ══ ENCUESTA DE DEMANDA ═════════════════════════════════════════
+   Mientras el alta real está cerrada (`registration_open=false`), la landing
+   ofrece la encuesta en su lugar: mide cuánta gente hay y qué necesita, sin
+   dejar postulaciones a medio completar de riders que todavía no se pueden
+   operar. Ver migración 211.
+
+   El formulario NO se dibuja acá: lo pinta `window.MythosForm` (script plano
+   de public/mythos-form.js), el mismo renderer que usa /proveedores. Por eso
+   se monta imperativamente sobre un div con ref, como el widget de Turnstile
+   — React no gobierna ese subárbol y no debe redibujarlo.
+
+   La sección se esconde entera hasta que el renderer avisa que el formulario
+   está ABIERTO: si estuviera cerrado, mostraríamos dos mensajes de "cerrado"
+   uno arriba del otro (el del alta y el de la encuesta). */
+function SurveyBlock({ slug, onOpen }) {
+  const host = useRef(null);
+  const [state, setState] = useState('cargando');
+
+  useEffect(() => {
+    if (!host.current || !window.MythosForm) { setState('error'); return; }
+    const h = window.MythosForm.mount(host.current, {
+      slug, db: API.db, showHeader: false,
+      onState: s => setState(s),
+    });
+    return () => { try { h && h.destroy(); } catch (_) {} };
+    // Se monta UNA vez: MythosForm maneja su propio ciclo de vida y volver a
+    // montarlo en cada render borraría lo que la persona venía completando.
+  }, [slug]);
+
+  const visible = state === 'abierto' || state === 'enviado';
+  useEffect(() => { if (onOpen) onOpen(visible); }, [visible, onOpen]);
+
+  return (
+    <section className="block wrap" id="postulate"
+             style={{ display: visible ? undefined : 'none' }}>
+      <h2 className="center">Dejanos tus datos</h2>
+      <p className="lead center">
+        Todavía no abrimos el registro. Contanos cómo trabajás hoy y te escribimos
+        por WhatsApp apenas arranquemos en tu ciudad.
+      </p>
+      <div ref={host} style={{ marginTop: 26 }} />
+    </section>
+  );
+}
+
 function Landing({ cfg, onStart }) {
   const site = cfg?.site || {};
   const open = cfg?.enabled && cfg?.registration_open;
   const hero = site.hero_image;
+  const [surveyOn, setSurveyOn] = useState(false);
+  const goSurvey = useCallback(() => {
+    const n = document.getElementById('postulate');
+    if (n) n.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   return (
     <>
@@ -320,7 +370,15 @@ function Landing({ cfg, onStart }) {
               {copyOf(site, 'cta')}
             </button>
           )}
-          <button type="button" className={open ? 'btn btn-secondary btn-lg' : 'btn btn-primary btn-lg'}
+          {/* Con el alta cerrada, el botón principal es la encuesta: mandar a
+              alguien a "crear cuenta" cuando el registro no acepta a nadie es
+              hacerle perder el viaje. */}
+          {!open && surveyOn && (
+            <button type="button" className="btn btn-primary btn-lg" onClick={goSurvey}>
+              Quiero ser de los primeros
+            </button>
+          )}
+          <button type="button" className={(open || surveyOn) ? 'btn btn-secondary btn-lg' : 'btn btn-primary btn-lg'}
                   onClick={onStart}>
             Ya soy rider
           </button>
@@ -328,12 +386,14 @@ function Landing({ cfg, onStart }) {
 
         {open
           ? <p className="microcopy">Postularte es gratis. Vos elegís cuándo trabajás.</p>
-          : <div className="rd-note rd-note--warn"
-                 style={{ maxWidth: 540, margin: '24px auto 0', textAlign: 'left' }}>
-              {cfg?.enabled
-                ? (cfg?.closed_message || 'Las postulaciones están cerradas por ahora.')
-                : 'La Red de Riders Mythos todavía no está disponible. Muy pronto.'}
-            </div>}
+          : surveyOn
+            ? <p className="microcopy">Te lleva dos minutos y te pone primero en la fila.</p>
+            : <div className="rd-note rd-note--warn"
+                   style={{ maxWidth: 540, margin: '24px auto 0', textAlign: 'left' }}>
+                {cfg?.enabled
+                  ? (cfg?.closed_message || 'Las postulaciones están cerradas por ahora.')
+                  : 'La Red de Riders Mythos todavía no está disponible. Muy pronto.'}
+              </div>}
 
         {hero && <img className="rd-hero-img" src={hero} alt="" />}
       </section>
@@ -364,6 +424,11 @@ function Landing({ cfg, onStart }) {
           ))}
         </div>
       </section>
+
+      {/* ── ENCUESTA (sólo mientras el alta real está cerrada) ────────
+          Va después de los beneficios y antes del "cómo funciona": la persona
+          ya sabe qué se le ofrece, y todavía no se cansó de leer. */}
+      {!open && <SurveyBlock slug="delivery-partners" onOpen={setSurveyOn} />}
 
       {/* ── CÓMO FUNCIONA ────────────────────────────────────────── */}
       <section className="block wrap center" id="como">
@@ -424,12 +489,19 @@ function Landing({ cfg, onStart }) {
       <section className="cta-final wrap">
         <h2>¿Empezamos?</h2>
         <p className="lead">
-          La postulación toma unos minutos. Si falta algo, te lo decimos y lo corregís
-          sin empezar de cero.
+          {open
+            ? <>La postulación toma unos minutos. Si falta algo, te lo decimos y lo corregís
+                sin empezar de cero.</>
+            : surveyOn
+              ? <>Dejanos tus datos ahora y te avisamos primero, antes de abrir al público.</>
+              : <>Todavía no abrimos el registro. Volvé pronto.</>}
         </p>
         <div className="hero-cta">
-          <button type="button" className="btn btn-primary btn-lg" onClick={onStart}>
-            {open ? copyOf(site, 'cta') : 'Entrar a mi cuenta'}
+          <button type="button" className="btn btn-primary btn-lg"
+                  onClick={!open && surveyOn ? goSurvey : onStart}>
+            {open ? copyOf(site, 'cta')
+                  : surveyOn ? 'Quiero ser de los primeros'
+                  : 'Entrar a mi cuenta'}
           </button>
           <a className="btn btn-secondary btn-lg" href="/terminos-riders">Leer los términos</a>
         </div>

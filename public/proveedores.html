@@ -173,6 +173,28 @@
       <p class="center" style="font-size:12.5px;color:var(--text-secondary);margin-top:16px">Los precios se cobran recién una vez activada tu tienda, al terminar la prueba. Sin comisiones por venta.</p>
     </section>
 
+    <!-- ── ENCUESTA DE DEMANDA (mig 211) ───────────────────────────────────
+         Mientras el alta real está cerrada (marketing_config.supplier_signup),
+         esta sección reemplaza al formulario de solicitud: se mide el interés
+         sin generar solicitudes que todavía no se pueden aprobar. Nace oculta
+         y la prende el script de abajo — así, si el alta está abierta, el
+         visitante no ve ni un parpadeo de algo que no corresponde.
+
+         NO lleva la clase `reveal`: el contenido lo inyecta MythosForm después
+         de una consulta a la base, y el IntersectionObserver de
+         web-marketing.js ya corrió en init(). Con `reveal`, esta sección se
+         quedaría en opacity:0 para siempre — la misma trampa documentada en
+         CLAUDE.md para el JSX de /riders. -->
+    <section class="block wrap" id="encuesta" style="display:none">
+      <h2 class="center">Contanos sobre tu negocio</h2>
+      <p class="lead center">Todavía no abrimos el alta de proveedores. Dejanos tus datos y te escribimos por WhatsApp apenas empecemos.</p>
+      <div class="prov-formwrap" style="margin-top:26px">
+        <div class="prov-card">
+          <div id="provEncuesta"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- ── FORMULARIO (oculto hasta que el proveedor elige un plan) ───────── -->
     <section class="block wrap" id="registro">
       <div class="prov-formwrap">
@@ -280,6 +302,10 @@
   <script defer src="mythos-cookie-banner.js"></script>
   <script src="web-marketing-data.js"></script>
   <script src="web-marketing.js"></script>
+  <!-- Renderer compartido de los formularios públicos (mig 211). El mismo que
+       usa /riders: una segunda copia de la validación se desincroniza al primer
+       cambio y termina aceptando acá lo que allá rechaza. -->
+  <script src="mythos-form.js"></script>
   <script>MythosWeb.init({ active: 'proveedores' });</script>
 
   <!-- ── Lógica del formulario multi-paso ──────────────────────────────── -->
@@ -315,6 +341,10 @@
     var current = 1;
     var selectedCats = {};
     var selectedPlan = '';   // slug del plan elegido en la vidriera (SP3); '' = ninguno
+    // ¿El alta real acepta solicitudes? Lo decide marketing_config.supplier_signup
+    // (mig 211). Arranca en true para que la página se comporte como siempre
+    // mientras la consulta viaja — ver loadSignupGate() al final del archivo.
+    var signupOpen = true;
     var _lastPlans = null;   // último set de planes renderizado (para re-render de promo)
 
     // Refs de la vidriera de planes.
@@ -384,6 +414,15 @@
       if (selectedPlan) planPickName.textContent = name || slug;
       markPlanCard(selectedPlan);
       if (window.MythosWeb) { try { MythosWeb.track('supplier_plan_selected', { plan_slug: selectedPlan }); } catch (e) {} }
+      // Con el alta cerrada (mig 211) el formulario de solicitud no existe en la
+      // página: elegir un plan lleva a la encuesta, que es lo único que se
+      // puede completar hoy. Sin esto, "Elegir este plan" haría scroll a una
+      // sección oculta y parecería un botón roto.
+      if (!signupOpen) {
+        var enc = document.getElementById('encuesta');
+        if (enc) { try { enc.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }
+        return;
+      }
       // Desplegar el formulario (arranca oculto) — re-dispara la animación cada vez.
       formSection.classList.remove('prov-shown');
       void formSection.offsetWidth;
@@ -590,10 +629,51 @@
       if (current < TOTAL) { e.preventDefault(); btnNext.click(); }
     });
 
+    /* ── Portero del alta (mig 211) ────────────────────────────────────────
+       Mientras se mide la demanda, el alta real está cerrada y la página
+       muestra la encuesta en su lugar. La decisión vive en la BASE
+       (`marketing_config.supplier_signup`), no acá: el mismo interruptor lo
+       enforca `submit_supplier_application`, así que esconder el formulario es
+       la cortesía, no la defensa — quien postee directo contra PostgREST igual
+       recibe el "todavía no abrimos".
+
+       Fail-OPEN a propósito: si la consulta falla o la fila no existe, se
+       muestra el alta de siempre. Es el comportamiento previo a esta
+       migración, y dejar a un proveedor sin ninguna forma de anotarse por un
+       error de red sería peor que recibir una solicitud de más. */
+    function loadSignupGate() {
+      var encSection = document.getElementById('encuesta');
+      function abrir() { signupOpen = true; }
+      function cerrar(msg) {
+        signupOpen = false;
+        if (formSection) formSection.style.display = 'none';
+        if (!encSection) return;
+        encSection.style.display = '';
+        if (msg) {
+          var lead = encSection.querySelector('.lead');
+          if (lead) lead.textContent = msg;
+        }
+        if (window.MythosForm) {
+          MythosForm.mount(document.getElementById('provEncuesta'), {
+            slug: 'proveedores-interes', db: db, showHeader: false
+          });
+        }
+      }
+      if (!db) { abrir(); return; }
+      db.from('marketing_config').select('value').eq('key', 'supplier_signup').maybeSingle()
+        .then(function (r) {
+          var v = r && r.data && r.data.value;
+          if (v && v.open === false) cerrar(v.closed_message || '');
+          else abrir();
+        })
+        .catch(function () { abrir(); });
+    }
+
     // Init
     loadPlans();
     loadCats();
     showStep(1);
+    loadSignupGate();
   })();
   </script>
 </body>
