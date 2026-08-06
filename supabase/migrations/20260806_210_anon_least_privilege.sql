@@ -127,7 +127,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
 --     orders, order_items, order_item_extras, order_status_history, ratings,
 --     reservations, waiter_calls, delivery_orders, leads_prospectos,
 --     marketing_leads, marketing_events.  Si aparece otra, avisame.
---   · `default_anon_tablas` → false (la canilla quedó cerrada).
+--   · `default_anon_tablas` → OJO, este chequeo NO SIRVE y quedó como registro
+--     de por qué. Devuelve `true` aunque el REVOKE haya funcionado: hay DOS
+--     entradas en `pg_default_acl` para public/'r' (una del rol `postgres`, que
+--     es la que gobierna las tablas de nuestras migraciones, y otra de
+--     `supabase_admin`, de la plataforma), y este EXISTS las barre juntas sin
+--     distinguirlas. Para saberlo de verdad hay que preguntarle a una tabla
+--     recién creada: `docs/security/verificar_canilla_anon.sql`.
 SELECT jsonb_pretty(jsonb_build_object(
   'anon_con_escritura', COALESCE((
      SELECT jsonb_agg(jsonb_build_object('tabla', t.table_name, 'privs', t.privs)
