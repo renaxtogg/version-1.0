@@ -57,7 +57,10 @@
         <a class="btn btn-primary" href="/registro" data-track="trial_click">Probar gratis</a>
         <a class="btn btn-secondary" href="/demo" data-track="demo_click">Ver demo en vivo</a>
       </div>
-      <p class="microcopy">14 días gratis. Sin tarjeta. Cancelás cuando quieras.</p>
+      <!-- La duración de la prueba sale SIEMPRE de marketing_config.trial_days
+           (Superadmin → Sitio web → Prueba gratis). El "7 días" escrito acá es
+           el respaldo si la config no carga — nunca un segundo número a mantener. -->
+      <p class="microcopy"><span data-cfg="trial_days">7 días</span> gratis. Sin tarjeta. Cancelás cuando quieras.</p>
 
       <!-- Ancla del menú "Demo" → este demo interactivo del hero (elemento con layout real) -->
       <div id="demo" class="demo-anchor" aria-hidden="true"></div>
@@ -273,7 +276,7 @@
     -->
     <section class="block wrap center reveal" id="precios">
       <h2>Planes que crecen con vos</h2>
-      <p class="lead">Probá 14 días gratis. Escalá cuando crezcas. Cancelás cuando quieras.</p>
+      <p class="lead">Probá <span data-cfg="trial_days">7 días</span> gratis. Escalá cuando crezcas. Cancelás cuando quieras.</p>
       <div class="toggle-wrap">
         <span class="tg-label act" id="lblMensual">Mensual</span>
         <button class="toggle" id="priceToggle" type="button" aria-label="Cambiar a precio anual"><span class="knob"></span></button>
@@ -361,7 +364,7 @@
       <h2>Empezá en 3 pasos</h2>
       <p class="lead">Sin instalaciones ni complicaciones. Lo armás vos, y si te trabás, te ayudamos.</p>
       <div class="steps">
-        <div class="step"><div class="num">1</div><h3>Creá tu cuenta</h3><p>Registrás tu restaurante y elegís tu plan. 14 días gratis, sin tarjeta.</p></div>
+        <div class="step"><div class="num">1</div><h3>Creá tu cuenta</h3><p>Registrás tu restaurante y elegís tu plan. <span data-cfg="trial_days">7 días</span> gratis, sin tarjeta.</p></div>
         <div class="step"><div class="num">2</div><h3>Cargá tu menú y tu operación</h3><p>Productos, mesas, zonas y equipo. Te guiamos en el onboarding.</p></div>
         <!-- ORIGINAL (reactivar): Compartí tu QR, tomá pedidos, cobrá con Bancard y facturá legal. -->
         <div class="step"><div class="num">3</div><h3>Empezá a vender</h3><p>Compartí tu QR y tomá pedidos.</p></div>
@@ -380,7 +383,7 @@
       <p class="lead center">Todo lo que necesitás saber antes de empezar.</p>
       <div class="faq" id="faqList">
         <details open><summary>¿Necesito conocimientos técnicos?</summary><p>No. Creás tu cuenta, cargás tu menú y empezás. Y si te trabás, te ayudamos por WhatsApp.</p></details>
-        <details><summary>¿Puedo probar antes de pagar?</summary><p>Sí. 14 días gratis, sin tarjeta de crédito. Cancelás cuando quieras.</p></details>
+        <details><summary>¿Puedo probar antes de pagar?</summary><p>Sí. <span data-cfg="trial_days">7 días</span> gratis, sin tarjeta de crédito. Cancelás cuando quieras.</p></details>
         <details class="pending-feature"><summary>¿Cómo cobro a mis clientes?</summary><p>Con Bancard, la pasarela local. Pagos online integrados, sin depender de Stripe ni cuentas en dólares.</p></details>
         <details class="pending-feature"><summary>¿Emiten factura?</summary><p>Sí. MYTHOS integra facturación electrónica con tu RUC para que emitas comprobantes legales.</p></details>
         <details><summary>¿Y si tengo más de una sucursal?</summary><p>Sumás sucursales y las administrás todas desde un solo panel. Para cadenas está el plan Enterprise.</p></details>
@@ -392,7 +395,7 @@
     <!-- ── CTA FINAL ───────────────────────────────────────────────────── -->
     <section class="cta-final wrap reveal">
       <h2>Llevá tu restaurante al siguiente nivel.</h2>
-      <p class="lead">Probá MYTHOS gratis por 14 días. Sin tarjeta. Sin compromiso.</p>
+      <p class="lead">Probá MYTHOS gratis por <span data-cfg="trial_days">7 días</span>. Sin tarjeta. Sin compromiso.</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="/registro" data-track="trial_click">Probar gratis</a>
         <a class="btn btn-secondary" data-wa><span data-icon="chat"></span> Hablar por WhatsApp</a>

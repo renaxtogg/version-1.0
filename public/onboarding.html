@@ -131,15 +131,24 @@
     planId: '', planName: '',       // Paso 2
     ops: { tableCount: '' },         // Paso 4 (semilla de mesas, en memoria)
     menuChoice: '', exampleSeeded: false, // Paso 6
+    // Días de la prueba gratuita. Fuente única = marketing_config.trial_days
+    // (Superadmin → Sitio web → Prueba gratis), leída en boot(). Este número es
+    // sólo el respaldo si la config no carga, y tiene que coincidir con el
+    // TRIAL_DAYS_FALLBACK de api/onboarding.js: acá se PROMETE la duración y
+    // allá se OTORGA — dos constantes distintas mentirían al dueño.
+    trialDays: 7,
     // Lo que la persona YA cargó en /registro. Se usa para prellenar y no volver a
     // preguntar lo mismo (regla "un dato se pide una sola vez" — CLAUDE.md).
     lead: { nombre: '', whatsapp: '', tipo: '', email: '' }
   };
 
-  // [título, subtítulo] por paso (7 pasos).
+  // "7 días" / "1 día" con el número configurado.
+  function trialTxt() { return st.trialDays + (Number(st.trialDays) === 1 ? ' día' : ' días'); }
+
+  // [título, subtítulo] por paso (7 pasos). {trial} se resuelve al renderizar.
   var TITLES = {
     1: ['Contanos sobre tu local', 'Esto nos ayuda a dejar tu panel listo desde el primer ingreso.'],
-    2: ['Elegí tu prueba gratuita', 'Podés cambiar de plan después. La prueba dura 14 días y no requiere tarjeta.'],
+    2: ['Elegí tu prueba gratuita', 'Podés cambiar de plan después. La prueba dura {trial} y no requiere tarjeta.'],
     3: ['Datos públicos del local', 'Esta información puede aparecer en tu menú QR y en el panel.'],
     4: ['Cómo trabaja tu local', 'Configuramos Mythos según tu forma actual de operar.'],
     5: ['Pagos y comprobantes', 'Marcá lo que usás hoy. Podés cambiarlo después.'],
@@ -296,7 +305,7 @@
       if (rr.error) { fatal('No pudimos verificar tu cuenta. Reintentá.', true); return; }
       var rows = rr.data || [];
 
-      if (!rows.length) { st.step = 1; await loadPlans(); render(); return; }                 // sin rol → crear local
+      if (!rows.length) { st.step = 1; await Promise.all([loadPlans(), loadTrialDays()]); render(); return; }   // sin rol → crear local
 
       var adminRow = rows.filter(function (r) { return String(r.role).toLowerCase() === 'admin' && r.restaurant_id; })[0];
       if (!adminRow) { window.location.replace('login.html'); return; }                        // rol no-admin → su panel
@@ -312,6 +321,16 @@
       await loadMenu();
       render();
     } catch (e) { fatal('No pudimos cargar el onboarding. Reintentá.', true); }
+  }
+
+  // Días de prueba desde marketing_config (is_public=true → legible con la anon key).
+  // Best-effort: si falla, queda el respaldo de st.trialDays y el wizard igual funciona.
+  async function loadTrialDays() {
+    try {
+      var r = await db.from('marketing_config').select('value').eq('key', 'trial_days').maybeSingle();
+      var n = parseInt(r && r.data ? r.data.value : NaN, 10);
+      if (Number.isFinite(n) && n >= 1 && n <= 365) st.trialDays = n;
+    } catch (e) { /* respaldo */ }
   }
 
   async function loadPlans() {
@@ -358,7 +377,7 @@
     for (var i = 1; i <= 7; i++) bars += '<span class="' + (i <= st.step ? 'on' : '') + '"></span>';
     return '<div class="logo-sub">Paso ' + st.step + ' de 7 · ' + esc(STEP_NAMES[st.step]) + '</div>' +
       '<div class="prog">' + bars + '</div>' +
-      '<div class="step-h">' + esc(t[0]) + '</div><div class="step-d">' + esc(t[1]) + '</div>';
+      '<div class="step-h">' + esc(t[0]) + '</div><div class="step-d">' + esc(String(t[1]).split('{trial}').join(trialTxt())) + '</div>';
   }
   // opt: 'req' → marca *, 'opt' → (opcional), '' → plano.
   function field(id, label, value, ph, opt) {
@@ -425,7 +444,7 @@
       var shown = bullets.slice(0, 5);
       if (bullets.length > 5) shown.push('y más');
       var frase = FALLBACK_FRASE[p.name] || '';
-      var trial = Number(p.price_usd) > 0 ? '14 días gratis · luego ' + money(p.price_usd) + ' / mes' : 'Gratis';
+      var trial = Number(p.price_usd) > 0 ? trialTxt() + ' gratis · luego ' + money(p.price_usd) + ' / mes' : 'Gratis';
       return '<label class="plan-card' + (feat ? ' feat' : '') + '">' +
         '<input type="radio" name="plan" value="' + esc(p.id) + '"' + (checked ? ' checked' : '') + '>' +
         (feat ? '<div class="plan-tag">Más recomendado</div>' : '') +
@@ -636,7 +655,7 @@
     if (name.length < 2) { setErr('Decinos el nombre de tu local.'); return; }
     if (!pick) { setErr('Elegí el tipo de negocio.'); return; }
     st.biz = { name: name, type: pick.value };
-    if (!st.plans.length) { busy(true); await loadPlans(); }
+    if (!st.plans.length) { busy(true); await Promise.all([loadPlans(), loadTrialDays()]); }
     st.step = 2; render();
   }
 

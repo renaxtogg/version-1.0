@@ -4,8 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Precios — MYTHOS</title>
-  <!-- ORIGINAL (reactivar): content="Planes de MYTHOS: Carta, Servicio y Full, más add-ons modulares. 14 días gratis, sin tarjeta. Cobrá con Bancard y facturá legal." -->
-  <meta name="description" content="Planes de MYTHOS: Carta, Servicio y Full, más add-ons modulares. 14 días gratis, sin tarjeta.">
+  <!-- ORIGINAL (reactivar): content="Planes de MYTHOS: Carta, Servicio y Full, más add-ons modulares. {trial_days} gratis, sin tarjeta. Cobrá con Bancard y facturá legal." -->
+  <!-- data-cfg + data-cfg-attr/tpl: web-marketing.js reescribe el `content` con los
+       días reales de marketing_config.trial_days. El texto de acá es el respaldo. -->
+  <meta name="description" data-cfg="trial_days" data-cfg-attr="content"
+        data-cfg-tpl="Planes de MYTHOS: Carta, Servicio y Full, más add-ons modulares. {v} gratis, sin tarjeta."
+        content="Planes de MYTHOS: Carta, Servicio y Full, más add-ons modulares. 7 días gratis, sin tarjeta.">
   <meta name="theme-color" content="#FFFFFF">
   <link rel="canonical" href="/precios">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -13,7 +17,9 @@
   <meta property="og:locale" content="es_PY">
   <meta property="og:site_name" content="MYTHOS">
   <meta property="og:title" content="Precios — MYTHOS">
-  <meta property="og:description" content="Planes y add-ons de MYTHOS. 14 días gratis, sin tarjeta.">
+  <meta property="og:description" data-cfg="trial_days" data-cfg-attr="content"
+        data-cfg-tpl="Planes y add-ons de MYTHOS. {v} gratis, sin tarjeta."
+        content="Planes y add-ons de MYTHOS. 7 días gratis, sin tarjeta.">
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="web-marketing.css">
   <script src="mythos-theme.js"></script>
@@ -36,7 +42,7 @@
   <main>
     <section class="page-hero wrap">
       <h1>Planes que crecen con vos</h1>
-      <p class="lead">Probá 14 días gratis. Escalá cuando crezcas. Cancelás cuando quieras.</p>
+      <p class="lead">Probá <span data-cfg="trial_days">7 días</span> gratis. Escalá cuando crezcas. Cancelás cuando quieras.</p>
     </section>
 
     <!-- ── PRECIOS (PLACEHOLDER) ───────────────────────────────────────────
@@ -146,7 +152,7 @@
 
     <section class="cta-final wrap reveal">
       <h2>¿Listo para empezar?</h2>
-      <p class="lead">14 días gratis. Sin tarjeta. Cancelás cuando quieras.</p>
+      <p class="lead"><span data-cfg="trial_days">7 días</span> gratis. Sin tarjeta. Cancelás cuando quieras.</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="/registro" data-track="trial_click">Probar gratis</a>
         <a class="btn btn-secondary" data-wa><span data-icon="chat"></span> Hablar por WhatsApp</a>

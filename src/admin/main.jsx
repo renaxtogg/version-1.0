@@ -9970,6 +9970,14 @@ function cleanBusinessHours(bhDays){
   return clean;
 }
 
+// "60 días" se lee peor que "2 meses" para un dueño de restaurante. Sólo pasa a
+// meses cuando la cuenta es exacta: "2 meses y pico" sería peor que los días.
+function retencionTexto(dias){
+  const d = Number(dias)||0;
+  if (d>=60 && d%30===0) { const m=d/30; return m===1?'1 mes':`${m} meses`; }
+  return d===1 ? '1 día' : `${d} días`;
+}
+
 function ConfigPage({restaurant,onRefresh}) {
   // Feature-detect contra el row real: si una columna no existe en esta base, el
   // campo no se dibuja ni se manda en el UPDATE (un PATCH con una columna
@@ -10013,6 +10021,19 @@ function ConfigPage({restaurant,onRefresh}) {
   const [savingDc,setSavingDc] = useState(false);
   const [dcForm,setDcForm] = useState(null);   // política de cobro/validación/preparación (mig 182)
   const [tab,setTab] = useState('general');   // general (config del local) | cuenta (Mi cuenta, consolidada desde el nav)
+  const [retencion,setRetencion] = useState(null); // política de retención (mig 212)
+
+  // Política de retención: cuánto tiempo guarda Mythos el histórico operativo.
+  // `data_retention_config` es un catálogo global de lectura (RLS de la 212), así
+  // que se lee directo. Si la migración no está aplicada, la query da 404 y la
+  // tarjeta no se dibuja — el panel no puede depender de eso para funcionar.
+  useEffect(()=>{
+    if(!db) return;
+    let vivo=true;
+    db.from('data_retention_config').select('enabled,retention_days,notice_enabled').limit(1).maybeSingle()
+      .then(r=>{ if(vivo && !r.error && r.data) setRetencion(r.data); }, ()=>{});
+    return ()=>{ vivo=false; };
+  },[]);
 
   // Sembramos el formulario UNA vez por restaurante (por id). loadAll(true) del
   // poll/realtime (cada 30s) recrea el objeto restaurant en cada refresco (nueva
@@ -10129,6 +10150,35 @@ function ConfigPage({restaurant,onRefresh}) {
       </div>
 
       {tab==='cuenta' && <MiCuentaPage restaurant={restaurant} onRefresh={onRefresh} embedded/>}
+
+      {/* Aviso de retención (mig 212). Va ARRIBA de todo y a lo ancho, no como
+          una tarjeta más de la mampostería: es lo único de esta página que, si
+          no se lee, se traduce en datos que el local ya no va a poder recuperar.
+          Se dibuja sólo si la migración está aplicada y el aviso está activo. */}
+      {tab==='general' && retencion && retencion.notice_enabled!==false && (
+        <div className="my-page-wide" style={{marginBottom:20,padding:'16px 18px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:10}}>
+          <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+            <Icon name="alert" size={18} style={{color:C.orange,marginTop:1,flexShrink:0}}/>
+            <div style={{minWidth:0}}>
+              <div style={{fontSize:13.5,fontWeight:800,color:C.ink,marginBottom:5}}>
+                Tu historial de pedidos se guarda {retencionTexto(retencion.retention_days)}
+              </div>
+              <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6}}>
+                Para que el sistema siga rápido, Mythos conserva los <strong>pedidos, deliveries, llamadas al
+                mozo y sesiones del personal</strong> de los últimos {retencionTexto(retencion.retention_days)}.
+                Lo más viejo se elimina automáticamente{retencion.enabled?'':' (todavía no está activo)'}.
+                {' '}<strong>Tu caja, tus gastos y tus clientes no se tocan.</strong>
+              </div>
+              <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6,marginTop:8}}>
+                Descargá lo que quieras conservar antes de que venza — se exporta en PDF, Excel o CSV desde{' '}
+                <strong>Reportes</strong> (ventas, productos, mozos, clientes), <strong>Finanzas</strong>{' '}
+                (resumen mensual para el contador) y <strong>Pedidos</strong>. Guardá el archivo en tu
+                computadora o en la nube: una vez vencido el plazo, Mythos ya no lo tiene.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mampostería en vez de dos columnas fijas: las tarjetas acá tienen alturas
           muy distintas (el horario mide 3× lo que mide el logo), así que un

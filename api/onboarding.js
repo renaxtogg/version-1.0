@@ -1,6 +1,6 @@
 // Vercel serverless function — ONBOARDING del dueño (Bloque C, parte 1).
 // Crea, para un usuario Auth recién registrado y SIN rol: su restaurante + rol
-// 'admin' + suscripción trial de 14 días. Patrón de seguridad idéntico a
+// 'admin' + suscripción trial. Patrón de seguridad idéntico a
 // api/create-user.js:
 //   • Valida el Bearer del caller contra /auth/v1/user (verifica firma + expiración;
 //     NO se decodifica el JWT localmente — un payload sin verificar es falsificable).
@@ -39,6 +39,23 @@ const httpsDelete = (url, h)    => httpsReq('DELETE', url, h);
 
 function errMsg(r, fallback) {
   return (r && r.data && (r.data.message || r.data.msg || r.data.hint)) || fallback;
+}
+
+// ── Duración de la prueba gratuita ────────────────────────────────────────
+// FUENTE ÚNICA: marketing_config.trial_days (Superadmin → Sitio web → Prueba
+// gratis). El número estuvo cableado acá en 14 y el editor del superadmin era
+// write-only: cambiarlo movía el sitio comercial y NO movía el trial real.
+// Si no se puede leer, se usa TRIAL_DAYS_FALLBACK — el mismo número que el
+// fallback offline del sitio (public/web-marketing-data.js) para que nunca
+// prometamos una duración y entreguemos otra.
+const TRIAL_DAYS_FALLBACK = 7;
+async function readTrialDays(SUPABASE_URL, svc) {
+  try {
+    const r = await httpsGet(`${SUPABASE_URL}/rest/v1/marketing_config?key=eq.trial_days&select=value&limit=1`, svc);
+    if (!r.ok || !Array.isArray(r.data) || !r.data.length) return TRIAL_DAYS_FALLBACK;
+    const n = parseInt(r.data[0].value, 10);   // JSONB number → 7
+    return (Number.isFinite(n) && n >= 1 && n <= 365) ? n : TRIAL_DAYS_FALLBACK;
+  } catch (e) { return TRIAL_DAYS_FALLBACK; }
 }
 
 // Rollback best-effort que NO es silencioso: si un DELETE de compensación falla,
@@ -143,10 +160,12 @@ module.exports = async function handler(req, res) {
     }
     const planPrice = Number(planResp.data[0].price_usd) || 0;
 
-    // 5. Fechas del trial (14 días) en DATE (YYYY-MM-DD).
+    // 5. Fechas del trial en DATE (YYYY-MM-DD). Los días salen de marketing_config
+    //    (ver readTrialDays), NO de una constante: es el mismo número que anuncia el sitio.
+    const trialDays = await readTrialDays(SUPABASE_URL, svc);
     const today = new Date();
     const end = new Date(today.getTime());
-    end.setDate(end.getDate() + 14);
+    end.setDate(end.getDate() + trialDays);
     const startDate = today.toISOString().slice(0, 10);
     const endDate = end.toISOString().slice(0, 10);
 
@@ -188,7 +207,7 @@ module.exports = async function handler(req, res) {
       res.status(400).json({ error: errMsg(roleResp, 'No se pudo asignar tu rol. Probá de nuevo.') }); return;
     }
 
-    // 6c. Crear suscripción trial (14 días). monthly_amount = snapshot del precio del plan
+    // 6c. Crear suscripción trial. monthly_amount = snapshot del precio del plan
     //     (grandfathering). Si falla → ROLLBACK de user_roles + restaurante.
     const subResp = await httpsPost(`${SUPABASE_URL}/rest/v1/subscriptions`,
       { ...svcJson, 'Prefer': 'return=minimal' },
@@ -215,7 +234,7 @@ module.exports = async function handler(req, res) {
     try {
       await httpsPost(`${SUPABASE_URL}/rest/v1/platform_events`, { ...svcJson, 'Prefer': 'return=minimal' },
         JSON.stringify({ restaurant_id: restaurantId, event_type: 'onboarding',
-                         description: 'Alta self-service (dueño) — trial 14 días' }));
+                         description: `Alta self-service (dueño) — trial ${trialDays} días` }));
     } catch (e) { /* best-effort */ }
 
     // `lead` viaja de vuelta para que el wizard prellene el paso 3 sin volver a

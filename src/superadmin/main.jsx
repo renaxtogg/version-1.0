@@ -77,6 +77,30 @@ const _initDB = () => {
 };
 const db = _initDB();
 
+/* ── Días de la prueba gratuita ───────────────────────────────
+   FUENTE ÚNICA: marketing_config.trial_days (Sitio web → Prueba gratis). Se lee
+   en cada alta en vez de cablear un número: el sitio comercial anuncia ESTE valor
+   y api/onboarding.js otorga ESTE valor, así que un alta manual que diera otra
+   duración sería una tercera versión de la misma promesa.
+   TRIAL_DAYS_FALLBACK repite el de api/onboarding.js y web-marketing-data.js. */
+const TRIAL_DAYS_FALLBACK = 7;
+async function readTrialDays() {
+  if (!db) return TRIAL_DAYS_FALLBACK;
+  try {
+    const { data, error } = await db.from('marketing_config').select('value').eq('key','trial_days').maybeSingle();
+    if (error || !data) return TRIAL_DAYS_FALLBACK;
+    const n = parseInt(data.value, 10);
+    return (Number.isFinite(n) && n >= 1 && n <= 365) ? n : TRIAL_DAYS_FALLBACK;
+  } catch (e) { return TRIAL_DAYS_FALLBACK; }
+}
+// Fin de un período nuevo: trial → los días configurados; alta paga → 1 mes.
+async function subscriptionEndDate(status, from) {
+  const end = new Date(from.getTime());
+  if (status === 'trial') end.setDate(end.getDate() + await readTrialDays());
+  else end.setMonth(end.getMonth() + 1);
+  return end;
+}
+
 /* contador global — pausa el polling cuando hay modal abierto o input con foco */
 let _modalCount = 0;
 function _shouldPause() {
@@ -1744,7 +1768,7 @@ function NuevoClienteModal({plans, cityOptions, restHasCol, onOpenModules, onClo
     setBusy(true);
     let rest = null;
     try {
-      const today = new Date(), end = new Date(today); end.setMonth(end.getMonth() + 1);
+      const today = new Date(), end = await subscriptionEndDate(f.status, today);
       const payload = {
         name: f.name.trim(), city: f.city || null, country:'Paraguay',
         owner_name: f.owner_name.trim(), owner_email: f.owner_email.trim()||null, owner_phone: f.owner_phone.trim()||null,
@@ -2032,7 +2056,7 @@ function PageRestaurantes({enriched, plans, addonCatalog=[], setFlash, reload}) 
         const {data:rest,error} = await db.from('restaurants').insert({...payload,auto_provisioned:false}).select().single();
         if (error) throw error;
         if (form.plan_id) {
-          const today=new Date(),end=new Date(today);end.setMonth(end.getMonth()+1);
+          const today=new Date(),end=await subscriptionEndDate(form.status, today);
           const plan=plans.find(p=>p.id===form.plan_id);
           await db.from('subscriptions').insert({restaurant_id:rest.id,plan_id:form.plan_id,status:form.status==='trial'?'trial':'active',start_date:isoLocal(today),end_date:isoLocal(end),monthly_amount:plan?.price_usd||0}).then(()=>{},()=>{});
         }
@@ -3794,7 +3818,195 @@ function PageConfiguracion({restaurants, platformConfig, setFlash, reload}) {
         </SectionCard>
       )}
 
+      {tab==='general' && <RetencionDatos setFlash={setFlash}/>}
+
       {tab==='cuenta' && <PageMiCuenta setFlash={setFlash}/>}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Retención de datos operativos (mig 212)
+   ──────────────────────────────────────────────────────────────
+   El histórico de pedidos no se borraba nunca. Acá se fija cuánto se guarda
+   (60 días = los 2 meses acordados) y se prende la purga nocturna.
+
+   POR QUÉ HAY UN BOTÓN DE ENSAYO Y NO SÓLO UN INTERRUPTOR: esto borra datos de
+   restaurantes reales y no hay deshacer. El ensayo (`data_retention_report`)
+   corre exactamente el mismo camino que el borrado pero sin escribir, así que
+   dice fila por fila y tabla por tabla qué se va a ir. La regla de la casa es
+   backup nuevo + dry-run revisado ANTES de tocar; el dry-run es este botón.
+   ══════════════════════════════════════════════════════════════ */
+function RetencionDatos({setFlash}) {
+  const [cfg, setCfg]         = useState(null);   // null = cargando / sin migración
+  const [targets, setTargets] = useState([]);
+  const [dias, setDias]       = useState('60');
+  const [busy, setBusy]       = useState(false);
+  const [ensayo, setEnsayo]   = useState(null);   // resultado del último dry-run
+
+  const cargar = async () => {
+    if (!db) return;
+    const c = await db.from('data_retention_config').select('*').limit(1).maybeSingle();
+    if (c.error || !c.data) { setCfg(false); return; }   // false = migración pendiente
+    setCfg(c.data);
+    setDias(String(c.data.retention_days ?? 60));
+    const t = await db.from('data_retention_targets').select('*').order('sort_order');
+    if (!t.error) setTargets(t.data || []);
+  };
+  useEffect(()=>{ cargar(); }, []);
+
+  // La migración 212 puede no estar aplicada: la sección simplemente no se dibuja
+  // (mismo criterio deploy-safe que el resto del panel).
+  if (cfg === false || cfg === null) return null;
+
+  const guardar = async (patch) => {
+    setBusy(true);
+    const { error } = await db.from('data_retention_config')
+      .update({ ...patch, updated_at:new Date().toISOString() }).eq('id', true);
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:'No se pudo guardar la retención'}); return false; }
+    setFlash({type:'success',text:'Retención actualizada'});
+    await cargar();
+    return true;
+  };
+
+  const guardarDias = () => {
+    const n = parseInt(dias, 10);
+    if (!Number.isFinite(n) || n < 30 || n > 3650) {
+      setFlash({type:'error',text:'Entre 30 y 3650 días. El piso de 30 evita borrar el mes en curso por un dedazo.'});
+      return;
+    }
+    guardar({ retention_days:n });
+  };
+
+  const correrEnsayo = async () => {
+    setBusy(true);
+    const { data, error } = await db.rpc('data_retention_report');
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:'No se pudo correr el ensayo: '+error.message}); return; }
+    setEnsayo(data);
+    setFlash({type:'success',text:'Ensayo listo — no se borró nada'});
+  };
+
+  const togglePurga = async (val) => {
+    if (val && !ensayo) {
+      setFlash({type:'error',text:'Corré el ensayo primero: prender esto empieza a borrar datos de locales reales y no hay deshacer.'});
+      return;
+    }
+    if (val && !window.confirm(
+      `Vas a activar el borrado automático de datos operativos con más de ${cfg.retention_days} días.\n\n` +
+      `Esto NO se puede deshacer. Confirmá que tenés un backup reciente de la base.\n\n` +
+      `¿Activar?`)) return;
+    await guardar({ enabled: !!val });
+  };
+
+  const toggleTarget = async (t, val) => {
+    setBusy(true);
+    const { error } = await db.from('data_retention_targets').update({ enabled: !!val }).eq('table_name', t.table_name);
+    setBusy(false);
+    if (error) { setFlash({type:'error',text:'No se pudo cambiar la tabla'}); return; }
+    setEnsayo(null);   // el alcance cambió: el ensayo viejo ya no describe lo que va a pasar
+    cargar();
+  };
+
+  const det = (ensayo && Array.isArray(ensayo.detalle)) ? ensayo.detalle : null;
+
+  return (
+    <div style={{marginTop:16}}>
+      <SectionCard title="Retención de datos operativos">
+        <div style={{padding:'18px 20px'}}>
+          <div style={{fontSize:12.5,color:C.mid,lineHeight:1.6,marginBottom:16}}>
+            Los pedidos no se borraban nunca. Acá se define cuánto tiempo guarda Mythos el histórico
+            <strong> operativo</strong> de cada local. El aviso correspondiente ya se muestra en
+            Admin › Configuración de cada restaurante, con el enlace a sus exportaciones a PDF/Excel.
+            {' '}El libro de caja, los egresos y el stock <strong>no</strong> se purgan salvo que se
+            prendan abajo uno por uno — son respaldo contable.
+          </div>
+
+          <FormField label="Días que se conservan" hint="60 = 2 meses. Mínimo 30.">
+            <div style={{display:'flex',gap:8}}>
+              <input type="number" min="30" max="3650" value={dias} onChange={e=>setDias(e.target.value)} style={{flex:1}}/>
+              <Btn variant="ghost" onClick={guardarDias} disabled={busy}>Guardar</Btn>
+            </div>
+          </FormField>
+
+          {/* Ensayo antes del interruptor: el orden en pantalla es el orden correcto de operación. */}
+          <div style={{marginTop:14,padding:'14px 16px',border:`1px solid ${C.border}`,borderRadius:10,background:C.bg}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:C.ink}}>Ensayo (no borra nada)</div>
+                <div style={{fontSize:12,color:C.mid,marginTop:3}}>Cuenta exactamente qué filas se irían con la configuración de arriba.</div>
+              </div>
+              <Btn variant="ghost" onClick={correrEnsayo} disabled={busy}>{busy?'Corriendo…':'Correr ensayo'}</Btn>
+            </div>
+            {det && (
+              <div style={{marginTop:12,overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:12.5}}>
+                  <thead><tr>
+                    <th style={{textAlign:'left',padding:'6px 8px',color:C.mid,fontWeight:700}}>Tabla</th>
+                    <th style={{textAlign:'right',padding:'6px 8px',color:C.mid,fontWeight:700}}>Filas a borrar</th>
+                  </tr></thead>
+                  <tbody>
+                    {det.map(d=>(
+                      <tr key={d.tabla} style={{borderTop:`1px solid ${C.border}`}}>
+                        <td style={{padding:'6px 8px',color:C.ink}}>{d.etiqueta||d.tabla}</td>
+                        <td style={{padding:'6px 8px',textAlign:'right',fontWeight:700,color:d.elegibles>0?C.orange:C.dim}}>{fmtNum(d.elegibles||0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{fontSize:11.5,color:C.dim,marginTop:8}}>Corte: más viejo que {cfg.retention_days} días. Cada corrida borra como máximo {fmtNum(cfg.max_rows_per_table)} filas por tabla.</div>
+              </div>
+            )}
+          </div>
+
+          {/* Interruptor */}
+          <div style={{marginTop:14,padding:'14px 16px',border:`1px solid ${cfg.enabled?TINT.warnBorder:C.border}`,borderRadius:10,background:cfg.enabled?TINT.warnBg:'transparent'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}>
+              <div>
+                <div style={{fontWeight:700,fontSize:13,color:C.ink}}>Borrado automático cada noche</div>
+                <div style={{fontSize:12,color:C.mid,marginTop:3,lineHeight:1.5}}>
+                  {cfg.enabled
+                    ? 'ACTIVO. El cron nocturno purga lo vencido. Esto no se puede deshacer.'
+                    : 'Apagado. El cron corre igual pero sólo reporta lo que haría.'}
+                </div>
+              </div>
+              <Toggle checked={!!cfg.enabled} onChange={togglePurga}/>
+            </div>
+            {cfg.last_run_at && (
+              <div style={{fontSize:11.5,color:C.dim,marginTop:10}}>
+                Última corrida real: {fmtDate(cfg.last_run_at)}
+                {cfg.last_result && cfg.last_result.borradas!=null ? ` · ${fmtNum(cfg.last_result.borradas)} filas` : ''}
+              </div>
+            )}
+          </div>
+
+          {/* Aviso al local */}
+          <div style={{marginTop:14,display:'flex',justifyContent:'space-between',alignItems:'center',gap:12}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:13,color:C.ink}}>Mostrar el aviso en el panel de cada local</div>
+              <div style={{fontSize:12,color:C.mid,marginTop:3}}>Admin › Configuración. Avisar es lo que hace legítimo el borrado — apagarlo no cambia lo que se borra.</div>
+            </div>
+            <Toggle checked={cfg.notice_enabled!==false} onChange={v=>guardar({notice_enabled:!!v})}/>
+          </div>
+
+          {/* Alcance */}
+          <div style={{marginTop:18}}>
+            <div style={{fontSize:11,color:C.mid,fontWeight:700,letterSpacing:.6,textTransform:'uppercase',marginBottom:8}}>Qué se purga</div>
+            <div style={{display:'flex',flexDirection:'column',gap:2}}>
+              {targets.map(t=>(
+                <div key={t.table_name} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,padding:'10px 0',borderTop:`1px solid ${C.border}`}}>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:C.ink}}>{t.label}</div>
+                    <div style={{fontSize:11.5,color:C.dim,marginTop:2,lineHeight:1.5}}>{t.reason}</div>
+                  </div>
+                  <Toggle checked={!!t.enabled} onChange={v=>toggleTarget(t, v)}/>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </SectionCard>
     </div>
   );
 }
@@ -7781,7 +7993,7 @@ function SitioConfig({config, setFlash, reload}) {
   const [whatsapp, setWhatsapp]         = useState(String(getVal('whatsapp', getVal('sales_whatsapp','')) ?? ''));
   const [founderActive, setFounderActive] = useState(getVal('founder_offer_active', false) === true);
   const [founderLimit, setFounderLimit] = useState(String(getVal('founder_offer_limit', 0) ?? 0));
-  const [trialDays, setTrialDays]       = useState(String(getVal('trial_days', 14) ?? 14));
+  const [trialDays, setTrialDays]       = useState(String(getVal('trial_days', TRIAL_DAYS_FALLBACK) ?? TRIAL_DAYS_FALLBACK));
   // Promoción / Oferta (WEB-9) — cuadro llamativo + descuento en la web.
   const [promoActive, setPromoActive]   = useState(getVal('promo_active', false) === true);
   const [promoPercent, setPromoPercent] = useState(String(getVal('promo_percent', 0) ?? 0));
@@ -7920,7 +8132,8 @@ function SitioConfig({config, setFlash, reload}) {
 
       <SectionCard title="Prueba gratis">
         <div style={{padding:'18px 20px'}}>
-          <FormField label="Días de prueba">
+          <FormField label="Días de prueba"
+                     hint="Es el único lugar donde se define. Al guardar cambia el texto de /inicio, /precios, /demo, los Términos y el onboarding, Y la duración real que recibe cada alta nueva. En una FAQ escribí {trial_days} para que el número salga solo.">
             <div style={{display:'flex',gap:8}}>
               <input type="number" min="1" value={trialDays} onChange={e=>setTrialDays(e.target.value)} style={{flex:1}}/>
               <Btn variant="ghost" onClick={saveTrialDays} disabled={saving}>Guardar</Btn>
@@ -8463,7 +8676,10 @@ function FaqEditModal({faq, onClose, setFlash, reload}) {
   return (
     <Modal title={isNew?'Nueva pregunta':'Editar pregunta'} onClose={onClose} width={560}>
       <FormField label="Pregunta"><input value={question} onChange={e=>setQuestion(e.target.value)} placeholder="¿Necesito conocimientos técnicos?"/></FormField>
-      <FormField label="Respuesta"><textarea value={answer} onChange={e=>setAnswer(e.target.value)} rows={4}/></FormField>
+      <FormField label="Respuesta"
+                 hint="Escribí {trial_days} donde vaya la duración de la prueba: el sitio lo reemplaza por los días configurados en Prueba gratis. Si ponés el número a mano, queda desactualizado cuando lo cambies ahí.">
+        <textarea value={answer} onChange={e=>setAnswer(e.target.value)} rows={4}/>
+      </FormField>
       <div className="my-row-2" style={{gap:12,alignItems:'center'}}>
         <FormField label="Orden"><input value={order} onChange={e=>setOrder(e.target.value)} placeholder="0"/></FormField>
         <div style={{display:'flex',alignItems:'center',gap:8,fontSize:13,color:C.ink,marginTop:8}}><Toggle checked={isActive} onChange={setIsActive}/><span>Activa</span></div>

@@ -178,5 +178,19 @@ export default async function handler(req, res) {
   try { steps.porteros = await checkPorteros(); }
   catch (e) { steps.porteros = { ok: false, error: e.message }; }
 
+  // ── 6) Retención de datos operativos — 2 meses (mig 212) ────────────────
+  // Los pedidos no se borraban nunca y la base crecía sin techo con datos que
+  // a los 60 días ya no sirven para operar. La política (días, tope por
+  // corrida, qué tablas) vive en `data_retention_config` /
+  // `data_retention_targets`, no acá: sumar o sacar una tabla no debería
+  // exigir un deploy.
+  //
+  // `false` = borrar de verdad. NO es una imprudencia: la RPC degrada sola a
+  // ensayo mientras `data_retention_config.enabled` esté en false, que es como
+  // nace la migración. O sea que hasta que alguien lo prenda a conciencia (con
+  // el dry-run mirado), este paso reporta lo que haría y no toca una fila.
+  try { steps.retencion = await rpc('run_data_retention', { p_dry_run: false }); }
+  catch (e) { steps.retencion = { ok: false, error: e.message }; }
+
   return res.status(200).json({ ok: true, steps, checked_at: new Date().toISOString() });
 }

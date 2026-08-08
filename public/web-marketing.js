@@ -770,16 +770,42 @@
     }).catch(function (e) { console.warn('[MythosWeb] pricing load', e); wireStaticPricingToggle(); });
   }
 
+  /* ── Tokens de config dentro de un texto editable ({trial_days}) ────────
+     Las FAQs se editan en Superadmin → Sitio web → FAQs, así que su texto es
+     dato, no código: si alguien escribe ahí la duración de la prueba a mano,
+     queda una segunda copia que nadie recuerda actualizar. Con el token, la
+     respuesta se escribe "Sí. {trial_days} gratis…" y sale siempre el número
+     configurado. Sin config cargada, el token se borra en vez de mostrarse. */
+  function fillTokens(text) {
+    // Si la config no cargó, se usa el fallback offline (nunca un hueco en el texto).
+    var cfg = _config || (window.MythosWebData && MythosWebData.DEFAULT_CONFIG) || {};
+    return String(text == null ? '' : text).replace(/\{trial_days\}/g, function () {
+      var v = cfg.trial_days;
+      if (v == null || String(v).trim() === '') return '';
+      return String(v).trim() + (Number(v) === 1 ? ' día' : ' días');
+    });
+  }
+
   /* ── FAQ dinámico (web.html #faqList) — degrada al HTML estático ──────── */
+  var _faqRows = null;
+  function paintFaqs() {
+    var host = document.getElementById('faqList');
+    if (!host || !_faqRows || !_faqRows.length) return;
+    host.innerHTML = _faqRows.map(function (f, i) {
+      return '<details' + (i === 0 ? ' open' : '') + '><summary>' + esc(fillTokens(f.question)) + '</summary><p>' + esc(fillTokens(f.answer)) + '</p></details>';
+    }).join('');
+  }
   function renderFaqs() {
     var host = document.getElementById('faqList');
     if (!host || !window.MythosWebData || !MythosWebData.getFaqs) return;
     MythosWebData.getFaqs().then(function (rows) {
       if (!rows || !rows.length) return;   // sin datos → se mantiene el HTML estático (fallback)
-      host.innerHTML = rows.map(function (f, i) {
-        return '<details' + (i === 0 ? ' open' : '') + '><summary>' + esc(f.question) + '</summary><p>' + esc(f.answer) + '</p></details>';
-      }).join('');
+      _faqRows = rows;
+      paintFaqs();
     }).catch(function () {});
+    // Los tokens ({trial_days}) dependen de la config, que llega por separado:
+    // repintar cuando esté lista (onPromoReady deduplica por identidad de función).
+    onPromoReady(paintFaqs);
   }
 
   // Formatea un WhatsApp (dígitos) para MOSTRARLO: "595987436592" → "+595 987 436592".
@@ -794,7 +820,14 @@
      Un campo VACÍO nunca muestra "—": si su bloque se marcó [data-cfg-optional]
      se oculta; si no, se deja el texto de respaldo del propio HTML (así no
      aparece "RUC —" ni datos rotos). El WhatsApp se muestra formateado.
-     Usado por las páginas legales y el pie. ───────────────────────────────── */
+     Usado por las páginas legales, el pie y la duración de la prueba gratuita.
+
+     Dos modificadores opcionales sobre el mismo atributo:
+       • [data-cfg-tpl="…{v}…"]  → plantilla; {v} se reemplaza por el valor.
+       • [data-cfg-attr="content"] → escribe ESE atributo en vez del texto.
+     El par existe para los <meta name="description">: sin él la duración de la
+     prueba quedaba cableada en el SEO de cada página (una segunda copia que se
+     desincroniza justo cuando alguien cambia el número en el panel). ───────── */
   function fillCfgSpans() {
     var cfg = _config || {};
     document.querySelectorAll('[data-cfg]').forEach(function (el) {
@@ -803,7 +836,15 @@
       var has = !(val == null || String(val).trim() === '');
       var wrap = el.closest('[data-cfg-optional]');
       if (has) {
-        el.textContent = (key === 'whatsapp') ? fmtWhatsapp(val) : String(val).trim();
+        var out;
+        if (key === 'whatsapp') out = fmtWhatsapp(val);
+        // trial_days es un número: se muestra con su unidad, y en singular si es 1.
+        else if (key === 'trial_days') out = String(val).trim() + (Number(val) === 1 ? ' día' : ' días');
+        else out = String(val).trim();
+        var tpl = el.getAttribute('data-cfg-tpl');
+        if (tpl) out = tpl.split('{v}').join(out);
+        var attr = el.getAttribute('data-cfg-attr');
+        if (attr) el.setAttribute(attr, out); else el.textContent = out;
         if (wrap) wrap.style.display = '';
         return;
       }

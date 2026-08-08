@@ -86,7 +86,11 @@
   ];
 
   var DEFAULT_CONFIG = {
-    trial_days: 14,
+    // Días de la prueba gratuita. Fuente única = marketing_config.trial_days
+    // (Superadmin → Sitio web → Prueba gratis); esto es SOLO el fallback offline.
+    // Tiene que coincidir con TRIAL_DAYS_FALLBACK de api/onboarding.js: si el
+    // sitio anuncia una duración y el backend otorga otra, la promesa se rompe.
+    trial_days: 7,
     founder_offer_active: true,
     founder_offer_limit: 10,
     sales_whatsapp: '595000000000',
