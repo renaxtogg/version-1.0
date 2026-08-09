@@ -32,6 +32,10 @@ import { ClienteModal, TiposManager, TipoBadges, useCustomerTypes } from "../sha
 // Marketing (mig 197): gift cards y promos automáticas. Apagadas por defecto —
 // sin fila en restaurant_marketing_config no existe nada de esto para el local.
 import * as MKT from "../shared/marketing.js";
+// Costeo y rentabilidad (mig 213). Todo número sale de la base: el reporte viejo
+// agrupaba en el navegador sobre un .limit(500) y empeoraba cuanto más vendía el
+// local. Ver el encabezado de costos.js.
+import * as COST from "../shared/costos.js";
 
 // PR-5 (Bug A): mythos-gating.js es un script global legacy que usa React global
 // (window.React). Tras bundlear React por panel con Vite ya no existe como global y
@@ -2388,6 +2392,42 @@ function ItemModal({item, categories, onClose, onSaved}) {
   const removeExtra = i  => setExtras(p=>p.filter((_,j)=>j!==i));
   const updExtra    = (i,k,v) => setExtras(p=>p.map((e,j)=>j===i?{...e,[k]:v}:e));
 
+  /* ── Receta de los extras (mig 213) ──
+     Sin esto un "queso extra" a ₲8.000 entraba como margen 100% en todo reporte.
+     Sólo se puede cargar sobre un extra YA GUARDADO: la receta cuelga de su id. */
+  const [extraRecs, setExtraRecs]   = useState([]);   // filas de extra_recipes
+  const [ingList, setIngList]       = useState([]);   // ingredientes del local
+  const [openExtra, setOpenExtra]   = useState(null); // id del extra desplegado
+  const [erLine, setErLine]         = useState({ingredient_id:'',quantity:'',unit:'unit'});
+
+  const reloadExtraRecs = useCallback(async () => {
+    const ids = extras.filter(e=>e.id).map(e=>e.id);
+    if(!db || ids.length===0){ setExtraRecs([]); return; }
+    const {rows} = await COST.loadExtraRecipes(db, ids);
+    setExtraRecs(rows);
+  },[extras]);
+
+  useEffect(()=>{
+    if(!db) return;
+    db.from('ingredients').select('id,name,unit').eq('restaurant_id',RID).eq('is_active',true).order('name')
+      .then(({data})=>setIngList(data||[]));
+  },[]);
+  useEffect(()=>{ reloadExtraRecs(); },[reloadExtraRecs]);
+
+  const addExtraRec = async (extraId) => {
+    if(!erLine.ingredient_id){ toast('Elegí un ingrediente',false); return; }
+    if(!(parseFloat(erLine.quantity)>0)){ toast('Cantidad inválida',false); return; }
+    const {error} = await COST.addExtraRecipe(db, extraId, erLine);
+    if(error){ toast('Error: '+error.message,false); return; }
+    setErLine({ingredient_id:'',quantity:'',unit:'unit'});
+    reloadExtraRecs();
+  };
+  const delExtraRec = async (id) => {
+    const {error} = await COST.removeExtraRecipe(db, id);
+    if(error){ toast('Error: '+error.message,false); return; }
+    reloadExtraRecs();
+  };
+
   // Tamaños/variantes: el primero agregado queda por defecto; al borrar el
   // default, el primero restante lo hereda. Siempre hay exactamente 1 default.
   const addVariant    = () => setVariants(p=>[...p,{id:null,name:'',price_guarani:'',sort_order:p.length,is_default:p.length===0,is_active:true}]);
@@ -2445,12 +2485,29 @@ function ItemModal({item, categories, onClose, onSaved}) {
     } else {
       const{data,error}=await db.from('menu_items').update(payload).eq('id',item.id).select('id');
       if(error||!data?.length){toast('Error: '+(error?.message||'verificá RLS'),false);setSaving(false);return;}
-      await db.from('menu_item_extras').delete().eq('item_id',item.id);
+      /* OJO: acá había un `delete().eq('item_id')` que borraba TODOS los extras y
+         los volvía a insertar. Desde la mig 213 el id de un extra es la clave de
+         su receta de costo (`extra_recipes`, FK con ON DELETE CASCADE), así que
+         ese patrón le borraba la receta a cada extra en CADA guardado del
+         producto — silenciosamente, y el extra volvía a costar ₲0.
+         Ahora se borran sólo los que el usuario sacó, y los que quedan conservan
+         su id. */
+      const conservar = extras.filter(e=>e.id && e.name.trim()).map(e=>e.id);
+      let borrado = db.from('menu_item_extras').delete().eq('item_id',item.id);
+      if(conservar.length>0) borrado = borrado.not('id','in',`(${conservar.join(',')})`);
+      await borrado;
     }
     const validExtras = extras.filter(e=>e.name.trim());
-    if(validExtras.length>0){
+    // Los preexistentes se ACTUALIZAN (mantienen id → mantienen receta).
+    for(const e of validExtras.filter(x=>x.id)){
+      await db.from('menu_item_extras')
+        .update({name:e.name.trim(),price_guarani:parseInt(e.price_guarani)||0,is_active:e.is_active!==false})
+        .eq('id',e.id);
+    }
+    const extrasNuevos = validExtras.filter(x=>!x.id);
+    if(extrasNuevos.length>0){
       await db.from('menu_item_extras').insert(
-        validExtras.map(e=>({item_id:itemId,name:e.name.trim(),price_guarani:parseInt(e.price_guarani)||0,is_active:e.is_active!==false}))
+        extrasNuevos.map(e=>({item_id:itemId,name:e.name.trim(),price_guarani:parseInt(e.price_guarani)||0,is_active:e.is_active!==false}))
       );
     }
     // Tamaños/variantes (mismo patrón delete-all + re-insert que los extras).
@@ -2472,6 +2529,17 @@ function ItemModal({item, categories, onClose, onSaved}) {
 
   const disc = parseInt(form.discount_pct)||0;
   const baseP = parseInt(form.price_guarani)||0;
+
+  /* Costo del plato (mig 213), acá donde se decide el precio. Sin esto el dueño
+     ponía precio a ciegas y sólo se enteraba del margen en otra pantalla.
+     Es un producto YA existente: uno nuevo todavía no tiene receta. */
+  const [itemCost, setItemCost] = useState(null);
+  useEffect(()=>{
+    if(isNew || !item?.id || !db) return;
+    let vivo = true;
+    COST.loadItemCost(db, item.id).then(r=>{ if(vivo && !r.missing && r.cost!=null) setItemCost(r.cost); });
+    return ()=>{ vivo=false; };
+  },[isNew, item?.id]);
 
   return (
     <Modal title={isNew?'Nuevo producto':`Editar: ${item.name}`} onClose={onClose} width={650}>
@@ -2502,6 +2570,22 @@ function ItemModal({item, categories, onClose, onSaved}) {
         <div>
           <Lbl>PRECIO (₲) *</Lbl>
           <MoneyInp value={form.price_guarani} onChange={v=>f('price_guarani',v)} placeholder="75000"/>
+          {/* Costo y margen en vivo: el precio final es el de venta con descuento
+              aplicado, que es la plata que realmente entra. */}
+          {itemCost!=null && itemCost>0 && (()=>{
+            const precioReal = finalPrice() || baseP;
+            const margen = precioReal - itemCost;
+            const margenPct = precioReal>0 ? margen/precioReal*100 : null;
+            const col = margen<=0 ? C.red : margenPct<40 ? C.orange : C.green;
+            return (
+              <div style={{fontSize:11,marginTop:5,lineHeight:1.5,color:C.mid}}>
+                Cuesta <b style={{color:C.ink}}>{fmt(Math.round(itemCost))}</b> en insumos ·
+                {' '}deja <b style={{color:col}}>{fmt(Math.round(margen))}</b>
+                {margenPct!=null && <span style={{color:col}}> ({margenPct.toFixed(0)}%)</span>}
+                {margen<=0 && <div style={{color:C.red,fontWeight:700}}>A este precio perdés plata.</div>}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Descuento */}
@@ -2610,19 +2694,66 @@ function ItemModal({item, categories, onClose, onSaved}) {
           <Lbl>EXTRAS E INGREDIENTES ADICIONALES</Lbl>
           {!extrasReady&&<div style={{color:C.dim,fontSize:12,padding:'4px 0 10px'}}>Cargando extras…</div>}
           {extrasReady&&(<>
-            {extras.map((e,i)=>(
-              <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 140px 76px 32px',gap:8,alignItems:'center',marginBottom:7}}>
-                <Inp value={e.name} onChange={ev=>updExtra(i,'name',ev.target.value)} placeholder="Ej: Queso extra, Picante, Sin cebolla"/>
-                <div style={{display:'flex',alignItems:'center',gap:4}}>
-                  <MoneyInp value={e.price_guarani} onChange={v=>updExtra(i,'price_guarani',v)} placeholder="0" style={{flex:1}}/>
+            {extras.map((e,i)=>{
+              const recs = e.id ? extraRecs.filter(r=>r.extra_id===e.id) : [];
+              const abierto = openExtra===e.id;
+              return (
+              <div key={i} style={{marginBottom:7}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 140px 76px 60px 32px',gap:8,alignItems:'center'}}>
+                  <Inp value={e.name} onChange={ev=>updExtra(i,'name',ev.target.value)} placeholder="Ej: Queso extra, Picante, Sin cebolla"/>
+                  <div style={{display:'flex',alignItems:'center',gap:4}}>
+                    <MoneyInp value={e.price_guarani} onChange={v=>updExtra(i,'price_guarani',v)} placeholder="0" style={{flex:1}}/>
+                  </div>
+                  <button onClick={()=>updExtra(i,'is_active',!e.is_active)}
+                    style={{padding:'5px 6px',fontSize:11,fontWeight:600,borderRadius:5,cursor:'pointer',border:`1px solid ${e.is_active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,background:e.is_active?'rgba(52,199,89,0.1)':'transparent',color:e.is_active?'#34C759':'#86868B'}}>
+                    {e.is_active?'Activo':'Inact.'}
+                  </button>
+                  {/* La receta cuelga del id del extra, así que uno sin guardar
+                      todavía no la puede tener. */}
+                  <button onClick={()=>e.id&&setOpenExtra(abierto?null:e.id)} disabled={!e.id}
+                    title={e.id?'Qué insumo consume este extra':'Guardá el producto primero'}
+                    style={{padding:'5px 6px',fontSize:11,fontWeight:600,borderRadius:5,cursor:e.id?'pointer':'not-allowed',opacity:e.id?1:.4,
+                            border:`1px solid ${recs.length>0?'rgba(0,122,255,0.35)':C.border}`,
+                            background:recs.length>0?'rgba(0,122,255,0.1)':'transparent',
+                            color:recs.length>0?'#007AFF':C.mid}}>
+                    {recs.length>0?`Costo (${recs.length})`:'Costo'}
+                  </button>
+                  <button onClick={()=>removeExtra(i)} style={{background:'none',border:'none',color:'#FF3B30',fontSize:20,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
                 </div>
-                <button onClick={()=>updExtra(i,'is_active',!e.is_active)}
-                  style={{padding:'5px 6px',fontSize:11,fontWeight:600,borderRadius:5,cursor:'pointer',border:`1px solid ${e.is_active?'rgba(52,199,89,0.3)':'rgba(142,142,147,0.3)'}`,background:e.is_active?'rgba(52,199,89,0.1)':'transparent',color:e.is_active?'#34C759':'#86868B'}}>
-                  {e.is_active?'Activo':'Inact.'}
-                </button>
-                <button onClick={()=>removeExtra(i)} style={{background:'none',border:'none',color:'#FF3B30',fontSize:20,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+                {abierto&&(
+                  <div style={{margin:'6px 0 12px',padding:12,background:C.bg,border:`1px solid ${C.border}`,borderRadius:8}}>
+                    <div style={{fontSize:11,color:C.mid,marginBottom:8,lineHeight:1.5}}>
+                      Qué consume <b>{e.name||'este extra'}</b> del depósito. Sin esto se cobra pero cuenta como costo ₲0 en los reportes.
+                    </div>
+                    {recs.length>0&&(
+                      <div style={{marginBottom:8}}>
+                        {recs.map(r=>{
+                          const ing = ingList.find(x=>x.id===r.ingredient_id);
+                          return (
+                            <div key={r.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:12,padding:'4px 0',color:C.ink}}>
+                              <span>{ing?.name||'—'} · <span style={{color:C.mid,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{r.quantity} {r.unit}</span></span>
+                              <button onClick={()=>delExtraRec(r.id)} style={{background:'none',border:'none',color:'#FF3B30',fontSize:16,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 90px 90px 90px',gap:6,alignItems:'center'}}>
+                      <Sel value={erLine.ingredient_id} onChange={ev=>setErLine({...erLine,ingredient_id:ev.target.value,unit:(ingList.find(x=>x.id===ev.target.value)?.unit||'unit')})}>
+                        <option value="">— Ingrediente —</option>
+                        {ingList.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
+                      </Sel>
+                      <NumInp decimals={3} value={erLine.quantity} onChange={v=>setErLine({...erLine,quantity:v})} placeholder="Cant."/>
+                      <Sel value={erLine.unit} onChange={ev=>setErLine({...erLine,unit:ev.target.value})}>
+                        {['g','kg','ml','l','unit','portion'].map(u=><option key={u} value={u}>{u}</option>)}
+                      </Sel>
+                      <Btn small onClick={()=>addExtraRec(e.id)}>Agregar</Btn>
+                    </div>
+                  </div>
+                )}
               </div>
-            ))}
+              );
+            })}
             {extras.length===0&&<div style={{color:C.dim,fontSize:12,padding:'4px 0 10px'}}>Sin extras — agregá el primero abajo</div>}
             <Btn variant="secondary" small onClick={addExtra}>+ Agregar extra</Btn>
           </>)}
@@ -7877,6 +8008,260 @@ function RatingsPage({ratings,embedded=false}) {
 }
 
 /* ══════════════════════════════════════════════
+   MANUAL DE STOCK E INVENTARIO
+   ──────────────────────────────────────────────
+   El módulo tiene siete solapas y varias de ellas sólo tienen sentido en un
+   orden determinado (sin precio de compra no hay costo, sin receta no hay
+   descuento). Ese orden no se deduce mirando la pantalla, así que se explica.
+   El texto vive acá y no en la base a propósito: mismo criterio que FORM_SPECS
+   (mig 198) y EXP_COPY (mig 204) — corregir una redacción no puede exigir una
+   migración.
+══════════════════════════════════════════════ */
+const MANUAL_STOCK = [
+  {
+    id: 'orden',
+    titulo: 'Por dónde empezar',
+    resumen: 'El orden importa: cada paso habilita al siguiente.',
+    cuerpo: [
+      {t:'p', x:'Podés usar sólo una parte del módulo y funciona igual. Pero si querés que te diga cuánto ganás con cada plato, hay un orden que conviene respetar, porque cada paso habilita al siguiente:'},
+      {t:'ol', x:[
+        '<b>Creá tus ingredientes</b> con su unidad (kg, litros, unidades) y su precio de compra.',
+        '<b>Cargá el stock</b> que tenés hoy.',
+        '<b>Armá las recetas</b>: qué lleva cada plato de tu carta.',
+        '<b>Mirá Costos</b>: ahí aparece cuánto te cuesta cada plato y cuánto te deja.',
+      ]},
+      {t:'p', x:'Los pasos 1 y 2 los podés hacer juntos desde <b>Cargar stock</b>. El paso 3 se puede ir haciendo de a poco: un plato sin receta simplemente no se costea ni se descuenta, y no rompe nada.'},
+      {t:'nota', x:'Si sólo querés controlar existencias y no te interesan los costos, hacé los pasos 1 y 2 y listo. El resto es opcional.'},
+    ],
+  },
+  {
+    id: 'inventario',
+    titulo: 'Inventario',
+    resumen: 'La foto de lo que tenés, cuánto vale y qué está por faltar.',
+    cuerpo: [
+      {t:'p', x:'Es la lista de todos tus insumos con su stock actual. Arriba de todo te dice cuánta plata tenés inmovilizada en depósito.'},
+      {t:'dl', x:[
+        ['Stock actual','Lo que hay ahora. El color te avisa: verde OK, amarillo bajo, naranja crítico, rojo sin stock.'],
+        ['Proyectado','Lo que te va a quedar cuando salgan los pedidos que ya están en cocina. Sirve para saber si llegás al final del servicio.'],
+        ['Costo','Cuánto te cuesta una unidad. Es el <b>promedio ponderado</b> de tus compras, no la última.'],
+        ['Valor','Stock × costo. La plata que tenés parada en ese insumo.'],
+      ]},
+      {t:'p', x:'El botón <b>Editar</b> de cada fila abre la ficha: nombre, categoría, unidad, umbral mínimo, precio de compra y merma.'},
+      {t:'nota', x:'Si ves un aviso naranja diciendo que faltan precios de compra, cargalos: sin eso los platos que usen ese insumo van a mostrar un costo <b>menor al real</b>.'},
+    ],
+  },
+  {
+    id: 'cargar',
+    titulo: 'Cargar stock',
+    resumen: 'Cada compra que entra, con su precio.',
+    cuerpo: [
+      {t:'p', x:'Acá registrás lo que comprás. Elegís el ingrediente, la cantidad, y ponés <b>cuánto pagaste</b>.'},
+      {t:'p', x:'El precio se escribe <b>en la unidad en que comprás</b>. Si tu harina está medida en gramos pero la comprás por bolsa de 25 kg, cargás 25 kg y el precio por kilo: el sistema convierte solo.'},
+      {t:'p', x:'Si esta compra sale bastante más cara o más barata que tu promedio, te avisa antes de confirmar.'},
+      {t:'dl', x:[
+        ['Vencimiento','Opcional pero recomendado en perecederos. El módulo te avisa 7 días antes.'],
+        ['N° lote / remito','Para trazabilidad: de qué compra salió cada cosa.'],
+      ]},
+      {t:'sub', x:'Cómo se calcula tu costo'},
+      {t:'p', x:'Mythos usa <b>promedio ponderado</b>: cada compra se mezcla con lo que ya tenías, en proporción a las cantidades.'},
+      {t:'ej', x:'Te quedan <b>4 kg a ₲45.000</b> y comprás <b>10 kg a ₲52.000</b>.<br/>Tu nuevo costo es <b>(4×45.000 + 10×52.000) ÷ 14 = ₲50.000/kg</b>.'},
+      {t:'p', x:'Se hace así para que una compra puntual cara no te distorsione el margen de todo el mes, y para que el costo refleje lo que realmente tenés en depósito.'},
+      {t:'p', x:'Más abajo, en la misma solapa, está el formulario para <b>crear un ingrediente nuevo</b>.'},
+    ],
+  },
+  {
+    id: 'merma',
+    titulo: 'Merma: la regla más importante',
+    resumen: 'Cargá las recetas con el peso que va al plato. La pérdida la agrega el sistema.',
+    cuerpo: [
+      {t:'p', x:'La merma es lo que se pierde entre lo que comprás y lo que llega al plato: hueso, grasa, cáscara, líquido que se evapora al cocinar.'},
+      {t:'p', x:'<b>Vos cargás las recetas con el peso neto</b> — lo que realmente va en el plato. La merma la agrega Mythos solo.'},
+      {t:'ej', x:'Lomito con <b>20% de merma</b>. La receta dice <b>180 g</b>.<br/>El sistema descuenta <b>225 g</b> del depósito (180 ÷ 0,80) y ése es el costo que usa.'},
+      {t:'p', x:'Es el mismo número para el costo y para el stock, así que nunca se contradicen.'},
+      {t:'aviso', x:'Si cargás merma y tenés el descuento automático prendido, <b>el stock va a bajar más rápido que antes</b>. Es lo correcto —es lo que realmente sacás de la heladera— pero es un cambio real. Si dejás la merma en 0, todo se descuenta igual que siempre.'},
+      {t:'p', x:'No es obligatoria. Si el peso que comprás es el que usás (bebidas embotelladas, productos envasados), dejala en 0.'},
+    ],
+  },
+  {
+    id: 'recetas',
+    titulo: 'Recetas',
+    resumen: 'Qué lleva cada plato. Habilita el descuento de stock y el costeo.',
+    cuerpo: [
+      {t:'p', x:'Una receta vincula un plato de tu carta con los insumos que consume. Sirve para dos cosas: descontar el stock cuando se vende, y saber cuánto te cuesta.'},
+      {t:'p', x:'Cada línea puede ser <b>un ingrediente</b> o <b>una preparación</b> (ver la sección siguiente).'},
+      {t:'p', x:'La cantidad se carga <b>por porción</b> y con el peso que va al plato.'},
+      {t:'nota', x:'Un plato sin receta no se descuenta ni se costea, y no pasa nada. Andá cargándolas de a poco, empezando por los que más vendés.'},
+      {t:'sub', x:'Los extras también cuestan'},
+      {t:'p', x:'Un "queso extra" a ₲8.000 no es ganancia pura: el queso lo pagás. En <b>Menú → editar el producto</b>, al lado de cada extra hay un botón <b>Costo</b> para decirle qué consume. Sin eso, el extra figura como 100% de margen en todos los reportes.'},
+    ],
+  },
+  {
+    id: 'preparaciones',
+    titulo: 'Preparaciones',
+    resumen: 'Salsas, masas, caldos: se cargan una vez y las usan varios platos.',
+    cuerpo: [
+      {t:'p', x:'Una preparación es algo que hacés en tanda y después usás en varios platos. Cargás <b>qué lleva</b> y <b>cuánto rinde</b>.'},
+      {t:'ej', x:'<b>Salsa especial</b> · rinde <b>5 L</b> · merma 10% (evaporación) → rinde de verdad <b>4,5 L</b><br/>Lleva 3 kg de tomate (₲24.000) + 1 L de aceite (₲15.000) + condimentos (₲6.000) = <b>₲45.000</b><br/>→ te cuesta <b>₲10.000 el litro</b>. Un plato que lleva 50 ml consume <b>₲500</b>.'},
+      {t:'p', x:'<b>Para qué sirve de verdad:</b> cuando te sube el tomate, se re-costean solos todos los platos que llevan esa salsa. No tenés que editar receta por receta.'},
+      {t:'p', x:'Una preparación puede contener otra (una salsa base dentro de una salsa terminada).'},
+      {t:'nota', x:'Son opcionales. Si preferís, cargá los ingredientes sueltos en cada receta y funciona igual.'},
+    ],
+  },
+  {
+    id: 'costos',
+    titulo: 'Costos y márgenes',
+    resumen: 'Cuánto te deja cada plato y a cuánto deberías venderlo.',
+    cuerpo: [
+      {t:'p', x:'Es el tablero: todos tus platos con su costo, su margen y un semáforo.'},
+      {t:'dl', x:[
+        ['En objetivo','El margen llega al que fijaste. Todo bien.'],
+        ['Bajo objetivo','Deja ganancia, pero menos de la que definiste.'],
+        ['Pierde plata','Los insumos cuestan igual o más que el precio de venta.'],
+        ['Costo incompleto','Falta el precio de compra de algún insumo. <b>El costo real es mayor al que ves.</b>'],
+        ['Sin receta','Todavía no le cargaste la receta.'],
+      ]},
+      {t:'p', x:'Si algún insumo te subió, arriba aparece un aviso: <i>"Carne: ₲45.000 → ₲52.000 · ▲15% · afecta 6 platos"</i>. Un aumento que nadie mira se come el margen en silencio.'},
+      {t:'sub', x:'La ficha de costo'},
+      {t:'p', x:'Tocá cualquier fila y se abre el detalle: qué lleva el plato, cuánto sale del depósito de cada cosa y cuánto cuesta cada línea.'},
+      {t:'p', x:'Abajo está el <b>simulador</b>: movés el precio y ves el margen al instante. Los botones de 50/60/65/70/75% te ponen el precio exacto para ese margen. Cuando te convence, <b>Aplicar precio a la carta</b> lo actualiza en el menú.'},
+      {t:'dl', x:[
+        ['Margen','La plata que te queda: precio − costo.'],
+        ['Food cost','Qué porcentaje del precio se te va en insumos. En gastronomía se suele buscar entre 25% y 35%.'],
+        ['Multiplicador','Cuántas veces el costo es el precio. Lo que muchos llaman "por tres".'],
+      ]},
+      {t:'aviso', x:'El precio sugerido se calcula como <b>costo ÷ (1 − margen)</b>, no como costo × (1 + margen). Lo segundo es el markup y da un precio más bajo del que necesitás. Confundirlos es el error más común al poner precios.'},
+      {t:'sub', x:'Dónde se fija el objetivo'},
+      {t:'p', x:'En <b>Configuración → Costos y márgenes</b>. Ese número aplica a todo, y podés pisarlo por categoría o por plato puntual.'},
+    ],
+  },
+  {
+    id: 'descuento',
+    titulo: 'Descuento automático',
+    resumen: 'Que el stock baje solo cuando se vende.',
+    cuerpo: [
+      {t:'p', x:'Es el interruptor grande de arriba. Prendido, cada vez que se cobra un pedido se descuentan del depósito los insumos según la receta.'},
+      {t:'p', x:'Descuenta <b>sólo</b> los platos que tienen receta configurada. Los demás no se tocan.'},
+      {t:'nota', x:'Podés dejarlo apagado y usar el módulo sólo para costear y para las tomas de inventario. Es una decisión tuya.'},
+    ],
+  },
+  {
+    id: 'toma',
+    titulo: 'Toma de inventario',
+    resumen: 'Contar lo que hay de verdad y corregir las diferencias.',
+    cuerpo: [
+      {t:'p', x:'El sistema calcula el stock a partir de lo que cargás y lo que se vende. La toma sirve para comparar eso contra <b>lo que realmente hay en la heladera</b>.'},
+      {t:'dl', x:[
+        ['Apertura','Al empezar el día. Deja la foto inicial.'],
+        ['Cierre','Al terminar. Compara contra el stock que el sistema calculó.'],
+      ]},
+      {t:'p', x:'Contás cada insumo, anotás el número real, y el sistema te muestra las diferencias. Vos decidís cuáles ajustar.'},
+      {t:'p', x:'La de cierre sólo se habilita después de haber hecho la de apertura.'},
+      {t:'nota', x:'Las diferencias repetidas en el mismo insumo suelen indicar una receta mal cargada, merma sin declarar o pérdida. Es la mejor herramienta de control que tiene el módulo.'},
+    ],
+  },
+  {
+    id: 'movimientos',
+    titulo: 'Movimientos y alertas',
+    resumen: 'El historial de todo lo que entró y salió.',
+    cuerpo: [
+      {t:'p', x:'Cada carga, descuento, ajuste, merma o vencimiento queda registrado con fecha. Es el historial que te permite reconstruir qué pasó con un insumo.'},
+      {t:'sub', x:'Alertas'},
+      {t:'p', x:'Arriba del módulo aparecen solas cuando hace falta:'},
+      {t:'dl', x:[
+        ['Stock bajo / crítico','Cuando un insumo cae cerca o por debajo del umbral mínimo que le pusiste.'],
+        ['Por vencer / vencido','Perecederos con fecha de vencimiento cargada, 7 días antes.'],
+      ]},
+      {t:'p', x:'El umbral mínimo se configura por ingrediente, en su ficha.'},
+    ],
+  },
+  {
+    id: 'reportes',
+    titulo: 'Y después, los reportes',
+    resumen: 'Lo que realmente dejó cada plato.',
+    cuerpo: [
+      {t:'p', x:'Cuando se cobra un pedido, Mythos guarda <b>el costo de ese momento</b>. Así, si mañana te sube la carne, el margen del mes pasado sigue siendo el que fue de verdad.'},
+      {t:'p', x:'En <b>Reportes → Rentabilidad por producto</b> ves lo que dejó cada plato en el período, con una clasificación:'},
+      {t:'dl', x:[
+        ['Estrella','Se vende mucho y deja mucho. No lo toques.'],
+        ['Caballo','Se vende mucho pero deja poco. Subí el precio de a poco o bajale el costo.'],
+        ['Enigma','Deja mucho pero casi no se vende. Promocionalo o dale mejor lugar en la carta.'],
+        ['Perro','Ni se vende ni deja. Candidato a salir de la carta.'],
+      ]},
+      {t:'p', x:'También están <b>Stock actual</b> y <b>Movimientos de stock</b>, exportables a PDF, Excel o CSV.'},
+      {t:'nota', x:'Los pedidos anteriores a la activación del módulo no tienen el costo guardado, así que el reporte los valoriza con el costo de hoy. De acá en adelante, cada venta guarda el suyo.'},
+    ],
+  },
+];
+
+function ManualStock({ onClose }) {
+  const [abierta, setAbierta] = useState('orden');
+
+  const Bloque = ({b}) => {
+    if (b.t==='p')   return <p style={{fontSize:13,lineHeight:1.65,color:C.mid,margin:'0 0 10px'}} dangerouslySetInnerHTML={{__html:b.x}}/>;
+    if (b.t==='sub') return <div style={{fontSize:12.5,fontWeight:800,color:C.ink,margin:'16px 0 8px'}}>{b.x}</div>;
+    if (b.t==='ol')  return (
+      <ol style={{margin:'0 0 10px',paddingLeft:20,fontSize:13,lineHeight:1.7,color:C.mid}}>
+        {b.x.map((li,i)=><li key={i} dangerouslySetInnerHTML={{__html:li}} style={{marginBottom:3}}/>)}
+      </ol>
+    );
+    if (b.t==='dl')  return (
+      <div style={{margin:'0 0 12px',display:'flex',flexDirection:'column',gap:7}}>
+        {b.x.map(([k,v],i)=>(
+          <div key={i} style={{display:'grid',gridTemplateColumns:'132px 1fr',gap:10,alignItems:'baseline'}}>
+            <div style={{fontSize:12,fontWeight:700,color:C.ink}}>{k}</div>
+            <div style={{fontSize:12.5,lineHeight:1.55,color:C.mid}} dangerouslySetInnerHTML={{__html:v}}/>
+          </div>
+        ))}
+      </div>
+    );
+    if (b.t==='ej')  return (
+      <div style={{margin:'0 0 12px',padding:'11px 13px',background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12.5,lineHeight:1.7,color:C.ink}}
+           dangerouslySetInnerHTML={{__html:b.x}}/>
+    );
+    if (b.t==='nota') return (
+      <div style={{margin:'0 0 12px',padding:'10px 13px',background:TINT.blueBg,border:`1px solid ${TINT.blueBorder}`,borderRadius:8,fontSize:12.5,lineHeight:1.6,color:TINT.blueText}}
+           dangerouslySetInnerHTML={{__html:b.x}}/>
+    );
+    if (b.t==='aviso') return (
+      <div style={{margin:'0 0 12px',padding:'10px 13px',background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,fontSize:12.5,lineHeight:1.6,color:TINT.amberText}}
+           dangerouslySetInnerHTML={{__html:b.x}}/>
+    );
+    return null;
+  };
+
+  return (
+    <Modal title="Cómo usar Stock e Inventario" onClose={onClose} width={720}>
+      <p style={{fontSize:13,lineHeight:1.6,color:C.mid,margin:'0 0 18px'}}>
+        Acá controlás lo que tenés en depósito y, si querés, cuánto te cuesta y cuánto te deja cada plato.
+        Todo es opcional y se puede ir cargando de a poco.
+      </p>
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {MANUAL_STOCK.map(sec=>{
+          const open = abierta===sec.id;
+          return (
+            <div key={sec.id} style={{border:`1px solid ${open?C.bs:C.border}`,borderRadius:10,overflow:'hidden',background:open?C.surface:'transparent'}}>
+              <button onClick={()=>setAbierta(open?null:sec.id)}
+                style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,
+                        padding:'12px 15px',background:'none',border:'none',cursor:'pointer',textAlign:'left',fontFamily:'inherit'}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:13.5,fontWeight:700,color:C.ink}}>{sec.titulo}</div>
+                  {!open&&<div style={{fontSize:11.5,color:C.dim,marginTop:2}}>{sec.resumen}</div>}
+                </div>
+                <span style={{color:C.mid,fontSize:15,flexShrink:0,transform:open?'rotate(90deg)':'none',transition:'transform .15s'}}>›</span>
+              </button>
+              {open&&<div style={{padding:'0 15px 15px'}}>{sec.cuerpo.map((b,i)=><Bloque key={i} b={b}/>)}</div>}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',marginTop:20}}>
+        <Btn onClick={onClose}>Entendido</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+/* ══════════════════════════════════════════════
    STOCK E INVENTARIO
 ══════════════════════════════════════════════ */
 function StockPage() {
@@ -7891,6 +8276,22 @@ function StockPage() {
   const [saving, setSaving]       = useState(false);
   const [autoDiscount, setAutoDiscount] = useState(false);
   const [savingToggle, setSavingToggle] = useState(false);
+
+  /* ── Costeo (mig 213) ─────────
+     `costMissing` distingue "la migración no está aplicada" de "todavía no
+     cargaste costos": mostrar ₲0 en el primer caso se leería como "mis platos
+     no cuestan nada", que es la peor mentira posible en este módulo. */
+  const [costRows,   setCostRows]   = useState([]);
+  const [costMissing,setCostMissing]= useState(false);
+  const [priceAlerts,setPriceAlerts]= useState([]);
+  const [preps,      setPreps]      = useState([]);
+  const [costCfg,    setCostCfg]    = useState(COST.DEFAULT_COST_CONFIG);
+  const [fichaItem,  setFichaItem]  = useState(null);  // {id,name,price} del plato abierto
+  const [ficha,      setFicha]      = useState(null);  // {rows, cost}
+  const [simPrice,   setSimPrice]   = useState('');
+  const [costFilter, setCostFilter] = useState('todos');
+  const [prepEdit,   setPrepEdit]   = useState(null);  // preparación en edición
+  const [prepLine,   setPrepLine]   = useState({kind:'ing',ingredient_id:'',child_prep_id:'',quantity:'',unit:'unit'});
 
   /* ── Toma de inventario ───── */
   const [todaySessions, setTodaySessions]   = useState([]);
@@ -7922,9 +8323,10 @@ function StockPage() {
     setSavingToggle(false);
   }
 
-  const emptyIng  = {name:'',category:'',unit:'unit',min_threshold:'',cost_per_unit:'',stock_quantity:''};
+  const emptyIng  = {id:null,name:'',category:'',unit:'unit',min_threshold:'',cost_per_unit:'',waste_pct:'',stock_quantity:''};
   const emptyLoad = {ingredient_id:'',quantity:'',unit:'unit',expiry_date:'',batch_id:'',cost_per_unit:'',notes:''};
-  const emptyRec  = {menu_item_id:'',ingredient_id:'',quantity_required:'1',unit:'unit',notes:''};
+  // `kind` decide si la línea apunta a un ingrediente o a una preparación (mig 213).
+  const emptyRec  = {menu_item_id:'',kind:'ing',ingredient_id:'',prep_recipe_id:'',quantity_required:'1',unit:'unit',notes:''};
   const [ingForm,  setIngForm]  = useState(emptyIng);
   const [loadForm, setLoadForm] = useState(emptyLoad);
   const [recForm,  setRecForm]  = useState(emptyRec);
@@ -7934,6 +8336,18 @@ function StockPage() {
   // Dimensión de cada unidad: masa/volumen/conteo/porción. Para filtrar los
   // selectores a unidades compatibles con el ingrediente (evita recetas g↔ml, etc.).
   const UNIT_DIM = {g:'m',kg:'m',ml:'v',l:'v',unit:'c',portion:'p'};
+  /* Espejo de `convert_units` (mig 181): cuántas unidades `to` entran en 1 `from`.
+     `null` si son de dimensiones distintas — mismo criterio que la base, que en ese
+     caso no descuenta nada en vez de vaciar el stock. Sólo se usa para PREVISUALIZAR
+     en pantalla; el número que vale lo calcula siempre la base. */
+  const UNIT_CONV = (from, to) => {
+    if (from === to) return 1;
+    if (from === 'kg' && to === 'g')  return 1000;
+    if (from === 'g'  && to === 'kg') return 0.001;
+    if (from === 'l'  && to === 'ml') return 1000;
+    if (from === 'ml' && to === 'l')  return 0.001;
+    return null;
+  };
   const unitOpts = (ingUnit) => {
     const d = UNIT_DIM[ingUnit];
     const entries = Object.entries(UNIT_LABELS);
@@ -7974,11 +8388,22 @@ function StockPage() {
     try {
       const [ingsRes, itemsRes, recsRes, movsRes, alertsRes] = await Promise.all([
         db.rpc('admin_list_ingredients', {p_restaurant_id: RID}),
-        db.from('menu_items').select('id,name,is_available,availability_reason').eq('restaurant_id',RID).order('name'),
+        db.from('menu_items').select('id,name,price_guarani,is_available,availability_reason').eq('restaurant_id',RID).order('name'),
         db.from('recipes').select('*').then(async r => {
           if (r.error) return {data:[]};
-          const ingIds = (await db.from('ingredients').select('id').eq('restaurant_id',RID)).data?.map(i=>i.id)||[];
-          return {data:(r.data||[]).filter(rec=>ingIds.includes(rec.ingredient_id))};
+          // Una línea de receta puede apuntar a un ingrediente O a una preparación
+          // (mig 213). Filtrar sólo por ingrediente descartaba TODAS las líneas de
+          // preparación y las sub-recetas se veían como si no existieran.
+          const [ingRes, prepRes] = await Promise.all([
+            db.from('ingredients').select('id').eq('restaurant_id',RID),
+            db.from('prep_recipes').select('id').eq('restaurant_id',RID),
+          ]);
+          const ingIds  = new Set((ingRes.data||[]).map(i=>i.id));
+          const prepIds = new Set((prepRes.data||[]).map(p=>p.id));
+          return {data:(r.data||[]).filter(rec =>
+            (rec.ingredient_id  && ingIds.has(rec.ingredient_id)) ||
+            (rec.prep_recipe_id && prepIds.has(rec.prep_recipe_id))
+          )};
         }),
         db.from('stock_movements').select('*, ingredient:ingredients(name,unit)').eq('restaurant_id',RID).order('created_at',{ascending:false}).limit(100),
         db.from('stock_alerts').select('*, ingredient:ingredients(name,unit)').eq('restaurant_id',RID).is('resolved_at',null).order('created_at',{ascending:false}).limit(30),
@@ -7992,6 +8417,25 @@ function StockPage() {
     setLoading(false);
   }, []);
 
+  /* Costeo: va aparte de loadData porque degrada solo. Si la 213 no está
+     aplicada el resto del módulo de stock tiene que seguir andando igual. */
+  const loadCosting = React.useCallback(async () => {
+    if (!db) return;
+    const [rep, alerts2, prepsRes, cfg] = await Promise.all([
+      COST.loadCostingReport(db, RID),
+      COST.loadPriceAlerts(db, RID),
+      COST.loadPreps(db, RID),
+      COST.loadCostConfig(db, RID),
+    ]);
+    setCostMissing(rep.missing);
+    setCostRows(rep.rows);
+    setPriceAlerts(alerts2.rows);
+    setPreps(prepsRes.preps);
+    setCostCfg(cfg.config);
+  }, []);
+
+  React.useEffect(()=>{ loadCosting(); },[loadCosting]);
+
   React.useEffect(()=>{ loadData(); loadTodaySessions(); },[loadData, loadTodaySessions]);
 
   React.useEffect(()=>{
@@ -8004,20 +8448,62 @@ function StockPage() {
     return ()=>{ db.removeChannel(ch); };
   }, [loadData]);
 
-  const createIngredient = async () => {
+  /* Alta y edición del ingrediente.
+     El costo se enviaba desde acá desde siempre, pero el formulario NUNCA
+     dibujó el campo: viajaba vacío en cada alta y por eso ningún local tenía
+     costos cargados. Ahora se pide en el alta, y además se puede editar — antes
+     un ingrediente creado no se podía corregir desde ninguna pantalla.
+     `avg_cost` se siembra junto al costo sólo en el ALTA: después lo mueve
+     `admin_load_stock` con el promedio ponderado, y pisarlo a mano desde acá
+     rompería el promedio que se viene acumulando. */
+  const saveIngredient = async () => {
     if (!ingForm.name.trim()) { toast('El nombre es requerido', false); return; }
+    const waste = ingForm.waste_pct === '' ? 0 : parseFloat(ingForm.waste_pct);
+    if (!Number.isFinite(waste) || waste < 0 || waste >= 100) {
+      toast('La merma tiene que estar entre 0 y 99%', false); return;
+    }
     setSaving(true);
     try {
-      const {error} = await db.from('ingredients').insert({
-        restaurant_id: RID, name:ingForm.name.trim(), category:ingForm.category.trim()||null,
-        unit:ingForm.unit, stock_quantity:parseFloat(ingForm.stock_quantity)||0,
-        min_threshold:parseFloat(ingForm.min_threshold)||0,
-        cost_per_unit:ingForm.cost_per_unit?parseFloat(ingForm.cost_per_unit):null,
-      });
-      if (error) throw error;
-      toast('Ingrediente creado'); setModal(null); setIngForm(emptyIng); loadData();
+      const costo = ingForm.cost_per_unit ? parseFloat(ingForm.cost_per_unit) : null;
+      if (ingForm.id) {
+        const patch = {
+          name:ingForm.name.trim(), category:ingForm.category.trim()||null,
+          unit:ingForm.unit, min_threshold:parseFloat(ingForm.min_threshold)||0,
+          waste_pct: waste,
+        };
+        // El costo sólo se toca si el usuario escribió algo: dejarlo en blanco es
+        // "no lo cambies", no "ponelo en cero".
+        if (ingForm.cost_per_unit !== '') patch.cost_per_unit = costo;
+        const {error} = await db.from('ingredients').update(patch).eq('id',ingForm.id);
+        if (error) throw error;
+        toast('Ingrediente actualizado');
+      } else {
+        const {error} = await db.from('ingredients').insert({
+          restaurant_id: RID, name:ingForm.name.trim(), category:ingForm.category.trim()||null,
+          unit:ingForm.unit, stock_quantity:parseFloat(ingForm.stock_quantity)||0,
+          min_threshold:parseFloat(ingForm.min_threshold)||0,
+          waste_pct: waste,
+          cost_per_unit: costo,
+          avg_cost: costo,
+        });
+        if (error) throw error;
+        toast('Ingrediente creado');
+      }
+      setModal(null); setIngForm(emptyIng); loadData(); loadCosting();
     } catch(e) { toast('Error: '+e.message, false); }
     setSaving(false);
+  };
+
+  const editIngredient = (ing) => {
+    setIngForm({
+      id: ing.id, name: ing.name||'', category: ing.category||'',
+      unit: ing.unit||'unit',
+      min_threshold: ing.min_threshold!=null ? String(ing.min_threshold) : '',
+      cost_per_unit: ing.cost_per_unit!=null ? String(ing.cost_per_unit) : '',
+      waste_pct: ing.waste_pct!=null ? String(ing.waste_pct) : '',
+      stock_quantity: '',
+    });
+    setModal('edit_ing');
   };
 
   const doLoadStock = async () => {
@@ -8039,15 +8525,21 @@ function StockPage() {
   };
 
   const createRecipe = async () => {
-    if (!recForm.menu_item_id||!recForm.ingredient_id) { toast('Seleccioná ítem e ingrediente', false); return; }
+    const esPrep = recForm.kind === 'prep';
+    const fuente = esPrep ? recForm.prep_recipe_id : recForm.ingredient_id;
+    if (!recForm.menu_item_id || !fuente) {
+      toast(esPrep?'Seleccioná ítem y preparación':'Seleccioná ítem e ingrediente', false); return;
+    }
     setSaving(true);
     try {
       const {error} = await db.from('recipes').insert({
-        menu_item_id:parseInt(recForm.menu_item_id), ingredient_id:recForm.ingredient_id,
+        menu_item_id:parseInt(recForm.menu_item_id),
+        ingredient_id:  esPrep ? null : recForm.ingredient_id,
+        prep_recipe_id: esPrep ? recForm.prep_recipe_id : null,
         quantity_required:parseFloat(recForm.quantity_required)||1, unit:recForm.unit, notes:recForm.notes||null,
       });
       if (error) throw error;
-      toast('Receta guardada'); setModal(null); setRecForm(emptyRec); loadData();
+      toast('Receta guardada'); setModal(null); setRecForm(emptyRec); loadData(); loadCosting();
     } catch(e) { toast('Error: '+e.message, false); }
     setSaving(false);
   };
@@ -8055,7 +8547,84 @@ function StockPage() {
   const deleteRecipe = async (id) => {
     const {error} = await db.from('recipes').delete().eq('id',id);
     if (error) { toast('Error: '+error.message, false); return; }
-    toast('Receta eliminada'); loadData();
+    toast('Receta eliminada'); loadData(); loadCosting();
+  };
+
+  /* ── Preparaciones intermedias (sub-recetas, mig 213) ── */
+  const savePrep = async (form) => {
+    if (!(form.name||'').trim()) { toast('Poné un nombre a la preparación', false); return; }
+    if (!(parseFloat(form.yield_qty) > 0)) { toast('El rendimiento tiene que ser mayor a 0', false); return; }
+    setSaving(true);
+    const {prep, error} = await COST.savePrep(db, RID, form);
+    setSaving(false);
+    if (error) { toast('Error: '+error.message, false); return; }
+    toast(form.id?'Preparación actualizada':'Preparación creada');
+    setPrepEdit(prep ? {...prep, items: form.id ? (prepEdit?.items||[]) : []} : null);
+    loadCosting();
+  };
+
+  const addPrepLine = async () => {
+    if (!prepEdit?.id) return;
+    const esPrep = prepLine.kind === 'prep';
+    const fuente = esPrep ? prepLine.child_prep_id : prepLine.ingredient_id;
+    if (!fuente) { toast('Elegí qué lleva la preparación', false); return; }
+    if (!(parseFloat(prepLine.quantity) > 0)) { toast('Cantidad inválida', false); return; }
+    const {error} = await COST.addPrepItem(db, prepEdit.id, {
+      ingredient_id: esPrep ? null : prepLine.ingredient_id,
+      child_prep_id: esPrep ? prepLine.child_prep_id : null,
+      quantity: prepLine.quantity, unit: prepLine.unit,
+    });
+    if (error) { toast('Error: '+error.message, false); return; }
+    setPrepLine({kind:'ing',ingredient_id:'',child_prep_id:'',quantity:'',unit:'unit'});
+    const {preps:fresh} = await COST.loadPreps(db, RID);
+    setPreps(fresh);
+    setPrepEdit(fresh.find(p=>p.id===prepEdit.id)||null);
+    loadCosting();
+  };
+
+  const removePrepLine = async (itemId) => {
+    const {error} = await COST.removePrepItem(db, itemId);
+    if (error) { toast('Error: '+error.message, false); return; }
+    const {preps:fresh} = await COST.loadPreps(db, RID);
+    setPreps(fresh);
+    setPrepEdit(fresh.find(p=>p.id===prepEdit?.id)||null);
+    loadCosting();
+  };
+
+  const deletePrep = async (prep) => {
+    const usada = recipes.filter(r=>r.prep_recipe_id===prep.id).length;
+    const msg = usada > 0
+      ? `"${prep.name}" se usa en ${usada} ${usada===1?'plato':'platos'}. Si la das de baja, esos platos pierden esa parte de su costo. ¿Continuar?`
+      : `¿Dar de baja la preparación "${prep.name}"?`;
+    if (!window.confirm(msg)) return;
+    const {error} = await COST.deactivatePrep(db, prep.id);
+    if (error) { toast('Error: '+error.message, false); return; }
+    toast('Preparación dada de baja');
+    setPrepEdit(null); loadCosting(); loadData();
+  };
+
+  /* ── Ficha de costo de un plato ── */
+  const abrirFicha = async (row) => {
+    setFichaItem({id:row.menu_item_id, name:row.item_name, price:row.price, target:row.target_margin_pct});
+    setSimPrice(String(row.price||''));
+    setFicha(null);
+    const {rows} = await COST.loadBreakdown(db, row.menu_item_id);
+    setFicha({rows, cost:Number(row.cost)||0});
+  };
+
+  /* Aplica al menú el precio que el dueño simuló. Es el único punto del módulo
+     que ESCRIBE un precio de venta: el resto sólo mira. */
+  const aplicarPrecio = async () => {
+    const nuevo = Math.round(parseFloat(simPrice)||0);
+    if (!(nuevo > 0)) { toast('Precio inválido', false); return; }
+    if (!window.confirm(`Poner el precio de "${fichaItem.name}" en ${fmt(nuevo)}? Se actualiza en la carta al instante.`)) return;
+    setSaving(true);
+    const {error} = await db.from('menu_items').update({price_guarani:nuevo}).eq('id',fichaItem.id);
+    setSaving(false);
+    if (error) { toast('Error: '+error.message, false); return; }
+    toast('Precio actualizado');
+    setFichaItem({...fichaItem, price:nuevo});
+    loadCosting(); loadData();
   };
 
   const resolveAlert = async (id) => {
@@ -8127,6 +8696,11 @@ function StockPage() {
 
   const ingName  = id => ingredients.find(i=>i.id===id)?.name||id;
   const itemName = id => menuItems.find(i=>i.id===parseInt(id))?.name||id;
+  const prepName = id => preps.find(p=>p.id===id)?.name||id;
+  /* Nombre de la fuente de una línea de receta, sea ingrediente o preparación. */
+  const recSourceName = rec => rec.prep_recipe_id ? prepName(rec.prep_recipe_id) : ingName(rec.ingredient_id);
+  const pct = n => n==null || !Number.isFinite(Number(n)) ? '—' : `${Number(n).toFixed(1)}%`;
+  const TONE = {green:C.green, yellow:C.yellow, orange:C.orange, red:C.red, dim:C.dim};
   const mvtIcon  = t => ({load:'↑',deduct:'↓',adjustment:'≈',waste:'✕',expired:'⚠'}[t]||'•');
   const mvtColor = t => ({load:C.green,deduct:C.blue,adjustment:C.yellow,waste:C.orange,expired:C.red}[t]||C.mid);
   const alertIcon  = t => ({low_stock:'⚠',critical_stock:'●',expiring_soon:'◷',expired:'✕'}[t]||'•');
@@ -8156,7 +8730,17 @@ function StockPage() {
 
   return (
     <div className="page">
-      <h1 style={{fontSize:22,fontWeight:800,color:C.ink,marginBottom:12}}>Stock e Inventario</h1>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:12,flexWrap:'wrap'}}>
+        <h1 style={{fontSize:22,fontWeight:800,color:C.ink,margin:0}}>Stock e Inventario</h1>
+        {/* El orden de uso del módulo (precio → receta → costo) no se deduce
+            mirando las solapas, así que se explica en un manual a mano. */}
+        <button onClick={()=>setModal('manual')}
+          style={{display:'inline-flex',alignItems:'center',gap:7,padding:'7px 13px',borderRadius:8,cursor:'pointer',
+                  fontFamily:'inherit',fontSize:12.5,fontWeight:700,
+                  border:`1px solid ${C.border}`,background:C.surface,color:C.ink}}>
+          <Icon name="help" size={14}/> Cómo usar
+        </button>
+      </div>
 
       {/* Banner: falta toma de apertura */}
       {faltaApertura&&tab!=='toma'&&(
@@ -8190,10 +8774,12 @@ function StockPage() {
           <TabBtn id="inventario"  label="Inventario"/>
           <TabBtn id="cargar"      label="Cargar stock"/>
           <TabBtn id="recetas"     label="Recetas"/>
+          <TabBtn id="preparaciones" label="Preparaciones"/>
+          <TabBtn id="costos"      label="Costos" badge={priceAlerts.length>0}/>
           <TabBtn id="movimientos" label="Movimientos"/>
           <TabBtn id="toma"        label="Toma" badge={faltaApertura}/>
         </div>
-        <button onClick={()=>{ loadData(); loadTodaySessions(); }} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺ Actualizar</button>
+        <button onClick={()=>{ loadData(); loadTodaySessions(); loadCosting(); }} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:'6px 12px',color:C.mid,fontSize:12,cursor:'pointer'}}>↺ Actualizar</button>
       </div>
 
       {/* Alertas de vencimiento */}
@@ -8244,33 +8830,66 @@ function StockPage() {
         {/* ── INVENTARIO ── */}
         {tab==='inventario'&&(
           <div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-              <span style={{fontSize:13,color:C.mid}}>{ingredients.length} ingredientes registrados</span>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,gap:10,flexWrap:'wrap'}}>
+              <span style={{fontSize:13,color:C.mid}}>
+                {ingredients.length} ingredientes registrados
+                {(()=>{
+                  const valor = ingredients.reduce((s,i)=>s+(Number(i.stock_value)||0),0);
+                  return valor>0 ? <> · <b style={{color:C.ink}}>{fmt(Math.round(valor))}</b> en depósito</> : null;
+                })()}
+              </span>
               <Btn small onClick={()=>setTab('cargar')}>+ Nuevo ingrediente</Btn>
             </div>
+            {(()=>{
+              const sinCosto = ingredients.filter(i=>(i.avg_cost??i.cost_per_unit)==null);
+              if (sinCosto.length===0 || costMissing) return null;
+              return (
+                <div style={{marginBottom:12,background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,borderRadius:8,padding:'10px 14px',fontSize:12.5,lineHeight:1.55}}>
+                  <b>{sinCosto.length} {sinCosto.length===1?'ingrediente no tiene':'ingredientes no tienen'} precio de compra cargado.</b>{' '}
+                  Los platos que {sinCosto.length===1?'lo use':'los usen'} van a mostrar un costo menor al real. Tocá "Editar" para cargarlo.
+                </div>
+              );
+            })()}
             {ingredients.length===0 ? (
               <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>No hay ingredientes.<br/><span style={{fontSize:12}}>Creá uno y vinculalo al menú con "Recetas".</span></div>
             ) : (
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-                <table style={{width:'100%',borderCollapse:'collapse'}}>
-                  <thead><tr><Th>Ingrediente</Th><Th>Stock actual</Th><Th>Umbral mín.</Th><Th>Proyectado</Th><Th>Estado</Th><Th>Vence</Th></tr></thead>
+                <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',minWidth:820}}>
+                  <thead><tr><Th>Ingrediente</Th><Th>Stock actual</Th><Th>Umbral mín.</Th><Th>Proyectado</Th><Th right>Costo</Th><Th right>Valor</Th><Th>Estado</Th><Th>Vence</Th><Th/></tr></thead>
                   <tbody>
                     {ingredients.map(ing=>{
                       const lc=stockColor(ing.stock_level);
                       const diff=ing.projected_qty-ing.stock_quantity;
+                      // avg_cost es el promedio ponderado (lo que se usa para costear);
+                      // cost_per_unit es la última compra. Antes de la 213 sólo existía
+                      // la segunda, de ahí el respaldo.
+                      const costo = ing.avg_cost ?? ing.cost_per_unit;
                       return (
                         <tr key={ing.id} style={{borderBottom:`1px solid #0d0d0d`}}>
-                          <Td><div style={{fontWeight:600}}>{ing.name}</div>{ing.category&&<div style={{fontSize:11,color:C.dim}}>{ing.category}</div>}</Td>
+                          <Td>
+                            <div style={{fontWeight:600}}>{ing.name}</div>
+                            <div style={{fontSize:11,color:C.dim}}>
+                              {ing.category||''}
+                              {Number(ing.waste_pct)>0&&<span style={{color:C.orange,marginLeft:ing.category?6:0}}>merma {ing.waste_pct}%</span>}
+                            </div>
+                          </Td>
                           <Td><span style={{fontWeight:700,color:lc,fontFamily:"'SF Mono',ui-monospace,monospace"}}>{fmtStock(ing.stock_quantity,ing.unit)}</span></Td>
                           <Td mono dim>{ing.min_threshold>0?fmtStock(ing.min_threshold,ing.unit):'—'}</Td>
                           <Td><span style={{fontFamily:"'SF Mono',ui-monospace,monospace",fontSize:12,color:ing.projected_qty<0?C.red:ing.projected_qty<ing.min_threshold?C.orange:C.mid}}>{fmtStock(Math.max(0,ing.projected_qty),ing.unit)}</span>{diff<0&&<span style={{fontSize:10,color:C.red,marginLeft:4}}>↓{fmtStock(Math.abs(diff),ing.unit)}</span>}</Td>
+                          <Td right mono style={{color:costo==null?C.orange:C.mid,fontSize:12}}>
+                            {costo==null ? 'falta' : <>{fmt(Math.round(costo))}<div style={{fontSize:10,color:C.dim}}>por {UNIT_DISPLAY[ing.unit]||ing.unit}</div></>}
+                          </Td>
+                          <Td right mono dim style={{fontSize:12}}>{ing.stock_value>0?fmt(Math.round(ing.stock_value)):'—'}</Td>
                           <Td><span style={{padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:700,background:lc+'22',color:lc}}>{stockLabel(ing.stock_level)}</span>{ing.alert_count>0&&<span style={{marginLeft:6,fontSize:10,color:C.red}}>⚠{ing.alert_count}</span>}</Td>
                           <Td style={{fontSize:12,color:ing.expiry_date&&new Date(ing.expiry_date)<new Date()?C.red:ing.expiry_date&&new Date(ing.expiry_date)<new Date(Date.now()+7*86400000)?C.orange:C.mid}}>{ing.expiry_date?fmtDate(ing.expiry_date):'—'}</Td>
+                          <Td right><Btn small variant="ghost" onClick={()=>editIngredient(ing)}>Editar</Btn></Td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
             {menuItems.length>0&&(
@@ -8309,7 +8928,31 @@ function StockPage() {
                   <FF label="VENCIMIENTO" hint="Opcional, recomendado para perecederos"><Inp type="date" value={loadForm.expiry_date} onChange={e=>setLoadForm({...loadForm,expiry_date:e.target.value})}/></FF>
                   <FF label="N° LOTE / REMITO" hint="Para trazabilidad"><Inp value={loadForm.batch_id} onChange={e=>setLoadForm({...loadForm,batch_id:e.target.value})} placeholder="Opcional"/></FF>
                 </div>
-                <FF label="COSTO UNITARIO (₲)" hint="Opcional — para reportes de costo"><MoneyInp value={loadForm.cost_per_unit} onChange={v=>setLoadForm({...loadForm,cost_per_unit:v})} placeholder="Opcional"/></FF>
+                <FF label={`PRECIO DE COMPRA (₲ por ${UNIT_DISPLAY[loadForm.unit]||loadForm.unit})`}
+                    hint="Lo que pagaste por unidad en ESTA compra. Con esto se calcula el costo de tus platos.">
+                  <MoneyInp value={loadForm.cost_per_unit} onChange={v=>setLoadForm({...loadForm,cost_per_unit:v})} placeholder="Ej: 38.000"/>
+                </FF>
+                {loadForm.ingredient_id && loadForm.cost_per_unit && (()=>{
+                  const ing = ingredients.find(i=>i.id===loadForm.ingredient_id);
+                  const prev = ing?.avg_cost ?? ing?.cost_per_unit;
+                  if (prev == null) return null;
+                  // El promedio se muestra en la unidad DEL INGREDIENTE; el precio se
+                  // tipea en la unidad de compra. Comparar sin convertir mostraría un
+                  // "subió 900%" falso al comprar en kg algo medido en gramos.
+                  const f = UNIT_CONV(loadForm.unit, ing.unit);
+                  const nuevoEnUnidadIng = f ? parseFloat(loadForm.cost_per_unit)/f : null;
+                  if (nuevoEnUnidadIng == null || !(prev>0)) return null;
+                  const dif = (nuevoEnUnidadIng - prev) / prev * 100;
+                  if (Math.abs(dif) < 1) return null;
+                  const sube = dif > 0;
+                  return (
+                    <div style={{background:sube?TINT.amberBg:TINT.greenBg,border:`1px solid ${sube?TINT.amberBorder:TINT.greenBorder}`,color:sube?TINT.amberText:TINT.greenText,borderRadius:8,padding:'9px 12px',fontSize:12,lineHeight:1.5}}>
+                      {sube?'▲':'▼'} Esta compra sale <b>{Math.abs(dif).toFixed(0)}% {sube?'más cara':'más barata'}</b> que tu promedio actual
+                      ({fmt(Math.round(prev))} por {UNIT_DISPLAY[ing.unit]||ing.unit}).
+                      {sube && ' Revisá los platos que lo usan en la solapa Costos.'}
+                    </div>
+                  );
+                })()}
                 <FF label="NOTAS"><textarea rows={2} value={loadForm.notes} onChange={e=>setLoadForm({...loadForm,notes:e.target.value})} placeholder="Ej: Proveedor X, factura #123" style={{width:'100%',padding:'8px 10px',fontSize:13,borderRadius:6,resize:'vertical'}}/></FF>
                 <Btn onClick={doLoadStock} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Confirmar carga de stock'}</Btn>
               </div>
@@ -8326,7 +8969,16 @@ function StockPage() {
                   <FF label="STOCK INICIAL" hint="Podés dejar en 0 y cargar después"><NumInp decimals={3} value={ingForm.stock_quantity} onChange={v=>setIngForm({...ingForm,stock_quantity:v})} placeholder="0"/></FF>
                   <FF label="UMBRAL MÍN." hint="Alerta cuando baje de este nivel"><NumInp decimals={3} value={ingForm.min_threshold} onChange={v=>setIngForm({...ingForm,min_threshold:v})} placeholder="0"/></FF>
                 </div>
-                <Btn onClick={createIngredient} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Crear ingrediente'}</Btn>
+                <div className="my-row-2" style={{gap:10}}>
+                  <FF label={`PRECIO DE COMPRA (₲ por ${UNIT_DISPLAY[ingForm.unit]||ingForm.unit})`}
+                      hint="Lo que te cuesta hoy. Sin esto no se puede costear ningún plato.">
+                    <MoneyInp value={ingForm.cost_per_unit} onChange={v=>setIngForm({...ingForm,cost_per_unit:v})} placeholder="Ej: 38.000"/>
+                  </FF>
+                  <FF label="MERMA (%)" hint="Lo que se pierde al limpiar o cocinar. Ej: 30 si de 1 kg de lomo usás 700 g.">
+                    <NumInp decimals={1} value={ingForm.waste_pct} onChange={v=>setIngForm({...ingForm,waste_pct:v})} placeholder="0"/>
+                  </FF>
+                </div>
+                <Btn onClick={saveIngredient} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Crear ingrediente'}</Btn>
               </div>
             </div>
           </div>
@@ -8338,9 +8990,10 @@ function StockPage() {
             <div style={{marginBottom:12,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px'}}>
               <div style={{fontWeight:700,fontSize:13,color:C.ink,marginBottom:4}}>¿Cómo funciona?</div>
               <div style={{fontSize:12,color:C.mid,lineHeight:1.5}}>
-                Vinculá ingredientes a ítems del menú. Cuando se venda ese ítem (y el descuento automático esté ON), el sistema descontará la cantidad indicada del stock del ingrediente.<br/>
+                Vinculá ingredientes (o preparaciones) a ítems del menú. Cuando se venda ese ítem (y el descuento automático esté ON), el sistema descontará la cantidad indicada del stock.<br/>
                 <b>Si un ítem no tiene receta configurada, no se descuenta nada — sin problema.</b><br/>
-                Podés ir configurando de a poco según tu disponibilidad.
+                <b>Cargá el peso que va al plato</b>, no el que comprás: la merma del ingrediente la agrega el sistema solo.<br/>
+                La receta es además lo que hace posible costear: sin ella, ese plato no aparece en Costos.
               </div>
             </div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
@@ -8348,16 +9001,19 @@ function StockPage() {
               <Btn small onClick={()=>setModal('new_recipe')}>+ Nueva receta</Btn>
             </div>
             {recipes.length===0 ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>No hay recetas.<br/><span style={{fontSize:12}}>Sin receta, el stock no se descuenta automáticamente.</span></div>
+              <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>No hay recetas.<br/><span style={{fontSize:12}}>Sin receta, el stock no se descuenta automáticamente y el plato no se puede costear.</span></div>
             ) : (
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                 <table style={{width:'100%',borderCollapse:'collapse'}}>
-                  <thead><tr><Th>Ítem del menú</Th><Th>Ingrediente</Th><Th>Cantidad/porción</Th><Th>Notas</Th><Th/></tr></thead>
+                  <thead><tr><Th>Ítem del menú</Th><Th>Lleva</Th><Th>Cantidad/porción</Th><Th>Notas</Th><Th/></tr></thead>
                   <tbody>
                     {recipes.map(rec=>(
                       <tr key={rec.id} style={{borderBottom:`1px solid #0d0d0d`}}>
                         <Td style={{fontWeight:600}}>{itemName(rec.menu_item_id)}</Td>
-                        <Td>{ingName(rec.ingredient_id)}</Td>
+                        <Td>
+                          {recSourceName(rec)}
+                          {rec.prep_recipe_id && <span style={{marginLeft:6,fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:4,background:TINT.blueBg,color:TINT.blueText,border:`1px solid ${TINT.blueBorder}`}}>PREP</span>}
+                        </Td>
                         <Td mono dim>{rec.quantity_required} {UNIT_DISPLAY[rec.unit]||rec.unit}</Td>
                         <Td dim>{rec.notes||'—'}</Td>
                         <Td right><Btn small variant="danger" onClick={()=>deleteRecipe(rec.id)}>Eliminar</Btn></Td>
@@ -8367,6 +9023,188 @@ function StockPage() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── PREPARACIONES (sub-recetas, mig 213) ── */}
+        {tab==='preparaciones'&&(
+          <div>
+            <div style={{marginBottom:12,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 16px'}}>
+              <div style={{fontWeight:700,fontSize:13,color:C.ink,marginBottom:4}}>¿Para qué sirven?</div>
+              <div style={{fontSize:12,color:C.mid,lineHeight:1.5}}>
+                Una salsa, una masa, un caldo: algo que preparás una vez y usás en varios platos.
+                Cargás <b>qué lleva</b> y <b>cuánto rinde</b> una tanda, y después cada plato consume una parte.<br/>
+                La ventaja: cuando te sube el tomate, <b>se re-costean solos todos los platos que llevan esa salsa</b> — no tenés que editar receta por receta.
+              </div>
+            </div>
+            {costMissing ? (
+              <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,borderRadius:8,padding:'12px 16px',fontSize:13,lineHeight:1.55}}>
+                {COST.COSTING_MISSING_MSG}
+              </div>
+            ) : (<>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                <span style={{fontSize:13,color:C.mid}}>{preps.length} {preps.length===1?'preparación':'preparaciones'}</span>
+                <Btn small onClick={()=>{ setPrepEdit({name:'',yield_qty:'',yield_unit:'l',waste_pct:'',notes:'',items:[]}); setModal('prep'); }}>+ Nueva preparación</Btn>
+              </div>
+              {preps.length===0 ? (
+                <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>
+                  Todavía no cargaste preparaciones.<br/>
+                  <span style={{fontSize:12}}>No son obligatorias: si preferís, cargá los ingredientes sueltos en cada receta.</span>
+                </div>
+              ) : (
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <thead><tr><Th>Preparación</Th><Th>Rinde</Th><Th>Merma</Th><Th>Lleva</Th><Th>Usada en</Th><Th/></tr></thead>
+                    <tbody>
+                      {preps.map(p=>{
+                        const usos = recipes.filter(r=>r.prep_recipe_id===p.id).length;
+                        return (
+                          <tr key={p.id} style={{borderBottom:`1px solid #0d0d0d`}}>
+                            <Td style={{fontWeight:600}}>{p.name}</Td>
+                            <Td mono dim>{fmtStock(p.yield_qty,p.yield_unit)}</Td>
+                            <Td mono dim>{Number(p.waste_pct)>0?`${p.waste_pct}%`:'—'}</Td>
+                            <Td dim>{(p.items||[]).length} {(p.items||[]).length===1?'insumo':'insumos'}</Td>
+                            <Td dim>{usos>0?`${usos} ${usos===1?'plato':'platos'}`:'—'}</Td>
+                            <Td right>
+                              <div style={{display:'flex',gap:6,justifyContent:'flex-end'}}>
+                                <Btn small variant="ghost" onClick={()=>{ setPrepEdit(p); setModal('prep'); }}>Editar</Btn>
+                                <Btn small variant="danger" onClick={()=>deletePrep(p)}>Baja</Btn>
+                              </div>
+                            </Td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>)}
+          </div>
+        )}
+
+        {/* ── COSTOS Y MÁRGENES (mig 213) ── */}
+        {tab==='costos'&&(
+          <div>
+            {costMissing ? (
+              <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,borderRadius:8,padding:'14px 18px',fontSize:13,lineHeight:1.55}}>
+                <b>Módulo de costos no disponible todavía.</b><br/>{COST.COSTING_MISSING_MSG}
+              </div>
+            ) : (<>
+              {/* Resumen */}
+              {(()=>{
+                const conCosto = costRows.filter(r=>r.status==='ok'||r.status==='bajo_objetivo'||r.status==='perdida');
+                const perdida  = costRows.filter(r=>r.status==='perdida');
+                const bajo     = costRows.filter(r=>r.status==='bajo_objetivo');
+                const sinRec   = costRows.filter(r=>r.status==='sin_receta');
+                const incompl  = costRows.filter(r=>r.status==='costo_incompleto');
+                const margProm = conCosto.length
+                  ? conCosto.reduce((s,r)=>s+(Number(r.margin_pct)||0),0)/conCosto.length : null;
+                return (
+                  <div className="my-row-4" style={{gap:12,marginBottom:16}}>
+                    <KpiCard label="MARGEN PROMEDIO" value={margProm==null?'—':pct(margProm)}
+                             sub={`${conCosto.length} de ${costRows.length} platos costeados`}/>
+                    <KpiCard label="PIERDEN PLATA" value={perdida.length} accent={perdida.length?C.red:undefined}
+                             sub={perdida.length?'Cuestan más de lo que cobrás':'Ninguno — bien ahí'}/>
+                    <KpiCard label="BAJO OBJETIVO" value={bajo.length} accent={bajo.length?C.yellow:undefined}
+                             sub={`Objetivo del local: ${pct(costCfg.default_target_margin_pct)}`}/>
+                    <KpiCard label="SIN COSTEAR" value={sinRec.length+incompl.length}
+                             sub={`${sinRec.length} sin receta · ${incompl.length} sin precio de insumo`}/>
+                  </div>
+                );
+              })()}
+
+              {/* Aumentos de insumos */}
+              {priceAlerts.length>0&&(
+                <div style={{marginBottom:16,background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,borderRadius:8,overflow:'hidden'}}>
+                  <div style={{padding:'9px 14px',borderBottom:`1px solid ${TINT.amberBorder}`,fontSize:10,fontWeight:700,color:TINT.amberText,letterSpacing:1}}>
+                    INSUMOS QUE SUBIERON DE PRECIO (ÚLTIMOS 60 DÍAS)
+                  </div>
+                  {priceAlerts.map(a=>(
+                    <div key={a.ingredient_id} style={{padding:'9px 14px',borderTop:`1px solid ${TINT.amberBorder}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+                      <div style={{fontSize:13,color:C.ink}}>
+                        <b>{a.ingredient_name}</b>
+                        <span style={{color:C.mid,marginLeft:8,fontSize:12}}>
+                          {fmt(Math.round(a.old_cost))} → {fmt(Math.round(a.new_cost))} por {UNIT_DISPLAY[a.unit]||a.unit}
+                        </span>
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',gap:10}}>
+                        <span style={{fontSize:13,fontWeight:800,color:C.orange}}>▲ {pct(a.change_pct)}</span>
+                        <span style={{fontSize:11,color:C.mid}}>afecta {a.affected_items} {a.affected_items===1?'plato':'platos'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Filtro */}
+              <div style={{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}}>
+                {[['todos','Todos'],['perdida','Pierden plata'],['bajo_objetivo','Bajo objetivo'],['ok','En objetivo'],['sin_receta','Sin receta'],['costo_incompleto','Costo incompleto']].map(([v,l])=>{
+                  const n = v==='todos' ? costRows.length : costRows.filter(r=>r.status===v).length;
+                  return (
+                    <button key={v} onClick={()=>setCostFilter(v)}
+                      style={{padding:'5px 11px',borderRadius:20,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',
+                              border:`1px solid ${costFilter===v?C.ink:C.border}`,
+                              background:costFilter===v?C.ink:'transparent',
+                              color:costFilter===v?C.surface:C.mid}}>
+                      {l} <span style={{opacity:.7}}>({n})</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {costRows.length===0 ? (
+                <div style={{textAlign:'center',padding:'60px 0',color:C.dim,fontSize:14}}>
+                  Todavía no hay nada que costear.<br/>
+                  <span style={{fontSize:12}}>Cargá el precio de compra de tus insumos y armá las recetas de tus platos.</span>
+                </div>
+              ) : (
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                  <div style={{overflowX:'auto'}}>
+                    <table style={{width:'100%',borderCollapse:'collapse',minWidth:760}}>
+                      <thead><tr>
+                        <Th>Producto</Th><Th right>Precio</Th><Th right>Costo</Th>
+                        <Th right>Food cost</Th><Th right>Margen</Th><Th right>Objetivo</Th>
+                        <Th right>Precio sugerido</Th><Th>Estado</Th>
+                      </tr></thead>
+                      <tbody>
+                        {costRows.filter(r=>costFilter==='todos'||r.status===costFilter).map(r=>{
+                          const st = COST.COST_STATUS[r.status] || {label:r.status,tone:'dim'};
+                          const col = TONE[st.tone] || C.mid;
+                          const costeado = r.status==='ok'||r.status==='bajo_objetivo'||r.status==='perdida';
+                          const sugiere = r.suggested_price!=null && Math.abs(r.suggested_price-r.price) > r.price*0.02;
+                          return (
+                            <tr key={r.menu_item_id} onClick={()=>abrirFicha(r)}
+                                style={{borderBottom:'1px solid #0d0d0d',cursor:'pointer'}}
+                                title="Ver la ficha de costo">
+                              <Td style={{fontWeight:600}}>
+                                {r.item_name}
+                                <div style={{fontSize:11,color:C.dim,fontWeight:400}}>{r.category_name}</div>
+                              </Td>
+                              <Td right mono>{fmt(r.price)}</Td>
+                              <Td right mono dim>{costeado?fmt(Math.round(r.cost)):'—'}</Td>
+                              <Td right mono dim>{costeado?pct(r.food_cost_pct):'—'}</Td>
+                              <Td right mono style={{fontWeight:700,color:costeado?(Number(r.margin_pct)<0?C.red:C.ink):C.dim}}>
+                                {costeado?<>{fmt(Math.round(r.margin))}<div style={{fontSize:11,fontWeight:400,color:C.mid}}>{pct(r.margin_pct)}</div></>:'—'}
+                              </Td>
+                              <Td right mono dim>{pct(r.target_margin_pct)}</Td>
+                              <Td right mono style={{color:sugiere?C.orange:C.dim}}>
+                                {r.suggested_price!=null?fmt(Math.round(r.suggested_price)):'—'}
+                              </Td>
+                              <Td>
+                                <span style={{display:'inline-block',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:700,background:col+'22',color:col,whiteSpace:'nowrap'}}>{st.label}</span>
+                              </Td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{padding:'9px 14px',borderTop:`1px solid ${C.border}`,fontSize:11,color:C.dim}}>
+                    Tocá cualquier fila para ver la ficha de costo y simular precios.
+                  </div>
+                </div>
+              )}
+            </>)}
           </div>
         )}
 
@@ -8613,6 +9451,9 @@ function StockPage() {
 
       </>)}
 
+      {/* Modal: manual del módulo */}
+      {modal==='manual'&&<ManualStock onClose={()=>setModal(null)}/>}
+
       {/* Modal: nueva receta */}
       {modal==='new_recipe'&&(
         <Modal title="Nueva receta" onClose={()=>setModal(null)} width={480}>
@@ -8623,15 +9464,42 @@ function StockPage() {
                 {menuItems.map(mi=><option key={mi.id} value={mi.id}>{mi.name}</option>)}
               </Sel>
             </FF>
-            <FF label="INGREDIENTE *">
-              <Sel value={recForm.ingredient_id} onChange={e=>setRecForm({...recForm,ingredient_id:e.target.value,unit:(ingredients.find(i=>i.id===e.target.value)?.unit||'unit')})}>
-                <option value="">— Seleccioná un ingrediente —</option>
-                {ingredients.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
-              </Sel>
-            </FF>
+            {preps.length>0&&(
+              <FF label="¿QUÉ AGREGÁS?">
+                <div style={{display:'flex',gap:6}}>
+                  {[['ing','Un ingrediente'],['prep','Una preparación']].map(([v,l])=>(
+                    <button key={v} onClick={()=>setRecForm({...recForm,kind:v,ingredient_id:'',prep_recipe_id:'',unit:'unit'})}
+                      style={{flex:1,padding:'7px 10px',borderRadius:6,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',
+                              border:`1px solid ${recForm.kind===v?C.ink:C.border}`,
+                              background:recForm.kind===v?C.ink:'transparent',
+                              color:recForm.kind===v?C.surface:C.mid}}>{l}</button>
+                  ))}
+                </div>
+              </FF>
+            )}
+            {recForm.kind==='prep' ? (
+              <FF label="PREPARACIÓN *" hint="Se descuenta y se costea explotando lo que lleva adentro.">
+                <Sel value={recForm.prep_recipe_id} onChange={e=>setRecForm({...recForm,prep_recipe_id:e.target.value,unit:(preps.find(p=>p.id===e.target.value)?.yield_unit||'unit')})}>
+                  <option value="">— Seleccioná una preparación —</option>
+                  {preps.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                </Sel>
+              </FF>
+            ) : (
+              <FF label="INGREDIENTE *">
+                <Sel value={recForm.ingredient_id} onChange={e=>setRecForm({...recForm,ingredient_id:e.target.value,unit:(ingredients.find(i=>i.id===e.target.value)?.unit||'unit')})}>
+                  <option value="">— Seleccioná un ingrediente —</option>
+                  {ingredients.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
+                </Sel>
+              </FF>
+            )}
             <div className="my-row-2-1" style={{gap:10}}>
-              <FF label="CANTIDAD POR PORCIÓN *"><NumInp decimals={3} value={recForm.quantity_required} onChange={v=>setRecForm({...recForm,quantity_required:v})}/></FF>
-              <FF label="UNIDAD"><Sel value={recForm.unit} onChange={e=>setRecForm({...recForm,unit:e.target.value})}>{unitOpts(ingredients.find(i=>i.id===recForm.ingredient_id)?.unit).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
+              <FF label="CANTIDAD POR PORCIÓN *" hint="El peso que va al plato — la merma la agrega el sistema."><NumInp decimals={3} value={recForm.quantity_required} onChange={v=>setRecForm({...recForm,quantity_required:v})}/></FF>
+              <FF label="UNIDAD"><Sel value={recForm.unit} onChange={e=>setRecForm({...recForm,unit:e.target.value})}>
+                {unitOpts(recForm.kind==='prep'
+                  ? preps.find(p=>p.id===recForm.prep_recipe_id)?.yield_unit
+                  : ingredients.find(i=>i.id===recForm.ingredient_id)?.unit
+                ).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+              </Sel></FF>
             </div>
             <FF label="NOTAS" hint="Opcional — ej: 'Sin grasa'"><Inp value={recForm.notes} onChange={e=>setRecForm({...recForm,notes:e.target.value})} placeholder="Opcional"/></FF>
             <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:4}}>
@@ -8639,6 +9507,241 @@ function StockPage() {
               <Btn onClick={createRecipe} disabled={saving}>{saving?'Guardando…':'Guardar receta'}</Btn>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* Modal: editar ingrediente (antes no había forma de corregir uno creado) */}
+      {modal==='edit_ing'&&(
+        <Modal title={`Editar ${ingForm.name||'ingrediente'}`} onClose={()=>{setModal(null); setIngForm(emptyIng);}} width={520}>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <div className="my-row-2" style={{gap:10}}>
+              <FF label="NOMBRE *"><Inp value={ingForm.name} onChange={e=>setIngForm({...ingForm,name:e.target.value})}/></FF>
+              <FF label="CATEGORÍA"><Inp value={ingForm.category} onChange={e=>setIngForm({...ingForm,category:e.target.value})} placeholder="Ej: Carnes"/></FF>
+            </div>
+            <div className="my-row-2" style={{gap:10}}>
+              <FF label="UNIDAD BASE" hint="Cambiarla NO reconvierte el stock ya cargado.">
+                <Sel value={ingForm.unit} onChange={e=>setIngForm({...ingForm,unit:e.target.value})}>{Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel>
+              </FF>
+              <FF label="UMBRAL MÍN."><NumInp decimals={3} value={ingForm.min_threshold} onChange={v=>setIngForm({...ingForm,min_threshold:v})} placeholder="0"/></FF>
+            </div>
+            <div className="my-row-2" style={{gap:10}}>
+              <FF label={`PRECIO DE COMPRA (₲ por ${UNIT_DISPLAY[ingForm.unit]||ingForm.unit})`}
+                  hint="Dejalo en blanco para no tocarlo. El promedio ponderado lo mueve cada carga de stock.">
+                <MoneyInp value={ingForm.cost_per_unit} onChange={v=>setIngForm({...ingForm,cost_per_unit:v})} placeholder="Sin cambios"/>
+              </FF>
+              <FF label="MERMA (%)" hint="0 si el peso que comprás es el que usás.">
+                <NumInp decimals={1} value={ingForm.waste_pct} onChange={v=>setIngForm({...ingForm,waste_pct:v})} placeholder="0"/>
+              </FF>
+            </div>
+            {Number(ingForm.waste_pct)>0&&(
+              <div style={{background:TINT.blueBg,border:`1px solid ${TINT.blueBorder}`,color:TINT.blueText,borderRadius:8,padding:'10px 12px',fontSize:12,lineHeight:1.55}}>
+                Con {ingForm.waste_pct}% de merma, una receta que pide <b>100 {UNIT_DISPLAY[ingForm.unit]||ingForm.unit}</b> consume
+                {' '}<b>{(100/(1-Number(ingForm.waste_pct)/100)).toFixed(1)} {UNIT_DISPLAY[ingForm.unit]||ingForm.unit}</b> de stock y cuesta esa cantidad.
+              </div>
+            )}
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end',paddingTop:4}}>
+              <Btn variant="ghost" onClick={()=>{setModal(null); setIngForm(emptyIng);}}>Cancelar</Btn>
+              <Btn onClick={saveIngredient} disabled={saving}>{saving?'Guardando…':'Guardar cambios'}</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal: preparación intermedia */}
+      {modal==='prep'&&prepEdit&&(
+        <Modal title={prepEdit.id?`Preparación · ${prepEdit.name}`:'Nueva preparación'} onClose={()=>{setModal(null); setPrepEdit(null);}} width={620}>
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <FF label="NOMBRE *"><Inp value={prepEdit.name} onChange={e=>setPrepEdit({...prepEdit,name:e.target.value})} placeholder="Ej: Salsa boloñesa"/></FF>
+            <div className="my-row-3" style={{gap:10}}>
+              <FF label="RINDE *" hint="Cuánto sale de una tanda"><NumInp decimals={3} value={prepEdit.yield_qty} onChange={v=>setPrepEdit({...prepEdit,yield_qty:v})} placeholder="Ej: 5"/></FF>
+              <FF label="UNIDAD"><Sel value={prepEdit.yield_unit} onChange={e=>setPrepEdit({...prepEdit,yield_unit:e.target.value})}>{Object.entries(UNIT_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</Sel></FF>
+              <FF label="MERMA (%)" hint="Evaporación, lo que queda en la olla"><NumInp decimals={1} value={prepEdit.waste_pct} onChange={v=>setPrepEdit({...prepEdit,waste_pct:v})} placeholder="0"/></FF>
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end'}}>
+              <Btn small onClick={()=>savePrep(prepEdit)} disabled={saving}>{saving?'Guardando…':(prepEdit.id?'Guardar datos':'Crear preparación')}</Btn>
+            </div>
+
+            {!prepEdit.id ? (
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px',fontSize:12,color:C.mid,lineHeight:1.5}}>
+                Creá la preparación primero y después cargale qué lleva.
+              </div>
+            ) : (<>
+              <Divider/>
+              <div style={{fontSize:10,fontWeight:800,letterSpacing:.5,color:C.mid,textTransform:'uppercase'}}>Qué lleva una tanda</div>
+              {(prepEdit.items||[]).length===0 ? (
+                <div style={{fontSize:12,color:C.dim,padding:'8px 0'}}>Todavía no cargaste ingredientes. Sin esto, la preparación cuesta ₲0.</div>
+              ) : (
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <thead><tr><Th>Insumo</Th><Th right>Cantidad</Th><Th/></tr></thead>
+                    <tbody>
+                      {(prepEdit.items||[]).map(it=>(
+                        <tr key={it.id} style={{borderBottom:'1px solid #0d0d0d'}}>
+                          <Td>
+                            {it.child_prep_id?prepName(it.child_prep_id):ingName(it.ingredient_id)}
+                            {it.child_prep_id&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:4,background:TINT.blueBg,color:TINT.blueText,border:`1px solid ${TINT.blueBorder}`}}>PREP</span>}
+                          </Td>
+                          <Td right mono dim>{it.quantity} {UNIT_DISPLAY[it.unit]||it.unit}</Td>
+                          <Td right><Btn small variant="danger" onClick={()=>removePrepLine(it.id)}>Quitar</Btn></Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:14,display:'flex',flexDirection:'column',gap:10}}>
+                <div style={{display:'flex',gap:6}}>
+                  {[['ing','Ingrediente'],['prep','Otra preparación']].map(([v,l])=>(
+                    <button key={v} onClick={()=>setPrepLine({kind:v,ingredient_id:'',child_prep_id:'',quantity:'',unit:'unit'})}
+                      style={{flex:1,padding:'6px 10px',borderRadius:6,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',
+                              border:`1px solid ${prepLine.kind===v?C.ink:C.border}`,
+                              background:prepLine.kind===v?C.ink:'transparent',
+                              color:prepLine.kind===v?C.surface:C.mid}}>{l}</button>
+                  ))}
+                </div>
+                {prepLine.kind==='prep' ? (
+                  <Sel value={prepLine.child_prep_id} onChange={e=>setPrepLine({...prepLine,child_prep_id:e.target.value,unit:(preps.find(p=>p.id===e.target.value)?.yield_unit||'unit')})}>
+                    <option value="">— Seleccioná una preparación —</option>
+                    {preps.filter(p=>p.id!==prepEdit.id).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  </Sel>
+                ) : (
+                  <Sel value={prepLine.ingredient_id} onChange={e=>setPrepLine({...prepLine,ingredient_id:e.target.value,unit:(ingredients.find(i=>i.id===e.target.value)?.unit||'unit')})}>
+                    <option value="">— Seleccioná un ingrediente —</option>
+                    {ingredients.map(i=><option key={i.id} value={i.id}>{i.name}</option>)}
+                  </Sel>
+                )}
+                <div className="my-row-2-1" style={{gap:10}}>
+                  <NumInp decimals={3} value={prepLine.quantity} onChange={v=>setPrepLine({...prepLine,quantity:v})} placeholder="Cantidad"/>
+                  <Sel value={prepLine.unit} onChange={e=>setPrepLine({...prepLine,unit:e.target.value})}>
+                    {unitOpts(prepLine.kind==='prep'
+                      ? preps.find(p=>p.id===prepLine.child_prep_id)?.yield_unit
+                      : ingredients.find(i=>i.id===prepLine.ingredient_id)?.unit
+                    ).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                  </Sel>
+                </div>
+                <Btn small onClick={addPrepLine}>+ Agregar a la preparación</Btn>
+              </div>
+            </>)}
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal: ficha de costo + simulador de precio */}
+      {fichaItem&&(
+        <Modal title={`Ficha de costo · ${fichaItem.name}`} onClose={()=>{setFichaItem(null); setFicha(null);}} width={680}>
+          {!ficha ? (
+            <div style={{padding:'40px 0',textAlign:'center',color:C.mid,fontSize:13}}>Calculando…</div>
+          ) : (()=>{
+            const costo   = ficha.cost;
+            const precio  = Math.round(parseFloat(simPrice)||0);
+            const m       = COST.marginAt(precio, costo);
+            const objetivo= Number(fichaItem.target)||Number(costCfg.default_target_margin_pct)||65;
+            const sugerido= COST.priceForMargin(costo, objetivo);
+            const mk      = COST.markup(precio, costo);
+            const cambio  = precio !== fichaItem.price;
+            const incompleto = ficha.rows.some(r=>!r.is_costed);
+            return (
+              <div style={{display:'flex',flexDirection:'column',gap:16}}>
+                {ficha.rows.length===0 ? (
+                  <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,borderRadius:8,padding:'12px 14px',fontSize:13,lineHeight:1.55}}>
+                    Este plato <b>no tiene receta</b>. Cargala en la solapa Recetas y vas a poder costearlo.
+                  </div>
+                ) : (<>
+                  <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+                    <div style={{padding:'9px 14px',borderBottom:`1px solid ${C.border}`,fontSize:10,fontWeight:700,color:C.mid,letterSpacing:.5}}>QUÉ LLEVA Y CUÁNTO CUESTA</div>
+                    <table style={{width:'100%',borderCollapse:'collapse'}}>
+                      <thead><tr><Th>Insumo</Th><Th right>Receta</Th><Th right>Sale del depósito</Th><Th right>Costo</Th></tr></thead>
+                      <tbody>
+                        {ficha.rows.map(r=>(
+                          <tr key={r.line_id} style={{borderBottom:'1px solid #0d0d0d'}}>
+                            <Td>
+                              {r.source_name}
+                              {r.source_type==='preparacion'&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:4,background:TINT.blueBg,color:TINT.blueText,border:`1px solid ${TINT.blueBorder}`}}>PREP</span>}
+                              {!r.is_costed&&<div style={{fontSize:11,color:C.orange}}>sin precio de compra cargado</div>}
+                            </Td>
+                            <Td right mono dim>{Number(r.quantity)} {UNIT_DISPLAY[r.unit]||r.unit}</Td>
+                            <Td right mono dim>
+                              {r.gross_qty!=null
+                                ? <>{fmtStock(r.gross_qty, r.unit)}{Number(r.waste_pct)>0&&<div style={{fontSize:10,color:C.orange}}>+{r.waste_pct}% merma</div>}</>
+                                : '—'}
+                            </Td>
+                            <Td right mono style={{fontWeight:600}}>{r.is_costed?fmt(Math.round(r.line_cost)):'—'}</Td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{borderTop:`2px solid ${C.border}`}}>
+                          <Td style={{fontWeight:800}} >Costo total del plato</Td><Td/><Td/>
+                          <Td right mono style={{fontWeight:800,fontSize:15}}>{fmt(Math.round(costo))}</Td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  {incompleto&&(
+                    <div style={{background:TINT.amberBg,border:`1px solid ${TINT.amberBorder}`,color:TINT.amberText,borderRadius:8,padding:'10px 13px',fontSize:12,lineHeight:1.5}}>
+                      Falta el precio de compra de algún insumo, así que <b>el costo real es mayor</b> al que ves. Cargalo desde Inventario.
+                    </div>
+                  )}
+                </>)}
+
+                {/* Simulador */}
+                <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
+                  <div style={{fontSize:10,fontWeight:800,letterSpacing:.5,color:C.mid,textTransform:'uppercase',marginBottom:12}}>Simulá el precio</div>
+                  <div className="my-row-2" style={{gap:12,marginBottom:12}}>
+                    <FF label="PRECIO DE VENTA (₲)"><MoneyInp value={simPrice} onChange={setSimPrice}/></FF>
+                    <FF label="PARA UN MARGEN DE…" hint={`Objetivo de este plato: ${pct(objetivo)}`}>
+                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                        {[50,60,65,70,75].map(t=>{
+                          const p = COST.priceForMargin(costo, t);
+                          return (
+                            <button key={t} disabled={p==null} onClick={()=>setSimPrice(String(Math.round(p)))}
+                              style={{padding:'6px 10px',borderRadius:6,fontSize:12,fontWeight:600,fontFamily:'inherit',
+                                      cursor:p==null?'not-allowed':'pointer',opacity:p==null?.4:1,
+                                      border:`1px solid ${C.border}`,background:'transparent',color:C.mid}}>{t}%</button>
+                          );
+                        })}
+                      </div>
+                    </FF>
+                  </div>
+                  <div className="my-row-3" style={{gap:12}}>
+                    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'11px 13px'}}>
+                      <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:.5}}>MARGEN</div>
+                      <div style={{fontSize:19,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:m.margin<0?C.red:C.green}}>{fmt(Math.round(m.margin))}</div>
+                      <div style={{fontSize:11,color:C.mid,marginTop:3}}>{pct(m.marginPct)} del precio</div>
+                    </div>
+                    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'11px 13px'}}>
+                      <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:.5}}>FOOD COST</div>
+                      <div style={{fontSize:19,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>{pct(m.foodCostPct)}</div>
+                      <div style={{fontSize:11,color:C.mid,marginTop:3}}>lo que se va en insumos</div>
+                    </div>
+                    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'11px 13px'}}>
+                      <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:.5}}>MULTIPLICADOR</div>
+                      <div style={{fontSize:19,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>{mk?`${mk.toFixed(1)}x`:'—'}</div>
+                      <div style={{fontSize:11,color:C.mid,marginTop:3}}>el precio sobre el costo</div>
+                    </div>
+                  </div>
+                  {sugerido!=null&&(
+                    <div style={{marginTop:12,fontSize:12.5,color:C.mid,lineHeight:1.55}}>
+                      Para llegar a tu objetivo de <b>{pct(objetivo)}</b> deberías cobrar <b style={{color:C.ink}}>{fmt(Math.round(sugerido))}</b>.
+                      {' '}<button onClick={()=>setSimPrice(String(Math.round(sugerido)))}
+                        style={{background:'none',border:'none',padding:0,color:C.blue,cursor:'pointer',fontFamily:'inherit',fontSize:12.5,fontWeight:700,textDecoration:'underline'}}>usar ese precio</button>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{display:'flex',gap:10,justifyContent:'space-between',alignItems:'center',flexWrap:'wrap'}}>
+                  <span style={{fontSize:12,color:C.mid}}>
+                    Precio actual en la carta: <b style={{color:C.ink}}>{fmt(fichaItem.price)}</b>
+                  </span>
+                  <div style={{display:'flex',gap:10}}>
+                    <Btn variant="ghost" onClick={()=>{setFichaItem(null); setFicha(null);}}>Cerrar</Btn>
+                    <Btn onClick={aplicarPrecio} disabled={saving||!cambio}>{saving?'Guardando…':'Aplicar precio a la carta'}</Btn>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </Modal>
       )}
     </div>
@@ -8843,27 +9946,50 @@ function ReportesPage({orders, tables=[]}) {
     }
 
     else if(type==='rentabilidad') {
-      const f = orders.filter(o=>valid(o)&&new Date(o.created_at)>=from&&new Date(o.created_at)<=to);
-      const ids = f.map(o=>o.id).slice(0,500);
-      const [{data:items},{data:ings},{data:recs}] = await Promise.all([
-        ids.length>0&&db ? db.from('order_items').select('item_name,quantity,total_price,menu_item_id').in('order_id',ids) : {data:[]},
-        db ? db.from('ingredients').select('id,name,unit_cost').eq('restaurant_id',RID) : {data:[]},
-        db ? db.from('recipes').select('*') : {data:[]},
-      ]);
-      const map = {};
-      (items||[]).forEach(it=>{ const k=it.item_name||'—'; if(!map[k])map[k]={name:k,qty:0,total:0,mid:it.menu_item_id}; map[k].qty+=(it.quantity||1); map[k].total+=(it.total_price||0); });
-      const rows2 = Object.values(map).map(p=>{
-        const costU = (recs||[]).filter(r=>r.menu_item_id===p.mid).reduce((s,r)=>{ const i=(ings||[]).find(x=>x.id===r.ingredient_id); return s+(i?.unit_cost||0)*(r.quantity_required||1); },0);
-        const costo = costU*p.qty;
-        return {...p, costo, margen:p.total-costo};
-      }).sort((a,b)=>b.total-a.total);
-      const totV=rows2.reduce((s,r)=>s+r.total,0), totC=rows2.reduce((s,r)=>s+r.costo,0);
+      /* ESTE REPORTE ESTABA ROTO Y MOSTRABA "—" EN TODAS LAS FILAS.
+         Leía `ingredients.unit_cost` (mig 034), una columna que NADIE escribe en
+         todo el repo — el costo siempre se grabó en `cost_per_unit` (mig 017).
+         Así que el costo daba 0, el "Margen bruto" del resumen era igual a los
+         ingresos, y el reporte se veía funcionando.
+         Además agrupaba en el navegador sobre los primeros 500 ids de pedido, o
+         sea el número EMPEORABA cuanto más vendía el local — el mismo error que
+         ya habían tenido que arreglar las migs 197, 198, 200 y 211.
+         Ahora todo lo calcula `profitability_report()` (mig 213) sobre el
+         historial completo del período, usando el costo CONGELADO al momento de
+         cada venta (order_items.unit_cost), no el costo de hoy. */
+      const {rows:prof, missing} = await COST.loadProfitability(db, RID, from.toISOString(), to.toISOString());
+      if (missing) {
+        setSummary([{label:'Módulo de costos', value:'no disponible', color:'#FF9500'}]);
+        setRows({ cols:['Aviso'], data:[[COST.COSTING_MISSING_MSG]] });
+        return;   // el `loading` lo apaga runReport(), que envuelve a _run()
+      }
+      const totV = prof.reduce((s,r)=>s+Number(r.revenue||0),0);
+      const totC = prof.reduce((s,r)=>s+Number(r.cost||0),0);
+      const sinCostear = prof.filter(r=>!(Number(r.cost)>0)).length;
       setSummary([
-        {label:'Ingresos',     value:fmt(totV),       color:'#34C759'},
-        {label:'Costo insumos',value:fmt(totC),       color:'#FF3B30'},
-        {label:'Margen bruto', value:fmt(totV-totC),  color:(totV-totC)>=0?'#34C759':'#FF3B30'},
+        {label:'Ingresos',      value:fmt(Math.round(totV)),        color:'#34C759'},
+        {label:'Costo insumos', value:fmt(Math.round(totC)),        color:'#FF3B30'},
+        {label:'Margen bruto',  value:fmt(Math.round(totV-totC)),   color:(totV-totC)>=0?'#34C759':'#FF3B30'},
+        {label:'% Margen',      value:totV>0?`${Math.round((totV-totC)/totV*100)}%`:'—', color:'#007AFF'},
+        ...(sinCostear>0 ? [{label:'Sin costear', value:`${sinCostear} productos`, color:'#FF9500'}] : []),
       ]);
-      setRows({ cols:['Producto','Uds','Ingreso','Costo','Margen','% Margen'], data:rows2.map(r=>[r.name, r.qty, fmt(r.total), r.costo>0?fmt(r.costo):'—', r.costo>0?fmt(r.margen):'—', r.costo>0&&r.total>0?`${Math.round(r.margen/r.total*100)}%`:'—']) });
+      setRows({
+        cols:['Producto','Uds','Ingreso','Costo','Margen','% Margen','Margen/unidad','Clasificación'],
+        data:prof.map(r=>{
+          const costeado = Number(r.cost) > 0;
+          const cls = COST.MENU_CLASS[r.menu_class] || {label:'—'};
+          return [
+            r.item_name,
+            r.units,
+            fmt(Math.round(r.revenue)),
+            costeado?fmt(Math.round(r.cost)):'—',
+            costeado?fmt(Math.round(r.margin)):'—',
+            costeado&&r.margin_pct!=null?`${Math.round(r.margin_pct)}%`:'—',
+            costeado&&r.unit_margin!=null?fmt(Math.round(r.unit_margin)):'—',
+            costeado?cls.label:'Sin costear',
+          ];
+        }),
+      });
     }
 
     else if(type==='egresos') {
@@ -8970,12 +10096,29 @@ function ReportesPage({orders, tables=[]}) {
       ]);
       const alertIds=new Set((alerts||[]).map(a=>a.ingredient_id));
       const total=(ings||[]).length;
+      // Costo vigente = promedio ponderado (mig 213), con respaldo a la última
+      // compra. `unit_cost` (mig 034) quedó obsoleta: nadie la escribió nunca.
+      const costoDe = i => i.avg_cost ?? i.cost_per_unit ?? null;
+      const valorTotal = (ings||[]).reduce((s,i)=>s+((costoDe(i)||0)*(Number(i.stock_quantity)||0)),0);
       setSummary([
-        {label:'Ingredientes',value:total,               color:'#007AFF'},
-        {label:'Con alerta',  value:alertIds.size,       color:'#FF3B30'},
-        {label:'OK',          value:total-alertIds.size, color:'#34C759'},
+        {label:'Ingredientes',      value:total,                        color:'#007AFF'},
+        {label:'Con alerta',        value:alertIds.size,                color:'#FF3B30'},
+        {label:'OK',                value:total-alertIds.size,          color:'#34C759'},
+        {label:'Valor del depósito',value:fmt(Math.round(valorTotal)),  color:'#5856D6'},
       ]);
-      setRows({ cols:['Ingrediente','Stock actual','Mínimo','Unidad','Costo unit.','Estado'], data:(ings||[]).map(i=>[i.name, i.stock_quantity??'—', i.min_threshold??'—', i.unit||'—', (i.unit_cost??i.cost_per_unit)?fmt(i.unit_cost??i.cost_per_unit):'—', alertIds.has(i.id)?'⚠ Alerta':'✓ OK']) });
+      setRows({
+        cols:['Ingrediente','Stock actual','Mínimo','Unidad','Costo unit.','Merma','Valor','Estado'],
+        data:(ings||[]).map(i=>{
+          const c = costoDe(i);
+          return [
+            i.name, i.stock_quantity??'—', i.min_threshold??'—', i.unit||'—',
+            c!=null?fmt(Math.round(c)):'—',
+            Number(i.waste_pct)>0?`${i.waste_pct}%`:'—',
+            c!=null?fmt(Math.round(c*(Number(i.stock_quantity)||0))):'—',
+            alertIds.has(i.id)?'⚠ Alerta':'✓ OK',
+          ];
+        }),
+      });
     }
 
     else if(type==='movimientos_stock') {
@@ -10022,6 +11165,30 @@ function ConfigPage({restaurant,onRefresh}) {
   const [dcForm,setDcForm] = useState(null);   // política de cobro/validación/preparación (mig 182)
   const [tab,setTab] = useState('general');   // general (config del local) | cuenta (Mi cuenta, consolidada desde el nav)
   const [retencion,setRetencion] = useState(null); // política de retención (mig 212)
+  const [costCfg,setCostCfg]     = useState(null); // costeo: margen objetivo + permiso gerente (mig 213)
+  const [savingCost,setSavingCost] = useState(false);
+
+  // Costeo (mig 213). Si la migración no está aplicada las columnas no existen,
+  // la query rebota y la tarjeta no se dibuja — igual que la de retención.
+  useEffect(()=>{
+    if(!db) return;
+    let vivo=true;
+    COST.loadCostConfig(db, RID).then(r=>{ if(vivo && !r.missing && !r.error) setCostCfg(r.config); });
+    return ()=>{ vivo=false; };
+  },[]);
+
+  async function saveCostCfg(patch){
+    setSavingCost(true);
+    const next = {...costCfg, ...patch};
+    const {error} = await COST.saveCostConfig(db, RID, {
+      default_target_margin_pct: Number(next.default_target_margin_pct)||65,
+      costs_visible_to_gerente:  !!next.costs_visible_to_gerente,
+    });
+    setSavingCost(false);
+    if(error){ toast('Error al guardar: '+error.message,false); return; }
+    setCostCfg(next);
+    toast('Configuración de costos guardada');
+  }
 
   // Política de retención: cuánto tiempo guarda Mythos el histórico operativo.
   // `data_retention_config` es un catálogo global de lectura (RLS de la 212), así
@@ -10186,6 +11353,48 @@ function ConfigPage({restaurant,onRefresh}) {
           navegador equilibra las columnas por altura y en móvil cae sola a una. */}
       {tab==='general' && (
       <div className="my-masonry my-page-wide" style={{'--my-col':'330px'}}>
+
+          {/* Costeo y márgenes (mig 213). El margen objetivo cascadea:
+              producto → categoría → este valor. Fijarlo acá evita tener que
+              definirlo plato por plato. */}
+          {costCfg && (
+          <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:22}}>
+            <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:1,marginBottom:14}}>COSTOS Y MÁRGENES</div>
+            <FF label="MARGEN OBJETIVO POR DEFECTO (%)"
+                hint="El margen que querés dejar en cada plato. Se usa para el precio sugerido y para el semáforo de Stock › Costos.">
+              <NumInp decimals={1} value={costCfg.default_target_margin_pct ?? ''}
+                      onChange={v=>setCostCfg({...costCfg,default_target_margin_pct:v})} placeholder="65"/>
+            </FF>
+            {(()=>{
+              const t = Number(costCfg.default_target_margin_pct);
+              if (!Number.isFinite(t) || t<=0 || t>=100) return null;
+              return (
+                <div style={{fontSize:12,color:C.mid,lineHeight:1.55,marginTop:-4,marginBottom:12}}>
+                  Con {t}% de margen, un plato que te cuesta <b>₲ 10.000</b> se vende a{' '}
+                  <b style={{color:C.ink}}>{fmt(Math.round(10000/(1-t/100)))}</b>.
+                </div>
+              );
+            })()}
+            <Divider/>
+            <div style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 0'}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:700,color:C.ink,marginBottom:3}}>El gerente puede ver los costos</div>
+                <div style={{fontSize:12,color:C.mid,lineHeight:1.5}}>
+                  Apagado, sólo vos y los administradores ven cuánto cuesta cada plato y cuánto deja.
+                  Prendelo si tu gerente negocia con proveedores o define precios.
+                </div>
+              </div>
+              <button onClick={()=>saveCostCfg({costs_visible_to_gerente:!costCfg.costs_visible_to_gerente})}
+                      disabled={savingCost}
+                      style={{flexShrink:0,width:52,height:28,borderRadius:14,border:'none',background:costCfg.costs_visible_to_gerente?'#34C759':'#D2D2D7',cursor:savingCost?'wait':'pointer',position:'relative',transition:'background .2s'}}>
+                <span style={{position:'absolute',top:3,left:costCfg.costs_visible_to_gerente?26:3,width:22,height:22,borderRadius:11,background:C.surface,transition:'left .2s',display:'block',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
+              </button>
+            </div>
+            <Btn onClick={()=>saveCostCfg({})} disabled={savingCost} style={{width:'100%',marginTop:6}}>
+              {savingCost?'Guardando…':'Guardar'}
+            </Btn>
+          </div>
+          )}
 
           {/* Info básica. Va primera: la mampostería llena las columnas en orden,
               así que el orden del DOM es el orden de lectura. */}

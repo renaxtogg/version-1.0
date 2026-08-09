@@ -14,6 +14,10 @@ import { initBusinessTZ, todayLocal } from "../shared/fecha.js";
 // PR-MKT-2: módulo Marketplace B2B (tablas marketplace_*, migs 142/143) —
 // compartido con el panel admin. NO confundir con proveedores internos (mig 072).
 import { createRestaurantMarketplace } from "../marketplace/restaurant-marketplace.jsx";
+// Costeo (mig 213). El gerente sólo ve costos si el dueño lo habilitó en
+// Admin › Config; el portero real es `can_see_costs()` del lado de la base, así
+// que las RPC devuelven vacío aunque alguien llegue a la sección por la URL.
+import * as COST from "../shared/costos.js";
 
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
@@ -474,6 +478,121 @@ function Dashboard({onJump}) {
 /* ════════════════════════════════════════════════════════════════════════════
    MÓDULO 2: SUPERVISIÓN DE TURNO
    ════════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════
+   COSTOS Y MÁRGENES (mig 213)
+   ──────────────────────────────────────────────
+   Vista de LECTURA. El gerente ve qué cuesta y qué deja cada plato, y qué
+   insumos subieron — que es lo que necesita para negociar con proveedores y
+   para avisar cuándo un plato dejó de cerrar. Lo que NO puede hacer acá es
+   tocar precios ni recetas: eso vive en Admin, y la RLS lo respalda.
+══════════════════════════════════════════════ */
+function CostosGerente() {
+  const [rows, setRows]     = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filtro, setFiltro] = useState('todos');
+
+  const load = useCallback(async () => {
+    if (!db) return;
+    const [rep, al] = await Promise.all([
+      COST.loadCostingReport(db, RID),
+      COST.loadPriceAlerts(db, RID),
+    ]);
+    setRows(rep.rows); setAlerts(al.rows); setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const pct = n => n==null || !Number.isFinite(Number(n)) ? '—' : `${Number(n).toFixed(1)}%`;
+  const TONE = {green:C.green, yellow:C.yellow, orange:C.orange, red:C.red, dim:C.mid};
+
+  if (loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:200,gap:12}}><span className="spin"/><span style={{color:C.mid}}>Calculando costos…</span></div>;
+
+  const costeados = rows.filter(r=>['ok','bajo_objetivo','perdida'].includes(r.status));
+  const perdida   = rows.filter(r=>r.status==='perdida');
+  const margProm  = costeados.length ? costeados.reduce((s,r)=>s+(Number(r.margin_pct)||0),0)/costeados.length : null;
+
+  return (
+    <div>
+      <h1 style={{fontSize:24,fontWeight:800,letterSpacing:'-0.5px',margin:'0 0 4px',color:C.ink}}>Costos y márgenes</h1>
+      <p style={{fontSize:13,color:C.mid,margin:'0 0 22px',maxWidth:640,lineHeight:1.55}}>
+        Cuánto cuesta cada plato en insumos y cuánto deja. Los precios y las recetas se editan desde el panel de Administración.
+      </p>
+
+      <div className="my-row-4" style={{gap:12,marginBottom:18}}>
+        <KpiCard label="MARGEN PROMEDIO" value={margProm==null?'—':pct(margProm)} sub={`${costeados.length} de ${rows.length} platos costeados`}/>
+        <KpiCard label="PIERDEN PLATA" value={perdida.length} alert={perdida.length>0} sub={perdida.length?'Cuestan más de lo que se cobra':'Ninguno'}/>
+        <KpiCard label="INSUMOS EN ALZA" value={alerts.length} sub="Subieron en los últimos 60 días"/>
+        <KpiCard label="SIN COSTEAR" value={rows.filter(r=>['sin_receta','costo_incompleto'].includes(r.status)).length} sub="Falta receta o precio de compra"/>
+      </div>
+
+      {alerts.length>0 && (
+        <Card title="Insumos que subieron de precio" style={{marginBottom:18}}>
+          <table style={{width:'100%',borderCollapse:'collapse'}}>
+            <thead><tr><Th>Insumo</Th><Th right>Antes</Th><Th right>Ahora</Th><Th right>Variación</Th><Th right>Platos afectados</Th></tr></thead>
+            <tbody>
+              {alerts.map(a=>(
+                <tr key={a.ingredient_id} style={{borderBottom:`1px solid ${C.border}`}}>
+                  <Td style={{fontWeight:600}}>{a.ingredient_name}</Td>
+                  <Td right mono dim>{fmt(a.old_cost)}</Td>
+                  <Td right mono>{fmt(a.new_cost)}</Td>
+                  <Td right mono style={{color:C.orange,fontWeight:700}}>▲ {pct(a.change_pct)}</Td>
+                  <Td right dim>{a.affected_items}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+
+      <div style={{display:'flex',gap:6,marginBottom:12,flexWrap:'wrap'}}>
+        {[['todos','Todos'],['perdida','Pierden plata'],['bajo_objetivo','Bajo objetivo'],['ok','En objetivo']].map(([v,l])=>{
+          const n = v==='todos' ? rows.length : rows.filter(r=>r.status===v).length;
+          return (
+            <button key={v} onClick={()=>setFiltro(v)}
+              style={{padding:'5px 11px',borderRadius:20,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',
+                      border:`1px solid ${filtro===v?C.ink:C.border}`,background:filtro===v?C.ink:'transparent',color:filtro===v?C.bg:C.mid}}>
+              {l} <span style={{opacity:.7}}>({n})</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <Card>
+        {rows.length===0 ? (
+          <div style={{textAlign:'center',padding:'40px 0',color:C.mid,fontSize:13}}>
+            Todavía no hay platos costeados. Se cargan desde Administración › Stock › Costos.
+          </div>
+        ) : (
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',minWidth:640}}>
+              <thead><tr><Th>Producto</Th><Th right>Precio</Th><Th right>Costo</Th><Th right>Food cost</Th><Th right>Margen</Th><Th>Estado</Th></tr></thead>
+              <tbody>
+                {rows.filter(r=>filtro==='todos'||r.status===filtro).map(r=>{
+                  const st  = COST.COST_STATUS[r.status] || {label:r.status,tone:'dim'};
+                  const col = TONE[st.tone] || C.mid;
+                  const costeado = ['ok','bajo_objetivo','perdida'].includes(r.status);
+                  return (
+                    <tr key={r.menu_item_id} style={{borderBottom:`1px solid ${C.border}`}}>
+                      <Td><div style={{fontWeight:600}}>{r.item_name}</div><div style={{fontSize:11,color:C.mid}}>{r.category_name}</div></Td>
+                      <Td right mono>{fmt(r.price)}</Td>
+                      <Td right mono dim>{costeado?fmt(r.cost):'—'}</Td>
+                      <Td right mono dim>{costeado?pct(r.food_cost_pct):'—'}</Td>
+                      <Td right mono style={{fontWeight:700,color:costeado?(Number(r.margin_pct)<0?C.red:C.ink):C.mid}}>
+                        {costeado?<>{fmt(r.margin)}<div style={{fontSize:11,fontWeight:400,color:C.mid}}>{pct(r.margin_pct)}</div></>:'—'}
+                      </Td>
+                      <Td><span style={{display:'inline-block',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:700,background:col+'22',color:col,whiteSpace:'nowrap'}}>{st.label}</span></Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 function SupervisionTurno() {
   const [emps, setEmps] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -2405,6 +2524,19 @@ function App() {
     return () => clearInterval(id);
   }, [auth.user, planAllowed]);
 
+  /* ¿El dueño le habilitó los costos a este gerente? (mig 213)
+     Se pregunta a la base, no al localStorage: el permiso vive en
+     `restaurant_settings.costs_visible_to_gerente` y lo resuelve `can_see_costs()`
+     junto con el rol. Va acá arriba, antes de cualquier return temprano, porque
+     los hooks tienen que ejecutarse siempre en el mismo orden. */
+  const [canCosts, setCanCosts] = useState(false);
+  useEffect(() => {
+    if (!db || !auth.user || planAllowed !== true) return;
+    let vivo = true;
+    COST.canSeeCosts(db, RID).then(r => { if (vivo) setCanCosts(!!r.allowed); });
+    return () => { vivo = false; };
+  }, [auth.user, planAllowed]);
+
   /* Contador de avisos no leídos */
   useEffect(() => {
     if (!db || !auth.user || planAllowed !== true) return;   // WS1-B
@@ -2432,6 +2564,9 @@ function App() {
   const sections = [
     {key:'dashboard', label:'Dashboard', icon:'dashboard'},
     {key:'turno',     label:'Supervisión', icon:'users'},
+    // Sólo aparece si el dueño habilitó el permiso. Esconderlo NO es la defensa:
+    // el gate está en `can_see_costs()` y todas las RPC lo consultan.
+    ...(canCosts ? [{key:'costos', label:'Costos y márgenes', icon:'chart'}] : []),
     {key:'aprobaciones', label:'Aprobaciones', icon:'checkCircle', badge: pendingApprovals},
     {key:'quejas',    label:'Quejas y ratings', icon:'alert'},
     {key:'stock86',   label:'Stock / 86d', icon:'package'},
@@ -2483,6 +2618,7 @@ function App() {
       <main style={{flex:1,padding:'28px 32px',overflowX:'auto',background:C.bg}}>
         {section==='dashboard'    && <Dashboard onJump={setSection}/>}
         {section==='turno'        && <SupervisionTurno/>}
+        {section==='costos'       && canCosts && <CostosGerente/>}
         {section==='aprobaciones' && <Aprobaciones user={auth.user} userName={auth.name}/>}
         {section==='quejas'       && <QuejasYRatings user={auth.user} userName={auth.name}/>}
         {section==='stock86'      && <Stock86 user={auth.user} userName={auth.name}/>}
