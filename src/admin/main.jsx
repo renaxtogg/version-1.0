@@ -2780,6 +2780,71 @@ function MenuPage({categories,menuItems,restaurant,onRefresh}) {
   const [allExtras,setAllExtras]       = useState([]);
   const [extrasLoading,setExtrasLoading] = useState(false);
   const [selected,setSelected]   = useState(new Set());
+  const [importar,setImportar]   = useState(false);   // asistente de importación de carta
+
+  /* ── Importar carta (PDF / Excel / texto pegado) ──────────────────
+     El asistente vive en `public/mythos-menu-import.js` (script plano) porque lo
+     comparte con /onboarding, que es HTML suelto. Acá sólo se monta y se
+     persiste lo que el dueño CONFIRMÓ en la pantalla de revisión.
+     El guardado respeta la RLS de siempre: es el mismo INSERT que hace el alta
+     manual, sin service_role ni atajos. */
+  const importBox = useRef(null);
+  useEffect(()=>{
+    if(!importar || !importBox.current) return;
+    const MMI = window.MythosMenuImport;
+    if(!MMI){ toast('No se pudo cargar el importador. Recargá la página.', false); setImportar(false); return; }
+
+    const inst = MMI.mount(importBox.current, {
+      onCancel: ()=>setImportar(false),
+      onConfirm: async (items)=>{
+        if(!db) throw new Error('Sin conexión a la base de datos');
+
+        // 1) Categorías: se reusan las que ya existen (comparando sin distinguir
+        //    mayúsculas ni espacios) y sólo se crean las nuevas. Importar dos
+        //    veces no puede dejar "Bebidas" duplicada tres veces.
+        const porNombre = new Map();
+        (categories||[]).forEach(c=>porNombre.set((c.name||'').trim().toLowerCase(), c.id));
+
+        const nuevas = [...new Set(items.map(i=>i.categoria))]
+          .filter(n=>!porNombre.has(n.trim().toLowerCase()));
+        if(nuevas.length){
+          const base = (categories||[]).length;
+          const {data,error} = await db.from('menu_categories')
+            .insert(nuevas.map((n,i)=>({restaurant_id:RID, name:n, sort_order:base+i+1})))
+            .select('id,name');
+          if(error) throw error;
+          (data||[]).forEach(c=>porNombre.set((c.name||'').trim().toLowerCase(), c.id));
+        }
+
+        // 2) Productos, en lotes: un insert de 600 filas de una es frágil y no
+        //    deja saber dónde falló.
+        const filas = items.map(i=>({
+          restaurant_id: RID,
+          category_id:   porNombre.get(i.categoria.trim().toLowerCase()),
+          name:          i.nombre,
+          description:   i.descripcion || null,
+          price_guarani: i.precio,
+          is_available:  true,
+        })).filter(f=>f.category_id);
+
+        let guardados = 0;
+        for(let i=0;i<filas.length;i+=50){
+          const lote = filas.slice(i,i+50);
+          const {error} = await db.from('menu_items').insert(lote);
+          if(error){
+            // Si ya se guardó parte, decirlo: el dueño tiene que saber qué quedó.
+            throw new Error(error.message + (guardados?` (se alcanzaron a guardar ${guardados} productos antes del error)`:''));
+          }
+          guardados += lote.length;
+        }
+
+        toast(`${guardados} ${guardados===1?'producto agregado':'productos agregados'} a tu carta`);
+        setImportar(false);
+        onRefresh && onRefresh();
+      },
+    });
+    return ()=>{ inst && inst.destroy && inst.destroy(); };
+  },[importar, categories]);
 
   // ── Regla de precio "mitad y mitad" del local (mig 170) ──
   // Vive acá (Menú › Configuración) y no en Config general: es una regla DE LA CARTA,
@@ -2926,9 +2991,17 @@ function MenuPage({categories,menuItems,restaurant,onRefresh}) {
         <h1 style={{fontSize:22,fontWeight:800,color:C.ink}}>Menú</h1>
         <div style={{display:'flex',gap:8}}>
           <a href={`index.html?r=${encodeURIComponent(RID)}`} target="_blank" style={{fontSize:12,color:C.mid,padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:6,textDecoration:'none'}}>Ver app →</a>
+          {menuTab==='productos'&&<Btn variant="secondary" onClick={()=>setImportar(true)}>Importar carta</Btn>}
           {menuTab==='productos'&&<Btn onClick={()=>setItemModal({item:null})}>+ Nuevo producto</Btn>}
         </div>
       </div>
+
+      {/* Asistente de importación de carta */}
+      {importar&&(
+        <Modal title="Importar tu carta" onClose={()=>setImportar(false)} width={860}>
+          <div ref={importBox}/>
+        </Modal>
+      )}
 
       {/* Sub-tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${C.border}`,marginBottom:14}}>

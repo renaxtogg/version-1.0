@@ -8,6 +8,10 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.1/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
   <link rel="stylesheet" href="tokens.css">
+  <!-- Lector de planillas (via Excel/CSV del importador de carta) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- Importador de carta (PDF/Excel/texto). Mismo motor que el panel Admin. -->
+  <script src="mythos-menu-import.js"></script>
   <script src="mythos-theme.js"></script>
   <script>MythosTheme.init();</script>
   <style>
@@ -191,8 +195,8 @@
     ['comanda_barra', 'Comanda para barra'], ['factura_legal', 'Factura legal'], ['ninguno', 'No imprimo por ahora']
   ];
   var MENU_CHOICE = [
-    ['ahora', 'Agregar productos ahora'], ['ejemplo', 'Usar una carta de ejemplo'],
-    ['despues', 'Cargar después desde el panel']
+    ['ahora', 'Agregar productos ahora'], ['importar', 'Importar mi carta (PDF, Excel o texto)'],
+    ['ejemplo', 'Usar una carta de ejemplo'], ['despues', 'Cargar después desde el panel']
   ];
 
   // Etiquetas legibles para construir las cards de plan desde los DATOS REALES
@@ -530,6 +534,7 @@
   function step6() {
     var html = checkCards('mchoice', MENU_CHOICE, st.menuChoice, 'radio');
     if (st.menuChoice === 'ahora' || st.menuChoice === 'ejemplo') html += menuEditor();
+    else if (st.menuChoice === 'importar') html += '<div id="mmiBox" style="margin-top:14px"></div>' + (st.menuCats.length ? menuEditor() : '');
     else if (st.menuChoice === 'despues') html += '<div class="step-d" style="margin-top:14px">Sin problema. Tu QR va a funcionar y vas a poder cargar la carta desde el panel cuando quieras.</div>';
     return html;
   }
@@ -605,6 +610,7 @@
       Array.prototype.forEach.call(document.querySelectorAll('input[name="mchoice"]'), function (r) {
         r.addEventListener('change', function () { onMenuChoice(r.value); });
       });
+      if (st.menuChoice === 'importar') montarImportador();
       var addCat = document.getElementById('addCat');
       if (addCat) addCat.addEventListener('click', onAddCategory);
       Array.prototype.forEach.call(document.querySelectorAll('[data-add-item]'), function (b) {
@@ -880,6 +886,73 @@
   }
 
   // ── Menú: insertar/borrar (RLS: admin puede su menú) ────────────────────────
+
+  // ── Importar la carta (PDF / Excel / texto pegado) ──────────────────────────
+  // El asistente y TODAS las heurísticas viven en mythos-menu-import.js, el mismo
+  // script plano que usa Admin › Menú. Una segunda copia acá terminaría aceptando
+  // de un lado lo que rechaza del otro.
+  // Acá sólo se persiste lo que el dueño CONFIRMÓ en la pantalla de revisión, con
+  // los mismos INSERT que el alta manual de este paso.
+  function montarImportador() {
+    var box = document.getElementById('mmiBox');
+    if (!box || !window.MythosMenuImport || box.getAttribute('data-mmi') === '1') return;
+    box.setAttribute('data-mmi', '1');
+
+    window.MythosMenuImport.mount(box, {
+      onConfirm: async function (items) {
+        setErr('');
+        // 1) Categorías: se reusan las existentes y sólo se crean las que faltan.
+        var porNombre = {};
+        st.menuCats.forEach(function (c) { porNombre[c.name.trim().toLowerCase()] = c.id; });
+
+        var nuevas = [];
+        items.forEach(function (i) {
+          var k = i.categoria.trim().toLowerCase();
+          if (!porNombre[k] && nuevas.indexOf(i.categoria) === -1) nuevas.push(i.categoria);
+        });
+
+        for (var n = 0; n < nuevas.length; n++) {
+          var rc = await db.from('menu_categories')
+            .insert({ restaurant_id: st.restaurantId, name: nuevas[n], sort_order: st.menuCats.length + 1 })
+            .select('id').maybeSingle();
+          if (rc.error || !rc.data) throw new Error(rc.error ? rc.error.message : 'No se pudo crear la categoría ' + nuevas[n]);
+          porNombre[nuevas[n].trim().toLowerCase()] = rc.data.id;
+          st.menuCats.push({ id: rc.data.id, name: nuevas[n], items: [] });
+        }
+
+        // 2) Productos en lotes de 50: un insert de 600 filas de una es frágil y
+        //    no deja saber dónde falló.
+        var filas = items.map(function (i) {
+          return {
+            restaurant_id: st.restaurantId,
+            category_id: porNombre[i.categoria.trim().toLowerCase()],
+            name: i.nombre,
+            description: i.descripcion || null,
+            price_guarani: i.precio,
+            is_available: true
+          };
+        }).filter(function (f) { return f.category_id; });
+
+        var guardados = 0;
+        for (var i = 0; i < filas.length; i += 50) {
+          var lote = filas.slice(i, i + 50);
+          var ri = await db.from('menu_items').insert(lote).select('id,name,price_guarani,category_id');
+          if (ri.error) {
+            throw new Error(ri.error.message + (guardados ? ' (se guardaron ' + guardados + ' productos antes del error)' : ''));
+          }
+          (ri.data || []).forEach(function (row) {
+            var cat = st.menuCats.filter(function (c) { return String(c.id) === String(row.category_id); })[0];
+            if (cat) cat.items.push({ id: row.id, name: row.name, price_guarani: row.price_guarani });
+          });
+          guardados += lote.length;
+        }
+
+        box.setAttribute('data-mmi', '0');
+        render();
+      }
+    });
+  }
+
   async function onAddCategory() {
     if (st.busy) return;
     var name = v('newCat');

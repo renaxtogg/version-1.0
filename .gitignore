@@ -32,3 +32,6 @@ Thumbs.db
 # Respaldos de migraciones y helpers de copy-paste a Supabase (no versionar)
 supabase/migrations/*.bak
 EJECUTAR_EN_SUPABASE.sql
+
+# pdf.js vendorizado — lo regenera scripts/vendor-pdfjs.mjs en cada build
+public/vendor/
