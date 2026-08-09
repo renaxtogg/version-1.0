@@ -509,7 +509,11 @@ function CostosGerente() {
 
   const costeados = rows.filter(r=>['ok','bajo_objetivo','perdida'].includes(r.status));
   const perdida   = rows.filter(r=>r.status==='perdida');
-  const margProm  = costeados.length ? costeados.reduce((s,r)=>s+(Number(r.margin_pct)||0),0)/costeados.length : null;
+  // Ganancia limpia si el local cargó gastos operativos (mig 214); si no, margen
+  // sobre insumos. El respaldo cubre además que la 214 no esté aplicada.
+  const hayGastos = rows.some(r=>Number(r.overhead_pct)>0);
+  const netoDe    = r => Number(r.net_margin_pct ?? r.margin_pct) || 0;
+  const margProm  = costeados.length ? costeados.reduce((s,r)=>s+netoDe(r),0)/costeados.length : null;
 
   return (
     <div>
@@ -519,8 +523,9 @@ function CostosGerente() {
       </p>
 
       <div className="my-row-4" style={{gap:12,marginBottom:18}}>
-        <KpiCard label="MARGEN PROMEDIO" value={margProm==null?'—':pct(margProm)} sub={`${costeados.length} de ${rows.length} platos costeados`}/>
-        <KpiCard label="PIERDEN PLATA" value={perdida.length} alert={perdida.length>0} sub={perdida.length?'Cuestan más de lo que se cobra':'Ninguno'}/>
+        <KpiCard label={hayGastos?'GANANCIA PROMEDIO':'MARGEN PROMEDIO'} value={margProm==null?'—':pct(margProm)}
+                 sub={hayGastos?'Ya descontando los gastos del local':`${costeados.length} de ${rows.length} platos costeados`}/>
+        <KpiCard label="PIERDEN PLATA" value={perdida.length} alert={perdida.length>0} sub={perdida.length?'No cubren lo que cuestan':'Ninguno'}/>
         <KpiCard label="INSUMOS EN ALZA" value={alerts.length} sub="Subieron en los últimos 60 días"/>
         <KpiCard label="SIN COSTEAR" value={rows.filter(r=>['sin_receta','costo_incompleto'].includes(r.status)).length} sub="Falta receta o precio de compra"/>
       </div>
@@ -565,20 +570,26 @@ function CostosGerente() {
         ) : (
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%',borderCollapse:'collapse',minWidth:640}}>
-              <thead><tr><Th>Producto</Th><Th right>Precio</Th><Th right>Costo</Th><Th right>Food cost</Th><Th right>Margen</Th><Th>Estado</Th></tr></thead>
+              <thead><tr>
+                <Th>Producto</Th><Th right>Precio</Th><Th right>Insumos</Th>
+                {hayGastos&&<Th right>Otros gastos</Th>}
+                <Th right>{hayGastos?'Queda limpio':'Queda'}</Th><Th>Estado</Th>
+              </tr></thead>
               <tbody>
                 {rows.filter(r=>filtro==='todos'||r.status===filtro).map(r=>{
                   const st  = COST.COST_STATUS[r.status] || {label:r.status,tone:'dim'};
                   const col = TONE[st.tone] || C.mid;
                   const costeado = ['ok','bajo_objetivo','perdida'].includes(r.status);
+                  const neto    = r.net_margin ?? r.margin;
+                  const netoPct = r.net_margin_pct ?? r.margin_pct;
                   return (
                     <tr key={r.menu_item_id} style={{borderBottom:`1px solid ${C.border}`}}>
                       <Td><div style={{fontWeight:600}}>{r.item_name}</div><div style={{fontSize:11,color:C.mid}}>{r.category_name}</div></Td>
                       <Td right mono>{fmt(r.price)}</Td>
-                      <Td right mono dim>{costeado?fmt(r.cost):'—'}</Td>
-                      <Td right mono dim>{costeado?pct(r.food_cost_pct):'—'}</Td>
-                      <Td right mono style={{fontWeight:700,color:costeado?(Number(r.margin_pct)<0?C.red:C.ink):C.mid}}>
-                        {costeado?<>{fmt(r.margin)}<div style={{fontSize:11,fontWeight:400,color:C.mid}}>{pct(r.margin_pct)}</div></>:'—'}
+                      <Td right mono dim>{costeado?<>{fmt(r.cost)}<div style={{fontSize:11,color:C.mid}}>{pct(r.food_cost_pct)}</div></>:'—'}</Td>
+                      {hayGastos&&<Td right mono dim>{r.overhead_cost!=null?fmt(r.overhead_cost):'—'}</Td>}
+                      <Td right mono style={{fontWeight:700,color:costeado?(Number(netoPct)<=0?C.red:C.ink):C.mid}}>
+                        {costeado?<>{fmt(neto)}<div style={{fontSize:11,fontWeight:400,color:C.mid}}>{pct(netoPct)}</div></>:'—'}
                       </Td>
                       <Td><span style={{display:'inline-block',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:700,background:col+'22',color:col,whiteSpace:'nowrap'}}>{st.label}</span></Td>
                     </tr>

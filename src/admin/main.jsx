@@ -8056,7 +8056,8 @@ const MANUAL_STOCK = [
     resumen: 'Cada compra que entra, con su precio.',
     cuerpo: [
       {t:'p', x:'Acá registrás lo que comprás. Elegís el ingrediente, la cantidad, y ponés <b>cuánto pagaste</b>.'},
-      {t:'p', x:'El precio se escribe <b>en la unidad en que comprás</b>. Si tu harina está medida en gramos pero la comprás por bolsa de 25 kg, cargás 25 kg y el precio por kilo: el sistema convierte solo.'},
+      {t:'p', x:'Al crear un ingrediente el precio se carga <b>como lo comprás de verdad</b>: "pagué ₲350.000 por 10 kg". Debajo te muestra en cuánto queda la unidad, para que veas al instante si te equivocaste de unidad.'},
+      {t:'aviso', x:'Ese aviso existe por algo: si el ingrediente está en gramos y escribís el precio del kilo, el costo te queda <b>mil veces más alto</b> y el plato aparece con costos absurdos. Si ves un número raro en Costos, empezá revisando acá.'},
       {t:'p', x:'Si esta compra sale bastante más cara o más barata que tu promedio, te avisa antes de confirmar.'},
       {t:'dl', x:[
         ['Vencimiento','Opcional pero recomendado en perecederos. El módulo te avisa 7 días antes.'],
@@ -8123,15 +8124,33 @@ const MANUAL_STOCK = [
       {t:'p', x:'Si algún insumo te subió, arriba aparece un aviso: <i>"Carne: ₲45.000 → ₲52.000 · ▲15% · afecta 6 platos"</i>. Un aumento que nadie mira se come el margen en silencio.'},
       {t:'sub', x:'La ficha de costo'},
       {t:'p', x:'Tocá cualquier fila y se abre el detalle: qué lleva el plato, cuánto sale del depósito de cada cosa y cuánto cuesta cada línea.'},
-      {t:'p', x:'Abajo está el <b>simulador</b>: movés el precio y ves el margen al instante. Los botones de 50/60/65/70/75% te ponen el precio exacto para ese margen. Cuando te convence, <b>Aplicar precio a la carta</b> lo actualiza en el menú.'},
-      {t:'dl', x:[
-        ['Margen','La plata que te queda: precio − costo.'],
-        ['Food cost','Qué porcentaje del precio se te va en insumos. En gastronomía se suele buscar entre 25% y 35%.'],
-        ['Multiplicador','Cuántas veces el costo es el precio. Lo que muchos llaman "por tres".'],
-      ]},
-      {t:'aviso', x:'El precio sugerido se calcula como <b>costo ÷ (1 − margen)</b>, no como costo × (1 + margen). Lo segundo es el markup y da un precio más bajo del que necesitás. Confundirlos es el error más común al poner precios.'},
-      {t:'sub', x:'Dónde se fija el objetivo'},
-      {t:'p', x:'En <b>Configuración → Costos y márgenes</b>. Ese número aplica a todo, y podés pisarlo por categoría o por plato puntual.'},
+      {t:'p', x:'Abajo está la <b>calculadora</b>: escribís cuánto querés ganar (el porcentaje que vos quieras, no hay opciones fijas) y te dice a cuánto vender. O al revés: ponés un precio y te dice qué te queda.'},
+      {t:'p', x:'La cuenta se muestra entera, de arriba hacia abajo: precio, menos insumos, menos otros gastos, y lo que <b>te queda limpio</b>. Cuando te convence, <b>Aplicar precio a la carta</b> lo actualiza en el menú.'},
+      {t:'aviso', x:'El precio sugerido se calcula como <b>costo ÷ (1 − gastos − ganancia)</b>, no como costo × (1 + ganancia). Lo segundo es el markup y da un precio más bajo del que necesitás. Confundirlos es el error más común al poner precios.'},
+    ],
+  },
+  {
+    id: 'gastos',
+    titulo: 'Otros gastos: la mitad que falta',
+    resumen: 'Sueldos, alquiler y luz no salen de los insumos.',
+    cuerpo: [
+      {t:'p', x:'Ganarle 70% a los insumos <b>no significa ganar 70%</b>. De esa diferencia todavía tenés que pagar sueldos, alquiler, luz, gas y comisiones. Es la forma más común de fundirse vendiendo mucho.'},
+      {t:'p', x:'En <b>Configuración → Costos y márgenes</b> cargás esos gastos como <b>porcentaje de lo que facturás</b>, que es como se reparten en gastronomía: el alquiler no se puede prorratear "por hamburguesa" de ninguna otra forma honesta.'},
+      {t:'ej', x:'Personal 30% · Alquiler 8% · Luz, agua y gas 5% · Comisiones 4% · Otros 3%<br/><b>Total: 50% de cada venta se va en gastos.</b>'},
+      {t:'p', x:'Con eso cargado, la calculadora usa la cuenta completa:'},
+      {t:'ej', x:'Una hamburguesa que te cuesta <b>₲12.000</b> en insumos, con <b>50% de gastos</b> y queriendo ganar <b>20% limpio</b>:<br/>precio = 12.000 ÷ (1 − 0,50 − 0,20) = <b>₲40.000</b><br/>De esos 40.000: 12.000 insumos + 20.000 gastos + <b>8.000 tuyos</b>.'},
+      {t:'nota', x:'Si dejás los gastos en 0, todo funciona igual que antes y el sistema te avisa que lo que ves es margen sobre insumos, no ganancia final.'},
+      {t:'p', x:'Hay un botón para arrancar con valores típicos de un restaurante y ajustarlos, así no enfrentás una pantalla en blanco. <b>No son tus números</b>: sacalos de tus gastos reales del mes dividido tu facturación del mes.'},
+    ],
+  },
+  {
+    id: 'objetivo',
+    titulo: 'Tu margen objetivo',
+    resumen: 'Cuánto querés ganar, y dónde se define.',
+    cuerpo: [
+      {t:'p', x:'En <b>Configuración → Costos y márgenes</b> fijás cuánto querés ganar limpio sobre cada plato. Ese número se usa para el precio sugerido y para el semáforo.'},
+      {t:'p', x:'Cascadea en tres niveles: lo que pongas para <b>el local</b> aplica a todo; podés pisarlo por <b>categoría</b> (ej: más margen en bebidas) y por <b>plato</b> puntual.'},
+      {t:'p', x:'Y en la calculadora de cada ficha podés probar cualquier porcentaje sin guardar nada, sólo para ver qué precio daría.'},
     ],
   },
   {
@@ -8289,6 +8308,7 @@ function StockPage() {
   const [fichaItem,  setFichaItem]  = useState(null);  // {id,name,price} del plato abierto
   const [ficha,      setFicha]      = useState(null);  // {rows, cost}
   const [simPrice,   setSimPrice]   = useState('');
+  const [simMargen,  setSimMargen]  = useState('');   // '' = usar el objetivo del plato
   const [costFilter, setCostFilter] = useState('todos');
   const [prepEdit,   setPrepEdit]   = useState(null);  // preparación en edición
   const [prepLine,   setPrepLine]   = useState({kind:'ing',ingredient_id:'',child_prep_id:'',quantity:'',unit:'unit'});
@@ -8323,7 +8343,13 @@ function StockPage() {
     setSavingToggle(false);
   }
 
-  const emptyIng  = {id:null,name:'',category:'',unit:'unit',min_threshold:'',cost_per_unit:'',waste_pct:'',stock_quantity:''};
+  /* El precio se carga COMO SE COMPRA ("pagué ₲350.000 por 10 kg"), no como
+     precio unitario. Pedir "₲ por gramo" era una trampa: nadie tiene ese número
+     en la cabeza, y equivocarse por 1.000× no se notaba en ninguna pantalla —
+     un ingrediente quedaba a ₲2.000/g (₲2.000.000 el kilo) y el costeo entero
+     salía absurdo sin una sola señal de error. */
+  const emptyIng  = {id:null,name:'',category:'',unit:'unit',min_threshold:'',
+                     cost_amount:'',cost_qty:'1',cost_unit:'',waste_pct:'',stock_quantity:''};
   const emptyLoad = {ingredient_id:'',quantity:'',unit:'unit',expiry_date:'',batch_id:'',cost_per_unit:'',notes:''};
   // `kind` decide si la línea apunta a un ingrediente o a una preparación (mig 213).
   const emptyRec  = {menu_item_id:'',kind:'ing',ingredient_id:'',prep_recipe_id:'',quantity_required:'1',unit:'unit',notes:''};
@@ -8456,24 +8482,40 @@ function StockPage() {
      `avg_cost` se siembra junto al costo sólo en el ALTA: después lo mueve
      `admin_load_stock` con el promedio ponderado, y pisarlo a mano desde acá
      rompería el promedio que se viene acumulando. */
+  /* Precio unitario a partir de "pagué X por Y <unidad>", llevado a la unidad
+     del ingrediente. Devuelve null si falta un dato o si las unidades no son
+     compatibles — nunca un número inventado. */
+  const precioUnitario = (form) => {
+    const monto = parseFloat(form.cost_amount);
+    const cant  = parseFloat(form.cost_qty);
+    if (!Number.isFinite(monto) || monto <= 0) return null;
+    if (!Number.isFinite(cant)  || cant  <= 0) return null;
+    const f = UNIT_CONV(form.cost_unit || form.unit, form.unit);
+    if (f == null) return null;          // ej: precio en litros, ingrediente en kg
+    return monto / (cant * f);
+  };
+
   const saveIngredient = async () => {
     if (!ingForm.name.trim()) { toast('El nombre es requerido', false); return; }
     const waste = ingForm.waste_pct === '' ? 0 : parseFloat(ingForm.waste_pct);
     if (!Number.isFinite(waste) || waste < 0 || waste >= 100) {
       toast('La merma tiene que estar entre 0 y 99%', false); return;
     }
+    if (ingForm.cost_amount !== '' && precioUnitario(ingForm) == null) {
+      toast('Revisá el precio: la cantidad tiene que ser mayor a 0 y de una unidad compatible', false); return;
+    }
     setSaving(true);
     try {
-      const costo = ingForm.cost_per_unit ? parseFloat(ingForm.cost_per_unit) : null;
+      const costo = precioUnitario(ingForm);
       if (ingForm.id) {
         const patch = {
           name:ingForm.name.trim(), category:ingForm.category.trim()||null,
           unit:ingForm.unit, min_threshold:parseFloat(ingForm.min_threshold)||0,
           waste_pct: waste,
         };
-        // El costo sólo se toca si el usuario escribió algo: dejarlo en blanco es
-        // "no lo cambies", no "ponelo en cero".
-        if (ingForm.cost_per_unit !== '') patch.cost_per_unit = costo;
+        // El costo sólo se toca si el usuario escribió un monto: dejarlo en
+        // blanco es "no lo cambies", no "ponelo en cero".
+        if (ingForm.cost_amount !== '' && costo != null) patch.cost_per_unit = costo;
         const {error} = await db.from('ingredients').update(patch).eq('id',ingForm.id);
         if (error) throw error;
         toast('Ingrediente actualizado');
@@ -8495,15 +8537,65 @@ function StockPage() {
   };
 
   const editIngredient = (ing) => {
+    // Se reabre el precio en la unidad del propio ingrediente ("pagué X por 1 kg"),
+    // que es el único despliegue fiel: lo guardado es un precio unitario y no
+    // sabemos en qué presentación se compró.
     setIngForm({
       id: ing.id, name: ing.name||'', category: ing.category||'',
       unit: ing.unit||'unit',
       min_threshold: ing.min_threshold!=null ? String(ing.min_threshold) : '',
-      cost_per_unit: ing.cost_per_unit!=null ? String(ing.cost_per_unit) : '',
+      cost_amount: ing.cost_per_unit!=null ? String(ing.cost_per_unit) : '',
+      cost_qty: '1',
+      cost_unit: ing.unit||'unit',
       waste_pct: ing.waste_pct!=null ? String(ing.waste_pct) : '',
       stock_quantity: '',
     });
     setModal('edit_ing');
+  };
+
+  /* Bloque "pagué X por Y unidad" + equivalencia en vivo + alerta de disparate.
+     La equivalencia es lo que hace visible el error de 1.000×: si escribís el
+     precio del kilo pero el ingrediente está en gramos, lo ves al instante. */
+  const PrecioCompra = ({form, set}) => {
+    const unit = form.cost_unit || form.unit;
+    const pu = precioUnitario(form);
+    const incompatible = form.cost_amount !== '' && UNIT_CONV(unit, form.unit) == null;
+    // Umbral de sensatez: en Paraguay no existe un insumo de restaurante a más de
+    // ₲1.000.000 el kilo o el litro. Si el número lo supera, casi seguro se
+    // confundió la unidad. Avisa, no bloquea: puede haber algún caso raro.
+    const porKgOL = pu != null && (form.unit==='g' || form.unit==='ml') ? pu*1000
+                  : pu != null && (form.unit==='kg'|| form.unit==='l')  ? pu : null;
+    const absurdo = porKgOL != null && porKgOL > 1000000;
+    return (
+      <>
+        <FF label="PRECIO DE COMPRA" hint="Cargalo como lo comprás. Sin esto no se puede costear ningún plato.">
+          <div style={{display:'grid',gridTemplateColumns:'1fr auto 78px 96px',gap:6,alignItems:'center'}}>
+            <MoneyInp value={form.cost_amount} onChange={v=>set({...form,cost_amount:v})} placeholder="Ej: 350.000"/>
+            <span style={{fontSize:12,color:C.mid,whiteSpace:'nowrap'}}>por</span>
+            <NumInp decimals={3} value={form.cost_qty} onChange={v=>set({...form,cost_qty:v})} placeholder="1"/>
+            <Sel value={unit} onChange={e=>set({...form,cost_unit:e.target.value})}>
+              {unitOpts(form.unit).map(([v,l])=><option key={v} value={v}>{UNIT_DISPLAY[v]||v}</option>)}
+            </Sel>
+          </div>
+        </FF>
+        {incompatible && (
+          <div style={{marginTop:-6,marginBottom:10,fontSize:12,color:C.red,lineHeight:1.5}}>
+            Esa unidad no es compatible con la del ingrediente ({UNIT_DISPLAY[form.unit]||form.unit}).
+          </div>
+        )}
+        {pu != null && (
+          <div style={{marginTop:-6,marginBottom:10,padding:'8px 11px',borderRadius:8,lineHeight:1.55,fontSize:12,
+                       background:absurdo?TINT.amberBg:C.bg,
+                       border:`1px solid ${absurdo?TINT.amberBorder:C.border}`,
+                       color:absurdo?TINT.amberText:C.mid}}>
+            Queda en <b>{fmt(Math.round(pu))} por {UNIT_DISPLAY[form.unit]||form.unit}</b>
+            {porKgOL != null && (form.unit==='g'||form.unit==='ml') &&
+              <> — o sea <b>{fmt(Math.round(porKgOL))}</b> por {form.unit==='g'?'kg':'L'}</>}
+            {absurdo && <div style={{marginTop:4,fontWeight:700}}>¿Seguro? Ese precio parece mil veces más alto de lo normal. Revisá la unidad.</div>}
+          </div>
+        )}
+      </>
+    );
   };
 
   const doLoadStock = async () => {
@@ -8607,6 +8699,7 @@ function StockPage() {
   const abrirFicha = async (row) => {
     setFichaItem({id:row.menu_item_id, name:row.item_name, price:row.price, target:row.target_margin_pct});
     setSimPrice(String(row.price||''));
+    setSimMargen('');   // arranca con el objetivo del plato; el usuario lo pisa si quiere
     setFicha(null);
     const {rows} = await COST.loadBreakdown(db, row.menu_item_id);
     setFicha({rows, cost:Number(row.cost)||0});
@@ -8701,6 +8794,9 @@ function StockPage() {
   const recSourceName = rec => rec.prep_recipe_id ? prepName(rec.prep_recipe_id) : ingName(rec.ingredient_id);
   const pct = n => n==null || !Number.isFinite(Number(n)) ? '—' : `${Number(n).toFixed(1)}%`;
   const TONE = {green:C.green, yellow:C.yellow, orange:C.orange, red:C.red, dim:C.dim};
+  /* ¿El local cargó gastos operativos? Cambia lo que significa "margen" en toda
+     la pantalla: sin gastos es margen sobre insumos; con gastos, ganancia real. */
+  const hayGastos = Number(costCfg?.overhead_pct) > 0;
   const mvtIcon  = t => ({load:'↑',deduct:'↓',adjustment:'≈',waste:'✕',expired:'⚠'}[t]||'•');
   const mvtColor = t => ({load:C.green,deduct:C.blue,adjustment:C.yellow,waste:C.orange,expired:C.red}[t]||C.mid);
   const alertIcon  = t => ({low_stock:'⚠',critical_stock:'●',expiring_soon:'◷',expired:'✕'}[t]||'•');
@@ -8969,15 +9065,10 @@ function StockPage() {
                   <FF label="STOCK INICIAL" hint="Podés dejar en 0 y cargar después"><NumInp decimals={3} value={ingForm.stock_quantity} onChange={v=>setIngForm({...ingForm,stock_quantity:v})} placeholder="0"/></FF>
                   <FF label="UMBRAL MÍN." hint="Alerta cuando baje de este nivel"><NumInp decimals={3} value={ingForm.min_threshold} onChange={v=>setIngForm({...ingForm,min_threshold:v})} placeholder="0"/></FF>
                 </div>
-                <div className="my-row-2" style={{gap:10}}>
-                  <FF label={`PRECIO DE COMPRA (₲ por ${UNIT_DISPLAY[ingForm.unit]||ingForm.unit})`}
-                      hint="Lo que te cuesta hoy. Sin esto no se puede costear ningún plato.">
-                    <MoneyInp value={ingForm.cost_per_unit} onChange={v=>setIngForm({...ingForm,cost_per_unit:v})} placeholder="Ej: 38.000"/>
-                  </FF>
-                  <FF label="MERMA (%)" hint="Lo que se pierde al limpiar o cocinar. Ej: 30 si de 1 kg de lomo usás 700 g.">
-                    <NumInp decimals={1} value={ingForm.waste_pct} onChange={v=>setIngForm({...ingForm,waste_pct:v})} placeholder="0"/>
-                  </FF>
-                </div>
+                <PrecioCompra form={ingForm} set={setIngForm}/>
+                <FF label="MERMA (%)" hint="Lo que se pierde al limpiar o cocinar. Ej: 30 si de 1 kg de lomo usás 700 g.">
+                  <NumInp decimals={1} value={ingForm.waste_pct} onChange={v=>setIngForm({...ingForm,waste_pct:v})} placeholder="0"/>
+                </FF>
                 <Btn onClick={saveIngredient} disabled={saving} style={{width:'100%'}}>{saving?'Guardando…':'Crear ingrediente'}</Btn>
               </div>
             </div>
@@ -9097,14 +9188,15 @@ function StockPage() {
                 const bajo     = costRows.filter(r=>r.status==='bajo_objetivo');
                 const sinRec   = costRows.filter(r=>r.status==='sin_receta');
                 const incompl  = costRows.filter(r=>r.status==='costo_incompleto');
+                const netoDe   = r => Number(r.net_margin_pct ?? r.margin_pct) || 0;
                 const margProm = conCosto.length
-                  ? conCosto.reduce((s,r)=>s+(Number(r.margin_pct)||0),0)/conCosto.length : null;
+                  ? conCosto.reduce((s,r)=>s+netoDe(r),0)/conCosto.length : null;
                 return (
                   <div className="my-row-4" style={{gap:12,marginBottom:16}}>
-                    <KpiCard label="MARGEN PROMEDIO" value={margProm==null?'—':pct(margProm)}
-                             sub={`${conCosto.length} de ${costRows.length} platos costeados`}/>
+                    <KpiCard label={hayGastos?'GANANCIA PROMEDIO':'MARGEN PROMEDIO'} value={margProm==null?'—':pct(margProm)}
+                             sub={hayGastos?`Ya descontando ${pct(costCfg.overhead_pct)} de gastos`:`${conCosto.length} de ${costRows.length} platos costeados`}/>
                     <KpiCard label="PIERDEN PLATA" value={perdida.length} accent={perdida.length?C.red:undefined}
-                             sub={perdida.length?'Cuestan más de lo que cobrás':'Ninguno — bien ahí'}/>
+                             sub={perdida.length?(hayGastos?'No cubren insumos + gastos':'Cuestan más de lo que cobrás'):'Ninguno — bien ahí'}/>
                     <KpiCard label="BAJO OBJETIVO" value={bajo.length} accent={bajo.length?C.yellow:undefined}
                              sub={`Objetivo del local: ${pct(costCfg.default_target_margin_pct)}`}/>
                     <KpiCard label="SIN COSTEAR" value={sinRec.length+incompl.length}
@@ -9112,6 +9204,16 @@ function StockPage() {
                   </div>
                 );
               })()}
+
+              {/* Sin gastos cargados, "margen" significa sólo "sobre insumos". Decirlo
+                  evita que el dueño lea 70% y crea que ésa es su ganancia. */}
+              {!hayGastos && costRows.length>0 && (
+                <div style={{marginBottom:16,background:TINT.blueBg,border:`1px solid ${TINT.blueBorder}`,color:TINT.blueText,borderRadius:8,padding:'11px 14px',fontSize:12.5,lineHeight:1.6}}>
+                  Estos números descuentan <b>sólo los insumos</b>. Todavía no cargaste tus gastos de
+                  personal, alquiler y servicios, así que lo que ves no es la ganancia final —
+                  cargalos en <b>Configuración › Costos y márgenes</b>.
+                </div>
+              )}
 
               {/* Aumentos de insumos */}
               {priceAlerts.length>0&&(
@@ -9162,8 +9264,9 @@ function StockPage() {
                   <div style={{overflowX:'auto'}}>
                     <table style={{width:'100%',borderCollapse:'collapse',minWidth:760}}>
                       <thead><tr>
-                        <Th>Producto</Th><Th right>Precio</Th><Th right>Costo</Th>
-                        <Th right>Food cost</Th><Th right>Margen</Th><Th right>Objetivo</Th>
+                        <Th>Producto</Th><Th right>Precio</Th><Th right>Insumos</Th>
+                        {hayGastos&&<Th right>Otros gastos</Th>}
+                        <Th right>{hayGastos?'Te queda limpio':'Te queda'}</Th><Th right>Objetivo</Th>
                         <Th right>Precio sugerido</Th><Th>Estado</Th>
                       </tr></thead>
                       <tbody>
@@ -9172,6 +9275,10 @@ function StockPage() {
                           const col = TONE[st.tone] || C.mid;
                           const costeado = r.status==='ok'||r.status==='bajo_objetivo'||r.status==='perdida';
                           const sugiere = r.suggested_price!=null && Math.abs(r.suggested_price-r.price) > r.price*0.02;
+                          // Respaldo al margen bruto si la 214 no está aplicada: sin
+                          // ella la RPC no devuelve net_margin y la columna quedaría vacía.
+                          const neto    = r.net_margin ?? r.margin;
+                          const netoPct = r.net_margin_pct ?? r.margin_pct;
                           return (
                             <tr key={r.menu_item_id} onClick={()=>abrirFicha(r)}
                                 style={{borderBottom:'1px solid #0d0d0d',cursor:'pointer'}}
@@ -9181,10 +9288,12 @@ function StockPage() {
                                 <div style={{fontSize:11,color:C.dim,fontWeight:400}}>{r.category_name}</div>
                               </Td>
                               <Td right mono>{fmt(r.price)}</Td>
-                              <Td right mono dim>{costeado?fmt(Math.round(r.cost)):'—'}</Td>
-                              <Td right mono dim>{costeado?pct(r.food_cost_pct):'—'}</Td>
-                              <Td right mono style={{fontWeight:700,color:costeado?(Number(r.margin_pct)<0?C.red:C.ink):C.dim}}>
-                                {costeado?<>{fmt(Math.round(r.margin))}<div style={{fontSize:11,fontWeight:400,color:C.mid}}>{pct(r.margin_pct)}</div></>:'—'}
+                              <Td right mono dim>
+                                {costeado?<>{fmt(Math.round(r.cost))}<div style={{fontSize:11,color:C.dim}}>{pct(r.food_cost_pct)}</div></>:'—'}
+                              </Td>
+                              {hayGastos&&<Td right mono dim>{r.overhead_cost!=null?fmt(Math.round(r.overhead_cost)):'—'}</Td>}
+                              <Td right mono style={{fontWeight:700,color:costeado?(Number(netoPct)<=0?C.red:C.ink):C.dim}}>
+                                {costeado?<>{fmt(Math.round(neto))}<div style={{fontSize:11,fontWeight:400,color:C.mid}}>{pct(netoPct)}</div></>:'—'}
                               </Td>
                               <Td right mono dim>{pct(r.target_margin_pct)}</Td>
                               <Td right mono style={{color:sugiere?C.orange:C.dim}}>
@@ -9524,15 +9633,10 @@ function StockPage() {
               </FF>
               <FF label="UMBRAL MÍN."><NumInp decimals={3} value={ingForm.min_threshold} onChange={v=>setIngForm({...ingForm,min_threshold:v})} placeholder="0"/></FF>
             </div>
-            <div className="my-row-2" style={{gap:10}}>
-              <FF label={`PRECIO DE COMPRA (₲ por ${UNIT_DISPLAY[ingForm.unit]||ingForm.unit})`}
-                  hint="Dejalo en blanco para no tocarlo. El promedio ponderado lo mueve cada carga de stock.">
-                <MoneyInp value={ingForm.cost_per_unit} onChange={v=>setIngForm({...ingForm,cost_per_unit:v})} placeholder="Sin cambios"/>
-              </FF>
-              <FF label="MERMA (%)" hint="0 si el peso que comprás es el que usás.">
-                <NumInp decimals={1} value={ingForm.waste_pct} onChange={v=>setIngForm({...ingForm,waste_pct:v})} placeholder="0"/>
-              </FF>
-            </div>
+            <PrecioCompra form={ingForm} set={setIngForm}/>
+            <FF label="MERMA (%)" hint="0 si el peso que comprás es el que usás.">
+              <NumInp decimals={1} value={ingForm.waste_pct} onChange={v=>setIngForm({...ingForm,waste_pct:v})} placeholder="0"/>
+            </FF>
             {Number(ingForm.waste_pct)>0&&(
               <div style={{background:TINT.blueBg,border:`1px solid ${TINT.blueBorder}`,color:TINT.blueText,borderRadius:8,padding:'10px 12px',fontSize:12,lineHeight:1.55}}>
                 Con {ingForm.waste_pct}% de merma, una receta que pide <b>100 {UNIT_DISPLAY[ingForm.unit]||ingForm.unit}</b> consume
@@ -9635,9 +9739,11 @@ function StockPage() {
           ) : (()=>{
             const costo   = ficha.cost;
             const precio  = Math.round(parseFloat(simPrice)||0);
-            const m       = COST.marginAt(precio, costo);
-            const objetivo= Number(fichaItem.target)||Number(costCfg.default_target_margin_pct)||65;
-            const sugerido= COST.priceForMargin(costo, objetivo);
+            const oh      = Number(costCfg.overhead_pct)||0;
+            const m       = COST.marginAt(precio, costo, oh);
+            const objetivo= simMargen==='' ? (Number(fichaItem.target)||Number(costCfg.default_target_margin_pct)||65)
+                                           : Number(simMargen);
+            const sugerido= COST.priceForMargin(costo, objetivo, oh);
             const mk      = COST.markup(precio, costo);
             const cambio  = precio !== fichaItem.price;
             const incompleto = ficha.rows.some(r=>!r.is_costed);
@@ -9685,47 +9791,82 @@ function StockPage() {
                   )}
                 </>)}
 
-                {/* Simulador */}
+                {/* Calculadora de precio */}
                 <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:16}}>
-                  <div style={{fontSize:10,fontWeight:800,letterSpacing:.5,color:C.mid,textTransform:'uppercase',marginBottom:12}}>Simulá el precio</div>
-                  <div className="my-row-2" style={{gap:12,marginBottom:12}}>
-                    <FF label="PRECIO DE VENTA (₲)"><MoneyInp value={simPrice} onChange={setSimPrice}/></FF>
-                    <FF label="PARA UN MARGEN DE…" hint={`Objetivo de este plato: ${pct(objetivo)}`}>
-                      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-                        {[50,60,65,70,75].map(t=>{
-                          const p = COST.priceForMargin(costo, t);
-                          return (
-                            <button key={t} disabled={p==null} onClick={()=>setSimPrice(String(Math.round(p)))}
-                              style={{padding:'6px 10px',borderRadius:6,fontSize:12,fontWeight:600,fontFamily:'inherit',
-                                      cursor:p==null?'not-allowed':'pointer',opacity:p==null?.4:1,
-                                      border:`1px solid ${C.border}`,background:'transparent',color:C.mid}}>{t}%</button>
-                          );
-                        })}
+                  <div style={{fontSize:10,fontWeight:800,letterSpacing:.5,color:C.mid,textTransform:'uppercase',marginBottom:12}}>Calculá el precio</div>
+
+                  <div className="my-row-2" style={{gap:12,marginBottom:14}}>
+                    <FF label="CUÁNTO QUERÉS GANAR (%)" hint="Limpio, después de insumos y gastos. Escribí el que quieras.">
+                      <NumInp decimals={1} value={simMargen} onChange={setSimMargen}
+                              placeholder={String(Number(fichaItem.target)||Number(costCfg.default_target_margin_pct)||65)}/>
+                      <div style={{display:'flex',gap:5,flexWrap:'wrap',marginTop:6}}>
+                        {[40,50,60,65,70,75].map(t=>(
+                          <button key={t} onClick={()=>setSimMargen(String(t))}
+                            style={{padding:'4px 9px',borderRadius:6,fontSize:11.5,fontWeight:600,fontFamily:'inherit',cursor:'pointer',
+                                    border:`1px solid ${String(objetivo)===String(t)?C.ink:C.border}`,
+                                    background:String(objetivo)===String(t)?C.ink:'transparent',
+                                    color:String(objetivo)===String(t)?C.surface:C.mid}}>{t}%</button>
+                        ))}
                       </div>
                     </FF>
+                    <FF label="PRECIO DE VENTA (₲)" hint="Podés escribirlo vos o usar el sugerido.">
+                      <MoneyInp value={simPrice} onChange={setSimPrice}/>
+                      {sugerido!=null
+                        ? <div style={{fontSize:12,color:C.mid,marginTop:6,lineHeight:1.5}}>
+                            Sugerido: <b style={{color:C.ink}}>{fmt(Math.round(sugerido))}</b>{' '}
+                            <button onClick={()=>setSimPrice(String(Math.round(sugerido)))}
+                              style={{background:'none',border:'none',padding:0,color:C.blue,cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700,textDecoration:'underline'}}>usarlo</button>
+                          </div>
+                        : <div style={{fontSize:12,color:C.orange,marginTop:6,lineHeight:1.5}}>
+                            {oh + objetivo >= 100
+                              ? `Tus gastos (${pct(oh)}) más esta ganancia (${pct(objetivo)}) pasan del 100%: no hay precio que cierre.`
+                              : 'Cargá el costo de los insumos para poder sugerir un precio.'}
+                          </div>}
+                    </FF>
                   </div>
-                  <div className="my-row-3" style={{gap:12}}>
-                    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'11px 13px'}}>
-                      <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:.5}}>MARGEN</div>
-                      <div style={{fontSize:19,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:m.margin<0?C.red:C.green}}>{fmt(Math.round(m.margin))}</div>
-                      <div style={{fontSize:11,color:C.mid,marginTop:3}}>{pct(m.marginPct)} del precio</div>
-                    </div>
-                    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'11px 13px'}}>
-                      <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:.5}}>FOOD COST</div>
-                      <div style={{fontSize:19,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>{pct(m.foodCostPct)}</div>
-                      <div style={{fontSize:11,color:C.mid,marginTop:3}}>lo que se va en insumos</div>
-                    </div>
-                    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'11px 13px'}}>
-                      <div style={{fontSize:10,color:C.mid,fontWeight:700,letterSpacing:.5}}>MULTIPLICADOR</div>
-                      <div style={{fontSize:19,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:C.ink}}>{mk?`${mk.toFixed(1)}x`:'—'}</div>
-                      <div style={{fontSize:11,color:C.mid,marginTop:3}}>el precio sobre el costo</div>
+
+                  {/* La cuenta completa, de arriba hacia abajo */}
+                  <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginBottom:12}}>
+                    {[
+                      ['Precio de venta',      precio,   C.ink,  null],
+                      ['− Insumos',            -costo,   C.mid,  `${pct(m.foodCostPct)} del precio`],
+                      ...(oh>0 ? [['− Otros gastos', -m.overhead, C.mid, `${pct(oh)} del precio (personal, alquiler, servicios)`]] : []),
+                    ].map(([lbl,val,col,sub],i)=>(
+                      <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:12,padding:'9px 13px',borderBottom:`1px solid ${C.border}`}}>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:12.5,color:col,fontWeight:i===0?700:400}}>{lbl}</div>
+                          {sub&&<div style={{fontSize:11,color:C.dim,marginTop:1}}>{sub}</div>}
+                        </div>
+                        <div style={{fontSize:13,fontFamily:"'SF Mono',ui-monospace,monospace",color:col,whiteSpace:'nowrap',fontWeight:i===0?700:400}}>
+                          {val<0?'− ':''}{fmt(Math.abs(Math.round(val)))}
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:12,padding:'12px 13px',
+                                 background: m.net<=0 ? TINT.redBg : TINT.greenBg}}>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:800,color:m.net<=0?TINT.redText:TINT.greenText}}>
+                          {oh>0?'Te queda limpio':'Te queda'}
+                        </div>
+                        <div style={{fontSize:11,color:m.net<=0?TINT.redText:TINT.greenText,opacity:.85,marginTop:1}}>
+                          {pct(m.netPct)} del precio{mk?` · el precio es ${mk.toFixed(1)}x el costo de insumos`:''}
+                        </div>
+                      </div>
+                      <div style={{fontSize:19,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",color:m.net<=0?C.red:C.green,whiteSpace:'nowrap'}}>
+                        {fmt(Math.round(m.net))}
+                      </div>
                     </div>
                   </div>
-                  {sugerido!=null&&(
-                    <div style={{marginTop:12,fontSize:12.5,color:C.mid,lineHeight:1.55}}>
-                      Para llegar a tu objetivo de <b>{pct(objetivo)}</b> deberías cobrar <b style={{color:C.ink}}>{fmt(Math.round(sugerido))}</b>.
-                      {' '}<button onClick={()=>setSimPrice(String(Math.round(sugerido)))}
-                        style={{background:'none',border:'none',padding:0,color:C.blue,cursor:'pointer',fontFamily:'inherit',fontSize:12.5,fontWeight:700,textDecoration:'underline'}}>usar ese precio</button>
+
+                  {m.net<=0 && precio>0 && (
+                    <div style={{fontSize:12.5,color:TINT.redText,background:TINT.redBg,border:`1px solid ${TINT.redBorder}`,borderRadius:8,padding:'10px 13px',lineHeight:1.55}}>
+                      A este precio <b>perdés {fmt(Math.abs(Math.round(m.net)))} por cada uno que vendés.</b>
+                    </div>
+                  )}
+                  {oh===0 && (
+                    <div style={{fontSize:11.5,color:C.dim,lineHeight:1.55}}>
+                      Esta cuenta sólo descuenta los insumos. Cargá tus gastos de personal, alquiler y servicios en
+                      <b> Configuración › Costos y márgenes</b> para saber lo que te queda de verdad.
                     </div>
                   )}
                 </div>
@@ -9965,26 +10106,36 @@ function ReportesPage({orders, tables=[]}) {
       }
       const totV = prof.reduce((s,r)=>s+Number(r.revenue||0),0);
       const totC = prof.reduce((s,r)=>s+Number(r.cost||0),0);
+      const totO = prof.reduce((s,r)=>s+Number(r.overhead_cost||0),0);
+      const totN = prof.reduce((s,r)=>s+Number(r.net_margin ?? (Number(r.revenue||0)-Number(r.cost||0))),0);
+      const conGastos  = totO > 0;   // la mig 214 aplicada Y gastos cargados
       const sinCostear = prof.filter(r=>!(Number(r.cost)>0)).length;
       setSummary([
         {label:'Ingresos',      value:fmt(Math.round(totV)),        color:'#34C759'},
         {label:'Costo insumos', value:fmt(Math.round(totC)),        color:'#FF3B30'},
-        {label:'Margen bruto',  value:fmt(Math.round(totV-totC)),   color:(totV-totC)>=0?'#34C759':'#FF3B30'},
-        {label:'% Margen',      value:totV>0?`${Math.round((totV-totC)/totV*100)}%`:'—', color:'#007AFF'},
+        ...(conGastos ? [{label:'Otros gastos', value:fmt(Math.round(totO)), color:'#FF9500'}] : []),
+        {label:conGastos?'Ganancia limpia':'Margen bruto', value:fmt(Math.round(totN)), color:totN>=0?'#34C759':'#FF3B30'},
+        {label:'% sobre ventas', value:totV>0?`${Math.round(totN/totV*100)}%`:'—', color:'#007AFF'},
         ...(sinCostear>0 ? [{label:'Sin costear', value:`${sinCostear} productos`, color:'#FF9500'}] : []),
       ]);
       setRows({
-        cols:['Producto','Uds','Ingreso','Costo','Margen','% Margen','Margen/unidad','Clasificación'],
+        cols:['Producto','Uds','Ingreso','Insumos',
+              ...(conGastos?['Otros gastos']:[]),
+              conGastos?'Ganancia limpia':'Margen','%','Por unidad','Clasificación'],
         data:prof.map(r=>{
           const costeado = Number(r.cost) > 0;
           const cls = COST.MENU_CLASS[r.menu_class] || {label:'—'};
+          // Respaldo al margen bruto si la 214 todavía no está aplicada.
+          const neto    = r.net_margin ?? r.margin;
+          const netoPct = r.net_margin_pct ?? r.margin_pct;
           return [
             r.item_name,
             r.units,
             fmt(Math.round(r.revenue)),
             costeado?fmt(Math.round(r.cost)):'—',
-            costeado?fmt(Math.round(r.margin)):'—',
-            costeado&&r.margin_pct!=null?`${Math.round(r.margin_pct)}%`:'—',
+            ...(conGastos?[fmt(Math.round(r.overhead_cost||0))]:[]),
+            costeado?fmt(Math.round(neto)):'—',
+            costeado&&netoPct!=null?`${Math.round(netoPct)}%`:'—',
             costeado&&r.unit_margin!=null?fmt(Math.round(r.unit_margin)):'—',
             costeado?cls.label:'Sin costear',
           ];
@@ -11180,15 +11331,27 @@ function ConfigPage({restaurant,onRefresh}) {
   async function saveCostCfg(patch){
     setSavingCost(true);
     const next = {...costCfg, ...patch};
+    const items = (next.overhead_items||[])
+      .filter(it => (it.label||'').trim() && Number(it.pct) > 0)
+      .map(it => ({label:(it.label||'').trim(), pct:Number(it.pct)}));
+    // `overhead_pct` NO se manda: lo calcula el trigger sync_overhead_total a
+    // partir de las filas. Mandarlo aparte crearía dos verdades del mismo dato.
     const {error} = await COST.saveCostConfig(db, RID, {
       default_target_margin_pct: Number(next.default_target_margin_pct)||65,
       costs_visible_to_gerente:  !!next.costs_visible_to_gerente,
+      overhead_items: items,
     });
     setSavingCost(false);
     if(error){ toast('Error al guardar: '+error.message,false); return; }
-    setCostCfg(next);
+    // Se relee para quedarse con el total que calculó la base, no con el nuestro.
+    const {config} = await COST.loadCostConfig(db, RID);
+    setCostCfg(config);
     toast('Configuración de costos guardada');
   }
+
+  const ohItems = costCfg?.overhead_items || [];
+  const ohTotal = COST.overheadTotal(ohItems);
+  const setOh   = (items) => setCostCfg({...costCfg, overhead_items:items});
 
   // Política de retención: cuánto tiempo guarda Mythos el histórico operativo.
   // `data_retention_config` es un catálogo global de lectura (RLS de la 212), así
@@ -11367,14 +11530,78 @@ function ConfigPage({restaurant,onRefresh}) {
             </FF>
             {(()=>{
               const t = Number(costCfg.default_target_margin_pct);
-              if (!Number.isFinite(t) || t<=0 || t>=100) return null;
+              if (!Number.isFinite(t) || t<=0) return null;
+              const p = COST.priceForMargin(10000, t, ohTotal);
               return (
                 <div style={{fontSize:12,color:C.mid,lineHeight:1.55,marginTop:-4,marginBottom:12}}>
-                  Con {t}% de margen, un plato que te cuesta <b>₲ 10.000</b> se vende a{' '}
-                  <b style={{color:C.ink}}>{fmt(Math.round(10000/(1-t/100)))}</b>.
+                  {p==null
+                    ? <span style={{color:C.red}}>Tus gastos ({ohTotal}%) más este margen ({t}%) pasan del 100%. No hay precio que cierre: bajá uno de los dos.</span>
+                    : <>Un plato que te cuesta <b>₲ 10.000</b> en insumos se vende a{' '}
+                       <b style={{color:C.ink}}>{fmt(Math.round(p))}</b>
+                       {ohTotal>0 && <> — de ahí, {ohTotal}% se va en gastos y te quedan <b style={{color:C.green}}>{fmt(Math.round(p*t/100))}</b> limpios</>}.</>}
                 </div>
               );
             })()}
+
+            <Divider/>
+
+            {/* Gastos operativos. Sin esto, "70% de margen" es una ilusión: el
+                margen sobre insumos no paga sueldos ni alquiler. */}
+            <div style={{fontSize:12.5,fontWeight:800,color:C.ink,margin:'14px 0 4px'}}>Otros gastos del local</div>
+            <div style={{fontSize:12,color:C.mid,lineHeight:1.55,marginBottom:12}}>
+              Lo que te cuesta operar además de los insumos, como <b>porcentaje de lo que facturás</b>.
+              Sin esto, un plato puede parecer rentable y no estar pagando ni el sueldo del cocinero.
+            </div>
+
+            {ohItems.length===0 ? (
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px',marginBottom:12}}>
+                <div style={{fontSize:12,color:C.mid,lineHeight:1.55,marginBottom:10}}>
+                  Todavía no cargaste gastos, así que el precio sugerido sólo cubre los insumos.
+                </div>
+                <Btn small variant="secondary" onClick={()=>setOh(COST.OVERHEAD_SUGERIDOS.map(x=>({...x})))}>
+                  Empezar con valores típicos
+                </Btn>
+                <div style={{fontSize:11,color:C.dim,marginTop:8,lineHeight:1.5}}>
+                  Son un punto de partida para no arrancar de una pantalla en blanco. Ajustalos a tu realidad.
+                </div>
+              </div>
+            ) : (
+              <div style={{marginBottom:12,display:'flex',flexDirection:'column',gap:7}}>
+                {ohItems.map((it,i)=>(
+                  <div key={i} style={{display:'grid',gridTemplateColumns:'1fr 74px 28px',gap:6,alignItems:'center'}}>
+                    <Inp value={it.label} placeholder="Ej: Personal"
+                         onChange={e=>setOh(ohItems.map((x,j)=>j===i?{...x,label:e.target.value}:x))}/>
+                    <NumInp decimals={1} value={it.pct} placeholder="0"
+                            onChange={v=>setOh(ohItems.map((x,j)=>j===i?{...x,pct:v}:x))}/>
+                    <button onClick={()=>setOh(ohItems.filter((_,j)=>j!==i))}
+                            style={{background:'none',border:'none',color:'#FF3B30',fontSize:19,cursor:'pointer',padding:0,lineHeight:1}}>×</button>
+                  </div>
+                ))}
+                <button onClick={()=>setOh([...ohItems,{label:'',pct:''}])}
+                        style={{alignSelf:'flex-start',background:'none',border:'none',padding:0,color:C.blue,cursor:'pointer',fontFamily:'inherit',fontSize:12,fontWeight:700}}>
+                  + Agregar gasto
+                </button>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',
+                             padding:'10px 12px',borderRadius:8,marginTop:4,
+                             background: ohTotal>=95?TINT.redBg : ohTotal>60?TINT.amberBg : C.bg,
+                             border:`1px solid ${ohTotal>=95?TINT.redBorder : ohTotal>60?TINT.amberBorder : C.border}`}}>
+                  <span style={{fontSize:12,fontWeight:700,color:C.ink}}>Total de gastos</span>
+                  <span style={{fontSize:16,fontWeight:800,fontFamily:"'SF Mono',ui-monospace,monospace",
+                                color: ohTotal>=95?C.red : ohTotal>60?C.orange : C.ink}}>{ohTotal}%</span>
+                </div>
+                {ohTotal>60 && ohTotal<95 && (
+                  <div style={{fontSize:11.5,color:TINT.amberText,lineHeight:1.5}}>
+                    Más del 60% de lo que facturás se va en gastos. Es posible, pero revisá que no hayas cargado algo dos veces.
+                  </div>
+                )}
+                {ohTotal>=95 && (
+                  <div style={{fontSize:11.5,color:C.red,lineHeight:1.5,fontWeight:600}}>
+                    Con 95% o más de gastos no queda nada para insumos ni ganancia. Revisá los números.
+                  </div>
+                )}
+              </div>
+            )}
+
             <Divider/>
             <div style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 0'}}>
               <div style={{flex:1,minWidth:0}}>

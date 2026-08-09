@@ -246,15 +246,39 @@ export async function removeExtraRecipe(db, id) {
 export const DEFAULT_COST_CONFIG = {
   default_target_margin_pct: 65,
   costs_visible_to_gerente: false,
+  overhead_pct: 0,
+  overhead_items: [],
 };
+
+/** Sugerencias de arranque para el editor de gastos. Son un punto de partida
+ *  para que nadie enfrente una pantalla en blanco — NO se guardan solas. */
+export const OVERHEAD_SUGERIDOS = [
+  { label: 'Personal (sueldos y cargas)', pct: 30 },
+  { label: 'Alquiler',                    pct: 8 },
+  { label: 'Luz, agua y gas',             pct: 5 },
+  { label: 'Comisiones de apps y tarjeta', pct: 4 },
+  { label: 'Otros (limpieza, internet…)', pct: 3 },
+];
 
 export async function loadCostConfig(db, restaurantId) {
   if (!db || !restaurantId) return { config: { ...DEFAULT_COST_CONFIG }, missing: false, error: null };
-  const { data, error } = await db.from('restaurant_settings')
-    .select('default_target_margin_pct, costs_visible_to_gerente')
+  // Las columnas de gastos son de la mig 214; si todavía no está aplicada el
+  // select entero rebota, así que se reintenta sin ellas. Deploy-safe.
+  let { data, error } = await db.from('restaurant_settings')
+    .select('default_target_margin_pct, costs_visible_to_gerente, overhead_pct, overhead_items')
     .eq('restaurant_id', restaurantId).maybeSingle();
-  if (error) return { config: { ...DEFAULT_COST_CONFIG }, missing: isMissingCosting(error), error };
-  return { config: { ...DEFAULT_COST_CONFIG, ...(data || {}) }, missing: false, error: null };
+  if (error) {
+    const retry = await db.from('restaurant_settings')
+      .select('default_target_margin_pct, costs_visible_to_gerente')
+      .eq('restaurant_id', restaurantId).maybeSingle();
+    if (retry.error) {
+      return { config: { ...DEFAULT_COST_CONFIG }, missing: isMissingCosting(retry.error), error: retry.error };
+    }
+    data = retry.data; error = null;
+  }
+  const cfg = { ...DEFAULT_COST_CONFIG, ...(data || {}) };
+  if (!Array.isArray(cfg.overhead_items)) cfg.overhead_items = [];
+  return { config: cfg, missing: false, error: null };
 }
 
 export async function saveCostConfig(db, restaurantId, patch) {
@@ -263,24 +287,64 @@ export async function saveCostConfig(db, restaurantId, patch) {
   return { error };
 }
 
+/** Total de gastos operativos a partir de las filas. Espeja el trigger
+ *  `sync_overhead_total` (mig 214) para poder mostrarlo antes de guardar; el
+ *  número que manda es siempre el que devuelve la base. */
+export function overheadTotal(items) {
+  if (!Array.isArray(items)) return 0;
+  const t = items.reduce((s, it) => s + (Math.max(0, Number(it?.pct)) || 0), 0);
+  return Math.min(t, 95);
+}
+
 // ── Cálculo puro (sin base) ──────────────────────────────────────────
 // Para el simulador: el dueño mueve el precio y ve el margen ANTES de guardar.
 // Es aritmética local a propósito — pedirle a la base cada tecleo sería absurdo.
 
-/** Margen ₲ y % que deja un precio dado, para un costo dado. */
-export function marginAt(price, cost) {
-  const p = Number(price) || 0, c = Number(cost) || 0;
-  const margin = p - c;
-  return { margin, marginPct: p > 0 ? (margin / p) * 100 : null, foodCostPct: p > 0 ? (c / p) * 100 : null };
+/**
+ * La cuenta completa de un precio.
+ *   insumos      → lo que cuesta la receta
+ *   gastos       → la parte de sueldos/alquiler/servicios que carga esta venta,
+ *                  calculada como % del PRECIO (así se prorratean: el alquiler no
+ *                  se reparte "por hamburguesa" de ninguna otra forma honesta)
+ *   ganancia     → lo que queda de verdad
+ * Con overheadPct = 0 el resultado es idéntico al de la mig 213.
+ */
+export function marginAt(price, cost, overheadPct = 0) {
+  const p = Number(price) || 0;
+  const c = Number(cost) || 0;
+  const g = Math.max(0, Number(overheadPct) || 0);
+  const overhead = p * g / 100;
+  const margin = p - c;                  // margen bruto (sólo insumos)
+  const net = p - c - overhead;          // ganancia limpia
+  return {
+    margin,
+    marginPct:   p > 0 ? (margin / p) * 100 : null,
+    foodCostPct: p > 0 ? (c / p) * 100 : null,
+    overhead,
+    net,
+    netPct:      p > 0 ? (net / p) * 100 : null,
+    totalCost:   c + overhead,
+  };
 }
 
-/** Precio que deja exactamente el margen objetivo. Es `costo / (1 - margen)`,
- *  NO `costo * (1 + margen)`: eso último es el markup y da un número más chico,
- *  y confundirlos es el error clásico al fijar precios. */
-export function priceForMargin(cost, targetPct) {
-  const c = Number(cost) || 0, t = Number(targetPct);
-  if (!(c > 0) || !Number.isFinite(t) || t >= 100 || t < 0) return null;
-  return c / (1 - t / 100);
+/**
+ * Precio que deja el margen objetivo LIMPIO, ya descontados los gastos:
+ *
+ *      precio = costo / (1 − gastos% − margen%)
+ *
+ * NO es `costo * (1 + margen)`: eso es el markup y da un precio más bajo del que
+ * hace falta. Confundirlos es el error clásico al fijar precios.
+ * Devuelve null si gastos + margen ≥ 100: ahí no existe precio posible, y hay que
+ * decirlo en vez de mostrar un número imposible.
+ */
+export function priceForMargin(cost, targetPct, overheadPct = 0) {
+  const c = Number(cost) || 0;
+  const t = Number(targetPct);
+  const g = Math.max(0, Number(overheadPct) || 0);
+  if (!(c > 0) || !Number.isFinite(t) || t < 0) return null;
+  const resto = 1 - (t + g) / 100;
+  if (resto <= 0) return null;
+  return c / resto;
 }
 
 /** Markup: cuántas veces el costo es el precio. Lo que muchos llaman "x3". */
