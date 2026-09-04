@@ -17,8 +17,10 @@
    puede LEER la respuesta desde un navegador, no quién puede llamar.
    ══════════════════════════════════════════════════════════════════════════ */
 
-// Sin env var, el origen del producto. Ver docs/setup/dominio-mythos-com-py.md.
-const DEFAULT_ORIGINS = ['https://mythos.vercel.app'];
+// Sin env var, el origen del producto. OJO: las URLs .vercel.app de este proyecto
+// estan detras de Deployment Protection (redirigen al SSO de Vercel), asi que el
+// unico acceso publico es el dominio propio. Ver docs/setup/dominio-mythos-com-py.md.
+const DEFAULT_ORIGINS = ['https://mythos.com.py'];
 
 function allowedOrigins() {
   const raw = (process.env.ALLOWED_ORIGIN || '').trim();

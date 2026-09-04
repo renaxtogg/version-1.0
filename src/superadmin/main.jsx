@@ -7903,10 +7903,10 @@ function SitioActividad({events}) {
 const IDENTITY_FIELDS = [
   {key:'legal_name',           label:'Razón social / Nombre', type:'text',  ph:'MYTHOS EAS',                  full:true,  hint:'Nombre legal con el que operás. Aparece en las páginas legales y el pie.'},
   {key:'ruc',                  label:'RUC',                   type:'text',  ph:'80012345-6'},
-  {key:'contact_email',        label:'Email de contacto',     type:'email', ph:'hola@tudominio.com'},
+  {key:'contact_email',        label:'Email de contacto',     type:'email', ph:'hola@mythos.com.py'},
   {key:'legal_address',        label:'Domicilio',             type:'text',  ph:'Asunción, Paraguay',          full:true},
   {key:'whatsapp',             label:'WhatsApp',              type:'text',  ph:'595986622735',                hint:'Solo dígitos: código de país + número. Única fuente del botón de WhatsApp en todo el sitio.'},
-  {key:'website_domain',       label:'Dominio del sitio',     type:'text',  ph:'tudominio.com',       hint:'Sin https://. Se usa en los meta OG y en los legales.'},
+  {key:'website_domain',       label:'Dominio del sitio',     type:'text',  ph:'mythos.com.py',       hint:'Sin https://. Se usa en los meta OG y en los legales.'},
   {key:'instagram_url',        label:'Instagram (URL)',       type:'url',   ph:'https://instagram.com/tu_cuenta', hint:'Vacío = se oculta el ícono.'},
   {key:'facebook_url',         label:'Facebook (URL)',        type:'url',   ph:'https://facebook.com/tu_pagina',  hint:'Vacío = se oculta el ícono.'},
   {key:'tiktok_url',           label:'TikTok (URL)',          type:'url',   ph:'https://tiktok.com/@tu_cuenta',   hint:'Vacío = se oculta el ícono.'},
@@ -11456,7 +11456,7 @@ function CmExperiencias({setFlash}) {
       action={<Btn onClick={()=>setEdit({__new:true, is_active:true, sort_order:(rows.length+1)*10, match_types:'', places:[]})}>Nueva experiencia</Btn>}>
       <div style={{padding:18}}>
         <div style={{fontSize:12.5,color:C.mid,lineHeight:1.7,marginBottom:16}}>
-          Son las categorías que ve el comensal en <b>mythos.vercel.app/clientes</b>. Un local
+          Son las categorías que ve el comensal en <b>mythos.com.py/clientes</b>. Un local
           entra a una experiencia por su <b>rubro</b> o porque lo elegís a mano — las dos
           cosas suman. Si no hay ninguna activa, la vitrina agrupa por el rubro que cada
           dueño cargó, como antes.
@@ -11606,7 +11606,7 @@ function CmSitio({setFlash}) {
       action={<Btn onClick={save} disabled={busy}>{busy?'Guardando…':'Guardar'}</Btn>}>
       <div style={{padding:18}}>
         <div style={{fontSize:12.5,color:C.mid,lineHeight:1.7,marginBottom:16}}>
-          Es lo que se lee en <b>mythos.vercel.app/clientes</b> sin iniciar sesión. Lo que
+          Es lo que se lee en <b>mythos.com.py/clientes</b> sin iniciar sesión. Lo que
           dejes vacío usa el texto por defecto.
         </div>
 

@@ -120,7 +120,7 @@
     instagram_url: '',
     facebook_url: '',
     tiktok_url: '',
-    website_domain: 'mythos.vercel.app',
+    website_domain: 'mythos.com.py',
     legal_effective_date: '7 de julio de 2026'
   };
 
