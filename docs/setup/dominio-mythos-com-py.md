@@ -1,10 +1,11 @@
 # Separar `mythos.com.py` del proyecto Mythos
 
 > Decisión de Renato (2026-09-04): el dominio se libera para un proyecto nuevo.
-> **El destino de Mythos quedó SIN DEFINIR**: el primer plan lo mandaba a
-> `mythos.vercel.app`, que resultó ser de otra cuenta, y las URLs `.vercel.app`
-> propias están detrás de Deployment Protection (ver §1.b). **Hasta que haya un
-> destino verificado, el corte no se ejecuta.**
+> **Mythos queda en `https://mythos-pos.vercel.app`** — el alias que ya estaba dado
+> de alta en el proyecto y sólo redirigía; se le quitó el redirect y pasó a servir
+> el contenido. Es el único `.vercel.app` del proyecto que responde en público
+> (los demás caen en el SSO de Vercel — ver §1.b). El dominio se estaciona en
+> Cloudflare hasta que el proyecto nuevo exista.
 
 ---
 
@@ -126,21 +127,23 @@ llave de todo lo demás.
 Orden importa: **primero Vercel, después Cloudflare.** Al revés, el dominio queda
 apuntando a un proyecto que ya no lo reclama y Vercel sirve un error genérico.
 
-### Paso 1 — Darle a Mythos un acceso público verificado
+### Paso 1 — Darle a Mythos un acceso público verificado ✅
 
-**Bloqueante.** Elegir destino (subdominio propio, dominio nuevo, o desactivar
-Deployment Protection para exponer la URL del proyecto) y comprobar que sirve
-`/inicio` **sin sesión** antes de seguir. Con `DESTINO` ya resuelto:
+Destino: **`mythos-pos.vercel.app`**. Se le quitó el `redirect` por API
+(`PATCH /v9/projects/<id>/domains/<domain>` con `{"redirect": null}`) y quedó
+sirviendo el contenido. Verificado sin sesión: `/inicio` 200, `/caja.html` 200,
+`/api/create-user` 405 (existe), y ningún `Location` al SSO.
 
-- [ ] `ALLOWED_ORIGIN=https://mythos.com.py,<DESTINO>` en las env vars del proyecto
-      Vercel (Production), y redeploy. Los dos a la vez: `api/_cors.js` acepta lista
-      justamente para que la mudanza no tenga ventana de CORS roto.
-- [ ] Supabase → Authentication → URL Configuration: `Site URL` = `<DESTINO>`;
-      Redirect URLs = `<DESTINO>/**` (cubre `/clientes` y `/riders`, que hoy son la
-      prioridad #4 de CLAUDE.md).
-- [ ] Superadmin › Sitio web → `website_domain`.
-- [ ] `public/sitemap.xml`, `public/robots.txt` y los legales.
-- [ ] **Avisar a los locales** con la URL nueva.
+- [x] `ALLOWED_ORIGIN=https://mythos.com.py,https://mythos-pos.vercel.app` en
+      Production. Los dos a la vez: `api/_cors.js` acepta lista justamente para que
+      la mudanza no tenga ventana de CORS roto. Al terminar se puede dejar sólo el nuevo.
+- [ ] Supabase → Authentication → URL Configuration: `Site URL` =
+      `https://mythos-pos.vercel.app`; Redirect URLs = `https://mythos-pos.vercel.app/**`
+      (cubre `/clientes` y `/riders`, hoy prioridad #4 de CLAUDE.md). **Manual.**
+- [ ] Superadmin › Sitio web → `website_domain`. **Manual.**
+- [x] `public/sitemap.xml`, `public/robots.txt`, legales, `registro.html`,
+      `web-marketing-data.js`, `.env.example` y los textos del superadmin.
+- [x] Avisar a los locales.
 
 ### Paso 2 — Sacar el dominio de Vercel
 
@@ -166,7 +169,7 @@ nuevo. Tocar los NS obligaría a volver a NIC.py y a esperar propagación de nue
 - Si va a Vercel: agregar el dominio en el proyecto nuevo y Vercel dicta los registros.
 - Si va a otro host: crear el A/CNAME que ese host indique.
 - **Si querés salvar los QR impresos:** en el proyecto nuevo, una redirección que mande
-  `https://mythos.com.py/?r=…` al destino que tenga Mythos, preservando el query
+  `https://mythos.com.py/?r=…` a https://mythos-pos.vercel.app/?r=… preservando el query
   string. Es lo único que devuelve a la vida a los QR ya plastificados.
 
 ---

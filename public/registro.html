@@ -207,7 +207,7 @@
 
       // URL de producción para el enlace de verificación (configurable; cae al
       // dominio prod conocido). El email DEBE apuntar a producción, no a localhost.
-      var SITE_URL = (window.MYTHOS_CONFIG && window.MYTHOS_CONFIG.siteUrl) || 'https://mythos.com.py';
+      var SITE_URL = (window.MYTHOS_CONFIG && window.MYTHOS_CONFIG.siteUrl) || 'https://mythos-pos.vercel.app';
       var EMAIL_REDIRECT = SITE_URL.replace(/\/+$/, '') + '/registro?verificado=1';
 
       // Cliente Auth propio (como login.html). Sin persistir sesión ni detectarla
