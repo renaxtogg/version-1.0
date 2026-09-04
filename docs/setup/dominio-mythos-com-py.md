@@ -1,8 +1,10 @@
 # Separar `mythos.com.py` del proyecto Mythos
 
 > Decisión de Renato (2026-09-04): el dominio se libera para un proyecto nuevo.
-> Mythos queda operando en **`https://mythos.vercel.app`**. El dominio se estaciona
-> en Cloudflare hasta que el proyecto nuevo exista.
+> **El destino de Mythos quedó SIN DEFINIR**: el primer plan lo mandaba a
+> `mythos.vercel.app`, que resultó ser de otra cuenta, y las URLs `.vercel.app`
+> propias están detrás de Deployment Protection (ver §1.b). **Hasta que haya un
+> destino verificado, el corte no se ejecuta.**
 
 ---
 
@@ -26,10 +28,30 @@ no deja a nadie sin mail. Están en DNS-only (gris), no proxeados — por eso `n
 devuelve IPs de Vercel y no de Cloudflare.
 
 **Vercel:** proyecto `mythos` · `prj_Gc8xmRIUwhEYiHuVRdeDOB0GqNnP` · team `renaxtogg`
-(`team_h8g7TPZLLVEsK0iXUgpSpOVI`). Alias vivos: `mythos.vercel.app` (200),
+(`team_h8g7TPZLLVEsK0iXUgpSpOVI`). OJO: `mythos.vercel.app` NO es de este team (ver §1.b);
 `mythos-pos.vercel.app` (308, alias viejo).
 
 ---
+
+## 1.b 🔴 Mythos NO tiene hoy una URL pública de repuesto (medido 2026-09-04)
+
+Dos hechos que invalidaron el primer plan y que hay que tener a la vista:
+
+**`mythos.vercel.app` no es nuestro.** Sirve un sitio llamado *Mythos Studio*, de otra
+cuenta: el subdominio en `vercel.app` es global y ya estaba tomado. Devuelve **200 en la
+raíz** —por eso pasa por bueno en un chequeo superficial— pero **404 en `/inicio` y en
+`/api/create-user`**. Un `curl` a la raíz no alcanza para adjudicarse un hostname: hay que
+pedir una ruta que sólo exista en el proyecto propio.
+
+**Las URLs `.vercel.app` propias están protegidas.** `mythos-renaxtoggs-projects.vercel.app`,
+`mythos-git-main-…` y las de cada deployment devuelven **302 a `vercel.com/sso-api`**: el
+proyecto tiene **Deployment Protection** (Vercel Authentication) activa. Quien no tenga
+cuenta en el team, no entra.
+
+**Consecuencia:** el único acceso público de Mythos **es `mythos.com.py`**. Sacar el dominio
+sin haber habilitado otro camino no deja a los locales en una URL fea — los deja afuera,
+mirando un login de Vercel. Antes de cualquier corte hay que decidir el destino y
+**verificarlo sirviendo `/inicio` sin sesión**.
 
 ## 2. Lo que se rompe al sacar el dominio
 
@@ -104,17 +126,21 @@ llave de todo lo demás.
 Orden importa: **primero Vercel, después Cloudflare.** Al revés, el dominio queda
 apuntando a un proyecto que ya no lo reclama y Vercel sirve un error genérico.
 
-### Paso 1 — Preparar a Mythos para vivir en `mythos.vercel.app`
+### Paso 1 — Darle a Mythos un acceso público verificado
 
-- [ ] `ALLOWED_ORIGIN=https://mythos.vercel.app` en las env vars del proyecto Vercel
-      (Production), y redeploy para que los `/api` la tomen.
-- [ ] Supabase → Authentication → URL Configuration:
-      `Site URL` = `https://mythos.vercel.app`;
-      Redirect URLs = `https://mythos.vercel.app/**` (cubre `/clientes` y `/riders`,
-      que hoy son la prioridad #4 de CLAUDE.md).
-- [ ] Superadmin › Sitio web → `website_domain` = `mythos.vercel.app`.
+**Bloqueante.** Elegir destino (subdominio propio, dominio nuevo, o desactivar
+Deployment Protection para exponer la URL del proyecto) y comprobar que sirve
+`/inicio` **sin sesión** antes de seguir. Con `DESTINO` ya resuelto:
+
+- [ ] `ALLOWED_ORIGIN=https://mythos.com.py,<DESTINO>` en las env vars del proyecto
+      Vercel (Production), y redeploy. Los dos a la vez: `api/_cors.js` acepta lista
+      justamente para que la mudanza no tenga ventana de CORS roto.
+- [ ] Supabase → Authentication → URL Configuration: `Site URL` = `<DESTINO>`;
+      Redirect URLs = `<DESTINO>/**` (cubre `/clientes` y `/riders`, que hoy son la
+      prioridad #4 de CLAUDE.md).
+- [ ] Superadmin › Sitio web → `website_domain`.
 - [ ] `public/sitemap.xml`, `public/robots.txt` y los legales.
-- [ ] **Avisar a los locales** antes de tocar nada, con la URL nueva.
+- [ ] **Avisar a los locales** con la URL nueva.
 
 ### Paso 2 — Sacar el dominio de Vercel
 
@@ -140,7 +166,7 @@ nuevo. Tocar los NS obligaría a volver a NIC.py y a esperar propagación de nue
 - Si va a Vercel: agregar el dominio en el proyecto nuevo y Vercel dicta los registros.
 - Si va a otro host: crear el A/CNAME que ese host indique.
 - **Si querés salvar los QR impresos:** en el proyecto nuevo, una redirección que mande
-  `https://mythos.com.py/?r=…` a `https://mythos.vercel.app/?r=…` preservando el query
+  `https://mythos.com.py/?r=…` al destino que tenga Mythos, preservando el query
   string. Es lo único que devuelve a la vida a los QR ya plastificados.
 
 ---
