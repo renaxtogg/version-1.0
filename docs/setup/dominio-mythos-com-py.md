@@ -9,6 +9,51 @@
 
 ---
 
+## 0. EJECUTADO — 2026-09-04
+
+`mythos.com.py` **ya no pertenece al proyecto Mythos**. Mythos vive en
+**`https://mythos-pos.vercel.app`** (7 paneles verificados con HTTP 200).
+
+Lo que se hizo, en este orden:
+
+1. `mythos-pos.vercel.app` — se le quitó el `redirect` por API y pasó a servir el contenido.
+2. `ALLOWED_ORIGIN` con los dos orígenes durante la mudanza; al terminar quedó sólo el nuevo.
+3. Textos, legales, sitemap, robots y placeholders del superadmin (commit `31ef402`).
+4. `DELETE /v9/projects/<id>/domains/<domain>` para `mythos.com.py` y `www.mythos.com.py`.
+5. Cloudflare: borrados **sólo** los dos CNAME que apuntaban a `vercel-dns-017.com`.
+
+### 🔴 La zona NO estaba vacía: tiene 4 registros de correo, y siguen ahí
+
+El §1 decía "sin MX, sin TXT". **Era falso** y el error fue de método: se consultó `MX` en
+la **raíz**, pero el correo cuelga de un subdominio. La zona real tiene, además de los dos
+CNAME de Vercel, cuatro registros de **Resend sobre Amazon SES**:
+
+| Tipo | Nombre | Para qué |
+|---|---|---|
+| MX | `send.mythos.com.py` | bounces / feedback de SES |
+| TXT | `send.mythos.com.py` | SPF |
+| TXT | `resend._domainkey.mythos.com.py` | DKIM |
+| TXT | `_dmarc.mythos.com.py` | DMARC |
+
+**No los tocamos**: el dominio sigue siendo de Renato, sólo cambia de proyecto, así que el
+correo que salga de `@mythos.com.py` sigue funcionando. El proyecto Mythos **no** los usa
+(no hay ninguna variable de Resend en Vercel); son de otra cosa — con toda probabilidad el
+SMTP propio de Supabase Auth.
+
+**Lección de método:** un `nslookup -type=MX` sobre la raíz no describe una zona. Antes de
+declarar que un dominio no tiene correo hay que listar la zona entera por API. Es el mismo
+error que dar por bueno un hostname porque la raíz devuelve 200 (§1.b).
+
+### Pendiente, manual
+
+- [ ] Supabase → Authentication → URL Configuration: `Site URL` y Redirect URLs.
+- [ ] Superadmin › Sitio web → `website_domain`.
+- [ ] **Reimprimir los QR de todas las mesas** desde Admin › Mesas.
+- [ ] Reinstalar la PWA de caja desde el origen nuevo.
+- [ ] Revocar el token de Cloudflare.
+
+---
+
 ## 1. Estado medido (2026-09-04)
 
 **Registrador:** NIC.py o un reseller — **no Cloudflare**. Cloudflare no registra `.py`,
@@ -24,8 +69,8 @@ para este cambio: los nameservers no se tocan.
 | `mythos.com.py` | A | `216.198.79.1`, `64.29.17.1` (Vercel) | DNS only |
 | `www.mythos.com.py` | CNAME | `af427e0208554977.vercel-dns-017.com` | DNS only |
 
-**Sin MX, sin TXT, sin subdominios.** No hay correo corporativo en el dominio: liberarlo
-no deja a nadie sin mail. Están en DNS-only (gris), no proxeados — por eso `nslookup`
+~~**Sin MX, sin TXT, sin subdominios.**~~ **FALSO — ver §0.** No hay correo en la RAÍZ, pero sí en el subdominio `send.` — liberarlo
+no deja a nadie sin mail sólo porque esos registros se conservaron. Están en DNS-only (gris), no proxeados — por eso `nslookup`
 devuelve IPs de Vercel y no de Cloudflare.
 
 **Vercel:** proyecto `mythos` · `prj_Gc8xmRIUwhEYiHuVRdeDOB0GqNnP` · team `renaxtogg`
