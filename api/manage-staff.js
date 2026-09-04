@@ -8,6 +8,7 @@
 //   • todo scopeado al restaurante del caller (tenant guard).
 const https = require('https');
 const { checkRateLimit } = require('./_ratelimit');
+const { applyCors } = require('./_cors');
 
 function httpsReq(method, url, headers, body) {
   return new Promise((resolve, reject) => {
@@ -39,10 +40,7 @@ const EMPLOYEE_ROLES = ['cajero', 'mozo', 'cocina', 'rider', 'supervisor_local']
 const ROLE_WORD = { mozo:'mozos', cajero:'cajeros', cocina:'cocineros', rider:'riders', supervisor_local:'gerentes' };
 
 module.exports = async function handler(req, res) {
-  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos.com.py';
-  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  applyCors(req, res);
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Método no permitido' }); return; }
 

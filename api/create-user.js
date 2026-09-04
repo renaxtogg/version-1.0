@@ -1,6 +1,7 @@
 // Vercel serverless function — gestión segura de usuarios con Supabase Admin API
 const https = require('https');
 const { checkRateLimit } = require('./_ratelimit');
+const { applyCors } = require('./_cors');
 
 function httpsPost(url, headers, body) {
   return new Promise((resolve, reject) => {
@@ -59,13 +60,8 @@ function httpsDelete(url, headers) {
 }
 
 module.exports = async function handler(req, res) {
-  // Dominio de producción REAL. 'mythos-pos.vercel.app' es un alias viejo: dejarlo
-  // como default hacía que, sin la env var, el header apuntara a un origen que ya no
-  // es el del producto. Configurable por ALLOWED_ORIGIN.
-  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://mythos.com.py';
-  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  // Origen permitido: lista en ALLOWED_ORIGIN. Ver api/_cors.js.
+  applyCors(req, res);
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Método no permitido' }); return; }
 
